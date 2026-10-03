@@ -161,10 +161,11 @@ impl MacOSWindow {
         Self::convert_process_result(result)
     }
 
-    // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindow trait as default methods.
-    // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event.rs for the implementation.
+    // NOTE: route_pointer_press(), route_pointer_move() and end_scrollbar_drag()
+    // are provided by the PlatformWindow trait. They wrap the ONE press router
+    // (`LayoutWindow::route_press` & co. in azul_layout::press_router), which a
+    // scripted press and the E2E runner go through too; this file adds only
+    // the platform tail (the result fan-out).
 
     /// Process a mouse button down event.
     pub fn handle_mouse_down(
@@ -176,24 +177,17 @@ impl MacOSWindow {
         let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
-        // Check for scrollbar hit FIRST (before state changes)
-        // Use trait method from PlatformWindow
-        if let Some(scrollbar_hit_id) = PlatformWindow::perform_scrollbar_hit_test(self, position) {
-            // The scrollbar consumes the press, but the button is still
-            // PHYSICALLY DOWN: returning before writing the mouse state left
-            // `left_down == false` and `cursor_position` stale for the whole
-            // thumb drag, so the live pointer state disagreed with the hardware
-            // for as long as the user held the thumb. The headless backend
-            // (which the E2E suite scripts against) always wrote them; the
-            // write plus its sanctioned swallow now live in the shared trait so
-            // every backend gets the same answer.
-            let result = PlatformWindow::handle_scrollbar_press(
-                self,
-                scrollbar_hit_id,
-                position,
-                button,
-                "macos.handle_mouse_down.scrollbar_click",
-            );
+        // The press router FIRST (before state changes): scrollbar, then
+        // content. A press a scrollbar takes is recorded (the button is still
+        // PHYSICALLY DOWN for the whole thumb drag) and swallowed by the
+        // shared helper, so every backend - and a scripted press - gets the
+        // same answer.
+        if let Some(result) = PlatformWindow::route_pointer_press(
+            self,
+            position,
+            button,
+            "macos.handle_mouse_down.scrollbar_click",
+        ) {
             return self.convert_result_with_fanout(result);
         }
 
@@ -283,27 +277,12 @@ impl MacOSWindow {
         // had just recorded (`right_down = false`), so MouseUp(Right) callbacks
         // never fired on a node that carried a context menu.
         if button == MouseButton::Right {
-            // The DEEPEST hovered node (not the shallowest — `get_first_hovered_node`
-            // returns the smallest NodeId, ~the body), so the ancestor walk in
-            // `resolve_context_menu` starts BELOW the node carrying the menu and
-            // can reach it. A right-click on a label inside a box opens the box's
-            // menu; picking the body found nothing (no "[Context Menu] Queuing").
-            let deepest = self
-                .common
-                .layout_window
-                .as_ref()
-                .and_then(|lw| lw.hover_manager.current_hover_node_full());
-            if let Some(dn) = deepest {
-                if let Some(nid) = dn.node.into_crate_internal() {
-                    self.resolve_context_menu(
-                        HitTestNode {
-                            dom_id: dn.dom.inner as u64,
-                            node_id: nid.index() as u64,
-                        },
-                        position,
-                    );
-                }
-            }
+            // WHICH menu is the engine's one answer
+            // (`LayoutWindow::context_menu_under_pointer`, shared with every
+            // other shell): the front-most node under the release, walking up
+            // to the nearest node that carries a menu. A right-click on a label
+            // inside a box opens the box's menu.
+            self.resolve_context_menu(position);
         }
 
         // Use V2 cross-platform event system - automatically detects MouseUp
@@ -353,10 +332,13 @@ impl MacOSWindow {
         let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
-        // Handle active scrollbar drag (special case - not part of normal event system)
-        // Use trait method from PlatformWindow
-        if self.common.scrollbar_drag_state.is_some() {
-            let result = PlatformWindow::handle_scrollbar_drag(self, position);
+        // A held scrollbar thumb takes the move (not part of the normal event
+        // system); the shared helper records the cursor and swallows the delta.
+        if let Some(result) = PlatformWindow::route_pointer_move(
+            self,
+            position,
+            "macos.handle_mouse_move.scrollbar_drag",
+        ) {
             return self.convert_result_with_fanout(result);
         }
 
@@ -667,32 +649,12 @@ impl MacOSWindow {
             // (must be done outside the borrow of layout_window)
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::{
-                        refany::RefAny,
-                        task::{Duration, TimerId, SCROLL_MOMENTUM_TIMER_ID},
-                    };
-                    use azul_layout::{
-                        scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                        timer::{Timer, TimerCallbackType},
-                    };
-
-                    let physics_state = ScrollPhysicsState::new(
+                    let timer = azul_layout::scroll_timer::create_scroll_physics_timer(
                         queue,
                         self.common.system_style.scroll_physics.clone(),
+                        self.common.frame_interval_nanos(),
                     );
-                    let interval_ms = self.common.system_style.scroll_physics.timer_interval_ms;
-                    let data = RefAny::new(physics_state);
-                    let timer = Timer::create(
-                        data,
-                        scroll_physics_timer_callback as TimerCallbackType,
-                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                            .get_system_time_fn,
-                    )
-                    .with_interval(Duration::System(
-                        azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
-                    ));
-
-                    self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                    self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
                 }
             }
         }
@@ -1360,54 +1322,26 @@ impl MacOSWindow {
         Ok(())
     }
 
-    /// Resolve a context menu for the given node at position and QUEUE it.
+    /// Resolve the context menu under the pointer and QUEUE it.
     /// Returns Some if a menu was queued, None otherwise.
     ///
-    /// Presentation is deliberately not done here — see `pending_context_menu`
-    /// and `take_pending_context_menu` in `macos/mod.rs`.
-    fn resolve_context_menu(&mut self, node: HitTestNode, position: LogicalPosition) -> Option<()> {
-        use azul_core::dom::DomId;
-
-        let layout_window = self.common.layout_window.as_ref()?;
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-
-        // Get layout result for this DOM
-        let layout_result = layout_window.layout_results.get(&dom_id)?;
-
-        // Check if this node has a context menu
-        let node_id = azul_core::id::NodeId::from_usize(node.node_id as usize)?;
-        let binding = layout_result.styled_dom.node_data.as_container();
-        let node_data = binding.get(node_id)?;
-
-        // Context menus are stored directly on NodeData. A right-click on a
-        // CHILD of the node that carries the menu opens it too (every OS does
-        // this) - walk up from the hit node to the first ancestor with one,
-        // the same walk the keyboard-accelerator lookup already does.
-        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-        let mut current = Some(node_id);
-        let mut context_menu = None;
-        for _ in 0..256 {
-            let Some(n) = current else { break };
-            if let Some(menu) = binding
-                .get(n)
-                .and_then(azul_core::dom::NodeData::get_context_menu)
-            {
-                context_menu = Some(menu.clone());
-                break;
-            }
-            current = hierarchy.get(n).and_then(|h| h.parent_id());
-        }
-        let context_menu = context_menu?;
-        let _ = node_data;
+    /// Which node's menu opens is the engine's answer
+    /// (`LayoutWindow::context_menu_under_pointer`); this adds only the
+    /// platform half. Presentation is deliberately not done here — see
+    /// `pending_context_menu` and `take_pending_context_menu` in `macos/mod.rs`.
+    fn resolve_context_menu(&mut self, position: LogicalPosition) -> Option<()> {
+        let (owner, context_menu) = self
+            .common
+            .layout_window
+            .as_ref()?
+            .context_menu_under_pointer()?;
 
         log_debug!(
             LogCategory::Input,
             "[Context Menu] Queuing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
-            node,
+            owner,
             context_menu.items.as_slice().len()
         );
 

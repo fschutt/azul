@@ -21,6 +21,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 AzUpdate on_checkbox_toggle(AzRefAny data, AzCallbackInfo info, AzCheckBoxState state);
 AzUpdate on_list_row_click(AzRefAny data, AzCallbackInfo info, AzListViewState state, size_t row_index);
 AzUpdate on_tree_node_click(AzRefAny data, AzCallbackInfo info, size_t node_index);
+AzUpdate on_tree_node_toggle(AzRefAny data, AzCallbackInfo info, size_t node_index, bool expand);
 AzUpdate on_tab_click(AzRefAny data, AzCallbackInfo info, size_t tab_index);
 AzUpdate on_list_column_click(AzRefAny data, AzCallbackInfo info, AzListViewState state, size_t column_index);
 
@@ -295,6 +296,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     AzTreeView tv = AzTreeView_create(root);
     AzTreeView_setOnNodeClick(&tv, AzRefAny_clone(&data), on_tree_node_click);
+    // Right / Left on a focused row open / close it (the WAI-ARIA tree keys);
+    // the tree asks, the app owns the expanded set.
+    AzTreeView_setOnNodeToggle(&tv, AzRefAny_clone(&data), on_tree_node_toggle);
     AzDom tree_view = AzTreeView_dom(tv);
     AzDom_setCss(&tree_view, str("width: 200px; margin-right: 10px;"));
 
@@ -362,6 +366,23 @@ AzUpdate on_tree_node_click(AzRefAny data, AzCallbackInfo info, size_t node_inde
     }
     d.ptr->selected_node = node_index;
     d.ptr->expanded_nodes ^= (1u << node_index);
+    WidgetShowcaseRefMut_delete(&d);
+    return AzUpdate_RefreshDom;
+}
+
+AzUpdate on_tree_node_toggle(AzRefAny data, AzCallbackInfo info, size_t node_index, bool expand) {
+    if (node_index >= 32) {
+        return AzUpdate_DoNothing;
+    }
+    WidgetShowcaseRefMut d = WidgetShowcaseRefMut_create(&data);
+    if (!WidgetShowcase_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    if (expand) {
+        d.ptr->expanded_nodes |= (1u << node_index);
+    } else {
+        d.ptr->expanded_nodes &= ~(1u << node_index);
+    }
     WidgetShowcaseRefMut_delete(&d);
     return AzUpdate_RefreshDom;
 }

@@ -198,6 +198,7 @@ impl PrintAsCssValue for ShapeImageThreshold {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ShapeOutside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -212,6 +213,7 @@ impl crate::codegen::format::FormatAsRustCode for ShapeOutside {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ShapeInside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -226,6 +228,7 @@ impl crate::codegen::format::FormatAsRustCode for ShapeInside {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ClipPath {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -240,6 +243,7 @@ impl crate::codegen::format::FormatAsRustCode for ClipPath {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ShapeMargin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -249,6 +253,7 @@ impl crate::codegen::format::FormatAsRustCode for ShapeMargin {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ShapeImageThreshold {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(

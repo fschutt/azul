@@ -19,7 +19,7 @@ use core::{
 };
 
 use azul_css::{
-    codegen::format::GetHash,
+    hash::GetHash,
     props::{
         basic::{
             pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,
@@ -339,15 +339,15 @@ pub enum FontLoadingConfig {
 /// # Example
 /// ```rust
 /// # use azul_core::resources::CssMockEnvironment;
-/// use azul_css::dynamic_selector::{
-///     OptionOsCondition, OptionOsVersion, OptionThemeCondition, OsCondition, OsVersion,
-///     ThemeCondition,
+/// use azul_css::{
+///     dynamic_selector::{OptionOsCondition, OptionOsVersion, OsCondition, OsVersion},
+///     system::{DarkLightMode, OptionDarkLightMode},
 /// };
 ///
-/// // Mock a Linux dark theme environment on any platform
+/// // Mock a Linux dark-mode environment on any platform
 /// let mock = CssMockEnvironment {
 ///     os: OptionOsCondition::Some(OsCondition::Linux),
-///     theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+///     mode: OptionDarkLightMode::Some(DarkLightMode::Dark),
 ///     ..Default::default()
 /// };
 ///
@@ -361,8 +361,8 @@ pub enum FontLoadingConfig {
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct CssMockEnvironment {
-    /// Override the current theme (light/dark)
-    pub theme: azul_css::dynamic_selector::OptionThemeCondition,
+    /// Override the current mode (light / dark)
+    pub mode: azul_css::system::OptionDarkLightMode,
     /// Override the current language (BCP 47 tag, e.g., "de-DE", "en-US")
     pub language: azul_css::OptionString,
     /// Override the detected OS version
@@ -415,24 +415,20 @@ impl CssMockEnvironment {
         }
     }
 
-    /// Create a mock for dark theme
+    /// Create a mock for the dark mode
     #[must_use]
-    pub fn dark_theme() -> Self {
+    pub fn dark_mode() -> Self {
         Self {
-            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(
-                azul_css::dynamic_selector::ThemeCondition::Dark,
-            ),
+            mode: azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Dark),
             ..Default::default()
         }
     }
 
-    /// Create a mock for light theme
+    /// Create a mock for the light mode
     #[must_use]
-    pub fn light_theme() -> Self {
+    pub fn light_mode() -> Self {
         Self {
-            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(
-                azul_css::dynamic_selector::ThemeCondition::Light,
-            ),
+            mode: azul_css::system::OptionDarkLightMode::Some(azul_css::system::DarkLightMode::Light),
             ..Default::default()
         }
     }
@@ -448,8 +444,14 @@ impl CssMockEnvironment {
         if let azul_css::dynamic_selector::OptionLinuxDesktopEnv::Some(de) = self.desktop_env {
             ctx.desktop_env = azul_css::dynamic_selector::OptionLinuxDesktopEnv::Some(de);
         }
-        if let azul_css::dynamic_selector::OptionThemeCondition::Some(ref theme) = self.theme {
-            ctx.theme = theme.clone();
+        if let azul_css::system::OptionDarkLightMode::Some(mode) = self.mode {
+            if ctx.mode != mode {
+                // The palette belongs to the mode being replaced: drop it,
+                // so a `system:` keyword takes the mocked mode's defaults
+                // instead of the other mode's colours.
+                ctx.system_colors = azul_css::system::SystemColors::default();
+            }
+            ctx.mode = mode;
         }
         if let azul_css::OptionString::Some(ref lang) = self.language {
             ctx.language = lang.clone();
@@ -867,78 +869,58 @@ impl Default for SystemAnimations {
     }
 }
 
+
+/// Configuration for application localization, including known languages and their settings.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct LocalizationConfig {
+    /// A list of known languages and their properties (such as whether they are RTL).
+    /// Used to validate translations and provide a fallback list of languages.
+    pub known_languages: azul_css::system::SystemLanguageVec,
+}
+
+impl Default for LocalizationConfig {
+    fn default() -> Self {
+        let mut languages = azul_css::system::SystemLanguageVec::new();
+        // LTR defaults
+        languages.push(azul_css::system::SystemLanguage::new("en-US", false));
+        languages.push(azul_css::system::SystemLanguage::new("en-GB", false));
+        languages.push(azul_css::system::SystemLanguage::new("de-DE", false));
+        languages.push(azul_css::system::SystemLanguage::new("fr-FR", false));
+        languages.push(azul_css::system::SystemLanguage::new("it-IT", false));
+        languages.push(azul_css::system::SystemLanguage::new("es-ES", false));
+        languages.push(azul_css::system::SystemLanguage::new("zh-CN", false));
+        languages.push(azul_css::system::SystemLanguage::new("zh-TW", false));
+        languages.push(azul_css::system::SystemLanguage::new("ja-JP", false));
+        languages.push(azul_css::system::SystemLanguage::new("ko-KR", false));
+        languages.push(azul_css::system::SystemLanguage::new("ru-RU", false));
+        languages.push(azul_css::system::SystemLanguage::new("pt-BR", false));
+        languages.push(azul_css::system::SystemLanguage::new("pt-PT", false));
+        
+        // RTL defaults
+        languages.push(azul_css::system::SystemLanguage::new("ar-SA", true));
+        languages.push(azul_css::system::SystemLanguage::new("ar-AE", true));
+        languages.push(azul_css::system::SystemLanguage::new("ar-EG", true));
+        languages.push(azul_css::system::SystemLanguage::new("he-IL", true));
+        languages.push(azul_css::system::SystemLanguage::new("fa-IR", true));
+        languages.push(azul_css::system::SystemLanguage::new("ur-PK", true));
+        languages.push(azul_css::system::SystemLanguage::new("ug-CN", true));
+        
+        Self {
+            known_languages: languages,
+        }
+    }
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AppConfig {
-    /// If enabled, logs error and info messages.
-    ///
-    /// Default is `LevelFilter::Error` to log all errors by default
-    pub log_level: AppLogLevel,
-    /// NATURAL SCROLLING (9b-ii-b-i-a; USER RULING 2026-09-04: a field here,
-    /// default off, the app enables it or loads the system's setting).
-    ///
-    /// The engine's own scroll sign: `Disabled` never flips a delta, `Enabled`
-    /// flips every wheel / trackpad delta (in-app natural scrolling regardless
-    /// of the OS), `System` reads the platform's preference at startup and
-    /// keeps it readable (`CallbackInfo::get_natural_scroll`) - WITHOUT a
-    /// second flip, because every desktop platform already applies the user's
-    /// preference to the deltas it hands over (macOS, the Windows precision
-    /// touchpad, libinput on Wayland and X11); flipping again would undo it.
-    /// Where the platform reports nothing the answer is unknown and `System`
-    /// behaves as `Disabled`.
-    pub natural_scroll: NaturalScroll,
-    /// If the app crashes / panics, a window with a message box pops up.
-    /// Setting this to `false` disables the popup box.
-    pub enable_visual_panic_hook: bool,
-    /// If this is set to `true` (the default), a backtrace + error information
-    /// gets logged to stdout and the logging file (only if logging is enabled).
-    pub enable_logging_on_panic: bool,
-    /// Whether Ctrl+wheel is synthesized into a pinch gesture. Default `true`.
-    ///
-    /// A Windows PRECISION TOUCHPAD does not deliver pinch through
-    /// `WM_GESTURE` - that message is the touchSCREEN path. A touchpad reports
-    /// pinch as Ctrl+`WM_MOUSEWHEEL`, which is the same thing every browser
-    /// zooms on, so synthesizing a pinch from it is what makes pinch-to-zoom
-    /// work on the overwhelming majority of Windows laptops.
-    ///
-    /// The cost of that is a real MOUSE with a real Ctrl key produces the same
-    /// message, and cannot be told apart from a touchpad at this layer - so an
-    /// app where Ctrl+wheel means something else (a CAD zoom step, a font-size
-    /// nudge) receives a pinch it did not want. Setting this to `false` turns
-    /// the synthesis off and leaves Ctrl+wheel as a plain wheel event with the
-    /// Ctrl modifier set, which such an app can read directly.
-    ///
-    /// Ignored on every platform but Windows: macOS and Wayland report real
-    /// pinch gestures, so nothing has to be inferred there.
-    pub synthesize_pinch_from_ctrl_wheel: bool,
-    /// Whether the app publishes itself to the OS as a media player.
-    /// Default `false`.
-    ///
-    /// On Linux the desktop environment usually GRABS the media keys, so
-    /// `XF86AudioPlay` and friends never reach the application as keysyms at
-    /// all (the 9h-i table only sees them when nothing grabbed them). The
-    /// transport in that case is MPRIS over D-Bus: the desktop calls
-    /// `Play`/`Pause`/`Next` on whatever players are registered, and azul
-    /// turns those calls back into ordinary `VirtualKeyCode` presses.
-    ///
-    /// OFF by default because registering has a VISIBLE side effect: the app
-    /// appears in the desktop's media controls (GNOME's system menu, KDE's
-    /// media applet) as a player. That is correct for a music app and wrong
-    /// for a text editor, and no engine-side signal distinguishes them - so
-    /// the app says which it is.
-    ///
-    /// macOS is the same bargain under a different name: `MPRemoteCommandCenter`
-    /// delivers the media keys, but only to the app the system considers "now
-    /// playing", so registering puts the app in Control Center and the Now
-    /// Playing widget.
-    ///
-    /// Ignored on Windows, which delivers media keys as `WM_APPCOMMAND` to the
-    /// focused window and publishes nothing.
-    pub expose_system_media_controls: bool,
-    /// Determines what happens when all windows are closed.
-    /// Default: `EndProcess` (terminate when last window closes).
-    pub termination_behavior: AppTerminationBehavior,
+    // Field order: decreasing alignment (the 8-aligned handles, vecs and
+    // strings first, then the 4-byte enums, the 2-aligned
+    // `remote_control`, the bools last), so this repr(C) struct carries no
+    // padding. The autofix padding lint enforces it, and the api.json
+    // struct_fields order must match (the field-order lint enforces THAT).
     /// Icon provider for the application.
     /// Register icons here before calling `App::run()`.
     /// Each window will clone this provider (cheap, Arc-based).
@@ -1005,9 +987,240 @@ pub struct AppConfig {
     /// and manual crash reports go to. None = the `ReportProblem` dialog saves
     /// reports to disk instead of mailing them.
     pub report_problem: OptionEmailAddress,
+    /// Configuration for localization, tracking known languages.
+    pub localization: LocalizationConfig,
+    /// The app's Fluent translations: one `(locale, .ftl source)` pair per
+    /// entry, e.g. `("de", <the text of the app's de.ftl>)`. Every window
+    /// translates the `AzString::tr` keys of its DOM with them. Default: none
+    /// (keys render as written).
+    pub fluent_locales: crate::window::StringPairVec,
+    /// The APP-LEVEL notification handler: receives every notification event
+    /// that no notification callback owns - a tap on a notification posted by
+    /// an earlier run of the app (the cold launch that is the normal case on
+    /// iOS and Android, a relaunch from macOS's Notification Center), and the
+    /// events of a notification posted without `Notification::with_callback`.
+    /// Inside it `CallbackInfo::get_notification_event` says what happened,
+    /// and the event's `payload` which notification it was.
+    ///
+    /// Default: `None` - such events are dropped, as before.
+    pub notification_handler: crate::notification::OptionNotificationCallback,
+    /// App-level global hotkeys held whatever the state - a tray utility's
+    /// summon key. Grabbed when `run()` starts, owned by no window: a press
+    /// runs against the most recently focused window (the tray-only stub in
+    /// a windowless app). A window's `layout()` declaring the same
+    /// accelerator takes precedence. See [`Self::add_global_hotkey`].
+    pub global_hotkeys: crate::global_hotkey::GlobalHotkeyCallbackDataVec,
+    /// App-level global hotkeys DERIVED from the app's state, for an app
+    /// with no `layout()` (tray-only, background) or hotkeys that belong to
+    /// no window. Declared on top of [`Self::global_hotkeys`]; see
+    /// [`crate::global_hotkey::GlobalHotkeysCallbackType`] for when it runs.
+    pub global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback,
+    /// The app THEME the app starts in: `"flat"` (the default,
+    /// `azul_css::dynamic_selector::DEFAULT_APP_THEME`), `"flora"`, later
+    /// `"native"` and user themes. `@theme(<name>)` blocks - every widget
+    /// carries one per theme it knows - apply only while their name is the
+    /// app's theme; `@theme(light)` / `@theme(dark)` stay the light / dark
+    /// mode ([`Self::mode`]), which this does not touch.
+    ///
+    /// Switch it at runtime with `CallbackInfo::set_theme`: every window's
+    /// DOM is RECREATED (`layout()` runs again, `RelayoutReason::ThemeChange`),
+    /// because a theme may change a widget's structure - unlike the mode,
+    /// which only repaints. `CallbackInfo::get_theme` and
+    /// `LayoutCallbackInfo::get_theme` read it back.
+    ///
+    /// 8-aligned (a string), so it sits with the other 8-aligned fields.
+    pub theme: AzString,
+    /// Reverse-DNS id of the app (`org.example.Editor`): the Windows toast
+    /// AUMID (and the COM activator derived from it), the freedesktop
+    /// `desktop-entry` hint, and the default Wayland `app_id` / X11
+    /// `WM_CLASS`. macOS, iOS and Android keep the id their bundle / package
+    /// declares, and a Flatpak its `FLATPAK_ID`; a different `app_id` there
+    /// is logged as a warning. Set the same string as the bundle's
+    /// `[package.metadata.bundle] identifier`, which the build tools
+    /// (`azul-doc bundle macos`, `azul-doc mobile build`) default to.
+    ///
+    /// Empty (the default): not declared - the id is the platform's
+    /// declaration, else `com.azul.<executable name>`. Read once, when the
+    /// `App` is created.
+    ///
+    /// 8-aligned (a string), so it sits with the other 8-aligned fields.
+    pub app_id: AzString,
+    /// The app's MODE: `None` (the default, "system") follows the desktop's
+    /// light / dark setting, and every change of it; `Some(mode)` pins every
+    /// window of the app to light or dark, whatever the desktop says. Not
+    /// the app theme ([`Self::theme`]).
+    ///
+    /// Switch it at runtime with `CallbackInfo::set_mode` (every window, and
+    /// every window opened later); `CallbackInfo::get_mode` reads the choice
+    /// back, `get_resolved_mode` the light / dark it gives. A switch is a
+    /// restyle - colours only, the DOM is kept - unless a `layout()` read the
+    /// mode (`LayoutCallbackInfo::get_mode`), which then runs again
+    /// (`RelayoutReason::ModeChange`). The `AZ_THEME=light|dark` environment
+    /// pin (screenshots, CI) outranks this; this outranks a window's own
+    /// `WindowCreateOptions::theme`.
+    ///
+    /// 8 bytes, 4-aligned: it sits with the 4-byte enums below (a 4-byte
+    /// `repr(C)` enum here would leave 4 bytes of tail padding).
+    pub mode: crate::window::OptionDarkLightMode,
+    /// If enabled, logs error and info messages.
+    ///
+    /// Default is `LevelFilter::Error` to log all errors by default
+    pub log_level: AppLogLevel,
+    /// NATURAL SCROLLING (9b-ii-b-i-a; USER RULING 2026-09-04: a field here,
+    /// default off, the app enables it or loads the system's setting).
+    ///
+    /// The engine's own scroll sign: `Disabled` never flips a delta, `Enabled`
+    /// flips every wheel / trackpad delta (in-app natural scrolling regardless
+    /// of the OS), `System` reads the platform's preference at startup and
+    /// keeps it readable (`CallbackInfo::get_natural_scroll`) - WITHOUT a
+    /// second flip, because every desktop platform already applies the user's
+    /// preference to the deltas it hands over (macOS, the Windows precision
+    /// touchpad, libinput on Wayland and X11); flipping again would undo it.
+    /// Where the platform reports nothing the answer is unknown and `System`
+    /// behaves as `Disabled`.
+    pub natural_scroll: NaturalScroll,
+    /// Determines what happens when all windows are closed.
+    /// Default: `EndProcess` (terminate when last window closes).
+    pub termination_behavior: AppTerminationBehavior,
+    /// Configuration for the debug server and remote control capabilities.
+    pub remote_control: RemoteControlConfig,
+    /// If the app crashes / panics, a window with a message box pops up.
+    /// Setting this to `false` disables the popup box.
+    pub enable_visual_panic_hook: bool,
+    /// If this is set to `true` (the default), a backtrace + error information
+    /// gets logged to stdout and the logging file (only if logging is enabled).
+    pub enable_logging_on_panic: bool,
+    /// Whether Ctrl+wheel is synthesized into a pinch gesture. Default `true`.
+    ///
+    /// A Windows PRECISION TOUCHPAD does not deliver pinch through
+    /// `WM_GESTURE` - that message is the touchSCREEN path. A touchpad reports
+    /// pinch as Ctrl+`WM_MOUSEWHEEL`, which is the same thing every browser
+    /// zooms on, so synthesizing a pinch from it is what makes pinch-to-zoom
+    /// work on the overwhelming majority of Windows laptops.
+    ///
+    /// The cost of that is a real MOUSE with a real Ctrl key produces the same
+    /// message, and cannot be told apart from a touchpad at this layer - so an
+    /// app where Ctrl+wheel means something else (a CAD zoom step, a font-size
+    /// nudge) receives a pinch it did not want. Setting this to `false` turns
+    /// the synthesis off and leaves Ctrl+wheel as a plain wheel event with the
+    /// Ctrl modifier set, which such an app can read directly.
+    ///
+    /// Ignored on every platform but Windows: macOS and Wayland report real
+    /// pinch gestures, so nothing has to be inferred there.
+    pub synthesize_pinch_from_ctrl_wheel: bool,
+    /// Whether the app publishes itself to the OS as a media player.
+    /// Default `false`.
+    ///
+    /// On Linux the desktop environment usually GRABS the media keys, so
+    /// `XF86AudioPlay` and friends never reach the application as keysyms at
+    /// all (the 9h-i table only sees them when nothing grabbed them). The
+    /// transport in that case is MPRIS over D-Bus: the desktop calls
+    /// `Play`/`Pause`/`Next` on whatever players are registered, and azul
+    /// turns those calls back into ordinary `VirtualKeyCode` presses.
+    ///
+    /// OFF by default because registering has a VISIBLE side effect: the app
+    /// appears in the desktop's media controls (GNOME's system menu, KDE's
+    /// media applet) as a player. That is correct for a music app and wrong
+    /// for a text editor, and no engine-side signal distinguishes them - so
+    /// the app says which it is.
+    ///
+    /// macOS is the same bargain under a different name: `MPRemoteCommandCenter`
+    /// delivers the media keys, but only to the app the system considers "now
+    /// playing", so registering puts the app in Control Center and the Now
+    /// Playing widget.
+    ///
+    /// Ignored on Windows, which delivers media keys as `WM_APPCOMMAND` to the
+    /// focused window and publishes nothing.
+    pub expose_system_media_controls: bool,
 }
 
 impl AppConfig {
+    /// Hold `hotkey` for the whole run, app-wide, running `callback` with
+    /// `data` when it is pressed - even while another app has the keyboard
+    /// focus. Replaces an earlier entry for the same accelerator.
+    ///
+    /// For hotkeys that depend on app state, derive them instead: in
+    /// `layout()` (`LayoutCallbackInfo::add_global_hotkey`), or, without a
+    /// window, in [`Self::with_global_hotkeys_callback`].
+    pub fn add_global_hotkey<C: Into<crate::callbacks::CoreCallback>>(
+        &mut self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+        data: RefAny,
+        callback: C,
+    ) {
+        let mut list = self.global_hotkeys.clone().into_library_owned_vec();
+        list.retain(|declared| declared.hotkey != hotkey);
+        list.push(crate::global_hotkey::GlobalHotkeyCallbackData::create(
+            hotkey,
+            data,
+            callback.into(),
+        ));
+        self.global_hotkeys = crate::global_hotkey::GlobalHotkeyCallbackDataVec::from_vec(list);
+    }
+
+    /// Derive the app-level global hotkeys from the app's state with `cb`
+    /// (see [`crate::global_hotkey::GlobalHotkeysCallbackType`]).
+    #[must_use]
+    pub fn with_global_hotkeys_callback<C: Into<crate::global_hotkey::GlobalHotkeysCallback>>(
+        mut self,
+        cb: C,
+    ) -> Self {
+        self.set_global_hotkeys_callback(cb);
+        self
+    }
+
+    /// In-place [`Self::with_global_hotkeys_callback`]. Takes the bare
+    /// function or a host-language callback (`GlobalHotkeysCallback`).
+    pub fn set_global_hotkeys_callback<C: Into<crate::global_hotkey::GlobalHotkeysCallback>>(
+        &mut self,
+        cb: C,
+    ) {
+        self.global_hotkeys_callback =
+            crate::global_hotkey::OptionGlobalHotkeysCallback::Some(cb.into());
+    }
+
+    /// Start the app in a mode: `Some(mode)` pins every window to light or
+    /// dark, `None` (the default, "system") follows the desktop. See
+    /// [`Self::mode`]; switch it later with `CallbackInfo::set_mode`.
+    #[must_use]
+    pub fn with_mode(mut self, mode: crate::window::OptionDarkLightMode) -> Self {
+        self.set_mode(mode);
+        self
+    }
+
+    /// In-place [`Self::with_mode`].
+    pub fn set_mode(&mut self, mode: crate::window::OptionDarkLightMode) {
+        self.mode = mode;
+    }
+
+    /// Start the app in the theme `name` (`"flat"`, `"flora"`, ...): every
+    /// window's `@theme(<name>)` blocks apply, the other themes' are inert.
+    /// See [`Self::theme`]; switch it later with `CallbackInfo::set_theme`.
+    #[must_use]
+    pub fn with_theme(mut self, name: AzString) -> Self {
+        self.set_theme(name);
+        self
+    }
+
+    /// In-place [`Self::with_theme`].
+    pub fn set_theme(&mut self, name: AzString) {
+        self.theme = name;
+    }
+
+    /// Name the app: `app_id` is its reverse-DNS id (`org.example.Editor`).
+    /// See [`Self::app_id`] for where each OS uses it and where the
+    /// platform's own declaration wins.
+    #[must_use]
+    pub fn with_app_id(mut self, app_id: AzString) -> Self {
+        self.set_app_id(app_id);
+        self
+    }
+
+    /// In-place [`Self::with_app_id`].
+    pub fn set_app_id(&mut self, app_id: AzString) {
+        self.app_id = app_id;
+    }
+
     #[must_use]
     pub fn create() -> Self {
         let log_level = AppLogLevel::Error;
@@ -1035,10 +1248,26 @@ impl AppConfig {
             natural_scroll: NaturalScroll::Disabled,
             // OFF: publishing a media player is visible in the desktop UI.
             expose_system_media_controls: false,
+            remote_control: RemoteControlConfig::default(),
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
             updates: UpdateSettings::default(),
             changelog_md: azul_css::OptionString::None,
             report_problem: OptionEmailAddress::None,
+            localization: LocalizationConfig::default(),
+            fluent_locales: crate::window::StringPairVec::from_const_slice(&[]),
+            notification_handler: crate::notification::OptionNotificationCallback::None,
+            // None: an app declares its global hotkeys (here, or from state).
+            global_hotkeys: crate::global_hotkey::GlobalHotkeyCallbackDataVec::from_const_slice(
+                &[],
+            ),
+            global_hotkeys_callback: crate::global_hotkey::OptionGlobalHotkeysCallback::None,
+            // Today's look; `native` becomes the default by changing the
+            // one constant.
+            theme: AzString::from_const_str(azul_css::dynamic_selector::DEFAULT_APP_THEME),
+            // Not declared: the platform's id, else the executable's.
+            app_id: AzString::from_const_str(""),
+            // Follow the desktop.
+            mode: crate::window::OptionDarkLightMode::None,
         };
         // Dogfood: register the 52 built-in HTML elements via the
         // same `add_component_library` API that users call.
@@ -1058,11 +1287,12 @@ impl AppConfig {
     /// # Example
     /// ```rust
     /// # use azul_core::resources::{AppConfig, CssMockEnvironment};
-    /// # use azul_css::dynamic_selector::{OsCondition, OptionOsCondition, ThemeCondition, OptionThemeCondition};
+    /// # use azul_css::dynamic_selector::{OsCondition, OptionOsCondition};
+    /// # use azul_css::system::{DarkLightMode, OptionDarkLightMode};
     /// let config = AppConfig::create()
     ///     .with_mock_environment(CssMockEnvironment {
     ///         os: OptionOsCondition::Some(OsCondition::Linux),
-    ///         theme: OptionThemeCondition::Some(ThemeCondition::Dark),
+    ///         mode: OptionDarkLightMode::Some(DarkLightMode::Dark),
     ///         ..Default::default()
     ///     });
     /// ```
@@ -1070,6 +1300,21 @@ impl AppConfig {
     pub fn with_mock_environment(mut self, env: CssMockEnvironment) -> Self {
         self.mock_css_environment = OptionCssMockEnvironment::Some(env);
         self
+    }
+
+    /// Install the app-level notification handler (see
+    /// [`AppConfig::notification_handler`]), replacing any earlier one.
+    pub fn set_notification_handler<I: Into<crate::callbacks::CoreCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: I,
+    ) {
+        self.notification_handler = crate::notification::OptionNotificationCallback::Some(
+            crate::notification::NotificationCallback {
+                refany: data,
+                callback: callback.into(),
+            },
+        );
     }
 
     /// Register a single component into a named library.
@@ -1201,12 +1446,30 @@ impl AppConfig {
     /// Returns the matched `Route` and a `RouteMatch` with extracted parameters.
     #[must_use]
     pub fn match_route_for_path(&self, path: &str) -> Option<(&Route, RouteMatch)> {
+        let mut best_match: Option<(&Route, RouteMatch, usize)> = None;
+
         for route in self.routes.as_ref() {
             if let Some(m) = match_route(route.pattern.as_str(), path) {
-                return Some((route, m));
+                // Specificity: number of exact static segments
+                let specificity = route
+                    .pattern
+                    .as_str()
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .filter(|s| !s.starts_with(':'))
+                    .count();
+
+                if let Some((_, _, best_spec)) = best_match {
+                    if specificity > best_spec {
+                        best_match = Some((route, m, specificity));
+                    }
+                } else {
+                    best_match = Some((route, m, specificity));
+                }
             }
         }
-        None
+
+        best_match.map(|(r, m, _)| (r, m))
     }
 }
 
@@ -1312,6 +1575,358 @@ pub enum RawImageFormat {
     BGRA8,
     RGBF32,
     RGBAF32,
+    /// NV12 (4:2:0 YCbCr in two planes): a full-size 8-bit Y (luma) plane,
+    /// then a plane of interleaved Cb,Cr byte pairs, one pair per 2x2 block
+    /// (`ceil(w / 2) x ceil(h / 2)` pairs). Rec.601 matrix, video range
+    /// (Y 16..235, Cb/Cr 16..240). The format cameras and hardware video
+    /// decoders produce: the GPU converts it in its shader, the CPU
+    /// rasterizer converts only the rows it paints.
+    NV12Rec601Video,
+    /// NV12 with the Rec.601 matrix and the full 0..255 range.
+    NV12Rec601Full,
+    /// NV12 with the Rec.709 (HD) matrix and video range.
+    NV12Rec709Video,
+    /// NV12 with the Rec.709 (HD) matrix and the full 0..255 range.
+    NV12Rec709Full,
+}
+
+impl RawImageFormat {
+    /// Whether this is one of the two-plane NV12 formats.
+    #[must_use]
+    pub const fn is_nv12(self) -> bool {
+        matches!(
+            self,
+            Self::NV12Rec601Video | Self::NV12Rec601Full | Self::NV12Rec709Video | Self::NV12Rec709Full
+        )
+    }
+
+    /// For an NV12 format: its samples use the full 0..255 range (else the
+    /// video range, Y 16..235). `false` for every other format.
+    #[must_use]
+    pub const fn is_full_range(self) -> bool {
+        matches!(self, Self::NV12Rec601Full | Self::NV12Rec709Full)
+    }
+
+    /// For an NV12 format: it uses the Rec.709 matrix (else Rec.601).
+    /// `false` for every other format.
+    #[must_use]
+    pub const fn is_rec709(self) -> bool {
+        matches!(self, Self::NV12Rec709Video | Self::NV12Rec709Full)
+    }
+
+    /// The NV12 format with this matrix and range.
+    #[must_use]
+    pub const fn nv12(rec709: bool, full_range: bool) -> Self {
+        match (rec709, full_range) {
+            (false, false) => Self::NV12Rec601Video,
+            (false, true) => Self::NV12Rec601Full,
+            (true, false) => Self::NV12Rec709Video,
+            (true, true) => Self::NV12Rec709Full,
+        }
+    }
+}
+
+/// Byte layout of a tightly packed NV12 image: the `width x height` Y plane,
+/// immediately followed by `chroma_width x chroma_height` interleaved Cb,Cr
+/// pairs (two bytes each). The chroma size rounds UP, so an odd last column
+/// or row still has a chroma sample.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Nv12Layout {
+    /// Luma width in pixels.
+    pub width: usize,
+    /// Luma height in pixels.
+    pub height: usize,
+    /// Cb,Cr pairs per chroma row: `ceil(width / 2)`.
+    pub chroma_width: usize,
+    /// Chroma rows: `ceil(height / 2)`.
+    pub chroma_height: usize,
+}
+
+impl Nv12Layout {
+    /// The layout of a `width x height` NV12 image.
+    #[must_use]
+    pub const fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            // `w / 2 + w % 2`, not `(w + 1) / 2`: no overflow at usize::MAX.
+            chroma_width: width / 2 + width % 2,
+            chroma_height: height / 2 + height % 2,
+        }
+    }
+
+    /// Bytes of the Y plane (`width * height`, saturating).
+    #[must_use]
+    pub const fn y_len(&self) -> usize {
+        self.width.saturating_mul(self.height)
+    }
+
+    /// Bytes of the Cb,Cr plane (two per pair, saturating). It starts at
+    /// byte [`Self::y_len`].
+    #[must_use]
+    pub const fn uv_len(&self) -> usize {
+        self.chroma_width
+            .saturating_mul(self.chroma_height)
+            .saturating_mul(2)
+    }
+
+    /// Total bytes of both planes, `None` if that overflows `usize`.
+    #[must_use]
+    pub fn checked_total_len(&self) -> Option<usize> {
+        let y = self.width.checked_mul(self.height)?;
+        let uv = self
+            .chroma_width
+            .checked_mul(self.chroma_height)?
+            .checked_mul(2)?;
+        y.checked_add(uv)
+    }
+}
+
+/// Fixed-point (16.16) YCbCr -> RGB coefficients of one NV12 format: the
+/// luma scale and offset of its range and the four chroma weights of its
+/// matrix. One table for every consumer (the CPU rasterizer, the frame
+/// scaler, JPEG and PDF export), so a frame converts the same everywhere.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct YuvCoefficients {
+    y_mul: i32,
+    y_off: i32,
+    r_cr: i32,
+    g_cb: i32,
+    g_cr: i32,
+    b_cb: i32,
+}
+
+impl YuvCoefficients {
+    /// The coefficients of `format`, `None` for a format that is not NV12.
+    #[must_use]
+    pub const fn of(format: RawImageFormat) -> Option<Self> {
+        // (Kr, Kb) = (0.299, 0.114) for Rec.601, (0.2126, 0.0722) for
+        // Rec.709; video range scales luma by 255/219 and chroma by
+        // 255/224. Values are round(coefficient * 65536).
+        let (y_mul, y_off, r_cr, g_cb, g_cr, b_cb) = match format {
+            RawImageFormat::NV12Rec601Video => (76309, 16, 104_597, 25675, 53279, 132_201),
+            RawImageFormat::NV12Rec601Full => (65536, 0, 91881, 22553, 46802, 116_130),
+            RawImageFormat::NV12Rec709Video => (76309, 16, 117_489, 13975, 34925, 138_438),
+            RawImageFormat::NV12Rec709Full => (65536, 0, 103_206, 12276, 30679, 121_609),
+            _ => return None,
+        };
+        Some(Self {
+            y_mul,
+            y_off,
+            r_cr,
+            g_cb,
+            g_cr,
+            b_cb,
+        })
+    }
+
+    /// Straight RGB of one Y, Cb, Cr sample, clamped to 0..255.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=255
+    pub const fn to_rgb(&self, y: u8, cb: u8, cr: u8) -> [u8; 3] {
+        let yy = (y as i32 - self.y_off) * self.y_mul + 32768;
+        let u = cb as i32 - 128;
+        let v = cr as i32 - 128;
+        let r = (yy + self.r_cr * v) >> 16;
+        let g = (yy - self.g_cb * u - self.g_cr * v) >> 16;
+        let b = (yy + self.b_cb * u) >> 16;
+        [clamp_u8(r), clamp_u8(g), clamp_u8(b)]
+    }
+
+    /// Row `row` of an NV12 image as straight RGBA8 (alpha 255) into `out`
+    /// (`layout.width * 4` bytes). `bytes` must hold both planes
+    /// (`layout.checked_total_len()`); a short buffer or row leaves `out`
+    /// untouched past what could be read.
+    pub fn row_to_rgba(&self, bytes: &[u8], layout: &Nv12Layout, row: usize, out: &mut [u8]) {
+        let w = layout.width;
+        let y_start = row.saturating_mul(w);
+        let uv_start = layout
+            .y_len()
+            .saturating_add((row / 2).saturating_mul(layout.chroma_width * 2));
+        let (Some(y_row), Some(uv_row)) = (
+            bytes.get(y_start..y_start.saturating_add(w)),
+            bytes.get(uv_start..uv_start.saturating_add(layout.chroma_width * 2)),
+        ) else {
+            return;
+        };
+        for (x, (px, &y)) in out.chunks_exact_mut(4).zip(y_row.iter()).enumerate() {
+            let c = (x / 2) * 2;
+            let rgb = self.to_rgb(y, uv_row[c], uv_row[c + 1]);
+            px[0] = rgb[0];
+            px[1] = rgb[1];
+            px[2] = rgb[2];
+            px[3] = 255;
+        }
+    }
+}
+
+#[inline]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=255
+const fn clamp_u8(v: i32) -> u8 {
+    if v < 0 {
+        0
+    } else if v > 255 {
+        255
+    } else {
+        v as u8
+    }
+}
+
+/// Straight RGB of one Y, Cb, Cr sample of NV12 `format` (black for a format
+/// that is not NV12).
+#[must_use]
+pub fn yuv_to_rgb(format: RawImageFormat, y: u8, cb: u8, cr: u8) -> [u8; 3] {
+    YuvCoefficients::of(format).map_or([0, 0, 0], |c| c.to_rgb(y, cb, cr))
+}
+
+/// A whole tightly packed NV12 image as straight RGBA8 (alpha 255). `None`
+/// when `format` is not NV12 or `bytes` is shorter than both planes (bytes
+/// past them are ignored: some decoders pad the buffer). The
+/// fallback for consumers that need RGB pixels (JPEG / PDF export); the
+/// display path never calls it (it converts only the rows it paints).
+#[must_use]
+pub fn nv12_to_rgba(
+    bytes: &[u8],
+    width: usize,
+    height: usize,
+    format: RawImageFormat,
+) -> Option<Vec<u8>> {
+    let coeffs = YuvCoefficients::of(format)?;
+    let layout = Nv12Layout::new(width, height);
+    if bytes.len() < layout.checked_total_len()? {
+        return None;
+    }
+    let mut out = vec![0u8; width.checked_mul(height)?.checked_mul(4)?];
+    if width == 0 {
+        return Some(out);
+    }
+    for (row, dst) in out.chunks_exact_mut(width * 4).enumerate() {
+        coeffs.row_to_rgba(bytes, &layout, row, dst);
+    }
+    Some(out)
+}
+
+/// A whole tightly packed RGBA8 or BGRA8 image (`src`, alpha ignored) as
+/// tightly packed NV12 in `dst`'s matrix and range: what an H.264 encoder
+/// that takes only NV12 (Vulkan Video) is handed for a frame that is not
+/// NV12 already. Luma per pixel; each chroma pair from the average of its
+/// 2x2 block (fewer pixels at an odd last column / row). `None` when `src`
+/// is not RGBA8 / BGRA8, `dst` is not NV12, or `bytes` is shorter than the
+/// image. The inverse of [`nv12_to_rgba`] (same matrices, same ranges).
+#[must_use]
+pub fn rgba_to_nv12(
+    bytes: &[u8],
+    width: usize,
+    height: usize,
+    src: RawImageFormat,
+    dst: RawImageFormat,
+) -> Option<Vec<u8>> {
+    // Where R and B sit in a pixel (G is always byte 1).
+    let (r_at, b_at) = match src {
+        RawImageFormat::RGBA8 => (0, 2),
+        RawImageFormat::BGRA8 => (2, 0),
+        _ => return None,
+    };
+    let k = RgbToYuv::of(dst)?;
+    let layout = Nv12Layout::new(width, height);
+    let pixels = width.checked_mul(height)?;
+    if bytes.len() < pixels.checked_mul(4)? {
+        return None;
+    }
+    let mut out = vec![0u8; layout.checked_total_len()?];
+    let (y_plane, uv_plane) = out.split_at_mut(layout.y_len());
+    let rgb = |px: &[u8]| (i32::from(px[r_at]), i32::from(px[1]), i32::from(px[b_at]));
+    for (y, px) in y_plane.iter_mut().zip(bytes.chunks_exact(4)) {
+        let (r, g, b) = rgb(px);
+        *y = k.luma(r, g, b);
+    }
+    for (block, pair) in uv_plane.chunks_exact_mut(2).enumerate() {
+        let (bx, by) = (block % layout.chroma_width, block / layout.chroma_width);
+        let (mut r, mut g, mut b, mut n) = (0, 0, 0, 0);
+        for yy in (by * 2)..(by * 2 + 2).min(height) {
+            for xx in (bx * 2)..(bx * 2 + 2).min(width) {
+                let at = (yy * width + xx) * 4;
+                let (pr, pg, pb) = rgb(&bytes[at..at + 4]);
+                r += pr;
+                g += pg;
+                b += pb;
+                n += 1;
+            }
+        }
+        let (cb, cr) = k.chroma(r, g, b, n);
+        pair[0] = cb;
+        pair[1] = cr;
+    }
+    Some(out)
+}
+
+/// Fixed-point (16.16) RGB -> YCbCr coefficients of one NV12 format: the
+/// inverse of [`YuvCoefficients`] (same matrices, same ranges). Each chroma
+/// row sums to zero, so a grey stays at 128.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+struct RgbToYuv {
+    y: [i32; 3],
+    y_off: i32,
+    cb: [i32; 3],
+    cr: [i32; 3],
+}
+
+impl RgbToYuv {
+    /// The coefficients of `format`, `None` for a format that is not NV12.
+    const fn of(format: RawImageFormat) -> Option<Self> {
+        // (Kr, Kb) = (0.299, 0.114) for Rec.601, (0.2126, 0.0722) for
+        // Rec.709; video range scales luma by 219/255 and chroma by 224/255.
+        // Values are round(coefficient * 65536), the middle chroma weight
+        // made to close each row to zero.
+        let (y, y_off, cb, cr) = match format {
+            RawImageFormat::NV12Rec601Video => (
+                [16829, 33039, 6416],
+                16,
+                [-9714, -19070, 28784],
+                [28784, -24103, -4681],
+            ),
+            RawImageFormat::NV12Rec601Full => (
+                [19595, 38470, 7471],
+                0,
+                [-11058, -21710, 32768],
+                [32768, -27439, -5329],
+            ),
+            RawImageFormat::NV12Rec709Video => (
+                [11966, 40254, 4064],
+                16,
+                [-6596, -22188, 28784],
+                [28784, -26145, -2639],
+            ),
+            RawImageFormat::NV12Rec709Full => (
+                [13933, 46871, 4732],
+                0,
+                [-7509, -25259, 32768],
+                [32768, -29763, -3005],
+            ),
+            _ => return None,
+        };
+        Some(Self { y, y_off, cb, cr })
+    }
+
+    /// The Y sample of one straight RGB pixel (0..=255 each).
+    fn luma(&self, r: i32, g: i32, b: i32) -> u8 {
+        let y = (self.y_off << 16) + self.y[0] * r + self.y[1] * g + self.y[2] * b + 32768;
+        clamp_u8(y >> 16)
+    }
+
+    /// The Cb, Cr pair of `n` pixels (1, 2 or 4) whose R, G, B sum to `r`,
+    /// `g`, `b`: their average's chroma.
+    fn chroma(&self, r: i32, g: i32, b: i32, n: i32) -> (u8, u8) {
+        // Scaled to four pixels' sum, so one shift by 18 averages and
+        // rounds (n is 1, 2 or 4: a 2x2 block, clipped at an odd edge).
+        let scale = 4 / n.clamp(1, 4);
+        let at = |w: [i32; 3]| {
+            let sum = (w[0] * r + w[1] * g + w[2] * b) * scale;
+            clamp_u8((sum + (128 << 18) + (1 << 17)) >> 18)
+        };
+        (at(self.cb), at(self.cr))
+    }
 }
 
 // NOTE: starts at 1 (0 = DUMMY)
@@ -1335,6 +1950,18 @@ impl ImageKey {
         Self {
             namespace: render_api_namespace,
             key: IMAGE_KEY.fetch_add(1, AtomicOrdering::SeqCst),
+        }
+    }
+
+    /// A key no image will ever derive: drawn from the never-reused
+    /// `ImageRef` id counter that registered images take their keys from
+    /// (`image_ref_hash_to_image_key`). For a slot whose pixels are replaced
+    /// in place (a video tile's frames, the chroma plane of an NV12 image).
+    #[must_use]
+    pub fn unique_image_slot(render_api_namespace: IdNamespace) -> Self {
+        Self {
+            namespace: render_api_namespace,
+            key: next_image_ref_id(),
         }
     }
 }
@@ -1533,6 +2160,20 @@ impl ImageRef {
     #[must_use]
     pub const fn is_null_image(&self) -> bool {
         matches!(self.get_data(), DecodedImage::NullImage { .. })
+    }
+
+    /// The `src` a placeholder image carries: the XML loaders make `<img
+    /// src="..">` a [`DecodedImage::NullImage`] whose tag is the src's bytes
+    /// (the picture is the app's to supply, through the image cache under that
+    /// src). `None` for any other image, or a placeholder without a src.
+    #[must_use]
+    pub fn source_tag(&self) -> Option<&str> {
+        match self.get_data() {
+            DecodedImage::NullImage { tag, .. } if !tag.is_empty() => {
+                core::str::from_utf8(tag).ok()
+            }
+            _ => None,
+        }
     }
 
     #[must_use]
@@ -1903,6 +2544,17 @@ pub struct RendererResources {
     /// Direct mapping from font hash (from `FontRef`) to `FontKey`
     /// TODO: This should become part of `SharedFontRegistry`
     pub font_hash_map: OrderedMap<u64, FontKey>,
+    /// The image key of every node whose picture is REPLACED IN PLACE: a
+    /// video tile, whose frames arrive through `change_node_image` and live
+    /// in the content overlay. One key per `(DomId, NodeId)` for as long as
+    /// the node shows frames, so a new frame is `update_image` (pixels only:
+    /// no new key, no display-list or scene rebuild). Minted with
+    /// [`ImageKey::unique_image_slot`], so no image ever derives the same key.
+    pub node_image_slots: OrderedMap<(crate::dom::DomId, crate::id::NodeId), ImageKey>,
+    /// The Cb,Cr-plane key of every registered NV12 image, by its Y-plane
+    /// key: an NV12 image is TWO renderer images (an R8 luma plane and an RG8
+    /// chroma plane, views into one buffer).
+    pub nv12_chroma_keys: OrderedMap<ImageKey, ImageKey>,
 }
 
 impl fmt::Debug for RendererResources {
@@ -2310,6 +2962,55 @@ pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
 }
 
 impl RawImage {
+    /// A copy scaled down to fit `max_w x max_h` (aspect kept) as straight
+    /// RGBA8 - a thumbnail, sampled by the area-averaging scaler
+    /// ([`crate::image_scale::resample_rgba`]). `None` for a source the
+    /// scaler cannot read (16-bit, float or two-channel pixels) and for an
+    /// empty one.
+    #[must_use]
+    pub fn thumbnail(&self, max_w: u32, max_h: u32) -> Option<RawImage> {
+        crate::image_scale::thumbnail(self, max_w, max_h)
+    }
+
+    /// `width x height` scaled DOWN (never up) to fit `max_w x max_h`, the
+    /// aspect kept, at least one pixel per axis; `0 x 0` for an empty size
+    /// or box: the size [`Self::thumbnail`] makes, for an app that sizes its
+    /// own buffer by the same rule (a video decoder's output, a monitor).
+    #[must_use]
+    pub fn fit_within(width: u32, height: u32, max_w: u32, max_h: u32) -> crate::geom::PhysicalSizeU32 {
+        let (w, h) = crate::image_scale::fit_within(width, height, max_w, max_h);
+        crate::geom::PhysicalSizeU32::new(w, h)
+    }
+
+    /// A copy resampled to exactly `width x height` - up or down, the
+    /// aspect not kept ([`Self::thumbnail`] keeps it) - as straight RGBA8
+    /// (area-averaging down, bilinear up). `None` for a source the scaler
+    /// cannot read (16-bit, float or two-channel pixels), for an empty one
+    /// and for a zero size.
+    #[must_use]
+    pub fn resized(&self, width: u32, height: u32) -> Option<RawImage> {
+        crate::image_scale::resized(self, width, height)
+    }
+
+    /// An 8-bit RGBA image, `width x height`, from `pixels`: rows top to
+    /// bottom, four bytes per pixel (`width * height * 4` bytes; a buffer of
+    /// another length makes `ImageRef::create_rawimage` refuse the image).
+    /// `premultiplied_alpha`: whether the colour channels are already
+    /// multiplied by alpha (an opaque image is both).
+    #[must_use]
+    pub fn create_rgba8(width: u32, height: u32, pixels: U8Vec, premultiplied_alpha: bool) -> Self {
+        Self {
+            pixels: RawImageData::U8(pixels),
+            width: width as usize,
+            height: height as usize,
+            premultiplied_alpha,
+            data_format: RawImageFormat::RGBA8,
+            tag: U8Vec::from_vec(Vec::new()),
+        }
+    }
+}
+
+impl RawImage {
     /// CPU painting: stamp one brush dab centered at (`cx`, `cy`) in pixel
     /// coordinates, alpha-over compositing a radial-falloff disc. Only 8-bit
     /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
@@ -2562,6 +3263,15 @@ impl RawImage {
                     Self::load_rgbaf32(pixels, expected_len, premultiplied_alpha)?;
                 (bytes, RawImageFormat::BGRA8, is_opaque)
             }
+            // Kept as it is: both planes, no conversion, no copy. YCbCr has
+            // no alpha, so it is always opaque.
+            RawImageFormat::NV12Rec601Video
+            | RawImageFormat::NV12Rec601Full
+            | RawImageFormat::NV12Rec709Video
+            | RawImageFormat::NV12Rec709Full => {
+                let bytes = Self::load_nv12(pixels, width, height)?;
+                (bytes, data_format, true)
+            }
         };
 
         let image_data = ImageData::Raw(SharedRawImageData::new(bytes));
@@ -2573,11 +3283,23 @@ impl RawImage {
             stride: None.into(),
             flags: ImageDescriptorFlags {
                 is_opaque,
-                allow_mipmaps: true,
+                // A video frame is shown at (about) its own size: mipmaps
+                // would be generated per frame for nothing.
+                allow_mipmaps: !data_format.is_nv12(),
             },
         };
 
         Some((image_data, image_descriptor))
+    }
+
+    /// Keep NV12 data as-is: both planes, tightly packed
+    /// ([`Nv12Layout`]). The length must be exactly the two planes.
+    fn load_nv12(pixels: RawImageData, width: usize, height: usize) -> Option<U8Vec> {
+        let pixels = pixels.get_u8_vec()?;
+        if pixels.len() != Nv12Layout::new(width, height).checked_total_len()? {
+            return None;
+        }
+        Some(pixels)
     }
 
     /// Keep R8 data as-is — `WebRender` supports R8 natively. This is important for
@@ -3427,10 +4149,73 @@ pub struct ExternalImageData {
 
 pub type TileSize = u16;
 
+/// The part of an image that changed since the renderer last uploaded it: the
+/// whole image, or a rect in image pixels (origin + size).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub enum ImageDirtyRect {
     All,
     Partial(LayoutRect),
+}
+
+impl ImageDirtyRect {
+    /// `true` for a rect without area: nothing to upload.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        match self {
+            Self::All => false,
+            Self::Partial(r) => r.size.width <= 0 || r.size.height <= 0,
+        }
+    }
+
+    /// The smallest region covering both: their bounding box, the whole image
+    /// when either is. An empty rect adds nothing (its position must not
+    /// stretch the box).
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Partial(a), Self::Partial(b)) => {
+                if self.is_empty() {
+                    return *other;
+                }
+                if other.is_empty() {
+                    return *self;
+                }
+                let x0 = a.origin.x.min(b.origin.x);
+                let y0 = a.origin.y.min(b.origin.y);
+                let x1 = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
+                let y1 = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
+                Self::Partial(LayoutRect::new(
+                    azul_css::props::basic::LayoutPoint::new(x0, y0),
+                    LayoutSize::new(x1 - x0, y1 - y0),
+                ))
+            }
+            _ => Self::All,
+        }
+    }
+
+    /// This region inside a `width` x `height` image: a rect is cut to the
+    /// image (empty when it lies beside it), `All` stays `All`.
+    #[must_use]
+    #[allow(clippy::cast_possible_wrap)] // image dimensions are far below isize::MAX
+    pub fn clipped_to(&self, width: usize, height: usize) -> Self {
+        match self {
+            Self::All => Self::All,
+            Self::Partial(r) => {
+                let (w, h) = (width as isize, height as isize);
+                let x0 = r.origin.x.clamp(0, w);
+                let y0 = r.origin.y.clamp(0, h);
+                let x1 = (r.origin.x + r.size.width).clamp(0, w);
+                let y1 = (r.origin.y + r.size.height).clamp(0, h);
+                if x1 <= x0 || y1 <= y0 {
+                    return Self::Partial(LayoutRect::zero());
+                }
+                Self::Partial(LayoutRect::new(
+                    azul_css::props::basic::LayoutPoint::new(x0, y0),
+                    LayoutSize::new(x1 - x0, y1 - y0),
+                ))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -3979,3 +4764,28 @@ pub fn add_resources(
 #[cfg(test)]
 #[path = "resources_test.rs"]
 mod resources_test;
+
+/// Configuration for the debug server and remote control capabilities.
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct RemoteControlConfig {
+    /// Port for the debug server. If None, it will try to parse AZ_DEBUG.
+    pub debug_port: azul_css::OptionU16,
+    /// Whether the debug server is allowed to remotely control the application (default: true).
+    pub allow_remote_control: bool,
+    /// Whether the debug server is allowed to run end-to-end tests via AZ_E2E (default: true).
+    pub allow_e2e_tests: bool,
+    /// Whether the debug server is allowed to serialize/deserialize RefAny state (default: true).
+    pub allow_introspection: bool,
+}
+
+impl Default for RemoteControlConfig {
+    fn default() -> Self {
+        Self {
+            debug_port: azul_css::OptionU16::None,
+            allow_remote_control: true,
+            allow_e2e_tests: true,
+            allow_introspection: true,
+        }
+    }
+}

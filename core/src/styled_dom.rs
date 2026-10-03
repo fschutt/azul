@@ -1299,12 +1299,22 @@ impl StyledDom {
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
                                      // (one branch per input variant)
     fn create_from_compact_dom(
-        compact_dom: CompactDom,
+        mut compact_dom: CompactDom,
         mut css: Css,
         node_hierarchy: NodeHierarchyItemVec,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
     ) -> Self {
         use crate::dom::EventFilter;
+
+        // HTML's presentational hints (`<table width cellpadding>`, `<td
+        // bgcolor align nowrap>`): the attributes the XML loaders keep on
+        // the node become inline declarations in front of each element's
+        // own style, before the cascade reads any node data. Every way to a
+        // `StyledDom` passes here (both loaders, a built `Dom`).
+        crate::xml::attributes::apply_presentational_hints(
+            &mut compact_dom.node_data.internal,
+            node_hierarchy.as_container().internal,
+        );
 
         static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
         let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
@@ -1368,7 +1378,10 @@ impl StyledDom {
         // a different layout for the desktop renderer; computed_values
         // is the "tall" form that the web renderer's CSS emitter
         // (`emit_css_from_cache`) walks per node.
-        css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+        css_property_cache.apply_ua_css_in_tree(
+            compact_dom.node_data.as_ref().internal,
+            node_hierarchy.as_container().internal,
+        );
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
@@ -1475,6 +1488,9 @@ impl StyledDom {
         #[cfg(feature = "table_layout")]
         if let Err(_e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {}
 
+        // A DOM born in an inactive window is `:backdrop` from its first frame.
+        styled_dom.sync_backdrop_state();
+
         styled_dom
     }
 
@@ -1497,8 +1513,24 @@ impl StyledDom {
     /// the first pass — see [`Self::create_with_context`].
     #[must_use]
     pub fn create_from_dom_with_context(
+        dom: Dom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+    ) -> Self {
+        Self::create_from_dom_with_user_sheets(dom, context, &[])
+    }
+
+    /// [`Self::create_from_dom_with_context`] with USER-origin stylesheets:
+    /// the end user's rice (`azul_css::rice`), which addresses the whole
+    /// window rather than the subtree of a node. They are appended after the
+    /// DOM's own sheets and never scoped - hung on the root `Dom` instead, a
+    /// rice's `* { ... }` at or above `rule_priority::INLINE` would be scoped
+    /// to the root node alone (`scope_inline_css`). Their rules carry their
+    /// own priorities and conditions (`@theme(<theme>)`).
+    #[must_use]
+    pub fn create_from_dom_with_user_sheets(
         mut dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[azul_css::css::Css],
     ) -> Self {
         use azul_css::css::Css;
 
@@ -1513,6 +1545,9 @@ impl StyledDom {
         // 1. Collect all CSS objects from the recursive Dom tree (now scoped)
         let mut all_css = Vec::new();
         collect_css_from_dom(&dom, &mut all_css);
+        // ... and the user-origin sheets after them, unscoped (already past
+        // `scope_inline_css`, which only walks the DOM's own sheets).
+        all_css.extend(user_sheets.iter().cloned());
 
         // 2. Merge all CSS objects into one combined Css
         let mut combined_css = if all_css.is_empty() {
@@ -1807,7 +1842,15 @@ impl StyledDom {
             .downcast_mut()
             .retained_author_css
             .clone();
-        if css.is_empty() {
+        // An empty sheet has nothing to re-match - unless the nodes' own
+        // styles define or read custom properties, which only the cascade's
+        // variable pass resolves (an inserted node's `var()` included).
+        if css.is_empty()
+            && !crate::custom_property_cascade::needs_variable_pass(
+                &css,
+                self.node_data.as_container().internal,
+            )
+        {
             return;
         }
         self.restyle(css);
@@ -1830,6 +1873,64 @@ impl StyledDom {
         self.css_property_cache.downcast_mut().retained_author_css = css;
 
         self.recascade_ua_inheritance_and_compact();
+        // The new sheet may add or drop `:backdrop` rules.
+        self.sync_backdrop_state();
+    }
+
+    /// Feed `:backdrop` (GTK: the window is not the active one) into the
+    /// per-node state every getter reads.
+    ///
+    /// It is a WINDOW state, so no event raises it on a node the way a
+    /// pointer raises `:hover`: the window's activation reaches the DOM as the
+    /// cascade context (`DynamicSelectorContext::window_focused`, which
+    /// `LayoutWindow::apply_window_activation` offers on every activation
+    /// change). The flag goes up, while the window is inactive, only on the
+    /// nodes that declare or inherit a `:backdrop` value - a raised flag takes
+    /// a node off the resting-state fast paths (`StyledNodeState::is_normal`),
+    /// which every other node keeps.
+    pub fn sync_backdrop_state(&mut self) {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+        let flags: Vec<bool> = {
+            let cache = self.get_css_property_cache();
+            let inactive = cache
+                .dynamic_context
+                .as_deref()
+                .is_some_and(|ctx| !ctx.window_focused);
+            let node_data = self.node_data.as_container();
+            (0..self.node_count())
+                .map(|i| {
+                    inactive
+                        && (cache
+                            .css_props
+                            .get_slice(i)
+                            .iter()
+                            .any(|p| p.state == PseudoStateType::Backdrop)
+                            || cache
+                                .cascaded_props
+                                .get_slice(i)
+                                .iter()
+                                .any(|p| p.state == PseudoStateType::Backdrop)
+                            || node_data.internal.get(i).is_some_and(|nd| {
+                                nd.style.iter_inline_properties().any(|(_, conds)| {
+                                    conds.as_slice().iter().any(|c| {
+                                        matches!(
+                                            c,
+                                            DynamicSelector::PseudoState(
+                                                PseudoStateType::Backdrop
+                                            )
+                                        )
+                                    })
+                                })
+                            }))
+                })
+                .collect()
+        };
+        for (i, backdrop) in flags.into_iter().enumerate() {
+            if let Some(styled) = self.styled_nodes.as_container_mut().get_mut(NodeId::new(i)) {
+                styled.styled_node_state.backdrop = backdrop;
+            }
+        }
     }
 
     /// The context-dependent tail of [`Self::restyle`], on its own: UA
@@ -1849,9 +1950,10 @@ impl StyledDom {
 
         // Apply UA CSS properties before computing inheritance (strips and
         // re-answers its own previous entries, see `apply_ua_css`).
-        self.css_property_cache
-            .downcast_mut()
-            .apply_ua_css(self.node_data.as_container().internal);
+        self.css_property_cache.downcast_mut().apply_ua_css_in_tree(
+            self.node_data.as_container().internal,
+            self.node_hierarchy.as_container().internal,
+        );
 
         // Compute inherited values after restyle and apply_ua_css (resolves em, %, etc.)
         self.css_property_cache
@@ -2067,9 +2169,8 @@ impl StyledDom {
                 ).collect();
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::DynamicSelector;
-                    node_data[*node_id]
-                        .style
-                        .iter_inline_properties()
+                    css_property_cache
+                        .inline_properties(&node_data[*node_id], node_id.index())
                         .filter_map(|(prop, conds)| {
                             let matches = conds.as_slice().iter().any(|c| {
                                 matches!(c, DynamicSelector::PseudoState(pst) if *pst == pseudo_state_type)
@@ -2375,11 +2476,30 @@ impl StyledDom {
         // visible (found by the css_anim_perf_transition damage law). The
         // per-tick animation channel avoids this whole fn via
         // `set_user_property_override_fast` + display-list patching.
+        //
+        // The rebuild is UNCONDITIONAL. It used to be gated on
+        // `can_trigger_relayout() || is_inheritable()`, which reads as "only
+        // geometry and inheritance need the projection refreshed" - but the
+        // compact cache also serves PAINT-ONLY properties that are neither:
+        // `opacity`, the four border colours and radii, and the presence bits
+        // for `background`, `box-shadow`, `transform`, `clip-path`,
+        // `text-decoration` and the scrollbar rules. For those the override
+        // was recorded, reported as changed, and then ignored by the display
+        // list, which reads the cache - so a tooltip revealed by patching
+        // `opacity: 0 -> 1` resolved to 1 in every query and still drew
+        // nothing. A presence bit is worse than a stale value: `has_background
+        // == false` means the slow path is never consulted at all, so a
+        // background patched onto a node that had none can never appear.
+        // Enumerating the served set here would be a list that rots against
+        // `compact.rs`; the invariant the cache owes is simply that it agrees
+        // with the override layer it is a projection of.
+        self.recompute_inheritance_and_compact_cache();
+        // The font phase is the one consumer that is genuinely about
+        // inheritance and geometry, so it keeps its narrower gate.
         if new_properties
             .iter()
             .any(|p| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
         {
-            self.recompute_inheritance_and_compact_cache();
             self.get_css_property_cache_mut()
                 .invalidate_resolved_font_sizes();
         }
@@ -2447,7 +2567,7 @@ impl StyledDom {
             theme_changed = cache
                 .dynamic_context
                 .as_deref()
-                .is_none_or(|c| c.theme != context.theme);
+                .is_none_or(|c| c.mode != context.mode);
             cache.dynamic_context = Some(Box::new(context));
             // A new generation even when nothing below re-runs: a context
             // change is a cascade input, and the DL cache keys on this.
@@ -2467,11 +2587,19 @@ impl StyledDom {
             .as_ref()
             .iter()
             .any(azul_css::css::CssRuleBlock::depends_on_dynamic_context);
-        if author_conditional {
-            // Full: author cascade + the tail. (`restyle_retained` is a no-op
-            // for an empty sheet, but an empty sheet has no conditional
-            // rules, so this arm is never reached with one.)
-            self.restyle_retained();
+        // Custom properties are resolved by the author cascade too (its
+        // variable pass), so a node's OWN conditional `--name` definition or
+        // `env()` needs the full re-run even with an EMPTY author sheet -
+        // which `restyle_retained` would skip.
+        let variables_conditional = self.get_css_property_cache().variables_depend_on_context;
+        if author_conditional || variables_conditional {
+            // Full: author cascade (variables included) + the tail;
+            // `restyle` ends with the `:backdrop` sync (S2).
+            let css = self
+                .get_css_property_cache()
+                .retained_author_css
+                .clone();
+            self.restyle(css);
             return;
         }
         let needs_recascade = theme_changed
@@ -2483,6 +2611,9 @@ impl StyledDom {
         if needs_recascade {
             self.recascade_ua_inheritance_and_compact();
         }
+        // The window's activation is part of this context: `:backdrop`
+        // follows it (a (de)activation alone re-runs nothing above).
+        self.sync_backdrop_state();
     }
 
     /// The viewport-size thresholds (widths, heights, logical px) at which
@@ -3267,8 +3398,9 @@ pub fn collect_nodes_in_document_order(
 /// Check if two `StyledDom`s are structurally equivalent for layout purposes.
 ///
 /// Returns `true` if the DOMs have the same structure, node types, classes,
-/// IDs, inline styles, and callback event registrations - meaning the
-/// layout output would be identical.
+/// IDs, inline styles, node stylesheets (`Dom::with_css`, compared through
+/// the author CSS the cascade ran with), and callback event registrations -
+/// meaning the layout output would be identical.
 ///
 /// Image callback nodes are compared by function pointer and `RefAny` type ID
 /// rather than heap pointer, since each `layout()` call creates new `ImageRef`
@@ -3378,6 +3510,18 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
         if old_node.attributes().as_ref() != new_node.attributes().as_ref() {
             return false;
         }
+    }
+
+    // Compare the author CSS the cascade ran with. The sheets nodes carry
+    // (`Dom::with_css`, scoped to their subtrees) are collected into it, not
+    // into `NodeData::style`, so a rebuild that changed only such a value
+    // (a zoomed grid's `height: 72px` for `48px`) is compared here or nowhere.
+    // A difference in scope ranges alone cannot occur: the hierarchies are
+    // equal by now, and the scopes are derived from it.
+    if old.get_css_property_cache().retained_author_css
+        != new.get_css_property_cache().retained_author_css
+    {
+        return false;
     }
 
     // Compare styled node states (hover/focus/active flags affect CSS resolution)

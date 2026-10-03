@@ -49,6 +49,7 @@ impl PrintAsCssValue for CssDurationUnit {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for CssDurationUnit {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -147,6 +148,7 @@ impl PrintAsCssValue for CssDuration {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for CssDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode;
@@ -266,7 +268,9 @@ pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>
 #[allow(clippy::unreadable_literal)]
 mod autotest_generated {
     use super::*;
-    use crate::{codegen::format::FormatAsRustCode, props::formatter::PrintAsCssValue};
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
+    use crate::props::formatter::PrintAsCssValue;
 
     /// Largest integer an `f32` represents exactly (`2^24`). Above this, the
     /// spacing between neighbouring `f32`s exceeds 1ms, so `parse_duration`
@@ -856,6 +860,7 @@ mod autotest_generated {
         assert_ne!(CssDuration::from_millis(5), CssDuration::from_ticks(5));
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_a_constructor_and_ignores_indentation() {
         let d = CssDuration::from_millis(42);

@@ -20,7 +20,6 @@ use azul_core::{
         DomNodeId, NodeData, NodeId, NodeType, TextSelectionStartEnd,
     },
     geom::{LogicalPosition, LogicalSize},
-    styled_dom::NodeHierarchyItem,
 };
 use azul_css::AzString;
 
@@ -102,6 +101,57 @@ pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
 #[must_use]
 pub const fn accessibility_role_is_specified(role: &AccessibilityRole) -> bool {
     !matches!(role, AccessibilityRole::Unknown)
+}
+
+/// The input role of a contenteditable host that says WHAT it edits.
+///
+/// Editability wins over a declared role (a widget's `Text` role included), so
+/// every text field used to be announced as a generic multi-line editor - a
+/// password field too, which a screen reader must treat differently (it does
+/// not echo the keys). The host says what it is the HTML way: the `type`
+/// attribute (`password`, `search`, `email`, `tel`, `url`, `text`), or the
+/// `Protected` accessibility state for a masked field. Anything else keeps the
+/// generic role (`None`).
+///
+/// Gated like `Role` itself: without the `a11y` feature (the `webrender`
+/// crate's own build of this crate) the type does not exist, and this file
+/// did not compile.
+#[cfg(feature = "a11y")]
+#[must_use]
+pub fn typed_text_input_role(
+    node_data: &NodeData,
+    a11y_info: Option<&AccessibilityInfo>,
+) -> Option<Role> {
+    if a11y_info.is_some_and(|info| {
+        info.states
+            .as_ref()
+            .iter()
+            .any(|s| matches!(s, AccessibilityState::Protected))
+    }) {
+        return Some(Role::PasswordInput);
+    }
+    node_data.attributes().as_ref().iter().find_map(|attr| {
+        let azul_core::dom::AttributeType::InputType(t) = attr else {
+            return None;
+        };
+        let t = t.as_str();
+        // ASCII-case-insensitive, as HTML attribute values are.
+        if t.eq_ignore_ascii_case("password") {
+            Some(Role::PasswordInput)
+        } else if t.eq_ignore_ascii_case("search") {
+            Some(Role::SearchInput)
+        } else if t.eq_ignore_ascii_case("email") {
+            Some(Role::EmailInput)
+        } else if t.eq_ignore_ascii_case("tel") {
+            Some(Role::PhoneNumberInput)
+        } else if t.eq_ignore_ascii_case("url") {
+            Some(Role::UrlInput)
+        } else if t.eq_ignore_ascii_case("text") {
+            Some(Role::TextInput)
+        } else {
+            None
+        }
+    })
 }
 
 /// Cursor/selection info passed to the a11y tree builder.
@@ -382,42 +432,41 @@ impl A11yManager {
         due
     }
 
-    /// Sum of every ANCESTOR scroll container's current offset — what
-    /// translates a node's static layout position to where it is on screen.
-    /// A scroller's own box does not move when it scrolls; its content does,
-    /// so the walk starts at the parent.
-    /// The accumulated scroll offset of every scrollable ANCESTOR of a node.
+    /// The summed offset of the scroll frames the display list paints a
+    /// node's BOX in - its `ScrollChain` - which is what translates its
+    /// static layout position to where it is on screen. A scroller's own box
+    /// does not move when it scrolls; its content does, so the node's own
+    /// frame is not in it.
     ///
-    /// Layout rects are in CONTENT space; anything drawn or reported in
-    /// VIEWPORT space (the a11y tree's bounds, the focus ring) has to
-    /// subtract this or it lands where the node would be if nothing were
-    /// scrolled. `pub(crate)` because the focus ring needs the very same
-    /// answer - one projection, not two that can disagree.
+    /// Layout rects are in CONTENT space; anything reported in VIEWPORT
+    /// space (the a11y tree's bounds) has to subtract this or it lands where
+    /// the node would be if nothing were scrolled. It used to add up every
+    /// DOM ancestor holding scroll state: the page's offset for a fixed box
+    /// the page does not move, and any stray offset on a box that opens no
+    /// frame.
+    ///
+    /// `scroll_chains` is every box chain of the node's dom, resolved ONCE
+    /// per tree update (`None`: the dom has no scroll id, so no frame moves
+    /// anything). The tree is rebuilt after every layout - every frame of a
+    /// layout-property tween - and resolving each node's chain on its own
+    /// (`ScrollChain::of`) walked all of its ancestors, a cascade lookup per
+    /// level: quadratic in the page's depth, per frame.
     pub(crate) fn ancestor_scroll_offset(
         dom_id: DomId,
-        node_hierarchy: &[NodeHierarchyItem],
-        dom_idx: usize,
+        scroll_chains: Option<&crate::solver3::scroll_chain::ScrollChains>,
+        layout_idx: crate::solver3::layout_tree::LayoutNodeId,
         scroll_manager: &crate::managers::scroll_state::ScrollManager,
     ) -> LogicalPosition {
-        let mut acc = LogicalPosition::zero();
-        let mut cur = node_hierarchy
-            .get(dom_idx)
-            .and_then(NodeHierarchyItem::parent_id);
-        let mut guard = 0usize;
-        while let Some(parent) = cur {
-            guard += 1;
-            if guard > 65_536 {
-                break;
-            }
-            if let Some(off) = scroll_manager.get_current_offset(dom_id, parent) {
-                acc.x += off.x;
-                acc.y += off.y;
-            }
-            cur = node_hierarchy
-                .get(parent.index())
-                .and_then(NodeHierarchyItem::parent_id);
-        }
-        acc
+        let Some(chains) = scroll_chains else {
+            return LogicalPosition::zero();
+        };
+        chains
+            .box_chain(layout_idx)
+            .scrolling()
+            .filter_map(|link| scroll_manager.get_current_offset(dom_id, link.node))
+            .fold(LogicalPosition::zero(), |acc, off| {
+                LogicalPosition::new(acc.x + off.x, acc.y + off.y)
+            })
     }
 
     /// Force the collected child lists to satisfy accesskit's `TreeUpdate`
@@ -496,6 +545,16 @@ impl A11yManager {
             let styled_dom = &layout_result.styled_dom;
             let node_hierarchy = styled_dom.node_hierarchy.as_ref();
             let node_data_slice = styled_dom.node_data.as_ref();
+            // Every box chain of this dom in one linear pass - see
+            // `ancestor_scroll_offset`. Without a scroll id no frame moves
+            // anything, and there is nothing to resolve.
+            let scroll_chains = (!layout_result.scroll_ids.is_empty()).then(|| {
+                crate::solver3::scroll_chain::ScrollChains::compute(
+                    &layout_result.layout_tree,
+                    &layout_result.styled_dom,
+                    &layout_result.scroll_ids,
+                )
+            });
 
             // First pass: Create a11y nodes for each DOM node
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
@@ -530,13 +589,17 @@ impl A11yManager {
                         Some((hot, layout_idx, abs_pos))
                     });
 
-                // Screen position = static layout position minus every
-                // ancestor scroller's offset. Bounds used to be the
-                // unscrolled layout rects, so after any scroll VoiceOver's
-                // cursor rectangles sat where the content had been.
-                let ancestor_scroll =
-                    Self::ancestor_scroll_offset(*dom_id, node_hierarchy, dom_idx, scroll_manager);
+                // Screen position = static layout position minus the offsets
+                // of the scroll frames the node is painted in. Bounds used to
+                // be the unscrolled layout rects, so after any scroll
+                // VoiceOver's cursor rectangles sat where the content had been.
                 let layout_info = layout_info.map(|(hot, idx, pos)| {
+                    let ancestor_scroll = Self::ancestor_scroll_offset(
+                        *dom_id,
+                        scroll_chains.as_ref(),
+                        idx,
+                        scroll_manager,
+                    );
                     (
                         hot,
                         idx,
@@ -861,7 +924,7 @@ impl A11yManager {
         // `accessibility_role_is_specified`, which is why naming a control no
         // longer erases its role.
         let role = if node_data.is_contenteditable() {
-            Role::MultilineTextInput
+            typed_text_input_role(node_data, a11y_info).unwrap_or(Role::MultilineTextInput)
         } else {
             match a11y_info {
                 Some(info) if accessibility_role_is_specified(&info.role) => {
@@ -938,6 +1001,12 @@ impl A11yManager {
                     }
                     AccessibilityState::Offscreen => {
                         builder.set_hidden();
+                    }
+                    AccessibilityState::SortedAscending => {
+                        builder.set_sort_direction(accesskit::SortDirection::Ascending);
+                    }
+                    AccessibilityState::SortedDescending => {
+                        builder.set_sort_direction(accesskit::SortDirection::Descending);
                     }
                     _ => {}
                 }
@@ -1082,6 +1151,14 @@ impl A11yManager {
             }
             if info.is_live_region {
                 builder.set_live(accesskit::Live::Polite);
+            }
+            // A cell's place in the WHOLE grid: a virtualised grid renders a
+            // window of its rows, so the tree position cannot say it.
+            if let azul_css::corety::OptionUsize::Some(row) = info.row_index {
+                builder.set_row_index(row);
+            }
+            if let azul_css::corety::OptionUsize::Some(column) = info.column_index {
+                builder.set_column_index(column);
             }
         }
 
@@ -1319,6 +1396,8 @@ impl A11yManager {
             AccessibilityRole::IpAddress => Role::TextInput,
             AccessibilityRole::Unknown => Role::Unknown,
             AccessibilityRole::Nothing => Role::GenericContainer,
+            AccessibilityRole::Grid => Role::Grid,
+            AccessibilityRole::GridCell => Role::GridCell,
         }
     }
 }
@@ -1512,6 +1591,8 @@ mod autotest_generated {
             supported_actions: Vec::<AccessibilityAction>::new().into(),
             labelled_by: OptionDomNodeId::None,
             described_by: OptionDomNodeId::None,
+            row_index: azul_css::corety::OptionUsize::None,
+            column_index: azul_css::corety::OptionUsize::None,
             role,
             is_live_region: false,
         }
@@ -1924,7 +2005,7 @@ mod autotest_generated {
 
     #[test]
     fn map_role_is_total_and_matches_the_documented_table() {
-        let cases: [(AccessibilityRole, Role); 65] = [
+        let cases: [(AccessibilityRole, Role); 67] = [
             (AccessibilityRole::TitleBar, Role::TitleBar),
             (AccessibilityRole::MenuBar, Role::MenuBar),
             (AccessibilityRole::ScrollBar, Role::ScrollBar),
@@ -1990,6 +2071,8 @@ mod autotest_generated {
             (AccessibilityRole::IpAddress, Role::TextInput),
             (AccessibilityRole::Unknown, Role::Unknown),
             (AccessibilityRole::Nothing, Role::GenericContainer),
+            (AccessibilityRole::Grid, Role::Grid),
+            (AccessibilityRole::GridCell, Role::GridCell),
         ];
         for (role, expected) in cases {
             assert_eq!(A11yManager::map_role(&role), expected, "{role:?}");
@@ -2602,6 +2685,38 @@ mod autotest_generated {
         assert_eq!(node.live(), Some(Live::Polite));
     }
 
+    /// A virtualised grid shows a window of its rows: each cell names its
+    /// place in the WHOLE grid (`aria-rowindex` / `aria-colindex`), so a
+    /// screen reader says "row 1000" for the thousandth row although it is
+    /// the first one in the DOM.
+    #[test]
+    fn build_node_carries_a_grid_cells_row_and_column_index() {
+        let mut a11y = info(AccessibilityRole::GridCell);
+        a11y.row_index = azul_css::corety::OptionUsize::Some(1000);
+        a11y.column_index = azul_css::corety::OptionUsize::Some(3);
+        let node = A11yManager::build_node(
+            &NodeData::create_node(NodeType::Div),
+            &plain_hot(),
+            None,
+            Some(&a11y),
+            1.0,
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(node.role(), Role::GridCell);
+        assert_eq!(node.row_index(), Some(1000));
+        assert_eq!(node.column_index(), Some(3));
+
+        let plain = A11yManager::build_node(
+            &NodeData::create_node(NodeType::Div),
+            &plain_hot(),
+            None,
+            Some(&info(AccessibilityRole::Cell)),
+            1.0,
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(plain.row_index(), None, "no index declared, none published");
+    }
+
     #[test]
     fn build_node_drops_relations_pointing_at_the_none_sentinel() {
         let mut a11y = info(AccessibilityRole::Text);
@@ -3124,5 +3239,135 @@ mod autotest_generated {
             Some(root),
             "the declared tree root must match the emitted root node"
         );
+    }
+
+    /// The tree is rebuilt after EVERY layout - every frame of a switch
+    /// knob's tween relays the window out - and it places every node in the
+    /// scroll frames its box is painted in. Resolving that chain node by node
+    /// (`ScrollChain::of`) walked every ancestor of every node, a cascade
+    /// lookup per level: quadratic in the page's depth, per frame. The chains
+    /// of a whole dom resolve in one linear pass (`ScrollChains`).
+    #[test]
+    fn the_a11y_tree_places_its_nodes_with_linear_scroll_chain_work() {
+        use crate::solver3::scroll_chain::BOX_ANCHOR_CALLS;
+
+        const DEPTH: usize = 60;
+        let mut chain = azul_core::dom::Dom::create_div();
+        for _ in 0..DEPTH {
+            chain = azul_core::dom::Dom::create_div().with_child(chain);
+        }
+        let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+            azul_core::dom::Dom::create_body().with_child(chain),
+        );
+        let mut lw = crate::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+            .expect("a layout window");
+        let mut ws = crate::window_state::FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        let mut debug = None;
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &azul_core::resources::RendererResources::default(),
+            &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
+            &mut debug,
+        )
+        .expect("the chain of divs lays out");
+        let boxes = lw.layout_results[&DomId::ROOT_ID].layout_tree.nodes.len();
+        assert!(boxes > DEPTH, "harness: every div has a box, got {boxes}");
+
+        BOX_ANCHOR_CALLS.with(|calls| calls.set(0));
+        let _update = A11yManager::update_tree(
+            A11yNodeId(0),
+            &lw.layout_results,
+            &lw.scroll_manager,
+            &AzString::from("t"),
+            LogicalSize::new(400.0, 300.0),
+            None,
+            1.0,
+            &BTreeMap::new(),
+            None,
+        );
+        let calls = BOX_ANCHOR_CALLS.with(core::cell::Cell::get);
+        assert!(
+            calls <= 2 * boxes,
+            "placing {boxes} boxes resolved {calls} chain links - the per-node walk is \
+             quadratic in the depth ({DEPTH}); expected at most {}",
+            2 * boxes
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // typed text inputs: a contenteditable host that says WHAT it edits
+    // ---------------------------------------------------------------------
+
+    fn typed_host(input_type: Option<&str>, states: Vec<AccessibilityState>) -> Role {
+        let mut node_data = NodeData::create_node(NodeType::Div);
+        node_data.set_contenteditable(true);
+        if let Some(t) = input_type {
+            node_data.set_attributes(vec![AttributeType::InputType(t.into())].into());
+        }
+        let mut a11y = info(AccessibilityRole::Text);
+        a11y.states = states.into();
+        node_data.set_accessibility_info(a11y);
+        A11yManager::build_node(
+            &node_data,
+            &plain_hot(),
+            None,
+            node_data.get_accessibility_info(),
+            1.0,
+            LogicalSize::new(800.0, 600.0),
+        )
+        .role()
+    }
+
+    #[test]
+    fn a_contenteditable_host_marked_protected_is_announced_as_a_password_input() {
+        assert_eq!(
+            typed_host(None, vec![AccessibilityState::Protected]),
+            Role::PasswordInput
+        );
+        assert_eq!(typed_host(Some("password"), Vec::new()), Role::PasswordInput);
+    }
+
+    #[test]
+    fn a_contenteditable_host_with_an_input_type_is_announced_as_that_input() {
+        assert_eq!(typed_host(Some("search"), Vec::new()), Role::SearchInput);
+        assert_eq!(typed_host(Some("email"), Vec::new()), Role::EmailInput);
+        assert_eq!(typed_host(Some("tel"), Vec::new()), Role::PhoneNumberInput);
+        assert_eq!(typed_host(Some("URL"), Vec::new()), Role::UrlInput);
+    }
+
+    #[test]
+    fn a_contenteditable_host_without_a_type_stays_a_multiline_editor() {
+        assert_eq!(typed_host(None, Vec::new()), Role::MultilineTextInput);
+        assert_eq!(typed_host(Some("no-such-type"), Vec::new()), Role::MultilineTextInput);
+    }
+
+    /// aria-sort (DATATABLE7): a sorted column's header says which way it
+    /// sorts; an unsorted one says nothing.
+    #[test]
+    fn a_sorted_column_header_tells_the_screen_reader_its_sort_direction() {
+        let header = |states: Vec<AccessibilityState>| {
+            let mut a11y = info(AccessibilityRole::ColumnHeader);
+            a11y.states = states.into();
+            A11yManager::build_node(
+                &NodeData::create_node(NodeType::Div),
+                &plain_hot(),
+                None,
+                Some(&a11y),
+                1.0,
+                LogicalSize::new(800.0, 600.0),
+            )
+        };
+        assert_eq!(
+            header(vec![AccessibilityState::SortedAscending]).sort_direction(),
+            Some(accesskit::SortDirection::Ascending)
+        );
+        assert_eq!(
+            header(vec![AccessibilityState::SortedDescending]).sort_direction(),
+            Some(accesskit::SortDirection::Descending)
+        );
+        assert_eq!(header(Vec::new()).sort_direction(), None);
     }
 }

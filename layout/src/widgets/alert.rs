@@ -24,7 +24,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{
             color::ColorU,
@@ -108,7 +107,7 @@ impl AlertKind {
     #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
                                                  // pixel/coord path or to avoid churning call sites
                                                  // for a perf-neutral change)
-    const fn colors(&self) -> (ColorU, ColorU, ColorU) {
+    pub(crate) const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
                 ColorU {
@@ -193,6 +192,37 @@ impl AlertKind {
         }
     }
 
+    /// Returns the `(background, border, text)` colours this kind takes in
+    /// the DARK theme: the same hue as a deep tint under light ink
+    /// (Bootstrap's dark alert palette), so a dark window gets a dark banner
+    /// instead of a pastel island. A semantic tint has no desktop slot to
+    /// borrow - these are the widget's own colours, like the light ones.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // same shape as `colors`
+    pub(crate) const fn dark_colors(&self) -> (ColorU, ColorU, ColorU) {
+        match self {
+            Self::Info => (
+                ColorU::rgb(3, 40, 48),     // #032830
+                ColorU::rgb(8, 121, 144),   // #087990
+                ColorU::rgb(110, 223, 246), // #6edff6
+            ),
+            Self::Success => (
+                ColorU::rgb(5, 27, 17),     // #051b11
+                ColorU::rgb(15, 81, 50),    // #0f5132
+                ColorU::rgb(117, 183, 152), // #75b798
+            ),
+            Self::Warning => (
+                ColorU::rgb(51, 39, 1),     // #332701
+                ColorU::rgb(153, 116, 4),   // #997404
+                ColorU::rgb(255, 218, 106), // #ffda6a
+            ),
+            Self::Danger => (
+                ColorU::rgb(44, 11, 14),    // #2c0b0e
+                ColorU::rgb(132, 32, 41),   // #842029
+                ColorU::rgb(234, 134, 143), // #ea868f
+            ),
+        }
+    }
+
     /// CSS class name for this alert kind (mirrors `ButtonType::class_name`).
     #[must_use]
     pub const fn class_name(&self) -> &'static str {
@@ -225,6 +255,27 @@ pub struct Alert {
     /// widget picks, the second means the caller asked for no properties at
     /// all and gets none.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+}
+
+/// What a theme decides about an alert; [`build`] turns it and the widget's
+/// state into the DOM. Built by `themes::flat::alert` and
+/// `themes::flora::alert`.
+pub(crate) struct AlertLook {
+    /// The banner's style for a kind (light face and dark twins), used when
+    /// the alert has no `container_style` of its own: [`ALERT_CONTAINER_BASE`]
+    /// first, then the theme's skin.
+    pub container: fn(AlertKind) -> alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The message's skin ([`build`] lays it over [`ALERT_MESSAGE_BASE`]).
+    pub message: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The close button's skin, focus ring included ([`build`] lays it over
+    /// [`ALERT_CLOSE_BASE`]).
+    pub close: alloc::vec::Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the banner, if it has one.
+    pub marker: Option<&'static str>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -250,24 +301,49 @@ impl Default for AlertState {
     }
 }
 
-/// Builds the container style for a given [`AlertKind`]. The colours are the
+// ---- the base: the alert's structure, in every theme ----
+//
+// What lays an alert out is the same whichever theme paints it, so it is the
+// widget's own: every theme's banner starts with `ALERT_CONTAINER_BASE`, and
+// [`build`] declares the message's and the close button's base FIRST, then
+// the theme's skin. No structure declaration then sits inside a `@theme`
+// block, and it holds under a theme no widget knows (R5).
+
+/// The banner: a row, its message and close button at the top, spanning the
+/// full width of a flex-column parent, never growing along it.
+pub(crate) static ALERT_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
+    // Span the full width of a flex-column parent.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// The message: the banner's remaining width, set from the left.
+pub(crate) static ALERT_MESSAGE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+];
+
+/// The close button: it hugs its glyph, takes the pointer, and a drag never
+/// selects the glyph.
+pub(crate) static ALERT_CLOSE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Builds the container style for a given [`AlertKind`]: the flat banner,
+/// [`ALERT_CONTAINER_BASE`] then the flat skin. The colours are the
 /// only kind-dependent properties, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
-fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
     let (bg, border, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Start)),
-        // Span the full width of a flex-column parent.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Stretch)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut style = ALERT_CONTAINER_BASE.to_vec();
+    style.extend(alloc::vec![
         // padding: 12px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(12,)
@@ -348,21 +424,38 @@ fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
             inner: text,
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
-/// Message-text style: takes the remaining horizontal space, left-aligned.
-static ALERT_MESSAGE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
-];
+/// The dark twins of [`build_alert_style`]'s kind colours - the four border
+/// edges, the inherited text colour and the background - from
+/// [`AlertKind::dark_colors`].
+///
+/// `dom()` appends them AFTER the light style, and only to the widget's own
+/// style: inline declarations resolve last-match-wins, and a caller's
+/// `container_style` owns every property, dark ones included.
+pub(crate) fn build_alert_dark_twins(kind: AlertKind) -> [CssPropertyWithConditions; 6] {
+    use crate::widgets::themes::system_palette::{
+        dark_background_color, dark_border_bottom, dark_border_left, dark_border_right,
+        dark_border_top, dark_text,
+    };
 
-/// Close-button ("x") style: a small pointer-cursor box on the right.
-static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    let (bg, border, text) = kind.dark_colors();
+    [
+        dark_border_top(border),
+        dark_border_bottom(border),
+        dark_border_left(border),
+        dark_border_right(border),
+        dark_text(text),
+        dark_background_color(bg),
+    ]
+}
+
+/// The flat close button's ("x") skin: a large glyph, 12px off the message
+/// (its pointer and hug are [`ALERT_CLOSE_BASE`]).
+pub(crate) static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         12,
     ))),
@@ -386,6 +479,7 @@ impl Alert {
             kind,
             dismissible: false,
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -471,28 +565,77 @@ impl Alert {
         s
     }
 
-    /// Converts this alert into a DOM subtree with the `__azul-native-alert` class.
+    /// Pin the widget theme: the alert keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// Converts this alert into a DOM subtree with the `__azul-native-alert`
+    /// class. The look comes from the theme module (`themes::flat::alert` /
+    /// `themes::flora::alert`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            callbacks::CoreCallback,
-            dom::{EventFilter, HoverEventFilter},
-            refany::OptionRefAny,
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::alert(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::alert(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::alert,
+                crate::widgets::themes::flora::alert,
+            ),
+        }
+    }
+}
+
+/// The alert's DOM in `look`: the banner, its message and (when dismissible)
+/// its close button, which carries the state.
+pub(crate) fn build(alert: Alert, look: &AlertLook) -> Dom {
+    use azul_core::{
+        callbacks::CoreCallback,
+        dom::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+
+    {
+        // A caller's `container_style` owns every property, dark ones
+        // included; otherwise the theme's banner for the kind.
+        let container_style = match alert.container_style.clone().into_option() {
+            Some(own) => own,
+            None => CssPropertyWithConditionsVec::from_vec((look.container)(alert.kind)),
         };
 
-        let message = crate::widgets::widget_p_with_text(self.message)
+        // A part's declarations: its base first, then the theme's skin.
+        let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+            CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(
+                base, skin,
+            ))
+        };
+
+        let message = crate::widgets::widget_p_with_text(alert.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_MESSAGE_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                ALERT_MESSAGE_STYLE,
-            ));
+            .with_css_props(part(ALERT_MESSAGE_BASE, look.message.as_slice()));
 
         let mut children = alloc::vec![message];
 
-        if self.dismissible {
+        if alert.dismissible {
             let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CLOSE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_CLOSE_STYLE))
+                .with_css_props(part(ALERT_CLOSE_BASE, look.close.as_slice()))
                 .with_tab_index(TabIndex::Auto)
                 // This is the CLOSE BUTTON, not the alert — the tab stop is on
                 // the dismiss affordance. Its visible label is "\u{00D7}", a
@@ -512,21 +655,21 @@ impl Alert {
                             cb: default_on_alert_dismiss as usize,
                             ctx: OptionRefAny::None,
                         },
-                        refany: RefAny::new(self.alert_state),
+                        refany: RefAny::new(alert.alert_state),
                     }]
                     .into(),
                 );
             children.push(close);
         }
 
+        let mut classes: alloc::vec::Vec<IdOrClass> = ALERT_CONTAINER_CLASS.to_vec();
+        if let Some(marker) = look.marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CONTAINER_CLASS))
-            .with_css_props(
-                self.container_style
-                    .clone()
-                    .into_option()
-                    .unwrap_or_else(|| build_alert_style(self.kind)),
-            )
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(container_style)
             .with_children(children.into())
     }
 }
@@ -594,8 +737,9 @@ mod autotest_generated {
     };
     use azul_css::system::SystemStyle;
 
-    /// The container CSS the widget actually renders with, resolving the
-    /// "no opinion" case the way `dom()` does.
+    /// The container CSS the widget renders its LIGHT face with, resolving the
+    /// "no opinion" case the way `dom()` does. (For that case `dom()` then
+    /// appends the kind's dark twins, `build_alert_dark_twins`.)
     ///
     /// The tests used to read `alert.container_style` directly, back when the
     /// constructor pre-filled it. It is `None` until somebody sets one, so the
@@ -1453,9 +1597,10 @@ mod autotest_generated {
             "a non-dismissible alert must carry no live callback"
         );
         assert_eq!(
-            dom.root.style.iter_inline_properties().count(),
-            style.len(),
-            "every container property must reach the node's inline style"
+            crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter().count(),
+            style.len() + build_alert_dark_twins(AlertKind::Info).len(),
+            "every container property - and each colour's dark twin - must reach the node's \
+             inline style"
         );
 
         let children = dom.children.as_ref();
@@ -1542,6 +1687,57 @@ mod autotest_generated {
                 "current behaviour: the kind class is not emitted"
             );
         }
+    }
+
+    #[test]
+    fn dom_gives_every_kind_colour_a_dark_twin_and_keeps_the_light_face() {
+        for kind in ALL_KINDS {
+            let dom = Alert::with_kind(AzString::from("m"), kind).dom();
+            let (bg, border, text) = kind.dark_colors();
+            let dark = crate::widgets::theme_probe::dark(&dom);
+            assert_eq!(
+                dark.len(),
+                6,
+                "{kind:?}: 4 border edges + text + background, got {dark:?}"
+            );
+            assert!(
+                dark.contains(&CssProperty::const_text_color(StyleTextColor {
+                    inner: text
+                })),
+                "{kind:?}: the dark ink"
+            );
+            assert!(
+                dark.contains(&CssProperty::const_border_top_color(
+                    StyleBorderTopColor { inner: border }
+                )),
+                "{kind:?}: the dark border"
+            );
+            assert!(
+                dark.iter().any(|p| matches!(
+                    p,
+                    CssProperty::BackgroundContent(v)
+                        if v.get_property().and_then(|b| b.as_ref().first().cloned())
+                            == Some(StyleBackgroundContent::Color(bg))
+                )),
+                "{kind:?}: the dark surface"
+            );
+            // Light values never move: the unconditional half IS the kind's style.
+            assert_eq!(
+                crate::widgets::theme_probe::unconditional(&dom),
+                build_alert_style(kind)
+                    .as_ref()
+                    .iter()
+                    .map(|p| p.property.clone())
+                    .collect::<Vec<_>>(),
+                "{kind:?}: the light face moved"
+            );
+        }
+
+        // A caller's own style owns every property: nothing is appended to it.
+        let own = Alert::create(AzString::from("m"))
+            .with_container_style(CssPropertyWithConditionsVec::from_vec(alloc::vec![]))
+            .dom();
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own).iter().count(), 0);
     }
 
     // ------------------------------------------------------------------
@@ -1707,5 +1903,322 @@ mod autotest_generated {
             !wrapper_visible(&mut payload),
             "the state living in the DOM must be flipped to hidden"
         );
+    }
+}
+
+/// The theme option: which look an alert renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::basic::pixel::PixelValue,
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    const KINDS: [AlertKind; 4] = [
+        AlertKind::Info,
+        AlertKind::Success,
+        AlertKind::Warning,
+        AlertKind::Danger,
+    ];
+
+    fn alert(kind: AlertKind, theme: UiTheme) -> Dom {
+        Alert::with_kind(AzString::from_const_str("Saved"), kind)
+            .with_dismissible(true)
+            .with_theme(theme)
+            .dom()
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn shadow_colour(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    /// The focus ring's colour, light and dark (a `:focus` shadow or top
+    /// border).
+    fn focus_ring(node: &Dom) -> (Option<ColorU>, Option<ColorU>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [PseudoStateType::Focus] {
+                continue;
+            }
+            let colour = shadow_colour(&d.property).or(match &d.property {
+                CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+                _ => None,
+            });
+            if colour.is_none() {
+                continue;
+            }
+            if d.is_dark_twin() {
+                dark = colour;
+            } else {
+                light = colour;
+            }
+        }
+        (light, dark)
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn left_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderLeftColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn left_width(p: &CssProperty) -> Option<PixelValue> {
+        match p {
+            CssProperty::BorderLeftWidth(v) => v.get_property().map(|w| w.inner),
+            _ => None,
+        }
+    }
+
+    fn close(dom: &Dom) -> &Dom {
+        dom.children
+            .as_ref()
+            .iter()
+            .find(|c| c.root.has_class("__azul-native-alert-close"))
+            .expect("a dismissible alert has a close button")
+    }
+
+    /// Each kind's flora stone: its tint, its face (the thread by day) and its
+    /// glow (the thread at night).
+    fn stone(kind: AlertKind) -> (ColorU, ColorU, ColorU) {
+        match kind {
+            AlertKind::Info => (flora::LIGHT_SOFT, flora::LIGHT_ACC, flora::LIGHT_GLOW),
+            AlertKind::Success => (
+                ColorU::rgb(0xE1, 0xE6, 0xE1),
+                ColorU::rgb(0x44, 0x68, 0x4F),
+                ColorU::rgb(0x7F, 0xA9, 0x8C),
+            ),
+            AlertKind::Warning => (
+                ColorU::rgb(0xF1, 0xE6, 0xD6),
+                ColorU::rgb(0x8A, 0x5A, 0x1E),
+                ColorU::rgb(0xC4, 0x93, 0x5A),
+            ),
+            AlertKind::Danger => (
+                ColorU::rgb(0xEA, 0xE0, 0xDD),
+                ColorU::rgb(0x7E, 0x4A, 0x42),
+                ColorU::rgb(0xB3, 0x83, 0x7A),
+            ),
+        }
+    }
+
+    #[test]
+    fn an_alert_without_a_theme_renders_flat() {
+        let plain = Alert::create(AzString::from_const_str("Saved"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            declarations(&plain.clone().dom()),
+            declarations(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Alert::create(AzString::from_const_str("Saved"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Alert::create(AzString::from_const_str("Saved")).with_theme(UiTheme::Flora),
+            set
+        );
+    }
+
+    #[test]
+    fn a_flat_alerts_close_button_shows_a_focus_ring_by_day_and_night() {
+        for kind in KINDS {
+            let dom = alert(kind, UiTheme::Flat);
+            let (light, dark) = focus_ring(close(&dom));
+            assert!(light.is_some(), "{kind:?}: the x takes the keyboard and shows no ring");
+            assert!(dark.is_some(), "{kind:?}: the ring has no night twin");
+        }
+    }
+
+    #[test]
+    fn a_flora_alert_is_a_paper_leaf_washed_with_its_kind_and_threaded_in_its_stone() {
+        for kind in KINDS {
+            let (soft, face, _) = stone(kind);
+            let rest = theme_probe::unconditional(&alert(kind, UiTheme::Flora));
+            assert_eq!(
+                last(&rest, bg),
+                Some(vec![StyleBackgroundContent::Color(soft)]),
+                "{kind:?}: a pale wash of the stone, never a saturated field"
+            );
+            assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD), "{kind:?}: a hairline");
+            assert_eq!(last(&rest, left_edge), Some(face), "{kind:?}: the thread");
+            assert_eq!(
+                last(&rest, left_width),
+                Some(PixelValue::const_px(3)),
+                "{kind:?}: the thread is heavier than the hairline"
+            );
+            assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_flora_alert_at_night_sits_on_the_night_surface_with_a_glowing_thread() {
+        for kind in KINDS {
+            let (_, _, glow) = stone(kind);
+            let dark = theme_probe::dark(&alert(kind, UiTheme::Flora));
+            assert_eq!(
+                last(&dark, bg),
+                Some(vec![StyleBackgroundContent::Color(flora::DARK_SUR)]),
+                "{kind:?}: no pastel island at night"
+            );
+            assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD), "{kind:?}");
+            assert_eq!(last(&dark, left_edge), Some(glow), "{kind:?}: the thread glows");
+            assert_eq!(last(&dark, ink), Some(flora::DARK_INK), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_flora_alert_lies_on_the_page_with_flora_s_shadow_in_both_modes() {
+        let dom = alert(AlertKind::Info, UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        let dark = theme_probe::dark(&dom);
+        assert!(last(&rest, shadow_colour).is_some(), "--fl-shadow-1 by day");
+        assert!(last(&dark, shadow_colour).is_some(), "and its night value");
+    }
+
+    #[test]
+    fn a_flora_alerts_close_button_rings_in_flora_s_focus_colour() {
+        let dom = alert(AlertKind::Danger, UiTheme::Flora);
+        assert_eq!(
+            focus_ring(close(&dom)),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW))
+        );
+    }
+
+    #[test]
+    fn a_flora_alert_keeps_the_close_buttons_behaviour() {
+        let dom = alert(AlertKind::Warning, UiTheme::Flora);
+        let x = close(&dom);
+        assert!(x.root.get_tab_index().is_some());
+        assert_eq!(x.root.get_callbacks().as_ref().len(), 1);
+        assert!(x
+            .root
+            .get_accessibility_info()
+            .and_then(|a| a.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+            .is_some_and(|n| n == "Close"));
+    }
+
+    #[test]
+    fn a_flora_alert_carries_the_flora_theme_marker() {
+        let dom = alert(AlertKind::Info, UiTheme::Flora);
+        assert!(dom.root.has_class("__azul-native-alert"));
+        assert!(dom.root.has_class("__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_container_style_wins_over_the_flora_look() {
+        let own = Alert::create(AzString::from_const_str("m"))
+            .with_container_style(CssPropertyWithConditionsVec::from_vec(alloc::vec![]))
+            .with_theme(UiTheme::Flora)
+            .dom();
+        assert_eq!(crate::widgets::themes::theme_blocks::checks::live_inline(&own).iter().count(), 0);
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    const KINDS: [AlertKind; 4] = [
+        AlertKind::Info,
+        AlertKind::Success,
+        AlertKind::Warning,
+        AlertKind::Danger,
+    ];
+
+    fn alert(kind: AlertKind) -> Alert {
+        Alert::with_kind(azul_css::AzString::from("Something happened"), kind)
+            .with_dismissible(true)
+    }
+
+    #[test]
+    fn an_alert_without_a_theme_follows_the_app_theme() {
+        for kind in KINDS {
+            checks::assert_follows_the_app_theme(
+                &format!("alert {kind:?}"),
+                || alert(kind).dom(),
+                |t: UiTheme| alert(kind).with_theme(t).dom(),
+            );
+        }
+    }
+
+    /// R5: the banner's row, the message's growth, the close button's
+    /// pointer and unselectable glyph are the alert's BASE, declared once
+    /// outside every `@theme` block. Every kind, with and without the close
+    /// button.
+    #[test]
+    fn an_alert_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for kind in KINDS {
+                for dismissible in [false, true] {
+                    let dom = checks::under(t, || {
+                        alert(kind).with_dismissible(dismissible).dom()
+                    });
+                    assert_structure_is_shared(
+                        &format!(
+                            "alert {kind:?} dismissible={dismissible} built for {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
+        }
     }
 }

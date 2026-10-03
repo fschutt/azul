@@ -20,8 +20,8 @@ use azul_css::{
             ColorU, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric,
         },
         layout::{
-            ColumnCount, ColumnWidth, LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat,
-            LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
+            LayoutBorderSpacing, LayoutClear, LayoutDisplay, LayoutFloat, LayoutHeight,
+            LayoutJustifyContent, LayoutOverflow, LayoutPosition, LayoutTableLayout,
             LayoutTextJustify, LayoutWidth, LayoutWritingMode, ShapeInside, ShapeOutside,
             StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
         },
@@ -64,7 +64,7 @@ use crate::{
             LayoutNodeId, LayoutNodeWarm, LayoutTree, PseudoElement,
         },
         positioning::get_position_type,
-        scrollbar::ScrollbarRequirements,
+        scrollbar::{ScrollbarKind, ScrollbarRequirements},
         sizing::extract_text_from_node,
         taffy_bridge, LayoutContext, LayoutDebugMessage, LayoutError, Result,
     },
@@ -97,6 +97,15 @@ pub(crate) struct BfcLayoutResult {
     /// resumes it in the next fragmentainer. Always `None` on the
     /// continuous path (`constraints.fragmentainer == None`).
     pub outgoing_token: Option<crate::solver3::break_token::BreakToken>,
+    /// A descendant laid out by this formatting context discovered that it
+    /// needs a scrollbar that RESERVES space. Its children were already sized
+    /// against the unreserved width, so the document-level layout loop has to
+    /// run another pass; this is how that need leaves the subtree.
+    pub scrollbar_reflow_needed: bool,
+    /// The scrollbar gutter this formatting context took out of its own
+    /// children's containing block BEFORE laying them out. A node that then
+    /// turns out to need exactly this much has nothing to lay out again.
+    pub reserved_scrollbar_width: f32,
 }
 
 impl BfcLayoutResult {
@@ -106,6 +115,8 @@ impl BfcLayoutResult {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             outgoing_token: None,
+            scrollbar_reflow_needed: false,
+            reserved_scrollbar_width: 0.0,
         }
     }
 }
@@ -185,6 +196,11 @@ pub struct LayoutConstraints<'a> {
     /// K30b fragmentation: `None` = continuous (screen) layout, identical
     /// to pre-token behavior. `Some` arms the fit checks in `layout_bfc`.
     pub fragmentainer: Option<FragmentainerSpace<'a>>,
+    /// The inline formatting context laid out is one piece of a
+    /// multi-column block container's flow, its lines continuing in the
+    /// next columns at these line indices (`solver3::multicol`). `None` =
+    /// not split, for every caller but the multi-column block layout.
+    pub column_flow: Option<crate::text3::cache::ColumnFlow>,
 }
 
 /// Manages all layout state for a single Block Formatting Context.
@@ -856,6 +872,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // Cache border values before the mutable borrow in layout_taffy_subtree
     let border_left = bp.border.left;
     let border_top = bp.border.top;
+    let padding_top = bp.padding.top;
 
     let taffy_output =
         taffy_bridge::layout_taffy_subtree(ctx, tree, text_cache, node_index, taffy_inputs);
@@ -900,6 +917,17 @@ fn layout_flex_grid<T: ParsedFontTrait>(
             }
         }
     }
+
+    // A flex / grid container's first baseline is its first item's (CSS
+    // Flexbox 8.5, Grid 10.6): the first line box laid out in it, at any
+    // depth (`first_line_baseline`, the table cells' walk). The atomic-inline
+    // path reads it for an inline-flex / -grid box; this layout reported
+    // none, so every inline-flex button sat on its line by its bottom edge -
+    // a 32px button beside text made a 36px line (Chrome 32), and alone on a
+    // line it hung the strut's descent below itself. Content-box relative,
+    // like every `LayoutOutput::baseline`.
+    output.baseline = first_line_baseline(node_index, tree, 0)
+        .map(|from_border_top| from_border_top - border_top - padding_top);
 
     Ok(BfcLayoutResult::from_output(output))
 }
@@ -977,6 +1005,9 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     get_element_font_size(ctx.styled_dom, id, node_state),
                     get_root_font_size(ctx.styled_dom, node_state),
                 );
+                // CSS `zoom` scales an absolute length (LAYOUT7).
+                let pixels =
+                    crate::solver3::getters::zoomed_length(ctx.styled_dom, id, px.metric, pixels);
                 let content_px = border_box_to_content(
                     ctx,
                     node,
@@ -1032,6 +1063,9 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     get_element_font_size(ctx.styled_dom, id, node_state),
                     get_root_font_size(ctx.styled_dom, node_state),
                 );
+                // CSS `zoom` scales an absolute length (LAYOUT7).
+                let pixels =
+                    crate::solver3::getters::zoomed_length(ctx.styled_dom, id, px.metric, pixels);
                 // box-sizing:border-box + an ABSOLUTE length is a border-box
                 // value; the caller re-adds border+padding to reach the
                 // taffy border-box, so convert to content-box here to avoid
@@ -1211,6 +1245,63 @@ fn position_float(
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
                                                                // layout/render/parse routine (one
                                                                // branch per case)
+/// Does the block container `dom_id` center its block-level children the
+/// HTML legacy way (`text-align: -webkit-center`)?
+///
+/// HTML's rendering section: a `div`, `caption`, `thead`, `tbody`, `tfoot`,
+/// `tr`, `td` or `th` with `align="center"` (or `middle`) centers its
+/// text AND its block-level descendants, as if they had auto margins; the
+/// value inherits like `text-align`. So the newsletter's `<td align=
+/// "center"><table width="600">` centers the 600px table in the wide cell.
+/// The presentational hint gives such an element `text-align: center`
+/// (`azul_core::xml::attributes::presentational_css`); here the inherited
+/// half: walking up while the computed `text-align` stays `center`, a
+/// legacy-centering element found on the way decides. An element that
+/// says something else stops the walk.
+fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: NodeId) -> bool {
+    use azul_core::dom::{AttributeType, NodeType};
+    use azul_css::props::style::StyleTextAlign;
+
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data = styled_dom.node_data.as_container();
+    let mut current = Some(dom_id);
+    for _ in 0..64 {
+        let Some(id) = current else {
+            return false;
+        };
+        let state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
+        if get_text_align(styled_dom, id, state).unwrap_or_default() != StyleTextAlign::Center {
+            return false;
+        }
+        let nd = &node_data[id];
+        let takes_align = matches!(
+            nd.get_node_type(),
+            NodeType::Div
+                | NodeType::Caption
+                | NodeType::THead
+                | NodeType::TBody
+                | NodeType::TFoot
+                | NodeType::Tr
+                | NodeType::Td
+                | NodeType::Th
+        );
+        if takes_align
+            && nd.attributes().as_ref().iter().any(|a| match a {
+                AttributeType::Custom(nv) => {
+                    nv.attr_name.as_str().eq_ignore_ascii_case("align")
+                        && (nv.value.as_str().trim().eq_ignore_ascii_case("center")
+                            || nv.value.as_str().trim().eq_ignore_ascii_case("middle"))
+                }
+                _ => false,
+            })
+        {
+            return true;
+        }
+        current = hierarchy.get(id).and_then(|h| h.parent_id());
+    }
+    false
+}
+
 fn layout_bfc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1227,6 +1318,11 @@ fn layout_bfc<T: ParsedFontTrait>(
     // axis) for ordering block-level boxes in BFC
     let writing_mode = constraints.writing_mode;
     let mut output = LayoutOutput::default();
+    // `<td align="center">` / `<div align="center">`: block children are
+    // centered too (`centers_blocks_the_legacy_way`).
+    let legacy_center = node
+        .dom_node_id
+        .is_some_and(|dom_id| centers_blocks_the_legacy_way(ctx.styled_dom, dom_id));
 
     debug_info!(
         ctx,
@@ -1269,13 +1365,23 @@ fn layout_bfc<T: ParsedFontTrait>(
             // For auto-height containers, the pre-layout `used_size.height` is a
             // placeholder (calculate_used_size_for_node returns 0 for block-level
             // auto-height; apply_content_based_height resolves it after children lay
-            // out). In that window, `constraints.available_size.height` holds the
-            // containing block's height — the value children should use as their own
-            // containing block for percentage-height / indefinite-height semantics.
+            // out). In that window, `constraints.available_size.height` holds what
+            // `cache::prepare_layout_context` decided the children's percentage
+            // heights resolve against: the containing block's height where this box's
+            // height is decided by its surroundings, or an indefinite one (INFINITY)
+            // where its content decides it (`cache::forwards_containing_block_height`,
+            // CSS 2.2 10.5).
             let inner = node.box_props.inner_size(used_size, writing_mode);
-            let height_is_auto = tree
-                .warm(LayoutNodeId::new(node_index))
-                .is_none_or(|w| w.computed_style.height.is_none());
+            // A percentage height against this box's own indefinite containing
+            // block is `auto` as well (CSS 2.2 10.5): its used height is the
+            // placeholder too (AzMail's `height: 100%` paper, an inline-block).
+            let height_is_auto = tree.warm(LayoutNodeId::new(node_index)).is_none_or(|w| {
+                crate::solver3::sizing::height_is_auto_for_children(
+                    &node.formatting_context,
+                    w.computed_style.height.as_ref(),
+                    constraints.containing_block_size.height.is_finite(),
+                )
+            });
             if height_is_auto {
                 LogicalSize::new(inner.width, constraints.available_size.height)
             } else {
@@ -1333,6 +1439,28 @@ fn layout_bfc<T: ParsedFontTrait>(
             (children_containing_block_size.width - scrollbar_reservation).max(0.0);
     }
 
+    // CSS Multicol 1: a multi-column block container lays its children out
+    // as ONE column of the column width - Passes 1 and 2 below, unchanged
+    // but for that width - and then cuts that column into its columns
+    // (`distribute_into_columns`, after Pass 2).
+    let multicol = block_columns(
+        ctx,
+        tree,
+        &node,
+        node_index,
+        constraints,
+        children_containing_block_size,
+    );
+    if let Some(columns) = &multicol {
+        children_containing_block_size.width = columns.geometry.width;
+    }
+    // The inline size the children are placed across (floats, auto
+    // margins, right to left): one column of a multi-column container.
+    let flow_cross_size = multicol.as_ref().map_or_else(
+        || constraints.available_size.cross(writing_mode),
+        |columns| columns.geometry.width,
+    );
+
     // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
     //
     // Inspired by Taffy's two-pass approach: first measure, then position.
@@ -1350,11 +1478,27 @@ fn layout_bfc<T: ParsedFontTrait>(
     //   the per-node cache (same available_size) — O(1) per child.
     //
     // Performance: O(n) for the tree. No double-computation thanks to caching.
+    // A child that turns out to need a space-reserving scrollbar was sized in
+    // this very pass against the UNreserved width (Pass 1 is the child's real
+    // layout). Only the document-level loop can lay it out again, so the need
+    // travels up in the result instead of dying in a local: before this, the
+    // flag was raised into a temporary here, and `overflow: auto` reserved its
+    // gutter only for a node that happened to BE a layout root.
+    let mut child_scrollbar_reflow = false;
     {
         let mut temp_positions: super::PositionVec = Vec::new();
-        let mut temp_scrollbar_reflow = false;
 
-        let bfc_children = tree.children(node_index).to_vec();
+        // A `::marker` riding the first line is laid out with that line, not
+        // as a block of this flow (`is_marker_on_a_line`).
+        let bfc_children: Vec<usize> = {
+            let shared: &LayoutTree = tree;
+            shared
+                .children(node_index)
+                .iter()
+                .copied()
+                .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
+                .collect()
+        };
         // [g147c az-web-lift DIAG] layout_bfc Pass-1 child-sizing loop: record bfc_children.len per
         // parent node (0x60A00+slot). If body shows len=2 but the divs never get the
         // per-child "sized" marker (0x60A40+childslot) below → the loop skips them; if they
@@ -1408,7 +1552,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     constraints.available_width_type,
                 ),
                 &mut temp_positions,
-                &mut temp_scrollbar_reflow,
+                &mut child_scrollbar_reflow,
                 float_cache,
                 crate::solver3::cache::ComputeMode::ComputeSize,
             )?;
@@ -1472,7 +1616,17 @@ fn layout_bfc<T: ParsedFontTrait>(
 
     // +spec:display-property:9f6e18 - BFC dispatches normal flow, floats, and relative positioning
     // (CSS 2.2 §9.8)
-    let pos_children = tree.children(node_index).to_vec();
+    // A `::marker` riding the first line is no block of this flow
+    // (`is_marker_on_a_line`): it took a line of its own.
+    let pos_children: Vec<usize> = {
+        let shared: &LayoutTree = tree;
+        shared
+            .children(node_index)
+            .iter()
+            .copied()
+            .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
+            .collect()
+    };
 
     // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
     // +spec:box-model:66e123 - ...whose INLINE size is the basis in CSS3 (writing-modes-4 §7.2)
@@ -1809,7 +1963,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                     float_margin,
                     // Include last_margin_bottom since float margins don't collapse!
                     float_y,
-                    constraints.available_size.cross(writing_mode),
+                    flow_cross_size,
                     writing_mode,
                 );
 
@@ -2613,7 +2767,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         let (cross_start, cross_end, available_cross) = if avoids_floats {
             // New BFC / replaced / table: Must shrink or move down to avoid overlapping floats
             let child_cross_needed = child_size.cross(writing_mode);
-            let bfc_cross = constraints.available_size.cross(writing_mode);
+            let bfc_cross = flow_cross_size;
 
             let (mut start, mut end) = float_context.available_line_box_space(
                 main_pen,
@@ -2676,7 +2830,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             // Normal flow: Overlaps floats, positioned at full width
             // Only the child's INLINE CONTENT (if any) wraps around floats
             let start = 0.0;
-            let end = constraints.available_size.cross(writing_mode);
+            let end = flow_cross_size;
             let available = end - start;
 
             debug_info!(
@@ -2757,13 +2911,20 @@ fn layout_bfc<T: ParsedFontTrait>(
                     (available_cross - child_used_size.cross(writing_mode) - child_margin.right)
                         .max(0.0);
                 cross_start + remaining
+            } else if legacy_center {
+                let remaining = (available_cross
+                    - child_used_size.cross(writing_mode)
+                    - child_margin.cross_start(writing_mode)
+                    - child_margin.cross_end(writing_mode))
+                .max(0.0);
+                cross_start + child_margin.cross_start(writing_mode) + remaining / 2.0
             } else {
                 cross_start + child_margin.cross_start(writing_mode)
             };
             (cross_pos, main_pen)
         } else {
             // Normal flow: Check for margin: auto centering
-            let available_cross = constraints.available_size.cross(writing_mode);
+            let available_cross = flow_cross_size;
             let child_cross_size = child_used_size.cross(writing_mode);
 
             debug_info!(
@@ -2819,6 +2980,13 @@ fn layout_bfc<T: ParsedFontTrait>(
                     child_margin.cross_start(writing_mode)
                 );
                 child_margin.cross_start(writing_mode)
+            } else if legacy_center {
+                let remaining = (available_cross
+                    - child_cross_size
+                    - child_margin.cross_start(writing_mode)
+                    - child_margin.cross_end(writing_mode))
+                .max(0.0);
+                child_margin.cross_start(writing_mode) + remaining / 2.0
             } else {
                 // +spec:box-model:218643 - over-constrained: drop end margin per containing block
                 // writing mode +spec:width-calculation:d172a4 - over-constrained:
@@ -3016,6 +3184,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 containing_block_size: constraints.containing_block_size,
                 available_width_type: Text3AvailableSpace::Definite(child_content_size.width),
                 fragmentainer: None,
+                column_flow: None,
             };
 
             // Re-layout the IFC with float awareness
@@ -3028,6 +3197,7 @@ fn layout_bfc<T: ParsedFontTrait>(
                 &ifc_constraints,
                 float_cache,
             )?;
+            child_scrollbar_reflow |= ifc_result.scrollbar_reflow_needed;
 
             // DON'T update used_size - the box keeps its full width!
             // Only the text layout inside changes to wrap around floats
@@ -3084,6 +3254,23 @@ fn layout_bfc<T: ParsedFontTrait>(
             child_cross_pos + child_size.cross(writing_mode) + child_margin.cross_end(writing_mode);
         max_cross_size = max_cross_size.max(child_cross_extent);
     }
+
+    // CSS Multicol 1: the children stand in ONE column of the column width;
+    // cut it into the container's columns and move them there.
+    let multicol_extent = match &multicol {
+        Some(columns) if has_content => Some(distribute_into_columns(
+            ctx,
+            tree,
+            text_cache,
+            float_cache,
+            columns,
+            &pos_children,
+            &mut output.positions,
+            !float_context.floats.is_empty(),
+            constraints,
+        )?),
+        _ => None,
+    };
 
     // Store the float context in cache for future layout passes
     // This happens after ALL children (floats and normal) have been positioned
@@ -3344,6 +3531,13 @@ fn layout_bfc<T: ParsedFontTrait>(
         }
     }
 
+    // A multi-column container is as tall as its tallest column (its
+    // floats are in the columns too) and as wide as its columns reach.
+    if let Some(extent) = multicol_extent {
+        content_box_height = extent.height;
+        max_cross_size = extent.width;
+    }
+
     // +spec:display-contents:f6de1a - content height overflow tracked via overflow_size
     // +spec:overflow:043182 - overflow computed from box bounds + children overflow
     output.overflow_size =
@@ -3361,10 +3555,10 @@ fn layout_bfc<T: ParsedFontTrait>(
     );
 
     // +spec:inline-formatting-context:2227a4 - atomic inline baseline for inline-block/inline-table
-    // Baseline calculation would happen here in a full implementation.
     // CSS2 §10.8.1: For inline-block, baseline is the baseline of the last
-    // line box in normal flow, or the bottom margin edge if no line boxes.
-    output.baseline = None;
+    // line box in normal flow, or the bottom margin edge if no line boxes
+    // (`None`, which `atomic_inline_baseline_offset` turns into that edge).
+    output.baseline = last_line_box_baseline(tree, ctx.styled_dom, node_index, &output.positions);
 
     // Store escaped margins in the LayoutNode for use by parent
     if let Some(warm_mut) = tree.warm_mut(LayoutNodeId::new(node_index)) {
@@ -3381,7 +3575,323 @@ fn layout_bfc<T: ParsedFontTrait>(
         escaped_top_margin,
         escaped_bottom_margin,
         outgoing_token: fragment_token_out,
+        scrollbar_reflow_needed: child_scrollbar_reflow,
+        reserved_scrollbar_width: scrollbar_reservation,
     })
+}
+
+// Multi-column block containers (CSS Multicol 1)
+
+/// The columns of a multi-column block container, as `layout_bfc` lays it
+/// out.
+struct BlockColumns {
+    style: crate::solver3::multicol::ColumnStyle,
+    geometry: crate::solver3::multicol::ColumnGeometry,
+    /// The container's content-box width, the columns are placed across.
+    content_width: f32,
+    /// The container's own content height, when it has a definite one.
+    definite_height: Option<f32>,
+    /// `direction: rtl`: the columns run right to left.
+    rtl: bool,
+}
+
+/// The content extent of a multi-column container's columns.
+struct ColumnsExtent {
+    /// The tallest column.
+    height: f32,
+    /// How far the columns reach on the inline axis.
+    width: f32,
+}
+
+/// The columns of the block container at `node_index`, when it is a
+/// multi-column container the column layout handles: continuous media (not
+/// a K30b fragment pass), a definite width, a horizontal writing mode. In
+/// every other case it lays out as one column, as it always did.
+/// `content_box` is the size its children's containing block has.
+fn block_columns<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node: &LayoutNodeHot,
+    node_index: usize,
+    constraints: &LayoutConstraints<'_>,
+    content_box: LogicalSize,
+) -> Option<BlockColumns> {
+    if constraints.fragmentainer.is_some()
+        || constraints.writing_mode != LayoutWritingMode::HorizontalTb
+        || !matches!(
+            constraints.available_width_type,
+            Text3AvailableSpace::Definite(_)
+        )
+    {
+        return None;
+    }
+    let dom_id = node.dom_node_id?;
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let style = crate::solver3::multicol::column_style(
+        ctx.styled_dom,
+        dom_id,
+        node_state,
+        ctx.viewport_size,
+    )?;
+    let has_definite_height = node.used_size.is_some()
+        && tree.warm(LayoutNodeId::new(node_index)).is_some_and(|w| {
+            matches!(
+                w.computed_style.height,
+                Some(LayoutHeight::Px(_) | LayoutHeight::Calc(_))
+            )
+        });
+    let definite_height = has_definite_height
+        .then_some(content_box.height)
+        .filter(|h| h.is_finite() && *h > 0.0);
+    let rtl = matches!(
+        get_direction_property(ctx.styled_dom, dom_id, node_state),
+        MultiValue::Exact(StyleDirection::Rtl)
+    );
+    Some(BlockColumns {
+        geometry: style.geometry(content_box.width),
+        style,
+        content_width: content_box.width,
+        definite_height,
+        rtl,
+    })
+}
+
+/// Cuts a multi-column block container's single column into its columns
+/// (`multicol::plan_columns`) and moves its children there: an in-flow
+/// child to its column, a paragraph that continues in the next columns laid
+/// out again split between its lines ([`split_into_columns`]), a float to
+/// the column its top falls in. `positions` are the children's positions in
+/// the single column, relative to the container's content box.
+///
+/// With floats in the flow no paragraph splits: its lines wrapped around
+/// them, and a split must break its lines exactly as they are.
+#[allow(clippy::too_many_arguments)] // one layout step, the layout state it needs
+fn distribute_into_columns<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    float_cache: &mut HashMap<usize, FloatingContext>,
+    columns: &BlockColumns,
+    children: &[usize],
+    positions: &mut BTreeMap<usize, LogicalPosition>,
+    has_floats: bool,
+    constraints: &LayoutConstraints<'_>,
+) -> Result<ColumnsExtent> {
+    use crate::solver3::multicol::{plan_columns, FlowBox};
+
+    let mut flow: Vec<(usize, FlowBox)> = Vec::new();
+    let mut floats: Vec<usize> = Vec::new();
+    for &child in children {
+        let Some(&pos) = positions.get(&child) else {
+            continue;
+        };
+        let Some(node) = tree.get(LayoutNodeId::new(child)) else {
+            continue;
+        };
+        if get_float_property(ctx.styled_dom, node.dom_node_id) != LayoutFloat::None {
+            floats.push(child);
+            continue;
+        }
+        let height = node.used_size.unwrap_or_default().height;
+        let lines = if has_floats {
+            Vec::new()
+        } else {
+            splittable_lines(ctx, tree, child, pos.y)
+        };
+        flow.push((
+            child,
+            FlowBox {
+                top: pos.y,
+                bottom: pos.y + height,
+                lines,
+            },
+        ));
+    }
+
+    let boxes: Vec<FlowBox> = flow.iter().map(|(_, b)| b.clone()).collect();
+    let plan = plan_columns(
+        &boxes,
+        columns.geometry.count,
+        columns.definite_height,
+        columns.style.fill,
+    );
+    let column_x = |k: usize| {
+        columns
+            .geometry
+            .column_x(k, columns.content_width, columns.rtl)
+    };
+
+    for ((child, flow_box), placement) in flow.iter().zip(&plan.boxes) {
+        let k = placement.column;
+        let start = plan.starts.get(k).copied().unwrap_or(0.0);
+        if let Some(pos) = positions.get_mut(child) {
+            *pos = LogicalPosition::new(pos.x + column_x(k), pos.y - start);
+        }
+        if !placement.line_breaks.is_empty() {
+            let next_start = plan.starts.get(k + 1).copied().unwrap_or(flow_box.bottom);
+            split_into_columns(
+                ctx,
+                tree,
+                text_cache,
+                float_cache,
+                *child,
+                flow_box,
+                start,
+                next_start,
+                &placement.line_breaks,
+                columns,
+                constraints,
+            )?;
+        }
+    }
+    for child in floats {
+        if let Some(pos) = positions.get_mut(&child) {
+            let k = plan.column_at(pos.y);
+            let start = plan.starts.get(k).copied().unwrap_or(0.0);
+            *pos = LogicalPosition::new(pos.x + column_x(k), pos.y - start);
+        }
+    }
+
+    let width = (0..plan.starts.len())
+        .map(|k| column_x(k) + columns.geometry.width)
+        .fold(columns.content_width, f32::max);
+    Ok(ColumnsExtent {
+        height: plan.height,
+        width,
+    })
+}
+
+/// The lines of the in-flow child at `child` (its border box at flow
+/// offset `top`) when it may continue in the next column between two of
+/// them: a plain inline formatting context - no block formatting context of
+/// its own, not replaced, no columns of its own - whose stored layout is
+/// the unsplit one. The line boxes are not kept, so a line's extent is its
+/// items' (those with a height), offset into the flow.
+fn splittable_lines<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    child: usize,
+    top: f32,
+) -> Vec<crate::solver3::multicol::FlowLine> {
+    let id = LayoutNodeId::new(child);
+    let Some(node) = tree.get(id) else {
+        return Vec::new();
+    };
+    if node.formatting_context != FormattingContext::Inline
+        || establishes_new_bfc(ctx, node, tree.cold(id))
+        || is_block_level_replaced(ctx, node)
+    {
+        return Vec::new();
+    }
+    let unsplit = tree
+        .warm(id)
+        .and_then(|w| w.inline_layout_result.as_ref())
+        .and_then(|cached| cached.constraints.as_ref())
+        .is_some_and(|c| c.columns <= 1 && c.column_flow.is_none());
+    if !unsplit {
+        return Vec::new();
+    }
+    let Some(layout) = tree.materialized_inline_layout_for_node(child) else {
+        return Vec::new();
+    };
+    let bp = node.box_props.unpack();
+    let content_top = top + bp.border.top + bp.padding.top;
+    let mut extents: BTreeMap<usize, (f32, f32)> = BTreeMap::new();
+    for item in &layout.items {
+        let height = item.item.bounds().height;
+        if height.is_nan() || height <= 0.0 {
+            continue;
+        }
+        let item_top = content_top + item.position.y;
+        let item_bottom = item_top + height;
+        extents
+            .entry(item.line_index)
+            .and_modify(|(t, b)| {
+                *t = t.min(item_top);
+                *b = b.max(item_bottom);
+            })
+            .or_insert((item_top, item_bottom));
+    }
+    extents
+        .into_iter()
+        .map(|(index, (top, bottom))| crate::solver3::multicol::FlowLine { index, top, bottom })
+        .collect()
+}
+
+/// Lays the paragraph at `child` out again as one piece of its
+/// multi-column container's flow: from each line index in `line_breaks` on
+/// its lines continue at the top of the next column
+/// (`text3::cache::ColumnFlow`), and its box keeps the part in its first
+/// column (`column_start..next_column_start` on the flow). The lines break
+/// exactly as in the single column - same width, same content - so the
+/// plan made on that layout holds.
+#[allow(clippy::too_many_arguments)] // one layout step, the layout state it needs
+fn split_into_columns<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    float_cache: &mut HashMap<usize, FloatingContext>,
+    child: usize,
+    flow_box: &crate::solver3::multicol::FlowBox,
+    column_start: f32,
+    next_column_start: f32,
+    line_breaks: &[usize],
+    columns: &BlockColumns,
+    constraints: &LayoutConstraints<'_>,
+) -> Result<()> {
+    let node = tree
+        .get(LayoutNodeId::new(child))
+        .ok_or(LayoutError::InvalidTree)?;
+    let size = node.used_size.unwrap_or_default();
+    let bp = node.box_props.unpack();
+    let content_size = bp.inner_size(size, LayoutWritingMode::HorizontalTb);
+    let content_top = flow_box.top + bp.border.top + bp.padding.top;
+
+    let mut bfc_state = BfcState::new();
+    let split_constraints = LayoutConstraints {
+        available_size: content_size,
+        bfc_state: Some(&mut bfc_state),
+        writing_mode: constraints.writing_mode,
+        writing_mode_ctx: constraints.writing_mode_ctx,
+        text_align: constraints.text_align,
+        containing_block_size: constraints.containing_block_size,
+        available_width_type: Text3AvailableSpace::Definite(content_size.width),
+        fragmentainer: None,
+        column_flow: Some(crate::text3::cache::ColumnFlow {
+            breaks: line_breaks.to_vec(),
+            advance: columns.geometry.advance(columns.rtl),
+            // Every further column's top, from this paragraph's content
+            // top: as far up as the paragraph starts below its column's.
+            column_top: column_start - content_top,
+        }),
+    };
+    let split = layout_formatting_context(
+        ctx,
+        tree,
+        text_cache,
+        child,
+        &split_constraints,
+        float_cache,
+    )?;
+    // Its atomic inlines moved with their lines.
+    for (inner, pos) in split.output.positions {
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(inner)) {
+            warm.relative_position = Some(pos);
+        }
+    }
+    // Its box is what stays in its first column - and so is its content
+    // extent. The overflow size its single-column pass stored still reached
+    // the whole unsplit height below the box, and the painter's content rect
+    // (`get_scroll_content_size` takes the larger of the two) carried it
+    // into the paged extent: 80px columns made a 163px document.
+    let first_column = LogicalSize::new(size.width, (next_column_start - flow_box.top).max(0.0));
+    if let Some(node) = tree.get_mut(LayoutNodeId::new(child)) {
+        node.used_size = Some(first_column);
+    }
+    if let Some(warm) = tree.warm_mut(LayoutNodeId::new(child)) {
+        warm.overflow_content_size = Some(first_column);
+    }
+    Ok(())
 }
 
 // Inline Formatting Context (CSS 2.2 § 9.4.2)
@@ -3557,13 +4067,46 @@ fn editing_host_strut_height<T: ParsedFontTrait>(
     }
     let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let font_size = get_element_font_size(ctx.styled_dom, dom_id, node_state);
-    let line_height =
-        crate::solver3::getters::get_line_height_value(ctx.styled_dom, dom_id, node_state)
-            .map_or(1.2, |lh| lh.inner.normalized());
+    // `normal` as 1.2em. (This read `normalized()` as a factor, so an absolute
+    // line-height - stored negative - gave a 1px strut.)
+    let line_height = crate::solver3::getters::get_used_line_height(
+        ctx.styled_dom,
+        dom_id,
+        node_state,
+        font_size,
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    )
+    .resolve(font_size, 0.0, 0.0, 0.0, 0);
     Some(
-        crate::solver3::display_list::empty_editable_caret_rect(font_size, line_height)
+        crate::solver3::display_list::empty_editable_caret_rect(line_height)
             .size
             .height,
+    )
+}
+
+/// The extent of a laid-out IFC: its `overflow_size` - the ONE computation
+/// every exit of [`layout_ifc`] reports, the fresh layout and the cache-reuse
+/// path alike, so two layouts of unchanged content cannot drift (a textarea
+/// measured 13.0 px tall once and 12.999999 px after a slider drag when the
+/// reuse exit took `bounds()` alone).
+///
+/// The UNCLIPPED content bounds, not `bounds()` alone. `bounds()` maxes over
+/// `layout.items`, which under dense-text retention is an empty sentinel (the
+/// real clusters live in the dense view) - so `bounds()` collapses to 0 and a
+/// horizontal scroll container's overflow was never detected
+/// (`overflow_size.width == 0` → `needs_horizontal == false` → the value `<p>`
+/// of a single-line field never became a scroll box the caret-reveal could
+/// shift: the append-only caret bug). `unclipped_bounds` is captured during
+/// line breaking to enclose every positioned item - and the line box a lone
+/// `<br>` ends, which no item spans - and survives the sentinel swap. The max
+/// of the two, so a path that leaves `unclipped_bounds` at its default still
+/// gets the fragment's own bounds.
+fn ifc_extent(main_frag: &text3::cache::UnifiedLayout) -> LogicalSize {
+    let frag_bounds = main_frag.bounds();
+    let unclipped = main_frag.overflow.unclipped_bounds;
+    LogicalSize::new(
+        frag_bounds.width.max(unclipped.width),
+        frag_bounds.height.max(unclipped.height),
     )
 }
 
@@ -3611,6 +4154,10 @@ fn layout_ifc<T: ParsedFontTrait>(
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // An anonymous box borrows an element's id to resolve its style, but
+    // only the INHERITED properties are its own (§9.2.1.1): it has no
+    // columns of the element's (see translate_to_text3_constraints).
+    let ifc_root_is_anonymous = node.dom_node_id.is_none();
     let ifc_root_dom_id = if let Some(id) = node.dom_node_id {
         id
     } else {
@@ -3715,6 +4262,10 @@ fn layout_ifc<T: ParsedFontTrait>(
         .warm(LayoutNodeId::new(node_index))
         .and_then(|w| w.inline_content_cache.as_ref())
         .filter(|c| c.subtree_fingerprint == subtree_fingerprint)
+        .filter(|c| {
+            c.atomics_measured_against
+                .is_none_or(|key| key == atomic_inline_measure_key(constraints))
+        })
         .map(|c| (c.content.clone(), c.child_map.clone(), c.content_hash_base));
 
     // Second precondition, checked HERE because this is the only place that can.
@@ -3774,6 +4325,10 @@ fn layout_ifc<T: ParsedFontTrait>(
                             child_map: child_map.clone(),
                             subtree_fingerprint,
                             content_hash_base: computed_base,
+                            atomics_measured_against: content
+                                .iter()
+                                .any(|c| matches!(c, InlineContent::Shape(_)))
+                                .then(|| atomic_inline_measure_key(constraints)),
                         }));
                 }
             }
@@ -3809,8 +4364,30 @@ fn layout_ifc<T: ParsedFontTrait>(
     // property (text-align, text-align-last, text-indent, direction, line-height,
     // white-space, columns) — which is NOT covered by the per-run content hash — would
     // otherwise silently reuse a stale, differently-aligned/indented cached layout.
-    let text3_constraints =
-        translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
+    let mut text3_constraints = translate_to_text3_constraints(
+        ctx,
+        constraints,
+        ctx.styled_dom,
+        ifc_root_dom_id,
+        ifc_root_is_anonymous,
+    );
+    // CSS 2.1 s16.1 / CSS Text 3 s8.1: `text-indent` indents the FIRST
+    // formatted line of the block container. An anonymous block (which
+    // borrows the container's style) holds that line only when it is the
+    // container's first in-flow box: the text after a nested block
+    // (`<div>first<div>..</div>after</div>`) is not indented (Chrome);
+    // it was (TEXT7's finding). `each-line` keeps its own rule.
+    if ifc_root_is_anonymous
+        && !text3_constraints.text_indent_each_line
+        && tree
+            .get(LayoutNodeId::new(node_index))
+            .and_then(|n| n.parent)
+            .is_some_and(|parent| {
+                first_in_flow_child(tree, ctx.styled_dom, parent) != Some(node_index)
+            })
+    {
+        text3_constraints.text_indent = 0.0;
+    }
 
     let current_content_hash = {
         let _p = crate::probe::Probe::span("ifc_content_hash");
@@ -3831,6 +4408,9 @@ fn layout_ifc<T: ParsedFontTrait>(
         text3_constraints.white_space_mode.hash(&mut h);
         text3_constraints.direction.hash(&mut h);
         text3_constraints.columns.hash(&mut h);
+        // A split into a multi-column flow moves the lines: a layout of the
+        // other split (or of none) must not be reused.
+        text3_constraints.column_flow.hash(&mut h);
         text3_constraints.text_indent.to_bits().hash(&mut h);
         match text3_constraints.line_height {
             text3::cache::LineHeight::Normal => 0u64.hash(&mut h),
@@ -4031,9 +4611,8 @@ fn layout_ifc<T: ParsedFontTrait>(
                     // reuse path's overflow_size (scrollbars vanished on
                     // every GlyphSwap reuse).
                     let main_frag = cached.materialized();
-                    let frag_bounds = main_frag.bounds();
                     let mut output = LayoutOutput {
-                        overflow_size: LogicalSize::new(frag_bounds.width, frag_bounds.height),
+                        overflow_size: ifc_extent(&main_frag),
                         baseline: main_frag.last_baseline(),
                         ..Default::default()
                     };
@@ -4053,15 +4632,14 @@ fn layout_ifc<T: ParsedFontTrait>(
                     // This is the discipline a memoized call with a side effect
                     // needs: the exit REPLAYS what the full path would have
                     // written. Note it replays POSITIONS only — the children's
-                    // sizes are assumed to be in the tree already. That holds
-                    // because this branch needs a cached `inline_layout_result`
-                    // on the node, and layout-derived state is never carried
-                    // across a tree rebuild (`try_reuse_anon_wrapper`), so this
-                    // exit is only reachable within a pass whose children have
-                    // been laid out. It is correct by a neighbouring invariant
-                    // rather than by its own check — if `inline_layout_result`
-                    // ever starts being carried, this needs the same
-                    // precondition check the collection cache now performs.
+                    // sizes are assumed to be in the tree already. A carried
+                    // `inline_layout_result` (a clone's, and a matched
+                    // anonymous block's since `try_reuse_anon_wrapper` carries
+                    // layout state) can reach this exit in a new tree, and the
+                    // assumption still holds there: the collection above is
+                    // only reused while `atomic_inline_children_are_laid_out`
+                    // says the atomic children it places have sizes (carried
+                    // by their own clones), and a re-collection lays them out.
                     for positioned_item in &main_frag.items {
                         if let ShapedItem::Object { source, .. } = &positioned_item.item {
                             if let Some(&child_node_index) = child_map.get(source) {
@@ -4279,21 +4857,10 @@ fn layout_ifc<T: ParsedFontTrait>(
         // bottommost line box +spec:display-property:a63b8f - baseline-source defaults to
         // auto (last baseline for inline-block/IFC)
         //
-        // Use the UNCLIPPED content bounds, not `bounds()`. `bounds()` maxes over
-        // `layout.items`, which under dense-text retention is an empty sentinel
-        // (the real clusters live in the dense view) — so `bounds()` collapses to
-        // 0 and a horizontal scroll container's overflow was never detected
-        // (`overflow_size.width == 0` → `needs_horizontal == false` → the value
-        // `<p>` of a single-line field never became a scroll box the caret-reveal
-        // could shift: the append-only caret bug). `unclipped_bounds` is captured
-        // during line breaking to enclose every positioned item and survives the
-        // sentinel swap. Take the max so a path that leaves `unclipped_bounds`
-        // at its default still gets the fragment's own bounds.
-        let unclipped = main_frag.overflow.unclipped_bounds;
-        output.overflow_size = LogicalSize::new(
-            frag_bounds.width.max(unclipped.width),
-            frag_bounds.height.max(unclipped.height),
-        );
+        // The ONE measure of an IFC's extent (`ifc_extent`): the cache-reuse
+        // exit above reports the same, so two layouts of unchanged content
+        // agree to the bit.
+        output.overflow_size = ifc_extent(main_frag);
         output.baseline = main_frag.last_baseline();
         warm_node.baseline = output.baseline;
 
@@ -4461,6 +5028,15 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
     if cold.and_then(|c| c.anonymous_type) == Some(AnonymousBoxType::TableWrapper) {
         return true;
     }
+    // CSS 2.2 s9.4.1: a table cell establishes a BFC - an ANONYMOUS cell
+    // too (s17.2.1: the one a `display: table` box's `<p>` sits in). With
+    // no DOM node it answered "no", its first child's top margin and its
+    // last child's bottom margin escaped the cell, and no box outside a
+    // cell takes them: `display: table; padding: 12px` around `<p>Hi</p>`
+    // was 44px tall, Chrome 76 (MAIL6).
+    if matches!(node.formatting_context, FormattingContext::TableCell) {
+        return true;
+    }
     let Some(dom_id) = node.dom_node_id else {
         return false;
     };
@@ -4522,6 +5098,13 @@ fn establishes_new_bfc<T: ParsedFontTrait>(
     };
 
     if creates_bfc_via_overflow(&overflow_x) || creates_bfc_via_overflow(&overflow_y) {
+        return true;
+    }
+
+    // +spec:multi-column - a multi-column container establishes a new block
+    // formatting context (CSS Multicol 1 §2): its children's margins and
+    // floats stay inside it, column by column.
+    if crate::solver3::multicol::is_multicol_container(ctx.styled_dom, dom_id, node_state) {
         return true;
     }
 
@@ -4625,15 +5208,17 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     constraints: &'a LayoutConstraints<'a>,
     styled_dom: &StyledDom,
     dom_id: NodeId,
+    // The IFC root is an anonymous block box and `dom_id` the element it
+    // borrows its style from: the element's columns are not its own.
+    anonymous: bool,
 ) -> UnifiedConstraints {
     use azul_css::compact_cache::{
-        DOM_HAS_COLUMN_COUNT, DOM_HAS_COLUMN_GAP, DOM_HAS_COLUMN_WIDTH, DOM_HAS_EXCLUSION_MARGIN,
-        DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE, DOM_HAS_HYPHENS,
-        DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
-        DOM_HAS_LINE_CLAMP, DOM_HAS_LINE_HEIGHT, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
+        DOM_HAS_EXCLUSION_MARGIN, DOM_HAS_HANGING_PUNCTUATION, DOM_HAS_HYPHENATION_LANGUAGE,
+        DOM_HAS_HYPHENS, DOM_HAS_INITIAL_LETTER, DOM_HAS_INITIAL_LETTER_ALIGN, DOM_HAS_LINE_BREAK,
+        DOM_HAS_LINE_CLAMP, DOM_HAS_OVERFLOW_WRAP, DOM_HAS_SHAPE_INSIDE,
         DOM_HAS_SHAPE_MARGIN, DOM_HAS_SHAPE_OUTSIDE, DOM_HAS_TEXT_ALIGN_LAST,
-        DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_INDENT, DOM_HAS_TEXT_JUSTIFY,
-        DOM_HAS_UNICODE_BIDI, DOM_HAS_WORD_BREAK,
+        DOM_HAS_TEXT_COMBINE_UPRIGHT, DOM_HAS_TEXT_JUSTIFY, DOM_HAS_UNICODE_BIDI,
+        DOM_HAS_WORD_BREAK,
     };
     unsafe {
         crate::az_mark(0x60704_u32, (0x30u32));
@@ -4844,15 +5429,69 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // Use helper function which checks dependency chain first
     let font_size = get_element_font_size(styled_dom, id, node_state);
 
-    let line_height_value = if dom_declared & DOM_HAS_LINE_HEIGHT != 0 {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_line_height(node_data, &id, node_state)
-            .and_then(|s| s.get_property().copied())
-            .unwrap_or_default()
-    } else {
-        azul_css::props::style::text::StyleLineHeight::default()
+    // The IFC root's own computed style: the very `StyleProperties` its text
+    // runs are built from (memoized per layout). The line-height and the
+    // strut's font below come from it, so the strut sits around the baseline
+    // exactly like the glyphs of the same font and line-height do. This used
+    // to re-read `line-height` from the cascade on its own, and the two
+    // readers disagreed: a node that declared none came out `1.2em` here but
+    // `normal` on its runs.
+    let root_style = crate::solver3::getters::get_style_properties_cached(
+        &mut ctx.style_cache,
+        styled_dom,
+        id,
+        ctx.system_style.as_ref(),
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    );
+    // CSS 2.2 §10.8.1: the strut has the ascent and descent of the block
+    // container's FIRST AVAILABLE FONT. A synthetic 0.8em / 0.2em split
+    // stood in for it, and the strut is part of EVERY line box (text3's
+    // `position_one_line` unions it with the line's content): for any font
+    // with another split (Times: 0.891em / 0.216em) the strut and the text
+    // sat at different heights around the same baseline, and every line box
+    // came out taller than its line-height by |(A - D) / 2 - 0.3em| -
+    // `line-height: 19px` on 11pt text pitched its lines 19.55px apart. The
+    // ascent and descent are the face's ROUNDED pixel metrics, exactly as a
+    // glyph's (`LayoutFontMetrics::line_metrics_px`, Chrome's rounding), so
+    // both boxes coincide for the same font. Until the face is loaded the
+    // approximation stays.
+    let strut_face = ctx
+        .font_manager
+        .first_available_font_metrics(&root_style.font_stack)
+        .filter(|m| m.units_per_em > 0);
+    let strut_font = strut_face.and_then(|m| m.line_metrics_px(root_style.font_size_px));
+    // The same face's OS/2 x-height and cap height (`vertical-align:
+    // middle`, `text-box-edge: ex / cap`); 0.5em / 0.7em where the face has
+    // none or is not loaded yet.
+    let strut_scale = strut_face.map(|m| root_style.font_size_px / f32::from(m.units_per_em));
+    let strut_x_height = strut_face
+        .and_then(|m| m.x_height)
+        .zip(strut_scale)
+        .map_or(font_size * 0.5, |(x_height, scale)| x_height * scale);
+    let strut_cap_height = strut_face
+        .and_then(|m| m.cap_height)
+        .zip(strut_scale)
+        .map_or(font_size * 0.7, |(cap_height, scale)| cap_height * scale);
+    let (strut_ascent, strut_descent) =
+        strut_font.map_or((font_size * 0.8, font_size * 0.2), |(a, d, _)| (a, d));
+    // The root's `line-height: normal` IS that face's A + D + line gap: the
+    // strut of a line holding nothing else (`<div><br></div>`, every blank
+    // line Gmail writes) is as tall as a line of text in that font, as in a
+    // browser, and its leading is shared like a glyph's
+    // (`text3::cache::split_leading`). Without a loaded face `normal` stays
+    // (the strut's 1em).
+    let root_line_height = match (root_style.line_height, strut_font) {
+        (text3::cache::LineHeight::Normal, Some((a, d, gap))) => {
+            text3::cache::LineHeight::Px(a + d + gap)
+        }
+        (line_height, _) => line_height,
+    };
+    // The used line-height as a length, for the readers that need one
+    // (`vertical-align: <percentage>`, `initial-letter`); `normal` without a
+    // loaded face stands in as 1.2em there, as it always did.
+    let line_height_px = match root_line_height {
+        text3::cache::LineHeight::Px(px) => px,
+        text3::cache::LineHeight::Normal => font_size * 1.2,
     };
 
     let hyphenation = if dom_declared & DOM_HAS_HYPHENS != 0 {
@@ -4966,10 +5605,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         StyleVerticalAlign::TextBottom => text3::cache::VerticalAlign::TextBottom,
         // §10.8.1: <percentage> refers to line-height of the element itself
         StyleVerticalAlign::Percentage(p) => {
-            let lh_n = line_height_value.inner.normalized();
-            let resolved_lh = if lh_n < 0.0 { -lh_n } else { lh_n * font_size };
-            let offset = p.normalized() * resolved_lh;
-            text3::cache::VerticalAlign::Offset(offset)
+            text3::cache::VerticalAlign::Offset(p.normalized() * line_height_px)
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
@@ -5062,100 +5698,37 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // hanging keywords +spec:floats:17c74a - text-indent applied to first line (5em indentation
     // with no floats) +spec:positioning:1e32b1 - text-indent with hanging/each-line keywords
     // resolved and passed to text layout
-    let text_indent_prop = if dom_declared & DOM_HAS_TEXT_INDENT != 0 {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_text_indent(node_data, &id, node_state)
-            .and_then(|s| s.get_property().copied())
-    } else {
-        None
-    };
+    // +spec:intrinsic-sizing:0e8625 - percentage text-indent treated as 0 for intrinsic size
+    // contributions (`getters::resolve_text_indent`, shared with the intrinsic scan)
     let is_intrinsic_sizing = matches!(
         constraints.available_width_type,
         Text3AvailableSpace::MinContent | Text3AvailableSpace::MaxContent
     );
-    // +spec:intrinsic-sizing:0e8625 - percentage text-indent treated as 0 for intrinsic size
-    // contributions
-    let text_indent = text_indent_prop.map_or(0.0, |ti| {
-        // CSS Text 3 §8.1: "Percentages must be treated as 0 for the purpose
-        // of calculating intrinsic size contributions"
-        if is_intrinsic_sizing && ti.inner.to_percent().is_some() {
-            return 0.0;
-        }
-        let context = ResolutionContext {
-            vertical_writing_mode: false,
-            element_font_size: get_element_font_size(styled_dom, id, node_state),
-            parent_font_size: get_parent_font_size(styled_dom, id, node_state),
-            root_font_size: get_root_font_size(styled_dom, node_state),
-            containing_block_size: PhysicalSize::new(constraints.available_size.width, 0.0),
-            element_size: None,
-            viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-        };
-        ti.inner
-            .resolve_with_context(&context, PropertyContext::Other)
-    });
-    let text_indent_each_line = text_indent_prop.is_some_and(|ti| ti.each_line);
-    let text_indent_hanging = text_indent_prop.is_some_and(|ti| ti.hanging);
+    let (text_indent, text_indent_each_line, text_indent_hanging) =
+        crate::solver3::getters::resolve_text_indent(
+            styled_dom,
+            id,
+            node_state,
+            constraints.available_size.width,
+            ctx.viewport_size,
+            is_intrinsic_sizing,
+        );
 
-    // ResolutionContext shared by column-gap and column-width (both resolve
-    // lengths against the same font/viewport, with no containing-block size).
-    let column_resolve_ctx = ResolutionContext {
-        vertical_writing_mode: false,
-        element_font_size: get_element_font_size(styled_dom, id, node_state),
-        parent_font_size: get_parent_font_size(styled_dom, id, node_state),
-        root_font_size: get_root_font_size(styled_dom, node_state),
-        containing_block_size: PhysicalSize::new(0.0, 0.0),
-        element_size: None,
-        viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    // Multi-column: THE reader of the column declarations and THE column
+    // resolution (`multicol::column_style` / `ColumnStyle::geometry`, CSS
+    // Multicol 1 §3.4), shared with the multi-column block layout. text3
+    // splits this inline formatting context's lines over the columns; the
+    // gap only matters between columns. The column properties are not
+    // inherited, so an anonymous box (laid out inside the multi-column
+    // container, `id` being the container's) has none.
+    let column_geometry = if anonymous {
+        None
+    } else {
+        crate::solver3::multicol::column_style(styled_dom, id, node_state, ctx.viewport_size)
+            .map(|style| style.geometry(constraints.available_size.width))
     };
-
-    // Read a declared CSS property from the cache, returning None when the
-    // DOM-level declared bit is clear (no node sets the property).
-    macro_rules! declared_prop {
-        ($bit:expr, $getter:ident) => {
-            if dom_declared & $bit != 0 {
-                styled_dom
-                    .css_property_cache
-                    .ptr
-                    .$getter(node_data, &id, node_state)
-                    .and_then(|s| s.get_property())
-            } else {
-                None
-            }
-        };
-    }
-
-    // Get column-gap for multi-column layout (default: normal = 1em)
-    let column_gap = declared_prop!(DOM_HAS_COLUMN_GAP, get_column_gap)
-        .map(|cg| {
-            cg.inner
-                .resolve_with_context(&column_resolve_ctx, PropertyContext::Other)
-        })
-        .unwrap_or_else(|| get_element_font_size(styled_dom, id, node_state));
-
-    // Get column-width for multi-column layout (None = auto)
-    let column_width =
-        declared_prop!(DOM_HAS_COLUMN_WIDTH, get_column_width).and_then(|cw| match cw {
-            ColumnWidth::Auto => None,
-            ColumnWidth::Length(px) => {
-                Some(px.resolve_with_context(&column_resolve_ctx, PropertyContext::Other))
-            }
-        });
-
-    // Get column-count for multi-column layout (default: 1 = no columns)
-    let explicit_column_count = declared_prop!(DOM_HAS_COLUMN_COUNT, get_column_count).copied();
-
-    // CSS multi-column: derive column count from column-width when column-count is auto.
-    // Per spec: N = max(1, floor((available-width + column-gap) / (column-width + column-gap)))
-    let columns = match (explicit_column_count, column_width) {
-        (Some(ColumnCount::Integer(n)), _) => n,
-        (_, Some(cw)) if cw > 0.0 => {
-            let avail = constraints.available_size.width;
-            ((avail + column_gap) / (cw + column_gap)).floor().max(1.0) as u32
-        }
-        _ => 1,
-    };
+    let columns = column_geometry.map_or(1, |g| g.count);
+    let column_gap = column_geometry.map_or(0.0, |g| g.gap);
 
     // +spec:line-breaking:b4928e - white-space values mapped to wrap/whitespace processing rules
     // Map white-space CSS property to TextWrap
@@ -5261,13 +5834,11 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // +spec:floats:c5e23f - floats in subsequent lines adjacent to a sunk initial letter must clear
     // it
     if let Some(ref il) = initial_letter {
-        let lh_n = line_height_value.inner.normalized();
-        let computed_line_height = if lh_n < 0.0 { -lh_n } else { lh_n * font_size };
         let (letter_w, letter_h) = layout_initial_letter(
             il.size,
             il.sink,
             constraints.available_size.width,
-            computed_line_height,
+            line_height_px,
         );
         if letter_w > 0.0 && letter_h > 0.0 {
             // Place the exclusion at the inline-start (x=0, y=0 relative to the IFC).
@@ -5402,6 +5973,13 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         line_clamp,
         columns,
         column_gap,
+        // One piece of a multi-column block container's flow - unless this
+        // context has columns of its own, which split it instead.
+        column_flow: if columns == 1 {
+            constraints.column_flow.clone()
+        } else {
+            None
+        },
         hanging_punctuation,
         text_wrap,
         white_space_mode,
@@ -5479,40 +6057,23 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         },
         // +spec:line-height:79f3aa - line-height resolved: `normal` uses the font's real
         // metrics (ascent - descent + line_gap), <number>/<percentage> × font-size.
-        // When line-height is NOT declared the computed value is `normal`; pass
-        // LineHeight::Normal through so text3 resolves it against the run's actual
-        // font metrics (CoreText/Chrome parity) instead of a synthetic 1.2 ratio.
-        // Negative normalized() = absolute px value (convention from parser for "50px" etc.)
-        line_height: if dom_declared & DOM_HAS_LINE_HEIGHT == 0 {
-            text3::cache::LineHeight::Normal
-        } else {
-            text3::cache::LineHeight::Px({
-                let n = line_height_value.inner.normalized();
-                if n < 0.0 {
-                    -n
-                } else {
-                    n * font_size
-                }
-            })
-        },
-        // Strut metrics for the container's first available font, approximated as
-        // 80%/20%/50% of font_size (typical Latin ratios).
-        // TODO(superplan): use the resolved primary font's real OS/2 metrics
-        // (`ParsedFontTrait::get_font_metrics` → ascent/descent/x_height scaled by
-        // units_per_em) and `get_space_width` for `ch_width`. The font is not
-        // resolved here: picking the element's primary `ParsedFont` requires the
-        // font-chain machinery in `getters::resolve_font_chains` (font-family →
-        // fc_cache → loaded font), which isn't threaded into this function. The
-        // strut only sizes empty / whitespace-only lines — non-empty runs already
-        // use each run's real font metrics during shaping in text3.
-        strut_ascent: font_size * 0.8,
-        strut_descent: font_size * 0.2,
-        strut_x_height: font_size * 0.5, // 0.5em fallback per CSS Inline 3 Appendix A
-        // Typical Latin cap ratio, same approximation spirit as the rest of
-        // the strut block (Appendix A.2's formal fallback is "ascent", which
-        // would make cap-edge trimming a no-op; 0.7em keeps it meaningful
-        // until real OS/2 metrics are threaded here - see the TODO above).
-        strut_cap_height: font_size * 0.7,
+        // When line-height is NOT declared the computed value is `normal`: the
+        // ROOT's (the strut's) is its first available face's rounded A + D +
+        // gap (`root_line_height` above); each run still resolves its own
+        // `normal` against its own glyphs' faces (CoreText/Chrome parity)
+        // instead of a synthetic 1.2 ratio. The value is the root style's,
+        // the one its runs carry (see `root_style`).
+        line_height: root_line_height,
+        // The strut's ascent, descent, x-height and cap height: the
+        // container's first available font's (see `strut_ascent` above; the
+        // x-height falls back to 0.5em per CSS Inline 3 Appendix A, the cap
+        // height to the typical Latin 0.7em - Appendix A.2's formal fallback,
+        // the ascent, would make cap-edge trimming a no-op).
+        // TODO(superplan): `ch_width` from `get_space_width` / the "0" glyph.
+        strut_ascent,
+        strut_descent,
+        strut_x_height,
+        strut_cap_height,
         ch_width: font_size * 0.5,
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise
@@ -5597,45 +6158,81 @@ pub struct TableCellInfo {
     pub rowspan: usize,
 }
 
+/// A `table-column` box (`<col>`), or a column group that has none and
+/// stands for its columns itself: the grid columns `start..start + span`.
+#[derive(Copy, Debug, Clone)]
+pub(crate) struct TableColumnBox {
+    /// Layout-tree index of the `<col>` (or of the childless `<colgroup>`).
+    pub(crate) node_index: usize,
+    /// Layout-tree index of the column group it belongs to.
+    pub(crate) group: Option<usize>,
+    pub(crate) start: usize,
+    pub(crate) span: usize,
+}
+
+/// A column group (`<colgroup>`): the grid columns `start..start + span`.
+#[derive(Copy, Debug, Clone)]
+pub(crate) struct TableColumnGroupBox {
+    pub(crate) node_index: usize,
+    pub(crate) start: usize,
+    pub(crate) span: usize,
+}
+
 /// Table layout context - holds all information needed for table layout
 #[derive(Debug)]
-struct TableLayoutContext {
+pub(crate) struct TableLayoutContext {
     /// Information about each column
-    columns: Vec<TableColumnInfo>,
+    pub(crate) columns: Vec<TableColumnInfo>,
     /// Information about each cell
-    cells: Vec<TableCellInfo>,
+    pub(crate) cells: Vec<TableCellInfo>,
     /// Number of rows in the table
-    num_rows: usize,
+    pub(crate) num_rows: usize,
     /// Whether to use fixed or auto layout algorithm
-    use_fixed_layout: bool,
+    pub(crate) use_fixed_layout: bool,
     /// Computed height for each row
-    row_heights: Vec<f32>,
+    pub(crate) row_heights: Vec<f32>,
     /// Computed baseline offset for each row (distance from row top to row baseline)
-    row_baselines: Vec<f32>,
+    pub(crate) row_baselines: Vec<f32>,
     // +spec:inline-formatting-context:440ca9 - border-collapse/border-spacing/visibility:collapse
     // table properties (CSS 2.2 §17.5-17.6)
     /// Border collapse mode
-    border_collapse: StyleBorderCollapse,
+    pub(crate) border_collapse: StyleBorderCollapse,
     /// Border spacing (only used when `border_collapse` is Separate)
-    border_spacing: LayoutBorderSpacing,
+    pub(crate) border_spacing: LayoutBorderSpacing,
     /// CSS 2.2 Section 17.4: Index of table-caption child, if any
-    caption_index: Option<usize>,
+    pub(crate) caption_index: Option<usize>,
     //   from display without forcing table re-layout
     /// CSS 2.2 Section 17.6: Rows with visibility:collapse (dynamic effects)
     /// Set of row indices that have visibility:collapse
-    collapsed_rows: std::collections::HashSet<usize>,
+    pub(crate) collapsed_rows: std::collections::HashSet<usize>,
     /// CSS 2.2 Section 17.6: Columns with visibility:collapse (dynamic effects)
     /// Set of column indices that have visibility:collapse
-    collapsed_columns: std::collections::HashSet<usize>,
+    pub(crate) collapsed_columns: std::collections::HashSet<usize>,
     /// Rows that are hidden-empty (zero height, border-spacing on only one side)
-    hidden_empty_rows: std::collections::HashSet<usize>,
+    pub(crate) hidden_empty_rows: std::collections::HashSet<usize>,
     /// Layout tree indices for each row (row index → layout node index)
-    row_node_indices: Vec<usize>,
+    pub(crate) row_node_indices: Vec<usize>,
+    /// Per row: the layout-tree index of the row group it sits in (`None`
+    /// for a row straight under the table).
+    pub(crate) row_groups: Vec<Option<usize>>,
+    /// The column boxes (`<col>`), in column order.
+    pub(crate) column_boxes: Vec<TableColumnBox>,
+    /// The column groups (`<colgroup>`), in column order.
+    pub(crate) column_groups: Vec<TableColumnGroupBox>,
     /// Per-column rowspan occupancy: for column `c`, the number of upcoming rows
     /// (including the current one during processing) still covered by a cell that
     /// began in an earlier row with rowspan > 1. Decremented after each row.
     /// Used so a later row's cells skip columns already taken by a spanning cell.
     col_occupied: Vec<usize>,
+    /// The used horizontal `border-spacing` (0 in the collapsing model),
+    /// resolved once in `layout_table_fc`.
+    pub(crate) h_spacing: f32,
+    /// The used vertical `border-spacing` (0 in the collapsing model).
+    pub(crate) v_spacing: f32,
+    /// The table's `direction` is `rtl` (CSS 2.2 17.5): its first column is
+    /// the rightmost - the layout places and the painter reads the columns
+    /// mirrored. Set by [`analyze_table_structure`].
+    pub(crate) rtl: bool,
 }
 
 impl TableLayoutContext {
@@ -5654,8 +6251,84 @@ impl TableLayoutContext {
             collapsed_columns: std::collections::HashSet::new(),
             hidden_empty_rows: std::collections::HashSet::new(),
             row_node_indices: Vec::new(),
+            row_groups: Vec::new(),
+            column_boxes: Vec::new(),
+            column_groups: Vec::new(),
             col_occupied: Vec::new(),
+            h_spacing: 0.0,
+            v_spacing: 0.0,
+            rtl: false,
         }
+    }
+
+    /// The grid column after the last column box so far.
+    fn column_box_end(&self) -> usize {
+        self.column_boxes.last().map_or(0, |c| c.start + c.span)
+    }
+
+    /// Append a column box for the next `span` grid columns.
+    fn push_column_box(&mut self, node_index: usize, group: Option<usize>, span: usize) {
+        let start = self.column_box_end();
+        self.column_boxes.push(TableColumnBox {
+            node_index,
+            group,
+            start,
+            span: span.max(1),
+        });
+    }
+
+    /// The last column box has `visibility: collapse` (CSS 2.2 17.6).
+    fn collapse_last_column_box(&mut self) {
+        if let Some(c) = self.column_boxes.last().copied() {
+            self.collapsed_columns.extend(c.start..c.start + c.span);
+        }
+    }
+
+    /// The column box covering grid column `col`.
+    pub(crate) fn column_box_at(&self, col: usize) -> Option<&TableColumnBox> {
+        self.column_boxes
+            .iter()
+            .find(|c| (c.start..c.start + c.span).contains(&col))
+    }
+
+    /// The column group covering grid column `col`.
+    pub(crate) fn column_group_at(&self, col: usize) -> Option<&TableColumnGroupBox> {
+        self.column_groups
+            .iter()
+            .find(|g| (g.start..g.start + g.span).contains(&col))
+    }
+
+    /// A cell's border-box width: its columns and the border-spacing
+    /// between them (CSS 2.2 17.6.1) - the width it is laid out at and the
+    /// width it is placed at alike.
+    #[allow(clippy::cast_precision_loss)] // a column count
+    pub(crate) fn cell_span_width(&self, cell: &TableCellInfo) -> f32 {
+        let end = (cell.column + cell.colspan).min(self.columns.len());
+        let start = cell.column.min(end);
+        let widths: f32 = self.columns[start..end]
+            .iter()
+            .filter_map(|c| c.computed_width)
+            .sum();
+        widths + self.h_spacing * (end - start).saturating_sub(1) as f32
+    }
+
+    /// Per grid slot (`row * columns + column`), the index into `cells` of
+    /// the cell covering it.
+    pub(crate) fn slot_owners(&self) -> Vec<Option<usize>> {
+        let cols = self.columns.len();
+        let mut owners = vec![None; self.num_rows * cols];
+        for (i, cell) in self.cells.iter().enumerate() {
+            for r in cell.row..(cell.row + cell.rowspan).min(self.num_rows) {
+                for c in cell.column..(cell.column + cell.colspan).min(cols) {
+                    if let Some(slot) = owners.get_mut(r * cols + c) {
+                        if slot.is_none() {
+                            *slot = Some(i);
+                        }
+                    }
+                }
+            }
+        }
+        owners
     }
 }
 
@@ -5895,7 +6568,7 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
             BorderInfo::new(blw, bls, blc, source)
         };
 
-        return (top, right, bottom, left);
+        return resolve_system_border_colors((top, right, bottom, left), cache);
     }
 
     // SLOW PATH: full cascade resolution
@@ -6038,7 +6711,28 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
             },
         );
 
-    (top, right, bottom, left)
+    resolve_system_border_colors((top, right, bottom, left), cache)
+}
+
+/// The four edges with a `border-*-color: system:<slot>` token resolved
+/// against the cascade's own context - the compact cache and the slow
+/// cascade both hand back the colour as declared, and for a `system:`
+/// keyword that is a token, not a colour.
+fn resolve_system_border_colors(
+    edges: (BorderInfo, BorderInfo, BorderInfo, BorderInfo),
+    cache: &azul_core::prop_cache::CssPropertyCache,
+) -> (BorderInfo, BorderInfo, BorderInfo, BorderInfo) {
+    let ctx = cache.dynamic_context.as_deref();
+    let resolve = |mut edge: BorderInfo| {
+        edge.color = azul_css::dynamic_selector::resolve_system_color_token(edge.color, ctx);
+        edge
+    };
+    (
+        resolve(edges.0),
+        resolve(edges.1),
+        resolve(edges.2),
+        resolve(edges.3),
+    )
 }
 
 // +spec:table-layout:c5e446 - table-layout property (auto|fixed) controls layout algorithm
@@ -6061,6 +6755,32 @@ fn get_table_layout_property<T: ParsedFontTrait>(
         .get_table_layout(node_data, &dom_id, &node_state)
         .and_then(|prop| prop.get_property().copied())
         .unwrap_or(LayoutTableLayout::Auto)
+}
+
+/// Is the table laid out with the fixed table layout (CSS 2.2 17.5.2.1)?
+/// `table-layout: fixed` and a width of its own: browsers lay a fixed table
+/// whose width is `auto` out automatically.
+pub(crate) fn uses_fixed_table_layout<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+) -> bool {
+    matches!(get_table_layout_property(ctx, node), LayoutTableLayout::Fixed)
+        && table_has_definite_width(ctx, node)
+}
+
+/// Does the table have a width of its own (a length, a percentage, a
+/// `calc()`)? `auto` and the intrinsic keywords do not count.
+fn table_has_definite_width<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+) -> bool {
+    node.dom_node_id.is_some_and(|dom_id| {
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        matches!(
+            get_css_width(ctx.styled_dom, dom_id, node_state),
+            MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::Calc(_))
+        )
+    })
 }
 
 /// Get the border-collapse property for a table node
@@ -6128,9 +6848,55 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
     LayoutBorderSpacing::default() // Default: 0
 }
 
+/// The table's resolved `border-spacing` `(horizontal, vertical)` in px:
+/// `(0, 0)` in the collapsing border model (CSS 2.2 17.6.2) and for an
+/// anonymous table (no styled node to resolve font-relative units against).
+///
+/// The one resolution the table's intrinsic sizes, its width and its cell
+/// positions share (it was written out twice in this file).
+pub(crate) fn resolve_table_border_spacing<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    table_index: usize,
+) -> (f32, f32) {
+    let Some(table_node) = tree.get(LayoutNodeId::new(table_index)) else {
+        return (0.0, 0.0);
+    };
+    let Some(table_id) = table_node.dom_node_id else {
+        return (0.0, 0.0);
+    };
+    if get_border_collapse_property(ctx, table_node) == StyleBorderCollapse::Collapse {
+        return (0.0, 0.0);
+    }
+    let spacing = get_border_spacing_property(ctx, table_node);
+    let styled_dom = ctx.styled_dom;
+    let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
+    let spacing_context = ResolutionContext {
+        vertical_writing_mode: false,
+        element_font_size: get_element_font_size(styled_dom, table_id, table_state),
+        parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
+        root_font_size: get_root_font_size(styled_dom, table_state),
+        containing_block_size: PhysicalSize::new(0.0, 0.0),
+        element_size: None,
+        viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    };
+    let h = spacing
+        .horizontal
+        .resolve_with_context(&spacing_context, PropertyContext::Other)
+        .max(0.0);
+    let v = spacing
+        .vertical
+        .resolve_with_context(&spacing_context, PropertyContext::Other)
+        .max(0.0);
+    (
+        if h.is_finite() { h } else { 0.0 },
+        if v.is_finite() { v } else { 0.0 },
+    )
+}
+
 /// Get the empty-cells property for a table-cell node.
 /// Returns Show (default) or Hide.
-fn get_empty_cells_property<T: ParsedFontTrait>(
+pub(crate) fn get_empty_cells_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
 ) -> StyleEmptyCells {
@@ -6161,23 +6927,22 @@ fn get_caption_side_property<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     node: &LayoutNodeHot,
 ) -> StyleCaptionSide {
-    if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    specified_caption_side(ctx, node).unwrap_or(StyleCaptionSide::Top) // Default per CSS 2.2
+}
 
-        if let Some(prop) =
-            ctx.styled_dom
-                .css_property_cache
-                .ptr
-                .get_caption_side(node_data, &dom_id, &node_state)
-        {
-            if let Some(value) = prop.get_property() {
-                return *value;
-            }
-        }
-    }
-
-    StyleCaptionSide::Top // Default per CSS 2.2
+/// The `caption-side` the cascade gives `node`, `None` when nothing set it.
+fn specified_caption_side<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    node: &LayoutNodeHot,
+) -> Option<StyleCaptionSide> {
+    let dom_id = node.dom_node_id?;
+    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+    let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    ctx.styled_dom
+        .css_property_cache
+        .ptr
+        .get_caption_side(node_data, &dom_id, &node_state)
+        .and_then(|prop| prop.get_property().copied())
 }
 
 //   removes entire row or column from display; space made available for other content;
@@ -6232,7 +6997,7 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
 ///
 /// Note: Full whitespace detection would require checking text content during rendering.
 /// This function provides a basic check suitable for layout phase.
-fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
+pub(crate) fn is_cell_empty(tree: &LayoutTree, cell_index: usize) -> bool {
     if tree.get(LayoutNodeId::new(cell_index)).is_none() {
         return true; // Invalid cell is considered empty
     }
@@ -6310,9 +7075,22 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         .ok_or(LayoutError::InvalidTree)?
         .clone();
 
-    // Calculate the table's border-box width for column distribution
-    // This accounts for the table's own width property (e.g., width: 100%)
-    let table_border_box_width = if let Some(dom_id) = table_node.dom_node_id {
+    // The table's border-box width for column distribution. Whoever lays the
+    // table out decides its used size first and writes it to `used_size`
+    // before this runs (`calculate_layout_for_subtree`'s phase 1.5, a flex
+    // item's known size, an absolutely positioned box's solved size) - the
+    // auto-width rule `max(MIN, min(MAX, available))` and a `width` floored
+    // at MIN (CSS 2.1 17.5.2.2) are in `calculate_used_size_for_node`.
+    // Re-resolving the table's `width` against `constraints` here (the
+    // table's own content box) took a percentage of the wrong box. Only a
+    // measurement that set no size (taffy's intrinsic queries) resolves it
+    // here, against the constraint it was given.
+    let table_border_box_width = if let Some(used) = table_node
+        .used_size
+        .filter(|size| size.width.is_finite())
+    {
+        used.width
+    } else if let Some(dom_id) = table_node.dom_node_id {
         // Use calculate_used_size_for_node to resolve table width (respects width:100%)
         let intrinsic = tree
             .warm(LayoutNodeId::new(node_index))
@@ -6379,17 +7157,42 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
     // Phase 1: Analyze table structure
     let mut table_ctx = analyze_table_structure(tree, node_index, ctx)?;
+    debug_log!(
+        ctx,
+        "Table structure: {} rows, {} columns, {} cells, caption: {}",
+        table_ctx.num_rows,
+        table_ctx.columns.len(),
+        table_ctx.cells.len(),
+        table_ctx.caption_index.is_some()
+    );
+
+    // The cell spacing (0 in the collapsing model): the columns share the
+    // content width minus one spacing per gutter, the outer two included
+    // (CSS 2.2 17.6.1: the table's width runs from the left inner padding
+    // edge to the right one, spacing included).
+    let (h_spacing, v_spacing) = resolve_table_border_spacing(ctx, tree, node_index);
+    #[allow(clippy::cast_precision_loss)] // a column count
+    let columns_width = if table_ctx.columns.is_empty() {
+        table_content_box_width
+    } else {
+        (table_content_box_width - h_spacing * (table_ctx.columns.len() + 1) as f32).max(0.0)
+    };
 
     // +spec:table-layout:ff5671 - table-layout property (fixed vs auto) controls column width
     // algorithm +spec:width-calculation:7a5b23 - table-layout property determines fixed vs auto
     // algorithm (CSS 2.2 §17.5.2) Phase 2: Read CSS properties and determine layout algorithm
     let table_layout = get_table_layout_property(ctx, &table_node);
-    table_ctx.use_fixed_layout = matches!(table_layout, LayoutTableLayout::Fixed);
+    // The fixed algorithm fixes the table's width: browsers lay a
+    // `table-layout: fixed` table whose width is `auto` out automatically.
+    table_ctx.use_fixed_layout = uses_fixed_table_layout(ctx, &table_node);
 
     // +spec:containing-block:cc1453 - collapsing border model: border-collapse property drives
     // table border handling Read border properties
     table_ctx.border_collapse = get_border_collapse_property(ctx, &table_node);
     table_ctx.border_spacing = get_border_spacing_property(ctx, &table_node);
+    // The spacing resolved above, for the span widths and the fixed layout.
+    table_ctx.h_spacing = h_spacing;
+    table_ctx.v_spacing = v_spacing;
 
     debug_log!(
         ctx,
@@ -6408,16 +7211,16 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             "FIXED layout: table_content_box_width={:.2}",
             table_content_box_width
         );
-        calculate_column_widths_fixed(ctx, tree, &mut table_ctx, table_content_box_width);
+        calculate_column_widths_fixed(ctx, tree, &mut table_ctx, columns_width);
     } else {
-        // Pass table_content_box_width for column distribution in auto layout
+        // The columns share the content width minus the cell spacing.
         calculate_column_widths_auto_with_width(
             &mut table_ctx,
             tree,
             text_cache,
             ctx,
             constraints,
-            table_content_box_width,
+            columns_width,
         )?;
     }
 
@@ -6441,8 +7244,32 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // Phase 4: Calculate row heights based on cell content
     calculate_row_heights(&mut table_ctx, tree, text_cache, ctx, constraints)?;
 
+    // A table taller than its rows (its own `height`, CSS 2.2 17.5.3) gives
+    // the rest to its rows, so its cells fill it.
+    if let Some(table_dom) = table_node.dom_node_id {
+        if let Some(h) = specified_length_height(ctx.styled_dom, table_dom, ctx.viewport_size) {
+            let node_state = &ctx.styled_dom.styled_nodes.as_container()[table_dom].styled_node_state;
+            let content_h = match get_css_box_sizing(ctx.styled_dom, table_dom, node_state) {
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => {
+                    h - tbp.padding.top - tbp.padding.bottom - tbp.border.top - tbp.border.bottom
+                }
+                _ => h,
+            };
+            let spacings = if table_ctx.num_rows == 0 {
+                0.0
+            } else {
+                (table_ctx.num_rows + 1).saturating_sub(table_ctx.hidden_empty_rows.len()) as f32
+            };
+            let target = content_h - table_ctx.v_spacing * spacings;
+            stretch_rows_to(&mut table_ctx, target);
+        }
+    }
+
     // Phase 5: Position cells in final grid and collect positions
-    let mut cell_positions = position_table_cells(&table_ctx, tree, ctx, node_index, constraints)?;
+    // The table's positioned children (row groups, rows, column groups) and
+    // the rows' tops, relative to the table's content box.
+    let (mut cell_positions, row_tops) =
+        position_table_cells(&table_ctx, tree, ctx, node_index, constraints)?;
 
     // Calculate final table size including border-spacing
     let mut table_width: f32 = table_ctx
@@ -6466,46 +7293,9 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // border-collapse is separate +spec:box-model:acb81f - separated borders model:
     // border-spacing between adjoining cell borders +spec:box-model:e480b1 - table width = left
     // inner padding edge to right inner padding edge (including border-spacing)
-    if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        use get_element_font_size;
-        use get_parent_font_size;
-        use get_root_font_size;
-        use PhysicalSize;
-        use PropertyContext;
-        use ResolutionContext;
-
-        let styled_dom = ctx.styled_dom;
-        // Anonymous table wrapper boxes have no dom_node_id; without a styled
-        // node we cannot resolve font-relative border-spacing units, so fall
-        // back to zero spacing rather than panicking.
-        let (h_spacing, v_spacing) = if let Some(table_id) = tree.nodes[node_index].dom_node_id {
-            let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
-
-            let spacing_context = ResolutionContext {
-                vertical_writing_mode: false,
-                element_font_size: get_element_font_size(styled_dom, table_id, table_state),
-                parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
-                root_font_size: get_root_font_size(styled_dom, table_state),
-                containing_block_size: PhysicalSize::new(0.0, 0.0),
-                element_size: None,
-                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-            };
-
-            let h_spacing = table_ctx
-                .border_spacing
-                .horizontal
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-            let v_spacing = table_ctx
-                .border_spacing
-                .vertical
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-            (h_spacing, v_spacing)
-        } else {
-            (0.0f32, 0.0f32)
-        };
-
+    // The spacing (resolved above, 0 in the collapsing model): one per
+    // gutter, the outer two included.
+    {
         // Add spacing: left + (n-1 between columns) + right = n+1 spacings
         let num_cols = table_ctx.columns.len();
         if num_cols > 0 {
@@ -6528,7 +7318,14 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     //
     // "The caption box is a block box that retains its own content,
     // padding, border, and margin areas."
-    let caption_side = get_caption_side_property(ctx, &table_node);
+    // `caption-side` applies to the caption (CSS 2.2 17.4.1; inherited, so
+    // a table's value reaches a caption that sets none): the caption's own
+    // value first, the table's otherwise.
+    let caption_side = table_ctx
+        .caption_index
+        .and_then(|caption_idx| tree.get(LayoutNodeId::new(caption_idx)))
+        .and_then(|caption| specified_caption_side(ctx, caption))
+        .unwrap_or_else(|| get_caption_side_property(ctx, &table_node));
     let mut caption_height = 0.0;
     let mut table_y_offset = 0.0;
 
@@ -6552,31 +7349,56 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             containing_block_size: constraints.containing_block_size,
             available_width_type: Text3AvailableSpace::Definite(table_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
-        // Layout the caption node
-        let mut empty_float_cache = HashMap::new();
-        let caption_result = layout_formatting_context(
+        // Layout the caption node as the block box it is: sized against the
+        // table's width (its `used_size`, which paints and hit-tests it),
+        // its children laid out inside. Laid out through the formatting
+        // context alone, as this was, it kept no size and had no box.
+        let mut caption_scrollbar_reflow = false;
+        let mut caption_float_cache = HashMap::new();
+        let mut caption_positions: super::PositionVec = Vec::new();
+        crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
             tree,
             text_cache,
             caption_idx,
-            &caption_constraints,
-            &mut empty_float_cache,
+            LogicalPosition::zero(),
+            &CBTY::from_flattened_with_width_type(
+                caption_constraints.available_size,
+                caption_constraints.available_width_type,
+            ),
+            &mut caption_positions,
+            &mut caption_scrollbar_reflow,
+            &mut caption_float_cache,
+            crate::solver3::cache::ComputeMode::ComputeSize,
         )?;
-        caption_height = caption_result.output.overflow_size.height;
+        let caption_margin = tree
+            .get(LayoutNodeId::new(caption_idx))
+            .map(|n| n.box_props.unpack().margin)
+            .unwrap_or_default();
+        let caption_box_height = tree
+            .get(LayoutNodeId::new(caption_idx))
+            .and_then(|n| n.used_size)
+            .map_or(0.0, |size| size.height);
+        caption_height = caption_box_height + caption_margin.top + caption_margin.bottom;
 
+        // The caption's border box, inside its margins.
         let caption_position = match caption_side {
             StyleCaptionSide::Top => {
                 // Caption on top: position at y=0, table starts below caption
                 table_y_offset = caption_height;
-                LogicalPosition { x: 0.0, y: 0.0 }
+                LogicalPosition {
+                    x: caption_margin.left,
+                    y: caption_margin.top,
+                }
             }
             StyleCaptionSide::Bottom => {
                 // Caption on bottom: table starts at y=0, caption below table
                 LogicalPosition {
-                    x: 0.0,
-                    y: table_height,
+                    x: caption_margin.left,
+                    y: table_height + caption_margin.top,
                 }
             }
         };
@@ -6601,9 +7423,11 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             table_y_offset
         );
 
-        // Adjust cell positions in the map
-        for cell_info in &table_ctx.cells {
-            if let Some(pos) = cell_positions.get_mut(&cell_info.node_index) {
+        // Everything but the caption moves below it: the row groups, the
+        // rows and column groups in the map (the cells, rows in groups and
+        // columns are relative to those).
+        for (&child, pos) in &mut cell_positions {
+            if Some(child) != table_ctx.caption_index {
                 pos.y += table_y_offset;
             }
         }
@@ -6626,18 +7450,45 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
     // where the caller treats the bottom content edge as the baseline.
     // TODO(superplan): a rowspan cell that *starts* in row 0 but whose content
     // baseline sits in a later row is approximated by `row_baselines[0]` here.
-    let table_baseline = table_ctx
-        .row_baselines
-        .first()
-        .copied()
-        .and_then(|row0_baseline| {
-            table_ctx
-                .cells
-                .iter()
-                .find(|c| c.row == 0)
-                .and_then(|c| cell_positions.get(&c.node_index))
-                .map(|pos| pos.y + row0_baseline)
+    //
+    // A first row with no baseline-aligned cell (the HTML default: cells
+    // inherit `vertical-align: middle` from their row) has no baseline of its
+    // own; CSS 2.2 17.5.3 puts it at the bottom content edge of the row's
+    // lowest cell. Left at 0 (the row's top), an inline-table hung a whole
+    // table height below the line it sat on.
+    let row0_baseline = table_ctx.row_baselines.first().copied().map(|baseline| {
+        let row0_cells: Vec<&TableCellInfo> =
+            table_ctx.cells.iter().filter(|c| c.row == 0).collect();
+        let any_baseline_cell = row0_cells.iter().any(|c| {
+            let dom = tree
+                .get(LayoutNodeId::new(c.node_index))
+                .and_then(|n| n.dom_node_id);
+            is_baseline_aligned(cell_vertical_align(ctx.styled_dom, dom))
         });
+        if any_baseline_cell {
+            return baseline;
+        }
+        let row_height = table_ctx.row_heights.first().copied().unwrap_or(0.0);
+        let bottom_extras = row0_cells
+            .iter()
+            .filter(|c| c.rowspan == 1)
+            .filter_map(|c| tree.get(LayoutNodeId::new(c.node_index)))
+            .map(|n| {
+                let bp = n.box_props.unpack();
+                bp.padding.bottom + bp.border.bottom
+            })
+            .fold(f32::INFINITY, f32::min);
+        if bottom_extras.is_finite() {
+            (row_height - bottom_extras).max(0.0)
+        } else {
+            row_height
+        }
+    });
+    let table_baseline = row0_baseline.and_then(|row0_baseline| {
+        row_tops
+            .first()
+            .map(|top| top + table_y_offset + row0_baseline)
+    });
 
     // Create output with the table's final size and cell positions
     // +spec:box-model:52fcfe - overflow_size must include borders that spill into margin in
@@ -6658,124 +7509,635 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
 // +spec:display-property:f47f8a - Table structure analysis: caption positioning,
 // row/column/row-group traversal per CSS 2.2 §17.4-17.5
-/// Analyze the table structure to identify rows, cells, and columns
-fn analyze_table_structure<T: ParsedFontTrait>(
+/// Analyze the table structure: its caption, its column boxes, its rows (in
+/// grid order, each with the row group it belongs to) and its cells with
+/// their grid slots (CSS 2.2 17.5 cell placement).
+///
+/// This is THE placement of a table's grid: the table's layout, the
+/// collapsing border model's edge resolution ([`resolve_collapsed_borders`])
+/// and the table's painting (`paint_table_items` in `display_list.rs`) all
+/// read it, so a cell sits in the same slot for each of them. It reads the
+/// tree and the cascade and nothing else.
+pub(crate) fn analyze_table_structure<T: ParsedFontTrait>(
     tree: &LayoutTree,
     table_index: usize,
-    ctx: &mut LayoutContext<'_, T>,
+    ctx: &LayoutContext<'_, T>,
 ) -> Result<TableLayoutContext> {
     let mut table_ctx = TableLayoutContext::new();
-
     let table_node = tree
         .get(LayoutNodeId::new(table_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // CSS 2.2 17.5: the columns run in the table's `direction` (inherited:
+    // `<td dir="rtl">` reverses the table inside it).
+    table_ctx.rtl = table_node.dom_node_id.is_some_and(|dom_id| {
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        matches!(
+            get_direction_property(ctx.styled_dom, dom_id, node_state),
+            MultiValue::Exact(StyleDirection::Rtl)
+        )
+    });
 
     // +spec:width-calculation:0a2766 - table internal elements form rectangular grid of
     // rows/columns (CSS 2.2 §17.5) CSS 2.2 Section 17.4: A table may have one table-caption
     // child. Traverse children to find caption, columns/colgroups, rows, and row groups
-    for &child_idx in tree.children(table_index) {
-        if let Some(child) = tree.get(LayoutNodeId::new(child_idx)) {
-            // Check if this is a table caption
-            if matches!(child.formatting_context, FormattingContext::TableCaption) {
-                debug_log!(ctx, "Found table caption at index {}", child_idx);
+    //
+    // In VISUAL order (CSS 2.1 17.2): the first `table-header-group` before
+    // every other row and row group, the first `table-footer-group` after
+    // them, wherever they are in the markup (any further header or footer
+    // group is an ordinary row group). Rows are numbered in this order, so
+    // the grid, the row positions and the row groups' boxes follow it.
+    let group_display = |idx: usize| {
+        tree.get(LayoutNodeId::new(idx))
+            .filter(|n| matches!(n.formatting_context, FormattingContext::TableRowGroup))
+            .and_then(|n| n.dom_node_id)
+            .map(|dom_id| crate::solver3::layout_tree::get_display_type(ctx.styled_dom, dom_id))
+    };
+    let children: Vec<usize> = tree.children(table_index).to_vec();
+    let header = children
+        .iter()
+        .copied()
+        .find(|&c| group_display(c) == Some(LayoutDisplay::TableHeaderGroup));
+    let footer = children
+        .iter()
+        .copied()
+        .find(|&c| group_display(c) == Some(LayoutDisplay::TableFooterGroup));
+    let visual_order: Vec<usize> = header
+        .into_iter()
+        .chain(
+            children
+                .iter()
+                .copied()
+                .filter(|&c| Some(c) != header && Some(c) != footer),
+        )
+        .chain(footer)
+        .collect();
+    for child_idx in visual_order {
+        let Some(child) = tree.get(LayoutNodeId::new(child_idx)) else {
+            continue;
+        };
+        match child.formatting_context {
+            FormattingContext::TableCaption => {
                 table_ctx.caption_index = Some(child_idx);
-                continue;
             }
-
-            // CSS 2.2 Section 17.2: Check for column groups
-            if matches!(
-                child.formatting_context,
-                FormattingContext::TableColumnGroup
-            ) {
-                analyze_table_colgroup(tree, child_idx, &table_ctx, ctx)?;
-                continue;
+            // CSS 2.2 Section 17.2: column groups contain columns
+            FormattingContext::TableColumnGroup => {
+                analyze_table_colgroup(tree, child_idx, &mut table_ctx, ctx);
             }
-
-            // Check if this is a table row or row group
-            match child.formatting_context {
-                FormattingContext::TableRow => {
-                    analyze_table_row(tree, child_idx, &mut table_ctx, ctx)?;
-                }
-                FormattingContext::TableRowGroup => {
-                    // Process rows within the row group
-                    for &row_idx in tree.children(child_idx) {
-                        if let Some(row) = tree.get(LayoutNodeId::new(row_idx)) {
-                            if matches!(row.formatting_context, FormattingContext::TableRow) {
-                                analyze_table_row(tree, row_idx, &mut table_ctx, ctx)?;
-                            }
-                        }
+            FormattingContext::TableRow => {
+                analyze_table_row(tree, child_idx, None, &mut table_ctx, ctx)?;
+            }
+            FormattingContext::TableRowGroup => {
+                // Process rows within the row group
+                for &row_idx in tree.children(child_idx) {
+                    let is_row = tree
+                        .get(LayoutNodeId::new(row_idx))
+                        .is_some_and(|row| matches!(row.formatting_context, FormattingContext::TableRow));
+                    if is_row {
+                        analyze_table_row(tree, row_idx, Some(child_idx), &mut table_ctx, ctx)?;
                     }
                 }
-                _ => {}
             }
+            // A `table-column` straight under the table (no column group).
+            _ if is_table_column_box(tree, child_idx) => {
+                let span = table_column_span(ctx.styled_dom, child);
+                table_ctx.push_column_box(child_idx, None, span);
+                if is_visibility_collapsed(ctx, child) {
+                    table_ctx.collapse_last_column_box();
+                }
+            }
+            _ => {}
         }
     }
-
-    debug_log!(
-        ctx,
-        "Table structure: {} rows, {} columns, {} cells{}",
-        table_ctx.num_rows,
-        table_ctx.columns.len(),
-        table_ctx.cells.len(),
-        if table_ctx.caption_index.is_some() {
-            ", has caption"
-        } else {
-            ""
-        }
-    );
+    // A collapsed column box past the last cell names no grid column.
+    let num_cols = table_ctx.columns.len();
+    table_ctx.collapsed_columns.retain(|&c| c < num_cols);
 
     Ok(table_ctx)
 }
 
-/// Analyze a table column group to identify columns and track collapsed columns
+/// Is this layout node a `table-column` box (`<col>`)? Column boxes
+/// establish no formatting context, so the display type tells them apart.
+fn is_table_column_box(tree: &LayoutTree, index: usize) -> bool {
+    tree.warm(LayoutNodeId::new(index))
+        .is_some_and(|w| w.computed_style.display == LayoutDisplay::TableColumn)
+}
+
+/// How many grid columns a `<col>` / `<colgroup>` stands for: its `span`
+/// (carried as `AttributeType::ColSpan`, `Dom::create_col`), 1 by default.
+fn table_column_span(styled_dom: &StyledDom, node: &LayoutNodeHot) -> usize {
+    node.dom_node_id
+        .map_or(1, |dom_id| get_cell_spans(styled_dom, dom_id).0)
+}
+
+/// Analyze a table column group: its `table-column` children become column
+/// boxes; a group without any stands for `span` columns itself (HTML
+/// `<colgroup span>`).
 ///
 /// - CSS 2.2 Section 17.2: Column groups contain columns
 /// - CSS 2.2 Section 17.6: Columns can have visibility:collapse
 fn analyze_table_colgroup<T: ParsedFontTrait>(
     tree: &LayoutTree,
     colgroup_index: usize,
-    table_ctx: &TableLayoutContext,
-    ctx: &mut LayoutContext<'_, T>,
-) -> Result<()> {
-    let colgroup_node = tree
-        .get(LayoutNodeId::new(colgroup_index))
-        .ok_or(LayoutError::InvalidTree)?;
-
-    // Check if the colgroup itself has visibility:collapse
-    if is_visibility_collapsed(ctx, colgroup_node) {
-        // All columns in this group should be collapsed
-        // TODO: For now, just mark the group (actual column indices will be determined later)
-        debug_log!(
-            ctx,
-            "Column group at index {} has visibility:collapse",
-            colgroup_index
+    table_ctx: &mut TableLayoutContext,
+    ctx: &LayoutContext<'_, T>,
+) {
+    let Some(colgroup_node) = tree.get(LayoutNodeId::new(colgroup_index)) else {
+        return;
+    };
+    let group_collapsed = is_visibility_collapsed(ctx, colgroup_node);
+    let start = table_ctx.column_box_end();
+    for &col_idx in tree.children(colgroup_index) {
+        if !is_table_column_box(tree, col_idx) {
+            continue;
+        }
+        let Some(col_node) = tree.get(LayoutNodeId::new(col_idx)) else {
+            continue;
+        };
+        table_ctx.push_column_box(
+            col_idx,
+            Some(colgroup_index),
+            table_column_span(ctx.styled_dom, col_node),
         );
+        if group_collapsed || is_visibility_collapsed(ctx, col_node) {
+            table_ctx.collapse_last_column_box();
+        }
+    }
+    if table_ctx.column_box_end() == start {
+        table_ctx.push_column_box(
+            colgroup_index,
+            Some(colgroup_index),
+            table_column_span(ctx.styled_dom, colgroup_node),
+        );
+        if group_collapsed {
+            table_ctx.collapse_last_column_box();
+        }
+    }
+    table_ctx.column_groups.push(TableColumnGroupBox {
+        node_index: colgroup_index,
+        start,
+        span: table_ctx.column_box_end() - start,
+    });
+}
+
+/// The collapsing border model's grid edges (CSS 2.2 17.6.2): for every
+/// edge between two grid slots, or between a slot and the outside of the
+/// table, the ONE border that wins there (`None`: no border - every
+/// participant is `none`, one of them is `hidden`, or the edge runs inside
+/// a spanning cell).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CollapsedBorders {
+    pub(crate) num_rows: usize,
+    pub(crate) num_cols: usize,
+    /// `(num_rows + 1) * num_cols` edges: the edge above row `r` in column
+    /// `c` is `r * num_cols + c` (row line `num_rows` is the bottom edge).
+    pub(crate) horizontal: Vec<Option<BorderInfo>>,
+    /// `num_rows * (num_cols + 1)` edges: the edge on column line `c` -
+    /// before column `c` in the table's direction - in row `r` is
+    /// `r * (num_cols + 1) + c` (column line `num_cols` is the end edge).
+    /// Line `c` is the LEFT of column `c` in an ltr table, its RIGHT in an
+    /// rtl one ([`Self::rtl`]).
+    pub(crate) vertical: Vec<Option<BorderInfo>>,
+    /// The table's `direction` is rtl: its columns run from the right
+    /// (`TableLayoutContext::rtl`), so a column line's physical side flips.
+    pub(crate) rtl: bool,
+}
+
+impl CollapsedBorders {
+    /// The edge above row `row_line` (the table's bottom edge at
+    /// `num_rows`) in column `col`.
+    pub(crate) fn horizontal_at(&self, row_line: usize, col: usize) -> Option<BorderInfo> {
+        if col >= self.num_cols || row_line > self.num_rows {
+            return None;
+        }
+        self.horizontal
+            .get(row_line * self.num_cols + col)
+            .copied()
+            .flatten()
     }
 
-    // Check for individual column elements within the group
-    for &col_idx in tree.children(colgroup_index) {
-        if let Some(col_node) = tree.get(LayoutNodeId::new(col_idx)) {
-            // Note: Individual columns don't have a FormattingContext::TableColumn
-            // They are represented as children of TableColumnGroup
-            // Check visibility:collapse on each column
-            if is_visibility_collapsed(ctx, col_node) {
-                // We need to determine the actual column index this represents
-                // For now, we'll track it during cell analysis
-                debug_log!(ctx, "Column at index {} has visibility:collapse", col_idx);
-            }
+    /// The edge on column line `col_line` (the table's end edge at
+    /// `num_cols`; see [`Self::vertical`]) in row `row`.
+    pub(crate) fn vertical_at(&self, row: usize, col_line: usize) -> Option<BorderInfo> {
+        if col_line > self.num_cols || row >= self.num_rows {
+            return None;
+        }
+        self.vertical
+            .get(row * (self.num_cols + 1) + col_line)
+            .copied()
+            .flatten()
+    }
+
+    /// A cell's used border widths: half of the widest edge along each of
+    /// its sides (a spanning cell touches several).
+    pub(crate) fn cell_border(&self, cell: &TableCellInfo) -> EdgeSizes {
+        let row_end = (cell.row + cell.rowspan).min(self.num_rows);
+        let col_end = (cell.column + cell.colspan).min(self.num_cols);
+        // The line before the cell is its left in ltr, its right in rtl.
+        let (left_line, right_line) = if self.rtl {
+            (col_end, cell.column)
+        } else {
+            (cell.column, col_end)
+        };
+        EdgeSizes {
+            top: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(cell.row, c))),
+            bottom: half_of_widest((cell.column..col_end).map(|c| self.horizontal_at(row_end, c))),
+            left: half_of_widest(
+                (cell.row..row_end).map(|r| self.vertical_at(r, left_line)),
+            ),
+            right: half_of_widest(
+                (cell.row..row_end).map(|r| self.vertical_at(r, right_line)),
+            ),
         }
     }
 
-    Ok(())
+    /// The table's used border widths: half of the widest edge on each of
+    /// its sides; the other half of every outer edge spills into the margin
+    /// (CSS 2.2 17.6.2, as browsers take it for all four sides).
+    pub(crate) fn table_border(&self) -> EdgeSizes {
+        let (left_line, right_line) = if self.rtl {
+            (self.num_cols, 0)
+        } else {
+            (0, self.num_cols)
+        };
+        EdgeSizes {
+            top: half_of_widest((0..self.num_cols).map(|c| self.horizontal_at(0, c))),
+            bottom: half_of_widest(
+                (0..self.num_cols).map(|c| self.horizontal_at(self.num_rows, c)),
+            ),
+            left: half_of_widest((0..self.num_rows).map(|r| self.vertical_at(r, left_line))),
+            right: half_of_widest(
+                (0..self.num_rows).map(|r| self.vertical_at(r, right_line)),
+            ),
+        }
+    }
+}
+
+/// Half the width of the widest of `edges` (0 without any).
+fn half_of_widest(edges: impl Iterator<Item = Option<BorderInfo>>) -> f32 {
+    edges
+        .map(|e| e.map_or(0.0, |b| b.width))
+        .fold(0.0f32, f32::max)
+        * 0.5
+}
+
+/// The border that wins one grid edge (CSS 2.2 17.6.2.1) among
+/// `participants`, listed left / top first: `hidden` anywhere suppresses
+/// the edge, a `none` or zero-width border takes no part, then
+/// [`BorderInfo::resolve_conflict`] decides - width, style, element - and
+/// on a full tie the earlier (further left / further up) one stays.
+fn collapse_edge(participants: &[BorderInfo]) -> Option<BorderInfo> {
+    if participants.iter().any(|b| b.style == BorderStyle::Hidden) {
+        return None;
+    }
+    let mut winner: Option<BorderInfo> = None;
+    for b in participants {
+        if b.style == BorderStyle::None || b.width <= 0.0 {
+            continue;
+        }
+        winner = Some(match winner {
+            None => *b,
+            Some(w) => BorderInfo::resolve_conflict(&w, b).unwrap_or(w),
+        });
+    }
+    winner
+}
+
+/// Resolve every grid edge of a `border-collapse: collapse` table (CSS 2.2
+/// 17.6.2.1). The borders that meet on an edge are those of the cells on
+/// either side of it, of the rows and row groups it bounds, of the columns
+/// and column groups it bounds, and of the table on its outside.
+///
+/// One resolution for the layout (half of each edge goes into the cells'
+/// and the table's box, [`apply_table_border_model`]) and for the
+/// painting (`paint_collapsed_table_borders` in `display_list.rs`).
+#[allow(clippy::too_many_lines)] // one participant list per edge kind
+pub(crate) fn resolve_collapsed_borders<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    table_index: usize,
+    grid: &TableLayoutContext,
+) -> CollapsedBorders {
+    const TOP: usize = 0;
+    const RIGHT: usize = 1;
+    const BOTTOM: usize = 2;
+    const LEFT: usize = 3;
+
+    let rows = grid.num_rows;
+    let cols = grid.columns.len();
+    let mut out = CollapsedBorders {
+        num_rows: rows,
+        num_cols: cols,
+        horizontal: vec![None; (rows + 1) * cols],
+        vertical: vec![None; rows * (cols + 1)],
+        rtl: grid.rtl,
+    };
+    // A column line's two sides in the table's direction (CSS 2.2 17.5): the
+    // cell BEFORE a line meets it with its end side (right in ltr, left in
+    // rtl), the cell after it with its start side.
+    let (start_side, end_side) = if grid.rtl { (RIGHT, LEFT) } else { (LEFT, RIGHT) };
+    if rows == 0 || cols == 0 {
+        return out;
+    }
+
+    let sides = |index: usize, source: BorderSource| -> [BorderInfo; 4] {
+        tree.get(LayoutNodeId::new(index)).map_or_else(
+            || {
+                let none = BorderInfo::new(
+                    0.0,
+                    BorderStyle::None,
+                    ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    },
+                    source,
+                );
+                [none; 4]
+            },
+            |node| {
+                let (top, right, bottom, left) = get_border_info(ctx, node, source);
+                [top, right, bottom, left]
+            },
+        )
+    };
+
+    let owners = grid.slot_owners();
+    let owner = |r: usize, c: usize| owners.get(r * cols + c).copied().flatten();
+    let cell_sides: Vec<[BorderInfo; 4]> = grid
+        .cells
+        .iter()
+        .map(|cell| sides(cell.node_index, BorderSource::Cell))
+        .collect();
+    let row_sides: Vec<[BorderInfo; 4]> = (0..rows)
+        .map(|r| {
+            grid.row_node_indices
+                .get(r)
+                .map_or_else(|| sides(usize::MAX, BorderSource::Row), |&i| sides(i, BorderSource::Row))
+        })
+        .collect();
+    let group_of = |r: usize| grid.row_groups.get(r).copied().flatten();
+    let group_sides: BTreeMap<usize, [BorderInfo; 4]> = (0..rows)
+        .filter_map(|r| group_of(r))
+        .map(|g| (g, sides(g, BorderSource::RowGroup)))
+        .collect();
+    let first_in_group = |r: usize| r == 0 || group_of(r - 1) != group_of(r);
+    let last_in_group = |r: usize| r + 1 >= rows || group_of(r + 1) != group_of(r);
+    let column_sides: Vec<Option<(TableColumnBox, [BorderInfo; 4])>> = (0..cols)
+        .map(|c| {
+            grid.column_box_at(c)
+                .map(|b| (*b, sides(b.node_index, BorderSource::Column)))
+        })
+        .collect();
+    let column_group_sides: Vec<Option<(TableColumnGroupBox, [BorderInfo; 4])>> = (0..cols)
+        .map(|c| {
+            grid.column_group_at(c)
+                .map(|g| (*g, sides(g.node_index, BorderSource::ColumnGroup)))
+        })
+        .collect();
+    let table = sides(table_index, BorderSource::Table);
+
+    let mut participants: Vec<BorderInfo> = Vec::with_capacity(12);
+
+    // Horizontal edges: row line `r` (0 = the table's top), column `c`.
+    for r in 0..=rows {
+        for c in 0..cols {
+            let above = if r > 0 { owner(r - 1, c) } else { None };
+            let below = if r < rows { owner(r, c) } else { None };
+            if above.is_some() && above == below {
+                continue; // inside a cell that spans both rows
+            }
+            participants.clear();
+            if let Some(a) = above {
+                participants.push(cell_sides[a][BOTTOM]);
+            }
+            if let Some(b) = below {
+                participants.push(cell_sides[b][TOP]);
+            }
+            if r > 0 {
+                participants.push(row_sides[r - 1][BOTTOM]);
+            }
+            if r < rows {
+                participants.push(row_sides[r][TOP]);
+            }
+            if r > 0 && last_in_group(r - 1) {
+                if let Some(g) = group_of(r - 1).and_then(|g| group_sides.get(&g)) {
+                    participants.push(g[BOTTOM]);
+                }
+            }
+            if r < rows && first_in_group(r) {
+                if let Some(g) = group_of(r).and_then(|g| group_sides.get(&g)) {
+                    participants.push(g[TOP]);
+                }
+            }
+            if r == 0 || r == rows {
+                let side = if r == 0 { TOP } else { BOTTOM };
+                if let Some((_, s)) = &column_sides[c] {
+                    participants.push(s[side]);
+                }
+                if let Some((_, s)) = &column_group_sides[c] {
+                    participants.push(s[side]);
+                }
+                participants.push(table[side]);
+            }
+            out.horizontal[r * cols + c] = collapse_edge(&participants);
+        }
+    }
+
+    // Vertical edges: row `r`, column line `c` (0 = the table's start: its
+    // left in ltr, its right in rtl).
+    for r in 0..rows {
+        for c in 0..=cols {
+            let before = if c > 0 { owner(r, c - 1) } else { None };
+            let after = if c < cols { owner(r, c) } else { None };
+            if before.is_some() && before == after {
+                continue; // inside a cell that spans both columns
+            }
+            participants.clear();
+            if let Some(b) = before {
+                participants.push(cell_sides[b][end_side]);
+            }
+            if let Some(a) = after {
+                participants.push(cell_sides[a][start_side]);
+            }
+            if c == 0 || c == cols {
+                let side = if c == 0 { start_side } else { end_side };
+                participants.push(row_sides[r][side]);
+                if let Some(g) = group_of(r).and_then(|g| group_sides.get(&g)) {
+                    participants.push(g[side]);
+                }
+            }
+            if c > 0 {
+                if let Some((b, s)) = &column_sides[c - 1] {
+                    if b.start + b.span == c {
+                        participants.push(s[end_side]);
+                    }
+                }
+            }
+            if c < cols {
+                if let Some((b, s)) = &column_sides[c] {
+                    if b.start == c {
+                        participants.push(s[start_side]);
+                    }
+                }
+            }
+            if c > 0 {
+                if let Some((g, s)) = &column_group_sides[c - 1] {
+                    if g.start + g.span == c {
+                        participants.push(s[end_side]);
+                    }
+                }
+            }
+            if c < cols {
+                if let Some((g, s)) = &column_group_sides[c] {
+                    if g.start == c {
+                        participants.push(s[start_side]);
+                    }
+                }
+            }
+            if c == 0 {
+                participants.push(table[start_side]);
+            } else if c == cols {
+                participants.push(table[end_side]);
+            }
+            out.vertical[r * (cols + 1) + c] = collapse_edge(&participants);
+        }
+    }
+
+    out
+}
+
+/// The borders the boxes of every table are laid out with, decided before
+/// anything is measured (the intrinsic pass calls this first: the table's
+/// shrink-to-fit width, the column measurement and the cells' final layout
+/// all read the box props, so patching them here is what makes every one of
+/// them see the same table).
+///
+/// - Rows, row groups, columns and column groups have no border of their own
+///   in layout, in either model (CSS 2.2 17.6.1: the separated model ignores
+///   their border properties; 17.6.2: in the collapsing model they take part
+///   in the grid's edges, which the cells and the table carry). The cells are
+///   placed inside their row's content box, so a `tr { border-bottom }`
+///   moved them by the row's border.
+/// - The collapsing border model (CSS 2.2 17.6.2): a cell's border is half of
+///   each collapsed edge it touches, the table's half of its widest outer
+///   edge on each side, and the table has no padding ("in this model, a
+///   table does not have padding").
+///
+/// The unresolved props are patched too, or a parent's re-resolution
+/// (`layout_bfc` re-resolves its children's box props) undid it. Idempotent:
+/// it starts from the cascade every time.
+pub(crate) fn apply_table_border_model<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+) {
+    let tables: Vec<usize> = tree
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| matches!(n.formatting_context, FormattingContext::Table))
+        .map(|(i, _)| i)
+        .collect();
+    for table_index in tables {
+        let Some(table) = tree.get(LayoutNodeId::new(table_index)) else {
+            continue;
+        };
+        let collapsed =
+            get_border_collapse_property(ctx, table) == StyleBorderCollapse::Collapse;
+        let Ok(grid) = analyze_table_structure(tree, table_index, ctx) else {
+            continue;
+        };
+        // Everything that reads the table node is decided before any box
+        // is patched.
+        let collapsed_boxes = collapsed.then(|| {
+            let borders = resolve_collapsed_borders(ctx, tree, table_index, &grid);
+            let table_border = if borders.num_rows == 0 || borders.num_cols == 0 {
+                // No grid to collapse with: the table's own border stands.
+                let (t, r, b, l) = get_border_info(ctx, table, BorderSource::Table);
+                let used = |e: BorderInfo| {
+                    if matches!(e.style, BorderStyle::None | BorderStyle::Hidden) {
+                        0.0
+                    } else {
+                        e.width
+                    }
+                };
+                EdgeSizes {
+                    top: used(t),
+                    right: used(r),
+                    bottom: used(b),
+                    left: used(l),
+                }
+            } else {
+                borders.table_border()
+            };
+            let cells: Vec<(usize, EdgeSizes)> = grid
+                .cells
+                .iter()
+                .map(|cell| (cell.node_index, borders.cell_border(cell)))
+                .collect();
+            (table_border, cells)
+        });
+
+        let mut grid_boxes: Vec<usize> = grid.row_node_indices.clone();
+        grid_boxes.extend(grid.row_groups.iter().flatten().copied());
+        grid_boxes.extend(grid.column_boxes.iter().map(|c| c.node_index));
+        grid_boxes.extend(grid.column_groups.iter().map(|g| g.node_index));
+        grid_boxes.sort_unstable();
+        grid_boxes.dedup();
+        for index in grid_boxes {
+            set_collapsed_box(tree, index, EdgeSizes::default(), false);
+        }
+
+        if let Some((table_border, cells)) = collapsed_boxes {
+            set_collapsed_box(tree, table_index, table_border, true);
+            for (cell, border) in cells {
+                set_collapsed_box(tree, cell, border, false);
+            }
+        }
+    }
+}
+
+/// Give a box of a table its used border widths (and, for a collapsed
+/// table, no padding), in the resolved AND the unresolved box props.
+fn set_collapsed_box(tree: &mut LayoutTree, index: usize, border: EdgeSizes, no_padding: bool) {
+    use azul_css::props::basic::pixel::PixelValue;
+
+    use crate::solver3::geometry::{PackedBoxProps, UnresolvedEdge};
+
+    if let Some(hot) = tree.nodes.get_mut(index) {
+        let mut bp = hot.box_props.unpack();
+        bp.border = border;
+        if no_padding {
+            bp.padding = EdgeSizes::default();
+        }
+        hot.box_props = PackedBoxProps::pack(&bp);
+    }
+    if let Some(cold) = tree.cold.get_mut(index) {
+        cold.unresolved_box_props.border = UnresolvedEdge::new(
+            PixelValue::px(border.top),
+            PixelValue::px(border.right),
+            PixelValue::px(border.bottom),
+            PixelValue::px(border.left),
+        );
+        if no_padding {
+            cold.unresolved_box_props.padding = UnresolvedEdge::new(
+                PixelValue::px(0.0),
+                PixelValue::px(0.0),
+                PixelValue::px(0.0),
+                PixelValue::px(0.0),
+            );
+        }
+    }
 }
 
 /// Read the HTML `colspan` / `rowspan` of a table cell from its DOM node.
 ///
 /// These are HTML presentational attributes (`AttributeType::ColSpan`/`RowSpan`
 /// on `NodeData`), not CSS properties. Missing or non-positive values default to
-/// 1 per the HTML parsing rules.
+/// 1 per the HTML parsing rules. Shared with the table's intrinsic sizing
+/// (`sizing::calculate_table_intrinsic_sizes`).
 #[allow(clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
+pub(crate) fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
     let mut colspan = 1usize;
     let mut rowspan = 1usize;
     let node_data = &styled_dom.node_data.as_container()[dom_id];
@@ -6793,12 +8155,15 @@ fn get_cell_spans(styled_dom: &StyledDom, dom_id: NodeId) -> (usize, usize) {
 
 // +spec:display-property:7f167c - Table grid cell placement: rows fill table top-to-bottom, cells
 // placed left-to-right with colspan/rowspan
-/// Analyze a table row to identify cells and update column count
+/// Analyze a table row: place its cells in the grid (CSS 2.2 17.5) and
+/// grow the column count. `group` is the layout index of the row group the
+/// row sits in (`None` for a row straight under the table).
 fn analyze_table_row<T: ParsedFontTrait>(
     tree: &LayoutTree,
     row_index: usize,
+    group: Option<usize>,
     table_ctx: &mut TableLayoutContext,
-    ctx: &mut LayoutContext<'_, T>,
+    ctx: &LayoutContext<'_, T>,
 ) -> Result<()> {
     // +spec:inline-formatting-context:3f8091 - table visual layout: cells occupy grid cells,
     // row/column spanning
@@ -6812,10 +8177,13 @@ fn analyze_table_row<T: ParsedFontTrait>(
         table_ctx.row_node_indices.resize(row_num + 1, 0);
     }
     table_ctx.row_node_indices[row_num] = row_index;
+    if table_ctx.row_groups.len() <= row_num {
+        table_ctx.row_groups.resize(row_num + 1, None);
+    }
+    table_ctx.row_groups[row_num] = group;
 
     // CSS 2.2 Section 17.6: Check if this row has visibility:collapse
     if is_visibility_collapsed(ctx, row_node) {
-        debug_log!(ctx, "Row {} has visibility:collapse", row_num);
         table_ctx.collapsed_rows.insert(row_num);
     }
 
@@ -6923,133 +8291,227 @@ fn calculate_column_widths_fixed<T: ParsedFontTrait>(
         available_width
     );
 
+    let widths = fixed_column_widths(ctx.styled_dom, tree, table_ctx, available_width);
+    for (col, width) in table_ctx.columns.iter_mut().zip(widths) {
+        col.computed_width = Some(width);
+    }
+}
+
+/// The fixed table layout's column widths (CSS 2.2 17.5.2.1) when the
+/// columns share `available_width` (the table's content width less its cell
+/// spacing): a `<col>`'s width, else a first-row cell's, the rest shared
+/// equally, a collapsed column 0. They never depend on the cells' content,
+/// and they add up to `available_width` unless the widths given want more.
+/// The table's layout and its intrinsic sizes
+/// ([`fixed_table_content_width`]) both take them from here.
+#[allow(clippy::cast_precision_loss)] // a column count
+pub(crate) fn fixed_column_widths(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    table_ctx: &TableLayoutContext,
+    available_width: f32,
+) -> Vec<f32> {
     let num_cols = table_ctx.columns.len();
-    if num_cols == 0 {
-        return;
+    let collapsed = &table_ctx.collapsed_columns;
+    let visible: Vec<usize> = (0..num_cols).filter(|c| !collapsed.contains(c)).collect();
+    if visible.is_empty() {
+        return vec![0.0; num_cols];
     }
 
-    let num_visible_cols = num_cols - table_ctx.collapsed_columns.len();
-    if num_visible_cols == 0 {
-        for col in &mut table_ctx.columns {
-            col.computed_width = Some(0.0);
-        }
-        return;
-    }
+    // Step 1: a `<col>` with a width sets its column (a column box has no
+    // padding and, for its width, no border).
+    let mut widths: Vec<Option<f32>> = crate::solver3::table_width::column_element_widths(
+        styled_dom,
+        tree,
+        &table_ctx.column_boxes,
+        num_cols,
+    )
+    .into_iter()
+    .enumerate()
+    .map(|(c, width)| {
+        let dom_id = table_ctx
+            .column_box_at(c)
+            .and_then(|b| tree.get(LayoutNodeId::new(b.node_index)))
+            .and_then(|n| n.dom_node_id)?;
+        fixed_layout_width(styled_dom, dom_id, width, 0.0, available_width)
+    })
+    .collect();
 
-    // Step 1 (column elements) is skipped because column elements don't store
-    // explicit widths in the current table structure analysis.
-    // Step 2: Check first-row cells for explicit width properties.
-    let mut col_has_width = vec![false; num_cols];
-
-    for cell_info in &table_ctx.cells {
-        if cell_info.row != 0 {
-            continue; // Only consider cells in the first row
-        }
-        if table_ctx.collapsed_columns.contains(&cell_info.column) {
+    // Step 2: otherwise a first-row cell with a width sets its column(s) -
+    // its width plus its horizontal padding and border; a spanning cell's
+    // width covers the spacing between its columns and is split evenly
+    // over those still open.
+    for cell_info in table_ctx.cells.iter().filter(|c| c.row == 0) {
+        if collapsed.contains(&cell_info.column) {
             continue;
         }
-
-        // Look up the cell's CSS width via its dom_node_id
-        let Some(dom_id) = tree
-            .get(LayoutNodeId::new(cell_info.node_index))
-            .and_then(|n| n.dom_node_id)
-        else {
+        let Some(cell) = tree.get(LayoutNodeId::new(cell_info.node_index)) else {
             continue;
         };
-
-        let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-        let css_width = get_css_width(ctx.styled_dom, dom_id, node_state);
-
-        let explicit_px = match css_width.unwrap_or_default() {
-            LayoutWidth::Px(px) => resolve_size_metric(
-                px.metric,
-                px.number.get(),
-                available_width,
-                ctx.viewport_size,
-                get_element_font_size(ctx.styled_dom, dom_id, node_state),
-                get_root_font_size(ctx.styled_dom, node_state),
-            ),
-            LayoutWidth::Auto
-            | LayoutWidth::MinContent
-            | LayoutWidth::MaxContent
-            | LayoutWidth::Calc(_)
-            | LayoutWidth::FitContent(_) => continue,
+        let Some(dom_id) = cell.dom_node_id else {
+            continue;
         };
-
-        if cell_info.colspan == 1 {
-            table_ctx.columns[cell_info.column].computed_width = Some(explicit_px);
-            col_has_width[cell_info.column] = true;
-        } else {
-            let mut visible_span_count = 0;
-            for offset in 0..cell_info.colspan {
-                let col_idx = cell_info.column + offset;
-                if col_idx < num_cols && !table_ctx.collapsed_columns.contains(&col_idx) {
-                    visible_span_count += 1;
-                }
-            }
-            if visible_span_count > 0 {
-                let per_col = explicit_px / visible_span_count as f32;
-                for offset in 0..cell_info.colspan {
-                    let col_idx = cell_info.column + offset;
-                    if col_idx < num_cols
-                        && !table_ctx.collapsed_columns.contains(&col_idx)
-                        && !col_has_width[col_idx]
-                    {
-                        table_ctx.columns[col_idx].computed_width = Some(per_col);
-                        col_has_width[col_idx] = true;
-                    }
-                }
-            }
+        let bp = cell.box_props.unpack();
+        let h_extras = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+        let Some(w) = fixed_layout_width(
+            styled_dom,
+            dom_id,
+            crate::solver3::table_width::specified_width(styled_dom, dom_id, h_extras),
+            h_extras,
+            available_width,
+        ) else {
+            continue;
+        };
+        let span_end = (cell_info.column + cell_info.colspan).min(num_cols);
+        let span: Vec<usize> = (cell_info.column..span_end)
+            .filter(|c| !collapsed.contains(c))
+            .collect();
+        let open: Vec<usize> = span
+            .iter()
+            .copied()
+            .filter(|&c| widths[c].is_none())
+            .collect();
+        if open.is_empty() {
+            continue;
+        }
+        let taken: f32 = span.iter().filter_map(|&c| widths[c]).sum();
+        let inner = table_ctx.h_spacing * span.len().saturating_sub(1) as f32;
+        let per_column = (w - inner - taken).max(0.0) / open.len() as f32;
+        for c in open {
+            widths[c] = Some(per_column);
         }
     }
 
-    let used_width: f32 = table_ctx
-        .columns
+    // Step 3: the other columns share what is left, equally.
+    let used: f32 = visible.iter().filter_map(|&c| widths[c]).sum();
+    let open: Vec<usize> = visible
         .iter()
-        .enumerate()
-        .filter(|(idx, _)| col_has_width[*idx] && !table_ctx.collapsed_columns.contains(idx))
-        .filter_map(|(_, c)| c.computed_width)
+        .copied()
+        .filter(|&c| widths[c].is_none())
+        .collect();
+    if !open.is_empty() {
+        let per_column = (available_width - used).max(0.0) / open.len() as f32;
+        for &c in &open {
+            widths[c] = Some(per_column);
+        }
+    }
+
+    // Step 4: a table wider than its columns (every column has a width)
+    // gives them the extra, in proportion to their widths (evenly when all
+    // are 0).
+    let total: f32 = visible.iter().filter_map(|&c| widths[c]).sum();
+    if open.is_empty() && available_width > total {
+        let extra = available_width - total;
+        for &c in &visible {
+            let share = if total > 0.0 {
+                widths[c].unwrap_or(0.0) / total
+            } else {
+                1.0 / visible.len() as f32
+            };
+            widths[c] = Some(widths[c].unwrap_or(0.0) + extra * share);
+        }
+    }
+
+    (0..num_cols)
+        .map(|c| {
+            if collapsed.contains(&c) {
+                0.0
+            } else {
+                widths[c].unwrap_or(0.0)
+            }
+        })
+        .collect()
+}
+
+/// A FIXED table's content width as its columns make it (CSS 2.2
+/// 17.5.2.1): its own width, or the sum of its columns' widths and the cell
+/// spacing when the widths its `<col>`s and first-row cells give want more.
+/// `None` for a table laid out automatically.
+///
+/// This is a fixed table's minimum, the floor its used width never goes
+/// below - not its content's minimum (MIN, the automatic layout's floor):
+/// the fixed layout does not read the cells' content. Floored at MIN, the
+/// 100px table of WPT fixed-table-layout-025 came out 150px wide, its red
+/// cells' 2 x 25px of padding making room for themselves.
+#[allow(clippy::cast_precision_loss)] // a column count
+pub(crate) fn fixed_table_content_width<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    table_index: usize,
+    grid: &TableLayoutContext,
+) -> Option<f32> {
+    let table = tree.get(LayoutNodeId::new(table_index))?;
+    if !uses_fixed_table_layout(ctx, table) {
+        return None;
+    }
+    let dom_id = table.dom_node_id?;
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    // Its own width as a content width; a percentage (or a `calc()`) has no
+    // basis here, and its columns' widths are the floor alone.
+    let own = match get_css_width(ctx.styled_dom, dom_id, node_state) {
+        MultiValue::Exact(LayoutWidth::Px(px)) => {
+            let em = get_element_font_size(ctx.styled_dom, dom_id, node_state);
+            let rem = get_root_font_size(ctx.styled_dom, node_state);
+            crate::solver3::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                .filter(|w| w.is_finite())
+                .map_or(0.0, |w| {
+                    let bp = table.box_props.unpack();
+                    let content = match get_css_box_sizing(ctx.styled_dom, dom_id, node_state) {
+                        MultiValue::Exact(
+                            azul_css::props::layout::LayoutBoxSizing::BorderBox,
+                        ) => {
+                            w - bp.padding.left
+                                - bp.padding.right
+                                - bp.border.left
+                                - bp.border.right
+                        }
+                        _ => w,
+                    };
+                    content.max(0.0)
+                })
+        }
+        _ => 0.0,
+    };
+    let spacing = if grid.columns.is_empty() {
+        0.0
+    } else {
+        grid.h_spacing * (grid.columns.len() + 1) as f32
+    };
+    let columns: f32 = fixed_column_widths(ctx.styled_dom, tree, grid, (own - spacing).max(0.0))
+        .iter()
         .sum();
-    let remaining_width = (available_width - used_width).max(0.0);
-    let num_remaining = table_ctx
-        .columns
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !col_has_width[*idx] && !table_ctx.collapsed_columns.contains(idx))
-        .count();
+    Some((columns + spacing).max(own))
+}
 
-    if num_remaining > 0 {
-        let width_per_remaining = remaining_width / num_remaining as f32;
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else if !col_has_width[col_idx] {
-                col.computed_width = Some(width_per_remaining);
+/// A cell's (or a `<col>`'s) width for the fixed table layout, as a border
+/// box, from its `width` as `table_width::specified_width` read it: a length
+/// is that border box; a percentage of the columns' share of the table is the
+/// CONTENT width, plus `h_extras` (the padding and border - WPT
+/// fixed-table-layout-025/026), or under `box-sizing: border-box` the whole
+/// border box. `None` for `auto`.
+fn fixed_layout_width(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    width: crate::solver3::table_width::SpecifiedWidth,
+    h_extras: f32,
+    columns_width: f32,
+) -> Option<f32> {
+    use crate::solver3::table_width::SpecifiedWidth;
+    match width {
+        SpecifiedWidth::Auto => None,
+        SpecifiedWidth::Fixed(w) => Some(w),
+        SpecifiedWidth::Percent(percent) => {
+            let w = percent / 100.0 * columns_width;
+            if !w.is_finite() {
+                return None;
             }
-        }
-    }
-
-    // Set collapsed columns to zero width
-    for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-        if table_ctx.collapsed_columns.contains(&col_idx) {
-            col.computed_width = Some(0.0);
-        }
-    }
-
-    let total_col_width: f32 = table_ctx
-        .columns
-        .iter()
-        .filter_map(|c| c.computed_width)
-        .sum();
-    if available_width > total_col_width && num_visible_cols > 0 {
-        let extra = available_width - total_col_width;
-        let extra_per_col = extra / num_visible_cols as f32;
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if !table_ctx.collapsed_columns.contains(&col_idx) {
-                if let Some(ref mut w) = col.computed_width {
-                    *w += extra_per_col;
+            let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+            Some(match get_css_box_sizing(styled_dom, dom_id, node_state) {
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => {
+                    w.max(h_extras)
                 }
-            }
+                _ => w.max(0.0) + h_extras,
+            })
         }
     }
 }
@@ -7104,6 +8566,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         containing_block_size: constraints.containing_block_size,
         available_width_type: width_type,
         fragmentainer: None,
+        column_flow: None,
     };
 
     let mut temp_positions: super::PositionVec = Vec::new();
@@ -7116,6 +8579,72 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
     // inlines (`<td><span><a>text</a></span></td>`) need recursion; a fixed
     // 2-level walk left the `<a>` at level 3 with a stale cached 0-width.
     clear_subtree_cache(tree, &mut ctx.cache_map, cell_index);
+    // Same for the cell's own size: a table cell's `used_size` is never
+    // overwritten by its own layout once set, and `layout_bfc` lays the
+    // cell's children out inside it - so without this, a re-layout measured
+    // the content inside the column width of the PREVIOUS layout.
+    if let Some(cell) = tree.get_mut(LayoutNodeId::new(cell_index)) {
+        cell.used_size = None;
+    }
+
+    // The measurement is a CONSTRAINT, not a length. The flattened
+    // `f32::MAX / 2` above is only the legacy cache key: handed to
+    // `from_flattened_with_width_type` it is FINITE, so it came back as a
+    // DEFINITE 1.7e38 px containing block. A cell without text (`<td
+    // colspan="2"><hr></td>`, a `width: 100%` rule) filled it, both spanned
+    // columns came out ~0.85e38 wide and the next column's text was placed
+    // ~0.85e38 px to the right: the AzMail receipt lost its price column and
+    // the CPU rasterizer panicked on it. Typed, the cell's auto width is its
+    // measured contribution and a percentage inside it behaves as auto
+    // (css-sizing-3 section 5.2.1).
+    let cell_cb = match width_type {
+        Text3AvailableSpace::Definite(_) => {
+            CBTY::from_flattened_with_width_type(cell_constraints.available_size, width_type)
+        }
+        indefinite => CBTY::from_axes(
+            indefinite,
+            Text3AvailableSpace::MaxContent,
+            cell_constraints.available_size,
+        ),
+    };
+
+    // A cell of loose text with only inline-level children IS one inline
+    // formatting context (CSS 2.2 9.4.2), and its intrinsic widths are that
+    // IFC's: its longest word under the min-content constraint, its longest
+    // line under max-content. THIS is the measurement path; the final pass
+    // lays the cell out at its column width in `layout_cell_for_height` and
+    // never comes here. The generic subtree layout below would run the cell
+    // through `layout_bfc`, where the text child is a block-level box sized
+    // at its MAX-content width - so the min pass reported the max.
+    let cell_is_ifc = tree
+        .get(LayoutNodeId::new(cell_index))
+        .and_then(|n| n.dom_node_id)
+        .is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
+    if cell_is_ifc {
+        let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
+        // The measurement's lines are not the cell's: nothing may read a
+        // min-content line layout as the final one (`layout_cell_for_height`
+        // lays the cell out again at its column width).
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(cell_index)) {
+            warm.inline_layout_result = None;
+        }
+        let cell_bp = tree
+            .get(LayoutNodeId::new(cell_index))
+            .ok_or(LayoutError::InvalidTree)?
+            .box_props
+            .unpack();
+        let wm = constraints.writing_mode;
+        let content_width = if output.overflow_size.width.is_finite() {
+            output.overflow_size.width.max(0.0)
+        } else {
+            0.0
+        };
+        return Ok(content_width
+            + cell_bp.padding.cross_start(wm)
+            + cell_bp.padding.cross_end(wm)
+            + cell_bp.border.cross_start(wm)
+            + cell_bp.border.cross_end(wm));
+    }
 
     crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
@@ -7123,10 +8652,7 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         text_cache,
         cell_index,
         LogicalPosition::zero(),
-        &CBTY::from_flattened_with_width_type(
-            cell_constraints.available_size,
-            cell_constraints.available_width_type,
-        ),
+        &cell_cb,
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
         &mut temp_float_cache,
@@ -7165,40 +8691,76 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         + border.cross_end(wm))
 }
 
-/// Measure a cell's minimum content width (with maximum wrapping)
-fn measure_cell_min_content_width<T: ParsedFontTrait>(
+/// A definite `height` (px, em, rem, vw, ...) of an element, or `None` for
+/// `auto` and percentages (no basis here).
+fn specified_length_height(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    viewport: LogicalSize,
+) -> Option<f32> {
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let MultiValue::Exact(LayoutHeight::Px(px)) = get_css_height(styled_dom, dom_id, node_state)
+    else {
+        return None;
+    };
+    let em = get_element_font_size(styled_dom, dom_id, node_state);
+    let rem = get_root_font_size(styled_dom, node_state);
+    crate::solver3::calc::resolve_pixel_value_no_percent_with_viewport(
+        &px,
+        em,
+        rem,
+        viewport.width,
+        viewport.height,
+    )
+    .filter(|h| h.is_finite())
+    .map(|h| h.max(0.0))
+}
+
+/// A table cell's specified `height` as a BORDER-box length (`None` for
+/// `auto` and percentages): the cell's row is at least that tall.
+pub(crate) fn cell_specified_border_box_height(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    bp: &BoxProps,
+    viewport: LogicalSize,
+) -> Option<f32> {
+    let h = specified_length_height(styled_dom, dom_id, viewport)?;
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let extras = bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom;
+    Some(match get_css_box_sizing(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox) => h.max(extras),
+        _ => h + extras,
+    })
+}
+
+/// Measure a cell's minimum and maximum content widths for its column (CSS
+/// 2.2 17.5.2.2): the content laid out with maximum wrapping and without
+/// wrapping, as border-box widths. The cell's own `width` is read beside
+/// them by the column model (`table_width::specified_width`).
+fn measure_cell_widths<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     cell_index: usize,
     constraints: &LayoutConstraints<'_>,
-) -> Result<f32> {
-    measure_cell_content_width(
+) -> Result<(f32, f32)> {
+    let min_content = measure_cell_content_width(
         ctx,
         tree,
         text_cache,
         cell_index,
         constraints,
         text3::cache::AvailableSpace::MinContent,
-    )
-}
-
-/// Measure a cell's maximum content width (without wrapping)
-fn measure_cell_max_content_width<T: ParsedFontTrait>(
-    ctx: &mut LayoutContext<'_, T>,
-    tree: &mut LayoutTree,
-    text_cache: &mut TextLayoutCache,
-    cell_index: usize,
-    constraints: &LayoutConstraints<'_>,
-) -> Result<f32> {
-    measure_cell_content_width(
+    )?;
+    let max_content = measure_cell_content_width(
         ctx,
         tree,
         text_cache,
         cell_index,
         constraints,
         text3::cache::AvailableSpace::MaxContent,
-    )
+    )?;
+    Ok((min_content, max_content.max(min_content)))
 }
 
 /// Calculate column widths using the auto table layout algorithm
@@ -7249,242 +8811,163 @@ fn calculate_column_widths_auto_with_width<T: ParsedFontTrait>(
         return Ok(());
     }
 
-    // Step 1: Measure all cells to determine column min/max widths
-    // CSS 2.2 Section 17.6: Skip cells in collapsed columns
-    for cell_info in &table_ctx.cells {
-        // Skip cells in collapsed columns
-        if table_ctx.collapsed_columns.contains(&cell_info.column) {
+    // Step 1: every cell's min/max-content: a one-column cell's into its
+    // column, a spanning cell's kept for Step 2, where it is spread over its
+    // columns after every one-column cell (and every `width`) is in, by
+    // increasing span. (Measured and spread in document order, a spanning
+    // cell spread its demand over columns whose own cells were not measured
+    // yet, and the columns came out wider than any cell needed.) Cells in,
+    // or spanning into, collapsed columns take no part (CSS 2.2 17.6).
+    let mut spanning: Vec<(TableCellInfo, f32, f32)> = Vec::new();
+    for cell_info in table_ctx.cells.clone() {
+        if (cell_info.column..cell_info.column + cell_info.colspan)
+            .any(|c| table_ctx.collapsed_columns.contains(&c))
+        {
             continue;
         }
-
-        // Skip cells that span into collapsed columns
-        let mut spans_collapsed = false;
-        for col_offset in 0..cell_info.colspan {
-            if table_ctx
-                .collapsed_columns
-                .contains(&(cell_info.column + col_offset))
-            {
-                spans_collapsed = true;
-                break;
-            }
-        }
-        if spans_collapsed {
-            continue;
-        }
-
-        let min_width = measure_cell_min_content_width(
-            ctx,
-            tree,
-            text_cache,
-            cell_info.node_index,
-            constraints,
-        )?;
-
-        let max_width = measure_cell_max_content_width(
-            ctx,
-            tree,
-            text_cache,
-            cell_info.node_index,
-            constraints,
-        )?;
-
-        // Handle single-column cells
+        let (min_width, max_width) =
+            measure_cell_widths(ctx, tree, text_cache, cell_info.node_index, constraints)?;
         if cell_info.colspan == 1 {
             let col = &mut table_ctx.columns[cell_info.column];
             col.min_width = col.min_width.max(min_width);
             col.max_width = col.max_width.max(max_width);
         } else {
-            // Handle multi-column cells (colspan > 1)
-            // Distribute the cell's min/max width across the spanned columns
-            distribute_cell_width_across_columns(
-                &mut table_ctx.columns,
-                cell_info.column,
-                cell_info.colspan,
-                min_width,
-                max_width,
-                &table_ctx.collapsed_columns,
-            );
+            spanning.push((cell_info, min_width, max_width));
         }
     }
+    // Step 2: the columns' constraints (CSS Tables 3 3.8) - the measured
+    // min/max-content above, plus what the cells' and the `<col>`s' `width`
+    // make of a column (a constrained column, a percentage column) - and the
+    // distribution of the table's width over them (3.9.3), both in
+    // `table_width`, which the table's intrinsic sizes use too. Every column
+    // used to get a share of the excess in proportion to its max-content
+    // whatever its `width` said (`<td width="100">a</td><td>a</td>` in a
+    // 400px table came out 200 / 200, not 100 / 300), and percentages were
+    // not read at all.
+    use crate::solver3::table_width as tw;
 
-    // Step 2: Calculate final column widths based on available space
-    // Exclude collapsed columns from total width calculations
-    let total_min_width: f32 = table_ctx
+    let mut accumulators = vec![tw::ColumnAccumulator::default(); num_cols];
+    for cell_info in &table_ctx.cells {
+        if cell_info.colspan != 1 || cell_info.column >= num_cols {
+            continue;
+        }
+        let Some(cell) = tree.get(LayoutNodeId::new(cell_info.node_index)) else {
+            continue;
+        };
+        let Some(dom_id) = cell.dom_node_id else {
+            continue;
+        };
+        let bp = cell.box_props.unpack();
+        let h_extras = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+        accumulators[cell_info.column].add_width(tw::specified_width(
+            ctx.styled_dom,
+            dom_id,
+            h_extras,
+        ));
+    }
+    for (accumulator, width) in accumulators.iter_mut().zip(tw::column_element_widths(
+        ctx.styled_dom,
+        tree,
+        &table_ctx.column_boxes,
+        num_cols,
+    )) {
+        accumulator.add_width(width);
+    }
+
+    let mut column_constraints: Vec<tw::ColumnConstraint> = table_ctx
         .columns
         .iter()
+        .zip(accumulators)
         .enumerate()
-        .filter(|(idx, _)| !table_ctx.collapsed_columns.contains(idx))
-        .map(|(_, c)| c.min_width)
-        .sum();
-    let total_max_width: f32 = table_ctx
-        .columns
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !table_ctx.collapsed_columns.contains(idx))
-        .map(|(_, c)| c.max_width)
-        .sum();
-    let available_width = table_width; // Use table's content-box width, not constraints
+        .map(|(idx, (col, mut accumulator))| {
+            if table_ctx.collapsed_columns.contains(&idx) {
+                return tw::ColumnConstraint::default();
+            }
+            accumulator.raise(col.min_width, col.max_width);
+            accumulator.finish()
+        })
+        .collect();
+    // The spanning cells, after every one-column cell, by increasing span:
+    // their min/max-content and their own `width` spread over the columns
+    // they span (`table_width::distribute_spanning_cell`, the rule the
+    // table's intrinsic sizes use too).
+    spanning.sort_by_key(|(cell, _, _)| cell.colspan);
+    for (cell_info, min_width, max_width) in spanning {
+        let width = tree
+            .get(LayoutNodeId::new(cell_info.node_index))
+            .and_then(|cell| {
+                let dom_id = cell.dom_node_id?;
+                let bp = cell.box_props.unpack();
+                let h_extras =
+                    bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+                Some(tw::specified_width(ctx.styled_dom, dom_id, h_extras))
+            })
+            .unwrap_or(tw::SpecifiedWidth::Auto);
+        tw::distribute_spanning_cell(
+            &mut column_constraints,
+            cell_info.column,
+            cell_info.colspan,
+            min_width,
+            max_width,
+            width,
+            table_ctx.h_spacing,
+            &table_ctx.collapsed_columns,
+        );
+    }
+    tw::clamp_percentages(&mut column_constraints);
+    let widths = tw::distribute_to_columns(&column_constraints, table_width);
 
     debug_table_layout!(
         ctx,
-        "calculate_column_widths_auto: min={:.2}, max={:.2}, table_width={:.2}",
-        total_min_width,
-        total_max_width,
-        table_width
+        "calculate_column_widths_auto: table_width={:.2}, constraints={:?}, widths={:?}",
+        table_width,
+        column_constraints,
+        widths
     );
 
-    // Handle infinity and NaN cases
-    if !total_max_width.is_finite() || !available_width.is_finite() {
-        // If max_width is infinite or unavailable, distribute available width equally
-        let num_non_collapsed = table_ctx.columns.len() - table_ctx.collapsed_columns.len();
-        let width_per_column = if num_non_collapsed > 0 {
-            available_width / num_non_collapsed as f32
-        } else {
+    for (col_idx, (col, width)) in table_ctx.columns.iter_mut().zip(widths).enumerate() {
+        col.computed_width = Some(if table_ctx.collapsed_columns.contains(&col_idx) {
             0.0
-        };
-
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else {
-                // Use the larger of min_width and equal distribution
-                col.computed_width = Some(col.min_width.max(width_per_column));
-            }
-        }
-    } else if available_width >= total_max_width {
-        // Case 1: More space than max-content - distribute excess proportionally
-        //
-        // CSS 2.1 Section 17.5.2.2: Distribute extra space proportionally to
-        // max-content widths
-        let excess_width = available_width - total_max_width;
-
-        // First pass: collect column info (max_width) to avoid borrowing issues
-        let column_info: Vec<(usize, f32, bool)> = table_ctx
-            .columns
-            .iter()
-            .enumerate()
-            .map(|(idx, c)| (idx, c.max_width, table_ctx.collapsed_columns.contains(&idx)))
-            .collect();
-
-        // Calculate total weight for proportional distribution (use max_width as weight)
-        let total_weight: f32 = column_info.iter()
-            .filter(|(_, _, is_collapsed)| !is_collapsed)
-            .map(|(_, max_w, _)| max_w.max(1.0)) // Avoid division by zero
-            .sum();
-
-        let num_non_collapsed = column_info
-            .iter()
-            .filter(|(_, _, is_collapsed)| !is_collapsed)
-            .count();
-
-        // Second pass: set computed widths
-        for (col_idx, max_width, is_collapsed) in column_info {
-            let col = &mut table_ctx.columns[col_idx];
-            if is_collapsed {
-                col.computed_width = Some(0.0);
-            } else {
-                // Start with max-content width, then add proportional share of excess
-                let weight_factor = if total_weight > 0.0 {
-                    max_width.max(1.0) / total_weight
-                } else {
-                    // If all columns have 0 max_width, distribute equally
-                    1.0 / num_non_collapsed.max(1) as f32
-                };
-
-                let final_width = max_width + (excess_width * weight_factor);
-                col.computed_width = Some(final_width);
-            }
-        }
-    } else if available_width >= total_min_width {
-        // Case 2: Between min and max - interpolate proportionally
-        // Avoid division by zero if min == max
-        let scale = if total_max_width > total_min_width {
-            (available_width - total_min_width) / (total_max_width - total_min_width)
         } else {
-            0.0 // If min == max, just use min width
-        };
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else {
-                let interpolated = col.min_width + (col.max_width - col.min_width) * scale;
-                col.computed_width = Some(interpolated);
-            }
-        }
-    } else {
-        // Case 3: Not enough space - columns must not shrink below their
-        // min-content width (CSS 2.1 §17.5.2). Floor each column at min_width;
-        // the table overflows its containing block instead of squeezing content.
-        for (col_idx, col) in table_ctx.columns.iter_mut().enumerate() {
-            if table_ctx.collapsed_columns.contains(&col_idx) {
-                col.computed_width = Some(0.0);
-            } else {
-                col.computed_width = Some(col.min_width);
-            }
-        }
+            width
+        });
     }
 
     Ok(())
 }
 
-/// Distribute a multi-column cell's width across the columns it spans
-#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-fn distribute_cell_width_across_columns(
-    columns: &mut [TableColumnInfo],
-    start_col: usize,
-    colspan: usize,
-    cell_min_width: f32,
-    cell_max_width: f32,
-    collapsed_columns: &std::collections::HashSet<usize>,
-) {
-    let end_col = start_col + colspan;
-    if end_col > columns.len() {
-        return;
-    }
-
-    // Calculate current total of spanned non-collapsed columns
-    let current_min_total: f32 = columns[start_col..end_col]
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !collapsed_columns.contains(&(start_col + idx)))
-        .map(|(_, c)| c.min_width)
-        .sum();
-    let current_max_total: f32 = columns[start_col..end_col]
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !collapsed_columns.contains(&(start_col + idx)))
-        .map(|(_, c)| c.max_width)
-        .sum();
-
-    // Count non-collapsed columns in the span
-    let num_visible_cols = (start_col..end_col)
-        .filter(|idx| !collapsed_columns.contains(idx))
-        .count();
-
-    if num_visible_cols == 0 {
-        return; // All spanned columns are collapsed
-    }
-
-    // Only distribute if the cell needs more space than currently available
-    if cell_min_width > current_min_total {
-        let extra_min = cell_min_width - current_min_total;
-        let per_col = extra_min / num_visible_cols as f32;
-        for (idx, col) in columns[start_col..end_col].iter_mut().enumerate() {
-            if !collapsed_columns.contains(&(start_col + idx)) {
-                col.min_width += per_col;
-            }
-        }
-    }
-
-    if cell_max_width > current_max_total {
-        let extra_max = cell_max_width - current_max_total;
-        let per_col = extra_max / num_visible_cols as f32;
-        for (idx, col) in columns[start_col..end_col].iter_mut().enumerate() {
-            if !collapsed_columns.contains(&(start_col + idx)) {
-                col.max_width += per_col;
-            }
-        }
-    }
+/// Does this cell establish an INLINE formatting context: only inline-level
+/// children (CSS 2.2 9.4.2), with or without loose text?
+///
+/// A cell of only inline BOXES (`<td><span>$10.00</span></td>`, Postmark's
+/// `<td align="center"><a style="display: inline-block">`) is an IFC like any
+/// block container of inline content: its `text-align` places them. It
+/// needed a loose text child, so such a cell took the block branch and its
+/// box sat at the cell's left edge (MAILENG6 item 5). One exception keeps the
+/// block branch: an inline child that holds a block-level box
+/// (`<a><img style="display: block"></a>`, block-in-inline, CSS 2.2
+/// 9.2.1.1) with no loose text beside it - `layout_ifc` does not split an
+/// inline around a block yet, and the block branch is what lays such a
+/// linked picture out today.
+///
+/// Then it is laid out as ONE IFC, on two explicit paths that never meet:
+/// the table's min/max-content MEASUREMENT ([`measure_cell_content_width`])
+/// lays its IFC out under the measurement constraint and reads the extent
+/// (min-content = its longest word), and the FINAL pass
+/// ([`layout_cell_for_height`]) lays it out at its column width. The generic
+/// route (`layout_formatting_context` -> `layout_bfc`) made the cell's text
+/// child a block-level box sized at its MAX-content width, so a cell's
+/// min-content came out equal to its max and a 220px table of prose ran its
+/// cells 360px wide; routing EVERY such cell through `layout_ifc` inside
+/// `layout_formatting_context` (7534be8c7, reverted) also changed the final
+/// passes and dropped whole tables from the layout.
+fn cell_is_inline_formatting_context(styled_dom: &StyledDom, cell_dom_id: NodeId) -> bool {
+    // A cell whose inline box holds a block (`<td><a><img style="display:
+    // block"></a></td>`) is not one: that inline is split around the block
+    // (CSS 2.2 s9.2.1.1), which `has_only_inline_children` answers - the
+    // twin walk `inline_children_hold_a_block` that kept such cells on the
+    // block branch is gone (`layout_tree::inline_holds_a_block`).
+    crate::solver3::layout_tree::has_only_inline_children(styled_dom, cell_dom_id)
 }
 
 /// Layout a cell with its computed column width to determine its content height
@@ -7501,17 +8984,35 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
     let cell_node = tree
         .get(LayoutNodeId::new(cell_index))
         .ok_or(LayoutError::InvalidTree)?;
-    let cell_dom_id = cell_node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
+    // An ANONYMOUS cell (CSS 2.2 17.2.1: the reconciler wraps a row's stray
+    // children in one) has no DOM node: its inline runs sit in anonymous
+    // inline wrappers, so it is laid out by the block branch below. It used
+    // to fail the whole table with `InvalidTree`.
+    let cell_dom_id = cell_node.dom_node_id;
 
     // Check if cell has text content directly in DOM (not in LayoutTree)
     // Text nodes are intentionally not included in LayoutTree per CSS spec,
     // but we need to measure them for table cell height calculation.
-    let has_text_children = cell_dom_id
-        .az_children(&ctx.styled_dom.node_hierarchy.as_container())
-        .any(|child_id| {
-            let node_data = &ctx.styled_dom.node_data.as_container()[child_id];
-            matches!(node_data.get_node_type(), NodeType::Text(_))
-        });
+    //
+    // The text branch below lays the CELL out as one inline formatting
+    // context, then clears its children's own inline layouts. That is right
+    // for loose text and for a cell whose children are all inline-level (CSS
+    // 2.2 section 9.4.2) - but mail HTML is indented, so a cell holding an
+    // `<h1>` and a `<p>` also has whitespace text children, and taking the
+    // text branch for it lost both: `layout_ifc` does not lay the blocks out
+    // and the clearing wiped their text (AzMail sample 01, an empty newsletter
+    // body). Collapsible whitespace between blocks is no text at all (CSS 2.2
+    // section 9.2.2.1), so such a cell takes the block branch.
+    //
+    // And so does a cell with loose text AND a block child
+    // (`<td>Label<div>..</div></td>`): it is a block container with mixed
+    // content, its loose text in an anonymous block box beside the block
+    // (`LayoutTreeBuilder` builds a cell's children like any block
+    // container's). Laid out as one IFC, the block was not laid out and the
+    // clearing below wiped its text. Only a cell whose children are ALL
+    // inline-level establishes an inline formatting context (9.4.2).
+    let has_text_children =
+        cell_dom_id.is_some_and(|dom_id| cell_is_inline_formatting_context(ctx.styled_dom, dom_id));
 
     debug_table_layout!(
         ctx,
@@ -7531,11 +9032,14 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
 
     // cell_width is the border-box width (includes padding/border from column
     // width calculation) but layout functions need content-box width
-    let content_width = cell_width
+    // A fixed column narrower than the cell's padding leaves no room, never
+    // less than none.
+    let content_width = (cell_width
         - padding.cross_start(writing_mode)
         - padding.cross_end(writing_mode)
         - border.cross_start(writing_mode)
-        - border.cross_end(writing_mode);
+        - border.cross_end(writing_mode))
+    .max(0.0);
 
     debug_table_layout!(
         ctx,
@@ -7562,9 +9066,16 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             // This replaces any previous MinContent/MaxContent measurement.
             available_width_type: Text3AvailableSpace::Definite(content_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         let output = layout_ifc(ctx, text_cache, tree, cell_index, &cell_constraints)?;
+        // Where the line put each atomic inline (an inline-block, an image):
+        // its relative position, which hit-testing, the positioning pass and
+        // the painting of its own content read. Dropped here, the box stayed
+        // at the cell's content origin while its line painted it in place -
+        // a centered button's label at the cell's left edge.
+        publish_interior_positions(tree, &output);
 
         // The cell now owns the authoritative IFC result. Clear any duplicate
         // inline_layout_result from text children that was set during the cell's
@@ -7600,11 +9111,27 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             // Use Definite width for final cell layout!
             available_width_type: Text3AvailableSpace::Definite(content_width),
             fragmentainer: None,
+            column_flow: None,
         };
 
         let mut temp_positions: super::PositionVec = Vec::new();
         let mut temp_scrollbar_reflow = false;
         let mut temp_float_cache = HashMap::new();
+
+        // The table decides a cell's width. `layout_bfc` lays a cell's
+        // children out inside the cell's `used_size`, and a table cell's
+        // own layout never overwrites that once set - so it still held the
+        // min/max-content MEASUREMENT's width, and a `width: 100%` rule or
+        // an auto-width block came out as wide as the measurement instead
+        // of the column(s) (a spanning `<hr>` 0 px or 1.7e38 px wide). This
+        // is the cell's final layout: give it its column width first. The
+        // block size stays what the measurement left (it carries an explicit
+        // `height`, see the read below).
+        if let Some(cell) = tree.get_mut(LayoutNodeId::new(cell_index)) {
+            if let Some(size) = cell.used_size {
+                cell.used_size = Some(size.with_cross(writing_mode, cell_width));
+            }
+        }
 
         crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
@@ -7623,10 +9150,21 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             crate::solver3::cache::ComputeMode::PerformLayout,
         )?;
 
-        let cell_node = tree
-            .get(LayoutNodeId::new(cell_index))
-            .ok_or(LayoutError::InvalidTree)?;
-        cell_node.used_size.unwrap_or_default().height
+        // The CONTENT box's height, like the text branch's: the sum below
+        // adds the padding and border. It is the extent of the layout just
+        // done at the column width (wrapped at the column, CSS 2.2 17.5.3),
+        // and only that: `used_size` still holds the min/max-content
+        // MEASUREMENT's box (a cell's own layout never overwrites it), laid
+        // out at another width - a nested `width: 80%` table at its
+        // min-content, one word per line - and taking the larger of the two
+        // made Mailgun's invoice row 89px too tall, its content centred in it
+        // (MAILREF8 group C). The cell's own `height` is read below
+        // (`cell_specified_border_box_height`), which is what the measured
+        // term once stood in for.
+        tree.warm(LayoutNodeId::new(cell_index))
+            .and_then(|w| w.overflow_content_size)
+            .map_or(0.0, |s| s.height)
+            .max(0.0)
     };
 
     // Add padding and border to get the total height
@@ -7656,7 +9194,12 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
         total_height
     );
 
-    Ok(total_height)
+    // The cell's own `height` is a minimum for its box (CSS 2.2 17.5.3) - for
+    // a cell of text too, which the inline branch above never asked.
+    let specified = cell_node.dom_node_id.and_then(|dom_id| {
+        cell_specified_border_box_height(ctx.styled_dom, dom_id, &cell_bp, ctx.viewport_size)
+    });
+    Ok(total_height.max(specified.unwrap_or(0.0)))
 }
 
 // or bottom of content edge if no such line box exists
@@ -7669,46 +9212,155 @@ fn compute_cell_baseline(cell_index: usize, tree: &LayoutTree) -> f32 {
     let Some(cell_node) = tree.get(LayoutNodeId::new(cell_index)) else {
         return 0.0;
     };
-
-    let cell_bp = cell_node.box_props.unpack();
-
-    // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of
-    // content edge Check if the cell has inline layout (first in-flow line box)
-    if let Some(warm_node) = tree.warm(LayoutNodeId::new(cell_index)) {
-        if let Some(ref cached_layout) = warm_node.inline_layout_result {
-            // (d6h) Materialized: sentinel-safe first-line baseline.
-            let inline_result = cached_layout.materialized();
-            // The baseline is the ascent of the first item from the top of the cell
-            if let Some(first_item) = inline_result.items.first() {
-                let (item_ascent, _) =
-                    text3::cache::get_item_vertical_metrics_approx(&first_item.item);
-                let padding_top = cell_bp.padding.top;
-                let border_top = cell_bp.border.top;
-                return padding_top + border_top + first_item.position.y + item_ascent;
-            }
-        }
-    }
-
-    // Check children for first in-flow line box
-    let children = tree.children(cell_index);
-    for &child_idx in children {
-        if child_idx < tree.nodes.len() {
-            if let Some(child_warm) = tree.warm(LayoutNodeId::new(child_idx)) {
-                if child_warm.inline_layout_result.is_some() {
-                    let child_baseline = compute_cell_baseline(child_idx, tree);
-                    let padding_top = cell_bp.padding.top;
-                    let border_top = cell_bp.border.top;
-                    return padding_top + border_top + child_baseline;
-                }
-            }
-        }
+    if let Some(baseline) = first_line_baseline(cell_index, tree, 0) {
+        return baseline;
     }
 
     // No line box found: baseline is the bottom of the content edge
+    let cell_bp = cell_node.box_props.unpack();
     let used_size = cell_node.used_size.unwrap_or_default();
     let padding_bottom = cell_bp.padding.bottom;
     let border_bottom = cell_bp.border.bottom;
     used_size.height - padding_bottom - border_bottom
+}
+
+/// The baseline of the first in-flow line box inside a box, measured from
+/// the top of its border box: its own first line when it holds lines, else
+/// the first of its in-flow children's - at any depth, offset by where each
+/// child sits (`<td><div style="padding-top: 40px">data</div></td>` has its
+/// baseline 40px further down than the div's own line).
+fn first_line_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<f32> {
+    // +spec:inline-formatting-context:27be38 - cell baseline is first in-flow line box or bottom of
+    // content edge
+    const MAX_DEPTH: usize = 64;
+    let node = tree.get(LayoutNodeId::new(index))?;
+    let bp = node.box_props.unpack();
+    let content_top = bp.padding.top + bp.border.top;
+    if let Some(cached_layout) = tree
+        .warm(LayoutNodeId::new(index))
+        .and_then(|w| w.inline_layout_result.as_ref())
+    {
+        // (d6h) Materialized: sentinel-safe first-line baseline.
+        let inline_result = cached_layout.materialized();
+        if let Some(first_item) = inline_result.items.first() {
+            let (item_ascent, _) = text3::cache::get_item_vertical_metrics_approx(&first_item.item);
+            return Some(content_top + first_item.position.y + item_ascent);
+        }
+    }
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    for &child in tree.children(index) {
+        let child_top = tree
+            .warm(LayoutNodeId::new(child))
+            .and_then(|w| w.relative_position)
+            .map_or(0.0, |p| p.y);
+        if let Some(baseline) = first_line_baseline(child, tree, depth + 1) {
+            return Some(content_top + child_top + baseline);
+        }
+    }
+    None
+}
+
+/// The baseline an inline-block takes from its content, measured from the
+/// top of the border box of `index` - CSS 2.2 10.8.1, "the baseline of its
+/// last line box in the normal flow" - searched the way Chrome searches it:
+/// - a box holding lines answers with its last line's baseline;
+/// - otherwise its in-flow children are asked from the LAST one up, each
+///   offset by where it sits; out-of-flow boxes (absolute, fixed, floats)
+///   have no line box in the normal flow;
+/// - a TABLE answers nothing (Blink's `LayoutTable::InlineBlockBaseline` is
+///   -1; LayoutNG skips tables for the inline-block baseline): the search
+///   goes on above it;
+/// - a child whose `overflow` is not `visible` answers with its bottom margin
+///   edge, not its own lines (10.8.1's overflow rule, applied by Blink to
+///   every block on the way down);
+/// - a flex or grid child answers with its FIRST baseline (LayoutNG: "some
+///   fragments use their first baseline"), `first_line_baseline`.
+///
+/// `None`: no line box at all - the caller's baseline is then the inline-
+/// block's bottom margin edge. Mail templates (Cerberus) open with a clipped
+/// preheader and go on in tables, so AzMail's inline-block paper sits on the
+/// preheader's bottom edge, one strut ascent below the line's top.
+fn inline_block_baseline(index: usize, tree: &LayoutTree, depth: usize) -> Option<f32> {
+    const MAX_DEPTH: usize = 64;
+    let node = tree.get(LayoutNodeId::new(index))?;
+    let bp = node.box_props.unpack();
+    let content_top = bp.padding.top + bp.border.top;
+    if let Some(cached_layout) = tree
+        .warm(LayoutNodeId::new(index))
+        .and_then(|w| w.inline_layout_result.as_ref())
+    {
+        // (d6h) Materialized: sentinel-safe.
+        return cached_layout
+            .materialized()
+            .last_line_baseline()
+            .map(|baseline| content_top + baseline);
+    }
+    if depth >= MAX_DEPTH {
+        return None;
+    }
+    for &child in tree.children(index).iter().rev() {
+        let Some(child_node) = tree.get(LayoutNodeId::new(child)) else {
+            continue;
+        };
+        let child_warm = tree.warm(LayoutNodeId::new(child));
+        let out_of_flow = child_warm.is_some_and(|w| {
+            matches!(
+                w.computed_style.position,
+                LayoutPosition::Absolute | LayoutPosition::Fixed
+            ) || w.computed_style.float != LayoutFloat::None
+        });
+        if out_of_flow || matches!(child_node.formatting_context, FormattingContext::Table) {
+            continue;
+        }
+        let child_top = child_warm
+            .and_then(|w| w.relative_position)
+            .map_or(0.0, |p| p.y);
+        let clips = child_warm.is_some_and(|w| {
+            w.computed_style.overflow_x != LayoutOverflow::Visible
+                || w.computed_style.overflow_y != LayoutOverflow::Visible
+        });
+        if clips {
+            let height = child_node.used_size.map_or(0.0, |s| s.height);
+            let margin_bottom = child_node.box_props.unpack().margin.bottom;
+            return Some(content_top + child_top + height + margin_bottom);
+        }
+        let baseline = if matches!(
+            child_node.formatting_context,
+            FormattingContext::Flex | FormattingContext::Grid
+        ) {
+            first_line_baseline(child, tree, depth + 1)
+        } else {
+            inline_block_baseline(child, tree, depth + 1)
+        };
+        if let Some(baseline) = baseline {
+            return Some(content_top + child_top + baseline);
+        }
+    }
+    None
+}
+
+/// A table cell's `vertical-align` (CSS 2.2 17.5.3), `baseline` when unset
+/// or for an anonymous cell.
+fn cell_vertical_align(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleVerticalAlign {
+    dom_id.map_or(StyleVerticalAlign::Baseline, |dom_id| {
+        let node_state = styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        match get_vertical_align_property(styled_dom, dom_id, &node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleVerticalAlign::Baseline,
+        }
+    })
+}
+
+/// Does this alignment put the cell on the row's baseline? (`sub`, `super`,
+/// `text-top`, `text-bottom`, lengths and percentages fall back to baseline
+/// in a table cell, CSS 2.2 17.5.3.)
+fn is_baseline_aligned(va: StyleVerticalAlign) -> bool {
+    !matches!(
+        va,
+        StyleVerticalAlign::Top | StyleVerticalAlign::Middle | StyleVerticalAlign::Bottom
+    )
 }
 
 /// +spec:box-model:72b495 - Table row height = max of computed height and MIN required by cells;
@@ -7756,21 +9408,15 @@ fn calculate_row_heights<T: ParsedFontTrait>(
     // required by content; 'height' property can influence row height but does not
     // increase cell box height
     // First pass: Calculate heights for cells that don't span multiple rows
+    let mut baseline_cells: Vec<(usize, f32, f32)> = Vec::new();
     for cell_info in &table_ctx.cells {
         // Skip cells in collapsed rows
         if table_ctx.collapsed_rows.contains(&cell_info.row) {
             continue;
         }
 
-        // Get the cell's width (sum of column widths if colspan > 1)
-        let mut cell_width = 0.0;
-        for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
-            if let Some(col) = table_ctx.columns.get(col_idx) {
-                if let Some(width) = col.computed_width {
-                    cell_width += width;
-                }
-            }
-        }
+        // The cell's width: its columns and the spacing between them.
+        let cell_width = table_ctx.cell_span_width(cell_info);
 
         debug_table_layout!(
             ctx,
@@ -7808,10 +9454,40 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         // then top/bottom/middle cells positioned The baseline of a cell is the baseline of
         // its first line box (from inline layout) or the bottom of the content box if no
         // inline content.
-        if cell_info.rowspan == 1 {
+        // Only the cells that ARE baseline-aligned set the row's baseline;
+        // a middle cell's baseline used to push a baseline cell down.
+        let cell_dom = tree
+            .get(LayoutNodeId::new(cell_info.node_index))
+            .and_then(|n| n.dom_node_id);
+        if cell_info.rowspan == 1 && is_baseline_aligned(cell_vertical_align(ctx.styled_dom, cell_dom))
+        {
             let cell_baseline = compute_cell_baseline(cell_info.node_index, tree);
             let current_baseline = table_ctx.row_baselines[cell_info.row];
             table_ctx.row_baselines[cell_info.row] = current_baseline.max(cell_baseline);
+            baseline_cells.push((cell_info.row, cell_baseline, cell_height));
+        }
+    }
+
+    // A baseline cell moves down until its first line is on the row's
+    // baseline; the row grows to hold it there (CSS 2.2 17.5.3).
+    for (row, cell_baseline, cell_height) in baseline_cells {
+        let shifted = table_ctx.row_baselines[row] - cell_baseline + cell_height;
+        if shifted.is_finite() {
+            table_ctx.row_heights[row] = table_ctx.row_heights[row].max(shifted);
+        }
+    }
+
+    // A row is at least as tall as its own `height` (CSS 2.2 17.5.3).
+    for row in 0..table_ctx.num_rows {
+        let Some(&row_index) = table_ctx.row_node_indices.get(row) else {
+            continue;
+        };
+        let specified = tree
+            .get(LayoutNodeId::new(row_index))
+            .and_then(|n| n.dom_node_id)
+            .and_then(|dom_id| specified_length_height(ctx.styled_dom, dom_id, ctx.viewport_size));
+        if let Some(h) = specified {
+            table_ctx.row_heights[row] = table_ctx.row_heights[row].max(h);
         }
     }
 
@@ -7824,15 +9500,8 @@ fn calculate_row_heights<T: ParsedFontTrait>(
         }
 
         if cell_info.rowspan > 1 {
-            // Get the cell's width
-            let mut cell_width = 0.0;
-            for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
-                if let Some(col) = table_ctx.columns.get(col_idx) {
-                    if let Some(width) = col.computed_width {
-                        cell_width += width;
-                    }
-                }
-            }
+            // The cell's width: its columns and the spacing between them.
+            let cell_width = table_ctx.cell_span_width(cell_info);
 
             // Layout the cell to get its height
             let cell_height = layout_cell_for_height(
@@ -7849,12 +9518,17 @@ fn calculate_row_heights<T: ParsedFontTrait>(
             // row would slice row_heights out of bounds (panic on e.g. a
             // rowspan="2" cell in a single-row table).
             let end_row = (cell_info.row + cell_info.rowspan).min(table_ctx.row_heights.len());
+            let spanned_rows = (cell_info.row..end_row)
+                .filter(|r| !table_ctx.collapsed_rows.contains(r))
+                .count();
+            // The cell's box also covers the border-spacing between its rows.
             let current_total: f32 = table_ctx.row_heights[cell_info.row..end_row]
                 .iter()
                 .enumerate()
                 .filter(|(idx, _)| !table_ctx.collapsed_rows.contains(&(cell_info.row + idx)))
                 .map(|(_, height)| height)
-                .sum();
+                .sum::<f32>()
+                + table_ctx.v_spacing * spanned_rows.saturating_sub(1) as f32;
 
             // If the cell needs more height, distribute extra height across
             // non-collapsed spanned rows
@@ -7927,6 +9601,35 @@ fn calculate_row_heights<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// Give the rows the height they lack together to reach `target` (the
+/// table's own height less its border-spacing): in proportion to their
+/// heights, evenly when all are empty. Collapsed and hidden-empty rows
+/// take nothing.
+#[allow(clippy::cast_precision_loss)] // a row count
+fn stretch_rows_to(table_ctx: &mut TableLayoutContext, target: f32) {
+    let rows: Vec<usize> = (0..table_ctx.num_rows.min(table_ctx.row_heights.len()))
+        .filter(|r| {
+            !table_ctx.collapsed_rows.contains(r) && !table_ctx.hidden_empty_rows.contains(r)
+        })
+        .collect();
+    if rows.is_empty() || !target.is_finite() {
+        return;
+    }
+    let current: f32 = rows.iter().map(|&r| table_ctx.row_heights[r]).sum();
+    let extra = target - current;
+    if extra <= 0.01 {
+        return;
+    }
+    for &r in &rows {
+        let share = if current > 0.0 {
+            table_ctx.row_heights[r] / current
+        } else {
+            1.0 / rows.len() as f32
+        };
+        table_ctx.row_heights[r] += extra * share;
+    }
+}
+
 /// Position all cells in the table grid with calculated widths and heights
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
@@ -7939,7 +9642,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     table_index: usize,
     constraints: &LayoutConstraints<'_>,
-) -> Result<BTreeMap<usize, LogicalPosition>> {
+) -> Result<(BTreeMap<usize, LogicalPosition>, Vec<f32>)> {
     debug_log!(ctx, "Positioning table cells in grid");
 
     let mut positions = BTreeMap::new();
@@ -7951,43 +9654,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     // to edge-cell border = table padding + border-spacing   (table padding is already
     // accounted for by the containing block; h_spacing is the border-spacing) Get border
     // spacing values if border-collapse is separate
-    let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
-        let styled_dom = ctx.styled_dom;
-        // Anonymous table wrapper boxes have no dom_node_id; without a styled
-        // node we cannot resolve font-relative border-spacing units, so fall
-        // back to zero spacing rather than panicking.
-        if let Some(table_id) = tree.nodes[table_index].dom_node_id {
-            let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
-
-            let spacing_context = ResolutionContext {
-                vertical_writing_mode: false,
-                element_font_size: get_element_font_size(styled_dom, table_id, table_state),
-                parent_font_size: get_parent_font_size(styled_dom, table_id, table_state),
-                root_font_size: get_root_font_size(styled_dom, table_state),
-                containing_block_size: PhysicalSize::new(0.0, 0.0),
-                element_size: None,
-                viewport_size: PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-            };
-
-            let h = table_ctx
-                .border_spacing
-                .horizontal
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-
-            let v = table_ctx
-                .border_spacing
-                .vertical
-                .resolve_with_context(&spacing_context, PropertyContext::Other)
-                .max(0.0);
-
-            (h, v)
-        } else {
-            (0.0, 0.0)
-        }
-    } else {
-        (0.0, 0.0)
-    };
+    let (h_spacing, v_spacing) = resolve_table_border_spacing(ctx, tree, table_index);
 
     debug_log!(
         ctx,
@@ -8010,6 +9677,16 @@ fn position_table_cells<T: ParsedFontTrait>(
             }
         }
     }
+    // A right-to-left table runs its columns from the right (CSS 2.2 17.5):
+    // every column mirrored in the grid's width, so a cell's left edge is
+    // its LAST column's (the lowest x of its columns, read below).
+    if table_ctx.rtl {
+        let grid_width = x_offset;
+        for (i, col) in table_ctx.columns.iter().enumerate() {
+            let width = col.computed_width.unwrap_or(0.0);
+            col_positions[i] = grid_width - col_positions[i] - width;
+        }
+    }
 
     // Calculate cumulative row positions (y-offsets) with spacing
     let mut row_positions = vec![0.0; table_ctx.num_rows];
@@ -8028,31 +9705,18 @@ fn position_table_cells<T: ParsedFontTrait>(
         }
     }
 
-    // Store row positions and sizes so paint_element_background can paint row backgrounds.
-    // Row width = sum of column widths + spacing. Row height from row_heights.
-    {
-        let total_col_width: f32 = table_ctx
-            .columns
-            .iter()
-            .map(|c| c.computed_width.unwrap_or(0.0))
-            .sum::<f32>()
-            + h_spacing * (table_ctx.columns.len().max(1) - 1) as f32
-            + h_spacing * 2.0; // border-spacing on left+right edges
-        for (i, &row_y) in row_positions.iter().enumerate() {
-            if let Some(&row_node_idx) = table_ctx.row_node_indices.get(i) {
-                let row_height = table_ctx.row_heights.get(i).copied().unwrap_or(0.0);
-                if let Some(row_node) = tree.get_mut(LayoutNodeId::new(row_node_idx)) {
-                    row_node.used_size = Some(LogicalSize {
-                        width: total_col_width,
-                        height: row_height,
-                    });
-                }
-                // Don't add to `positions` map (feeds position_bfc_child_descendants,
-                // would double-offset cells). The display list computes row paint
-                // rects from the row's cell children.
-            }
-        }
-    }
+    // The rows, row groups and columns are boxes of the grid: their rects,
+    // and the table's positioned children (row groups, rows directly in the
+    // table, column groups) - see `place_table_grid_boxes`.
+    let row_origins = place_table_grid_boxes(
+        table_ctx,
+        tree,
+        table_index,
+        &col_positions,
+        &row_positions,
+        constraints.writing_mode,
+        &mut positions,
+    );
 
     // Position each cell
     for cell_info in &table_ctx.cells {
@@ -8062,48 +9726,18 @@ fn position_table_cells<T: ParsedFontTrait>(
             .get_mut(LayoutNodeId::new(cell_info.node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
-        // Calculate cell position
-        let x = col_positions.get(cell_info.column).copied().unwrap_or(0.0);
+        // Calculate cell position: the left edge of its columns (its first
+        // column's, or its last one's in a right-to-left table).
+        let span_end = (cell_info.column + cell_info.colspan).min(col_positions.len());
+        let x = col_positions
+            .get(cell_info.column..span_end)
+            .and_then(|spanned| spanned.iter().copied().reduce(f32::min))
+            .unwrap_or(0.0);
         let y = row_positions.get(cell_info.row).copied().unwrap_or(0.0);
 
-        // Calculate cell size (sum of spanned columns/rows)
-        let mut width = 0.0;
-        debug_info!(
-            ctx,
-            "[position_table_cells] Cell {}: calculating width from cols {}..{}",
-            cell_info.node_index,
-            cell_info.column,
-            cell_info.column + cell_info.colspan
-        );
-        for col_idx in cell_info.column..(cell_info.column + cell_info.colspan) {
-            if let Some(col) = table_ctx.columns.get(col_idx) {
-                debug_info!(
-                    ctx,
-                    "[position_table_cells]   Col {}: computed_width={:?}",
-                    col_idx,
-                    col.computed_width
-                );
-                if let Some(col_width) = col.computed_width {
-                    width += col_width;
-                    // Add spacing between spanned columns (but not after the last one)
-                    if col_idx < cell_info.column + cell_info.colspan - 1 {
-                        width += h_spacing;
-                    }
-                } else {
-                    debug_info!(
-                        ctx,
-                        "[position_table_cells]   WARN:  Col {} has NO computed_width!",
-                        col_idx
-                    );
-                }
-            } else {
-                debug_info!(
-                    ctx,
-                    "[position_table_cells]   WARN:  Col {} not found in table_ctx.columns!",
-                    col_idx
-                );
-            }
-        }
+        // Calculate cell size (sum of spanned columns/rows and the spacing
+        // between them) - the width the cell was laid out at.
+        let width = table_ctx.cell_span_width(cell_info);
 
         let mut height = 0.0;
         let end_row = cell_info.row + cell_info.rowspan;
@@ -8309,6 +9943,25 @@ fn position_table_cells<T: ParsedFontTrait>(
                     ctx.reflowed_ifcs.insert(cell_info.node_index);
                 }
             }
+            // The atomic inlines of the line move with it: their boxes were
+            // placed from the same layout (`layout_cell_for_height`).
+            let atomic_children: Vec<usize> = tree
+                .children(cell_info.node_index)
+                .iter()
+                .copied()
+                .filter(|&c| {
+                    tree.get(LayoutNodeId::new(c))
+                        .is_some_and(|n| !matches!(n.formatting_context, FormattingContext::Inline))
+                })
+                .collect();
+            for c in atomic_children {
+                if let Some(pos) = tree
+                    .warm_mut(LayoutNodeId::new(c))
+                    .and_then(|w| w.relative_position.as_mut())
+                {
+                    pos.y += y_offset;
+                }
+            }
         }
 
         // +spec:inline-formatting-context:4545e8 - vertical-align on a table cell
@@ -8323,71 +9976,92 @@ fn position_table_cells<T: ParsedFontTrait>(
             .warm(LayoutNodeId::new(cell_info.node_index))
             .is_some_and(|w| w.inline_layout_result.is_some());
         if !cell_has_inline {
-            let vertical_align = cell_dom_node_id.map_or(StyleVerticalAlign::Baseline, |dom_id| {
-                let node_state =
-                    ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-                match get_vertical_align_property(ctx.styled_dom, dom_id, &node_state) {
-                    MultiValue::Exact(v) => v,
-                    _ => StyleVerticalAlign::Baseline,
+            let vertical_align = cell_vertical_align(ctx.styled_dom, cell_dom_node_id);
+            let children: Vec<usize> = tree.children(cell_info.node_index).to_vec();
+            // Natural content height = furthest in-flow child bottom MARGIN
+            // edge, measured from the cell content-box top (relative_position
+            // is relative to the parent content box). A cell is a BFC root:
+            // the last child's bottom margin stays inside it (CSS 2.2
+            // 10.6.7), and the row height (`layout_cell_for_height`, the
+            // cell's laid-out content height) counts it - measured to the
+            // border edge, content that filled its cell was moved down by
+            // half its bottom margin.
+            let mut content_height = 0.0f32;
+            let mut inflow: Vec<usize> = Vec::new();
+            for &c in &children {
+                let dom_id = tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id);
+                if matches!(
+                    get_position_type(ctx.styled_dom, dom_id),
+                    LayoutPosition::Absolute | LayoutPosition::Fixed
+                ) {
+                    continue; // out-of-flow children are unaffected by vertical-align
                 }
-            });
-
-            // Only middle/bottom reposition block content; top and baseline leave it
-            // at the content-box top (the default block position).
-            let factor = match vertical_align {
-                StyleVerticalAlign::Middle => 0.5,
-                StyleVerticalAlign::Bottom => 1.0,
-                _ => 0.0,
-            };
-            if factor > 0.0 {
-                let children: Vec<usize> = tree.children(cell_info.node_index).to_vec();
-                // Natural content height = furthest in-flow child bottom edge,
-                // measured from the cell content-box top (relative_position is
-                // relative to the parent content box).
-                let mut content_height = 0.0f32;
-                let mut inflow: Vec<usize> = Vec::new();
-                for &c in &children {
-                    let dom_id = tree.get(LayoutNodeId::new(c)).and_then(|n| n.dom_node_id);
-                    if matches!(
-                        get_position_type(ctx.styled_dom, dom_id),
-                        LayoutPosition::Absolute | LayoutPosition::Fixed
-                    ) {
-                        continue; // out-of-flow children are unaffected by vertical-align
+                let top = tree
+                    .warm(LayoutNodeId::new(c))
+                    .and_then(|w| w.relative_position)
+                    .map_or(0.0, |p| p.y);
+                let (h, margin_end) = tree.get(LayoutNodeId::new(c)).map_or((0.0, 0.0), |n| {
+                    (
+                        n.used_size.map_or(0.0, |s| s.height),
+                        n.box_props.unpack().margin.main_end(writing_mode),
+                    )
+                });
+                content_height = content_height.max(top + h + margin_end);
+                inflow.push(c);
+            }
+            let content_box_height = height
+                - cell_box_props.padding.main_start(writing_mode)
+                - cell_box_props.padding.main_end(writing_mode)
+                - cell_box_props.border.main_start(writing_mode)
+                - cell_box_props.border.main_end(writing_mode);
+            // middle / bottom place the content in the content box; a
+            // baseline cell moves its content down until its first line sits
+            // on the row's baseline (the line may be deep inside a block,
+            // `<td><div>data</div></td>`); top leaves it where it is.
+            let y_offset = match vertical_align {
+                StyleVerticalAlign::Top => 0.0,
+                StyleVerticalAlign::Middle => (content_box_height - content_height) * 0.5,
+                StyleVerticalAlign::Bottom => content_box_height - content_height,
+                _ => {
+                    let row_baseline = table_ctx
+                        .row_baselines
+                        .get(cell_info.row)
+                        .copied()
+                        .unwrap_or(0.0);
+                    if cell_info.rowspan == 1 {
+                        (row_baseline - precomputed_cell_baseline).max(0.0)
+                    } else {
+                        0.0
                     }
-                    let top = tree
-                        .warm(LayoutNodeId::new(c))
-                        .and_then(|w| w.relative_position)
-                        .map_or(0.0, |p| p.y);
-                    let h = tree
-                        .get(LayoutNodeId::new(c))
-                        .and_then(|n| n.used_size)
-                        .map_or(0.0, |s| s.height);
-                    content_height = content_height.max(top + h);
-                    inflow.push(c);
                 }
-                let content_box_height = height
-                    - cell_box_props.padding.main_start(writing_mode)
-                    - cell_box_props.padding.main_end(writing_mode)
-                    - cell_box_props.border.main_start(writing_mode)
-                    - cell_box_props.border.main_end(writing_mode);
-                let y_offset = (content_box_height - content_height) * factor;
-                if y_offset > 0.01 {
-                    for &c in &inflow {
-                        if let Some(w) = tree.warm_mut(LayoutNodeId::new(c)) {
-                            if let Some(pos) = w.relative_position.as_mut() {
-                                pos.y += y_offset;
-                            }
+            };
+            if y_offset > 0.01 {
+                for &c in &inflow {
+                    if let Some(w) = tree.warm_mut(LayoutNodeId::new(c)) {
+                        if let Some(pos) = w.relative_position.as_mut() {
+                            pos.y += y_offset;
                         }
                     }
                 }
             }
         }
 
-        // Store position relative to table origin
+        // The cell's position in the table, then relative to its row's
+        // content box: a cell is its row's child, placed like any child
+        // (`position_bfc_child_descendants` adds the row's position). The
+        // row's own position is the table's child's (`positions`) or its
+        // group's (`place_table_grid_boxes`).
         let position = LogicalPosition::from_main_cross(y, x, writing_mode);
-
-        // Insert position into map so cache module can position the cell
-        positions.insert(cell_info.node_index, position);
+        let (row_origin, row_content_offset) = row_origins
+            .get(cell_info.row)
+            .copied()
+            .unwrap_or_default();
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(cell_info.node_index)) {
+            warm.relative_position = Some(LogicalPosition::new(
+                position.x - row_origin.x - row_content_offset.x,
+                position.y - row_origin.y - row_content_offset.y,
+            ));
+        }
 
         debug_log!(
             ctx,
@@ -8401,7 +10075,208 @@ fn position_table_cells<T: ParsedFontTrait>(
         );
     }
 
-    Ok(positions)
+    Ok((positions, row_positions))
+}
+
+/// The offset of a node's content box inside its border box (its left/top
+/// border and padding): where its children's relative positions start.
+fn content_box_offset(tree: &LayoutTree, index: usize) -> LogicalPosition {
+    tree.get(LayoutNodeId::new(index))
+        .map_or_else(LogicalPosition::zero, |n| {
+            let bp = n.box_props.unpack();
+            LogicalPosition::new(bp.border.left + bp.padding.left, bp.border.top + bp.padding.top)
+        })
+}
+
+/// The row group a row sits in (`None`: the row is the table's child).
+fn row_group_of(tree: &LayoutTree, row: usize) -> Option<usize> {
+    tree.get(LayoutNodeId::new(row))
+        .and_then(|n| n.parent)
+        .filter(|&p| {
+            tree.get(LayoutNodeId::new(p))
+                .is_some_and(|n| matches!(n.formatting_context, FormattingContext::TableRowGroup))
+        })
+}
+
+/// Give the table's rows, row groups, columns and column groups their boxes
+/// (CSS 2.1 17.2, 17.5): a row spans the grid's columns and is as tall as
+/// its row; a row group spans its rows; a `<col>` spans its column and a
+/// `<colgroup>` its columns, over the height of the rows.
+///
+/// Every box is placed relative to its PARENT's content box, as every other
+/// box in the tree is (`position_bfc_child_descendants` and the layout
+/// cache walk them that way): row groups, rows directly in the table and
+/// column groups go into `positions` (the table's children, relative to the
+/// table's content box); a row in a group and a `<col>` get their
+/// `relative_position` here. Before this the cells were the table's only
+/// positioned descendants, relative to the table itself: rows and row groups
+/// had no rect at all, and a later group's rows were reported at the
+/// table's top.
+///
+/// `col_positions` / `row_positions` are the grid's column lefts and row
+/// tops relative to the table's content box (spacing included). Returns, per
+/// row, its origin relative to the table's content box and its content-box
+/// offset - what a cell's position in the table is made relative to.
+fn place_table_grid_boxes(
+    table_ctx: &TableLayoutContext,
+    tree: &mut LayoutTree,
+    table_index: usize,
+    col_positions: &[f32],
+    row_positions: &[f32],
+    writing_mode: LayoutWritingMode,
+    positions: &mut BTreeMap<usize, LogicalPosition>,
+) -> Vec<(LogicalPosition, LogicalPosition)> {
+    let col_width = |i: usize| {
+        table_ctx
+            .columns
+            .get(i)
+            .and_then(|c| c.computed_width)
+            .unwrap_or(0.0)
+    };
+    // The grid's horizontal extent: from the leftmost column's left to the
+    // rightmost column's right (the outer spacing is outside every row; in a
+    // right-to-left table the first column is the rightmost).
+    let grid_left = col_positions
+        .iter()
+        .copied()
+        .reduce(f32::min)
+        .unwrap_or(0.0);
+    let grid_right = col_positions
+        .iter()
+        .enumerate()
+        .map(|(i, x)| x + col_width(i))
+        .fold(grid_left, f32::max);
+    let grid_width = (grid_right - grid_left).max(0.0);
+    let row_height = |i: usize| table_ctx.row_heights.get(i).copied().unwrap_or(0.0);
+    let rows_top = row_positions.first().copied().unwrap_or(0.0);
+    let rows_bottom = row_positions
+        .iter()
+        .enumerate()
+        .map(|(i, y)| y + row_height(i))
+        .fold(rows_top, f32::max);
+
+    // Rows: their size; a row group's extent; the rows directly in the table.
+    let mut group_extent: BTreeMap<usize, (f32, f32)> = BTreeMap::new();
+    let mut row_origins = Vec::with_capacity(table_ctx.row_node_indices.len());
+    for (i, &row) in table_ctx.row_node_indices.iter().enumerate() {
+        let top = row_positions.get(i).copied().unwrap_or(0.0);
+        let height = row_height(i);
+        if let Some(node) = tree.get_mut(LayoutNodeId::new(row)) {
+            node.used_size = Some(LogicalSize::from_main_cross(height, grid_width, writing_mode));
+        }
+        let origin = LogicalPosition::from_main_cross(top, grid_left, writing_mode);
+        row_origins.push((origin, content_box_offset(tree, row)));
+        match row_group_of(tree, row) {
+            Some(group) => {
+                group_extent
+                    .entry(group)
+                    .and_modify(|(t, b)| {
+                        *t = t.min(top);
+                        *b = b.max(top + height);
+                    })
+                    .or_insert((top, top + height));
+            }
+            None => {
+                positions.insert(row, origin);
+            }
+        }
+    }
+
+    // Row groups: the extent of their rows; their rows relative to them.
+    for (&group, &(top, bottom)) in &group_extent {
+        if let Some(node) = tree.get_mut(LayoutNodeId::new(group)) {
+            node.used_size = Some(LogicalSize::from_main_cross(
+                (bottom - top).max(0.0),
+                grid_width,
+                writing_mode,
+            ));
+        }
+        positions.insert(
+            group,
+            LogicalPosition::from_main_cross(top, grid_left, writing_mode),
+        );
+    }
+    for (i, &row) in table_ctx.row_node_indices.iter().enumerate() {
+        let Some(group) = row_group_of(tree, row) else {
+            continue;
+        };
+        let Some(&(group_top, _)) = group_extent.get(&group) else {
+            continue;
+        };
+        let group_origin = LogicalPosition::from_main_cross(group_top, grid_left, writing_mode);
+        let offset = content_box_offset(tree, group);
+        let (origin, _) = row_origins[i];
+        if let Some(warm) = tree.warm_mut(LayoutNodeId::new(row)) {
+            warm.relative_position = Some(LogicalPosition::new(
+                origin.x - group_origin.x - offset.x,
+                origin.y - group_origin.y - offset.y,
+            ));
+        }
+    }
+
+    // Column groups and columns, in document order over the grid's columns
+    // (`span` is not read: one column per `<col>`, a group without `<col>`s
+    // is one column).
+    let rows_height = (rows_bottom - rows_top).max(0.0);
+    let mut next_column = 0usize;
+    let groups: Vec<usize> = tree
+        .children(table_index)
+        .iter()
+        .copied()
+        .filter(|&c| {
+            tree.get(LayoutNodeId::new(c))
+                .is_some_and(|n| matches!(n.formatting_context, FormattingContext::TableColumnGroup))
+        })
+        .collect();
+    for group in groups {
+        let cols: Vec<usize> = tree.children(group).to_vec();
+        let first = next_column;
+        let count = cols.len().max(1);
+        next_column += count;
+        let last = (first + count).min(col_positions.len());
+        if first >= last {
+            continue;
+        }
+        let left = (first..last)
+            .map(|i| col_positions[i])
+            .fold(col_positions[first], f32::min);
+        let right = (first..last)
+            .map(|i| col_positions[i] + col_width(i))
+            .fold(left, f32::max);
+        let group_origin = LogicalPosition::from_main_cross(rows_top, left, writing_mode);
+        if let Some(node) = tree.get_mut(LayoutNodeId::new(group)) {
+            node.used_size = Some(LogicalSize::from_main_cross(
+                rows_height,
+                (right - left).max(0.0),
+                writing_mode,
+            ));
+        }
+        positions.insert(group, group_origin);
+        let offset = content_box_offset(tree, group);
+        for (k, &col) in cols.iter().enumerate() {
+            let column = first + k;
+            if column >= last {
+                break;
+            }
+            let origin =
+                LogicalPosition::from_main_cross(rows_top, col_positions[column], writing_mode);
+            if let Some(node) = tree.get_mut(LayoutNodeId::new(col)) {
+                node.used_size = Some(LogicalSize::from_main_cross(
+                    rows_height,
+                    col_width(column),
+                    writing_mode,
+                ));
+            }
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(col)) {
+                warm.relative_position = Some(LogicalPosition::new(
+                    origin.x - group_origin.x - offset.x,
+                    origin.y - group_origin.y - offset.y,
+                ));
+            }
+        }
+    }
+
+    row_origins
 }
 
 /// Gathers all inline content for `text3`, recursively laying out `inline-block` children
@@ -8415,6 +10290,28 @@ fn position_table_cells<T: ParsedFontTrait>(
 /// we can find its parent IFC's `inline_layout_result` via `ifc_membership.ifc_root_layout_index`.
 // +spec:display-property:63a38b - inline box boundaries and out-of-flow elements are ignored for
 // text adjacency (white space, line-breaking, text-transform)
+/// The containing block of an atomic inline-level box (an inline-block, an
+/// image) in the inline formatting context `constraints` lays out: the IFC
+/// root's CONTENT box - exactly what `layout_bfc` hands its block children
+/// (`children_containing_block_size`: the content width, and the containing
+/// block's height while the root's own height is auto).
+/// `constraints.containing_block_size` is the root's OWN containing block: a
+/// quarter of it made `body > img { width: 25% }` a quarter of the window.
+fn atomic_inline_containing_block(constraints: &LayoutConstraints<'_>) -> LogicalSize {
+    constraints.available_size
+}
+
+/// What an IFC's atomic inlines are measured against, as
+/// `CachedInlineContent::atomics_measured_against` records it.
+fn atomic_inline_measure_key(
+    constraints: &LayoutConstraints<'_>,
+) -> (LogicalSize, Text3AvailableSpace) {
+    (
+        atomic_inline_containing_block(constraints),
+        constraints.available_width_type,
+    )
+}
+
 /// Does every atomic inline-level child in a cached collection have a size in
 /// THIS tree?
 ///
@@ -8521,6 +10418,34 @@ fn publish_interior_positions(tree: &mut LayoutTree, output: &LayoutOutput) {
     }
 }
 
+/// The baseline of a block container's LAST line box in the normal flow,
+/// from the top of its content box (CSS 2.2 s10.8.1 - what an inline-block
+/// aligns by): the last in-flow child of `node_index` that has a baseline of
+/// its own (`LayoutNodeWarm::baseline`, from that child's content-box top, set
+/// when Pass 1 of `layout_bfc` laid the child out), at the child's position in
+/// `positions` (its border-box origin) plus its top border and padding. A
+/// float is not in the flow; a child without a line box is passed over.
+/// `None` when no child has one. A block container used to report no
+/// baseline at all, so an inline-block whose text sits in a block child was
+/// aligned by its bottom edge.
+fn last_line_box_baseline(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+    positions: &BTreeMap<usize, LogicalPosition>,
+) -> Option<f32> {
+    tree.children(node_index).iter().rev().find_map(|&child| {
+        let pos = positions.get(&child)?;
+        let node = tree.get(LayoutNodeId::new(child))?;
+        if get_float_property(styled_dom, node.dom_node_id) != LayoutFloat::None {
+            return None;
+        }
+        let baseline = tree.warm(LayoutNodeId::new(child))?.baseline?;
+        let bp = node.box_props.unpack();
+        Some(pos.y + bp.border.top + bp.padding.top + baseline)
+    })
+}
+
 fn atomic_inline_baseline_offset(
     baseline_from_content_top: Option<f32>,
     border_box_height: f32,
@@ -8537,6 +10462,254 @@ fn atomic_inline_baseline_offset(
         // bottom margin edge, so the box has no descent below it.
         _ => margin_bottom,
     }
+}
+
+/// Measure one ATOMIC inline-level box of the IFC `constraints` lays out (an
+/// inline-block, an inline-flex / -grid / -table box): its used border-box
+/// size from its own CSS (`calculate_used_size_for_node` against the IFC
+/// root's content box, [`atomic_inline_containing_block`]), its contents laid
+/// out to find its height and baseline, its used size stored in the tree.
+/// Returns the margin-box shape the line layout places; the caller pushes it
+/// and maps its content index to `child_index`, so the box is positioned.
+///
+/// THE one measurement for every place an IFC meets an atomic inline: a child
+/// of the IFC root, of an anonymous IFC wrapper, and one nested in inline
+/// spans. (Three copies had drifted: the span one sized the box from its
+/// max-content width alone - no width, height, padding or border - and never
+/// positioned it; the anonymous-wrapper one resolved the box's percentages
+/// against the root's own containing block.)
+fn measure_atomic_inline<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    child_index: usize,
+    dom_id: NodeId,
+    constraints: &LayoutConstraints<'_>,
+) -> Result<InlineShape> {
+    // The intrinsic sizing pass has already calculated its preferred size.
+    let intrinsic_size = tree
+        .warm(LayoutNodeId::new(child_index))
+        .and_then(|w| w.intrinsic_sizes)
+        .unwrap_or_default();
+    let box_props = tree
+        .get(LayoutNodeId::new(child_index))
+        .ok_or(LayoutError::InvalidTree)?
+        .box_props
+        .unpack();
+
+    let styled_node_state = ctx
+        .styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+
+    // Calculate tentative border-box size based on CSS properties
+    // This correctly handles explicit width/height, box-sizing, and constraints
+    let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
+        ctx.styled_dom,
+        Some(dom_id),
+        &CBTY::from_flattened_with_width_type(
+            atomic_inline_containing_block(constraints),
+            constraints.available_width_type,
+        ),
+        intrinsic_size,
+        &box_props,
+        &ctx.viewport_size,
+    )?;
+
+    let writing_mode =
+        get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Determine content-box size for laying out children
+    let content_box_size = box_props.inner_size(tentative_size, writing_mode);
+
+    debug_info!(
+        ctx,
+        "[measure_atomic_inline] Inline-block NodeId({:?}): tentative_border_box={:?}, \
+         content_box={:?}",
+        dom_id,
+        tentative_size,
+        content_box_size
+    );
+
+    // To find its height and baseline, we must lay out its contents.
+    let child_wm_ctx = super::geometry::WritingModeContext::new(
+        writing_mode,
+        get_direction_property(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default(),
+        get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
+            .unwrap_or_default(),
+    );
+    let child_constraints = LayoutConstraints {
+        available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
+        writing_mode,
+        writing_mode_ctx: child_wm_ctx,
+        // Inline-blocks establish a new BFC, so no state is passed in.
+        bfc_state: None,
+        // Does not affect size/baseline of the container.
+        text_align: TextAlign::Start,
+        containing_block_size: atomic_inline_containing_block(constraints),
+        available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
+        fragmentainer: None,
+        column_flow: None,
+    };
+
+    // Recursively lay out the inline-block to get its final height and baseline.
+    // Note: This does not affect its final position, only its dimensions.
+    let mut empty_float_cache = HashMap::new();
+    let layout_result = layout_formatting_context(
+        ctx,
+        tree,
+        text_cache,
+        child_index,
+        &child_constraints,
+        &mut empty_float_cache,
+    )?;
+
+    publish_interior_positions(tree, &layout_result.output);
+    let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+
+    // Replaced elements (image / VirtualView) have no flow content, so the
+    // measured content_height is 0 — treat their auto height like an explicit
+    // height (use the CSS/intrinsic-resolved tentative_size). Fixes 0-height
+    // images / VirtualViews laid out as atomic inline-blocks.
+    let is_replaced_atomic = {
+        let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
+        matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
+    };
+    // A percentage height against the IFC's indefinite block size computes to
+    // `auto` (CSS 2.2 10.5): as tall as the content, like an `auto` height -
+    // `tentative_size` holds only the sizing estimate for it (AzMail's
+    // `height: 100%` paper ended hundreds of px above the mail's end).
+    let percentage_is_auto = crate::solver3::sizing::percentage_height_computes_to_auto(
+        css_height.as_exact(),
+        atomic_inline_containing_block(constraints)
+            .height
+            .is_finite(),
+    );
+    let height_is_auto =
+        percentage_is_auto || matches!(css_height.clone().unwrap_or_default(), LayoutHeight::Auto);
+    // Determine final border-box height
+    let final_height = match height_is_auto {
+        true if !is_replaced_atomic => atomic_inline_auto_height(
+            tree.get(LayoutNodeId::new(child_index))
+                .map(|n| n.formatting_context),
+            tree.get(LayoutNodeId::new(child_index))
+                .and_then(|n| n.used_size)
+                .map(|s| s.height),
+            layout_result.output.overflow_size.height,
+            box_props.padding.main_sum(writing_mode) + box_props.border.main_sum(writing_mode),
+        ),
+        // Explicit height (calculate_used_size_for_node gave the border-box
+        // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
+        _ => tentative_size.height,
+    };
+
+    debug_info!(
+        ctx,
+        "[measure_atomic_inline] Inline-block NodeId({:?}): layout_content_height={}, \
+         css_height={:?}, final_border_box_height={}",
+        dom_id,
+        layout_result.output.overflow_size.height,
+        css_height,
+        final_height
+    );
+
+    let final_size = LogicalSize::new(tentative_size.width, final_height);
+
+    // Update the node in the tree with its now-known used size.
+    if let Some(node) = tree.get_mut(LayoutNodeId::new(child_index)) {
+        node.used_size = Some(final_size);
+    }
+
+    // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`. Its `overflow`
+    // rule (a clipping box sits on its bottom margin edge) is the
+    // inline-block's alone: a flex or grid box keeps its first item's
+    // baseline whatever its overflow (Chrome: an `overflow: hidden`
+    // inline-flex button sits on its label's baseline), so its overflow is
+    // read as `visible` here.
+    let baseline_ignores_overflow = tree.get(LayoutNodeId::new(child_index)).is_some_and(|n| {
+        matches!(
+            n.formatting_context,
+            FormattingContext::Flex | FormattingContext::Grid
+        )
+    });
+    let overflow_x = if baseline_ignores_overflow {
+        LayoutOverflow::Visible
+    } else {
+        get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default()
+    };
+    let overflow_y = if baseline_ignores_overflow {
+        LayoutOverflow::Visible
+    } else {
+        get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default()
+    };
+    let overflow_is_visible = matches!(
+        (overflow_x, overflow_y),
+        (LayoutOverflow::Visible, LayoutOverflow::Visible)
+    );
+    // An inline-table's baseline is its first row's and an inline-flex /
+    // -grid box's its first item's (their own layouts report them); an
+    // inline-block's is its last line box (`inline_block_baseline`, from the
+    // border box's top - `layout_bfc` reports none, `layout_ifc` only the raw
+    // ascent of its last item).
+    let content_box_top = box_props.padding.top + box_props.border.top;
+    let baseline_from_top = match tree
+        .get(LayoutNodeId::new(child_index))
+        .map(|n| n.formatting_context)
+    {
+        Some(FormattingContext::Table | FormattingContext::Flex | FormattingContext::Grid) => {
+            layout_result.output.baseline
+        }
+        _ => inline_block_baseline(child_index, tree, 0)
+            .map(|from_border_box_top| from_border_box_top - content_box_top),
+    };
+    let baseline_offset = atomic_inline_baseline_offset(
+        baseline_from_top,
+        final_height,
+        content_box_top,
+        box_props.margin.bottom,
+        overflow_is_visible,
+    );
+
+    debug_info!(
+        ctx,
+        "[measure_atomic_inline] Inline-block NodeId({:?}): baseline_from_top={:?}, \
+         final_height={}, baseline_offset_from_bottom={}",
+        dom_id,
+        baseline_from_top,
+        final_height,
+        baseline_offset
+    );
+
+    // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for
+    // inline-level boxes (no collapsing). "The box used for alignment is the
+    // margin box": text3 positions the margin box, so the spacing is kept.
+    let margin = &box_props.margin;
+    let margin_box_width = final_size.width + margin.left + margin.right;
+    let margin_box_height = final_size.height + margin.top + margin.bottom;
+
+    Ok(InlineShape {
+        shape_def: ShapeDefinition::Rectangle {
+            size: crate::text3::cache::Size {
+                // Use margin-box size for positioning in inline flow
+                width: margin_box_width,
+                height: margin_box_height,
+            },
+            corner_radius: None,
+        },
+        fill: None,
+        stroke: None,
+        // Already measured from the margin box's bottom edge.
+        baseline_offset,
+        alignment: crate::solver3::getters::get_vertical_align_for_node(
+            ctx.styled_dom,
+            dom_id,
+            PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+        ),
+        source_node_id: Some(dom_id),
+    })
 }
 
 fn collect_and_measure_inline_content<T: ParsedFontTrait>(
@@ -8740,6 +10913,22 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         is_anonymous
     );
 
+    // CSS Lists 3 s3.1: the `::marker` of every list item whose FIRST LINE
+    // BOX this IFC holds opens its content - the item's own IFC, the
+    // anonymous block of `<li>Item<ul>..</ul></li>`, the first `<p>` of
+    // `<li><p>a</p><p>b</p></li>` (and only the first: every IFC whose parent
+    // was a list item got a marker before, the anonymous block none).
+    for marker_idx in markers_on_first_line(tree, ctx.styled_dom, ifc_root_index) {
+        push_marker_content(ctx, tree, marker_idx, content);
+    }
+    // A marker laid out as an IFC of its own (its item has no line box to
+    // ride) holds its marker and nothing else: its DOM node is the LIST
+    // ITEM, whose children are the item's content, not the marker's - read
+    // as its own, they were laid out (and painted) a second time.
+    if is_marker_box(tree, ifc_root_index) {
+        return Ok(());
+    }
+
     // For anonymous IFC wrappers, we collect content from layout tree children
     // For regular IFC roots, we also check DOM children for text nodes
     if is_anonymous {
@@ -8839,142 +11028,27 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 );
                 collect_inline_span_recursive(
                     ctx,
+                    text_cache,
                     tree,
                     dom_id,
                     &span_style,
                     content,
+                    child_map,
                     &children,
                     constraints,
                 )?;
             } else {
                 // +spec:display-property:a37a9a - atomic inline-level boxes treated as neutral
                 // characters in bidi reordering This is an atomic inline-level box
-                // (e.g., inline-block, image). We must determine its size and
-                // baseline before passing it to text3.
-
-                // The intrinsic sizing pass has already calculated its preferred size.
-                let intrinsic_size = tree
-                    .warm(LayoutNodeId::new(child_index))
-                    .and_then(|w| w.intrinsic_sizes)
-                    .unwrap_or_default();
-                let box_props = child_node.box_props.unpack();
-
-                let styled_node_state = ctx
-                    .styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(dom_id)
-                    .map(|n| n.styled_node_state)
-                    .unwrap_or_default();
-
-                // Calculate tentative border-box size based on CSS properties
-                let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
-                    ctx.styled_dom,
-                    Some(dom_id),
-                    &CBTY::from_flattened_with_width_type(
-                        constraints.containing_block_size,
-                        constraints.available_width_type,
-                    ),
-                    intrinsic_size,
-                    &box_props,
-                    &ctx.viewport_size,
-                )?;
-
-                let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state)
-                    .unwrap_or_default();
-
-                // Determine content-box size for laying out children
-                let content_box_size = box_props.inner_size(tentative_size, writing_mode);
-
-                // To find its height and baseline, we must lay out its contents.
-                let child_wm_ctx = super::geometry::WritingModeContext::new(
-                    writing_mode,
-                    get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                    get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                );
-                let child_constraints = LayoutConstraints {
-                    available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
-                    writing_mode,
-                    writing_mode_ctx: child_wm_ctx,
-                    bfc_state: None,
-                    text_align: TextAlign::Start,
-                    containing_block_size: constraints.containing_block_size,
-                    available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
-                    fragmentainer: None,
-                };
-
-                // Drop the immutable borrow before calling layout_formatting_context
-                drop(child_node);
-
-                // Recursively lay out the inline-block to get its final height and baseline.
-                let mut empty_float_cache = HashMap::new();
-                let layout_result = layout_formatting_context(
+                // (e.g., inline-block, image): its size and baseline go to text3 with it.
+                let shape = measure_atomic_inline(
                     ctx,
                     tree,
                     text_cache,
                     child_index,
-                    &child_constraints,
-                    &mut empty_float_cache,
+                    dom_id,
+                    constraints,
                 )?;
-
-                publish_interior_positions(tree, &layout_result.output);
-                let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
-
-                // Replaced elements (image / VirtualView) have no flow content, so the
-                // measured content_height is 0 — treat their auto height like an
-                // explicit height (CSS/intrinsic-resolved tentative_size).
-                let is_replaced_atomic = {
-                    let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
-                    matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
-                };
-                // Determine final border-box height
-                let final_height = match css_height.unwrap_or_default() {
-                    LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
-                        tree.get(LayoutNodeId::new(child_index))
-                            .map(|n| n.formatting_context),
-                        tree.get(LayoutNodeId::new(child_index))
-                            .and_then(|n| n.used_size)
-                            .map(|s| s.height),
-                        layout_result.output.overflow_size.height,
-                        box_props.padding.main_sum(writing_mode)
-                            + box_props.border.main_sum(writing_mode),
-                    ),
-                    _ => tentative_size.height,
-                };
-
-                let final_size = LogicalSize::new(tentative_size.width, final_height);
-
-                // Update the node in the tree with its now-known used size.
-                tree.get_mut(LayoutNodeId::new(child_index))
-                    .unwrap()
-                    .used_size = Some(final_size);
-
-                // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
-                let overflow_x =
-                    get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-                let overflow_y =
-                    get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-                let overflow_is_visible = matches!(
-                    (overflow_x, overflow_y),
-                    (LayoutOverflow::Visible, LayoutOverflow::Visible)
-                );
-                let baseline_offset = atomic_inline_baseline_offset(
-                    layout_result.output.baseline,
-                    final_height,
-                    box_props.padding.top + box_props.border.top,
-                    box_props.margin.bottom,
-                    overflow_is_visible,
-                );
-
-                // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for
-                // inline-level boxes (no collapsing) The margin-box size is used so
-                // text3 positions inline-blocks with proper spacing
-                let margin = &box_props.margin;
-                let margin_box_width = final_size.width + margin.left + margin.right;
-                let margin_box_height = final_size.height + margin.top + margin.bottom;
-
                 // For inline-block shapes, text3 uses the content array index as run_index
                 // and always item_index=0 for objects. We must match this when inserting into
                 // child_map.
@@ -8982,25 +11056,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     run_index: content.len() as u32,
                     item_index: 0,
                 };
-                content.push(InlineContent::Shape(InlineShape {
-                    shape_def: ShapeDefinition::Rectangle {
-                        size: crate::text3::cache::Size {
-                            // Use margin-box size for positioning in inline flow
-                            width: margin_box_width,
-                            height: margin_box_height,
-                        },
-                        corner_radius: None,
-                    },
-                    fill: None,
-                    stroke: None,
-                    // Already measured from the margin box's bottom edge.
-                    baseline_offset,
-                    alignment: crate::solver3::getters::get_vertical_align_for_node(
-                        ctx.styled_dom,
-                        dom_id,
-                    ),
-                    source_node_id: Some(dom_id),
-                }));
+                content.push(InlineContent::Shape(shape));
                 child_map.insert(shape_content_index, child_index);
             }
         }
@@ -9008,158 +11064,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         return Ok(());
     }
 
-    // Regular (non-anonymous) IFC root - check for list markers and use DOM traversal
-
-    // Check if this IFC root OR its parent is a list-item and needs a marker
-    // Case 1: IFC root itself is list-item (e.g., <li> with display: list-item)
-    // Case 2: IFC root's parent is list-item (e.g., <li><text>...</text></li>)
-    let ifc_root_node = tree
-        .get(LayoutNodeId::new(ifc_root_index))
-        .ok_or(LayoutError::InvalidTree)?;
-    // [g135] reached past the 6706 tree.get.
-    #[cfg(feature = "web_lift")]
-    unsafe {
-        crate::az_mark((0x606A4) as u32, (0x0000_6706u32) as u32);
-    }
-    let mut list_item_dom_id: Option<NodeId> = None;
-
-    // Check IFC root itself
-    if let Some(dom_id) = ifc_root_node.dom_node_id {
-        use crate::solver3::getters::get_display_property;
-        if let MultiValue::Exact(display) = get_display_property(ctx.styled_dom, Some(dom_id)) {
-            use LayoutDisplay;
-            if display == LayoutDisplay::ListItem {
-                debug_ifc_layout!(ctx, "IFC root NodeId({:?}) is list-item", dom_id);
-                list_item_dom_id = Some(dom_id);
-            }
-        }
-    }
-
-    // Check IFC root's parent
-    if list_item_dom_id.is_none() {
-        if let Some(parent_idx) = ifc_root_node.parent {
-            if let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) {
-                if let Some(parent_dom_id) = parent_node.dom_node_id {
-                    use crate::solver3::getters::get_display_property;
-                    if let MultiValue::Exact(display) =
-                        get_display_property(ctx.styled_dom, Some(parent_dom_id))
-                    {
-                        use LayoutDisplay;
-                        if display == LayoutDisplay::ListItem {
-                            debug_ifc_layout!(
-                                ctx,
-                                "IFC root parent NodeId({:?}) is list-item",
-                                parent_dom_id
-                            );
-                            list_item_dom_id = Some(parent_dom_id);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // If we found a list-item, generate markers
-    if let Some(list_dom_id) = list_item_dom_id {
-        debug_ifc_layout!(
-            ctx,
-            "Found list-item (NodeId({:?})), generating marker",
-            list_dom_id
-        );
-
-        // Find the layout node index for the list-item DOM node
-        let list_item_layout_idx = tree
-            .nodes
-            .iter()
-            .enumerate()
-            .find(|(idx, node)| {
-                node.dom_node_id == Some(list_dom_id)
-                    && tree
-                        .warm(LayoutNodeId::new(*idx))
-                        .and_then(|w| w.pseudo_element)
-                        .is_none()
-            })
-            .map(|(idx, _)| idx);
-
-        if let Some(list_idx) = list_item_layout_idx {
-            // Per CSS spec, the ::marker pseudo-element is the first child of the list-item
-            // Find the ::marker pseudo-element in the list-item's children
-            let marker_idx = tree
-                .children(list_idx)
-                .iter()
-                .find(|&&child_idx| {
-                    tree.warm(LayoutNodeId::new(child_idx))
-                        .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
-                })
-                .copied();
-
-            if let Some(marker_idx) = marker_idx {
-                debug_ifc_layout!(ctx, "Found ::marker pseudo-element at index {}", marker_idx);
-
-                // Get the DOM ID for style resolution (marker references the same DOM node as
-                // list-item)
-                let list_dom_id_for_style = tree
-                    .get(LayoutNodeId::new(marker_idx))
-                    .and_then(|n| n.dom_node_id)
-                    .unwrap_or(list_dom_id);
-
-                // Get list-style-position to determine marker positioning
-                // Default is 'outside' per CSS Lists Module Level 3
-
-                let list_style_position =
-                    get_list_style_position(ctx.styled_dom, Some(list_dom_id));
-                let position_outside =
-                    matches!(list_style_position, StyleListStylePosition::Outside);
-
-                debug_ifc_layout!(
-                    ctx,
-                    "List marker list-style-position: {:?} (outside={})",
-                    list_style_position,
-                    position_outside
-                );
-
-                // Generate marker text segments - font fallback happens during shaping
-                let base_style = crate::solver3::getters::get_style_properties_cached(
-                    &mut ctx.style_cache,
-                    ctx.styled_dom,
-                    list_dom_id_for_style,
-                    ctx.system_style.as_ref(),
-                    PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-                );
-                let marker_segments = generate_list_marker_segments(
-                    tree,
-                    ctx.styled_dom,
-                    marker_idx, // Pass the marker index, not the list-item index
-                    ctx.counters,
-                    base_style,
-                    ctx.debug_messages,
-                );
-
-                debug_ifc_layout!(
-                    ctx,
-                    "Generated {} list marker segments",
-                    marker_segments.len()
-                );
-
-                // Add markers as InlineContent::Marker with position information
-                // Outside markers will be positioned in the padding gutter by the layout engine
-                for segment in marker_segments {
-                    content.push(InlineContent::Marker {
-                        run: segment,
-                        position_outside,
-                    });
-                }
-            } else {
-                debug_ifc_layout!(
-                    ctx,
-                    "WARNING: List-item at index {} has no ::marker pseudo-element",
-                    list_idx
-                );
-            }
-        }
-    }
-
-    drop(ifc_root_node);
+    // Regular (non-anonymous) IFC root: DOM traversal (its list marker, if
+    // any, is already in `content` - `markers_on_first_line` above)
 
     // IMPORTANT: We need to traverse the DOM, not just the layout tree!
     //
@@ -9373,169 +11279,16 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
         let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
         if display != LayoutDisplay::Inline {
-            // This is an atomic inline-level box (e.g., inline-block, image).
-            // We must determine its size and baseline before passing it to text3.
-
-            // The intrinsic sizing pass has already calculated its preferred size.
-            let intrinsic_size = tree
-                .warm(LayoutNodeId::new(child_index))
-                .and_then(|w| w.intrinsic_sizes)
-                .unwrap_or_default();
-            let box_props = child_node.box_props.unpack();
-
-            let styled_node_state = ctx
-                .styled_dom
-                .styled_nodes
-                .as_container()
-                .get(dom_id)
-                .map(|n| n.styled_node_state)
-                .unwrap_or_default();
-
-            // Calculate tentative border-box size based on CSS properties
-            // This correctly handles explicit width/height, box-sizing, and constraints
-            let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
-                ctx.styled_dom,
-                Some(dom_id),
-                &CBTY::from_flattened_with_width_type(
-                    constraints.containing_block_size,
-                    constraints.available_width_type,
-                ),
-                intrinsic_size,
-                &box_props,
-                &ctx.viewport_size,
-            )?;
-
-            let writing_mode =
-                get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-
-            // Determine content-box size for laying out children
-            let content_box_size = box_props.inner_size(tentative_size, writing_mode);
-
-            debug_info!(
-                ctx,
-                "[collect_and_measure_inline_content] Inline-block NodeId({:?}): \
-                 tentative_border_box={:?}, content_box={:?}",
-                dom_id,
-                tentative_size,
-                content_box_size
-            );
-
-            // To find its height and baseline, we must lay out its contents.
-            let child_wm_ctx = super::geometry::WritingModeContext::new(
-                writing_mode,
-                get_direction_property(ctx.styled_dom, dom_id, &styled_node_state)
-                    .unwrap_or_default(),
-                get_text_orientation_property(ctx.styled_dom, dom_id, &styled_node_state)
-                    .unwrap_or_default(),
-            );
-            let child_constraints = LayoutConstraints {
-                available_size: LogicalSize::new(content_box_size.width, f32::INFINITY),
-                writing_mode,
-                writing_mode_ctx: child_wm_ctx,
-                // Inline-blocks establish a new BFC, so no state is passed in.
-                bfc_state: None,
-                // Does not affect size/baseline of the container.
-                text_align: TextAlign::Start,
-                containing_block_size: constraints.containing_block_size,
-                available_width_type: Text3AvailableSpace::Definite(content_box_size.width),
-                fragmentainer: None,
-            };
-
-            // Drop the immutable borrow before calling layout_formatting_context
-            drop(child_node);
-
-            // Recursively lay out the inline-block to get its final height and baseline.
-            // Note: This does not affect its final position, only its dimensions.
-            let mut empty_float_cache = HashMap::new();
-            let layout_result = layout_formatting_context(
+            // This is an atomic inline-level box (e.g., inline-block, image):
+            // its size and baseline go to text3 with it.
+            let shape = measure_atomic_inline(
                 ctx,
                 tree,
                 text_cache,
                 child_index,
-                &child_constraints,
-                &mut empty_float_cache,
+                dom_id,
+                constraints,
             )?;
-
-            publish_interior_positions(tree, &layout_result.output);
-            let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
-
-            // Replaced elements (image / VirtualView) have no flow content, so the
-            // measured content_height is 0 — treat their auto height like an explicit
-            // height (use the CSS/intrinsic-resolved tentative_size). Fixes 0-height
-            // images / VirtualViews laid out as atomic inline-blocks.
-            let is_replaced_atomic = {
-                let nd = &ctx.styled_dom.node_data.as_container()[dom_id];
-                matches!(nd.get_node_type(), NodeType::Image(_)) || nd.is_virtual_view_node()
-            };
-            // Determine final border-box height
-            let final_height = match css_height.clone().unwrap_or_default() {
-                LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
-                    tree.get(LayoutNodeId::new(child_index))
-                        .map(|n| n.formatting_context),
-                    tree.get(LayoutNodeId::new(child_index))
-                        .and_then(|n| n.used_size)
-                        .map(|s| s.height),
-                    layout_result.output.overflow_size.height,
-                    box_props.padding.main_sum(writing_mode)
-                        + box_props.border.main_sum(writing_mode),
-                ),
-                // Explicit height (calculate_used_size_for_node gave the border-box
-                // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
-                _ => tentative_size.height,
-            };
-
-            debug_info!(
-                ctx,
-                "[collect_and_measure_inline_content] Inline-block NodeId({:?}): \
-                 layout_content_height={}, css_height={:?}, final_border_box_height={}",
-                dom_id,
-                layout_result.output.overflow_size.height,
-                css_height,
-                final_height
-            );
-
-            let final_size = LogicalSize::new(tentative_size.width, final_height);
-
-            // Update the node in the tree with its now-known used size.
-            tree.get_mut(LayoutNodeId::new(child_index))
-                .unwrap()
-                .used_size = Some(final_size);
-
-            // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
-            let overflow_x =
-                get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-            let overflow_y =
-                get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-            let overflow_is_visible = matches!(
-                (overflow_x, overflow_y),
-                (LayoutOverflow::Visible, LayoutOverflow::Visible)
-            );
-            let baseline_from_top = layout_result.output.baseline;
-            let baseline_offset = atomic_inline_baseline_offset(
-                baseline_from_top,
-                final_height,
-                box_props.padding.top + box_props.border.top,
-                box_props.margin.bottom,
-                overflow_is_visible,
-            );
-
-            debug_info!(
-                ctx,
-                "[collect_and_measure_inline_content] Inline-block NodeId({:?}): \
-                 baseline_from_top={:?}, final_height={}, baseline_offset_from_bottom={}",
-                dom_id,
-                baseline_from_top,
-                final_height,
-                baseline_offset
-            );
-
-            // Get margins for inline-block positioning
-            // For inline-blocks, we need to include margins in the shape size
-            // so that text3 positions them correctly with spacing
-            let margin = &box_props.margin;
-            let margin_box_width = final_size.width + margin.left + margin.right;
-            let margin_box_height = final_size.height + margin.top + margin.bottom;
-
             // For inline-block shapes, text3 uses the content array index as run_index
             // and always item_index=0 for objects. We must match this when inserting into
             // child_map.
@@ -9543,125 +11296,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 run_index: content.len() as u32,
                 item_index: 0,
             };
-            // the box used for alignment is the margin box" - using margin_box_width/height here
-            content.push(InlineContent::Shape(InlineShape {
-                shape_def: ShapeDefinition::Rectangle {
-                    size: crate::text3::cache::Size {
-                        // Use margin-box size for positioning in inline flow
-                        width: margin_box_width,
-                        height: margin_box_height,
-                    },
-                    corner_radius: None,
-                },
-                fill: None,
-                stroke: None,
-                // Already measured from the margin box's bottom edge.
-                baseline_offset,
-                alignment: crate::solver3::getters::get_vertical_align_for_node(
-                    ctx.styled_dom,
-                    dom_id,
-                ),
-                source_node_id: Some(dom_id),
-            }));
+            content.push(InlineContent::Shape(shape));
             child_map.insert(shape_content_index, child_index);
         } else if matches!(
             ctx.styled_dom.node_data.as_container()[dom_id].get_node_type(),
             NodeType::Image(_)
         ) {
-            // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS
-            // box concepts Images are replaced elements - they have intrinsic
-            // dimensions and CSS width/height can constrain them
-
-            // Re-get child_node since we dropped it earlier for the inline-block case
-            let child_node = tree
-                .get(LayoutNodeId::new(child_index))
-                .ok_or(LayoutError::InvalidTree)?;
-            let box_props = child_node.box_props.unpack();
-
-            // Get intrinsic size from the image data or fall back to layout node
-            let intrinsic_size = tree
-                .warm(LayoutNodeId::new(child_index))
-                .and_then(|w| w.intrinsic_sizes)
-                .unwrap_or_else(|| IntrinsicSizes {
-                    max_content_width: 50.0,
-                    max_content_height: 50.0,
-                    ..Default::default()
-                });
-
-            // Get styled node state for CSS property lookup
-            let styled_node_state = ctx
-                .styled_dom
-                .styled_nodes
-                .as_container()
-                .get(dom_id)
-                .map(|n| n.styled_node_state)
-                .unwrap_or_default();
-
-            // Calculate the used size respecting CSS width/height constraints
-            let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
-                ctx.styled_dom,
-                Some(dom_id),
-                &CBTY::from_flattened_with_width_type(
-                    constraints.containing_block_size,
-                    constraints.available_width_type,
-                ),
-                intrinsic_size,
-                &box_props,
-                &ctx.viewport_size,
-            )?;
-
-            // Drop immutable borrow before mutable access
-            drop(child_node);
-
-            // Set the used_size on the layout node so paint_rect works correctly
-            let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
-            tree.get_mut(LayoutNodeId::new(child_index))
-                .unwrap()
-                .used_size = Some(final_size);
-
-            // Calculate display size for text3 (this is what text3 uses for positioning)
-            let display_width = if final_size.width > 0.0 {
-                Some(final_size.width)
-            } else {
-                None
-            };
-            let display_height = if final_size.height > 0.0 {
-                Some(final_size.height)
-            } else {
-                None
-            };
-
-            content.push(InlineContent::Image(InlineImage {
-                // Snapshot the NODE, not the ImageRef: paint resolves the live
-                // content (overlay→DOM) at display-list build, so a runtime
-                // image swap repaints without rebuilding this IFC. (The old
-                // `Ref` snapshot froze the ImageRef here — inline `<img>`
-                // swaps stayed invisible until an unrelated full relayout.)
-                source: ImageSource::Node(dom_id),
-                intrinsic_size: crate::text3::cache::Size {
-                    width: intrinsic_size.max_content_width,
-                    height: intrinsic_size.max_content_height,
-                },
-                display_size: if display_width.is_some() || display_height.is_some() {
-                    Some(crate::text3::cache::Size {
-                        width: display_width.unwrap_or(intrinsic_size.max_content_width),
-                        height: display_height.unwrap_or(intrinsic_size.max_content_height),
-                    })
-                } else {
-                    None
-                },
-                // Images are bottom-aligned with the baseline by default
-                baseline_offset: 0.0,
-                alignment: text3::cache::VerticalAlign::Baseline,
-                object_fit: ObjectFit::Fill,
-            }));
-            // For images, text3 uses the content array index as run_index
-            // and always item_index=0 for objects. We must match this.
-            let image_content_index = ContentIndex {
-                run_index: (content.len() - 1) as u32, // -1 because we just pushed
-                item_index: 0,
-            };
-            child_map.insert(image_content_index, child_index);
+            push_inline_image(ctx, tree, child_index, dom_id, constraints, content, child_map)?;
         } else {
             // This is a regular inline box (display: inline) - e.g., <span>, <em>, <strong>
             //
@@ -9681,10 +11322,12 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             );
             collect_inline_span_recursive(
                 ctx,
+                text_cache,
                 tree,
                 dom_id,
                 &span_style,
                 content,
+                child_map,
                 &children,
                 constraints,
             )?;
@@ -9696,6 +11339,120 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         crate::az_mark((0x60698) as u32, (content.len() as u32) as u32);
         crate::az_mark((0x6069C) as u32, (0xC0DE069Cu32) as u32);
     }
+    Ok(())
+}
+
+/// An `<img>` (a replaced element, `display: inline`) as a line's
+/// [`InlineImage`]: its used size (intrinsic, constrained by CSS width /
+/// height and the `width` / `height` attributes) set on its layout node and
+/// handed to text3, mapped for positioning. The ONE image path of the IFC
+/// collection: the IFC root's children and an inline span's children
+/// ([`collect_inline_span_recursive`]) both come here - an `<img>` in `<a>`
+/// was an empty inline span, its picture taking no room in the line
+/// (MAILENG6 item 6).
+fn push_inline_image<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    child_index: usize,
+    dom_id: NodeId,
+    constraints: &LayoutConstraints<'_>,
+    content: &mut Vec<InlineContent>,
+    child_map: &mut HashMap<ContentIndex, usize>,
+) -> Result<()> {
+    // +spec:replaced-elements:31a782 - replaced elements (img) not rendered purely by CSS
+    // box concepts Images are replaced elements - they have intrinsic
+    // dimensions and CSS width/height can constrain them
+
+    // Re-get child_node since we dropped it earlier for the inline-block case
+    let child_node = tree
+        .get(LayoutNodeId::new(child_index))
+        .ok_or(LayoutError::InvalidTree)?;
+    let box_props = child_node.box_props.unpack();
+
+    // Get intrinsic size from the image data or fall back to layout node
+    let intrinsic_size = tree
+        .warm(LayoutNodeId::new(child_index))
+        .and_then(|w| w.intrinsic_sizes)
+        .unwrap_or_else(|| IntrinsicSizes {
+            max_content_width: 50.0,
+            max_content_height: 50.0,
+            ..Default::default()
+        });
+
+    // Get styled node state for CSS property lookup
+    let styled_node_state = ctx
+        .styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state)
+        .unwrap_or_default();
+
+    // Calculate the used size respecting CSS width/height constraints
+    let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
+        ctx.styled_dom,
+        Some(dom_id),
+        &CBTY::from_flattened_with_width_type(
+            atomic_inline_containing_block(constraints),
+            constraints.available_width_type,
+        ),
+        intrinsic_size,
+        &box_props,
+        &ctx.viewport_size,
+    )?;
+
+    // Drop immutable borrow before mutable access
+    drop(child_node);
+
+    // Set the used_size on the layout node so paint_rect works correctly
+    let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
+    tree.get_mut(LayoutNodeId::new(child_index))
+        .unwrap()
+        .used_size = Some(final_size);
+
+    // Calculate display size for text3 (this is what text3 uses for positioning)
+    let display_width = if final_size.width > 0.0 {
+        Some(final_size.width)
+    } else {
+        None
+    };
+    let display_height = if final_size.height > 0.0 {
+        Some(final_size.height)
+    } else {
+        None
+    };
+
+    content.push(InlineContent::Image(InlineImage {
+        // Snapshot the NODE, not the ImageRef: paint resolves the live
+        // content (overlay→DOM) at display-list build, so a runtime
+        // image swap repaints without rebuilding this IFC. (The old
+        // `Ref` snapshot froze the ImageRef here — inline `<img>`
+        // swaps stayed invisible until an unrelated full relayout.)
+        source: ImageSource::Node(dom_id),
+        intrinsic_size: crate::text3::cache::Size {
+            width: intrinsic_size.max_content_width,
+            height: intrinsic_size.max_content_height,
+        },
+        display_size: if display_width.is_some() || display_height.is_some() {
+            Some(crate::text3::cache::Size {
+                width: display_width.unwrap_or(intrinsic_size.max_content_width),
+                height: display_height.unwrap_or(intrinsic_size.max_content_height),
+            })
+        } else {
+            None
+        },
+        // Images are bottom-aligned with the baseline by default
+        baseline_offset: 0.0,
+        alignment: text3::cache::VerticalAlign::Baseline,
+        object_fit: ObjectFit::Fill,
+    }));
+    // For images, text3 uses the content array index as run_index
+    // and always item_index=0 for objects. We must match this.
+    let image_content_index = ContentIndex {
+        run_index: (content.len() - 1) as u32, // -1 because we just pushed
+        item_index: 0,
+    };
+    child_map.insert(image_content_index, child_index);
     Ok(())
 }
 
@@ -9717,13 +11474,18 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 /// - Inline-blocks, images: measured and added as shapes
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
+#[allow(clippy::too_many_arguments)] // the IFC collection's whole state, threaded down
 fn collect_inline_span_recursive<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
+    text_cache: &mut TextLayoutCache,
     tree: &mut LayoutTree,
     span_dom_id: NodeId,
     span_style: &StyleProperties,
     content: &mut Vec<InlineContent>,
-    parent_children: &[usize], // Layout tree children of parent IFC
+    child_map: &mut HashMap<ContentIndex, usize>,
+    // The layout children of the box this span sits in (the IFC root's, or
+    // the enclosing span's); the span's own box is one of them.
+    parent_children: &[usize],
     constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     debug_info!(
@@ -9750,15 +11512,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[span_dom_id].styled_node_state;
         let font_size = get_element_font_size(ctx.styled_dom, span_dom_id, node_state);
 
-        let line_height_value =
-            crate::solver3::getters::get_line_height_value(ctx.styled_dom, span_dom_id, node_state);
-        let line_height = line_height_value.map_or(text3::cache::LineHeight::Normal, |v| {
-            // Absolute px line-heights are stored as a negative normalized
-            // value; a positive value is a unitless multiplier of font-size.
-            let n = v.inner.normalized();
-            let px = if n < 0.0 { -n } else { n * font_size };
-            text3::cache::LineHeight::Px(px)
-        });
+        let line_height = crate::solver3::getters::get_used_line_height(
+            ctx.styled_dom,
+            span_dom_id,
+            node_state,
+            font_size,
+            PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+        );
 
         let cb_width = constraints
             .containing_block_size
@@ -9832,6 +11592,26 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let total_width =
             margin_left + padding_left + border_left + border_right + padding_right + margin_right;
 
+        // CSS 2.1 s9.4.2: an inline element with no content and no non-zero
+        // margins, padding or borders makes nothing on its line - a line
+        // holding only such elements is a phantom line box, zero tall
+        // (`<div><a name="top"></a></div>`, a mail's anchor: Chrome 0). The
+        // box below sits on the baseline at full line-height, so it made
+        // that line 19.2px - and, with the strut in every line of boxes
+        // (text3 `perform_fragment_layout`), 23.2.
+        let is_phantom = [
+            total_width,
+            padding_top,
+            padding_bottom,
+            border_top,
+            border_bottom,
+        ]
+        .iter()
+        .all(|v| v.abs() < f32::EPSILON);
+        if is_phantom {
+            return Ok(());
+        }
+
         content.push(InlineContent::Shape(InlineShape {
             shape_def: ShapeDefinition::Rectangle {
                 size: crate::text3::cache::Size {
@@ -9846,12 +11626,31 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             alignment: crate::solver3::getters::get_vertical_align_for_node(
                 ctx.styled_dom,
                 span_dom_id,
+                PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
             ),
             source_node_id: Some(span_dom_id),
         }));
 
         return Ok(());
     }
+
+    // The layout children of THIS span's box. The tree builder processes an
+    // inline box's children under the inline box's own node, so an element
+    // nested in the span is a layout child of the span, not of the IFC root:
+    // looking it up among the root's children (`parent_children`) never found
+    // it, and an inline-block in a span was dropped from the line. A span the
+    // tree has no node for keeps looking where its parent looked.
+    let span_layout_children: Vec<usize> = parent_children
+        .iter()
+        .find(|&&idx| {
+            tree.get(LayoutNodeId::new(idx))
+                .and_then(|n| n.dom_node_id)
+                .is_some_and(|id| id == span_dom_id)
+        })
+        .map_or_else(
+            || parent_children.to_vec(),
+            |&span_index| tree.children(span_index).to_vec(),
+        );
 
     for &child_dom_id in &span_dom_children {
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
@@ -9897,8 +11696,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let child_display =
             get_display_property(ctx.styled_dom, Some(child_dom_id)).unwrap_or_default();
 
-        // Find the corresponding layout tree node
-        let child_index = parent_children
+        // Find the corresponding layout tree node: a layout child of the span.
+        let child_index = span_layout_children
             .iter()
             .find(|&&idx| {
                 tree.get(LayoutNodeId::new(idx))
@@ -9908,6 +11707,27 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             .copied();
 
         match child_display {
+            // An `<img>` is a replaced box, not an inline span: the IFC
+            // root's image path (`push_inline_image`), whatever wraps it.
+            LayoutDisplay::Inline if matches!(node_data.get_node_type(), NodeType::Image(_)) => {
+                let Some(child_index) = child_index else {
+                    debug_info!(
+                        ctx,
+                        "[collect_inline_span_recursive] WARNING: img {:?} has no layout node",
+                        child_dom_id
+                    );
+                    continue;
+                };
+                push_inline_image(
+                    ctx,
+                    tree,
+                    child_index,
+                    child_dom_id,
+                    constraints,
+                    content,
+                    child_map,
+                )?;
+            }
             LayoutDisplay::Inline => {
                 // Nested inline span - recurse with child's style
                 debug_info!(
@@ -9923,127 +11743,53 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 );
                 collect_inline_span_recursive(
                     ctx,
+                    text_cache,
                     tree,
                     child_dom_id,
                     &child_style,
                     content,
-                    parent_children,
+                    child_map,
+                    &span_layout_children,
                     constraints,
                 )?;
             }
-            LayoutDisplay::InlineBlock => {
-                // Inline-block inside span - measure and add as shape
+            LayoutDisplay::InlineBlock
+            | LayoutDisplay::InlineFlex
+            | LayoutDisplay::InlineGrid
+            | LayoutDisplay::InlineTable => {
+                // An atomic inline inside the span (an inline-block, and the
+                // inline-level flex / grid / table boxes, CSS Display 3 §2.4)
+                // is the same atomic inline as a direct child of the IFC root
+                // (an inline box is a transparent wrapper): measured and
+                // mapped for positioning exactly like one. The inline-flex /
+                // grid / table boxes fell to the "inlinify" arm below and
+                // poured their children into the line (MAILENG6 item 6).
                 let Some(child_index) = child_index else {
                     debug_info!(
                         ctx,
-                        "[collect_inline_span_recursive] WARNING: inline-block {:?} has no layout \
-                         node",
+                        "[collect_inline_span_recursive] WARNING: atomic inline {:?} has no \
+                         layout node",
                         child_dom_id
                     );
                     continue;
                 };
-
-                let child_node = tree
-                    .get(LayoutNodeId::new(child_index))
-                    .ok_or(LayoutError::InvalidTree)?;
-                let intrinsic_size = tree
-                    .warm(LayoutNodeId::new(child_index))
-                    .and_then(|w| w.intrinsic_sizes)
-                    .unwrap_or_default();
-                let width = intrinsic_size.max_content_width;
-
-                let styled_node_state = ctx
-                    .styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(child_dom_id)
-                    .map(|n| n.styled_node_state)
-                    .unwrap_or_default();
-                let writing_mode =
-                    get_writing_mode(ctx.styled_dom, child_dom_id, &styled_node_state)
-                        .unwrap_or_default();
-                let child_wm_ctx = super::geometry::WritingModeContext::new(
-                    writing_mode,
-                    get_direction_property(ctx.styled_dom, child_dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                    get_text_orientation_property(ctx.styled_dom, child_dom_id, &styled_node_state)
-                        .unwrap_or_default(),
-                );
-                let child_constraints = LayoutConstraints {
-                    available_size: LogicalSize::new(width, f32::INFINITY),
-                    writing_mode,
-                    writing_mode_ctx: child_wm_ctx,
-                    bfc_state: None,
-                    text_align: TextAlign::Start,
-                    containing_block_size: constraints.containing_block_size,
-                    available_width_type: Text3AvailableSpace::Definite(width),
-                    fragmentainer: None,
-                };
-
-                drop(child_node);
-
-                let mut empty_float_cache = HashMap::new();
-                let layout_result = layout_formatting_context(
+                let shape = measure_atomic_inline(
                     ctx,
                     tree,
-                    &mut TextLayoutCache::default(),
+                    text_cache,
                     child_index,
-                    &child_constraints,
-                    &mut empty_float_cache,
+                    child_dom_id,
+                    constraints,
                 )?;
-                let final_height = layout_result.output.overflow_size.height;
-                let final_size = LogicalSize::new(width, final_height);
-
-                tree.get_mut(LayoutNodeId::new(child_index))
-                    .unwrap()
-                    .used_size = Some(final_size);
-
-                // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`. This
-                // path measures the box from its intrinsic width and content
-                // height alone (no box_props are resolved for it here), so its
-                // content box and border box coincide and it has no margins to
-                // account for.
-                let overflow_x = get_overflow_x(ctx.styled_dom, child_dom_id, &styled_node_state)
-                    .unwrap_or_default();
-                let overflow_y = get_overflow_y(ctx.styled_dom, child_dom_id, &styled_node_state)
-                    .unwrap_or_default();
-                let overflow_is_visible = matches!(
-                    (overflow_x, overflow_y),
-                    (LayoutOverflow::Visible, LayoutOverflow::Visible)
-                );
-                let baseline_offset = atomic_inline_baseline_offset(
-                    layout_result.output.baseline,
-                    final_height,
-                    0.0,
-                    0.0,
-                    overflow_is_visible,
-                );
-
-                content.push(InlineContent::Shape(InlineShape {
-                    shape_def: ShapeDefinition::Rectangle {
-                        size: crate::text3::cache::Size {
-                            width,
-                            height: final_height,
-                        },
-                        corner_radius: None,
-                    },
-                    fill: None,
-                    stroke: None,
-                    baseline_offset,
-                    alignment: crate::solver3::getters::get_vertical_align_for_node(
-                        ctx.styled_dom,
-                        child_dom_id,
-                    ),
-                    source_node_id: Some(child_dom_id),
-                }));
-
-                // Note: We don't add to child_map here because this is inside a span
-                debug_info!(
-                    ctx,
-                    "[collect_inline_span_recursive] Added inline-block shape {}x{}",
-                    width,
-                    final_height
-                );
+                // For inline-block shapes, text3 uses the content array index as run_index
+                // and always item_index=0 for objects. We must match this when inserting into
+                // child_map.
+                let shape_content_index = ContentIndex {
+                    run_index: content.len() as u32,
+                    item_index: 0,
+                };
+                content.push(InlineContent::Shape(shape));
+                child_map.insert(shape_content_index, child_index);
             }
             _ => {
                 // +spec:display-property:0684c4 - block box inlinified: inner display becomes
@@ -10066,11 +11812,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 );
                 collect_inline_span_recursive(
                     ctx,
+                    text_cache,
                     tree,
                     child_dom_id,
                     &child_style,
                     content,
-                    parent_children,
+                    child_map,
+                    &span_layout_children,
                     constraints,
                 )?;
             }
@@ -10250,6 +11998,11 @@ pub fn check_scrollbar_necessity(
     ScrollbarRequirements {
         needs_horizontal,
         needs_vertical,
+        // `bar_kind` and `visual_width_px` - whether a bar is DRAWN on the
+        // axes that need one, and how thick - are set by the caller
+        // (`compute_scrollbar_info_core`), since this function doesn't have
+        // access to the CSS style context. Until then: no bar.
+        bar_kind: ScrollbarKind::None,
         scrollbar_width: if needs_vertical {
             scrollbar_width_px
         } else {
@@ -10260,8 +12013,6 @@ pub fn check_scrollbar_necessity(
         } else {
             0.0
         },
-        // visual_width_px is set by the caller (compute_scrollbar_info_core)
-        // since this function doesn't have access to the CSS style context.
         visual_width_px: 0.0,
     }
 }
@@ -10403,6 +12154,163 @@ fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
     true
 }
 
+// ==== list markers on the first line box (CSS Lists 3 s3.1, CSS 2.2 s12.5.1) ====
+
+/// Deepest chain of first children the marker helpers follow.
+const MARKER_WALK_LIMIT: usize = 128;
+
+/// Whether the box at `index` is a `::marker` pseudo-element.
+pub(crate) fn is_marker_box(tree: &LayoutTree, index: usize) -> bool {
+    tree.warm(LayoutNodeId::new(index))
+        .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
+}
+
+/// Whether the box at `index` is in its parent's flow: not a `::marker`,
+/// not absolutely positioned, not floated. Anonymous boxes are.
+fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
+    if is_marker_box(tree, index) {
+        return false;
+    }
+    let Some(dom_id) = tree
+        .get(LayoutNodeId::new(index))
+        .and_then(|n| n.dom_node_id)
+    else {
+        return true;
+    };
+    !matches!(
+        get_position_type(styled_dom, Some(dom_id)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) && get_float_property(styled_dom, Some(dom_id)) == LayoutFloat::None
+}
+
+/// The first in-flow child box of `index` ([`is_in_flow_box`]).
+fn first_in_flow_child(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> Option<usize> {
+    tree.children(index)
+        .iter()
+        .copied()
+        .find(|&child| is_in_flow_box(tree, styled_dom, child))
+}
+
+/// The inline formatting context holding a list item's FIRST LINE BOX, the
+/// line its `::marker` sits on (CSS Lists 3 s3.1, CSS 2.2 s12.5.1): the item
+/// itself when it is one, else the first one down the item's first in-flow
+/// block children - the anonymous block of `<li>Item<div>..</div></li>`, the
+/// `<p>` of `<li><div><p>..</p></div></li>`.
+///
+/// `None` when there is no line box there (an empty item, or a first child
+/// that is a table, a flex box, a replaced element): the marker box is then
+/// laid out as a line of its own, as before.
+pub(crate) fn marker_line_host(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    list_item: usize,
+) -> Option<usize> {
+    let mut node = list_item;
+    for _ in 0..MARKER_WALK_LIMIT {
+        match tree.get(LayoutNodeId::new(node))?.formatting_context {
+            FormattingContext::Inline => return Some(node),
+            FormattingContext::Block { .. } => {}
+            _ => return None,
+        }
+        node = first_in_flow_child(tree, styled_dom, node)?;
+    }
+    None
+}
+
+/// A list item's `::marker` box that rides the item's first line box
+/// ([`marker_line_host`]): it is no block of the item's flow - its content
+/// is laid out with that line - so the block layout and the intrinsic
+/// sizes pass it by (it took a line of its own: every `<li>` with a block
+/// child was one line too tall).
+pub(crate) fn is_marker_on_a_line(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
+    is_marker_box(tree, index)
+        && tree
+            .get(LayoutNodeId::new(index))
+            .and_then(|n| n.parent)
+            .is_some_and(|item| marker_line_host(tree, styled_dom, item).is_some())
+}
+
+/// The `::marker` boxes whose content opens the first line of the inline
+/// formatting context rooted at `ifc_root`, outermost list item first: one
+/// for each list item (the root itself, or an ancestor it starts) whose
+/// [`marker_line_host`] it is. A marker box laid out as an IFC of its own
+/// holds just itself.
+fn markers_on_first_line(tree: &LayoutTree, styled_dom: &StyledDom, ifc_root: usize) -> Vec<usize> {
+    if is_marker_box(tree, ifc_root) {
+        return vec![ifc_root];
+    }
+    let mut markers = Vec::new();
+    let mut node = ifc_root;
+    for _ in 0..MARKER_WALK_LIMIT {
+        if let Some(marker) = tree
+            .children(node)
+            .iter()
+            .copied()
+            .find(|&child| is_marker_box(tree, child))
+        {
+            if marker_line_host(tree, styled_dom, node) == Some(ifc_root) {
+                markers.push(marker);
+            }
+        }
+        let Some(parent) = tree.get(LayoutNodeId::new(node)).and_then(|n| n.parent) else {
+            break;
+        };
+        // The first line of `parent` is here only if `node` starts it.
+        if first_in_flow_child(tree, styled_dom, parent) != Some(node) {
+            break;
+        }
+        node = parent;
+    }
+    markers.reverse();
+    markers
+}
+
+/// The content of the `::marker` box `marker_index` (its list item's
+/// counter in its `list-style-type`, styled as the item) appended to an
+/// IFC's `content`, inside or outside by the item's `list-style-position`.
+fn push_marker_content<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    marker_index: usize,
+    content: &mut Vec<InlineContent>,
+) {
+    // The marker box references its list item's DOM node.
+    let Some(list_dom_id) = tree
+        .get(LayoutNodeId::new(marker_index))
+        .and_then(|n| n.dom_node_id)
+    else {
+        return;
+    };
+    // Default is 'outside' per CSS Lists Module Level 3
+    let position_outside = matches!(
+        get_list_style_position(ctx.styled_dom, Some(list_dom_id)),
+        StyleListStylePosition::Outside
+    );
+    // Font fallback happens during shaping
+    let base_style = crate::solver3::getters::get_style_properties_cached(
+        &mut ctx.style_cache,
+        ctx.styled_dom,
+        list_dom_id,
+        ctx.system_style.as_ref(),
+        PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+    );
+    let segments = generate_list_marker_segments(
+        tree,
+        ctx.styled_dom,
+        marker_index,
+        ctx.counters,
+        base_style,
+        ctx.debug_messages,
+    );
+    // Outside markers are positioned in the padding gutter by text3
+    for segment in segments {
+        content.push(InlineContent::Marker {
+            run: segment,
+            position_outside,
+        });
+    }
+}
+
 /// Generates marker text for a list item marker.
 ///
 /// This function looks up the counter value from the cache and formats it
@@ -10477,25 +12385,13 @@ fn generate_list_marker_text(
         )));
     }
 
-    // Get list-style-type from the list-item or its container
-    let list_container_dom_id = list_item_node.parent.and_then(|grandparent_index| {
-        tree.get(LayoutNodeId::new(grandparent_index))
-            .and_then(|grandparent| grandparent.dom_node_id)
-    });
-
-    // Try to get list-style-type from the list container first,
-    // then fall back to the list-item
-    let list_style_type = list_container_dom_id.map_or_else(
-        || get_list_style_type(styled_dom, Some(list_item_dom_id)),
-        |container_id| {
-            let container_type = get_list_style_type(styled_dom, Some(container_id));
-            if container_type == StyleListStyleType::default() {
-                get_list_style_type(styled_dom, Some(list_item_dom_id))
-            } else {
-                container_type
-            }
-        },
-    );
+    // The list item's own list-style-type: it inherits, so `<ol>`'s decimal
+    // reaches its items, and an item's own value wins over its list's (the
+    // container's type was read first, so `<li style="list-style-type:
+    // none">` in a styled list kept the list's marker). The same value
+    // decides whether the marker has a box at all
+    // (`LayoutTreeBuilder::create_marker_pseudo_element`).
+    let list_style_type = get_list_style_type(styled_dom, Some(list_item_dom_id));
 
     // Get the counter value for "list-item" counter from the LIST-ITEM node
     // Per CSS spec, counters are scoped to elements, and the list-item counter
@@ -10522,6 +12418,10 @@ fn generate_list_marker_text(
 
     // Format the counter according to the list-style-type
     let marker_text = format_counter(counter_value, list_style_type);
+    // No marker string (`none`): no marker - not a lone space.
+    if marker_text.is_empty() {
+        return String::new();
+    }
 
     // For ordered lists (non-symbolic markers), add a period and space
     // For unordered lists (symbolic markers like •, ◦, ▪), just add a space
@@ -10823,6 +12723,40 @@ pub fn split_text_for_whitespace(
     text: &str,
     style: &Arc<StyleProperties>,
 ) -> Vec<InlineContent> {
+    let mut result = white_space_runs(styled_dom, dom_id, text, style);
+
+    // +spec:white-space-processing:5e3f70 - text-transform applied after Phase I collapsing, before
+    // Phase II trimming This means full-width only transforms spaces (U+0020) to U+3000
+    // IDEOGRAPHIC SPACE within preserved white space, because non-preserved spaces were already
+    // collapsed in Phase I above.
+    let text_transform = style.text_transform;
+    if text_transform != text3::cache::TextTransform::None {
+        for item in &mut result {
+            if let InlineContent::Text(run) = item {
+                run.text = Arc::from(apply_text_transform(&run.text, text_transform).as_str());
+            }
+        }
+    }
+
+    result
+}
+
+/// The white-space processing half of [`split_text_for_whitespace`] (CSS
+/// Text 3 Phase I - collapsing, forced breaks, tabs), without the
+/// `text-transform` it then applies: the text as the layout's carets count
+/// its bytes, in the characters the DOM holds.
+///
+/// What the edit model (`LayoutWindow::get_text_before_textinput`) reads a
+/// `white-space: normal` / `nowrap` text node as: the layout collapses "a   b"
+/// to "a b" before it shapes it, so a caret after the 'b' is byte 3 - of the
+/// collapsed text, not of the raw one. The case of the letters is
+/// presentation, and a stored value never takes it on.
+pub fn white_space_runs(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    text: &str,
+    style: &Arc<StyleProperties>,
+) -> Vec<InlineContent> {
     // (characters with the Bidi_Control property) as if they were not there"
     // Strip bidi control characters before white-space processing so they don't
     // interfere with collapsing (e.g. a bidi mark between two spaces).
@@ -11031,19 +12965,6 @@ pub fn split_text_for_whitespace(
                     }));
                     content_index += 1;
                 }
-            }
-        }
-    }
-
-    // +spec:white-space-processing:5e3f70 - text-transform applied after Phase I collapsing, before
-    // Phase II trimming This means full-width only transforms spaces (U+0020) to U+3000
-    // IDEOGRAPHIC SPACE within preserved white space, because non-preserved spaces were already
-    // collapsed in Phase I above.
-    let text_transform = style.text_transform;
-    if text_transform != text3::cache::TextTransform::None {
-        for item in &mut result {
-            if let InlineContent::Text(run) = item {
-                run.text = Arc::from(apply_text_transform(&run.text, text_transform).as_str());
             }
         }
     }
@@ -11287,6 +13208,7 @@ mod autotest_generated {
             containing_block_size: available,
             available_width_type: Text3AvailableSpace::Definite(available.width),
             fragmentainer: None,
+            column_flow: None,
         }
     }
 
@@ -12262,106 +14184,6 @@ mod autotest_generated {
             .unwrap()
             .width
             .is_infinite());
-    }
-
-    // ==================================================================
-    // distribute_cell_width_across_columns (numeric)
-    // ==================================================================
-
-    fn cols(n: usize, min: f32, max: f32) -> Vec<TableColumnInfo> {
-        (0..n)
-            .map(|_| TableColumnInfo {
-                min_width: min,
-                max_width: max,
-                computed_width: None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn distribute_cell_width_spreads_the_deficit_evenly() {
-        let mut c = cols(2, 10.0, 20.0);
-        let collapsed = std::collections::HashSet::new();
-        distribute_cell_width_across_columns(&mut c, 0, 2, 50.0, 30.0, &collapsed);
-        // min: 50 needed, 20 present -> +15 each. max: 30 needed, 40 present -> untouched.
-        assert_eq!(c[0].min_width, 25.0);
-        assert_eq!(c[1].min_width, 25.0);
-        assert_eq!(c[0].max_width, 20.0);
-        assert_eq!(c[1].max_width, 20.0);
-    }
-
-    #[test]
-    fn distribute_cell_width_is_a_noop_when_the_span_overruns_the_columns() {
-        let mut c = cols(2, 10.0, 20.0);
-        let collapsed = std::collections::HashSet::new();
-        distribute_cell_width_across_columns(&mut c, 1, 5, 500.0, 500.0, &collapsed);
-        assert_eq!(c[0].min_width, 10.0);
-        assert_eq!(c[1].min_width, 10.0);
-
-        // start_col past the end, and the degenerate usize::MAX start with colspan 0.
-        distribute_cell_width_across_columns(&mut c, 99, 1, 500.0, 500.0, &collapsed);
-        distribute_cell_width_across_columns(&mut c, usize::MAX, 0, 500.0, 500.0, &collapsed);
-        assert_eq!(c[0].min_width, 10.0);
-    }
-
-    #[test]
-    fn distribute_cell_width_with_zero_colspan_does_not_divide_by_zero() {
-        let mut c = cols(2, 10.0, 20.0);
-        let collapsed = std::collections::HashSet::new();
-        distribute_cell_width_across_columns(&mut c, 0, 0, 1000.0, 1000.0, &collapsed);
-        assert_eq!(c[0].min_width, 10.0);
-        assert_eq!(c[1].min_width, 10.0);
-        assert!(c[0].min_width.is_finite());
-    }
-
-    #[test]
-    fn distribute_cell_width_skips_fully_collapsed_spans() {
-        let mut c = cols(2, 10.0, 20.0);
-        let collapsed: std::collections::HashSet<usize> = [0, 1].into_iter().collect();
-        distribute_cell_width_across_columns(&mut c, 0, 2, 1000.0, 1000.0, &collapsed);
-        assert_eq!(c[0].min_width, 10.0);
-        assert_eq!(c[1].min_width, 10.0);
-
-        // A partially collapsed span puts the whole deficit on the visible column.
-        let collapsed_one: std::collections::HashSet<usize> = [0].into_iter().collect();
-        distribute_cell_width_across_columns(&mut c, 0, 2, 100.0, 0.0, &collapsed_one);
-        assert_eq!(c[0].min_width, 10.0, "collapsed column is untouched");
-        assert_eq!(c[1].min_width, 100.0, "10 + (100 - 10) / 1");
-    }
-
-    #[test]
-    fn distribute_cell_width_ignores_nan_and_saturates_on_inf() {
-        let mut c = cols(2, 10.0, 20.0);
-        let collapsed = std::collections::HashSet::new();
-        // NaN > total is false -> no distribution, no NaN poisoning of the columns.
-        distribute_cell_width_across_columns(&mut c, 0, 2, f32::NAN, f32::NAN, &collapsed);
-        assert_eq!(c[0].min_width, 10.0);
-        assert_eq!(c[1].max_width, 20.0);
-
-        // Infinite demand saturates rather than panicking.
-        distribute_cell_width_across_columns(
-            &mut c,
-            0,
-            2,
-            f32::INFINITY,
-            f32::INFINITY,
-            &collapsed,
-        );
-        assert!(c[0].min_width.is_infinite());
-        assert!(c[1].max_width.is_infinite());
-    }
-
-    #[test]
-    fn distribute_cell_width_does_not_shrink_columns() {
-        let mut c = cols(2, 100.0, 200.0);
-        let collapsed = std::collections::HashSet::new();
-        // The cell is narrower than what the columns already provide -> no change.
-        distribute_cell_width_across_columns(&mut c, 0, 2, 1.0, 1.0, &collapsed);
-        assert_eq!(c[0].min_width, 100.0);
-        assert_eq!(c[0].max_width, 200.0);
-        // Negative demand likewise cannot pull the columns below zero.
-        distribute_cell_width_across_columns(&mut c, 0, 2, -1000.0, -1000.0, &collapsed);
-        assert_eq!(c[1].min_width, 100.0);
     }
 
     // ==================================================================

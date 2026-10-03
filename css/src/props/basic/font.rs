@@ -19,9 +19,11 @@ use core::{
 };
 
 #[cfg(feature = "parser")]
-use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
+use crate::props::basic::parse::{split_top_level, strip_quotes, UnclosedQuotesError};
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::{FormatAsRustCode, GetHash},
+    hash::GetHash,
     corety::{AzString, U8Vec},
     props::{
         basic::{
@@ -75,6 +77,51 @@ impl PrintAsCssValue for StyleFontWeight {
     }
 }
 
+impl StyleFontWeight {
+    /// The computed weight of a node that declares `self` and whose parent's
+    /// computed weight is `parent`: `bolder` / `lighter` are RELATIVE to the
+    /// parent (CSS Fonts 4 section 2.2, the relative-weight table), every
+    /// other value is its own computed value. A `parent` that is itself still
+    /// a keyword counts as 400.
+    ///
+    /// | parent    | bolder | lighter |
+    /// |-----------|--------|---------|
+    /// | 100 - 300 | 400    | 100     |
+    /// | 400, 500  | 700    | 100     |
+    /// | 600, 700  | 900    | 400     |
+    /// | 800       | 900    | 700     |
+    /// | 900       | 900    | 700     |
+    ///
+    /// The descendants inherit the result (a number), never the keyword.
+    #[must_use]
+    pub const fn computed(self, parent: Self) -> Self {
+        let parent = match parent {
+            Self::Lighter | Self::Bolder => Self::Normal,
+            other => other,
+        };
+        match self {
+            Self::Bolder => match parent {
+                Self::W100 | Self::W200 | Self::W300 => Self::Normal,
+                Self::Normal | Self::W500 => Self::Bold,
+                _ => Self::W900,
+            },
+            Self::Lighter => match parent {
+                Self::W600 | Self::Bold => Self::Normal,
+                Self::W800 | Self::W900 => Self::Bold,
+                _ => Self::W100,
+            },
+            other => other,
+        }
+    }
+
+    /// `bolder` / `lighter`: a weight that is only known against the parent's.
+    #[must_use]
+    pub const fn is_relative(self) -> bool {
+        matches!(self, Self::Bolder | Self::Lighter)
+    }
+}
+
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontWeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontWeight::{
@@ -122,6 +169,7 @@ impl PrintAsCssValue for StyleFontStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontStyle {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use StyleFontStyle::{Italic, Normal, Oblique};
@@ -331,8 +379,10 @@ impl StyleFontFamily {
     pub fn as_string(&self) -> String {
         match &self {
             Self::System(s) => {
+                // Quoted when it holds whitespace, or a comma - unquoted, the
+                // comma would read back as the end of the family.
                 let owned = s.clone().into_library_owned_string();
-                if owned.contains(char::is_whitespace) {
+                if owned.contains(|c: char| c.is_whitespace() || c == ',') {
                     format!("\"{owned}\"")
                 } else {
                     owned
@@ -388,6 +438,7 @@ impl PrintAsCssValue for StyleFontFamilyVec {
 }
 
 // Formatting to Rust code for StyleFontFamilyVec
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontFamilyVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -408,6 +459,7 @@ pub enum CssFontWeightParseError<'a> {
 }
 
 // Formatting to Rust code for StyleFontFamily
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontFamily {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -642,8 +694,11 @@ impl CssStyleFontFamilyParseErrorOwned {
 pub fn parse_style_font_family(
     input: &str,
 ) -> Result<StyleFontFamilyVec, CssStyleFontFamilyParseError<'_>> {
-    let multiple_fonts = input.split(',');
-    let mut fonts = Vec::with_capacity(1);
+    // Top-level commas only: `"Foo, Bar", serif` is TWO families. Otherwise
+    // like `str::split` (an empty input is one empty family, a trailing comma
+    // adds one).
+    let multiple_fonts = split_top_level(input, |byte| byte == b',');
+    let mut fonts = Vec::with_capacity(multiple_fonts.len());
 
     for font in multiple_fonts {
         let font = font.trim();
@@ -2159,13 +2214,14 @@ mod autotest_generated {
 
     #[cfg(feature = "parser")]
     #[test]
-    fn style_font_family_as_string_does_not_escape_commas() {
-        // LOSSY: `as_string()` quotes on whitespace only, so a comma inside a family
-        // name re-parses as two families. Asserted as-is; reported as a defect.
+    fn style_font_family_as_string_quotes_a_name_with_a_comma() {
+        // `as_string()` quotes a name with a comma, and the parser splits the
+        // list only at top-level commas, so the name round-trips as ONE family
+        // (it used to print bare and re-parse as two).
         let family = StyleFontFamily::System("Foo,Bar".into());
-        assert_eq!(family.as_string(), "Foo,Bar");
+        assert_eq!(family.as_string(), "\"Foo,Bar\"");
         let parsed = parse_style_font_family(&family.as_string()).unwrap();
-        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.as_slice(), &[family]);
     }
 
     #[cfg(feature = "parser")]
@@ -2337,6 +2393,34 @@ mod autotest_generated {
         assert!(StyleFontWeight::Bolder > StyleFontWeight::W900);
     }
 
+    #[test]
+    fn bolder_and_lighter_follow_the_relative_weight_table() {
+        use StyleFontWeight::{
+            Bold, Bolder, Lighter, Normal, W100, W200, W300, W500, W600, W800, W900,
+        };
+        // CSS Fonts 4 s2.2: (parent, bolder, lighter).
+        for (parent, bolder, lighter) in [
+            (W100, Normal, W100),
+            (W200, Normal, W100),
+            (W300, Normal, W100),
+            (Normal, Bold, W100),
+            (W500, Bold, W100),
+            (W600, W900, Normal),
+            (Bold, W900, Normal),
+            (W800, W900, Bold),
+            (W900, W900, Bold),
+            // a parent still a keyword counts as 400
+            (Bolder, Bold, W100),
+        ] {
+            assert_eq!(Bolder.computed(parent), bolder, "bolder than {parent:?}");
+            assert_eq!(Lighter.computed(parent), lighter, "lighter than {parent:?}");
+        }
+        // Any other weight is its own computed value.
+        assert_eq!(W300.computed(W900), W300);
+        assert!(Bolder.is_relative() && Lighter.is_relative() && !Bold.is_relative());
+    }
+
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_matches_the_debug_variant_names() {
         for weight in [

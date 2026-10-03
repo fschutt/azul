@@ -124,12 +124,12 @@ fn wav(samples: &[f32], sample_rate: u32) -> Vec<u8> {
     out
 }
 
-pub fn save(s: &AppState) -> bool {
-    let dir = crate::scratch_dir();
-    if std::fs::create_dir_all(&dir).is_err() {
-        return false;
-    }
-
+/// The session as an archive: its file name ([`archive_name`]) and its
+/// bytes - every voice clip as a WAV and `session.json` (the strokes, the
+/// findings, the clips). No disk here: the caller writes it into the data
+/// tree on a Thread (`crate::save_session`).
+#[must_use]
+pub fn archive(s: &AppState) -> (String, Vec<u8>) {
     let mut zip = Zip::create();
 
     let clips: Vec<&VoiceClip> = s.clips.iter().chain(s.recording.iter()).collect();
@@ -160,25 +160,33 @@ pub fn save(s: &AppState) -> bool {
         bytes(model.to_string_pretty().as_str().as_bytes()),
     );
 
-    let final_path = archive_path(s);
-    let temp_path = final_path.with_extension("zip.part");
-    if !zip.to_file(temp_path.to_string_lossy().as_ref()) {
-        return false;
-    }
-    std::fs::rename(&temp_path, &final_path).is_ok()
+    (
+        archive_name(s.file().map(|f| f.display.as_str())),
+        zip.to_bytes().as_slice().to_vec(),
+    )
 }
 
-fn archive_path(s: &AppState) -> std::path::PathBuf {
-    let stem = s.file().map_or_else(
-        || "session".to_string(),
-        |f| f.display.replace(['/', '\\'], "_"),
-    );
-    crate::scratch_dir().join(format!("{stem}.azreview.zip"))
+/// The archive's file name for the file under review (`src/lib.rs` ->
+/// `src_lib.rs.azreview.zip`; no file: `session.azreview.zip`).
+#[must_use]
+pub fn archive_name(display: Option<&str>) -> String {
+    let stem = display
+        .filter(|d| !d.is_empty())
+        .map_or_else(|| "session".to_string(), |d| d.replace(['/', '\\'], "_"));
+    format!("{stem}.azreview.zip")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_archive_is_named_after_the_file_under_review() {
+        assert_eq!(archive_name(Some("src/lib.rs")), "src_lib.rs.azreview.zip");
+        assert_eq!(archive_name(Some("a\\b.rs")), "a_b.rs.azreview.zip");
+        assert_eq!(archive_name(None), "session.azreview.zip");
+        assert_eq!(archive_name(Some("")), "session.azreview.zip");
+    }
 
     #[test]
     fn a_wav_header_declares_the_sample_count_it_actually_carries() {

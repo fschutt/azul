@@ -1,0 +1,84 @@
+# HEADLESS6 progress (wave 6, 2026-10-03)
+
+Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.md.
+
+## Corpus baseline (aa59b2d84 binaries, AzPaint headless, 2026-10-03 02:29)
+40 passed / 22 failed. Categories:
+- A (13) X10 gpu_state "GPU value cache still held for DOM 1": AzPaint's ProgressBar is a VirtualView
+  (child DOM 1); `mount` unmounts it; remap dropped child DOMs only for thread owners. FIXED (811d7c1a0).
+  anim-dom-transition, anim-slow-move-frames, cross-x1, css-anim-perf-transition, css-anim-perf-zombie,
+  css-animation-out, css-catch-mid-exit, css-no-default-exit, css-zombie-relayout, manager-keys-drop,
+  noninterference-idle-tick, noninterference-scroll, noninterference-tab-focus.
+- B (4) assert_damage_sound pixel_identity: "host does not publish the damage-driven framebuffer":
+  bug-slider-thumb-trail, op-resize-grow-exposed-strip, op-resize-grow-reflow, op-resize-shrink-stays-full.
+- C bug-transform-offsets-hit-test: focus_state has_focus false (expected "below").
+- D css-animation-multi: width 117.336 vs 120.
+- E css-animation-transition: transitions 2 vs 1.
+- F dl-text-patch: last_dl_build_patched false.
+- G op-image-cache-id-repaints: nothing repainted.
+
+## DONE
+- f8c17345e RED / 811d7c1a0 GREEN: VirtualView child-DOM state dropped with its host (category A)
+- 072a51d9c RED / 913e33c3e GREEN: headless backend publishes the painted frame (category B);
+  tests in dll/src/desktop/shell2/headless/tests/e2e_host.rs (mod e2e_host next to mod idle_cpu)
+- item 2: d1f0286ec RED / 8e6c5bfb2 + b872bfa3a + (font registry signal) GREEN: common/process_exit.rs
+  ExitRequest; printer -> end_process_from_worker; headless loop exits on UI thread (exit_from_ui_thread).
+- item 4: 5560f330d RED / 590c06dc1 GREEN: LayoutCallbackInfoRefData.window_id (last field) +
+  LayoutCallbackInfo::get_window_id() -> AzString. api.json: LayoutCallbackInfo.get_window_id
+  (self: ref) -> String, fn_body `object.get_window_id()`.
+- item 5: routing by window_id exists (MAIL2 forwarding, unit-tested). Found: the single wake flag was
+  taken by the first window -> a forwarded request's window stayed at the 2 s idle poll.
+  0adb73655 RED / ea1d8434c GREEN: DebugWakeSeen per window (E2eScratch) + generation counter.
+  Live verification (AzCalendar editor via AZ_DEBUG + window_id) still to do when power allows.
+- item 3: f4e39d74c RED / d8b3643e8 GREEN headless menus = child window (desktop::menu::show_menu),
+  ids azul-menu, azul-menu-2...; 5e7689256 RED / 986c8a5ba GREEN `list_windows` op (+ gene2e OP_POLICY row).
+  NOT done: dismiss-on-outside-click for headless menus (close via item click or `close` op with window_id).
+- C: 72c7f40de RED / 3af8bbc7b GREEN: hit tester applies a node's OWN transform to its own box
+  (headless.rs compute_node_chains). C was red in-process too (prebuilt azul-doc e2e). Seen, NOT fixed
+  (solver3 -> MAILENG6): the DL paints positioned #below BEFORE the earlier transformed #mover's
+  stacking context (tree order says mover first). Also: hit tester ignores the ANIMATION transform
+  channel (anim_transform_keys) the DL honours.
+- F + G: 29efad7b9 RED / 79923bac0 GREEN: headless service_frame keeps the desktop frame contract
+  (relayout-only = layout already ran -> paint_laid_out; ShouldIncrementalRelayout lays out at the raise
+  point; display_list_dirty consumed by repaint_only). Seen, not fixed: X11 GPU path treats
+  display_list_dirty as "already rebuilt" but ImageById (window.rs apply_content_change) does NOT
+  rebuild the DL itself (the clip-mask arm does) -> css-id image registration stale on X11 GPU.
+- E: 5dfd0ca5d RED / 58b722ef2 GREEN: begin_reconciliation installs the window context on the new
+  StyledDom before the transition capture (2nd transition = inherited color #e8e8e8 -> light black;
+  probe_e.py). Test layout/tests/a_rebuild_transitions_only_what_its_window_sees_change.rs.
+- SMALL6 screenshot bug: NOT a stale frame. Probe (AzShells, click S4, set_theme/set_mode): display lists
+  of consecutive screenshots identical; get_animations: 26 layout animations (FLIP slides from the
+  picker click's rebuild) decaying over ~300 ms wall clock. a9867c02e RED / ecb58ec9d GREEN
+  window_still_moving + settle_verdict; 2c782047c `wait_settled` op (debug timer queues the request in
+  E2eSession.settle_waiters, answers when settled or at timeout_ms, default 3000); gene2e OP_POLICY row.
+- D: a21472c60 RED / 3ffe382e7 GREEN: CommonWindowState::scripted_animation_clock (from
+  debug_server::scripted_run_owns_the_clock = E2E_ACTIVE; stub false): the CSS driver is never armed /
+  never steps under AZ_E2E. f7b86a6fd: menu ids take the first free azul-menu-N.
+- coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
+  (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
+
+## IN PROGRESS
+- nothing. Report written: scripts/HEADLESS6_2026_10_03.md. Resumed once more after a DNS outage: tree was
+  clean, all work committed (the "getter" step the coordinator quoted is a21472c60). Last: the regen
+  branch of service_frame clears display_list_dirty when the DOM changed.
+
+## NEXT
+- DONE unless the coordinator sends more. Left (in the report): corpus + calendar E2E on the new build;
+  headless menu dismissal / keyboard nav.
+- item 5 live: azcalendar_e2e --only editor,repeat PASS on the prebuilt AzCalendar after the script fix
+  (df5c37e97).
+
+## Item 2 design (exit segfault)
+- Root cause: AZ_E2E's `e2e-result-printer` thread calls exit_dumping_profile -> libc exit() from a
+  NON-UI thread while the UI loop, timers, workers and the debug server still run; atexit / TLS teardown
+  races them (exit 139 seen with the instrumented build; normal build exited 1 cleanly in one probe).
+- Fix: printer records the exit code + wakes the loops (request_e2e_exit); the headless loop sees it,
+  closes, shuts down threads (joins), and exits via exit_dumping_profile on the UI thread. Fallback: the
+  printer exits itself after a grace period if no loop took the request (desktop backends).
+- headless run() EndProcess also calls raw std::process::exit(0) -> route through exit_dumping_profile.
+
+## Decisions
+- Category A fix lives in layout/src/window.rs `remap_node_ids` (manager lifecycle, unowned by another
+  wave-6 task); minimal edit at the end of the function.
+- POWER (coordinator, 02:45): on battery - no long headless runs. LIFTED on resume (power back).
+- Corpus runs: AZ_E2E=<dir> dispatcher under run_capped (cap 1500 MB covers the 7 parallel children).

@@ -13,6 +13,7 @@ tracked_files:
   - core/src/debug.rs
   - dll/src/desktop/logging.rs
   - dll/src/desktop/shell2/common/debug_server.rs
+  - dll/src/desktop/shell2/common/x11_host.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
 generated_at: 2026-05-02T00:00:00Z
 default-search-keys:
@@ -42,16 +43,18 @@ curl -s -X POST http://localhost:8765/ -d '{"op":"get_dom_tree"}'
 Every flag is read once at process start. Unset means off — **except `AZ_LOG`, which is ON by default** (see below). All are independent and can be combined.
 
 - `AZ_LOG=<level>`. Controls Azul's built-in stderr logger, **enabled by default**. Azul installs a logger automatically at `App::create` so the platform layer (windowing, event loop, layout, device backends) is never silent — if your app exits unexpectedly, the reason is on stderr. Levels: `off`/`0`/`false` silences it entirely; `error`, `warn`, `info`, `debug` (the default), `trace` (everything, including per-frame). It honors `NO_COLOR` and only colorizes a TTY. If your host already installs a logger (Python's `pyo3-log`, Android's `android_logger`, your own `env_logger`), Azul's logger steps aside and does not override it.
-- `AZ_DEBUG=<port>`. Binds the HTTP debug server on `127.0.0.1:<port>`. A bind failure exits the process.
+- `AZ_DEBUG=<port>`. Binds the HTTP debug server on `127.0.0.1:<port>`. A bind failure exits the process. A port the app sets itself (`AppConfig::remote_control.debug_port`) takes precedence over the variable.
 - `AZ_BACKEND=<mode>`. One of `auto`, `gpu`, `cpu`, or `headless`. Resolves the rendering backend. `headless` skips the OS window and is required by the E2E runner. Default `auto`.
-- `AZUL_HEADLESS=1`. Legacy alias for `AZ_BACKEND=headless`.
+- `AZ_WINDOW=<x11|wayland|auto>`. The windowing system, a separate axis from the renderer: on Linux it overrides the `WAYLAND_DISPLAY`/`DISPLAY` detection (`AZ_BACKEND=x11|wayland` is the older spelling). On macOS, `x11` opens X11 windows through XQuartz (the `x11-macos` feature, part of `build-dll`), see [Reproducing X11 bugs on macOS](#reproducing-x11-bugs-on-macos-xquartz).
 - `AZ_RECORD=<path>`. Appends every internal log message to `<path>` as plain text.
 - `AZ_E2E=<path>`. Reads JSON tests from `<path>`, runs them, exits `0` (all pass) or `1` (any fail). See [End-to-End Testing](debugging/e2e-testing.md).
 - `AZ_PROFILE=<tokens>`. Comma-separated profiler tokens for per-frame instrumentation. See [Memory and Profiling](debugging/profiling.md).
 - `AZ_PROFILE_OUT=<path>`. JSONL output destination paired with `AZ_PROFILE=heap,jsonl`.
+- `AZ_MODE=<light|dark|system>`. Pins light or dark mode over the app's choice, the window's and the desktop's, so a screenshot run renders the same on every machine. `system` pins nothing. See [Choosing the theme and the mode from the environment](styling/themes.md#choosing-the-theme-and-the-mode-from-the-environment).
+- `AZ_THEME=<theme>`. The app theme (`flat`, `flora`, a spin-off such as `xyz:pink`), outranking the app's own `AppConfig::with_theme` / `CallbackInfo::set_theme`. `AZ_THEME=light|dark` is the deprecated spelling of `AZ_MODE` and still pins the mode for one release, with a warning at startup.
 - `RUST_LOG=<filter>`. Standard `log` crate filter (env_logger syntax).
 
-`AZ_DEBUG` and `AZUL_HEADLESS` compose: a CI run with `AZUL_HEADLESS=1 AZ_DEBUG=8765 ./my_app` boots a windowless process you can drive over HTTP. This is the supported configuration for screenshot diffing in CI.
+`AZ_DEBUG` and `AZ_BACKEND=headless` compose: a CI run with `AZ_BACKEND=headless AZ_DEBUG=8765 ./my_app` boots a windowless process you can drive over HTTP. This is the supported configuration for screenshot diffing in CI.
 
 ## The HTTP debug server
 
@@ -89,6 +92,7 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 - **Mouse.** `mouse_move`, `mouse_down`, `mouse_up`, `click`, `double_click`, `scroll` (programmatic `scroll_to` on the node under the point), `wheel` (a hardware wheel notch through the shells' hit-test + scroll-physics path).
 - **Keyboard.** `key_down`, `key_up`, `text_input`.
 - **Window.** `resize`, `move`, `focus`, `blur`, `close`, `dpi_changed`.
+- **Mode and theme.** `get_mode`, `set_mode` (`light`, `dark` or `system`), `get_theme`, `set_theme`. See [Light / dark mode and the app theme](#light--dark-mode-and-the-app-theme).
 - **Queries.** `get_state`, `get_dom_tree`, `get_node_hierarchy`, `get_layout_tree`, `get_display_list`, `get_html_string`, `hit_test`, `get_logs`.
 - **DOM mutation.** `insert_node`, `delete_node`, `set_node_text`, `set_node_classes`, `set_node_css_override`.
 - **Scrolling.** `get_scroll_states`, `get_scrollable_nodes`, `scroll_node_by`, `scroll_node_to`, `scroll_into_view`.
@@ -100,6 +104,22 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 `click` accepts whichever of `selector`, `node_id`, `text`, or `(x, y)` you pass. It resolves to a node, fires the click, and triggers a refresh if your callback returns one. This is the building block every E2E `click` step uses.
 
 `wait_frame` is a barrier: the next step runs only after the window has prepared a frame that follows the request (the frame clock is the per-window `ContentJournal::frame_seq`, bumped once per frame on every backend). After any command that mutates state (`click`, `resize`, `set_node_text`, `text_input`, …) call `wait_frame` before reading state back, otherwise queries can race the relayout pass or the virtual-view re-renders queued for the next paint. A scenario step cannot hang on it: after ~2 s without a frame the barrier logs a warning and opens.
+
+### Light / dark mode and the app theme
+
+The app's light / dark MODE and its THEME are the settings an app's own toggles switch with `CallbackInfo::set_mode` and `CallbackInfo::set_theme`, and these ops take the same path: `set_mode` restyles every window, `set_theme` rebuilds every window's DOM in the new theme. `get_mode` answers the app's choice (`system` follows the desktop, `light` / `dark` are pinned) and what the window shows (`resolved`):
+
+```bash
+curl -s -X POST http://localhost:8765/ -d '{"op":"get_mode"}' | jq '.data.value'
+# { "mode": "system", "resolved": "dark" }
+curl -s -X POST http://localhost:8765/ -d '{"op":"set_mode","mode":"light"}'
+curl -s -X POST http://localhost:8765/ -d '{"op":"set_mode","mode":"system"}'
+curl -s -X POST http://localhost:8765/ -d '{"op":"get_theme"}' | jq -r '.data.value.theme'
+# flat
+curl -s -X POST http://localhost:8765/ -d '{"op":"set_theme","theme":"flora"}'
+```
+
+A switch lands on the window's next frame: `wait_frame` before reading `get_mode` back. `set_mode` refuses any name but the three; `set_theme` refuses an empty one. The in-browser inspector (and AzBuilder's page) uses the same ops: its Auto / Light / Dark toggle IS the app's mode - it reads `get_mode` on load and on a poll, so it follows when the app switches itself, and the toggle calls `set_mode` (Auto = `system`).
 
 ## A simple driver script
 
@@ -154,3 +174,37 @@ If `App::run` returns an error (e.g. no display server could be opened), it is a
 ## When the timer is not running
 
 `AZ_DEBUG` requires that the application reaches the event loop. If `App::run` is never called — for example, in a Rust unit test that builds a `Dom` and asserts its shape — the debug timer is never registered, and a `POST /` request hangs until `timeout_secs` elapses (default 30 s). For pure layout assertions, prefer the headless renderer covered in [End-to-End Testing](debugging/e2e-testing.md) or the reftest harness rather than `AZ_DEBUG`.
+
+## Reproducing X11 bugs on macOS (XQuartz)
+
+The Linux X11 backend also runs on a Mac, against XQuartz. It is the same backend and the same window loop that ship on Linux, not an emulation of them, so X11 behaviour - event handling, override-redirect menus and popups, focus and pointer grabs, keyboard mapping, the frame rules behind `WindowDecorations` - reproduces without a Linux machine. It is opt-in twice: compiled in by a cargo feature, and selected per run by an environment variable. A build with the feature and without the variable behaves exactly like a build without either.
+
+```bash
+# 1. The X server. After installing, log out and back in once so launchd
+#    exports DISPLAY to new processes.
+brew install --cask xquartz
+open -a XQuartz
+
+# 2. libazul - every macOS build-dll has the X11 backend (`x11-macos` is part of it;
+#    a link-static app adds `--features x11-macos`).
+cargo build --release -p azul-dll --features build-dll
+
+# 3. Any app on that libazul, with X11 windows instead of AppKit ones.
+cargo build --release -p AzWidgets
+AZ_BACKEND=x11 ./target/release/AzWidgets
+```
+
+- `AZ_BACKEND=x11` and `AZ_WINDOW=x11` are equivalent, with `AZ_WINDOW` winning when both are set, and the windowing choice combines with a render one: `AZ_WINDOW=x11 AZ_BACKEND=gpu`. There is no auto-detection - XQuartz exports `DISPLAY` to every process in the session - so only an explicit `x11` leaves AppKit. A build without the feature says so on stderr and opens an AppKit window.
+- `DISPLAY` is XQuartz's launchd socket (`/private/tmp/com.apple.launchd.…/org.xquartz:0`); `DISPLAY=:0` works too while XQuartz runs. The X libraries are loaded from `/opt/X11/lib`. To use other builds of them, put their directory in `DYLD_LIBRARY_PATH`, which dyld consults first. The same variable finds libazul itself if it is not next to the binary: `DYLD_LIBRARY_PATH=target/release`.
+- Rendering is the CPU path (`XPutImage`), the desktop default. XQuartz ships no libEGL, so `AZ_BACKEND=gpu` falls back to it.
+- XQuartz draws one X pixel per point. The window scale is X11's own answer, as on Linux: `Xft.dpi` if set, else an estimate from the screen's size in millimetres, which can round to 1.25 on a laptop panel. Pin it with `echo "Xft.dpi: 96" | xrdb -merge` before starting the app, or set `192` to exercise the HiDPI paths.
+- Shortcuts follow Linux while X11 draws the windows: Ctrl+C, Ctrl+V, Ctrl+A, Ctrl+Z and Ctrl+arrow word jumps. XQuartz delivers the Command key as `Meta`, which X11 reads as Alt.
+- Text goes through libX11's own input method, which composes dead keys from the locale's Compose file. libxkbcommon is optional (XQuartz has none; `brew install libxkbcommon` adds the compose table the backend falls back to when no input method opens). Without an input method, a character the locale cannot spell is read from its keysym.
+- An XQuartz window is a real macOS window, owned by the XQuartz process rather than by the app. `scripts/cgevent_input.py` drives it unchanged when given XQuartz's PID where it expects the app's - `./scripts/cgevent_input.py windows $(pgrep -x X11.bin)` lists the windows with their ids and origins, then `moveto`, `click`, `wheel` and `key` work as usual - and `screencapture -l <window id> shot.png` captures one. XQuartz turns key CODES into X keys and ignores the Unicode string an event carries, so `type` reaches it only for the characters the script maps to a physical key (letters, digits and the punctuation in its table); anything else goes through `key`. Turn on *Click-through Inactive Windows* in XQuartz's window settings, or the first click into an inactive window only activates it; *Option keys send Alt_L and Alt_R* in its input settings makes Option an Alt key.
+
+What does not behave like Linux:
+
+- The clipboard goes through `NSPasteboard`, which XQuartz mirrors to the X `CLIPBOARD` selection. `PRIMARY` (select, then middle-click) works inside the app and is not visible to other X clients.
+- No Wayland, and none of the Linux desktop's D-Bus services (GNOME global menu, the portal's colour scheme, screensaver inhibition, the tray) or AT-SPI accessibility. `App::set_tray` and `App::set_app_icon` are skipped with a warning.
+- The system style is the Mac's, detected at startup; a later light/dark switch is not followed.
+- The window manager is quartz-wm, whose EWMH support is partial: interactive move/resize hand-off, `_NET_WM_STATE` changes and window-type hints may be ignored where a Linux window manager would honour them.

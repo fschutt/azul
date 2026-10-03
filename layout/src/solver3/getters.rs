@@ -10,6 +10,7 @@ use azul_core::{
 };
 use azul_css::{
     css::CssPropertyValue,
+    dynamic_selector::ResolveSystemColors,
     props::{
         basic::{
             font::{StyleFontFamily, StyleFontFamilyVec, StyleFontStyle, StyleFontWeight},
@@ -108,8 +109,167 @@ pub fn get_element_font_size(
     // only on the lifted web path's small DOMs. The cache-block lift bug — likely the
     // compute_all_font_sizes_px closure's control/FP — is documented for a later remill
     // fix that can restore the fast path.)
-    let _ = compute_all_font_sizes_px; // referenced so other callers / native keep it
-    resolve_font_size_slow(styled_dom, dom_id, node_state)
+    // referenced so other callers / native keep it
+    let _ = compute_all_font_sizes_px;
+    // CSS `zoom` scales the font size by the node's effective zoom (the
+    // cascade's value is unzoomed: an inherited size is the parent's
+    // UNZOOMED one, so the product never applies a zoom twice); em lengths
+    // follow it (LAYOUT7).
+    resolve_font_size_slow(styled_dom, dom_id, node_state) * get_effective_zoom(styled_dom, dom_id)
+}
+
+// ==== CSS zoom (LAYOUT7) ====
+
+/// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
+fn own_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    let node_data_container = styled_dom.node_data.as_container();
+    let styled_container = styled_dom.styled_nodes.as_container();
+    let (Some(node_data), Some(styled)) = (
+        node_data_container.get(dom_id),
+        styled_container.get(dom_id),
+    ) else {
+        return 1.0;
+    };
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_zoom(node_data, &dom_id, &styled.styled_node_state)
+        .and_then(|v| v.get_property().copied())
+        .map_or(1.0, |zoom| zoom.factor())
+}
+
+/// Every node's effective zoom in one top-down walk (the arena is
+/// pre-order: a parent precedes its children). EMPTY when no node zooms.
+#[cfg_attr(feature = "web_lift", allow(dead_code))]
+fn compute_all_zooms(styled_dom: &StyledDom) -> Vec<f32> {
+    let n = styled_dom.node_data.len();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut zooms = vec![1.0f32; n];
+    let mut any = false;
+    for idx in 0..n {
+        let id = NodeId::new(idx);
+        let own = own_zoom(styled_dom, id);
+        any |= (own - 1.0).abs() > f32::EPSILON;
+        let parent = hierarchy
+            .get(id)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            .filter(|p| p.index() < idx)
+            .map_or(1.0, |p| zooms[p.index()]);
+        zooms[idx] = parent * own;
+    }
+    if any {
+        zooms
+    } else {
+        Vec::new()
+    }
+}
+
+/// Whether any node of the document declares a `zoom` other than 1 (the
+/// zoom memo is not empty).
+#[must_use]
+pub fn document_has_zoom(styled_dom: &StyledDom) -> bool {
+    #[cfg(feature = "web_lift")]
+    {
+        (0..styled_dom.node_data.len())
+            .any(|i| (own_zoom(styled_dom, NodeId::new(i)) - 1.0).abs() > f32::EPSILON)
+    }
+    #[cfg(not(feature = "web_lift"))]
+    {
+        !styled_dom
+            .css_property_cache
+            .ptr
+            .resolved_zooms
+            .get_or_init(|| compute_all_zooms(styled_dom))
+            .is_empty()
+    }
+}
+
+/// The EFFECTIVE `zoom` of a node (CSS Viewport 1 `zoom`, as Chrome
+/// implements it): the product of `zoom` on the node and on every ancestor.
+/// 1.0 in an unzoomed document - the memo is empty then, no index is read.
+#[must_use]
+pub fn get_effective_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
+    // The OnceLock memo mis-lifts on the web lift (see `get_element_font_size`):
+    // walk the ancestors there.
+    #[cfg(feature = "web_lift")]
+    {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        let mut zoom = 1.0f32;
+        let mut cur = Some(dom_id);
+        let mut guard = styled_dom.node_data.len();
+        while let Some(id) = cur {
+            if guard == 0 {
+                break;
+            }
+            guard -= 1;
+            zoom *= own_zoom(styled_dom, id);
+            cur = hierarchy
+                .get(id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        zoom
+    }
+    #[cfg(not(feature = "web_lift"))]
+    {
+        styled_dom
+            .css_property_cache
+            .ptr
+            .resolved_zooms
+            .get_or_init(|| compute_all_zooms(styled_dom))
+            .get(dom_id.index())
+            .copied()
+            .unwrap_or(1.0)
+    }
+}
+
+/// A length of node `dom_id` resolved to `resolved` px, under its effective
+/// zoom ([`scale_length_for_zoom`]).
+#[must_use]
+pub fn zoomed_length(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    metric: azul_css::props::basic::SizeMetric,
+    resolved: f32,
+) -> f32 {
+    let zoom = get_effective_zoom(styled_dom, dom_id);
+    if (zoom - 1.0).abs() <= f32::EPSILON {
+        return resolved;
+    }
+    scale_length_for_zoom(
+        metric,
+        resolved,
+        zoom,
+        get_effective_zoom(styled_dom, NodeId::new(0)),
+    )
+}
+
+/// THE zoom rule of every length the solver resolves: a length resolved to
+/// `resolved` px on a box of effective zoom `zoom` (the root's `root_zoom`).
+/// An absolute length (px, pt, in, cm, mm) scales by the zoom, a rem by it
+/// relative to the root's (the root font size already carries the root's
+/// zoom); em, percentages and viewport units come back as they are - em
+/// follows the zoomed font size, a percentage the zoomed containing block.
+#[must_use]
+pub fn scale_length_for_zoom(
+    metric: azul_css::props::basic::SizeMetric,
+    resolved: f32,
+    zoom: f32,
+    root_zoom: f32,
+) -> f32 {
+    use azul_css::props::basic::SizeMetric;
+    match metric {
+        SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+            resolved * zoom
+        }
+        SizeMetric::Rem if root_zoom > 0.0 => resolved * zoom / root_zoom,
+        SizeMetric::Rem
+        | SizeMetric::Em
+        | SizeMetric::Percent
+        | SizeMetric::Vw
+        | SizeMetric::Vh
+        | SizeMetric::Vmin
+        | SizeMetric::Vmax => resolved,
+    }
 }
 
 /// Bottom-up single-pass resolve of every node's font-size.
@@ -424,6 +584,14 @@ impl<T> MultiValue<T> {
 
     /// Gets the exact value if present
     pub fn exact(self) -> Option<T> {
+        match self {
+            Self::Exact(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Borrows the exact value if present
+    pub const fn as_exact(&self) -> Option<&T> {
         match self {
             Self::Exact(v) => Some(v),
             _ => None,
@@ -924,6 +1092,19 @@ impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavig
     }
 }
 
+impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction>
+    for CssProperty
+{
+    fn extract(
+        &self,
+    ) -> Option<azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction> {
+        match self {
+            Self::SpatialNavigationFunction(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavigationContain>
     for CssProperty
 {
@@ -1358,16 +1539,47 @@ get_css_property!(
     compact = get_overflow_y
 );
 
-// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical
-// overflow based on writing mode
-/// Physical `overflow-x`, with the css-overflow-3 logical fallback: when the
-/// physical property is unset, a declared `overflow-inline` (horizontal
-/// writing modes) or `overflow-block` (vertical) supplies the value. On the
-/// compact fast path the mapping already happened at build time, in
-/// declaration order (equal-specificity last-wins); this slow-path fallback
-/// uses "physical if declared, else logical" as the cascade approximation.
+/// The COMPUTED `overflow-x` (CSS Overflow 3 §3.1): a `visible` or `clip`
+/// computes to `auto` or `hidden` when `overflow-y` is neither of those, so
+/// `overflow-y: auto` alone makes a box a scroll container on both axes.
+///
+/// Every reader wants this value - taffy's per-axis overflow, the clip, the
+/// scroll-container and BFC checks - and handing out the specified one made
+/// each of them decide the axis the author left unset differently. A row
+/// wider than an `overflow-y: auto` flex item went to taffy as horizontally
+/// VISIBLE, so its width leaked into the flex container's content size and
+/// the viewport scrolled it (177px of sideways travel on the AzWidgets page).
 #[must_use]
 pub fn get_overflow_x(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutOverflow> {
+    specified_overflow_x(styled_dom, node_id, node_state)
+        .resolve_computed(&specified_overflow_y(styled_dom, node_id, node_state))
+}
+
+/// The COMPUTED `overflow-y`; see [`get_overflow_x`].
+#[must_use]
+pub fn get_overflow_y(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<LayoutOverflow> {
+    specified_overflow_y(styled_dom, node_id, node_state)
+        .resolve_computed(&specified_overflow_x(styled_dom, node_id, node_state))
+}
+
+// +spec:overflow:17654b - overflow-block and overflow-inline logical properties resolve to physical
+// overflow based on writing mode
+/// Specified physical `overflow-x`, with the css-overflow-3 logical fallback:
+/// when the physical property is unset, a declared `overflow-inline`
+/// (horizontal writing modes) or `overflow-block` (vertical) supplies the
+/// value. On the compact fast path the mapping already happened at build
+/// time, in declaration order (equal-specificity last-wins); this slow-path
+/// fallback uses "physical if declared, else logical" as the cascade
+/// approximation.
+fn specified_overflow_x(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1392,9 +1604,36 @@ pub fn get_overflow_x(
     }
 }
 
-/// Physical `overflow-y`; see [`get_overflow_x`] for the logical fallback.
-#[must_use]
-pub fn get_overflow_y(
+/// CSS Overflow 3 §3.3: the ROOT element's overflow is applied to the
+/// VIEWPORT, and there `visible` must be read as `auto` and `clip` as
+/// `hidden` - the viewport is what scrolls a page that is taller than the
+/// window. The root element is node 0 of its DOM.
+///
+/// It is applied ONLY where the scrollport is decided
+/// ([`crate::solver3::cache::compute_scrollbar_info_core`]). The root's own
+/// clip, hit testing and pagination keep reading the declared value: applied
+/// to every reader, the rule turned every page into a clipping box and
+/// reddened pagination, hit testing and margin escape alike.
+pub(crate) fn apply_viewport_overflow_rule(
+    node_id: NodeId,
+    value: MultiValue<LayoutOverflow>,
+) -> MultiValue<LayoutOverflow> {
+    if node_id.index() != 0 {
+        return value;
+    }
+    match value {
+        MultiValue::Exact(LayoutOverflow::Visible) => MultiValue::Exact(LayoutOverflow::Auto),
+        MultiValue::Exact(LayoutOverflow::Clip) => MultiValue::Exact(LayoutOverflow::Hidden),
+        // Nothing declared: the initial value IS `visible`, so the viewport
+        // rule applies to it too.
+        MultiValue::Auto | MultiValue::Initial => MultiValue::Exact(LayoutOverflow::Auto),
+        other => other,
+    }
+}
+
+/// Specified physical `overflow-y`; see [`specified_overflow_x`] for the
+/// logical fallback.
+fn specified_overflow_y(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1482,6 +1721,40 @@ get_css_property!(
     CssPropertyType::FontWeight,
     compact = get_font_weight
 );
+
+/// The COMPUTED `font-weight` of a node: `bolder` / `lighter` resolved
+/// against the parent's computed weight (CSS Fonts 4 section 2.2,
+/// `StyleFontWeight::computed`). The ONE weight reader of the layout: the font
+/// stack of a run, the chain collection and its dedup key.
+///
+/// The compact cache (resting state) holds the computed number already; the
+/// cascade (any other state) answers with the node's OWN keyword - a
+/// descendant never inherits the keyword (it reads the number through
+/// `computed_values`), so the keyword is resolved here against the parent.
+#[must_use]
+pub fn get_computed_font_weight(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> StyleFontWeight {
+    let own = match get_font_weight_property(styled_dom, node_id, node_state) {
+        MultiValue::Exact(weight) => weight,
+        _ => StyleFontWeight::Normal,
+    };
+    if !own.is_relative() {
+        return own;
+    }
+    let parent_weight = styled_dom
+        .node_hierarchy
+        .as_container()
+        .get(node_id)
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        .map_or(StyleFontWeight::Normal, |parent_id| {
+            let parent_state = &styled_dom.styled_nodes.as_container()[parent_id].styled_node_state;
+            get_computed_font_weight(styled_dom, parent_id, parent_state)
+        });
+    own.computed(parent_weight)
+}
 
 get_css_property!(
     get_font_style_property,
@@ -2021,99 +2294,142 @@ pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool 
 /// background covers the entire viewport/canvas even when `<body>` itself has constrained
 /// dimensions.
 ///
-/// Implementation: When requesting the background of an `<html>` node, we first check if it
-/// has a transparent background with no image. If so, we look for a `<body>` child and use
-/// its background instead.
-#[allow(clippy::match_same_arms)]
-// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
-// merge)
+/// Implementation: [`body_background_propagated_to`] names the `<body>` an
+/// `<html>` takes its background from; this reads the first layer of the
+/// background that node paints (its own, or the propagated one) when that
+/// layer is a solid colour, and transparent otherwise.
 #[must_use]
 pub fn get_background_color(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> ColorU {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
     let cache = &styled_dom.css_property_cache.ptr;
-
-    // Fast path: Get this node's background.
+    let ctx = cache.dynamic_context.as_deref();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let (source, state) = match body_background_propagated_to(styled_dom, node_id, node_state) {
+        Some(body) => (body, &styled_nodes[body].styled_node_state),
+        None => (node_id, node_state),
+    };
     // Negative fast path: if compact cache says `has_background == 0` on a
-    // normal-state node, skip the cascade walk entirely. Only declared backgrounds
-    // set the bit, so `false` is a safe "unconditionally transparent" signal.
-    let get_node_bg = |nid: NodeId, ndata: &azul_core::dom::NodeData, state: &StyledNodeState| {
-        if state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                if !cc.has_background(nid.index()) {
-                    return None;
-                }
+    // normal-state node, skip the cascade walk entirely. Only declared
+    // backgrounds set the bit, so `false` is a safe "unconditionally
+    // transparent" signal.
+    if state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            if !cc.has_background(source.index()) {
+                return ColorU::TRANSPARENT;
             }
         }
-        cache
-            .get_background_content(ndata, &nid, state)
-            .and_then(|bg| bg.get_property())
-            .and_then(|bg_vec| bg_vec.get(0).cloned())
-            .and_then(|first_bg| match &first_bg {
-                azul_css::props::style::StyleBackgroundContent::Color(color) => Some(*color),
-                azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
-                _ => None,
-            })
-    };
-
-    let own_bg = get_node_bg(node_id, node_data, node_state);
-
-    // CSS Background Propagation: Special handling for <html> root element
-    // Only check propagation if this is an Html node AND has transparent background (no
-    // color/image)
-    if !matches!(node_data.node_type, NodeType::Html) || own_bg.is_some() {
-        // Not Html or has its own background - return own background or transparent
-        return own_bg.unwrap_or(ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        });
     }
+    let source_data = &styled_dom.node_data.as_container()[source];
+    cache
+        .get_background_content(source_data, &source, state)
+        .and_then(|bg| bg.get_property())
+        .and_then(|bg_vec| bg_vec.get(0).cloned())
+        // A `system:` colour is a solid colour too, once resolved against
+        // the theme the cascade evaluated.
+        .map(|first_bg| first_bg.resolve_system_colors(ctx))
+        .and_then(|first_bg| match first_bg {
+            azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color),
+            _ => None, // an image or a gradient: no solid colour
+        })
+        .unwrap_or(ColorU::TRANSPARENT)
+}
 
-    // Html node with transparent background - check if we should propagate from <body>
-    let first_child = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(node_id)
-        .and_then(|node| node.first_child_id(node_id));
-
-    let Some(first_child) = first_child else {
-        return ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
-    };
-
-    let first_child_data = &styled_dom.node_data.as_container()[first_child];
-
-    // Check if first child is <body>
-    if !matches!(first_child_data.node_type, NodeType::Body) {
-        return ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        };
+/// CSS Backgrounds 3 s2.11.2, "The Canvas Background and the HTML `<body>`
+/// Element": the `<body>` whose background an `<html>` element takes.
+///
+/// When the `<html>` element's own background paints nothing - no image and
+/// a transparent colour; an EXPLICIT `background-color: transparent` is
+/// that too, it is the initial value - the background properties of its
+/// first `<body>` child are propagated to it (and from the root to the
+/// canvas), and that body's own used background is the initial one: it
+/// paints none of it again.
+///
+/// `None` for every other node, for an `<html>` with a background of its
+/// own, and for one without a `<body>` child. One node-type test for any
+/// node that is not an `<html>`.
+#[must_use]
+pub fn body_background_propagated_to(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<NodeId> {
+    let node_data = styled_dom.node_data.as_container();
+    if !matches!(node_data[node_id].node_type, NodeType::Html) {
+        return None;
     }
+    if !background_layers_paint_nothing(&own_background_layers(styled_dom, node_id, node_state)) {
+        return None;
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut child = hierarchy.get(node_id)?.first_child_id(node_id);
+    while let Some(c) = child {
+        if matches!(node_data[c].node_type, NodeType::Body) {
+            return Some(c);
+        }
+        child = hierarchy.get(c)?.next_sibling_id();
+    }
+    None
+}
 
-    // Propagate <body>'s background to <html> (canvas)
-    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
-    get_node_bg(first_child, first_child_data, first_child_state).unwrap_or(ColorU {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 0,
+/// Whether background `layers` paint nothing: no layer at all
+/// (`background-image: none` is no layer) or only fully transparent colours.
+fn background_layers_paint_nothing(
+    layers: &[azul_css::props::style::StyleBackgroundContent],
+) -> bool {
+    layers.iter().all(|layer| {
+        matches!(layer, azul_css::props::style::StyleBackgroundContent::Color(c) if c.a == 0)
     })
+}
+
+/// The background layers declared on `nid` itself - no propagation, the
+/// `system:` colours unresolved.
+fn own_background_layers(
+    styled_dom: &StyledDom,
+    nid: NodeId,
+    state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    let cache = &styled_dom.css_property_cache.ptr;
+    // Negative fast path: if compact cache says `has_background == 0` on a
+    // normal pseudo-state node, return empty without walking the cascade.
+    if state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            if !cc.has_background(nid.index()) {
+                return Vec::new();
+            }
+        }
+    }
+    let ndata = &styled_dom.node_data.as_container()[nid];
+    cache
+        .get_background_content(ndata, &nid, state)
+        .and_then(|bg| bg.get_property())
+        .map(|bg_vec| bg_vec.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// THE layout-side resolution point for `system:` colour keywords.
+///
+/// Every getter that hands a colour-valued property to a renderer - the
+/// display list, the opaque-cover checks, the text pipeline, the probes -
+/// passes the value through here (or, where it already holds the context,
+/// through [`ResolveSystemColors`] directly), against the context the
+/// cascade evaluated. A keyword therefore follows the same theme as the
+/// rest of the cascade - resolving against the DESKTOP's style instead used
+/// to leave a keyword light on a dark card - and no colour property can
+/// reach a painter as the transparent token (a `SystemColor` background
+/// used to paint nothing, a `system:` gradient stop grey on the GPU path).
+#[must_use]
+pub fn system_colors_resolved<T: ResolveSystemColors>(styled_dom: &StyledDom, value: T) -> T {
+    value.resolve_system_colors(styled_dom.css_property_cache.ptr.dynamic_context.as_deref())
 }
 
 /// Returns all background content layers for a node (colors, gradients, images).
 /// This is used for rendering backgrounds that may include linear/radial/conic gradients.
+///
+/// Every `system:` colour is already resolved against the cascade's context
+/// (see [`system_colors_resolved`]): the layers handed back are concrete.
 ///
 /// CSS Background Propagation (CSS Backgrounds 3, Section 2.11.2):
 /// For HTML documents, if the root `<html>` element has no background (transparent with no image),
@@ -2124,62 +2440,129 @@ pub fn get_background_contents(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Vec<azul_css::props::style::StyleBackgroundContent> {
-    use azul_core::dom::NodeType;
-    use azul_css::props::style::StyleBackgroundContent;
+    background_contents_as_declared(styled_dom, node_id, node_state)
+        .into_iter()
+        .map(|layer| system_colors_resolved(styled_dom, layer))
+        .collect()
+}
 
+/// The `background-clip` of `node_id` (CSS Backgrounds 3 s3.7): the box its
+/// background is painted within; `border-box`, the initial value, when it
+/// declares none.
+#[must_use]
+pub fn get_background_clip(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> azul_css::props::style::StyleBackgroundClip {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    let cache = &styled_dom.css_property_cache.ptr;
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_clip(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default()
+}
 
-    // Helper to get backgrounds for a node.
-    // Negative fast path: if compact cache says `has_background == 0` on a normal
-    // pseudo-state node, return empty without walking the cascade.
-    let get_node_backgrounds = |nid: NodeId,
-                                ndata: &azul_core::dom::NodeData,
-                                state: &StyledNodeState|
-     -> Vec<StyleBackgroundContent> {
-        if state.is_normal() {
+/// The `background-repeat` values declared on `node_id` (CSS Backgrounds 3
+/// s3.4), one per background layer in layer order - a shorter list repeats
+/// to cover every layer. Empty when none is declared: every layer then
+/// repeats in both directions (`repeat`, the initial value).
+#[must_use]
+pub fn get_background_repeats(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundRepeat> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_background_repeat(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.iter().copied().collect())
+        .unwrap_or_default()
+}
+
+/// [`get_background_contents`] before its `system:` colours are resolved:
+/// the node's own layers, or - for an `<html>` whose own paint nothing - its
+/// `<body>`'s ([`body_background_propagated_to`]).
+fn background_contents_as_declared(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::StyleBackgroundContent> {
+    match body_background_propagated_to(styled_dom, node_id, node_state) {
+        Some(body) => own_background_layers(
+            styled_dom,
+            body,
+            &styled_dom.styled_nodes.as_container()[body].styled_node_state,
+        ),
+        None => own_background_layers(styled_dom, node_id, node_state),
+    }
+}
+
+/// The used `color` of `dom_id` - what its text paints in and what
+/// `currentcolor` means for it (a border without a colour of its own, CSS
+/// Backgrounds 3 s4.2). The one resolution of the property: the compact
+/// cache's inherited value, else the cascade, `system:` keywords resolved
+/// against the theme the cascade evaluated.
+#[allow(clippy::cast_possible_truncation)] // the packed 0xRRGGBBAA bytes
+#[must_use]
+pub fn get_used_text_color(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> ColorU {
+    let cache = &styled_dom.css_property_cache.ptr;
+    let color_from_cache = {
+        // FAST PATH: compact cache for text color
+        let mut fast_color = None;
+        if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
-                if !cc.has_background(nid.index()) {
-                    return Vec::new();
+                let raw = cc.get_text_color_raw(dom_id.index());
+                if raw != 0 {
+                    // Decode 0xRRGGBBAA → ColorU
+                    fast_color = Some(ColorU {
+                        r: (raw >> 24) as u8,
+                        g: (raw >> 16) as u8,
+                        b: (raw >> 8) as u8,
+                        a: raw as u8,
+                    });
                 }
             }
         }
-        cache
-            .get_background_content(ndata, &nid, state)
-            .and_then(|bg| bg.get_property())
-            .map(|bg_vec| bg_vec.iter().cloned().collect())
-            .unwrap_or_default()
+        fast_color.or_else(|| {
+            let node_data = &styled_dom.node_data.as_container()[dom_id];
+            cache
+                .get_text_color(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().copied())
+                .map(|v| v.inner)
+        })
     };
 
-    let own_backgrounds = get_node_backgrounds(node_id, node_data, node_state);
-
-    // CSS Background Propagation: Special handling for <html> root element
-    // Only check propagation if this is an Html node AND has no backgrounds
-    if !matches!(node_data.node_type, NodeType::Html) || !own_backgrounds.is_empty() {
-        return own_backgrounds;
-    }
-
-    // Html node with no backgrounds - check if we should propagate from <body>
-    let first_child = styled_dom
-        .node_hierarchy
-        .as_container()
-        .get(node_id)
-        .and_then(|node| node.first_child_id(node_id));
-
-    let Some(first_child) = first_child else {
-        return own_backgrounds;
-    };
-
-    let first_child_data = &styled_dom.node_data.as_container()[first_child];
-
-    // Check if first child is <body>
-    if !matches!(first_child_data.node_type, NodeType::Body) {
-        return own_backgrounds;
-    }
-
-    // Propagate <body>'s backgrounds to <html> (canvas)
-    let first_child_state = &styled_dom.styled_nodes.as_container()[first_child].styled_node_state;
-    get_node_backgrounds(first_child, first_child_data, first_child_state)
+    // The UA's `color` default is THEMED and CASCADED (the root's
+    // `cascaded_props`, every descendant's `computed_values`, the compact
+    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
+    // DOM one of the two reads above always answers. The seed below exists
+    // for a cache no UA pass has run on, and asserts that it is one.
+    // Do NOT use system_style.colors.text here — that reflects the OS theme
+    // (e.g. white on macOS dark mode) and would produce white text on
+    // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
+    // should only be used when referenced through CSS system-color keywords.
+    let color = color_from_cache.unwrap_or_else(|| {
+        debug_assert!(
+            !cache.ua_applied,
+            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+             pass ran — the themed root default did not reach it (theme-chain analysis \
+             2026-09-12, R1)",
+            dom_id.index()
+        );
+        ColorU::BLACK
+    });
+    // `color: system:<slot>` arrives as a token (inherited like any colour);
+    // this is where it becomes the colour of the theme the cascade evaluated.
+    system_colors_resolved(styled_dom, color)
 }
 
 /// Information about border rendering
@@ -2190,9 +2573,113 @@ pub struct BorderInfo {
     pub styles: crate::solver3::display_list::StyleBorderStyles,
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// The border of `node_id` as it is USED (CSS Backgrounds 3 s4.1-4.3): a
+/// side whose style is `none` or `hidden` has no width; a side with a
+/// visible style but no width of its own is `medium` (3px); and a side
+/// without a colour of its own is `currentcolor`, the element's text colour.
+/// Before, a side without a declared colour painted transparent - nothing -
+/// and a style alone had no width, so `border-top-style: solid;
+/// border-top-width: medium` drew nothing at all (WPT
+/// border-top-width-medium).
+///
+/// An SVG shape is left as declared: its border slots carry `stroke` and
+/// `stroke-width`, which have no style (see `svg_stroke_for`).
 #[must_use]
 pub fn get_border_info(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> BorderInfo {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::style::{
+            border::{
+                BorderStyle, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
+                StyleBorderTopColor,
+            },
+            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth,
+        },
+    };
+
+    let mut info = declared_border_info(styled_dom, node_id, node_state);
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    if node_data.get_svg_data().is_some() {
+        return info;
+    }
+    let cache = &styled_dom.css_property_cache.ptr;
+    let mut current_color: Option<ColorU> = None;
+
+    macro_rules! used_side {
+        ($side:ident, $Width:ident, $Color:ident, $declared_color:ident) => {{
+            let style = info
+                .styles
+                .$side
+                .as_ref()
+                .and_then(|v| v.get_property())
+                .map_or(BorderStyle::None, |s| s.inner);
+            let declared_width = match info.widths.$side.as_ref().and_then(|v| v.get_property()) {
+                Some(w) => MultiValue::Exact(w.inner),
+                None => MultiValue::Initial,
+            };
+            info.widths.$side = Some(CssPropertyValue::Exact($Width {
+                inner: used_border_width(declared_width, style),
+            }));
+            let has_no_colour = info
+                .colors
+                .$side
+                .as_ref()
+                .and_then(|v| v.get_property())
+                .is_none();
+            if has_no_colour && !matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+                // "No colour" from the compact cache is also an explicit
+                // `transparent` (it packs both as 0): the cascade tells
+                // which. Only a side with no colour at all is currentcolor.
+                let declared = cache
+                    .$declared_color(node_data, &node_id, node_state)
+                    .and_then(|v| v.get_property())
+                    .map(|c| c.inner);
+                let color = match declared {
+                    Some(c) => c,
+                    None => *current_color.get_or_insert_with(|| {
+                        get_used_text_color(styled_dom, node_id, node_state)
+                    }),
+                };
+                info.colors.$side = Some(CssPropertyValue::Exact($Color { inner: color }));
+            }
+        }};
+    }
+    used_side!(top, LayoutBorderTopWidth, StyleBorderTopColor, get_border_top_color);
+    used_side!(right, LayoutBorderRightWidth, StyleBorderRightColor, get_border_right_color);
+    used_side!(bottom, LayoutBorderBottomWidth, StyleBorderBottomColor, get_border_bottom_color);
+    used_side!(left, LayoutBorderLeftWidth, StyleBorderLeftColor, get_border_left_color);
+    info
+}
+
+/// The used width of one border side (CSS Backgrounds 3 s4.3): 0 when its
+/// style is `none` or `hidden`, its declared width, else `medium` (3px, the
+/// initial value - a side with a style but no width has one). The one rule
+/// the box model (`layout_tree`'s box props) and the painter
+/// ([`get_border_info`]) share.
+#[must_use]
+pub fn used_border_width(
+    declared: MultiValue<PixelValue>,
+    style: azul_css::props::style::border::BorderStyle,
+) -> PixelValue {
+    use azul_css::props::style::border::BorderStyle;
+    if matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+        return PixelValue::const_px(0);
+    }
+    match declared {
+        MultiValue::Exact(pv) => pv,
+        _ => azul_css::props::basic::pixel::MEDIUM_BORDER_THICKNESS,
+    }
+}
+
+/// The border of `node_id` as the cascade declared it: `None` for a side
+/// that declares nothing. [`get_border_info`] turns it into the used one.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn declared_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -2297,7 +2784,7 @@ pub fn get_border_info(
 
             return BorderInfo {
                 widths,
-                colors,
+                colors: resolve_system_border_colors(colors, styled_dom),
                 styles,
             };
         }
@@ -2380,8 +2867,25 @@ pub fn get_border_info(
 
     BorderInfo {
         widths,
-        colors,
+        colors: resolve_system_border_colors(colors, styled_dom),
         styles,
+    }
+}
+
+/// The four border colours with a `system:` keyword's token resolved against
+/// the cascade's own context: `border-*-color: system:<slot>` travels
+/// through the cascade (and the compact cache) as a token, and every reader
+/// of a border - the display list, SVG strokes, the inline-box borders -
+/// takes it from [`get_border_info`].
+fn resolve_system_border_colors(
+    colors: crate::solver3::display_list::StyleBorderColors,
+    styled_dom: &StyledDom,
+) -> crate::solver3::display_list::StyleBorderColors {
+    crate::solver3::display_list::StyleBorderColors {
+        top: system_colors_resolved(styled_dom, colors.top),
+        right: system_colors_resolved(styled_dom, colors.right),
+        bottom: system_colors_resolved(styled_dom, colors.bottom),
+        left: system_colors_resolved(styled_dom, colors.left),
     }
 }
 
@@ -2507,10 +3011,22 @@ fn get_inline_border_info(
         viewport,
     );
 
-    // Only return Some if there's actually a border or padding
+    // CSS 2.2 s10.3.1: an inline box's left and right margins apply (its
+    // top and bottom ones do not). `auto` is 0.
+    let m_left = resolve_padding(
+        get_css_margin_left(styled_dom, node_id, node_state),
+        viewport,
+    );
+    let m_right = resolve_padding(
+        get_css_margin_right(styled_dom, node_id, node_state),
+        viewport,
+    );
+
+    // Only return Some if there's actually a border, padding or margin
     let has_border = top > 0.0 || right > 0.0 || bottom > 0.0 || left > 0.0;
     let has_padding = p_top > 0.0 || p_right > 0.0 || p_bottom > 0.0 || p_left > 0.0;
-    if !has_border && !has_padding {
+    let has_margin = m_left != 0.0 || m_right != 0.0;
+    if !has_border && !has_padding && !has_margin {
         return None;
     }
 
@@ -2537,6 +3053,8 @@ fn get_inline_border_info(
         is_first_fragment: true,
         is_last_fragment: true,
         is_rtl,
+        margin_left: m_left,
+        margin_right: m_right,
     })
 }
 
@@ -2597,12 +3115,14 @@ pub fn get_selection_style(
             a: 128, // Semi-transparent
         });
 
+    // A `system:` keyword in either colour resolves against the cascade's
+    // theme (the defaults below are concrete already).
     let bg_color = styled_dom
         .css_property_cache
         .ptr
         .get_selection_background_color(node_data, &node_id, node_state)
         .and_then(|c| c.get_property().copied())
-        .map_or(default_bg, |c| c.inner);
+        .map_or(default_bg, |c| system_colors_resolved(styled_dom, c).inner);
 
     // Try to get selection text color from CSS, otherwise use system color
     let default_text = system_style.and_then(|ss| ss.colors.selection_text.as_option().copied());
@@ -2612,7 +3132,7 @@ pub fn get_selection_style(
         .ptr
         .get_selection_color(node_data, &node_id, node_state)
         .and_then(|c| c.get_property().copied())
-        .map(|c| c.inner)
+        .map(|c| system_colors_resolved(styled_dom, c).inner)
         .or(default_text);
 
     let radius = styled_dom
@@ -2685,6 +3205,10 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
                 .get_text_color_or_default(node_data, &node_id, node_state)
                 .inner
         }, |c| c.inner);
+    // `caret-color: system:<slot>` - and `currentColor`, which may be a
+    // `system:` keyword's token too - resolve against the cascade's theme:
+    // the caret takes the colour the text itself is painted in.
+    let color = system_colors_resolved(styled_dom, color);
 
     let width = styled_dom
         .css_property_cache
@@ -2863,6 +3387,9 @@ pub fn get_computed_display(
 pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
+    // The layout viewport: `vw` / `vh` / `vmin` / `vmax` resolve against it
+    // (a `vertical-align: 5vh` raised the box by the bare number, TEXT7).
+    viewport: PhysicalSize,
 ) -> crate::text3::cache::VerticalAlign {
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let va = match get_vertical_align_property(styled_dom, dom_id, node_state) {
@@ -2882,37 +3409,28 @@ pub fn get_vertical_align_for_node(
         // = baseline
         StyleVerticalAlign::Percentage(p) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            // Line-height uses the parser convention (see `get_line_height_value` /
-            // the LineHeight::Px path): a NEGATIVE normalized value is an absolute
-            // px length, a positive one is a unitless multiple of font-size. The
-            // old `normalized() * font_size` scaled (and sign-flipped) absolute
-            // line-heights — e.g. `line-height: 30px` + `vertical-align: 50%` gave
-            // -240px instead of +15px.
-            let line_height = get_line_height_value(styled_dom, dom_id, node_state).map_or(
-                font_size * 1.2,
-                |lh| {
-                    let n = lh.inner.normalized();
-                    if n < 0.0 {
-                        -n
-                    } else {
-                        n * font_size
-                    }
-                },
-            );
+            // The element's used line-height (`normal` as 1.2em).
+            let line_height =
+                get_used_line_height(styled_dom, dom_id, node_state, font_size, viewport)
+                    .resolve(font_size, 0.0, 0.0, 0.0, 0);
             crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
         }
         // §10.8.1: <length> is absolute offset from baseline
         StyleVerticalAlign::Length(l) => {
             let font_size = get_element_font_size(styled_dom, dom_id, node_state);
-            // TODO(superplan): viewport units (vw/vh/...) in a vertical-align <length>
-            // fall back to raw pixels here because this getter has no viewport ctx.
-            // Threading `viewport_size` requires changing this fn's signature, but one
-            // of its callers (`sizing.rs::process_layout_children`) lives outside
-            // Group 2's file ownership — deferred. (The sibling path in
-            // fc.rs::translate_to_text3_constraints already resolves it via
-            // `resolve_pixel_value_with_viewport`.)
-            let px = super::calc::resolve_pixel_value(&l, 0.0, font_size, font_size);
-            crate::text3::cache::VerticalAlign::Offset(px)
+            // em against the element's font size, rem against the root's, the
+            // viewport units against the viewport; CSS `zoom` by its rule.
+            let px = super::calc::resolve_pixel_value_with_viewport(
+                &l,
+                0.0,
+                font_size,
+                get_root_font_size(styled_dom, node_state),
+                viewport.width,
+                viewport.height,
+            );
+            crate::text3::cache::VerticalAlign::Offset(zoomed_length(
+                styled_dom, dom_id, l.metric, px,
+            ))
         }
     }
 }
@@ -3099,7 +3617,13 @@ pub fn get_style_properties_for_state(
     // Get font-size: either from this node's CSS, or inherit from parent
     // font-size is an inheritable property, so if the node doesn't have
     // an explicit font-size, it should inherit from the parent (not default to 16px)
-    let font_size = {
+    //
+    // In a document with a CSS `zoom` the text takes the ONE zoom-aware
+    // resolution the layout's lengths use (`get_element_font_size`): the
+    // fast path below mixes the parent's ZOOMED size with unzoomed px.
+    let font_size = if document_has_zoom(styled_dom) {
+        get_element_font_size(styled_dom, dom_id, node_state)
+    } else {
         // FAST PATH: compact cache for normal state.
         // Sentinel/inherit/initial → inherit from parent directly (which is
         // what the slow cascade walk would fall back to via `.unwrap_or(parent_font_size)`
@@ -3136,101 +3660,10 @@ pub fn get_style_properties_for_state(
         })
     };
 
-    let color_from_cache = {
-        // FAST PATH: compact cache for text color
-        let mut fast_color = None;
-        if node_state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                let raw = cc.get_text_color_raw(dom_id.index());
-                if raw != 0 {
-                    // Decode 0xRRGGBBAA → ColorU
-                    fast_color = Some(ColorU {
-                        r: (raw >> 24) as u8,
-                        g: (raw >> 16) as u8,
-                        b: (raw >> 8) as u8,
-                        a: raw as u8,
-                    });
-                }
-            }
-        }
-        fast_color.or_else(|| {
-            cache
-                .get_text_color(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property().copied())
-                .map(|v| v.inner)
-        })
-    };
-
-    // The UA's `color` default is THEMED and CASCADED (the root's
-    // `cascaded_props`, every descendant's `computed_values`, the compact
-    // text tier — `ua_css::get_ua_root_property_themed`), so on a cascaded
-    // DOM one of the two reads above always answers. The seed below exists
-    // for a cache no UA pass has run on, and asserts that it is one.
-    // Do NOT use system_style.colors.text here — that reflects the OS theme
-    // (e.g. white on macOS dark mode) and would produce white text on
-    // explicitly light-colored backgrounds.  System colors (CanvasText etc.)
-    // should only be used when referenced through CSS system-color keywords.
-    let color = color_from_cache.unwrap_or_else(|| {
-        debug_assert!(
-            !cache.ua_applied,
-            "get_style_properties: node {} has no `color` in its resolved style although the UA \
-             pass ran — the themed root default did not reach it (theme-chain analysis \
-             2026-09-12, R1)",
-            dom_id.index()
-        );
-        ColorU::BLACK
-    });
+    let color = get_used_text_color(styled_dom, dom_id, node_state);
 
     // +spec:font-metrics:e480da - line-height: normal/number/length/percentage resolution
-    let line_height = {
-        // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16).
-        // When the cache returns Some → we have a resolved value.
-        // When it returns None AND node_state is normal → the compact cache stored
-        // the sentinel, which means "line-height: normal" (the spec default).
-        // Previously we fell through to a cascade walk here — but the default
-        // has already been authoritatively decided by the builder, so the walk
-        // would only ever re-confirm "no value, normal". 1600 pure-waste walks
-        // per cold excel.html layout. Short-circuit to Normal directly.
-        let mut fast_lh = None;
-        let mut sentinel_normal = false;
-        if node_state.is_normal() {
-            if let Some(ref cc) = cache.compact_cache {
-                if let Some(decoded) = cc.get_line_height(dom_id.index()) {
-                    // get_line_height returns stored/10. The builder's split
-                    // scale (see core/src/compact.rs): NEGATIVE = absolute px
-                    // stored as -px x 10, so decoded == -px directly;
-                    // positive = multiple x 1000, so decoded == multiple x 100.
-                    fast_lh = Some(crate::text3::cache::LineHeight::Px(if decoded < 0.0 {
-                        -decoded
-                    } else {
-                        (decoded / 100.0) * font_size
-                    }));
-                } else {
-                    // Sentinel in compact cache = "normal" (CSS default).
-                    sentinel_normal = true;
-                }
-            }
-        }
-        if sentinel_normal {
-            crate::text3::cache::LineHeight::Normal
-        } else {
-            fast_lh.unwrap_or_else(|| {
-                cache
-                    .get_line_height(node_data, &dom_id, node_state)
-                    .and_then(|v| v.get_property().copied())
-                    .map_or(crate::text3::cache::LineHeight::Normal, |v| {
-                        // Negative normalized() = absolute px value (parser convention
-                        // for "50px" etc.); positive = multiple of font-size.
-                        let n = v.inner.normalized();
-                        crate::text3::cache::LineHeight::Px(if n < 0.0 {
-                            -n
-                        } else {
-                            n * font_size
-                        })
-                    })
-            })
-        }
-    };
+    let line_height = get_used_line_height(styled_dom, dom_id, node_state, font_size, viewport_size);
 
     // Get background color for INLINE elements only
     // CSS background-color is NOT inherited. For block-level elements (th, td, div, etc.),
@@ -3265,15 +3698,12 @@ pub fn get_style_properties_for_state(
             (bg_color, bg_contents, inline_border)
         } else {
             // Block-level elements: background/border is painted by display_list.rs
-            // via push_backgrounds_and_border() in DisplayListBuilder
+            // via DisplayListGenerator::paint_box_decorations
             (None, Vec::new(), None)
         };
 
-    // Query font-weight from CSS cache
-    let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
-        MultiValue::Exact(v) => v,
-        _ => StyleFontWeight::Normal,
-    };
+    // Query font-weight from CSS cache (computed: bolder / lighter resolved)
+    let font_weight = get_computed_font_weight(styled_dom, dom_id, node_state);
 
     // Query font-style from CSS cache
     let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
@@ -3312,13 +3742,16 @@ pub fn get_style_properties_for_state(
     };
 
     // Get letter-spacing from CSS
+    // CSS `zoom` (LAYOUT7): the compact cache's spacings are computed px;
+    // a cascaded length scales by the zoom rule.
+    let zoom = get_effective_zoom(styled_dom, dom_id);
     let letter_spacing = {
         // FAST PATH: compact cache for letter-spacing (i16 resolved px × 10)
         let mut fast_ls = None;
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_letter_spacing(dom_id.index()) {
-                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val));
+                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
                 }
             }
         }
@@ -3330,7 +3763,12 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(px_value)
+                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                        styled_dom,
+                        dom_id,
+                        v.inner.metric,
+                        px_value,
+                    ))
                 })
                 .unwrap_or_default()
         })
@@ -3343,7 +3781,7 @@ pub fn get_style_properties_for_state(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_word_spacing(dom_id.index()) {
-                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val));
+                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
                 }
             }
         }
@@ -3355,7 +3793,12 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(px_value)
+                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                        styled_dom,
+                        dom_id,
+                        v.inner.metric,
+                        px_value,
+                    ))
                 })
                 .unwrap_or_default()
         })
@@ -3456,7 +3899,7 @@ pub fn get_style_properties_for_state(
         // its text clusters (get_item_vertical_align reads this). Without it every text
         // cluster fell back to the IFC root's alignment (baseline), so sub/super/length
         // vertical-align on inline spans had no effect.
-        vertical_align: get_vertical_align_for_node(styled_dom, dom_id),
+        vertical_align: get_vertical_align_for_node(styled_dom, dom_id, viewport_size),
         // These still use defaults - could be extended in future:
         // font_features, font_variations, writing_mode,
         // text_orientation, text_combine_upright, font_variant_*
@@ -4131,10 +4574,6 @@ pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
-    use azul_css::compact_cache::{
-        FONT_STYLE_MASK, FONT_STYLE_SHIFT, FONT_WEIGHT_MASK, FONT_WEIGHT_SHIFT,
-    };
-
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
     let mut font_refs: HashMap<usize, azul_css::props::basic::font::FontRef> = HashMap::new();
@@ -4149,15 +4588,15 @@ pub fn collect_font_stacks_from_styled_dom(
         };
     };
 
-    // Phase 1: Scan compact cache arrays (just u64 reads) to find unique
+    // Phase 1: Scan the text nodes (compact-cache reads) to find unique
     // (font_family_hash, weight, style) tuples. Record one representative
     // node index per unique tuple for the expensive CSS lookup in Phase 2.
-    // Key: (font_family_hash, weight_encoded, style_encoded) → representative node index
+    // Key: (font_family_hash, fontconfig weight, fontconfig style) → representative node index
     // (2026-06-10: reverted to HashMap — the historic g81/g47 empty-hashbrown mis-lift was the
     // un-mirrored EMPTY_GROUP static, fixed transpiler-side in symbol_table.rs::
     // compute_hashbrown_empty_group_ranges. std HashMap lifts correctly now; RandomState seeds
     // via the transpiler's HashmapRandomKeys fixed-seed body.)
-    let mut unique_font_keys: HashMap<(u64, u8, u8), usize> = HashMap::new();
+    let mut unique_font_keys: HashMap<(u64, u16, u8), usize> = HashMap::new();
     let node_count = node_data.internal.len();
 
     // WEB-LIFT: probe node_type bytes (NodeType #[repr(C,u8)], Text=177 per AzDom_createText).
@@ -4190,37 +4629,63 @@ pub fn collect_font_stacks_from_styled_dom(
         let is_text = nt_disc == 177
             || matches!(node_data.internal[i].node_type, NodeType::Text(_))
             || node_data.internal[i].get_placeholder().is_some();
-        if !is_text {
-            continue;
-        }
-        let fh = compact.tier2b_text[i].font_family_hash;
-        let t1 = compact.tier1_enums[i];
-        let mut weight_bits = ((t1 >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8;
-        let mut style_bits = ((t1 >> FONT_STYLE_SHIFT) & FONT_STYLE_MASK) as u8;
-        // The compact bits see only AUTHOR css. Two text nodes with all-
-        // default bits can still resolve to DIFFERENT weights/styles through
-        // UA rules on their parents (an h1's bold vs a p's normal), and
-        // deduping them into one bucket resolved+loaded only the
-        // REPRESENTATIVE's chain — every run asking for the other weight was
-        // unshapeable (skipped: zero lines) and its font never loaded.
-        // Whenever the fast bits are at their defaults, key on the real
-        // cascade instead (the same reads Phase 2 does on representatives).
-        if weight_bits == 0 && style_bits == 0 {
-            if let Some(dom_id) = NodeId::from_usize(i) {
-                let node_state = &styled_nodes_phase1[dom_id].styled_node_state;
-                if let MultiValue::Exact(w) =
-                    get_font_weight_property(styled_dom, dom_id, node_state)
-                {
-                    weight_bits = super::fc::convert_font_weight(w) as u8;
-                }
-                if let MultiValue::Exact(st) =
-                    get_font_style_property(styled_dom, dom_id, node_state)
-                {
-                    style_bits = st as u8;
-                }
+        // The STRUT needs a font too (CSS 2.1 s10.8.1): every line box of a
+        // block container starts with a strut of the container's OWN first
+        // available font, and an inline box with no glyphs holds one of its
+        // own font. So the font of the PARENT of every inline-level box is
+        // keyed as well: a block whose lines hold only boxes (an icon row of
+        // inline-blocks or images) used no text in its font, its face was
+        // never loaded, and its strut took a 0.8em / 0.2em guess with
+        // `line-height: normal` as 1em - a 10px inline-block made a 16px line
+        // where Chrome makes 18 (RULINGS8, 2026-10-03).
+        let i = if is_text {
+            i
+        } else if matches!(
+            get_display_property(styled_dom, Some(NodeId::new(i))).unwrap_or(LayoutDisplay::Inline),
+            LayoutDisplay::Inline
+                | LayoutDisplay::InlineBlock
+                | LayoutDisplay::InlineFlex
+                | LayoutDisplay::InlineGrid
+                | LayoutDisplay::InlineTable
+        ) {
+            match styled_dom
+                .node_hierarchy
+                .as_container()
+                .get(NodeId::new(i))
+                .and_then(|h| h.parent_id())
+            {
+                Some(parent) => parent.index(),
+                None => continue,
             }
-        }
-        let key = (fh, weight_bits, style_bits);
+        } else {
+            continue;
+        };
+        let fh = compact.tier2b_text[i].font_family_hash;
+        // Key on the weight and style THIS text node resolves to - the very
+        // reads `get_style_properties` makes when its runs are shaped (O(1)
+        // compact reads in the normal state), in ONE encoding (the fontconfig
+        // weight, the CSS style). Two text nodes that resolve alike share a
+        // representative; any that differ get their own chain, or the face
+        // their runs ask for is never loaded and they shape to nothing.
+        //
+        // `i` is a plain 0-based arena index: it is `NodeId::new(i)`. It was
+        // `NodeId::from_usize(i)` - the 1-based FFI DECODER (0 = None, n =
+        // node n - 1) - so every text node was keyed on the node BEFORE it
+        // in document order: " tail" in `<p><b>bold</b> tail</p>` took the
+        // bold text's weight, no regular chain was collected, and " tail"
+        // was dropped (TABLES' OPEN font bug, MAILENG6 item 1).
+        let dom_id = NodeId::new(i);
+        let node_state = &styled_nodes_phase1[dom_id].styled_node_state;
+        let weight = get_computed_font_weight(styled_dom, dom_id, node_state);
+        let style = match get_font_style_property(styled_dom, dom_id, node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleFontStyle::Normal,
+        };
+        let key = (
+            fh,
+            super::fc::convert_font_weight(weight) as u16,
+            super::fc::convert_font_style(style) as u8,
+        );
         unique_font_keys.entry(key).or_insert(i);
     }
 
@@ -4259,9 +4724,8 @@ pub fn collect_font_stacks_from_styled_dom(
     let styled_nodes = styled_dom.styled_nodes.as_container();
 
     for (&(fh, _wb, _sb), &repr_idx) in &unique_font_keys {
-        let Some(dom_id) = NodeId::from_usize(repr_idx) else {
-            continue;
-        };
+        // A 0-based arena index, like the key's (see Phase 1).
+        let dom_id = NodeId::new(repr_idx);
         let node_state = &styled_nodes[dom_id].styled_node_state;
 
         // Use reverse map from compact cache: hash → actual font families.
@@ -4282,10 +4746,7 @@ pub fn collect_font_stacks_from_styled_dom(
             continue;
         }
 
-        let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
-            MultiValue::Exact(v) => v,
-            _ => StyleFontWeight::Normal,
-        };
+        let font_weight = get_computed_font_weight(styled_dom, dom_id, node_state);
         let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
             MultiValue::Exact(v) => v,
             _ => StyleFontStyle::Normal,
@@ -4659,6 +5120,190 @@ fn pick_memory_face(
         .or_else(|| pool.first().copied())
 }
 
+/// Draw each CSS family of `chain` at the weight the chain asked for, where
+/// its best face is a variable font FILE matched at another weight.
+///
+/// Only the first face of each CSS group is looked at: it is the one the
+/// resolver ranked best for the requested style, and the one that draws every
+/// character it covers. See [`variable_weight_instance`].
+pub fn select_variable_weight_instances(
+    chain: &mut FontFallbackChain,
+    weight: FcWeight,
+    fc_cache: &FcFontCache,
+) {
+    for group in &mut chain.css_fallbacks {
+        let Some(face) = group.fonts.first() else {
+            continue;
+        };
+        if let Some(instance) = variable_weight_instance(fc_cache, face, weight) {
+            group.fonts[0] = instance;
+        }
+    }
+}
+
+/// The face to draw instead of `face` when a chain asks for `weight`: the
+/// static instance of a variable font file at that weight.
+///
+/// rust-fontconfig indexes a variable font ONCE, at its default instance.
+/// macOS draws its whole UI from one such file, `SFNS.ttf` ("System Font",
+/// `wght` 1-1000, Bold at 700), so a bold request matched a face registered at
+/// 400 and drew it regular - which is why the macOS bold chain had been routed
+/// to Helvetica Neue, and why the titlebar's bold title came out in a
+/// different typeface from the text beside it.
+///
+/// This bakes the file at `weight` ([`crate::font::parsed::bake_weight_instance`],
+/// the same bake `FontManager::register_named_font` does for a variable font
+/// registered from memory) and registers the instance in `fc_cache` as an
+/// in-memory font, under the source's family at the requested weight.
+///
+/// `None` - keep `face` - when it already has `weight`, is a memory font
+/// (those were baked when they were registered), has no `wght` axis spanning
+/// the request, or cannot be baked.
+///
+/// Each `(face, weight)` is baked at most ONCE per process. rust-fontconfig
+/// memoises its chains, so the source face keeps coming back on every later
+/// resolution; the answer - an instance, or "no instance" - is memoised here
+/// and handed back without touching the font again. `FontId`s come from a
+/// process-wide counter, so a source id never names a face of another cache.
+#[must_use]
+pub fn variable_weight_instance(
+    fc_cache: &FcFontCache,
+    face: &rust_fontconfig::FontMatch,
+    weight: FcWeight,
+) -> Option<rust_fontconfig::FontMatch> {
+    use std::{collections::BTreeMap, sync::Mutex};
+
+    /// `(source face, requested weight)` -> the baked instance, or `None`
+    /// when the source has no instance at that weight.
+    static INSTANCES: Mutex<BTreeMap<(FontId, u16), Option<FontId>>> =
+        Mutex::new(BTreeMap::new());
+
+    let as_match = |id: FontId| rust_fontconfig::FontMatch {
+        id,
+        // An instance draws the same characters as its source.
+        unicode_ranges: face.unicode_ranges.clone(),
+        fallbacks: Vec::new(),
+    };
+
+    let key = (face.id, weight as u16);
+    let known = INSTANCES
+        .lock()
+        .ok()
+        .and_then(|memo| memo.get(&key).copied());
+    match known {
+        Some(None) => return None,
+        // An instance is a memory font: still there means the same cache, or
+        // a clone sharing its state.
+        Some(Some(id)) if fc_cache.is_memory_font(&id) => return Some(as_match(id)),
+        _ => {}
+    }
+
+    let remembered = match bake_weight_instance_into(fc_cache, face.id, weight) {
+        WeightInstance::Baked(id) => Some(id),
+        WeightInstance::Absent => None,
+        // Not a face of this cache: nothing is known about it, so nothing is
+        // remembered - the cache that does hold it gets its own answer.
+        WeightInstance::UnknownFace => return None,
+    };
+    if let Ok(mut memo) = INSTANCES.lock() {
+        memo.insert(key, remembered);
+    }
+    remembered.map(as_match)
+}
+
+/// What baking a face at a weight came to (see [`variable_weight_instance`]).
+enum WeightInstance {
+    /// Draw this instance, registered in the cache.
+    Baked(FontId),
+    /// The face has no other instance at that weight: it is a static font,
+    /// already that weight, a memory font, outside its `wght` axis, or it did
+    /// not bake.
+    Absent,
+    /// The cache does not hold the face.
+    UnknownFace,
+}
+
+/// Bake the variable font file behind `source` at `weight` and register the
+/// instance in `fc_cache`.
+fn bake_weight_instance_into(
+    fc_cache: &FcFontCache,
+    source: FontId,
+    weight: FcWeight,
+) -> WeightInstance {
+    // A face registered from memory was expanded into static instances when it
+    // was registered (`FontManager::register_named_font`); only a FILE is
+    // still variable here.
+    if fc_cache.is_memory_font(&source) {
+        return WeightInstance::Absent;
+    }
+    let Some(meta) = fc_cache.get_metadata_by_id(&source) else {
+        return WeightInstance::UnknownFace;
+    };
+    if meta.weight == weight {
+        return WeightInstance::Absent;
+    }
+    let index = match fc_cache.get_font_by_id(&source) {
+        Some(rust_fontconfig::OwnedFontSource::Disk(path)) => path.font_index,
+        Some(rust_fontconfig::OwnedFontSource::Memory(font)) => font.font_index,
+        None => return WeightInstance::UnknownFace,
+    };
+    let Some(bytes) = fc_cache.get_font_bytes(&source) else {
+        return WeightInstance::Absent;
+    };
+    let Some((min, _default, max)) =
+        crate::font::parsed::read_wght_axis(bytes.as_slice(), index)
+    else {
+        return WeightInstance::Absent;
+    };
+    let wght = f32::from(weight as u16);
+    if wght < min || wght > max {
+        return WeightInstance::Absent;
+    }
+    let Some(baked) = crate::font::parsed::bake_weight_instance(bytes.as_slice(), index, wght)
+    else {
+        return WeightInstance::Absent;
+    };
+
+    let mut pattern = meta;
+    pattern.weight = weight;
+    pattern.bold = if weight >= FcWeight::Bold {
+        PatternMatch::True
+    } else {
+        PatternMatch::False
+    };
+    let registered = pattern.clone();
+    let label = pattern
+        .family
+        .clone()
+        .or_else(|| pattern.name.clone())
+        .unwrap_or_default();
+    let id = FontId::new();
+    fc_cache.with_memory_font_with_id(
+        id,
+        pattern,
+        rust_fontconfig::FcFont {
+            bytes: baked,
+            font_index: 0,
+            id: label,
+        },
+    );
+    if fc_cache.is_memory_font(&id) {
+        return WeightInstance::Baked(id);
+    }
+    // rust-fontconfig files an identical (pattern, bytes) pair under the id it
+    // already has and does not register ours: draw that one.
+    let mut twins: Vec<FontId> = Vec::new();
+    fc_cache.for_each_pattern(|pattern, pattern_id| {
+        if *pattern == registered {
+            twins.push(*pattern_id);
+        }
+    });
+    twins
+        .into_iter()
+        .find(|twin| fc_cache.is_memory_font(twin))
+        .map_or(WeightInstance::Absent, WeightInstance::Baked)
+}
+
 /// Registry-aware variant of [`resolve_font_chains`].
 ///
 /// When `registry`
@@ -4799,6 +5444,10 @@ pub fn resolve_font_chains_with_registry(
                 unresolved.insert(family.clone());
             }
         }
+
+        // A variable font FILE matched at its default instance is drawn at
+        // the weight asked for (macOS's SFNS.ttf for every bold system face).
+        select_variable_weight_instances(&mut chain, weight, fc_cache);
 
         chains.insert(cache_key, chain);
     }
@@ -5018,6 +5667,9 @@ pub fn resolve_font_chains_fast(
 
     let mut chains: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // The cache the probe registers its faces in, and so the one a variable
+    // face's weight instance is registered in (a shallow clone: same state).
+    let shared_cache = registry.shared_cache();
 
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {
@@ -5124,6 +5776,10 @@ pub fn resolve_font_chains_fast(
                 unresolved.insert(family.clone());
             }
         }
+
+        // A variable font FILE matched at its default instance is drawn at
+        // the weight asked for (macOS's SFNS.ttf for every bold system face).
+        select_variable_weight_instances(&mut chain, weight, &shared_cache);
 
         chains.insert(cache_key, chain);
     }
@@ -5716,14 +6372,20 @@ pub fn get_scrollbar_style(
     }
     let mut result = result;
 
-    // Step 2: Check individual scrollbar part backgrounds
+    // Step 2: Check individual scrollbar part backgrounds. A part is a
+    // background layer, so `system:<slot>` arrives as a `SystemColor` layer
+    // (or a token) and is resolved against the context the UA pass above
+    // evaluated - the cascade's own, when the DOM has one.
+    let part_color = |part: &azul_css::props::style::background::StyleBackgroundContent| {
+        extract_color_from_background(&part.clone().resolve_system_colors(Some(&ctx)))
+    };
     if let Some(track) = styled_dom
         .css_property_cache
         .ptr
         .get_scrollbar_track(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.track_color = extract_color_from_background(track);
+        result.track_color = part_color(track);
     }
     if let Some(thumb) = styled_dom
         .css_property_cache
@@ -5731,7 +6393,7 @@ pub fn get_scrollbar_style(
         .get_scrollbar_thumb(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.thumb_color = extract_color_from_background(thumb);
+        result.thumb_color = part_color(thumb);
     }
     if let Some(button) = styled_dom
         .css_property_cache
@@ -5739,7 +6401,7 @@ pub fn get_scrollbar_style(
         .get_scrollbar_button(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.button_color = extract_color_from_background(button);
+        result.button_color = part_color(button);
     }
     if let Some(corner) = styled_dom
         .css_property_cache
@@ -5747,7 +6409,7 @@ pub fn get_scrollbar_style(
         .get_scrollbar_corner(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        result.corner_color = extract_color_from_background(corner);
+        result.corner_color = part_color(corner);
     }
 
     // Step 3: Check for scrollbar-width (overrides width only, not overlay)
@@ -5776,7 +6438,8 @@ pub fn get_scrollbar_style(
         .get_scrollbar_color(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
     {
-        match scrollbar_color {
+        // `system:` keywords resolve against the same context as the parts.
+        match (*scrollbar_color).resolve_system_colors(Some(&ctx)) {
             StyleScrollbarColor::Auto => { /* keep */ }
             StyleScrollbarColor::Custom(custom) => {
                 result.thumb_color = custom.thumb;
@@ -6251,6 +6914,12 @@ get_css_property!(
     azul_css::props::style::spatial_nav::StyleSpatialNavigationContain,
     CssPropertyType::SpatialNavigationContain
 );
+get_css_property!(
+    get_spatial_navigation_function,
+    get_spatial_navigation_function,
+    azul_css::props::style::spatial_nav::StyleSpatialNavigationFunction,
+    CssPropertyType::SpatialNavigationFunction
+);
 
 // =============================================================================
 // Handwritten getters (Option<T>, special logic, or non-standard returns)
@@ -6304,20 +6973,67 @@ pub fn get_shape_outside(
         .cloned()
 }
 
-/// Get line-height as the full `StyleLineHeight` value for caller resolution.
+/// The used `line-height` of `dom_id` in `node_state`, as text3 takes it -
+/// THE one reader every consumer goes through (each run's style, the IFC
+/// root's strut through its style, an empty inline box, the editing-host
+/// strut and caret, `vertical-align: <percentage>`).
+///
+/// `normal` stays [`LineHeight::Normal`](crate::text3::cache::LineHeight)
+/// (the font's own metrics decide it); everything else is px: a number
+/// times `font_size_px`, a length against `font_size_px` (`em`), the root's
+/// font size (`rem`) and `viewport` (vw / vh / vmin / vmax). An `em` or a
+/// percentage the node INHERITED arrives already computed to the length of
+/// the element that declared it (the cascade and the compact builder compute
+/// it there), so it is not re-resolved against this node's font size. The
+/// compact cache answers for the resting state, the cascade for the other
+/// states and for what the cache cannot hold (the viewport units).
 #[must_use]
-pub fn get_line_height_value(
+pub fn get_used_line_height(
     styled_dom: &StyledDom,
-    node_id: NodeId,
+    dom_id: NodeId,
     node_state: &StyledNodeState,
-) -> Option<azul_css::props::style::text::StyleLineHeight> {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_line_height(node_data, &node_id, node_state)
-        .and_then(|v| v.get_property())
-        .copied()
+    font_size_px: f32,
+    viewport: PhysicalSize,
+) -> crate::text3::cache::LineHeight {
+    use azul_css::compact_cache::CompactLineHeight;
+
+    use crate::text3::cache::LineHeight;
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    // CSS `zoom` (LAYOUT7): a number or a percentage is of the (zoomed)
+    // `font_size_px` already; a length scales by the zoom rule - the compact
+    // cache's px are computed lengths (an em the cascade computed against the
+    // UNZOOMED font size included), so they take the node's zoom whole.
+    let zoom = get_effective_zoom(styled_dom, dom_id);
+    if node_state.is_normal() {
+        if let Some(ref cc) = cache.compact_cache {
+            match cc.get_line_height(dom_id.index()) {
+                CompactLineHeight::Normal => return LineHeight::Normal,
+                CompactLineHeight::Factor(factor) => return LineHeight::Px(factor * font_size_px),
+                CompactLineHeight::Px(px) => return LineHeight::Px(px * zoom),
+                CompactLineHeight::Uncached => {}
+            }
+        }
+    }
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    cache
+        .get_line_height(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .and_then(|lh| {
+            let resolved = lh.resolve_px(
+                font_size_px,
+                get_root_font_size(styled_dom, node_state),
+                viewport.width,
+                viewport.height,
+            )?;
+            Some(match lh {
+                azul_css::props::style::text::StyleLineHeight::Length(length) => {
+                    zoomed_length(styled_dom, dom_id, length.metric, resolved)
+                }
+                _ => resolved,
+            })
+        })
+        .map_or(LineHeight::Normal, LineHeight::Px)
 }
 
 /// Get text-indent as the full `StyleTextIndent` value for caller resolution.
@@ -6334,6 +7050,57 @@ pub fn get_text_indent_value(
         .get_text_indent(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .copied()
+}
+
+/// The resolved `text-indent` of an inline formatting context's root, for
+/// text3: `(indent in px, each-line, hanging)` (CSS Text 3 section 8.1).
+///
+/// A length resolves against the node's font sizes and the viewport, a
+/// percentage against `containing_block_width` - or as 0 when `intrinsic`:
+/// "Percentages must be treated as 0 for the purpose of calculating intrinsic
+/// size contributions, but are always resolved normally when performing
+/// layout." The ONE resolution of the layout pass
+/// (`fc::translate_to_text3_constraints`) and the intrinsic-size scan
+/// (`sizing`, which must count the indent: it narrows the first line box).
+#[must_use]
+pub fn resolve_text_indent(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    containing_block_width: f32,
+    viewport_size: LogicalSize,
+    intrinsic: bool,
+) -> (f32, bool, bool) {
+    // No node of this DOM declares it: the cascade walk would find nothing.
+    let declared = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .is_none_or(|cc| cc.dom_declared_flags & azul_css::compact_cache::DOM_HAS_TEXT_INDENT != 0);
+    if !declared {
+        return (0.0, false, false);
+    }
+    let Some(text_indent) = get_text_indent_value(styled_dom, node_id, node_state) else {
+        return (0.0, false, false);
+    };
+    let px = if intrinsic && text_indent.inner.to_percent().is_some() {
+        0.0
+    } else {
+        let context = ResolutionContext {
+            vertical_writing_mode: false,
+            element_font_size: get_element_font_size(styled_dom, node_id, node_state),
+            parent_font_size: get_parent_font_size(styled_dom, node_id, node_state),
+            root_font_size: get_root_font_size(styled_dom, node_state),
+            containing_block_size: PhysicalSize::new(containing_block_width, 0.0),
+            element_size: None,
+            viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
+        };
+        text_indent
+            .inner
+            .resolve_with_context(&context, PropertyContext::Other)
+    };
+    (px, text_indent.each_line, text_indent.hanging)
 }
 
 /// Get column-count property. Returns Option<ColumnCount>.
@@ -6513,7 +7280,8 @@ pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledN
         .map_or(1.0, |v| v.inner.normalized())
 }
 
-/// Get filter property. Returns Option with cloned filter list.
+/// Get filter property. Returns Option with cloned filter list, its
+/// `system:` colours (`flood()`, `drop-shadow()`) resolved.
 #[must_use]
 pub fn get_filter(
     styled_dom: &StyledDom,
@@ -6534,9 +7302,11 @@ pub fn get_filter(
         .get_filter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
+        .map(|filters| system_colors_resolved(styled_dom, filters))
 }
 
-/// Get backdrop-filter property. Returns Option with cloned filter list.
+/// Get backdrop-filter property. Returns Option with cloned filter list, its
+/// `system:` colours resolved.
 #[must_use]
 pub fn get_backdrop_filter(
     styled_dom: &StyledDom,
@@ -6557,6 +7327,7 @@ pub fn get_backdrop_filter(
         .get_backdrop_filter(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
         .cloned()
+        .map(|filters| system_colors_resolved(styled_dom, filters))
 }
 
 /// Compact-cache negative fast path for all 4 box-shadow sides.
@@ -6576,7 +7347,8 @@ fn box_shadow_fast_bail(
     false
 }
 
-/// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_left(
     styled_dom: &StyledDom,
@@ -6592,10 +7364,11 @@ pub fn get_box_shadow_left(
         .ptr
         .get_box_shadow_left(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_right(
     styled_dom: &StyledDom,
@@ -6611,10 +7384,11 @@ pub fn get_box_shadow_right(
         .ptr
         .get_box_shadow_right(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_top(
     styled_dom: &StyledDom,
@@ -6630,10 +7404,11 @@ pub fn get_box_shadow_top(
         .ptr
         .get_box_shadow_top(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned).
+/// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_box_shadow_bottom(
     styled_dom: &StyledDom,
@@ -6649,10 +7424,47 @@ pub fn get_box_shadow_bottom(
         .ptr
         .get_box_shadow_bottom(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
-/// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned).
+/// The shadows a node PAINTS: every distinct shadow of its four side slots,
+/// each once, in slot order (left, right, top, bottom - the last paints on
+/// top), `system:` colours resolved.
+///
+/// The engine keeps a shadow in four per-side slots, and the `box-shadow`
+/// shorthand writes the SAME shadow into all four: they hold one shadow, not
+/// four. Read as four, every `box-shadow` was painted four times on top of
+/// itself (a 50% black ring came out ~94% black). A node that declares
+/// different shadows in different slots (`-azul-box-shadow-top: ..;
+/// -azul-box-shadow-bottom: ..`) still paints each of them.
+#[must_use]
+pub fn get_box_shadows(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    if box_shadow_fast_bail(styled_dom, node_id, node_state) {
+        return Vec::new();
+    }
+    let mut shadows: Vec<azul_css::props::style::box_shadow::StyleBoxShadow> = Vec::new();
+    for shadow in [
+        get_box_shadow_left(styled_dom, node_id, node_state),
+        get_box_shadow_right(styled_dom, node_id, node_state),
+        get_box_shadow_top(styled_dom, node_id, node_state),
+        get_box_shadow_bottom(styled_dom, node_id, node_state),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !shadows.contains(&shadow) {
+            shadows.push(shadow);
+        }
+    }
+    shadows
+}
+
+/// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned),
+/// its `system:` colour resolved.
 #[must_use]
 pub fn get_text_shadow(
     styled_dom: &StyledDom,
@@ -6672,7 +7484,7 @@ pub fn get_text_shadow(
         .ptr
         .get_text_shadow(node_data, &node_id, node_state)
         .and_then(|v| v.get_property())
-        .map(|v| (**v))
+        .map(|v| system_colors_resolved(styled_dom, **v))
 }
 
 /// Get transform property. Returns Option (non-empty transform list, cloned).
@@ -8025,6 +8837,7 @@ mod autotest_generated {
         let stored = ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: true,
+            bar_kind: crate::solver3::scrollbar::ScrollbarKind::Classic,
             scrollbar_width: f32::NAN,
             scrollbar_height: f32::INFINITY,
             visual_width_px: -1.0,
@@ -9197,13 +10010,13 @@ mod autotest_generated {
             let _ = get_border_info(&sd, id, &st);
             let _ = get_border_spacing(&sd, id, &st);
             let _ = get_height_value(&sd, id, &st);
-            let _ = get_line_height_value(&sd, id, &st);
+            let _ = get_used_line_height(&sd, id, &st, 16.0, PhysicalSize::new(800.0, 600.0));
             let _ = get_text_indent_value(&sd, id, &st);
         }
 
         // vertical-align defaults to the baseline for an unstyled div.
         assert!(matches!(
-            get_vertical_align_for_node(&sd, id),
+            get_vertical_align_for_node(&sd, id, PhysicalSize::new(800.0, 600.0)),
             crate::text3::cache::VerticalAlign::Baseline
         ));
     }
@@ -9694,6 +10507,96 @@ mod unresolved_family_reporting_tests {
             azul_core::diagnostics::any_contains("Totally Not Installed Sans"),
             "the warning must be recorded, not just printed: {:?}",
             azul_core::diagnostics::recorded()
+        );
+    }
+}
+
+/// MAILENG6 item 1 (the font bug TABLES left OPEN): the font stacks the
+/// document collects must include the face EVERY text node asks for, in
+/// particular a text node that follows an element of another weight or
+/// style (`<p><b>bold</b> tail</p>`). Font-independent: these read the
+/// collected selector stacks, not shaped glyphs.
+#[cfg(test)]
+mod text_node_font_stack_tests {
+    use azul_core::dom::Dom;
+    use azul_css::css::Css;
+
+    use super::*;
+
+    fn text(s: &str) -> Dom {
+        Dom::create_text_do_not_use_without_block_level_wrapper(s)
+    }
+
+    /// `<body><p>{children}</p></body>` with no author CSS (UA only).
+    fn paragraph(children: Vec<Dom>) -> StyledDom {
+        let mut dom = Dom::create_body()
+            .with_children(vec![Dom::create_p().with_children(children.into())].into());
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    fn collected_weights_and_styles(sd: &StyledDom) -> Vec<(FcWeight, FontStyle)> {
+        let platform = azul_css::system::Platform::current();
+        collect_font_stacks_from_styled_dom(sd, &platform)
+            .font_stacks
+            .iter()
+            .map(|stack| (stack[0].weight, stack[0].style))
+            .collect()
+    }
+
+    #[test]
+    fn the_text_after_a_bold_element_collects_its_own_regular_font() {
+        let sd = paragraph(vec![
+            Dom::create_b().with_children(vec![text("bold")].into()),
+            text(" tail"),
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w == FcWeight::Normal && *s == FontStyle::Normal),
+            "\" tail\" is regular text: its regular stack must be collected, or its face is \
+             never loaded and the run shapes to nothing: {got:?}"
+        );
+        assert!(
+            got.iter().any(|(w, _)| *w >= FcWeight::Bold),
+            "\"bold\" keeps its bold stack: {got:?}"
+        );
+    }
+
+    #[test]
+    fn the_text_after_an_italic_element_collects_its_own_upright_font() {
+        let sd = paragraph(vec![
+            Dom::create_i().with_children(vec![text("it")].into()),
+            text(" tail"),
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w == FcWeight::Normal && *s == FontStyle::Normal),
+            "\" tail\" is upright: {got:?}"
+        );
+        assert!(
+            got.iter().any(|(_, s)| *s == FontStyle::Italic),
+            "\"it\" keeps its italic stack: {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_text_nodes_font_is_read_from_the_text_node_itself_not_from_the_node_before_it() {
+        // `<b><i></i>bold</b>`: the only text is bold and upright; the node
+        // right before it in document order is an (empty) bold ITALIC
+        // element, whose style it must not take.
+        let sd = paragraph(vec![
+            Dom::create_b().with_children(vec![Dom::create_i(), text("bold")].into())
+        ]);
+        let got = collected_weights_and_styles(&sd);
+        assert!(
+            got.iter()
+                .any(|(w, s)| *w >= FcWeight::Bold && *s == FontStyle::Normal),
+            "the only text is bold and upright: {got:?}"
+        );
+        assert!(
+            !got.iter().any(|(_, s)| *s == FontStyle::Italic),
+            "no text of the document is italic, so no italic stack: {got:?}"
         );
     }
 }

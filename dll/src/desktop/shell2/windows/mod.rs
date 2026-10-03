@@ -31,9 +31,9 @@ mod gl;
 pub mod menu;
 pub mod radial_controller;
 pub mod registry;
-pub(crate) mod system_style;
 #[cfg(feature = "cpurender")]
 mod subpixel;
+pub(crate) mod system_style;
 mod tooltip;
 mod wcreate;
 pub mod win_event;
@@ -62,7 +62,6 @@ use azul_core::{
 };
 use azul_css::corety::OptionU32;
 use azul_layout::{
-    hit_test::FullHitTest,
     managers::hover::InputPointId,
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
@@ -246,6 +245,9 @@ pub struct Win32Window {
     /// GID_ZOOM reports an absolute distance in pixels, not a ratio, so the
     /// first message is a baseline rather than a scale.
     pub gesture_zoom_baseline: f32,
+    /// A WM_GESTURE zoom began and has not reported a scale yet: its first
+    /// scale carries `DetectedPinch::began`.
+    pub gesture_zoom_began: bool,
     pub high_surrogate: Option<u16>,
     /// IME composition string (for preview during typing)
     pub ime_composition: Option<String>,
@@ -628,7 +630,6 @@ impl Win32Window {
             renderer_options: initial_window_state.renderer_options,
             background_color: initial_window_state.background_color,
             layout_callback: initial_window_state.layout_callback,
-            close_callback: initial_window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be detected from platform
             window_id: initial_window_state.window_id.clone(),
             window_focused: true,
@@ -647,6 +648,7 @@ impl Win32Window {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
 
         // Initialize monitor cache once at window creation
         if let Ok(mut guard) = layout_window.monitors.lock() {
@@ -847,6 +849,7 @@ impl Win32Window {
             thread_timer_running: None,
             high_surrogate: None,
             gesture_zoom_baseline: 0.0,
+            gesture_zoom_began: false,
             ime_composition: None,
             ime_enabled: true,
             ime_saved_himc: std::ptr::null_mut(),
@@ -1077,31 +1080,38 @@ impl Win32Window {
         }
     }
 
-    /// Win32 timer ID reserved for thread-polling (~60 FPS tick).
+    /// Win32 timer ID reserved for thread-polling (one tick per frame).
     const THREAD_POLL_TIMER_ID: usize = 0xFFFF;
-    /// Interval in milliseconds for the thread-polling timer (~60 FPS).
-    const THREAD_POLL_INTERVAL_MS: u32 = 16;
 
-    /// Win32 timer ID reserved for the modal size/move pump (~60 FPS tick).
+    /// One frame of this window in whole ms (at least 1) - the interval of
+    /// the thread poll and the modal size/move pump. From the one source,
+    /// `LayoutWindow::frame_interval_nanos`: the refresh rate of the monitor
+    /// the window is on, capped by `RendererOptions::max_frame_rate`.
+    fn frame_interval_ms(&self) -> u32 {
+        u32::try_from(self.common.frame_interval().as_millis())
+            .unwrap_or(16)
+            .max(1)
+    }
+
+    /// Win32 timer ID reserved for the modal size/move pump (one tick per frame).
     ///
     /// Distinct from [`Self::THREAD_POLL_TIMER_ID`] on purpose: `SetTimer` with
     /// an id that is already in use REPLACES that timer, so sharing one would
     /// silently kill background-thread polling for the rest of the run and the
     /// `KillTimer` at `WM_EXITSIZEMOVE` would never bring it back.
     pub(crate) const MODAL_LOOP_TIMER_ID: usize = 0xFFFE;
-    /// Interval in milliseconds for the modal size/move pump (~60 FPS).
-    const MODAL_LOOP_INTERVAL_MS: u32 = 16;
 
     /// Arm the stand-in for the outer event loop, for the duration of a modal
     /// size/move loop (`WM_ENTERSIZEMOVE` … `WM_EXITSIZEMOVE`).
     ///
     /// See [`pump_modal_loop_work`] for what stalls without it.
     pub(crate) fn start_modal_loop_pump(&mut self) {
+        let interval_ms = self.frame_interval_ms();
         unsafe {
             (self.win32.user32.SetTimer)(
                 self.hwnd,
                 Self::MODAL_LOOP_TIMER_ID,
-                Self::MODAL_LOOP_INTERVAL_MS,
+                interval_ms,
                 ptr::null(),
             );
         }
@@ -1330,6 +1340,14 @@ impl Win32Window {
                                     }
                                 }
                                 if let Some(ref d) = self.native_dib {
+                                    // A DIB created by `CreateDIBSection` is
+                                    // ZEROED, and a window that GREW got a new
+                                    // one: rastering only the damage strips
+                                    // into it presents black everywhere the
+                                    // diff found nothing. `has_frame` is set
+                                    // once a frame has been rendered into it.
+                                    self.cpu_backend.native_target_holds_previous_frame =
+                                        d.has_frame;
                                     self.cpu_backend.native_target = unsafe {
                                         azul_layout::cpurender::AzulPixmap::from_external(
                                             d.ptr, d.w as u32, d.h as u32,
@@ -1371,9 +1389,7 @@ impl Win32Window {
                                             .to_present_rects_physical(
                                                 dpi, d.w as u32, d.h as u32, false,
                                             )
-                                            .unwrap_or_else(|| {
-                                                vec![(0, 0, d.w as u32, d.h as u32)]
-                                            })
+                                            .unwrap_or_else(|| vec![(0, 0, d.w as u32, d.h as u32)])
                                     } else {
                                         vec![(0, 0, d.w as u32, d.h as u32)]
                                     };
@@ -1533,13 +1549,7 @@ impl Win32Window {
                     self.request_redraw();
                 } else {
                     if self.common.current_window_state().flags.is_visible {
-                        use azul_core::window::WindowFrame;
-                        use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
-                        let show_cmd = match self.common.current_window_state().flags.frame {
-                            WindowFrame::Normal => SW_SHOWNORMAL,
-                            WindowFrame::Minimized => SW_MINIMIZE,
-                            WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
-                        };
+                        let show_cmd = self.show_command();
                         unsafe {
                             (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
                             (self.win32.user32.UpdateWindow)(self.hwnd);
@@ -1716,7 +1726,9 @@ impl Win32Window {
                 }
             }
 
-            // Update and render WebRender
+            // Update and render WebRender. The canvas follows the mode the
+            // window shows (THE clear colour).
+            self.common.sync_renderer_clear_color();
             let renderer = self
                 .common
                 .renderer
@@ -1766,13 +1778,7 @@ impl Win32Window {
                     if let Some(ref dwmapi) = self.win32.dwmapi_funcs {
                         (dwmapi.DwmFlush)();
                     }
-                    use azul_core::window::WindowFrame;
-                    use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
-                    let show_cmd = match self.common.current_window_state().flags.frame {
-                        WindowFrame::Normal => SW_SHOWNORMAL,
-                        WindowFrame::Minimized => SW_MINIMIZE,
-                        WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
-                    };
+                    let show_cmd = self.show_command();
                     (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
                     (self.win32.user32.UpdateWindow)(self.hwnd);
                 }
@@ -1983,6 +1989,26 @@ impl Win32Window {
         self.common.rebuild_cpu_hit_tester();
     }
 
+    /// The `ShowWindow` command that first shows this window, from its frame
+    /// state - and, for a popup that LEAVES focus on its invoker (a
+    /// combobox's list), without activating it: its owner keeps every key
+    /// (see the `WS_EX_NOACTIVATE` in `wcreate::create_hwnd`).
+    fn show_command(&self) -> i32 {
+        use azul_core::window::WindowFrame;
+        use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNOACTIVATE, SW_SHOWNORMAL};
+        let state = self.common.current_window_state();
+        match state.flags.frame {
+            WindowFrame::Normal
+                if !crate::desktop::shell2::common::transient::popup_takes_focus(state) =>
+            {
+                SW_SHOWNOACTIVATE
+            }
+            WindowFrame::Normal => SW_SHOWNORMAL,
+            WindowFrame::Minimized => SW_MINIMIZE,
+            WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
+        }
+    }
+
     /// Route a `ProcessEventResult` produced by a MAIN-WINDOW input handler
     /// (`WM_MOUSEMOVE` / `WM_LBUTTONDOWN` / `WM_LBUTTONUP` / `WM_KEYDOWN` /
     /// `WM_KEYUP` / `WM_CHAR` / `WM_MOUSEWHEEL` / `WM_IME_CHAR` / …) exactly the
@@ -2087,6 +2113,21 @@ impl Win32Window {
         // plus WM_SETFOCUS / WM_KILLFOCUS ends here; the WM_COMMAND menu arm
         // routes its own result and is picked up by the WM_PAINT it schedules.
         self.sync_ime_state();
+
+        // A close the pass raised (`close_window`, the CSD close button).
+        self.post_app_close();
+    }
+
+    /// A close the APP raised (`CallbackInfo::close_window`, the CSD
+    /// titlebar's close button) is posted as WM_CLOSE: its handler runs the
+    /// close protocol exactly as for the title-bar X, so the app's
+    /// CloseRequested callbacks can veto it, and the window goes only if none
+    /// did. Nothing on the run loop's path used to read the raised flag, so
+    /// such a close did nothing at all on Windows.
+    fn post_app_close(&mut self) {
+        if self.common.take_close_unconfirmed() && self.is_open {
+            self.close();
+        }
     }
 
     // --- File drag-and-drop (OLE IDropTarget) ------------------------------
@@ -2665,7 +2706,12 @@ impl Win32Window {
                 };
                 let lparam = (((h as u32) << 16) | (w as u32 & 0xFFFF)) as dlopen::LPARAM;
                 // Last statement: window_proc re-borrows this window.
-                (self.win32.user32.SendMessageW)(self.hwnd, WM_SIZE, kind as dlopen::WPARAM, lparam);
+                (self.win32.user32.SendMessageW)(
+                    self.hwnd,
+                    WM_SIZE,
+                    kind as dlopen::WPARAM,
+                    lparam,
+                );
             }
         }
     }
@@ -2700,7 +2746,7 @@ impl Win32Window {
         };
         let dark: i32 = i32::from(matches!(
             self.common.current_window_state().theme,
-            azul_core::window::WindowTheme::DarkMode
+            azul_core::window::DarkLightMode::Dark
         ));
         unsafe {
             let set = |attr: u32| {
@@ -2723,6 +2769,9 @@ impl Win32Window {
     /// Called after callbacks have potentially modified window state.
     fn sync_window_state(&mut self) {
         use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
+
+        // A close a timer, a thread writeback or a menu item raised.
+        self.post_app_close();
 
         // Diff against the OS-SYNC baseline, never `previous_window_state` (the
         // event-diff baseline, which is free to hold a live delta): diffing that
@@ -3234,12 +3283,12 @@ impl Win32Window {
         }
     }
 
-    // Query WebRender hit-tester for scrollbar hits at given position
+    // Scrollbar presses, thumb drags and releases
     //
-    // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindow trait as default methods.
-    // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event.rs for the implementation.
+    // NOTE: route_pointer_press(), route_pointer_move() and end_scrollbar_drag()
+    // are provided by the PlatformWindow trait. They wrap the ONE press router
+    // (`LayoutWindow::route_press` & co. in azul_layout::press_router), which a
+    // scripted press and the E2E runner go through too.
     //
     // Windows-specific note: Mouse capture (SetCapture) is handled in WM_LBUTTONDOWN,
     // and redraw requests (InvalidateRect) are handled by checking ProcessEventResult.
@@ -3281,6 +3330,9 @@ impl Win32Window {
                 log_error!(LogCategory::Rendering, "Failed to present frame: {:?}", e);
             }
         }
+
+        // A close the app raised goes through WM_CLOSE (the protocol).
+        self.post_app_close();
 
         // Check for close request
         if self.common.current_window_state().flags.close_requested {
@@ -3354,66 +3406,40 @@ impl Win32Window {
         false
     }
 
-    /// Try to show context menu at the given screen position
-    /// Returns true if a context menu was shown
+    /// Try to show the context menu under the pointer at the given client
+    /// position. Returns true if a context menu was shown.
+    ///
+    /// WHICH menu is the engine's one answer
+    /// (`LayoutWindow::context_menu_under_pointer`, shared with every other
+    /// shell): the front-most node under the pointer, walking up - out of a
+    /// `VirtualView` page into its host too - to the nearest node carrying a
+    /// menu. This used to take the first node with a menu in `NodeId` order,
+    /// the OUTERMOST one, so a box with its own menu inside a page with
+    /// another opened the page's.
     fn try_show_context_menu(&mut self, client_x: i32, client_y: i32) -> bool {
-        // Get the topmost hovered node from hit test
-        let hit_test = self
+        let Some((owner, menu)) = self
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.hover_manager.get_current(&InputPointId::Mouse))
-            .cloned()
-            .unwrap_or_else(|| FullHitTest::empty(None));
-
-        if hit_test.is_empty() {
+            .and_then(|lw| lw.context_menu_under_pointer())
+        else {
             return false;
+        };
+        let Some(node_id) = owner.node.into_crate_internal() else {
+            return false;
+        };
+
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .use_native_context_menus
+        {
+            self.show_native_context_menu(&menu, client_x, client_y, owner.dom, node_id);
+        } else {
+            self.show_window_based_context_menu(&menu, client_x, client_y, owner.dom, node_id);
         }
-
-        // Find first node with a context menu
-        for (dom_id, node_hit_test) in &hit_test.hovered_nodes {
-            // Check regular hit test nodes
-            for (node_id, hit_item) in &node_hit_test.regular_hit_test_nodes {
-                // Try to get the context menu by cloning it
-                let context_menu = if let Some(ref lw) = self.common.layout_window {
-                    if let Some(lr) = lw.layout_results.get(dom_id) {
-                        if let Some(nd) = lr
-                            .styled_dom
-                            .node_data
-                            .as_container()
-                            .get((*node_id).into())
-                        {
-                            nd.get_context_menu().cloned()
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    return false;
-                };
-
-                if let Some(menu) = context_menu {
-                    // Check if native context menus are enabled
-                    if self
-                        .common
-                        .current_window_state()
-                        .flags
-                        .use_native_context_menus
-                    {
-                        self.show_native_context_menu(&menu, client_x, client_y, *dom_id, *node_id);
-                    } else {
-                        self.show_window_based_context_menu(
-                            &menu, client_x, client_y, *dom_id, *node_id,
-                        );
-                    }
-                    return true;
-                }
-            }
-        }
-
-        false
+        true
     }
 
     /// Show a context menu using native Win32 popup menu
@@ -4240,7 +4266,9 @@ unsafe extern "system" fn window_proc(
             // "unsaved changes" prompt) — route the result so any restyle takes the
             // incremental fast path / repaints, same as every other input handler.
             // If the close proceeds below, the InvalidateRect is harmless.
-            let outcome = window.request_window_close("windows.wm_close");
+            // Against the DOM the app's state describes now (a rebuild its last
+            // callback asked for is built first).
+            let outcome = window.run_close_protocol("windows.wm_close");
             window.route_main_window_result(hwnd, outcome.result);
 
             // Check if callback cancelled the close
@@ -4676,13 +4704,18 @@ unsafe extern "system" fn window_proc(
                 y as f32 / hidpi_factor.inner.get(),
             );
 
-            // Handle active scrollbar drag (special case - not part of normal event system)
-            if window.common.scrollbar_drag_state.is_some() {
-                // Route the result! handle_scrollbar_drag returns
-                // ShouldReRenderCurrentWindow after gpu_scroll — discarding it
-                // (`let _`) meant NO InvalidateRect: the content scrolled
-                // internally but the screen froze until an unrelated event.
-                let r = PlatformWindow::handle_scrollbar_drag(&mut *window, logical_pos);
+            // A held scrollbar thumb takes the move (not part of the normal
+            // event system); the shared helper records the cursor and swallows
+            // the delta.
+            if let Some(r) = PlatformWindow::route_pointer_move(
+                &mut *window,
+                logical_pos,
+                "windows.wm_mousemove.scrollbar_drag",
+            ) {
+                // Route the result! The drag answers ShouldReRenderCurrentWindow
+                // — discarding it (`let _`) meant NO InvalidateRect: the content
+                // scrolled internally but the screen froze until an unrelated
+                // event.
                 window.route_main_window_result(hwnd, r);
                 return 0;
             }
@@ -4929,20 +4962,15 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            if let Some(scrollbar_hit_id) =
-                PlatformWindow::perform_scrollbar_hit_test(&*window, logical_pos)
-            {
-                // The scrollbar consumes the press, but the button is still
-                // PHYSICALLY DOWN: the shared helper records `left_down` and
-                // the cursor position before swallowing the delta, so the live
-                // pointer state agrees with the hardware for the whole drag.
-                let r = PlatformWindow::handle_scrollbar_press(
-                    &mut *window,
-                    scrollbar_hit_id,
-                    logical_pos,
-                    azul_core::events::MouseButton::Left,
-                    "windows.wm_lbuttondown.scrollbar_click",
-                );
+            // The press router: scrollbar first, then content. A press a
+            // scrollbar takes is recorded (the button is still PHYSICALLY
+            // DOWN for the whole drag) and swallowed by the shared helper.
+            if let Some(r) = PlatformWindow::route_pointer_press(
+                &mut *window,
+                logical_pos,
+                azul_core::events::MouseButton::Left,
+                "windows.wm_lbuttondown.scrollbar_click",
+            ) {
                 // Capture the mouse so a fast thumb-drag leaving the client
                 // area keeps receiving WM_MOUSEMOVE (this early-return used to
                 // skip the SetCapture further down, so the drag died at the
@@ -5201,17 +5229,19 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            // Try to show context menu first
-            let showed_context_menu = window.try_show_context_menu(x, y);
+            // The context menu first. It is PARKED, not tracked here
+            // (`show_native_context_menu` -> `park_native_menu`), so the pass
+            // below runs either way: skipping it when a menu opened left
+            // `right_down: true -> false` in the unconsumed delta, so
+            // MouseUp(Right) and ContextMenu callbacks never fired on a node
+            // with a menu (macOS and X11 had the same hole, closed earlier).
+            let _showed_context_menu = window.try_show_context_menu(x, y);
 
-            // If context menu was shown, skip normal mouse up processing
-            if !showed_context_menu {
-                // V2 system will detect MouseUp event
-                let result = window.process_window_events(0);
+            // V2 system will detect MouseUp event
+            let result = window.process_window_events(0);
 
-                // Request redraw if needed
-                window.route_main_window_result(hwnd, result);
-            }
+            // Request redraw if needed
+            window.route_main_window_result(hwnd, result);
 
             0
         }
@@ -5539,8 +5569,8 @@ unsafe extern "system" fn window_proc(
             {
                 use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
                 // One notch is a 10% step, the ratio browsers use for a zoom
-                // level. `scale` is cumulative-from-1.0 per event, which is
-                // what the macOS magnification path also reports.
+                // level. Each notch is a pinch gesture of its own: one update,
+                // `began`, its scale measured from 1.0.
                 const PINCH_STEP_PER_NOTCH: f32 = 0.1;
                 const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
                 let scale = 1.0 + scroll_amount * PINCH_STEP_PER_NOTCH;
@@ -5552,6 +5582,7 @@ unsafe extern "system" fn window_proc(
                             initial_distance: PINCH_NOMINAL_DISTANCE,
                             current_distance: PINCH_NOMINAL_DISTANCE * scale,
                             duration_ms: 0,
+                            began: true,
                         }));
                 }
             }
@@ -5623,33 +5654,12 @@ unsafe extern "system" fn window_proc(
                 // Start the scroll momentum timer if this is the first input
                 if should_start_timer {
                     if let Some(queue) = input_queue_clone {
-                        use azul_core::{
-                            refany::RefAny,
-                            task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
-                        };
-                        use azul_layout::{
-                            scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                            timer::{Timer, TimerCallbackType},
-                        };
-
-                        let physics_state = ScrollPhysicsState::new(
+                        let timer = azul_layout::scroll_timer::create_scroll_physics_timer(
                             queue,
                             window.common.system_style.scroll_physics.clone(),
+                            window.common.frame_interval_nanos(),
                         );
-                        let interval_ms =
-                            window.common.system_style.scroll_physics.timer_interval_ms;
-                        let data = RefAny::new(physics_state);
-                        let timer = Timer::create(
-                            data,
-                            scroll_physics_timer_callback as TimerCallbackType,
-                            azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                                .get_system_time_fn,
-                        )
-                        .with_interval(Duration::System(
-                            azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
-                        ));
-
-                        window.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                        window.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
                     }
                 }
             }
@@ -6130,6 +6140,7 @@ unsafe extern "system" fn window_proc(
                     ws.window_focused = true;
                 },
             );
+            window.common.note_focus_gained();
             window.dynamic_selector_context.window_focused = true;
 
             // Re-read the pressed-key set: the releases that happened while
@@ -6566,8 +6577,12 @@ unsafe extern "system" fn window_proc(
                     let distance = gi.ullArguments as f32;
                     if gi.dwFlags & dlopen::GF_BEGIN != 0 || window.gesture_zoom_baseline <= 0.0 {
                         window.gesture_zoom_baseline = distance.max(1.0);
+                        window.gesture_zoom_began = true;
                     } else if let Some(ref mut lw) = window.common.layout_window {
+                        // Distance over the begin's baseline: cumulative, as
+                        // `DetectedPinch` is defined.
                         let scale = distance / window.gesture_zoom_baseline;
+                        let began = core::mem::replace(&mut window.gesture_zoom_began, false);
                         lw.gesture_drag_manager
                             .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                                 scale,
@@ -6575,6 +6590,7 @@ unsafe extern "system" fn window_proc(
                                 initial_distance: PINCH_NOMINAL_DISTANCE,
                                 current_distance: PINCH_NOMINAL_DISTANCE * scale,
                                 duration_ms: 0,
+                                began,
                             }));
                     }
                 }
@@ -6824,7 +6840,9 @@ unsafe extern "system" fn window_proc(
                 const SPI_SETFONTSMOOTHINGORIENTATION: usize = 0x2013;
                 if matches!(
                     wparam as usize,
-                    SPI_SETFONTSMOOTHING | SPI_SETFONTSMOOTHINGTYPE | SPI_SETFONTSMOOTHINGORIENTATION
+                    SPI_SETFONTSMOOTHING
+                        | SPI_SETFONTSMOOTHINGTYPE
+                        | SPI_SETFONTSMOOTHINGORIENTATION
                 ) {
                     window.sync_panel_subpixel_order(true);
                 }
@@ -6833,24 +6851,35 @@ unsafe extern "system" fn window_proc(
                 return 0;
             }
             window.snapshot_window_state_baseline("windows.wm_settingchange");
-            let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style());
-            let new_theme = match new_style.theme {
-                azul_css::system::Theme::Dark => azul_core::window::WindowTheme::DarkMode,
-                azul_css::system::Theme::Light => azul_core::window::WindowTheme::LightMode,
+            // The held language as the known list: it carries the RTL-ness the
+            // app's known languages resolved at startup (see the macOS
+            // `adopt_probed_theme`).
+            let held_language = window.common.system_style.language.clone();
+            let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style(
+                core::slice::from_ref(&held_language),
+            ));
+            let desktop_theme = match new_style.theme {
+                DarkLightMode::Dark => azul_core::window::DarkLightMode::Dark,
+                DarkLightMode::Light => azul_core::window::DarkLightMode::Light,
             };
-            // OS-reported (source = Os): the theme is already the system's, so
-            // the OS-sync baseline advances with `current` and only the event
-            // diff carries the transition.
-            window.common.update_window_state(
-                crate::desktop::shell2::common::event::WindowStateSource::Os,
-                |ws| ws.theme = new_theme,
-            );
+            // The DESKTOP's light / dark: the window takes it only while the
+            // app follows the desktop (an app that pins its mode stays put;
+            // the desktop is remembered for when it follows again).
+            if let Some(new_theme) = window.common.adopt_desktop_theme(desktop_theme) {
+                // OS-reported (source = Os): the theme is the system's
+                // decision, so the OS-sync baseline advances with `current`
+                // and only the event diff carries the transition.
+                window.common.update_window_state(
+                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                    |ws| ws.theme = new_theme,
+                );
+            }
             window.apply_titlebar_theme();
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
-            // The rebuild is tagged ThemeChange, not RefreshDom: the reason
+            // The rebuild is tagged ModeChange, not RefreshDom: the reason
             // reaches the user's layout callback via
             // LayoutCallbackInfo::relayout_reason(), and a theme switch is
             // exactly the case where a callback wants to know it may re-read
@@ -7262,6 +7291,36 @@ impl PlatformWindow for Win32Window {
         Win32Window::handle_begin_interactive_move(self);
     }
 
+    /// `ShowWindow(SW_SHOWNORMAL)` activates the owned popup that takes
+    /// focus, so Windows sends it its own keys; a key that reaches the parent
+    /// was typed into the parent. (A list popup is shown without activation
+    /// and never activated: its keys reach the parent, which forwards the
+    /// navigation ones.)
+    fn popups_route_keys_natively(&self) -> bool {
+        true
+    }
+
+    fn deliver_forwarded_keys(&mut self) {
+        // The popups are this app's own windows: run the pass of every one
+        // the parent just forwarded a key to, right now - a list popup is
+        // never the active window, so nothing else would wake it.
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                if crate::desktop::shell2::common::transient::has_forwarded_keys(
+                    w.common.current_window_state(),
+                ) {
+                    let r = w.process_window_events(0);
+                    w.route_main_window_result(other_hwnd, r);
+                }
+            }
+        }
+    }
+
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         crate::desktop::eyedropper::windows::capture(self)
     }
@@ -7398,11 +7457,12 @@ impl PlatformWindow for Win32Window {
 
     fn start_thread_poll_timer(&mut self) {
         if self.thread_timer_running.is_none() {
+            let interval_ms = self.frame_interval_ms();
             let timer_id = unsafe {
                 (self.win32.user32.SetTimer)(
                     self.hwnd,
                     Self::THREAD_POLL_TIMER_ID,
-                    Self::THREAD_POLL_INTERVAL_MS,
+                    interval_ms,
                     ptr::null(),
                 )
             };
@@ -7437,7 +7497,7 @@ impl PlatformWindow for Win32Window {
     ) {
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
-                layout_window.threads.remove(thread_id);
+                drop(layout_window.remove_thread(thread_id));
             }
         }
     }
@@ -7454,6 +7514,27 @@ impl PlatformWindow for Win32Window {
                     .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 unsafe {
                     (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                }
+            }
+        }
+    }
+
+    fn adopt_app_mode_in_other_windows(&mut self) {
+        // The same registry walk as above; each window adopts the app's
+        // mode through its own trigger (restyle, or a rebuild where its
+        // `layout()` read the mode), and its caption follows.
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                if w.adopt_app_mode() {
+                    w.apply_titlebar_theme();
+                    unsafe {
+                        (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                    }
                 }
             }
         }

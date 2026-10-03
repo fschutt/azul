@@ -56,6 +56,38 @@ fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>) {
     let _ = spawned;
 }
 
+/// `AZ_RICING=watch`: a thread that reads the rice tree's names, sizes and
+/// modification times twice a second (`azul_css::rice::poll_watch`) and, on
+/// a change, wakes the event loop (`loop_waker::wake`). The app-event
+/// collector then rebuilds every window through the app-theme path
+/// (`PlatformWindow::rebuild_all_windows_for_app_theme`), and each window's
+/// `regenerate_layout` sees its rice generation lag and restyles with the
+/// reloaded rice. One thread per process; none in any other mode.
+#[cfg(all(not(miri), not(feature = "web")))]
+fn start_rice_watcher() {
+    use core::time::Duration;
+
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    if azul_css::rice::installed_mode() != Some(azul_css::system::RicingMode::Watch) {
+        return;
+    }
+    STARTED.call_once(|| {
+        let spawned = std::thread::Builder::new()
+            .name("azul-rice-watch".to_string())
+            .spawn(|| loop {
+                std::thread::sleep(Duration::from_millis(500));
+                if azul_css::rice::poll_watch() {
+                    crate::desktop::loop_waker::wake();
+                }
+            });
+        // No thread, no live reload: the rice still loaded at startup.
+        let _ = spawned;
+    });
+}
+
+#[cfg(any(miri, feature = "web"))]
+fn start_rice_watcher() {}
+
 /// Primary public handle for creating and running an Azul application.
 ///
 /// Wraps [`AppInternal`] in a `Box` and is the type used by all Rust examples.
@@ -131,8 +163,16 @@ impl App {
         #[cfg(feature = "logging")]
         crate::desktop::logging::init_default_logger();
 
+        // The app's own id (`AppConfig::app_id`), HERE: every run path -
+        // `run`, `run_tray_only`, the crash reporter, iOS's
+        // `UIApplicationMain` - starts from this App, and the launch hooks
+        // (the Windows toast activator), the notification backends and the
+        // first window read the identity. After the logger, so a conflict
+        // with the bundle's / package's / Flatpak's id is reported.
+        crate::desktop::app_identity::declare(app_config.app_id.as_str());
+
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
-        app_config.system_style = discover_system_style();
+        app_config.system_style = discover_system_style(app_config.localization.known_languages.as_slice());
 
         // The desktop's OWN icons, into the "system" pack: a submenu arrow, a
         // drop-down chevron and a tree expander are shapes the platform already
@@ -171,6 +211,26 @@ impl App {
         azul_layout::window::set_global_expose_system_media_controls(
             app_config.expose_system_media_controls,
         );
+        // The app's MODE (follow the desktop, or pin light / dark): every
+        // window built from now on starts in it, and `CallbackInfo::set_mode`
+        // switches it for all of them.
+        azul_layout::window::set_app_mode(app_config.mode);
+        // The app THEME (`@theme(<name>)`): every window built from now on
+        // builds and styles for it; `CallbackInfo::set_theme` switches it
+        // (a DOM rebuild of every window).
+        azul_core::app_theme::set_app_theme(app_config.theme.as_str());
+        // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
+        // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
+        // HERE, with the real home directory, so a test or a tool that never
+        // creates an App never reads it; each window loads the rice of its
+        // app theme when it first styles its DOM.
+        azul_css::rice::install(azul_css::rice::RiceEnv::from_process());
+        start_rice_watcher();
+
+        // Global hotkeys: NO backend here. `App::create` cannot know whether
+        // the run will be headless, and installing the platform's backend
+        // this early grabbed at the real OS (and, on a Wayland desktop,
+        // started a portal handshake) even for a CI run. `run()` chooses it.
 
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config
@@ -185,6 +245,24 @@ impl App {
                 &mut app_config.icon_provider,
                 font_bytes,
             );
+        }
+
+        // The user's icon rules (`~/.azul/icons/remap.json`, one table per
+        // theme directory): per-name remaps whose `apply-if` is evaluated at
+        // every lookup against the window's context. `AZ_RICING=off` skips
+        // them, like the user stylesheet. Nothing here can fail the app: what
+        // does not load is reported and skipped.
+        if azul_css::system::ricing_enabled() {
+            if let Some(root) = azul_layout::icon_remap::user_icons_root() {
+                let report = azul_layout::icon_remap::load_user_icon_rules(
+                    &mut app_config.icon_provider,
+                    &root,
+                    &azul_layout::icon_remap::current_app_name(),
+                );
+                for warning in &report.warnings {
+                    eprintln!("[azul][icons] {warning}");
+                }
+            }
         }
 
         let app_internal = AppInternal::create(initial_data, app_config);
@@ -255,6 +333,26 @@ impl App {
         crate::desktop::tray::TrayIcon::is_available()
     }
 
+    /// Make this App's global-hotkey manager the event-loop thread's current
+    /// App for as long as the returned scope lives, and choose the
+    /// platform's backend for it (built at the first sync, so a run that
+    /// turns out headless installs the simulation first and never touches
+    /// the OS). Every window the loop builds joins the manager.
+    fn enter_global_hotkeys(&self) -> azul_layout::managers::global_hotkey::AppHotkeysScope {
+        let scope = self.ptr.global_hotkeys.enter();
+        crate::desktop::global_hotkey::choose_platform_backend();
+        // The AppConfig's own set: the static list is declared now, the
+        // derived callback runs at the loop's first hotkey pump - after the
+        // run chose its backend, before anything waits for a press.
+        let config = &self.ptr.config;
+        self.ptr.global_hotkeys.set_app_declarations(
+            config.global_hotkeys.clone().into_library_owned_vec(),
+            config.global_hotkeys_callback.into_option(),
+            self.ptr.data.clone(),
+        );
+        scope
+    }
+
     /// Run with a tray and NO window.
     ///
     /// For a menu-bar / system-tray utility that has no main window at all.
@@ -278,6 +376,12 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
+        // A tray utility is exactly the app that notifies - and whose
+        // notifications get clicked after it restarted.
+        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
+        // A tray utility's summon key is exactly what global hotkeys are for:
+        // the stub window and the tray timer act on this App's manager.
+        let _global_hotkeys = self.enter_global_hotkeys();
 
         #[cfg(target_os = "macos")]
         {
@@ -322,6 +426,14 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
+        // This App's global hotkeys, for the whole run: every window the loop
+        // builds declares into this manager, and the loop's pumps sync it.
+        let _global_hotkeys = self.enter_global_hotkeys();
+
+        // The app-level notification handler, before any run loop exists: the
+        // tap that LAUNCHED the app is delivered during launch, and there is
+        // no notification callback in this fresh process for it to reach.
+        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
 
         // Publish the AppConfig snapshot the engine services read outside
         // callbacks: the updater (manifest URL, version, mode) and the
@@ -544,6 +656,12 @@ pub struct AppInternal {
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
     pub undo_manager: crate::desktop::shell2::common::event::SharedUndoManager,
+    /// App-global global-hotkey manager (`Arc<Mutex<..>>`), the undo
+    /// manager's twin: owned by the App, shared with every window, the run
+    /// loop and the tray-only stub. `run()` makes it the loop thread's
+    /// current App, so a window joins it without being handed it. Dropping
+    /// the last App handle drops the backend, which releases every grab.
+    pub global_hotkeys: azul_layout::managers::global_hotkey::SharedGlobalHotkeys,
     /// Tray requested via [`App::set_tray`], applied when `run()` starts.
     ///
     /// Owned by the App rather than a process global: it is per-App state, and
@@ -591,6 +709,11 @@ impl AppInternal {
             // this point today; the first-layout `request_fonts` warmup in
             // shell2/common/layout.rs already front-loads the detected fonts).
             let registry = FcFontRegistry::new();
+            // The generic families as Chrome resolves them (macOS
+            // `sans-serif` = Helvetica; user ruling 2026-10-03). Chain
+            // resolution goes through the registry's own cache, and every
+            // snapshot of it (`shared_cache`) shares this config.
+            azul_layout::font::loading::use_browser_generic_families(&registry.cache);
 
             // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
             let had_cache = registry.load_from_disk_cache();
@@ -683,6 +806,7 @@ impl AppInternal {
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),
+            global_hotkeys: azul_layout::managers::global_hotkey::SharedGlobalHotkeys::new(),
         }
     }
 }
@@ -708,7 +832,10 @@ const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
 /// - macOS: `shell2/macos/system_style.rs` (dlopen + AppKit)
 /// - Windows: `shell2/windows/system_style.rs` (LoadLibrary + User32/Dwmapi)
 /// - Linux: `shell2/linux/system_style.rs` (D-Bus + gsettings)
-pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
+pub(crate) fn discover_system_style(known_languages: &[azul_css::system::SystemLanguage]) -> azul_css::system::SystemStyle {
+    // Read only by the three desktop branches below; the Miri and
+    // other-OS fallbacks resolve no OS locale.
+    let _ = known_languages;
     // Under Miri the platform `discover()` paths spawn external tools
     // (gsettings / dlopen AppKit / LoadLibrary), which Miri cannot emulate
     // ("can't call foreign function ..."). Fall back to the pure-Rust default
@@ -719,11 +846,11 @@ pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
     }
     #[cfg(all(not(miri), target_os = "macos"))]
     {
-        crate::desktop::shell2::macos::system_style::discover()
+        crate::desktop::shell2::macos::system_style::discover(known_languages)
     }
     #[cfg(all(not(miri), target_os = "windows"))]
     {
-        crate::desktop::shell2::windows::system_style::discover()
+        crate::desktop::shell2::windows::system_style::discover(known_languages)
     }
     #[cfg(all(not(miri), target_os = "linux"))]
     {
@@ -738,7 +865,7 @@ pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
                 crate::desktop::shell2::linux::system_style::dump_discovered_style()
             );
         }
-        crate::desktop::shell2::linux::system_style::discover()
+        crate::desktop::shell2::linux::system_style::discover(known_languages)
     }
     #[cfg(all(
         not(miri),

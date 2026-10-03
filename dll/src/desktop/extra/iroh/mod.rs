@@ -222,6 +222,28 @@ impl IrohEndpoint {
         false
     }
 
+    /// Sends the frames of `track`, to every peer, at `priority` from the next frame on. Higher goes first when the link cannot carry everything; frames start at 0, messages at 1, so an audio track set to 2 outranks video sent as messages. False when not bound.
+    pub fn set_track_priority(&self, track: u32, priority: i32) -> bool {
+        #[cfg(az_iroh_engine)]
+        if let Some(engine) = self.engine() {
+            engine.set_track_priority(track, priority);
+            return true;
+        }
+        let _ = (track, priority);
+        false
+    }
+
+    /// Sends messages, to every peer, at `priority` from the next message on (default 1, above frames at 0). False when not bound.
+    pub fn set_message_priority(&self, priority: i32) -> bool {
+        #[cfg(az_iroh_engine)]
+        if let Some(engine) = self.engine() {
+            engine.set_message_priority(priority);
+            return true;
+        }
+        let _ = priority;
+        false
+    }
+
     /// Closes the connection to `peer`. Returns false when no such connection is open.
     pub fn disconnect(&self, peer: u64) -> bool {
         #[cfg(az_iroh_engine)]

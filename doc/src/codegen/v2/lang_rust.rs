@@ -180,6 +180,11 @@ impl LanguageGenerator for RustGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
 
+        // ABI guard: the library's `AzAbi_getHash` export, or the binding's
+        // check against it (`abi_guard`).
+        builder.line("// --- ABI Guard ---");
+        builder.raw(&super::abi_guard::rust_items(ir, config));
+
         // End module wrappers
         builder.dedent();
         builder.line("} // mod dll");
@@ -631,8 +636,11 @@ impl RustGenerator {
             builder.line("/// Returns a RAII guard to the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds a shared borrow; drop it when done.");
-            builder.line(&"pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
-                 T>> {".to_string());
+            builder.line(
+                &"pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
+                 T>> {"
+                    .to_string(),
+            );
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -650,8 +658,11 @@ impl RustGenerator {
                 .line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds an exclusive borrow; drop it when done.");
-            builder.line(&"pub fn downcast_mut<T: 'static>(&mut self) -> \
-                 Option<azul_core::refany::RefMut<'_, T>> {".to_string());
+            builder.line(
+                &"pub fn downcast_mut<T: 'static>(&mut self) -> \
+                 Option<azul_core::refany::RefMut<'_, T>> {"
+                    .to_string(),
+            );
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -672,11 +683,20 @@ impl RustGenerator {
         // Generate for ALL builds - always use AzString_copyFromBytes to avoid leaking struct
         // details
 
+        // Both impls are constructors that enter libazul: in a binding they
+        // check its ABI first (`abi_guard`; `RefAny::new` reaches libazul
+        // through here before anything else does).
+        let string_from_checks =
+            super::abi_guard::rust_wrapper_checks(config, FunctionKind::Constructor);
+
         // From<&str> for AzString
         builder.line(&format!("impl From<&str> for {}String {{", prefix));
         builder.indent();
         builder.line("fn from(s: &str) -> Self {");
         builder.indent();
+        if string_from_checks {
+            builder.line(super::abi_guard::RUST_CHECK_CALL);
+        }
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
             // allow-api-name: building an AzString from Rust bytes IS the
@@ -697,6 +717,9 @@ impl RustGenerator {
         builder.indent();
         builder.line("fn from(s: alloc::string::String) -> Self {");
         builder.indent();
+        if string_from_checks {
+            builder.line(super::abi_guard::RUST_CHECK_CALL);
+        }
         builder.line(&format!(
             "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
             // allow-api-name: building an AzString from Rust bytes IS the
@@ -712,6 +735,37 @@ impl RustGenerator {
         // AzString convenience methods for ergonomic API - generate for ALL builds
         builder.line(&format!("impl {}String {{", prefix));
         builder.indent();
+
+        // from_const_str() - the const constructor azul's own AzString has
+        // (css/src/corety.rs): an app names each CSS class / id ONCE as a
+        // `const` (wave-6 prefix ruling). The bytes are 'static, so the vec
+        // is never freed (NoDestructor) and nothing enters libazul.
+        builder.line("/// A string over `'static` bytes, usable in a `const`:");
+        builder.line("/// `const ROW: AzString = AzString::from_const_str(\"__azapp_row\");`.");
+        builder.line("/// The bytes are borrowed, never copied or freed.");
+        builder.line("#[inline]");
+        builder.line("#[must_use]");
+        builder.line("pub const fn from_const_str(s: &'static str) -> Self {");
+        builder.indent();
+        builder.line("Self {");
+        builder.indent();
+        // allow-api-name: the String's own layout (a U8Vec), as `as_str`
+        // below reads it; a const fn cannot call `copyFromBytes`.
+        builder.line(&format!("vec: {}U8Vec {{", prefix));
+        builder.indent();
+        builder.line("ptr: s.as_ptr(),");
+        builder.line("len: s.len(),");
+        builder.line("cap: s.len(),");
+        // allow-api-name: 'static bytes are never freed.
+        builder.line(&format!("destructor: {}U8VecDestructor::NoDestructor,", prefix));
+        builder.line("flags: 0,");
+        builder.dedent();
+        builder.line("},");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
 
         // as_str() - returns &str by reinterpreting the bytes
         builder.line("/// Returns the string as a `&str` slice.");
@@ -931,7 +985,10 @@ impl RustGenerator {
         let mut by_class: BTreeMap<&str, Vec<(String, &ConstantDef)>> = BTreeMap::new();
         for c in &ir.constants {
             if let Some((class, _)) = c.name.split_once('_') {
-                by_class.entry(class).or_default().push((c.member_name(), c));
+                by_class
+                    .entry(class)
+                    .or_default()
+                    .push((c.member_name(), c));
             }
         }
         for (class, constants) in by_class {
@@ -1648,8 +1705,11 @@ impl RustGenerator {
             // that are NOT part of the C-API (as_slice_mut, get_mut, iter, iter_mut, etc.)
 
             // get_mut()
-            builder.line(&"/// Returns a mutable reference to an element at the given index, or `None` if \
-                 out of bounds.".to_string());
+            builder.line(
+                &"/// Returns a mutable reference to an element at the given index, or `None` if \
+                 out of bounds."
+                    .to_string(),
+            );
             builder.line("#[inline]");
             builder.line(&format!(
                 "pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{",
@@ -1867,6 +1927,8 @@ impl RustGenerator {
                     builder.line("ptr,");
                     builder.line("len,");
                     builder.line("cap,");
+                    builder.line("flags: 0,");
+
                     builder.line(&format!(
                         "destructor: {}::External({} as {}),",
                         prefixed_destructor, drop_fn_name, destructor_fn_type
@@ -1875,6 +1937,18 @@ impl RustGenerator {
                     builder.line("}");
                     builder.dedent();
                     builder.line("}");
+                    builder.dedent();
+                    builder.line("}");
+                    builder.blank();
+
+                    // The name azul's own crates use (`impl_vec!`'s `from_vec`):
+                    // app code is written against both sides.
+                    builder.line(&format!("impl {} {{", prefixed_name));
+                    builder.indent();
+                    builder.line(&format!(
+                        "pub fn from_vec(v: alloc::vec::Vec<{}>) -> Self {{ Self::from(v) }}",
+                        prefixed_inner
+                    ));
                     builder.dedent();
                     builder.line("}");
                     builder.blank();
@@ -2304,13 +2378,22 @@ impl RustGenerator {
             format!("<{}>", generic_params.join(", "))
         };
 
+        // A binding's constructors and static methods check the loaded
+        // libazul's ABI hash before entering it (`abi_guard`).
+        let abi_check = if super::abi_guard::rust_wrapper_checks(config, func.kind) {
+            format!("{} ", super::abi_guard::RUST_CHECK_CALL)
+        } else {
+            String::new()
+        };
+
         // Generate the method
         builder.line(&format!(
-            "pub fn {}{}({}){} {{ unsafe {{ {}({}) }} }}",
+            "pub fn {}{}({}){} {{ {}unsafe {{ {}({}) }} }}",
             method_name,
             generics,
             args.join(", "),
             return_type,
+            abi_check,
             c_func_name,
             call_args.join(", ")
         ));
@@ -2395,6 +2478,10 @@ impl RustGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
         builder.blank();
+
+        // ABI guard: the method impls below call `az_abi_check()`.
+        builder.line("// --- ABI Guard ---");
+        builder.raw(&super::abi_guard::rust_items(ir, config));
 
         // Trait implementations (if using derive, they're already on types)
         if !matches!(config.trait_impl_mode, TraitImplMode::UsingDerive) {
@@ -3753,6 +3840,11 @@ impl RustGenerator {
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
             builder.indent();
+            // `X::default()` can be a program's first call into libazul: it
+            // checks the ABI first, as `X::create_default()` does (`abi_guard`).
+            if super::abi_guard::rust_wrapper_checks(config, FunctionKind::Default) {
+                builder.line(super::abi_guard::RUST_CHECK_CALL);
+            }
             builder.line(&format!("unsafe {{ {}() }}", sym("createDefault")));
             builder.dedent();
             builder.line("}");
@@ -4163,7 +4255,14 @@ impl RustGenerator {
                 raw
             })
             .collect();
-        Self::emit_byref_twin(builder, &raw_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &raw_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
         let mut ctx_def = raw_def.clone();
         ctx_def.c_name = format!("{}WithCtx", func.c_name);
         ctx_def.args = Vec::with_capacity(func.args.len() + 1);
@@ -4179,10 +4278,24 @@ impl RustGenerator {
                 ctx_def.args.push(c);
             }
         }
-        Self::emit_byref_twin(builder, &ctx_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &ctx_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
         let mut struct_def = func.clone();
         struct_def.c_name = format!("{}Struct", func.c_name);
-        Self::emit_byref_twin(builder, &struct_def, ir, config, export_feature, is_export_only);
+        Self::emit_byref_twin(
+            builder,
+            &struct_def,
+            ir,
+            config,
+            export_feature,
+            is_export_only,
+        );
     }
 
     /// Splice `prologue` (a sequence of `let` statements) just inside

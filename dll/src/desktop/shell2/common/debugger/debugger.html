@@ -41,38 +41,19 @@
                     <span class="material-icons mi">save_alt</span>
                     E2E Tests (CLI format)
                 </div>
-                <div class="menu-dropdown-separator"></div>
-                <div class="menu-dropdown-item" onclick="app.handlers.exportComponentLibrary()">
-                    <span class="material-icons mi">extension</span>
-                    Component Library (JSON)
-                </div>
-                <div class="menu-dropdown-separator"></div>
-                <div class="menu-dropdown-item has-submenu">
-                    <span class="material-icons mi">code</span>
-                    Code
-                    <span class="material-icons" style="font-size:14px;margin-left:auto">chevron_right</span>
-                    <div class="menu-submenu">
-                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('rust')">
-                            <span class="material-icons mi">code</span>
-                            Rust
-                        </div>
-                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('c')">
-                            <span class="material-icons mi">code</span>
-                            C
-                        </div>
-                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('cpp')">
-                            <span class="material-icons mi">code</span>
-                            C++
-                        </div>
-                        <div class="menu-dropdown-item" onclick="app.handlers.exportCode('python')">
-                            <span class="material-icons mi">code</span>
-                            Python
-                        </div>
-                    </div>
-                </div>
+                <!-- debugger-export.js puts AzBuilder's exports on top of these:
+                     Compile > (CSS…, DOM…), Subtree as Component…, Components…
+                     (with the library as JSON) and Code (ZIP) > every language of
+                     get_codegen_languages. -->
             </div>
         </div>
         <div style="flex:1"></div>
+        <!-- The page's light / dark mode (debugger.js `app.mode`): Auto follows the desktop. -->
+        <div class="mode-toggle" id="mode-toggle" role="radiogroup" aria-label="Light or dark mode">
+            <button type="button" role="radio" data-mode-choice="auto" aria-checked="true" onclick="app.mode.set('auto')" title="Follow the desktop's light / dark mode">Auto</button>
+            <button type="button" role="radio" data-mode-choice="light" aria-checked="false" onclick="app.mode.set('light')" title="Light mode">Light</button>
+            <button type="button" role="radio" data-mode-choice="dark" aria-checked="false" onclick="app.mode.set('dark')" title="Dark mode">Dark</button>
+        </div>
         <div id="connection-status" style="padding:4px 8px; color: var(--warning); cursor:default; font-size:12px;">Disconnected</div>
     </div>
 
@@ -288,4 +269,10 @@
 </body>
 
 <script src="./debugger.js" type="application/javascript"></script>
+<!-- AzBuilder project: a folder on disk as a tree + editor, synced with the palette and the Document (hooks into `app`) -->
+<script src="./debugger-project.js" type="application/javascript"></script>
+<!-- AzBuilder drag and drop: Document tree, component palette with native previews (hooks into `app`) -->
+<script src="./debugger-dnd.js" type="application/javascript"></script>
+<!-- AzBuilder quick exports: "Compile CSS to…", "Subtree → code", "Component → code" dialogs; Export > Code download -->
+<script src="./debugger-export.js" type="application/javascript"></script>
 </html>

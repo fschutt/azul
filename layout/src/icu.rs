@@ -1769,34 +1769,35 @@ fn shared_localizer_handle() -> &'static IcuLocalizerHandle {
 
 impl LayoutCallbackInfoIcuExt for LayoutCallbackInfo {
     fn icu_get_locale(&self) -> AzString {
-        // The active locale is the system language itself (the previous
-        // implementation round-tripped it through a fresh handle's default
-        // locale, which returned the same string).
-        self.get_system_style().language.clone()
+        // The window's ACTIVE locale - the app's `set_locale` choice, else the
+        // system language - read through `get_locale`, which declares the
+        // locale dependency (and nothing else: `get_system_style` would
+        // declare the WHOLE OS style and miss the locale).
+        self.get_locale().clone()
     }
 
     fn icu_get_language(&self) -> AzString {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().get_language(system_style.language.as_str())
+        let locale = self.get_locale();
+        shared_localizer_handle().get_language(locale.as_str())
     }
 
     fn icu_format_integer(&self, value: i64) -> AzString {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().format_integer(system_style.language.as_str(), value)
+        let locale = self.get_locale();
+        shared_localizer_handle().format_integer(locale.as_str(), value)
     }
 
     fn icu_format_decimal(&self, integer_part: i64, decimal_places: i16) -> AzString {
-        let system_style = self.get_system_style();
+        let locale = self.get_locale();
         shared_localizer_handle().format_decimal(
-            system_style.language.as_str(),
+            locale.as_str(),
             integer_part,
             decimal_places,
         )
     }
 
     fn icu_get_plural_category(&self, value: i64) -> PluralCategory {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().get_plural_category(system_style.language.as_str(), value)
+        let locale = self.get_locale();
+        shared_localizer_handle().get_plural_category(locale.as_str(), value)
     }
 
     fn icu_pluralize(
@@ -1809,9 +1810,9 @@ impl LayoutCallbackInfoIcuExt for LayoutCallbackInfo {
         many: &str,
         other: &str,
     ) -> AzString {
-        let system_style = self.get_system_style();
+        let locale = self.get_locale();
         shared_localizer_handle().pluralize(
-            system_style.language.as_str(),
+            locale.as_str(),
             value,
             zero,
             one,
@@ -1823,38 +1824,38 @@ impl LayoutCallbackInfoIcuExt for LayoutCallbackInfo {
     }
 
     fn icu_format_list(&self, items: &[AzString], list_type: ListType) -> AzString {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().format_list(system_style.language.as_str(), items, list_type)
+        let locale = self.get_locale();
+        shared_localizer_handle().format_list(locale.as_str(), items, list_type)
     }
 
     fn icu_format_date(&self, date: IcuDate, length: FormatLength) -> IcuResult {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().format_date(system_style.language.as_str(), date, length)
+        let locale = self.get_locale();
+        shared_localizer_handle().format_date(locale.as_str(), date, length)
     }
 
     fn icu_format_time(&self, time: IcuTime, include_seconds: bool) -> IcuResult {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().format_time(system_style.language.as_str(), time, include_seconds)
+        let locale = self.get_locale();
+        shared_localizer_handle().format_time(locale.as_str(), time, include_seconds)
     }
 
     fn icu_format_datetime(&self, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().format_datetime(system_style.language.as_str(), datetime, length)
+        let locale = self.get_locale();
+        shared_localizer_handle().format_datetime(locale.as_str(), datetime, length)
     }
 
     fn icu_compare_strings(&self, a: &str, b: &str) -> i32 {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().compare_strings(system_style.language.as_str(), a, b)
+        let locale = self.get_locale();
+        shared_localizer_handle().compare_strings(locale.as_str(), a, b)
     }
 
     fn icu_sort_strings(&self, strings: &[AzString]) -> IcuStringVec {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().sort_strings(system_style.language.as_str(), strings)
+        let locale = self.get_locale();
+        shared_localizer_handle().sort_strings(locale.as_str(), strings)
     }
 
     fn icu_strings_equal(&self, a: &str, b: &str) -> bool {
-        let system_style = self.get_system_style();
-        shared_localizer_handle().strings_equal(system_style.language.as_str(), a, b)
+        let locale = self.get_locale();
+        shared_localizer_handle().strings_equal(locale.as_str(), a, b)
     }
 }
 
@@ -3236,5 +3237,60 @@ mod autotest_generated {
                 Some(dt)
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod layout_callback_locale_tests {
+    use super::*;
+
+    /// `layout()`'s ICU helpers format for the ACTIVE locale - the one the
+    /// app chose with `CallbackInfo::set_locale` - and declare exactly that
+    /// dependency, so a locale change rebuilds the DOM they formatted.
+    #[test]
+    fn layout_icu_formatting_follows_the_active_locale_and_declares_it() {
+        use azul_core::callbacks::{
+            take_recorded_style_dependencies, LayoutCallbackInfoRefData, TextDirection,
+        };
+
+        let images = azul_core::resources::ImageCache::default();
+        let gl = azul_core::gl::OptionGlContextPtr::None;
+        let fonts = rust_fontconfig::FcFontCache::default();
+        let mut style = azul_css::system::SystemStyle::default();
+        style.language = azul_css::system::SystemLanguage::new("en-US", false);
+        // The window's active locale: the app chose German.
+        let active = AzString::from("de-DE");
+        let no_window_id = AzString::from("");
+        let ref_data = LayoutCallbackInfoRefData {
+            locale: &active,
+            accessed_locale: core::cell::Cell::new(false),
+            accessed_text_direction: core::cell::Cell::new(false),
+            text_direction: TextDirection::LeftToRight,
+            image_cache: &images,
+            gl_context: &gl,
+            system_fonts: &fonts,
+            system_style: std::sync::Arc::new(style),
+            active_route: None,
+            monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
+            safe_area: azul_css::system::SafeAreaInsets::default(),
+            global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+            window_id: &no_window_id,
+        };
+        let info = LayoutCallbackInfo::new(
+            &ref_data,
+            azul_core::window::WindowSize::default(),
+            azul_core::window::DarkLightMode::Light,
+        );
+        let _ = take_recorded_style_dependencies();
+
+        assert_eq!(info.icu_get_locale().as_str(), "de-DE", "the active locale, not the system's");
+        assert!(
+            ref_data.accessed_locale.get(),
+            "formatting for the locale makes the DOM depend on the locale"
+        );
+        assert!(
+            take_recorded_style_dependencies().is_empty(),
+            "...and not on every facet of the OS style (a theme switch would rebuild it)"
+        );
     }
 }

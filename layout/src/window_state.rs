@@ -11,11 +11,11 @@ use azul_core::{
     dom::DomId,
     window::{
         DebugState, ImePosition, KeyboardState, Monitor, MouseState, PlatformSpecificOptions,
-        RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, WindowTheme,
+        RendererOptions, TouchState, WindowFlags, WindowPosition, WindowSize, DarkLightMode,
     },
 };
 use azul_css::{
-    corety::OptionU32, impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug,
+    corety::OptionU32, impl_option, impl_vec, impl_vec_clone, impl_vec_debug,
     impl_vec_mut, impl_vec_partialeq, props::basic::OptionColorU, AzString,
 };
 
@@ -47,7 +47,7 @@ pub struct WindowCreateOptions {
     /// an `AZ_THEME` pin), `None` follows the system. See
     /// `CommonWindowState::initial_window_theme`. The OS theme watchers keep
     /// following the system afterwards either way.
-    pub theme: azul_core::window::OptionWindowTheme,
+    pub mode: azul_core::window::OptionDarkLightMode,
     /// Explicitly defined background color for light theme. If set, overrides the system light
     /// window background.
     pub background_color_light: OptionColorU,
@@ -66,7 +66,7 @@ impl Default for WindowCreateOptions {
             window_state: FullWindowState::default(),
             create_callback: OptionCallback::None,
             renderer: azul_core::window::OptionRendererOptions::None,
-            theme: azul_core::window::OptionWindowTheme::None,
+            mode: azul_core::window::OptionDarkLightMode::None,
             size_to_content: false,
             hot_reload: false,
             parent_window_id: 0,
@@ -121,8 +121,6 @@ pub struct FullWindowState {
     pub window_id: AzString,
     /// Window title bar text
     pub title: AzString,
-    /// Optional callback invoked when the user requests the window to close
-    pub close_callback: OptionCallback,
     /// Callback that returns the DOM for this window
     pub layout_callback: LayoutCallback,
     /// Window position on screen
@@ -135,8 +133,8 @@ pub struct FullWindowState {
     pub flags: WindowFlags,
     /// Current mouse cursor state (position, buttons)
     pub mouse_state: MouseState,
-    /// Active window theme (light/dark)
-    pub theme: WindowTheme,
+    /// The window's dark / light mode
+    pub mode: DarkLightMode,
     /// Position of the IME candidate window
     pub ime_position: ImePosition,
     /// GPU renderer options (`VSync`, SRGB, hardware acceleration)
@@ -172,6 +170,24 @@ pub struct FullWindowState {
 }
 
 impl FullWindowState {
+    /// Does this window hold the OS keyboard focus - is it the active / key
+    /// window? THE one reading of the two flags that say so.
+    ///
+    /// Every backend writes `window_focused` on activation (macOS
+    /// `windowDidBecomeKey`, X11 `FocusIn`, Wayland `wl_keyboard.enter`,
+    /// Win32 `WM_SETFOCUS`); only Win32 also writes `flags.has_focus`, which
+    /// is an OS-SYNCED request flag (setting it asks for the foreground) and
+    /// therefore stays at its default `true` everywhere else. Reading one
+    /// flag or the other made "is the window focused" platform-dependent:
+    /// the cascade read `has_focus` (so `:backdrop` could only ever match on
+    /// Windows) while the caret blink read `window_focused`. Both default to
+    /// `true`, so a window no OS ever reported on (headless, a test) counts
+    /// as active.
+    #[must_use]
+    pub const fn is_window_active(&self) -> bool {
+        self.window_focused && self.flags.has_focus
+    }
+
     /// The state of pointer seat `seat_id`: the primary for
     /// [`PRIMARY_POINTER_SEAT`](azul_core::window::PRIMARY_POINTER_SEAT),
     /// otherwise the matching entry of `pointer_seats`, or `None` for a seat
@@ -363,7 +379,6 @@ impl Default for FullWindowState {
             keyboard_state: KeyboardState::default(),
             window_id: AzString::from_const_str("azul-window"),
             title: AzString::from_const_str("Azul Window"),
-            close_callback: OptionCallback::None,
             layout_callback: LayoutCallback::default(),
             position: WindowPosition::default(),
             touch_state: TouchState::default(),
@@ -372,7 +387,7 @@ impl Default for FullWindowState {
             mouse_state: MouseState::default(),
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
-            theme: WindowTheme::default(),
+            mode: DarkLightMode::default(),
             ime_position: ImePosition::default(),
             renderer_options: RendererOptions::default(),
             monitor_id: OptionU32::None,
@@ -392,7 +407,7 @@ mod autotest_generated {
         geom::{LogicalSize, PhysicalPositionI32},
         refany::RefAny,
         resources::{OptionRouteMatch, RouteMatch},
-        window::{AzStringPair, OptionWindowTheme, StringPairVec},
+        window::{AzStringPair, OptionDarkLightMode, StringPairVec},
     };
     use azul_css::props::basic::ColorU;
 
@@ -542,16 +557,12 @@ mod autotest_generated {
 
         assert_eq!(opts.create_callback, def.create_callback);
         assert_eq!(opts.renderer, def.renderer);
-        assert_eq!(opts.theme, def.theme);
+        assert_eq!(opts.mode, def.mode);
         assert_eq!(opts.size_to_content, def.size_to_content);
         assert_eq!(opts.hot_reload, def.hot_reload);
         assert_eq!(opts.parent_window_id, def.parent_window_id);
         assert_eq!(opts.window_state.title, def.window_state.title);
         assert_eq!(opts.window_state.window_id, def.window_state.window_id);
-        assert_eq!(
-            opts.window_state.close_callback,
-            def.window_state.close_callback
-        );
         assert_eq!(
             opts.window_state.window_focused,
             def.window_state.window_focused
@@ -631,8 +642,7 @@ mod autotest_generated {
         assert!(s.monitor_id.is_none());
         assert!(s.background_color.is_none());
         assert!(s.active_route.is_none());
-        assert_eq!(s.close_callback, OptionCallback::None);
-        assert_eq!(s.theme, WindowTheme::default());
+        assert_eq!(s.mode, DarkLightMode::default());
         assert_eq!(s.position, WindowPosition::default());
         assert_eq!(s.ime_position, ImePosition::default());
 
@@ -649,7 +659,7 @@ mod autotest_generated {
         assert!(!o.size_to_content);
         assert!(!o.hot_reload);
         assert!(o.renderer.is_none());
-        assert!(o.theme.is_none());
+        assert!(o.mode.is_none());
         assert_eq!(o.create_callback, OptionCallback::None);
         assert_eq!(o.window_state, FullWindowState::default());
 
@@ -670,7 +680,7 @@ mod autotest_generated {
         assert_ne!(options_with(|o| o.size_to_content = true), base);
         assert_ne!(options_with(|o| o.hot_reload = true), base);
         assert_ne!(
-            options_with(|o| o.theme = OptionWindowTheme::Some(WindowTheme::DarkMode)),
+            options_with(|o| o.mode = OptionDarkLightMode::Some(DarkLightMode::Dark)),
             base
         );
         assert_ne!(

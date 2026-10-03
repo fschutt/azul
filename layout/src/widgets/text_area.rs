@@ -41,7 +41,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
         layout::{
@@ -391,9 +390,8 @@ impl Default for TextArea {
             container_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No opinion: the area follows the app theme (`dom`).
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 }
@@ -454,8 +452,8 @@ impl TextArea {
         self
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the widget follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -567,16 +565,17 @@ impl TextArea {
     /// the engine records an edit against the *focused* node. Its two children
     /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
     /// in particular no caret node.
+    ///
+    /// Unpinned (`theme: None`, the default), the area follows the APP theme:
+    /// built in the structure of the theme its DOM is built for, every node
+    /// carrying flat's and flora's blocks (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme {
-            crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
-                crate::widgets::themes::flat::text_area(self)
-            }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
-                crate::widgets::themes::flora::text_area(self)
-            }
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::text_area(self),
+            Some(UiTheme::Flora) => flora::text_area(self),
+            None => theme_blocks::follow_app_theme(self, flat::text_area, flora::text_area),
         }
     }
 }
@@ -2005,8 +2004,11 @@ mod autotest_generated {
         // The rules moved OUT of `TEXT_AREA_CONTAINER_PROPS` and into the theme
         // modules, which is a move nothing else in this suite would notice: no
         // compiler error, and every other assertion here still passes if the
-        // theme silently forgets to append them. Hence this test.
-        let dom = TextArea::create().dom();
+        // theme silently forgets to append them. Hence this test. (One
+        // theme's field: unpinned, each theme's block carries its own set.)
+        let dom = TextArea::create()
+            .with_theme(crate::widgets::themes::UiTheme::Flat)
+            .dom();
 
         let conditioned = |want_dark: bool, want_focus: bool| -> usize {
             dom.root
@@ -2024,7 +2026,7 @@ mod autotest_generated {
                     let mut state_matches = false;
                     for c in conds.as_ref() {
                         match c {
-                            DynamicSelector::Theme(ThemeCondition::Dark) => dark = true,
+                            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark) => dark = true,
                             DynamicSelector::PseudoState(PseudoStateType::Focus) => {
                                 state_matches = want_focus;
                             }
@@ -3027,6 +3029,42 @@ mod autotest_generated {
             assert_eq!(out, None, "{key:?}");
             assert!(changes.is_empty(), "{key:?}");
             assert_eq!(read(&data).get_text(), "abc", "{key:?}");
+        }
+    }
+}
+
+/// R5: a text area's STRUCTURE (display, flex, overflow, cursor, ...) is its
+/// base - declared once, outside every `@theme(<name>)` block, so it holds
+/// under flat, flora and any theme to come.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::TextArea;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_text_area_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let areas = [
+                ("empty", TextArea::create()),
+                ("with text", TextArea::create().with_text(AzString::from("Dear diary"))),
+                (
+                    "with a placeholder",
+                    TextArea::create().with_placeholder(AzString::from("Notes")),
+                ),
+            ];
+            for (what, area) in areas {
+                let dom = under(t, move || area.dom());
+                assert_structure_is_shared(
+                    &format!("text area {what}, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
         }
     }
 }

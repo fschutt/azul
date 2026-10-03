@@ -7,7 +7,7 @@ audience: external
 maturity: beta
 guide_order: 124
 topic_only: false
-short_desc: Camera/mic capture, audio playback, and streaming A/V frames to a peer (the azul-meet pattern)
+short_desc: Camera/mic capture, audio playback, and media between apps over iroh (AzMeet - rooms, audio, leave, forwarding and renditions for rooms of three and more)
 prerequisites: [events/callbacks, data/background-tasks]
 tracked_files:
   - layout/src/widgets/capture_common.rs
@@ -15,7 +15,16 @@ tracked_files:
   - core/src/audio.rs
   - core/src/video.rs
   - dll/src/desktop/extra/audio/mod.rs
-  - examples/azul-meet/src/main.rs
+  - dll/src/desktop/extra/iroh/engine.rs
+  - dll/src/desktop/extra/iroh/loadbalancer.rs
+  - examples/azul-meet/src/lib.rs
+  - examples/azul-meet/src/audio.rs
+  - examples/azul-meet/src/rooms.rs
+  - examples/azul-meet/src/routes.rs
+  - examples/azul-meet/src/video_wire.rs
+  - examples/azul-meet/scripts/meet-e2e.mjs
+  - examples/azul-meet/scripts/two-clients.mjs
+  - examples/azul-meet/scripts/three-clients.mjs
 last_generated_rev: 754b7f00e088960c14db598f64fa200dacc28bf1
 generated_at: 2026-05-21T00:00:00Z
 default-search-keys:
@@ -28,6 +37,15 @@ default-search-keys:
   - VideoEncoder
   - VideoDecoder
   - backend_name
+  - IrohEndpoint
+  - broadcast_frame
+  - send_message
+  - AzMeet
+  - jitter buffer
+  - IrohLoadBalancer
+  - IrohTileRole
+  - simulcast
+  - backbone
 ---
 
 # Realtime Media
@@ -38,15 +56,23 @@ Azul exposes camera / screen / microphone **capture** and audio **playback** as
 ordinary widgets and handles - no globals, no manager singletons. Each capture
 source is a "dumb widget" that owns a background worker and hands you each frame
 through a callback hook; playback is a handle you keep in your own application
-`State`. Tying them together is the `azul-meet` example (a loopback audio call):
-capture -> hook -> serialize -> [transport] -> deserialize -> playback.
+`State`. Between two apps the bytes travel over `IrohEndpoint` (see
+[networking](../data/networking.md#peer-to-peer-connections)): media frames on
+numbered tracks, control data as messages.
 
-> **Transport is your choice.** Capture and playback are transport-agnostic: a
-> hook hands you decoded frames and `AudioSink` plays frames you hand it, so what
-> carries the bytes between peers is entirely up to you. A first-class,
-> browser-and-native peer-to-peer transport (the **AzMeet** conferencing layer)
-> is being designed separately; until it lands, serialize frames yourself and
-> send them over whatever transport your app already uses.
+```text
+capture -> hook -> encode -> IrohEndpoint -> decode -> jitter buffer -> playback
+```
+
+The `examples/azul-meet` app (AzMeet) puts it all together: meetings joined by a
+link, video and audio between every participant, mute state, and leaving. See
+[AzMeet](#azmeet-meetings-audio-leaving) below.
+
+> **Capture and playback do not know about the network.** A hook hands you
+> frames and `AudioSink` plays frames you hand it, so any transport works.
+> `IrohEndpoint` is the one azul ships: direct QUIC between native apps, relayed
+> when no direct path exists. A browser participant needs a relay bridge or
+> WebRTC, which AzMeet does not have yet.
 
 The architecture follows the framework's backreference dependency-injection
 pattern (see [architecture](../architecture.md)): a widget takes a `RefAny` (a
@@ -137,77 +163,368 @@ extern "C" fn on_audio_frame(mut data: RefAny, _info: CallbackInfo, frame: Audio
 }
 ```
 
+Do not assume a chunk length: the test tone delivers about 20 ms, a platform
+backend whatever its device hands it. If your wire format wants fixed packets,
+re-cut the chunks (AzMeet's `Packetizer` does, see below). Capture stops when the
+node unmounts, so muting is simply not rendering the widget.
+
 ## Playing audio (`AudioSink`)
 
 Playback is a handle, not a widget - you usually play audio you *received*, not
 audio bound to a node. `AudioSink` follows the same C-ABI handle convention as
-`Db` / `Pdf`: open it, keep it in your `State`, feed it frames, drop it to stop.
+`Db` / `Pdf`: open it, keep it, feed it frames, drop it to stop.
 
 ```rust
 let sink = AudioSink::open(AudioConfig { sample_rate: 48_000, channels: 1 });
 // ... later, for each frame you want to hear:
 sink.play(frame);            // queues the samples to the output
-// sink.is_open(), sink.frames_played(), sink.close()
+// sink.is_open(), sink.error_message(), sink.frames_played(), sink.close()
 ```
 
-## Streaming frames to a peer
+The sink is open only if an output device opened. With no device, no audio
+backend in this build, or a device that refuses the format, `open` returns a
+closed handle: `is_open()` is `false`, `play` does nothing and
+`error_message()` says why, in words you can show the user. `frames_played`
+counts only the frames a device took, so a frame dropped because the device
+queue was full is not counted.
 
-Capture hands you a decoded frame; playback takes a frame. The only thing between
-two peers is **your serialization + a transport of your choice**. A frame becomes
-bytes, the bytes travel, and the far side turns them back into a frame:
+`play` queues the samples, and how it waits depends on the backend: an ALSA write
+blocks while the device buffer is full, AVAudioEngine keeps at most 8 buffers in
+flight (about 160 ms of 20 ms frames) and drops beyond that, cpal holds up to 4
+seconds. So feed a stream from a thread of its own, one packet per packet length,
+not from a UI callback; and open one sink per stream at that stream's rate - the
+system mixes several open sinks.
 
-```rust
-// on_frame: capture -> serialize -> send over your transport
-let bytes = frame_to_bytes(&frame);
-s.transport.send(s.peer.clone(), bytes);
+## Sending media between apps
 
-// recv (Timer tick or worker): receive -> deserialize -> play
-while let Some(bytes) = s.transport.poll_recv() {
-    if let Some(frame) = bytes_to_frame(bytes.as_ref()) {
-        s.sink.play(frame);
+`IrohEndpoint` has two ways to send bytes to a connected peer, and media needs
+both:
+
+- **Frames** (`send_frame`, `broadcast_frame`) travel on numbered tracks, each
+  frame on its own QUIC stream. They are *latest-wins* at both ends: a frame that
+  has not left yet is replaced by the next frame of its track, and the receiver
+  keeps only the newest frame of each track until `recv` takes it. For video whose
+  every frame stands alone (JPEG) that is right: a late frame is worthless. For
+  audio, where every packet counts, repeat the last few packets in every frame, so
+  a replaced frame loses nothing.
+- **Messages** (`send_message`) are reliable and ordered: control data such as
+  "my microphone is off", and video from an inter-frame codec (H.264). A P-frame
+  needs every packet since the last keyframe, and frames cannot promise that: one
+  may be replaced before it leaves, and since each frame is its own stream a large
+  keyframe loses the race to the small P-frame after it and is then dropped on
+  arrival as the older one.
+
+```rust,ignore
+// A capture hook: encode the frame and send it to everyone on its track.
+extern "C" fn on_consumer_frame(mut data: RefAny, _info: CallbackInfo, cut: ConsumerFrame) -> Update {
+    if let ResultU8VecEncodeImageError::Ok(jpeg) = rgba_image(&cut.frame).encode_jpeg(75) {
+        endpoint_of(&mut data).broadcast_frame(cut.consumer.id, jpeg);
+    }
+    Update::DoNothing
+}
+
+// A timer: everything that arrived since the last tick.
+while let Some(event) = endpoint.recv().into_option() {
+    match event.kind {
+        IrohEventKind::Frame if event.track == AUDIO_TRACK => buffer_audio(event.peer, event.data),
+        IrohEventKind::Frame => show_tile(event.peer, event.track, event.data),
+        IrohEventKind::Message => apply_control(event.peer, event.data),
+        _ => {}
     }
 }
 ```
 
-`frame_to_bytes` / `bytes_to_frame` are yours (a length-prefixed struct, or the
-encoded codec bytes from `VideoEncoder` below). For a full keyframe that exceeds
-the network MTU you chunk it into sequenced messages and reassemble on the far
-side; a few-KB audio frame fits in a single message.
+Nothing arrives unless you poll `recv`; AzMeet does it every 15 ms.
 
-### The transport seam
+## AzMeet: meetings, audio, leaving
 
-`s.transport` above is deliberately abstract. The realtime-media APIs stop at the
-**serialize/deserialize seam** so you can drop in whatever moves bytes between
-peers — and the trade-offs there (raw datagrams vs. congestion-controlled QUIC,
-direct peer-to-peer vs. relayed, native-only vs. also-in-the-browser) are exactly
-what the **AzMeet** conferencing transport is being designed to standardize.
-Until that ships as a first-class API, wire the seam to your own transport.
+`examples/azul-meet` is a meeting app on the public API. Started with a meeting
+server it shows **New meeting** and **Join with a link**; in a meeting it shows the
+invite link, the people, a tile per camera or screen, and the buttons **Mute**,
+**Deafen**, **Start video**, **Share screen**, **Speaker view** / **Grid view** and
+**Leave**.
 
-## Putting it together: the azul-meet pattern
+### Rooms
 
-`examples/azul-meet` wires the full loop as a **loopback** call (it sends to
-itself, so the whole round-trip runs on one machine, no network required):
+The meeting server is the `meet` Cloudflare Worker (azul-apps `cf-workers/meet`,
+with a local mock, `dev-server.mjs`). It never sees any media; it only lets the
+apps find each other:
 
-1. A `MicrophoneWidget` captures audio; its `on_frame` serializes the
-   `AudioFrame` and sends it to the peer.
-2. A recv `Timer` drains the transport, deserializes each message back into an
-   `AudioFrame`, and `AudioSink::play`s it.
+| Request | What AzMeet uses it for |
+|---|---|
+| `POST /rooms` | New meeting: a room id (the credential), a short code, the link `azlin://meet/<room>` |
+| `GET /rooms/<id or code>?format=json` | Joining: resolves a pasted link or code |
+| `POST /rooms/<id>/peers` with `{node_id, ticket, name}` | Announces this app's iroh ticket, every 20 s |
+| `GET /rooms/<id>/peers?except=<node_id>` | Reads everyone else's ticket, every 2 s |
+| `DELETE /rooms/<id>/peers/<node_id>` | Leaving: off the list at once |
 
-A real two-party call is the same code with `peer` set to the remote endpoint.
-See `examples/azul-meet/src/main.rs` for the complete app (serialization +
-Timer + State).
+Of each pair of participants the one with the lower endpoint id dials, so two
+peers that find each other in the same poll open one connection. Every request
+runs on an azul `Thread` and resumes on the UI thread, so no callback waits on the
+network. A participant that stops announcing drops off after 120 s, a room after
+a day without announcements.
+
+The start screen has a **Meeting server** field, prefilled with the address saved
+last time, else `AZMEET_WORKER`, else the built-in default (`PRODUCTION_WORKER`,
+baked in with `AZMEET_DEFAULT_WORKER=<url>` at build time, else the local mock at
+`http://127.0.0.1:8787`). Pressing Enter or leaving the field makes its address the
+meeting server for every request from then on, checks it with `GET /health`, and
+saves it (`AzMeet/settings.txt` in the per-user config folder,
+`FilePath::get_config_dir`; written to a temporary file and renamed) once it
+answers. The line under the field says whether it answers. The in-process demo
+opens only when nothing is saved or set and the built-in default does not answer.
+A headless run (`AZ_BACKEND=headless`) neither reads nor writes the saved address,
+so `AZMEET_WORKER` always wins in tests.
+
+### Video
+
+Each camera or screen frame is sent on track 1 (camera) or 2 (screen), in the
+renditions the viewers' tiles ask for (see *Rooms of three and more*: 90, 180, 360
+or 720 lines, 16:9, at most two per track); each peer's pictures land in that
+peer's own tiles. The rules live in
+`examples/azul-meet/src/video_wire.rs` (plain Rust with unit tests).
+
+1. **Codec.** At start AzMeet opens a `VideoEncoder`, encodes a test frame and
+   decodes the result with a `VideoDecoder`. An open handle proves nothing (where
+   no backend is built in, `open` hands out a handle that never yields a packet),
+   so only a keyframe that comes back as a picture counts. Where it does
+   (VideoToolbox on macOS and iOS), frames go out as H.264; elsewhere as JPEG. The
+   devices panel says which: `Video: H.264 (VideoToolbox)`, `Video: JPEG (no
+   encoder)`. On connecting, each side sends `[5][flags]` (bit 0: decodes H.264,
+   bit 1: encodes it), and a peer that cannot decode H.264 gets JPEG from a sender
+   that encodes it:
+   `Video: H.264 (VideoToolbox); JPEG to Ben (no H.264 decoder)`.
+2. **Packets.** Every packet carries a 20-byte header:
+
+   ```text
+   [2][version 2][codec: 1 JPEG, 2 H.264][flags: bit 0 keyframe]
+   [track u32][seq u32][frame_no u32][height u16][0 u16]
+   then a JPEG file or H.264 Annex B
+   ```
+
+   `height` names the rendition: each rendition of a track is a stream of its own,
+   with its own encoder, numbers and keyframes. `seq` counts one codec's packets on
+   one rendition, so a gap is a missing packet; `frame_no` counts the frames
+   captured and may jump. H.264 packets are sent as messages; JPEG ones as
+   latest-wins frames, each rendition on its own frame track.
+3. **Loss.** A receiver decodes in order. After a gap in `seq` it decodes nothing
+   until the next keyframe (an IDR slice) and sends `[3][track][height]`, a
+   keyframe request, again after a second while it still waits. The sender forces a
+   keyframe on a request (several requests within half a second share one), for
+   every new peer, and every 3 seconds anyway. An encoder that answers a forced
+   keyframe with a P-frame is closed and opened again: a new encoder starts with a
+   keyframe.
+4. **A slow link.** Messages are never dropped, so a link slower than the video
+   would queue without end. The receiver acknowledges H.264 packets
+   (`[4][track][seq][height]`, every fifth and every keyframe); a sender more than 24 packets ahead of a peer
+   pauses that peer and resumes it at a keyframe once it caught up.
+5. **Decoding.** Each peer's tracks have their own `VideoDecoder`. One that is
+   given 30 packets from a keyframe on and returns no picture does not work here:
+   AzMeet tells everyone it decodes no H.264, and gets JPEG.
+
+The devices panel shows both directions, per rendition: `Sending camera 360p: 450
+H.264 packets, 0 JPEG frames, 8 keyframes, 2 on request, 5 periodic, 0 reopens, 0
+dropped on purpose` and `Video from Ben (camera 360p): H.264, decoded 300,
+keyframes 12, gaps 1, dropped 3, keyframe requests 1` (`camera 90p via Ben` when a
+forwarder passes it on).
+
+### Audio
+
+The audio path lives in `examples/azul-meet/src/audio.rs` (plain Rust with unit
+tests) and `lib.rs`:
+
+1. **Packets.** The microphone's chunks are mixed down to mono, converted to
+   16-bit PCM and cut into 20 ms packets at the microphone's rate (960 samples at
+   48 kHz), each with the next sequence number.
+2. **Frames.** Every new packet is sent in a frame together with the two before
+   it, on track 3, so a replaced or overwritten frame loses nothing while the next
+   one arrives:
+
+   ```text
+   [version 1][codec 1 = PCM s16][count][0][sample rate u32]
+   count x ([sequence u32][length u16][length x i16])     little endian, oldest first
+   ```
+
+   Raw PCM at 48 kHz is 768 kbit/s, about 2.3 Mbit/s with the repeats: fine on a
+   local network, heavy on a phone. Opus (codec 2) is the next step.
+3. **A jitter buffer per peer.** It keeps packets in sequence order, drops copies
+   and packets whose turn has passed, and starts to play once it holds three
+   (60 ms). A missing packet plays as silence: when later packets are already
+   there the gap is skipped, otherwise its turn waits. After 200 ms without
+   packets (the peer muted) it fills up again before playing; past 200 ms of
+   backlog it drops the oldest.
+4. **A playout thread.** Every 20 ms a thread of its own takes one turn from every
+   peer's buffer and plays it through that peer's `AudioSink`, opened at that
+   peer's rate. The UI thread only pushes packets into the buffers, under a lock
+   it holds for microseconds, and never waits on a device.
+
+The devices panel shows what is sent and what arrived, per peer:
+`Audio from Ben: 250 packets, 247 played, 3 silent, 0 late, 3 buffered`.
+
+### Mute, deafen, leave
+
+- **Mute** stops the microphone; **Deafen** stops playing the others and drops
+  what is buffered. Each change, and every new connection, sends a two-byte
+  message (`[1][flags]`: bit 0 muted, bit 1 deafened), and the people list shows
+  it: `Ben · connected · muted`, `Ada (you) · deafened`.
+- **Leave** disconnects from every peer, stops announcing and polling, takes this
+  participant off the room with `DELETE`, and returns to the start screen. A peer
+  that still dials afterwards is refused, and the answer to a request sent before
+  leaving is ignored.
+
+### Rooms of three and more
+
+Sending everything to everyone (a full mesh) costs every participant one upload
+per person. AzMeet follows the routes design (azul-apps
+`planning/engines/iroh-routes.md`): cull what nobody shows, then route the rest
+over the room's best connections. The rules live in
+`examples/azul-meet/src/routes.rs` (plain Rust with unit tests); the choice of
+forwarders is azul's `IrohLoadBalancer`.
+
+1. **Reports.** Every participant sends everyone a `ConnectionSync` (kind 6) on
+   connect, on every change and every 2 seconds: its uplink (estimated from
+   `IrohEndpoint::peer_stats`: the bytes sent per second, or what one path's
+   congestion window allows per round trip, reported in steps and only after
+   three intervals in a row), its stability (intervals without a loss spike or an
+   RTT jump), whether it is relay-only, on battery or opted out of forwarding,
+   whether it sends audio, camera and screen, and the rendition each of its tiles
+   asks for.
+2. **The plan.** Every side feeds the same reports to the load balancer and so
+   gets the same plan:
+
+   ```rust
+   let mut balancer = IrohLoadBalancer::create();
+   balancer.set_mesh_cap(mesh_cap); // AZMEET_MESH_CAP, default 4 (the design says 8)
+   for (key, report) in reports {
+       let mut capacity = IrohPeerCapacity::create(key, report.uplink_kbps);
+       capacity.stability = report.stability;
+       balancer.set_peer(capacity);
+   }
+   let n = balancer.select_backbone(fanout_kbps); // grows until it carries 1.5x
+   let backbone: Vec<u64> = (0..n)
+       .filter_map(|i| balancer.backbone_peer(i).into_option())
+       .collect();
+   ```
+
+   Up to the mesh cap everyone forwards, so the plan is the full mesh. Above it
+   `max(ceil(sqrt N), ceil(N / 8))` peers, best score first, form the backbone;
+   every other participant is a leaf attached to a backbone peer (round robin in
+   key order). A leaf uploads its media once, to its parent, and receives
+   everything through it; the parent passes a leaf's media to the other backbone
+   peers, and every backbone peer passes what it gets to its own leaves.
+3. **Renditions.** Each tile asks for `IrohTileRole::rendition_height` of its role
+   (grid tile: `Gallery`, the speaker view's stage: `Stage`, its thumbnails:
+   `Filmstrip`), its laid-out height (`CallbackInfo::get_node_size` of the tile)
+   and the window's scale. A sender encodes the smallest and the largest height
+   asked for, one `VideoEncoder` each at `IrohLoadBalancer::rendition_kbps`, and
+   the camera widget gets one capture consumer per rendition; each viewer gets the
+   smallest encoded rendition at least as tall as its tile, in H.264 where both
+   ends do it. Nothing nobody shows is encoded (**Stop video (not shown to anyone,
+   not being sent)**).
+4. **Forwarding.** A forwarder passes each child only the streams someone at or
+   below that child gets. Passed-on items travel in an envelope (kind 7:
+   `[7][1][track u32][origin u64][from u64]` then the original bytes): audio and
+   JPEG as frames, one frame track per origin; H.264 as messages, through a
+   window per child like the sender's own. Acknowledgements and keyframe requests
+   go back the way a stream came, and a forwarder passes a request on toward the
+   origin: `Ben: passing Cleo's keyframe request for Ada's camera 90p on to Ada`,
+   then `Ada: Cleo asked for a keyframe (camera 90p, via Ben)`.
+5. **Network panel.** The devices panel's *Network* column shows the plan
+   (`Network: 3 people, mesh cap 2: backbone Ben, Cleo; Ada uploads to Ben`),
+   every origin's route (`Routes: Ada: Ada>Ben, Ben>Cleo | ...`), this side's part
+   (`You: leaf, uploading once to Ben`) and report, what it passed on
+   (`Forwarded: ...`), and a line per peer: direct or relayed and the RTT, backbone
+   or leaf, its reported uplink, what this side sends it and gets through it.
+
+### Run it
+
+```sh
+# the meeting server (azul-apps)
+node cf-workers/meet/dev-server.mjs
+
+# two participants (azul)
+AZMEET_WORKER=http://127.0.0.1:8787 AZMEET_NAME=Ada cargo run --release -p AzMeet
+AZMEET_WORKER=http://127.0.0.1:8787 AZMEET_NAME=Ben cargo run --release -p AzMeet
+```
+
+Ada clicks **New meeting** and **Copy link**; Ben pastes the link and clicks
+**Join**. Without a reachable meeting server AzMeet opens its in-process demo
+instead: two windows, one per participant, linked by two endpoints.
+
+| Variable | Meaning |
+|---|---|
+| `AZMEET_WORKER` | The meeting server when none was saved from the start screen, e.g. `http://127.0.0.1:8787` |
+| `AZMEET_NAME` | The name the others see |
+| `AZMEET_AUTOCREATE=1`, `AZMEET_JOIN=<link>` | Start in a meeting without a click; the link is printed as `AZMEET_LINK <link>` |
+| `AZMEET_RELAY` | `off`, `default` or a relay URL (off for a meeting server on this machine) |
+| `AZMEET_TEST_TONE=1` | A 440 Hz tone replaces the microphone, unmuted from the start |
+| `AZMEET_TEST_PATTERN=1` | Moving colour bars replace the camera (on from the start) and the screen; a **Drop a video packet** button drops the next packet |
+| `AZMEET_VIDEO_CODEC=jpeg` | Send JPEG even where H.264 works |
+| `AZMEET_MESH_CAP=<n>` | Rooms of up to n people send everything directly (default 4) |
+| `AZMEET_UPLINK_KBPS=<kbit/s>` | Report this uplink instead of the estimate |
+| `AZMEET_NO_FORWARD=1`, `AZMEET_ON_BATTERY=1` | Never forward for others; report running on battery |
+| `AZMEET_LAYOUT=speaker`, `AZMEET_STAGE=<name>` | Start in speaker view with that participant on the stage |
+
+### Test it
+
+`examples/azul-meet/scripts/two-clients.mjs` starts the mock meeting server and
+two headless AzMeet processes, then checks through each app's debug server
+(`AZ_DEBUG`) that they connect, that each counts at least a second of the other's
+audio, that each decodes two seconds of the other's test pattern with a keyframe,
+that a packet dropped on purpose (**Drop a video packet**) makes the receiver ask
+for a keyframe and decode again (with H.264; with JPEG it costs nothing), that a
+mute shows on the other side, and that **Leave** takes a participant off the room
+at once. `--require-h264` fails a run that fell back to JPEG.
+
+`examples/azul-meet/scripts/three-clients.mjs` runs three headless participants
+with `AZMEET_MESH_CAP=2` and pinned uplinks (Ada 1 Mbps, Ben 50, Cleo 10; Cleo in
+speaker view with Ben on the stage), so the backbone is Ben and Cleo and Ada is
+Ben's leaf. It checks that every window shows the same plan and routes, that
+everyone hears and sees both others at the planned renditions (360p for grid and
+stage tiles, 90p for Cleo's thumbnail of Ada) and through the planned forwarder,
+that Ada sends two renditions and Ben passes only the 90p on to Cleo, that a
+keyframe request of Cleo's reaches Ada through Ben, and that the two left are
+back in the full mesh when Cleo leaves. Both scripts share their helpers in
+`meet-e2e.mjs`.
+
+A headless test must never open a real device. Under `AZ_BACKEND=headless` only
+`AudioDeviceList::enumerate` is answered by the mock store (see
+[e2e-testing](../debugging/e2e-testing.md)); `MicrophoneWidget`, `AudioSink::open`,
+`CameraWidget` and `ScreenCaptureWidget` would still reach the hardware. So AzMeet
+checks for itself: in a headless run its microphone is the test tone (no
+`MicrophoneWidget` is mounted), received audio is drained and counted, never
+played, and the camera and the screen share are test patterns (no capture widget
+is mounted). Do the same in your own app.
+
+### Not yet
+
+- Opus and its loss concealment; echo cancellation and noise suppression.
+- Routing: the plan is computed on every side from direct reports, not by one
+  planner over gossip; there is no backup parent, no per-hop budget, and no
+  hysteresis beyond the sticky uplink steps (a rendition switch costs a keyframe).
+  Uplink fitting (a weak publisher stepping its top rendition down) and
+  "active speaker" audio culling are not done.
+- Video: bitrate that follows the link, HEVC / AV1, and H.264 encode outside Apple
+  (Media Foundation, VAAPI / Vulkan Video, MediaCodec); until then those
+  platforms send JPEG.
+- Signed announcements on the meeting server; browser participants.
 
 ## What is on-device
 
-The widget/handle surfaces above are cross-platform and always present. The
-actual hardware backends are platform-specific and only run on a real device:
+The widget and handle surfaces above are cross-platform and always present. The
+hardware backends are platform-specific:
 
-- **Capture** (camera, screen, microphone): AVFoundation / ScreenCaptureKit /
-  AVAudioEngine on Apple, Camera2 / MediaProjection / AAudio on Android. The
-  current desktop builds use stand-in workers (a test pattern / test tone) so
-  the API + plumbing are exercisable without hardware.
-- **Audio output** (`AudioSink`): rodio/cpal on desktop, AVAudioEngine / AAudio
-  on mobile.
+- **Microphone**: ALSA on Linux, cpal (WASAPI) on Windows, AVAudioEngine on macOS
+  and iOS, AAudio on Android.
+- **Audio output** (`AudioSink`): ALSA on Linux, cpal on Windows, AVAudioEngine on
+  macOS and iOS, AAudio on Android. A sink whose device does not open is closed,
+  and `error_message()` says why.
+- **Camera**: V4L2 on Linux, Media Foundation on Windows, AVFoundation on macOS
+  and iOS, Camera2 on Android. **Screen**: the ScreenCast portal and PipeWire on
+  Linux, DXGI desktop duplication on Windows, ScreenCaptureKit on macOS.
+- Where no capture backend opens, the widgets fall back to a test pattern (video)
+  or a 440 Hz test tone (audio) and say so once, so the plumbing runs without
+  hardware.
 - **Video encode/decode** (`VideoEncoder` / `VideoDecoder`), submit + poll:
   `VideoEncoder::open(w, h, h265, bitrate_kbps)` -> `encode(VideoFrame, force_keyframe)
   -> bool` (accepted) then drain `recv_packet() -> Option<U8Vec>`;
@@ -219,18 +536,24 @@ actual hardware backends are platform-specific and only run on a real device:
   selects: **gpu-video** (Vulkan Video) on Linux/Windows desktop, **VideoToolbox**
   on Apple (Vulkan Video can't build there - no MoltenVK video), **MediaCodec**
   on Android. The handles + the selection are exposed cross-platform; the codec
-  FFI itself is the on-device part. Use these at the `azul-meet`
-  serialize/deserialize seam (your transport carries the encoded bytes).
+  FFI itself is the on-device part. Today only VideoToolbox encodes; elsewhere
+  `open` hands out a handle whose `recv_packet` never yields, so check with a test
+  frame before relying on it (AzMeet does). Send the packets as messages, not
+  frames (see "Sending media between apps").
 
 ## Testing without hardware
 
 The synthetic-event harness (`layout/tests/synthetic_events.rs`) injects
 sensor / gamepad / geolocation / audio / video events through the same channels
 a real device uses, so you can exercise the capture + event paths in CI. See
-[e2e-testing](../debugging/e2e-testing.md).
+[e2e-testing](../debugging/e2e-testing.md). For two apps talking to each other,
+`examples/azul-meet/scripts/two-clients.mjs` (above) is the pattern: two
+headless processes, a test tone instead of a microphone, and assertions on what
+each window shows.
 
 ## See also
 
+- [networking](../data/networking.md#peer-to-peer-connections) - `IrohEndpoint`: tickets, frames, messages.
 - [callbacks](../events/callbacks.md) - the hook + `RefAny` mechanism.
 - [background-tasks](../data/background-tasks.md) - the `Thread` that drives capture.
 - [timers](../animations/timers.md) - polling your transport for received frames each frame.

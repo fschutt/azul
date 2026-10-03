@@ -260,7 +260,8 @@ impl Avatar {
         self
     }
 
-    /// Sets the theme this avatar renders with.
+    /// Pins the theme this avatar renders with, whatever the app theme is.
+    /// Unset (`None`), it follows the app theme.
     #[inline]
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
@@ -298,13 +299,15 @@ impl Avatar {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        let theme = match self.theme {
-            OptionUiTheme::Some(theme) => theme,
-            OptionUiTheme::None => UiTheme::Flat,
-        };
-        match theme {
-            UiTheme::Flat => crate::widgets::themes::flat::avatar(self),
-            UiTheme::Flora => crate::widgets::themes::flora::avatar(self),
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::avatar(self),
+            Some(UiTheme::Flora) => flora::avatar(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            // (The two avatars look alike today, so the blocks collapse to
+            // the one unconditioned look.)
+            None => theme_blocks::follow_app_theme(self, flat::avatar, flora::avatar),
         }
     }
 }
@@ -438,9 +441,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1173,5 +1174,53 @@ mod autotest_generated {
             properties(&build_image_style(AvatarSize::Large)),
             "and so does the image inside it"
         );
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn an_avatar_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "avatar",
+            || Avatar::create(AzString::from("AB")).dom(),
+            |t: UiTheme| Avatar::create(AzString::from("AB")).with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the circle's centred row and its clip are the avatar's BASE,
+    /// declared once outside every `@theme` block. Initials and an image,
+    /// every size.
+    #[test]
+    fn an_avatar_declares_its_structure_once_for_every_theme() {
+        use azul_core::resources::RawImageFormat;
+
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let image = || ImageRef::null_image(2, 2, RawImageFormat::RGBA8, Vec::new());
+        for t in checks::BOTH {
+            for size in [AvatarSize::Small, AvatarSize::Medium, AvatarSize::Large] {
+                let initials =
+                    checks::under(t, || Avatar::create(AzString::from("AB")).with_size(size).dom());
+                assert_structure_is_shared(
+                    &format!("avatar {size:?} with initials built for {}", t.name()),
+                    &initials,
+                    &[],
+                );
+                let picture =
+                    checks::under(t, || Avatar::create_with_image(image()).with_size(size).dom());
+                assert_structure_is_shared(
+                    &format!("avatar {size:?} with an image built for {}", t.name()),
+                    &picture,
+                    &[],
+                );
+            }
+        }
     }
 }

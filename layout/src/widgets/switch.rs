@@ -15,7 +15,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{color::ColorU, *},
         layout::{
@@ -71,8 +70,10 @@ azul_core::impl_managed_callback! {
 #[repr(C)]
 pub struct Switch {
     pub switch_state: SwitchStateWrapper,
-    /// Style for the switch track (the pill-shaped container)
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`).
     pub theme: OptionUiTheme,
+    /// Style for the switch track (the pill-shaped container)
     pub track_style: OptionCssPropertyWithConditionsVec,
     /// Style for the sliding knob
     pub knob_style: OptionCssPropertyWithConditionsVec,
@@ -183,7 +184,9 @@ pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
             LayoutFlexDirection::Row,
         )),
         CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Center)),
+        // `start`, like Segmented and Pagination: the parent decides where a
+        // fixed-size widget goes. `center` centred it HORIZONTALLY in a column.
+        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             0,
         ))),
@@ -317,8 +320,8 @@ impl Switch {
         s
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the widget follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
     }
@@ -350,16 +353,19 @@ impl Switch {
         self
     }
 
+    /// Renders the switch. Unpinned (`theme: None`), it follows the APP
+    /// theme: built in the structure of the theme its DOM is built for,
+    /// every node carrying flat's and flora's blocks
+    /// (`themes::theme_blocks::follow_app_theme`; the two looks are one today, so
+    /// the merge keeps every declaration unconditional).
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        let theme = match self.theme {
-            OptionUiTheme::Some(theme) => theme,
-            OptionUiTheme::None => UiTheme::Flat,
-        };
-        match theme {
-            UiTheme::Flat => crate::widgets::themes::flat::switch(self),
-            UiTheme::Flora => crate::widgets::themes::flora::switch(self),
+        use crate::widgets::themes::{flat, flora, theme_blocks};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::switch(self),
+            Some(UiTheme::Flora) => flora::switch(self),
+            None => theme_blocks::follow_app_theme(self, flat::switch, flora::switch),
         }
     }
 }
@@ -2177,5 +2183,37 @@ mod autotest_generated {
             bg_nodes, margin_nodes,
             "the colour and the knob offset landed on the same node",
         );
+    }
+}
+
+/// R5: a switch's STRUCTURE (display, flex, align-self, cursor, ...) is its
+/// base - declared once, outside every `@theme(<name>)` block, so it holds
+/// under flat, flora and any theme to come.
+#[cfg(test)]
+mod structure_tests {
+    use azul_css::AzString;
+
+    use super::Switch;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_switch_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for checked in [false, true] {
+                let dom = under(t, || {
+                    Switch::create(checked)
+                        .with_accessibility_name(AzString::from("Wi-Fi"))
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("switch (checked: {checked}), built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

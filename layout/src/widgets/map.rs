@@ -34,11 +34,11 @@ use azul_core::{
     dom::{DatasetMergeCallbackType, Dom, OptionDom},
     refany::{OptionRefAny, RefAny},
 };
-use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
     AzString,
 };
+use azul_css::system::DarkLightMode;
 
 // ────────── POD types (api.json + codegen surface) ─────────────────────
 
@@ -141,20 +141,20 @@ impl MapColorScheme {
     /// (`css/src/dynamic_selector.rs`). Reading it here means the map and the
     /// stylesheet cannot disagree about what "dark" means.
     #[must_use]
-    pub const fn from_system_theme(theme: azul_css::system::Theme) -> Self {
+    pub const fn from_system_theme(theme: azul_css::system::DarkLightMode) -> Self {
         match theme {
-            azul_css::system::Theme::Dark => Self::Dark,
-            azul_css::system::Theme::Light => Self::Light,
+            DarkLightMode::Dark => Self::Dark,
+            DarkLightMode::Light => Self::Light,
         }
     }
 
     /// The scheme of a WINDOW theme — what a `MapTheme::System` layer
     /// follows at render time (`VirtualViewCallbackInfo::window_theme`).
     #[must_use]
-    pub const fn from_window_theme(theme: azul_core::window::WindowTheme) -> Self {
+    pub const fn from_window_theme(theme: azul_core::window::DarkLightMode) -> Self {
         match theme {
-            azul_core::window::WindowTheme::DarkMode => Self::Dark,
-            azul_core::window::WindowTheme::LightMode => Self::Light,
+            azul_core::window::DarkLightMode::Dark => Self::Dark,
+            azul_core::window::DarkLightMode::Light => Self::Light,
         }
     }
 }
@@ -235,7 +235,7 @@ impl MapTheme {
     /// The `MapCSS` sheet this theme renders with under `window_theme`; empty
     /// for `Custom` (the layer's `style_css` is the sheet then).
     #[must_use]
-    pub fn stylesheet(self, window_theme: azul_core::window::WindowTheme) -> AzString {
+    pub fn stylesheet(self, window_theme: azul_core::window::DarkLightMode) -> AzString {
         AzString::from(
             self.look(MapColorScheme::from_window_theme(window_theme))
                 .sheet(),
@@ -247,7 +247,7 @@ impl MapTheme {
     /// sample); empty for the authored looks and `Custom`. Both halves are
     /// appended to the layer's attribution by [`MapTileLayer::with_theme`].
     #[must_use]
-    pub fn credit(self, window_theme: azul_core::window::WindowTheme) -> AzString {
+    pub fn credit(self, window_theme: azul_core::window::DarkLightMode) -> AzString {
         AzString::from(
             self.look(MapColorScheme::from_window_theme(window_theme))
                 .credit_str(),
@@ -327,7 +327,7 @@ impl MapTileLayer {
     /// non-empty `style_css` always wins; else the theme's sheet for that
     /// half; else the built-in palette (empty).
     #[must_use]
-    pub fn effective_style_css(&self, window_theme: azul_core::window::WindowTheme) -> AzString {
+    pub fn effective_style_css(&self, window_theme: azul_core::window::DarkLightMode) -> AzString {
         self.effective_style_css_for(
             self.theme
                 .look(MapColorScheme::from_window_theme(window_theme)),
@@ -820,13 +820,13 @@ pub struct MapTileCache {
     /// mouse-move to derive the pixel delta, which then converts to a
     /// lat/lon delta via the Web Mercator inverse.
     pub drag_anchor: Option<azul_core::geom::LogicalPosition>,
-    /// Pinch reference distance (pixels) - the two-finger separation
-    /// the last time a pinch event was observed for this widget.
-    /// `Some` while a pinch is in flight, `None` between gestures.
-    /// On each subsequent pinch update we compute
-    /// `dz = log2(current_distance / pinch_anchor)` and add it to
-    /// `viewport.zoom`, then reset the anchor to the current
-    /// distance - so the gesture stays continuous across many frames.
+    /// The pinch in flight: its scale at its last update
+    /// (`DetectedPinch::scale`, cumulative since the gesture began).
+    /// `None` between gestures. Each update adds
+    /// `dz = log2(scale / pinch_anchor)` to `viewport.zoom` - from 1.0 on
+    /// the update that begins a gesture - and stores its scale here, so the
+    /// gesture stays continuous across many frames and a new one starts
+    /// where the last one left the map.
     pub pinch_anchor: Option<f32>,
     /// The user's `on_viewport_changed` hook, copied here from the builder
     /// so the pan / pinch callbacks can fire it. Carried across relayout.
@@ -1520,8 +1520,9 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 ///
 /// If a pinch gesture is in flight (two fingers on the widget), the
 /// pan branch is skipped and the move event drives zoom instead -
-/// `dz = log2(current_distance / pinch_anchor)`. The next move resets
-/// the anchor to the current distance so the gesture stays
+/// `dz = log2(scale / pinch_anchor)`, the ratio of the gesture's cumulative
+/// scale to its previous update (1.0 when the update begins the gesture).
+/// The anchor then holds this update's scale, so the gesture stays
 /// continuous across many frames.
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1537,14 +1538,23 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
             return Update::DoNothing;
         };
-        let anchor = *cache.pinch_anchor.get_or_insert(pinch.current_distance);
-        if anchor > 1.0 && pinch.current_distance > 1.0 {
-            let dz = (pinch.current_distance / anchor).log2();
+        // The scale is cumulative since the gesture began: zoom by its ratio
+        // to the gesture's previous update. Reading an update's scale on its
+        // own, or comparing across two gestures, is what made the trackpad
+        // pinch jitter between zooming in and out.
+        let previous = if pinch.began {
+            1.0
+        } else {
+            cache.pinch_anchor.unwrap_or(1.0)
+        };
+        let usable = |s: f32| s.is_finite() && s > 0.0;
+        if usable(previous) && usable(pinch.scale) {
+            let dz = (pinch.scale / previous).log2();
             let min = f32::from(cache.layer.min_zoom);
             let max = f32::from(cache.layer.max_zoom);
             cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
+            cache.pinch_anchor = Some(pinch.scale);
         }
-        cache.pinch_anchor = Some(pinch.current_distance);
         // Pinch is exclusive with pan — clear the drag anchor so the
         // pinch end doesn't accidentally drop into a pan.
         cache.drag_anchor = None;
@@ -1737,6 +1747,15 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     if dy == 0.0 {
         return Update::DoNothing;
     }
+    // THE WHEEL HAS ONE CONSUMER. The map is about to zoom on this gesture,
+    // so the page it sits in must not scroll as well — Leaflet vetoes the
+    // wheel for exactly this reason. The container scroll was queued against
+    // the innermost scrollable ancestor at ingress
+    // (`ScrollManager::record_scroll_from_hit_test`) before this callback
+    // could see the delta, and `preventDefault` is the only thing that takes
+    // it back; `stop_propagation` only silences other callbacks. A map that
+    // declines the gesture (dy == 0, above) leaves the page alone to scroll.
+    info.prevent_default();
     // The grid's on-screen rect is the widget size (needed to recompute the tiles
     // the new zoom needs).
     let bounds = info
@@ -2053,7 +2072,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     // `DynamicSelectorContext::from_system_style` feeds to
     // `prefers-color-scheme`, so the tiles and the app's stylesheet resolve
     // light/dark from one source instead of two.
-    let scheme = MapColorScheme::from_system_theme(info.get_system_style().theme);
+    let scheme = MapColorScheme::from_system_theme(info.get_system_style().mode);
 
     // Collect the work first (URL build + state flip) under one borrow,
     // then spawn outside it so we don't hold the cache lock across
@@ -2091,7 +2110,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             std::eprintln!(
                 "[map] spawn_pending: system theme={:?} scheme={:?} look={:?} \
                  look_changed={look_changed} ready={} pending={}",
-                info.get_system_style().theme,
+                info.get_system_style().mode,
                 scheme,
                 look,
                 cache
@@ -2631,7 +2650,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             // the scheme where the keys are read is what makes a switch
             // re-key the tiles (a miss under the new look inserts Pending, the
             // timer decodes it under the new sheet).
-            c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_theme));
+            c.cascade_scheme = Some(MapColorScheme::from_window_theme(info.window_mode));
             let look = c.current_look();
             c.set_active_look(look);
             (c.layer.clone(), c.viewport, look)
@@ -3056,7 +3075,7 @@ mod camera_tests {
 
 #[cfg(test)]
 mod theme_tests {
-    use azul_core::window::WindowTheme;
+    use azul_core::window::DarkLightMode;
 
     use super::*;
 
@@ -3086,8 +3105,8 @@ mod theme_tests {
                 !l.sheet().is_empty() && !d.sheet().is_empty(),
                 "{theme:?} must have a sheet for both halves"
             );
-            assert_eq!(theme.stylesheet(WindowTheme::LightMode).as_str(), l.sheet());
-            assert_eq!(theme.stylesheet(WindowTheme::DarkMode).as_str(), d.sheet());
+            assert_eq!(theme.stylesheet(DarkLightMode::Light).as_str(), l.sheet());
+            assert_eq!(theme.stylesheet(DarkLightMode::Dark).as_str(), d.sheet());
         }
         // Apple is ONE theme: the dark window picks its dark palette, no
         // second variant needed.
@@ -3104,7 +3123,7 @@ mod theme_tests {
             assert_eq!(theme.look(MapColorScheme::Dark), MapLook::DarkMatter);
         }
         assert!(MapTheme::Custom
-            .stylesheet(WindowTheme::LightMode)
+            .stylesheet(DarkLightMode::Light)
             .as_str()
             .is_empty());
         assert_eq!(
@@ -3117,11 +3136,11 @@ mod theme_tests {
     fn a_custom_sheet_wins_over_a_preset_and_with_theme_credits_the_design() {
         let layer = MapTileLayer::default().with_theme(MapTheme::Positron);
         assert_eq!(
-            layer.effective_style_css(WindowTheme::LightMode).as_str(),
+            layer.effective_style_css(DarkLightMode::Light).as_str(),
             super::super::map_themes::POSITRON
         );
         assert_eq!(
-            layer.effective_style_css(WindowTheme::DarkMode).as_str(),
+            layer.effective_style_css(DarkLightMode::Dark).as_str(),
             super::super::map_themes::DARK,
             "the dark window gets the theme's dark half"
         );
@@ -3142,7 +3161,7 @@ mod theme_tests {
         let mut custom = MapTileLayer::default().with_theme(MapTheme::Apple);
         custom.style_css = AzString::from("water { fill: #123456; }");
         assert_eq!(
-            custom.effective_style_css(WindowTheme::DarkMode).as_str(),
+            custom.effective_style_css(DarkLightMode::Dark).as_str(),
             "water { fill: #123456; }"
         );
         // authored looks carry no third-party credit
@@ -3151,11 +3170,11 @@ mod theme_tests {
                 && MapLook::GoogleLight.credit_str().is_empty()
         );
         assert_eq!(
-            MapTheme::Positron.credit(WindowTheme::LightMode).as_str(),
+            MapTheme::Positron.credit(DarkLightMode::Light).as_str(),
             MapLook::Positron.credit_str()
         );
         assert_eq!(
-            MapTheme::Positron.credit(WindowTheme::DarkMode).as_str(),
+            MapTheme::Positron.credit(DarkLightMode::Dark).as_str(),
             MapLook::DarkMatter.credit_str()
         );
         // System credits BOTH halves' designs where they have one
@@ -3733,7 +3752,7 @@ mod autotest_generated {
         resources::{DpiScaleFactor, ImageCache, RendererResources},
         styled_dom::NodeHierarchyItemId,
         task::ThreadReceiver,
-        window::{MonitorVec, RawWindowHandle, WindowTheme},
+        window::{MonitorVec, RawWindowHandle, DarkLightMode},
     };
     use azul_css::system::SystemStyle;
     use rust_fontconfig::FcFontCache;
@@ -3825,8 +3844,19 @@ mod autotest_generated {
         cursor: OptionLogicalPosition,
         f: impl FnOnce(CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
-        let layout_window =
+        with_prepared_callback_info_at(cursor, |_| {}, f)
+    }
+
+    /// [`with_callback_info_at`], with `prepare` run on the window first (a
+    /// gesture injected into its gesture manager, say).
+    fn with_prepared_callback_info_at<R>(
+        cursor: OptionLogicalPosition,
+        prepare: impl FnOnce(&mut LayoutWindow),
+        f: impl FnOnce(CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
+        let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        prepare(&mut layout_window);
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
         let current_window_state = FullWindowState::default();
@@ -3890,7 +3920,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,
@@ -5615,6 +5645,72 @@ mod autotest_generated {
             map_on_pointer_move(dataset.clone(), info)
         });
         assert_eq!(hook_log(&mut log), (1, 0));
+    }
+
+    /// One pinch update over the map as the engine reports it: `scale` since
+    /// the gesture began, `began` on its first update.
+    fn pinch_update(scale: f32, began: bool) -> crate::managers::gesture::DetectedPinch {
+        crate::managers::gesture::DetectedPinch {
+            scale,
+            center: LogicalPosition::new(50.0, 50.0),
+            initial_distance: 100.0,
+            current_distance: 100.0 * scale,
+            duration_ms: 0,
+            began,
+        }
+    }
+
+    /// Runs the map's pinch handler for one update; answers the zoom after it.
+    fn zoom_after_pinch(dataset: &RefAny, pinch: crate::managers::gesture::DetectedPinch) -> f32 {
+        use crate::managers::gesture::NativeGestureEvent;
+        let _ = with_prepared_callback_info_at(
+            cursor_at(50.0, 50.0),
+            |lw| {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Pinch(pinch));
+            },
+            |info| map_on_pointer_move(dataset.clone(), info),
+        );
+        let mut dataset = dataset.clone();
+        let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
+        cache.viewport.zoom
+    }
+
+    /// REPORTED (AzMaps, 2026-09-30): a trackpad pinch "works but then jitters
+    /// back and forth between zooming in and out". The pinch is cumulative
+    /// since its gesture began; the map zooms by the ratio of successive
+    /// updates of ONE gesture and starts a new gesture from 1.0.
+    #[test]
+    fn a_zoom_in_pinch_only_zooms_in_and_a_second_pinch_starts_where_the_first_ended() {
+        let dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
+        let mut zoom = 4.0_f32;
+        // Trackpad updates of +2 %, +1 %, +3 %: cumulative 1.02, 1.0302, 1.061106.
+        for (scale, began) in [
+            (1.0, true),
+            (1.02, false),
+            (1.0302, false),
+            (1.061_106, false),
+        ] {
+            let now = zoom_after_pinch(&dataset, pinch_update(scale, began));
+            assert!(
+                now >= zoom,
+                "a zoom-in update (scale {scale}) zoomed OUT: {zoom} -> {now}"
+            );
+            zoom = now;
+        }
+        assert!(
+            (zoom - (4.0 + 1.061_106_f32.log2())).abs() < 1e-3,
+            "the gesture zooms by its whole scale: {zoom}"
+        );
+
+        // A second gesture begins at 1.0: the map stays where the first left it.
+        let at_start = zoom_after_pinch(&dataset, pinch_update(1.0, true));
+        assert!(
+            (at_start - zoom).abs() < 1e-5,
+            "a new gesture jumped the zoom: {zoom} -> {at_start}"
+        );
+        let after = zoom_after_pinch(&dataset, pinch_update(1.05, false));
+        assert!(after > at_start);
     }
 
     #[test]

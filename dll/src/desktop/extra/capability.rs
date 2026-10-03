@@ -368,6 +368,27 @@ impl PlatformCapability {
         }
     }
 
+    /// Probe system-wide (global) hotkeys - what
+    /// `LayoutCallbackInfo::add_global_hotkey` declares.
+    ///
+    /// macOS: Carbon `RegisterEventHotKey`, no permission needed. Windows:
+    /// `RegisterHotKey`. Linux under X11: `XGrabKey` (needs `$DISPLAY`).
+    /// Linux under Wayland: the xdg-desktop-portal `GlobalShortcuts`
+    /// interface, asked for REAL (one D-Bus round trip, cached) - vanilla
+    /// setups without a backend implementing it report `false` with the
+    /// reason. iOS / Android / web: `false`. A headless run reports the
+    /// simulation. Pure: probing installs nothing and grabs nothing.
+    /// `available` is about the platform; a combination can still be
+    /// refused (another app owns it) when it is declared.
+    pub fn global_hotkeys() -> PlatformCapability {
+        let probe = crate::desktop::global_hotkey::probe();
+        PlatformCapability {
+            available: probe.available,
+            backend: AzString::from_const_str(probe.backend),
+            reason: AzString::from(probe.reason),
+        }
+    }
+
     /// Probe the secret keyring. Backend presence; the actual store may still be
     /// locked/absent (delivered async as `KeyringResult::Unavailable`).
     pub fn keyring() -> PlatformCapability {
@@ -408,14 +429,35 @@ impl PlatformCapability {
         }
     }
 
-    /// Probe hardware video decode for real (see
-    /// [`crate::desktop::extra::video_codec::provision`]): on Apple/Android the
-    /// built-in system codec, on Linux/Windows a live Vulkan
-    /// `VK_KHR_video_decode_h264` device-extension probe. When unavailable, the
-    /// reason notes whether a driver install could enable it (the full command
-    /// list lives in `ProvisionPlan`).
+    /// Probe native desktop notifications (`CallbackInfo::post_notification`).
+    /// macOS: `UNUserNotificationCenter`, available only when the process runs
+    /// from a `.app` bundle with a `CFBundleIdentifier` (an unbundled binary
+    /// reports `false` and says why - UN would abort it). Linux: a real query
+    /// of `org.freedesktop.Notifications` on the session bus (cached 10 s).
+    /// Windows: a notification-area balloon (no buttons, one at a time).
+    /// Headless, mobile and web: `false`.
+    pub fn notifications() -> PlatformCapability {
+        crate::desktop::notifications::probe()
+    }
+
+    /// Probe H.264 decode as `VideoDecoder` does it in THIS build: unavailable
+    /// where the build has no decode engine (whatever the GPU could do), else
+    /// the hardware probe (see
+    /// [`crate::desktop::extra::video_codec::provision`]): VideoToolbox on
+    /// Apple, on Linux/Windows a live Vulkan `VK_KHR_video_decode_h264`
+    /// device-extension probe. When unavailable, the reason says whether the
+    /// build or the machine is missing it, and whether a driver install could
+    /// enable it (the full command list lives in `ProvisionPlan`).
     pub fn video_codec() -> PlatformCapability {
-        let p = crate::desktop::extra::video_codec::provision::probe_hw_decode();
+        use crate::desktop::extra::video_codec;
+        if let Err(why) = video_codec::decode_engine() {
+            return PlatformCapability {
+                available: false,
+                backend: video_codec::VideoEncoder::backend_name(),
+                reason: AzString::from(format!("this build cannot decode H.264: {why}")),
+            };
+        }
+        let p = video_codec::provision::probe_hw_decode();
         let reason = if p.available {
             AzString::from_const_str("")
         } else if p.can_remediate {

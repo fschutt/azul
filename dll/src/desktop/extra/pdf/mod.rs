@@ -279,8 +279,12 @@ impl Pdf {
 
     /// REVERSE path: PDF bytes -> one standalone SVG string per page.
     /// Empty without the `pdf` feature or on parse failure.
-    pub fn to_svg_pages(&self, bytes: &[u8]) -> Vec<String> {
+    pub fn to_svg_pages(&self, bytes: &[u8]) -> azul_css::StringVec {
         pdf_to_svg_pages(bytes)
+            .into_iter()
+            .map(azul_css::AzString::from)
+            .collect::<Vec<_>>()
+            .into()
     }
 
     /// Turn one page-SVG (from [`Pdf::to_svg_pages`]) into a `Dom` subtree,
@@ -384,15 +388,33 @@ mod engine {
                 };
                 let key = alloc::format!("rawimg-{:016x}", image.get_hash().inner);
                 if !images.contains_key(&key) {
-                    let pixels = match raw.pixels {
-                        RawImageData::U8(v) => printpdf::RawImageData::U8(v.as_ref().to_vec()),
+                    let (pixels, format) = match raw.pixels {
+                        // A video frame (NV12) goes into the PDF as RGBA8.
+                        RawImageData::U8(ref v) if raw.data_format.is_nv12() => {
+                            match azul_core::resources::nv12_to_rgba(
+                                v.as_ref(),
+                                raw.width,
+                                raw.height,
+                                raw.data_format,
+                            ) {
+                                Some(rgba) => (
+                                    printpdf::RawImageData::U8(rgba),
+                                    azul_core::resources::RawImageFormat::RGBA8,
+                                ),
+                                None => continue,
+                            }
+                        }
+                        RawImageData::U8(ref v) => (
+                            printpdf::RawImageData::U8(v.as_ref().to_vec()),
+                            raw.data_format,
+                        ),
                         _ => continue, // U16/F32 raws: not produced by the Dom API today
                     };
                     let pp_raw = printpdf::RawImage {
                         pixels,
                         width: raw.width,
                         height: raw.height,
-                        data_format: convert_image_format(raw.data_format),
+                        data_format: convert_image_format(format),
                         tag: Vec::new(),
                     };
                     images.insert(
@@ -423,6 +445,11 @@ mod engine {
             A::RGBA16 => P::RGBA16,
             A::RGBF32 => P::RGBF32,
             A::RGBAF32 => P::RGBAF32,
+            // `resolve_raw_images` converts NV12 to RGBA8 before it gets
+            // here; the arm only keeps the match exhaustive.
+            A::NV12Rec601Video | A::NV12Rec601Full | A::NV12Rec709Video | A::NV12Rec709Full => {
+                P::RGBA8
+            }
         }
     }
 

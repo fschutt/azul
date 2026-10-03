@@ -11,9 +11,10 @@
 //! flat namespace, e.g. `azul_dll::desktop::extra::permission::apply_diff_events`.
 
 /// Audio playback (P7). The `AudioSink` handle is always present (codegen-
-/// exposed, no feature gating); the real rodio / AVAudio output behind it is
-/// on-device (the stub counts frames). The playback counterpart to
-/// `MicrophoneWidget` (capture). See `audio/mod.rs`.
+/// exposed, no feature gating); it is open only where an output device
+/// opened (ALSA / WASAPI / AAudio / AVAudioEngine), else closed with a reason.
+/// The playback counterpart to `MicrophoneWidget` (capture). See
+/// `audio/mod.rs`.
 pub mod audio;
 pub mod biometric;
 /// Camera capture backend registration (v4l2 on Linux via rscam); plugs into

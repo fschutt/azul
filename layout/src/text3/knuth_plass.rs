@@ -8,9 +8,9 @@ use hyphenation::{Hyphenator, Standard};
 use crate::text3::cache::Standard;
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_no_break_space, is_word_separator,
-    is_zero_width_space, AvailableSpace, BidiDirection, JustifyContent, LayoutError, LoadedFonts,
-    LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem, ShapedItem, TextAlign,
-    UnifiedConstraints, UnifiedLayout,
+    is_zero_width_space, AvailableSpace, BidiDirection, JustifyContent, LayoutError,
+    LineConstraints, LineSegment, LoadedFonts, LogicalItem, OverflowInfo, ParsedFontTrait, Point,
+    PositionedItem, ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -393,20 +393,6 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
         AvailableSpace::MinContent => f32::MAX / 2.0,
     };
 
-    // (and lines after forced breaks when each-line is set). The hanging keyword would
-    // invert this, indenting all lines EXCEPT the first.
-    let text_indent = constraints.text_indent;
-    let first_line_width = if constraints.text_indent_hanging {
-        line_width
-    } else {
-        line_width - text_indent
-    };
-    let non_first_line_width = if constraints.text_indent_hanging {
-        line_width - text_indent
-    } else {
-        line_width
-    };
-
     // Prefix sums for O(1) range queries (eliminates O(n³) inner loop).
     //
     // Knuth-Plass counts a Penalty's width ONLY when the line breaks AT that
@@ -478,13 +464,22 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
             let stretch = prefix_stretch[i + 1] - prefix_stretch[j];
             let shrink = prefix_shrink[i + 1] - prefix_shrink[j];
 
-            let effective_line_width = if breakpoints[j].line == 0 {
-                first_line_width
-            } else if constraints.text_indent_hanging {
-                non_first_line_width
-            } else {
-                line_width
-            };
+            // The line box is the width less the line's `text-indent` (CSS Text 3
+            // 8.1; `text_indent_of_line`, the greedy breaker's choice): the first
+            // line, with `each-line` also a line after a forced break (node j - 1
+            // is the forced penalty the previous line broke at), all inverted by
+            // `hanging`.
+            let after_forced_break = j > 0
+                && matches!(
+                    nodes.get(j - 1),
+                    Some(LayoutNode::Penalty { penalty, .. }) if *penalty <= -INFINITY_BADNESS
+                );
+            let effective_line_width = line_width
+                - crate::text3::cache::text_indent_of_line(
+                    constraints,
+                    breakpoints[j].line == 0,
+                    after_forced_break,
+                );
 
             // Calculate adjustment ratio. If the line is wider than the available width
             // but has no glue to shrink, it is an invalid candidate.
@@ -577,9 +572,15 @@ fn position_lines_from_breaks(
     let mut start_node = 0;
     let mut cross_axis_pen = 0.0;
     let base_direction = get_base_direction_from_logical(logical_items);
+    let mut is_after_forced_break = false;
     for (line_index, &end_node) in breaks.iter().enumerate() {
         let line_nodes = &nodes[start_node..end_node];
         let is_last_line = line_index == breaks.len() - 1;
+        let line_indent = crate::text3::cache::text_indent_of_line(
+            constraints,
+            line_index == 0,
+            is_after_forced_break,
+        );
 
         // A Penalty's item (the synthesized hyphen) renders ONLY when the
         // line actually breaks at that penalty - i.e. for the LAST node of
@@ -619,6 +620,7 @@ fn position_lines_from_breaks(
                 n, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS
             )
         });
+        is_after_forced_break = ends_with_forced_break;
         let effective_align = super::cache::resolve_effective_alignment(
             constraints.text_align,
             constraints.text_align_last,
@@ -650,6 +652,23 @@ fn position_lines_from_breaks(
             AvailableSpace::MaxContent => line_width,
             AvailableSpace::MinContent => line_width,
         };
+        // The line box: `text-indent` is a margin on its start edge (CSS Text 3
+        // 8.1), so justify spreads over, and the alignment places the line in,
+        // what is left - the greedy path's `indent_line_box`.
+        let mut line_box = LineConstraints {
+            segments: vec![LineSegment {
+                start_x: 0.0,
+                width: available_width_f32,
+                priority: 0,
+            }],
+            total_available: available_width_f32,
+            is_min_content: false,
+        };
+        crate::text3::cache::indent_line_box(&mut line_box, line_indent, base_direction);
+        let (line_box_start, available_width_f32) = line_box
+            .segments
+            .first()
+            .map_or((0.0, available_width_f32), |s| (s.start_x, s.width));
 
         if should_justify {
             let space_to_add = available_width_f32 - line_width;
@@ -688,41 +707,21 @@ fn position_lines_from_breaks(
         };
 
         // +spec:writing-modes:155a06 - resolve start/end edges of line box per bidi direction
-        let physical_align = match (effective_align, base_direction) {
-            (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
-            (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
-            (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
-            (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
-            (other, _) => other,
-        };
+        let physical_align =
+            crate::text3::cache::physical_text_align(effective_align, base_direction);
 
         // +spec:display-contents:5a1b30 - overflowing lines are start-aligned (overflow off end
-        // edge)
-        let mut main_axis_pen = if remaining_space < 0.0 {
-            0.0
-        } else {
-            match physical_align {
-                TextAlign::Center => remaining_space / 2.0,
-                TextAlign::Right => remaining_space,
-                _ => 0.0,
-            }
-        };
-
+        // edge): the one rule of both line positioners (it was offset 0 here
+        // in a right-to-left line too, where the start edge is the right one).
         // +spec:display-contents:21b27a - text-indent applies to initial letter's originating line
         // as usual +spec:line-breaking:bc389d - text-indent with each-line/hanging keywords
-        if constraints.text_indent != 0.0 {
-            // TODO: with text-indent-each-line, also detect lines after forced breaks in the KP
-            // path
-            let is_indent_target = line_index == 0;
-            let should_indent = if constraints.text_indent_hanging {
-                !is_indent_target
-            } else {
-                is_indent_target
-            };
-            if should_indent {
-                main_axis_pen += constraints.text_indent;
-            }
-        }
+        // (the indent is in `line_box_start` / the narrowed width, see above)
+        let mut main_axis_pen = line_box_start
+            + crate::text3::cache::line_alignment_offset(
+                physical_align,
+                remaining_space,
+                base_direction,
+            );
 
         for item in line_items {
             let item_advance = get_item_measure(&item, false);

@@ -1,8 +1,9 @@
 //! Dynamic CSS selectors for runtime evaluation based on OS, media queries, container queries, etc.
 
 use crate::{
-    corety::{AzString, OptionString},
+    corety::{AzString, OptionString, StringVec},
     props::property::CssProperty,
+    system::DarkLightMode,
 };
 
 /// State flags for pseudo-classes (used in `DynamicSelectorContext`)
@@ -89,7 +90,7 @@ pub enum DynamicSelector {
     ContainerHeight(MinMaxRange) = 6,
     /// Container name (for named @container queries)
     ContainerName(AzString) = 7,
-    /// Theme (dark/light/custom)
+    /// App theme by name (`@theme(flora)`); dark / light is [`Self::Mode`]
     Theme(ThemeCondition) = 8,
     /// Aspect Ratio (min/max for @media and @container)
     AspectRatio(MinMaxRange) = 9,
@@ -104,6 +105,8 @@ pub enum DynamicSelector {
     /// Language/Locale (for @lang("de-DE"))
     /// Matches BCP 47 language tags (e.g., "de", "de-DE", "en-US")
     Language(LanguageCondition) = 14,
+    /// Dark or light MODE (`@theme(dark)`, `prefers-color-scheme: dark`)
+    Mode(ModeCondition) = 15,
 }
 
 impl_option!(
@@ -149,6 +152,7 @@ impl DynamicSelector {
             Self::PrefersHighContrast(_) => 12,
             Self::PseudoState(_) => 13,
             Self::Language(_) => 14,
+            Self::Mode(_) => 15,
         }
     }
 }
@@ -189,6 +193,7 @@ impl Ord for DynamicSelector {
             (Self::PrefersHighContrast(a), Self::PrefersHighContrast(b)) => a.cmp(b),
             (Self::PseudoState(a), Self::PseudoState(b)) => a.cmp(b),
             (Self::Language(a), Self::Language(b)) => a.cmp(b),
+            (Self::Mode(a), Self::Mode(b)) => a.cmp(b),
             (Self::ViewportWidth(a), Self::ViewportWidth(b))
             | (Self::ViewportHeight(a), Self::ViewportHeight(b))
             | (Self::ContainerWidth(a), Self::ContainerWidth(b))
@@ -219,6 +224,7 @@ impl core::hash::Hash for DynamicSelector {
             Self::PrefersHighContrast(x) => x.hash(state),
             Self::PseudoState(x) => x.hash(state),
             Self::Language(x) => x.hash(state),
+            Self::Mode(x) => x.hash(state),
             Self::ViewportWidth(r)
             | Self::ViewportHeight(r)
             | Self::ContainerWidth(r)
@@ -811,11 +817,225 @@ pub enum MediaType {
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ThemeCondition {
-    Light,
-    Dark,
+    /// An APP THEME by name (`@theme(flora)`): `flat`, `flora`, later
+    /// `native` and user themes (`AppConfig::with_theme`). Live iff the name
+    /// is in the context's [`DynamicSelectorContext::theme_chain`] by prefix
+    /// (and, for a compiled-in theme, is the chain's floor): [`app_theme_rank`].
+    /// Never compared with the mode. Case-sensitive, like other CSS custom
+    /// idents; `light` / `dark` are reserved for the mode ([`ModeCondition`]).
     Custom(AzString),
-    /// System preference
+}
+
+/// The dark / light MODE a rule applies in (`@theme(dark)`,
+/// `@media (prefers-color-scheme: dark)`), matched against
+/// [`DynamicSelectorContext::mode`]. A mode, not a theme: every app theme
+/// (`ThemeCondition`) comes in both modes.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ModeCondition {
+    /// The light mode.
+    Light,
+    /// The dark mode.
+    Dark,
+    /// Whatever the system prefers: matches in both modes.
     SystemPreferred,
+}
+
+impl ModeCondition {
+    /// Whether a rule under this condition applies in `mode`.
+    #[must_use]
+    pub const fn matches(self, mode: DarkLightMode) -> bool {
+        match self {
+            Self::SystemPreferred => true,
+            Self::Light => matches!(mode, DarkLightMode::Light),
+            Self::Dark => matches!(mode, DarkLightMode::Dark),
+        }
+    }
+}
+
+/// The app theme an app that chose none runs in (`AppConfig::theme`): the
+/// look every widget had before themes were selectable.
+///
+/// THE one spelling of the default. When the `native` theme exists it becomes
+/// the default here (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md
+/// §4.5), and nothing else has to change.
+pub const DEFAULT_APP_THEME: &str = "flat";
+
+/// The COMPILED-IN app themes: the looks the application ships and every
+/// widget carries a COMPLETE `@theme(<name>)` block for (§7.3 "the
+/// application ships the hard-coded base themes"). THE one list.
+///
+/// They are exclusive FLOORS of the theme chain: only the first of them in a
+/// chain is live ([`structural_app_theme`]). Two complete looks never mix -
+/// under `[flora, flat]` (flora, with the default as the chain's implicit
+/// last entry) flat's blocks would otherwise fill every gap of flora's look
+/// (flora draws no `border` and would inherit flat's). User and rice themes
+/// are not in here: they layer on top of the floor at their rank.
+pub const COMPILED_IN_APP_THEMES: &[&str] = &["flat", "flora", "native"];
+
+/// Is `name` one of the [`COMPILED_IN_APP_THEMES`]?
+#[must_use]
+pub fn is_compiled_in_app_theme(name: &str) -> bool {
+    COMPILED_IN_APP_THEMES.contains(&name)
+}
+
+/// The rank of a declaration outside every app-theme block: LAST, below
+/// every live theme's (see [`cascade_rank`]).
+pub const UNTHEMED_RANK: usize = usize::MAX;
+
+/// The theme a spin-off extends: `xyz` for `xyz:pink`, `None` for a base.
+fn parent_app_theme(name: &str) -> Option<&str> {
+    name.rfind(':').map(|i| &name[..i])
+}
+
+/// Is `name` the app theme `entry` or one of the themes it extends - a
+/// prefix of it by whole `:` segments? `xyz` is one of `xyz:pink`, never of
+/// `xyzzy` (the `LanguageCondition::Prefix` precedent, with `:` for `-`).
+fn extends_or_is(entry: &str, name: &str) -> bool {
+    entry
+        .strip_prefix(name)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(':'))
+}
+
+/// Every app theme `chain` makes live, in RANK order (most specific first):
+/// each entry followed by the themes it extends (`xyz:pink`, then `xyz`),
+/// every name at its first position only. On a chain whose spin-offs are
+/// already expanded (`[xyz:pink, xyz, flat]`) that is the chain itself, and
+/// a name's position is its index.
+fn chain_names<S: AsRef<str>>(chain: &[S]) -> impl Iterator<Item = &str> + '_ {
+    chain.iter().enumerate().flat_map(move |(i, entry)| {
+        core::iter::successors(Some(entry.as_ref()), |&n| parent_app_theme(n)).filter(
+            move |name| {
+                !chain[..i]
+                    .iter()
+                    .any(|earlier| extends_or_is(earlier.as_ref(), name))
+            },
+        )
+    })
+}
+
+/// The STRUCTURAL theme of `chain`: its first compiled-in theme, spin-offs
+/// counted (`flora` for `[flora:abc, flat]`). The one compiled-in theme
+/// whose blocks are live, and the one a widget builds its DOM shape for
+/// (§7.1: "the DOM shape comes from the highest-ranked compiled-in theme in
+/// the chain"). `None` for a chain naming no compiled-in theme.
+#[must_use]
+pub fn structural_app_theme<S: AsRef<str>>(chain: &[S]) -> Option<&str> {
+    chain_names(chain).find(|name| is_compiled_in_app_theme(name))
+}
+
+/// THE app-theme matcher: `Some(rank)` iff `@theme(<name>)` is live under
+/// `chain`, `None` when it is dead.
+///
+/// - Live iff `name` is in the chain BY PREFIX: an entry is `name` or a
+///   spin-off of it (`xyz` under `[xyz:pink]`), by whole `:` segments.
+/// - A compiled-in theme is live only as the chain's
+///   [`structural_app_theme`]: the first compiled-in theme is the floor, the
+///   others are dead.
+/// - The rank is `name`'s position in the chain, each entry followed by the
+///   themes it extends (`xyz:pink`, then `xyz`) - 0 is the most specific. Rank
+///   decides between two live blocks declaring the same property, before
+///   selector specificity ([`cascade_rank`]).
+///
+/// Every evaluation of `@theme(<name>)` comes here: the window's context
+/// ([`DynamicSelectorContext::app_theme_rank`]) and the context-less
+/// cascade. Names compare exactly (case-sensitive, like CSS custom idents).
+#[must_use]
+pub fn app_theme_rank<S: AsRef<str>>(chain: &[S], name: &str) -> Option<usize> {
+    if is_compiled_in_app_theme(name) && structural_app_theme(chain) != Some(name) {
+        return None;
+    }
+    chain_names(chain).position(|live| live == name)
+}
+
+/// THE cascade rank of a declaration (or a rule) with `conditions` under
+/// `chain`: the rank of its most specific app-theme condition
+/// ([`app_theme_rank`]), [`UNTHEMED_RANK`] when it is in no theme block.
+///
+/// The cascade orders by `(priority, rank, selector specificity, source
+/// order)`: a LOWER rank wins, before specificity - CSS `@layer` semantics,
+/// so a spin-off's `.btn { }` beats its base's `.btn.primary { }`, and a
+/// theme block beats a declaration outside every block. Only meaningful
+/// for a declaration that applies (a dead theme answers `UNTHEMED_RANK`).
+#[must_use]
+pub fn cascade_rank<S: AsRef<str>>(chain: &[S], conditions: &[DynamicSelector]) -> usize {
+    conditions
+        .iter()
+        .filter_map(|c| match c {
+            DynamicSelector::Theme(ThemeCondition::Custom(name)) => {
+                Some(app_theme_rank(chain, name.as_str()).unwrap_or(UNTHEMED_RANK))
+            }
+            _ => None,
+        })
+        .min()
+        .unwrap_or(UNTHEMED_RANK)
+}
+
+/// The theme chain the app theme `name` activates, most specific first: the
+/// list `@theme(<name>)` blocks are matched against
+/// ([`DynamicSelectorContext::theme_chain`]).
+///
+/// THE place a context's chain comes from: [`DynamicSelectorContext::with_app_theme`],
+/// the default context and every window's (`LayoutWindow::dynamic_selector_context`)
+/// all call this. It is built by the one chain builder ([`expand_app_theme_chain`],
+/// the §7.1 design): `xyz:pink` -> `[xyz:pink, xyz, flat]`, `flora` -> `[flora, flat]`,
+/// the default theme always last, a mode word or a malformed name dropped.
+/// Which blocks of two themes in one chain apply, and which wins, is the
+/// matcher's decision (the rank, a compiled-in theme below another being
+/// inert), not the chain's.
+#[must_use]
+pub fn app_theme_chain(name: &str) -> StringVec {
+    StringVec::from_vec(expand_app_theme_chain(name).names)
+}
+
+/// [`app_theme_chain`] with the warnings building it produced (a mode word or
+/// a malformed name, a `fallback:` cycle), for the one place a theme choice
+/// is reported (`azul_core::app_theme::set_app_theme`).
+///
+/// A theme's `fallback:` list comes from the installed rice's file headers
+/// ([`crate::rice::installed_fallback_of`], memoized there): nothing without
+/// rice, so headless and test contexts expand to the prefixes plus the
+/// default.
+#[must_use]
+pub fn expand_app_theme_chain(name: &str) -> crate::theme_chain::ThemeChain {
+    #[cfg(feature = "parser")]
+    let fallback_of = |n: &str| crate::rice::installed_fallback_of(n);
+    #[cfg(not(feature = "parser"))]
+    let fallback_of = |_: &str| Vec::new();
+    crate::theme_chain::expand_chain(name, &fallback_of, DEFAULT_APP_THEME)
+}
+
+/// The conditions of an app theme's block as a `&'static` slice, for the
+/// CONST STATICS a widget carries its theme blocks in:
+///
+/// ```ignore
+/// static FACE: &[CssPropertyWithConditions] = &[
+///     P::with_single_condition(bg(FLAT_FACE), theme_conditions!("flat")),
+///     P::with_single_condition(bg(FLORA_FACE), theme_conditions!("flora")),
+///     // the flora block's dark sub-mode, and a state inside it:
+///     P::with_single_condition(bg(FLORA_NIGHT), theme_conditions!("flora", DynamicSelector::Mode(ModeCondition::Dark))),
+///     P::with_single_condition(bg(FLORA_HOT), theme_conditions!("flora", DynamicSelector::PseudoState(PseudoStateType::Hover))),
+/// ];
+/// ```
+///
+/// The theme name comes first, then the given conditions (all conjoin). A
+/// macro because a theme NAME is an `AzString`, which has a destructor: an
+/// `&[..]` holding one is never promoted to `'static` inside an argument list
+/// (the dark twins' `&[Theme(Dark)]` is), so the slice must be a `const` item
+/// of its own - which this writes. `$name` must be a `&'static str` constant.
+#[macro_export]
+macro_rules! theme_conditions {
+    ($name:expr $(, $condition:expr)* $(,)?) => {{
+        const CONDITIONS: &[$crate::dynamic_selector::DynamicSelector] = &[
+            $crate::dynamic_selector::DynamicSelector::Theme(
+                $crate::dynamic_selector::ThemeCondition::Custom(
+                    $crate::AzString::from_const_str($name),
+                ),
+            ),
+            $($condition,)*
+        ];
+        CONDITIONS
+    }};
 }
 
 impl_option!(
@@ -825,46 +1045,350 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash]
 );
 
-/// `AZ_THEME=light|dark`, for deterministic rendering (screenshots, reftests,
-/// CI). Returns `None` when unset or unrecognised.
+/// The MODE the environment pins, if any: `AZ_MODE=light|dark`, for
+/// deterministic rendering (screenshots, reftests, CI). `None` when unset,
+/// `system`, or unrecognised.
 ///
-/// Reads the environment directly, like `system.rs`'s `AZ_RICING` override
-/// right next door: this crate is std.
-/// The theme `AZ_THEME=light|dark` pins, if set.
+/// The deprecated `AZ_THEME=light|dark` still pins it for one release
+/// (`AZ_MODE` wins when both are set); `AZ_THEME` otherwise names the app
+/// theme ([`crate::theme_chain::theme_env`] reads both, once per process).
 ///
-/// Public because the pin has to outrank EVERY other source of the theme — the
-/// system style and the window's own theme alike — or a screenshot run that
-/// set it would still come out in whatever theme the machine happened to be
-/// in. `from_system_style` applies it; a caller layering a window theme on
-/// top of that context must check it too.
+/// THE one reader of the pin: every caller that asks "does the environment
+/// pin light / dark?" goes through here. Public because the pin has to
+/// outrank EVERY other source of the mode - the system style and the
+/// window's own theme alike - or a screenshot run that set it would still
+/// come out in whatever mode the machine happened to be in.
+/// `from_system_style` applies it; a caller layering a window's mode on top
+/// of that context must check it too.
 #[must_use]
-pub fn theme_pinned_by_env() -> Option<ThemeCondition> {
-    option_env_theme()
+pub fn mode_pinned_by_env() -> Option<DarkLightMode> {
+    crate::theme_chain::theme_env().mode.clone()
 }
 
+/// `color` with a `system:` keyword token
+/// ([`crate::props::basic::color::SystemColorRef::to_color_token`]) replaced
+/// by the colour the keyword stands for under `ctx`; any other colour comes
+/// back unchanged.
+///
+/// THE resolution primitive for the colour properties whose value is a bare
+/// `ColorU` (`color`, `border-*-color`, `caret-color`, ...); readers reach it
+/// through [`ResolveSystemColors`], called with the cascade's own context, so
+/// a keyword follows the theme the cascade evaluated. Without a context (no
+/// window yet) the keyword takes its light default, which is what the
+/// no-context cascade assumes for everything else.
 #[must_use]
-fn option_env_theme() -> Option<ThemeCondition> {
-    match std::env::var("AZ_THEME")
-        .ok()?
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "light" => Some(ThemeCondition::Light),
-        "dark" => Some(ThemeCondition::Dark),
-        _ => None,
+pub fn resolve_system_color_token(
+    color: crate::props::basic::color::ColorU,
+    ctx: Option<&DynamicSelectorContext>,
+) -> crate::props::basic::color::ColorU {
+    use crate::props::basic::color::SystemColorRef;
+
+    let Some(r) = SystemColorRef::from_color_token(color) else {
+        return color;
+    };
+    resolve_system_color_ref(r, ctx)
+}
+
+/// The colour the `system:` keyword `r` names under `ctx`. Without a
+/// context (no window yet) the keyword takes its light default, exactly as
+/// in [`resolve_system_color_token`].
+#[must_use]
+pub fn resolve_system_color_ref(
+    r: crate::props::basic::color::SystemColorRef,
+    ctx: Option<&DynamicSelectorContext>,
+) -> crate::props::basic::color::ColorU {
+    ctx.map_or_else(
+        || r.resolve_for_theme(&crate::system::SystemColors::default(), false),
+        |c| c.system_color(r),
+    )
+}
+
+/// A computed value whose `system:` colour keywords can be resolved against
+/// the context a cascade evaluated.
+///
+/// A keyword reaches a computed value in one of two shapes: as the
+/// [`crate::props::basic::color::SystemColorRef::to_color_token`] of a
+/// property whose value is a bare `ColorU` (`color`, `border-*-color`,
+/// `caret-color`, the selection colours, `scrollbar-color`, the shadows,
+/// `flood()`, `column-rule-color`), or as an unresolved reference where the
+/// type can carry one (`ColorOrSystem` in a gradient stop,
+/// `StyleBackgroundContent::SystemColor` in a background or a
+/// `-azul-scrollbar-*` part). Either way the value is not a colour yet: a
+/// reader that paints it unresolved paints the transparent token, or
+/// nothing.
+///
+/// The value type of EVERY colour-valued property implements this, so a
+/// reader resolves any of them with the same one call - the layout getters
+/// call it with the cascade's own `dynamic_context`, which is what keeps a
+/// keyword in the theme the rest of the cascade evaluated.
+pub trait ResolveSystemColors: Sized {
+    /// `self` with every `system:` keyword replaced by the colour it names
+    /// under `ctx` (see [`resolve_system_color_ref`] for `ctx == None`).
+    /// Every other colour comes back unchanged.
+    #[must_use]
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self;
+}
+
+impl ResolveSystemColors for crate::props::basic::color::ColorU {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        resolve_system_color_token(self, ctx)
     }
 }
 
-impl ThemeCondition {
-    /// Convert from `css::system::Theme`
-    #[must_use]
-    pub const fn from_system_theme(theme: crate::system::Theme) -> Self {
-        use crate::system::Theme;
-        match theme {
-            Theme::Light => Self::Light,
-            Theme::Dark => Self::Dark,
+impl ResolveSystemColors for crate::props::basic::color::ColorOrSystem {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::System(r) => Self::Color(resolve_system_color_ref(r, ctx)),
+            Self::Color(c) => Self::Color(resolve_system_color_token(c, ctx)),
         }
+    }
+}
+
+impl<T: ResolveSystemColors> ResolveSystemColors for Option<T> {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        self.map(|v| v.resolve_system_colors(ctx))
+    }
+}
+
+impl<T: ResolveSystemColors> ResolveSystemColors for crate::css::CssPropertyValue<T> {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::Exact(v) => Self::Exact(v.resolve_system_colors(ctx)),
+            other => other,
+        }
+    }
+}
+
+/// The colour properties whose value is a `{ inner: ColorU }` newtype.
+macro_rules! impl_resolve_system_colors_for_color_newtype {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl ResolveSystemColors for $ty {
+                fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+                    Self {
+                        inner: resolve_system_color_token(self.inner, ctx),
+                    }
+                }
+            }
+        )*
+    };
+}
+
+impl_resolve_system_colors_for_color_newtype!(
+    crate::props::style::text::StyleTextColor,
+    crate::props::style::text::CaretColor,
+    crate::props::style::selection::SelectionBackgroundColor,
+    crate::props::style::selection::SelectionColor,
+    crate::props::style::border::StyleBorderTopColor,
+    crate::props::style::border::StyleBorderRightColor,
+    crate::props::style::border::StyleBorderBottomColor,
+    crate::props::style::border::StyleBorderLeftColor,
+    crate::props::layout::column::ColumnRuleColor,
+);
+
+/// `box-shadow`, `text-shadow` and `drop-shadow()`.
+impl ResolveSystemColors for crate::props::style::box_shadow::StyleBoxShadow {
+    fn resolve_system_colors(mut self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        self.color = resolve_system_color_token(self.color, ctx);
+        self
+    }
+}
+
+/// `flood()` and `drop-shadow()`; no other filter function carries a colour.
+impl ResolveSystemColors for crate::props::style::filter::StyleFilter {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::Flood(c) => Self::Flood(resolve_system_color_token(c, ctx)),
+            Self::DropShadow(s) => Self::DropShadow(s.resolve_system_colors(ctx)),
+            other => other,
+        }
+    }
+}
+
+/// `filter` and `backdrop-filter`.
+impl ResolveSystemColors for crate::props::style::filter::StyleFilterVec {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        use crate::props::style::filter::StyleFilter;
+        let has_color = |f: &StyleFilter| {
+            matches!(f, StyleFilter::Flood(_) | StyleFilter::DropShadow(_))
+        };
+        if !self.as_ref().iter().any(has_color) {
+            return self;
+        }
+        self.as_ref()
+            .iter()
+            .map(|f| f.resolve_system_colors(ctx))
+            .collect::<Vec<_>>()
+            .into()
+    }
+}
+
+/// `scrollbar-color`.
+impl ResolveSystemColors for crate::props::style::scrollbar::StyleScrollbarColor {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        match self {
+            Self::Custom(c) => {
+                Self::Custom(crate::props::style::scrollbar::ScrollbarColorCustom {
+                    thumb: resolve_system_color_token(c.thumb, ctx),
+                    track: resolve_system_color_token(c.track, ctx),
+                })
+            }
+            Self::Auto => Self::Auto,
+        }
+    }
+}
+
+/// A background layer (`background`, `background-color`, `background-image`,
+/// SVG `fill`) and a `-azul-scrollbar-*` part: a `SystemColor` layer becomes
+/// the colour it names, a colour token its colour, and a gradient's
+/// `system:` stops concrete stops.
+impl ResolveSystemColors for crate::props::style::background::StyleBackgroundContent {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        use crate::props::{
+            basic::color::{ColorOrSystem, SystemColorRef},
+            style::background::{NormalizedLinearColorStop, NormalizedRadialColorStop},
+        };
+
+        let unresolved = |c: &ColorOrSystem| match c {
+            ColorOrSystem::System(_) => true,
+            ColorOrSystem::Color(c) => SystemColorRef::from_color_token(*c).is_some(),
+        };
+
+        match self {
+            Self::SystemColor(r) => Self::Color(resolve_system_color_ref(r, ctx)),
+            Self::Color(c) => Self::Color(resolve_system_color_token(c, ctx)),
+            Self::LinearGradient(mut g) => {
+                if g.stops.as_ref().iter().any(|s| unresolved(&s.color)) {
+                    g.stops = g
+                        .stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| NormalizedLinearColorStop {
+                            offset: s.offset,
+                            color: s.color.resolve_system_colors(ctx),
+                            offset_px: s.offset_px,
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                }
+                Self::LinearGradient(g)
+            }
+            Self::RadialGradient(mut g) => {
+                if g.stops.as_ref().iter().any(|s| unresolved(&s.color)) {
+                    g.stops = g
+                        .stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| NormalizedLinearColorStop {
+                            offset: s.offset,
+                            color: s.color.resolve_system_colors(ctx),
+                            offset_px: s.offset_px,
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                }
+                Self::RadialGradient(g)
+            }
+            Self::ConicGradient(mut g) => {
+                if g.stops.as_ref().iter().any(|s| unresolved(&s.color)) {
+                    g.stops = g
+                        .stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| NormalizedRadialColorStop {
+                            angle: s.angle,
+                            color: s.color.resolve_system_colors(ctx),
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                }
+                Self::ConicGradient(g)
+            }
+            other @ Self::Image(_) => other,
+        }
+    }
+}
+
+/// A whole `background` / `background-image` layer list.
+impl ResolveSystemColors for crate::props::style::background::StyleBackgroundContentVec {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        self.as_ref()
+            .iter()
+            .map(|layer| layer.clone().resolve_system_colors(ctx))
+            .collect::<Vec<_>>()
+            .into()
+    }
+}
+
+/// The boxed shadows (`box-shadow`, `text-shadow`) as a `CssProperty` holds
+/// them.
+impl<T: ResolveSystemColors + Clone> ResolveSystemColors for crate::css::BoxOrStatic<T> {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        Self::heap(self.into_inner().resolve_system_colors(ctx))
+    }
+}
+
+/// A whole declaration: the colour-valued properties resolve their value,
+/// every other property comes back unchanged.
+///
+/// For the readers that walk declarations rather than asking a typed
+/// getter (the HTML export writes each declaration back out as CSS, where a
+/// token would be a transparent colour and `system:` no colour at all).
+impl ResolveSystemColors for crate::props::property::CssProperty {
+    fn resolve_system_colors(self, ctx: Option<&DynamicSelectorContext>) -> Self {
+        let r = ctx;
+        match self {
+            Self::TextColor(v) => Self::TextColor(v.resolve_system_colors(r)),
+            Self::CaretColor(v) => Self::CaretColor(v.resolve_system_colors(r)),
+            Self::SelectionBackgroundColor(v) => {
+                Self::SelectionBackgroundColor(v.resolve_system_colors(r))
+            }
+            Self::SelectionColor(v) => Self::SelectionColor(v.resolve_system_colors(r)),
+            Self::BorderTopColor(v) => Self::BorderTopColor(v.resolve_system_colors(r)),
+            Self::BorderRightColor(v) => Self::BorderRightColor(v.resolve_system_colors(r)),
+            Self::BorderBottomColor(v) => Self::BorderBottomColor(v.resolve_system_colors(r)),
+            Self::BorderLeftColor(v) => Self::BorderLeftColor(v.resolve_system_colors(r)),
+            Self::ColumnRuleColor(v) => Self::ColumnRuleColor(v.resolve_system_colors(r)),
+            Self::ScrollbarColor(v) => Self::ScrollbarColor(v.resolve_system_colors(r)),
+            Self::BackgroundContent(v) => Self::BackgroundContent(v.resolve_system_colors(r)),
+            Self::ScrollbarTrack(v) => Self::ScrollbarTrack(v.resolve_system_colors(r)),
+            Self::ScrollbarThumb(v) => Self::ScrollbarThumb(v.resolve_system_colors(r)),
+            Self::ScrollbarButton(v) => Self::ScrollbarButton(v.resolve_system_colors(r)),
+            Self::ScrollbarCorner(v) => Self::ScrollbarCorner(v.resolve_system_colors(r)),
+            Self::ScrollbarResizer(v) => Self::ScrollbarResizer(v.resolve_system_colors(r)),
+            Self::BoxShadowLeft(v) => Self::BoxShadowLeft(v.resolve_system_colors(r)),
+            Self::BoxShadowRight(v) => Self::BoxShadowRight(v.resolve_system_colors(r)),
+            Self::BoxShadowTop(v) => Self::BoxShadowTop(v.resolve_system_colors(r)),
+            Self::BoxShadowBottom(v) => Self::BoxShadowBottom(v.resolve_system_colors(r)),
+            Self::TextShadow(v) => Self::TextShadow(v.resolve_system_colors(r)),
+            Self::Filter(v) => Self::Filter(v.resolve_system_colors(r)),
+            Self::BackdropFilter(v) => Self::BackdropFilter(v.resolve_system_colors(r)),
+            other => other,
+        }
+    }
+}
+
+impl DynamicSelector {
+    /// What the name of a `@theme <name>` / `@theme(<name>)` block stands
+    /// for (parentheses and quotes already stripped): `light` / `dark` (any
+    /// case) are the MODE ([`Self::Mode`]), any other name is an APP THEME
+    /// ([`ThemeCondition::Custom`], kept as written). `None` for an empty or
+    /// malformed name - such a block gets no condition from it.
+    ///
+    /// The one decision both the stylesheet parser and the inline
+    /// declaration parser make. Name characters: ASCII letters, digits, `-`,
+    /// `_`, and `:` (the §7 spin-off separator, `xyz:pink`).
+    #[must_use]
+    pub fn from_theme_block_name(name: &str) -> Option<Self> {
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("dark") {
+            return Some(Self::Mode(ModeCondition::Dark));
+        }
+        if name.eq_ignore_ascii_case("light") {
+            return Some(Self::Mode(ModeCondition::Light));
+        }
+        crate::theme_chain::is_theme_name(name)
+            .then(|| Self::Theme(ThemeCondition::Custom(AzString::from(name.to_string()))))
     }
 }
 
@@ -987,8 +1511,8 @@ pub struct DynamicSelectorContext {
     /// later without breaking parsed rules.
     pub de_version: u32,
 
-    /// Theme info
-    pub theme: ThemeCondition,
+    /// The dark / light mode ([`ModeCondition`] matches against it)
+    pub mode: DarkLightMode,
 
     /// Media info (from `WindowState`)
     pub media_type: MediaType,
@@ -1036,6 +1560,31 @@ pub struct DynamicSelectorContext {
     /// keyboard covers from the bottom (`SafeAreaInsets::keyboard`). `NaN`
     /// when no keyboard is up.
     pub keyboard_inset_height: f32,
+    /// The palette the `system:` colour keywords resolve against: the
+    /// desktop's colours for THIS context's `theme`
+    /// ([`crate::system::SystemStyle::colors_for_theme`]), so a keyword can
+    /// never paint the other theme's colour than the rest of the cascade.
+    ///
+    /// Part of the context - and of its equality - on purpose: a new palette
+    /// (an accent change, a light/dark switch) is a new context, which bumps
+    /// the cascade epoch every style memo and the display-list cache key on,
+    /// exactly like a theme flip does. APPENDED for ABI stability.
+    pub system_colors: crate::system::SystemColors,
+    /// The live APP THEMES, most specific first: `@theme(<name>)` blocks
+    /// ([`ThemeCondition::Custom`]) are live iff their name is in here by
+    /// prefix, and rank by its position ([`app_theme_rank`]; of the
+    /// compiled-in themes only the first is live).
+    /// Separate from [`Self::theme`], the colour scheme: `@theme(dark)`
+    /// keeps matching light / dark under any app theme.
+    ///
+    /// Built by [`app_theme_chain`] from the window's app theme
+    /// ([`Self::with_app_theme`]); `[DEFAULT_APP_THEME]` until a window says
+    /// otherwise. A chain rather than one name because that is the shape the
+    /// fuller design needs: the app theme, its `:` prefixes and `fallback:`
+    /// themes, the default theme last as the floor. Part of the equality, like the
+    /// palette: another app theme is another context. APPENDED for ABI
+    /// stability.
+    pub theme_chain: StringVec,
 }
 
 impl PartialEq for DynamicSelectorContext {
@@ -1047,7 +1596,7 @@ impl PartialEq for DynamicSelectorContext {
             && self.os_version == other.os_version
             && self.desktop_env == other.desktop_env
             && self.de_version == other.de_version
-            && self.theme == other.theme
+            && self.mode == other.mode
             && self.media_type == other.media_type
             && self.viewport_width.to_bits() == other.viewport_width.to_bits()
             && self.viewport_height.to_bits() == other.viewport_height.to_bits()
@@ -1065,6 +1614,8 @@ impl PartialEq for DynamicSelectorContext {
             && self.safe_area_bottom.to_bits() == other.safe_area_bottom.to_bits()
             && self.safe_area_left.to_bits() == other.safe_area_left.to_bits()
             && self.keyboard_inset_height.to_bits() == other.keyboard_inset_height.to_bits()
+            && self.system_colors == other.system_colors
+            && self.theme_chain == other.theme_chain
     }
 }
 
@@ -1075,7 +1626,7 @@ impl Default for DynamicSelectorContext {
             os_version: OsVersion::unknown(),
             desktop_env: OptionLinuxDesktopEnv::None,
             de_version: 0,
-            theme: ThemeCondition::Light,
+            mode: DarkLightMode::Light,
             media_type: MediaType::Screen,
             viewport_width: DEFAULT_VIEWPORT_WIDTH,
             viewport_height: DEFAULT_VIEWPORT_HEIGHT,
@@ -1093,6 +1644,10 @@ impl Default for DynamicSelectorContext {
             safe_area_bottom: f32::NAN,
             safe_area_left: f32::NAN,
             keyboard_inset_height: f32::NAN,
+            // No palette: every `system:` keyword answers its own light
+            // default (`SystemColorRef::fallback`).
+            system_colors: crate::system::SystemColors::default(),
+            theme_chain: app_theme_chain(DEFAULT_APP_THEME),
         }
     }
 }
@@ -1107,21 +1662,23 @@ impl DynamicSelectorContext {
         } else {
             OptionLinuxDesktopEnv::None
         };
-        // `AZ_THEME=light|dark` pins the theme. Everything that has to render
+        // `AZ_MODE=light|dark` pins the mode. Everything that has to render
         // the SAME pixels on every machine needs this: the frontpage
-        // screenshots took whatever theme the Mac they ran on happened to be
+        // screenshots took whatever mode the Mac they ran on happened to be
         // in, so a widget with `@theme dark` rules came out dark on the site
         // while every other widget stayed light. Unset (the normal case) keeps
-        // the OS theme.
-        let theme = option_env_theme()
-            .unwrap_or_else(|| ThemeCondition::from_system_theme(system_style.theme));
+        // the OS mode.
+        let mode = mode_pinned_by_env().unwrap_or(system_style.mode);
+        // The palette of the mode this context EVALUATES, which the pin can
+        // make differ from the desktop's.
+        let system_colors = system_style.colors_for_theme(mode);
 
         Self {
             os,
             os_version: system_style.os_version, // Use version from SystemStyle
             desktop_env,
             de_version: 0, // TODO: wire up DE version detection in system::detect_*
-            theme,
+            mode,
             media_type: MediaType::Screen,
             viewport_width: DEFAULT_VIEWPORT_WIDTH, // Will be updated with window size
             viewport_height: DEFAULT_VIEWPORT_HEIGHT,
@@ -1132,7 +1689,7 @@ impl DynamicSelectorContext {
             prefers_high_contrast: system_style.prefers_high_contrast,
             orientation: OrientationType::Landscape,
             pseudo_state: PseudoStateFlags::default(),
-            language: system_style.language.clone(),
+            language: system_style.language.id.clone(),
             window_focused: true,
             // The insets are NOT read off `SystemStyle::metrics.titlebar.safe_area`:
             // those are the platform's static guesses (`TitlebarMetrics::ios()`),
@@ -1142,7 +1699,65 @@ impl DynamicSelectorContext {
             safe_area_bottom: f32::NAN,
             safe_area_left: f32::NAN,
             keyboard_inset_height: f32::NAN,
+            system_colors,
+            // The app theme is the app's (`AppConfig::theme`), not the
+            // desktop's: the window's builder sets it (`with_app_theme`).
+            theme_chain: app_theme_chain(DEFAULT_APP_THEME),
         }
+    }
+
+    /// This context under the app theme `name` (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`): its [`Self::theme_chain`] becomes
+    /// [`app_theme_chain`]`(name)`. The colour scheme is untouched.
+    #[must_use]
+    pub fn with_app_theme(&self, name: &str) -> Self {
+        let mut ctx = self.clone();
+        ctx.theme_chain = app_theme_chain(name);
+        ctx
+    }
+
+    /// The app theme this context evaluates: the head of its chain (the
+    /// default theme for an empty one).
+    #[must_use]
+    pub fn app_theme(&self) -> &str {
+        self.theme_chain
+            .as_ref()
+            .first()
+            .map_or(DEFAULT_APP_THEME, AzString::as_str)
+    }
+
+    /// Is the app theme `name` live - does `@theme(<name>)` apply? In the
+    /// chain by prefix, and the chain's floor if it is a compiled-in theme
+    /// ([`app_theme_rank`]).
+    #[must_use]
+    pub fn has_app_theme(&self, name: &str) -> bool {
+        self.app_theme_rank(name).is_some()
+    }
+
+    /// `@theme(<name>)`'s rank under this context's chain, `None` when the
+    /// block is dead ([`app_theme_rank`], the one matcher).
+    #[must_use]
+    pub fn app_theme_rank(&self, name: &str) -> Option<usize> {
+        app_theme_rank(self.theme_chain.as_slice(), name)
+    }
+
+    /// The cascade rank of a declaration or rule with `conditions` under
+    /// this context's chain ([`cascade_rank`]): lower wins, before selector
+    /// specificity; [`UNTHEMED_RANK`] outside every theme block.
+    #[must_use]
+    pub fn cascade_rank(&self, conditions: &[DynamicSelector]) -> usize {
+        cascade_rank(self.theme_chain.as_slice(), conditions)
+    }
+
+    /// The colour the `system:` keyword `r` stands for under this context:
+    /// the palette's slot, or the keyword's own default for this context's
+    /// theme when the desktop left the slot empty.
+    #[must_use]
+    pub fn system_color(
+        &self,
+        r: crate::props::basic::color::SystemColorRef,
+    ) -> crate::props::basic::color::ColorU {
+        r.resolve_for_theme(&self.system_colors, self.mode == DarkLightMode::Dark)
     }
 
     /// Carry the window's live safe-area insets, so `env(safe-area-inset-*)`
@@ -1188,11 +1803,16 @@ impl DynamicSelectorContext {
     /// carries), so this component is redundant. Kept: it is one hash of one
     /// enum, and it keys the list on the theme even for a path that forgets
     /// to bump the epoch.
+    ///
+    /// The `system:` palette is folded in for the same reason: a keyword is
+    /// resolved against it when the list is BUILT, so two palettes must
+    /// never share one cached list.
     #[must_use]
     pub fn paint_defaults_fingerprint(&self) -> u64 {
         use core::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.theme.hash(&mut h);
+        self.mode.hash(&mut h);
+        self.system_colors.hash(&mut h);
         h.finish()
     }
 
@@ -1333,6 +1953,23 @@ impl EnvVariable {
 }
 
 impl DynamicSelector {
+    /// Whether this condition holds for a `StyledDom` no window has adopted
+    /// yet (no [`DynamicSelectorContext`]: headless styling, PDF export, a
+    /// test), built for the app theme `app_theme`: only that theme's
+    /// `@theme(<name>)` does. A widget that follows the app theme carries
+    /// every theme's block, so without this rule it lost its whole themed
+    /// look outside a window (a menubar's `display: flex` sits in its
+    /// `@theme(flat)` block). Every other condition needs the window -
+    /// viewport, OS, mode, container - and does not hold, as before contexts
+    /// were wired through.
+    #[must_use]
+    pub fn matches_without_context(&self, app_theme: &str) -> bool {
+        // The chain matcher on the one-entry chain `[app_theme]`: prefix
+        // matching and the compiled-in floor, exactly as in a window.
+        matches!(self, Self::Theme(ThemeCondition::Custom(name))
+            if app_theme_rank(&[app_theme], name.as_str()).is_some())
+    }
+
     /// Check if this selector matches in the given context
     #[must_use]
     pub fn matches(&self, ctx: &DynamicSelectorContext) -> bool {
@@ -1351,7 +1988,10 @@ impl DynamicSelector {
                 !ctx.container_height.is_nan() && range.matches(ctx.container_height)
             }
             Self::ContainerName(name) => ctx.container_name.as_ref() == Some(name),
-            Self::Theme(theme) => Self::match_theme(theme, &ctx.theme),
+            // An app theme NAME is matched against the theme chain, never
+            // against the colour-scheme slot.
+            Self::Theme(ThemeCondition::Custom(name)) => ctx.has_app_theme(name.as_str()),
+            Self::Mode(mode) => mode.matches(ctx.mode),
             Self::AspectRatio(range) => {
                 let ratio = ctx.viewport_width / ctx.viewport_height.max(1.0);
                 range.matches(ratio)
@@ -1406,13 +2046,6 @@ impl DynamicSelector {
         }
     }
 
-    fn match_theme(condition: &ThemeCondition, actual: &ThemeCondition) -> bool {
-        match (condition, actual) {
-            (ThemeCondition::SystemPreferred, _) => true,
-            _ => condition == actual,
-        }
-    }
-
     const fn match_pseudo_state(state: PseudoStateType, ctx: &DynamicSelectorContext) -> bool {
         let node_state = &ctx.pseudo_state;
         match state {
@@ -1427,7 +2060,10 @@ impl DynamicSelector {
             PseudoStateType::CheckedFalse => !node_state.checked,
             PseudoStateType::FocusWithin => node_state.focus_within,
             PseudoStateType::Visited => node_state.visited,
-            PseudoStateType::Backdrop => node_state.backdrop,
+            // A property of the WINDOW (GTK's `:backdrop`: the toplevel is
+            // not focused), so the context's window flag decides; the node
+            // flag is kept as an explicit per-node override.
+            PseudoStateType::Backdrop => node_state.backdrop || !ctx.window_focused,
             PseudoStateType::Dragging => node_state.dragging,
             PseudoStateType::DragOver => node_state.drag_over,
         }
@@ -1762,7 +2398,7 @@ impl CssPropertyWithConditions {
         Self::with_single_condition(
             property,
             &[
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
                 DynamicSelector::PseudoState(PseudoStateType::Hover),
             ],
         )
@@ -1775,7 +2411,7 @@ impl CssPropertyWithConditions {
         Self::with_single_condition(
             property,
             &[
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
                 DynamicSelector::PseudoState(PseudoStateType::Active),
             ],
         )
@@ -1788,7 +2424,7 @@ impl CssPropertyWithConditions {
         Self::with_single_condition(
             property,
             &[
-                DynamicSelector::Theme(ThemeCondition::Dark),
+                DynamicSelector::Mode(ModeCondition::Dark),
                 DynamicSelector::PseudoState(PseudoStateType::Focus),
             ],
         )
@@ -1819,16 +2455,16 @@ impl CssPropertyWithConditions {
         Self::with_condition(property, DynamicSelector::Os(os))
     }
 
-    /// Create a property that applies only in dark theme (const version)
+    /// Create a property that applies only in the dark mode (const version)
     #[must_use]
-    pub const fn dark_theme(property: CssProperty) -> Self {
-        Self::with_single_condition(property, &[DynamicSelector::Theme(ThemeCondition::Dark)])
+    pub const fn dark_mode(property: CssProperty) -> Self {
+        Self::with_single_condition(property, &[DynamicSelector::Mode(ModeCondition::Dark)])
     }
 
-    /// Create a property that applies only in light theme (const version)
+    /// Create a property that applies only in the light mode (const version)
     #[must_use]
-    pub const fn light_theme(property: CssProperty) -> Self {
-        Self::with_single_condition(property, &[DynamicSelector::Theme(ThemeCondition::Light)])
+    pub const fn light_mode(property: CssProperty) -> Self {
+        Self::with_single_condition(property, &[DynamicSelector::Mode(ModeCondition::Light)])
     }
 
     /// A light value TOGETHER with its dark twin, in the only order that
@@ -1853,7 +2489,7 @@ impl CssPropertyWithConditions {
             dark.get_type(),
             "themed(): the dark twin must be the same property as its light value"
         );
-        [Self::simple(light), Self::dark_theme(dark)]
+        [Self::simple(light), Self::dark_mode(dark)]
     }
 
     /// [`Self::themed`] for the hover state: `[on_hover(light), dark_on_hover(dark)]`.
@@ -1896,7 +2532,7 @@ impl CssPropertyWithConditions {
         self.apply_if
             .as_slice()
             .iter()
-            .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+            .any(|c| matches!(c, DynamicSelector::Mode(ModeCondition::Dark)))
     }
 
     /// The pseudo-state conditions of this declaration, in order — what a
@@ -1914,16 +2550,73 @@ impl CssPropertyWithConditions {
     }
 
     /// Whether this declaration can be the LIGHT half of a pair: no
-    /// `Theme(Dark)` condition, and no condition other than pseudo-states and
-    /// an explicit `Theme(Light)`.
+    /// `Theme(Dark)` condition, and no condition other than pseudo-states,
+    /// an explicit `Theme(Light)` and app-theme names (`@theme(flora)`: a
+    /// theme block's resting value is the light half of that block's dark
+    /// twin - pair them by [`Self::theme_names`] as well as by
+    /// [`Self::pseudo_state_conditions`]).
     #[must_use]
     pub fn is_light_half(&self) -> bool {
         self.apply_if.as_slice().iter().all(|c| {
             matches!(
                 c,
-                DynamicSelector::PseudoState(_) | DynamicSelector::Theme(ThemeCondition::Light)
+                DynamicSelector::PseudoState(_)
+                    | DynamicSelector::Mode(ModeCondition::Light)
+                    | DynamicSelector::Theme(ThemeCondition::Custom(_))
             )
         })
+    }
+
+    /// This declaration inside the app theme `name`'s block: the runtime
+    /// form of `@theme(<name>) { ... }` for declarations a widget builds at
+    /// DOM-build time (const statics use [`crate::theme_conditions!`]). The
+    /// theme name goes FIRST; the colour scheme and pseudo-states it already
+    /// had stay (conditions conjoin).
+    #[must_use]
+    pub fn in_theme(self, name: &str) -> Self {
+        let mut conditions = Vec::with_capacity(self.apply_if.as_slice().len() + 1);
+        conditions.push(DynamicSelector::Theme(ThemeCondition::Custom(AzString::from(
+            name.to_string(),
+        ))));
+        conditions.extend(self.apply_if.as_slice().iter().cloned());
+        Self {
+            property: self.property,
+            apply_if: DynamicSelectorVec::from_vec(conditions),
+        }
+    }
+
+    /// The app-theme names this declaration is conditioned on, in order -
+    /// what a dark twin and its light counterpart must share besides their
+    /// pseudo-states.
+    #[must_use]
+    pub fn theme_names(&self) -> Vec<&str> {
+        self.apply_if
+            .as_slice()
+            .iter()
+            .filter_map(|c| match c {
+                DynamicSelector::Theme(ThemeCondition::Custom(name)) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// This declaration without its app-theme names: live whatever the app
+    /// theme is, colour scheme and pseudo-states kept. What a widget PINNED
+    /// to one theme (`with_theme`) does with that theme's block, so the pin
+    /// holds under any app theme.
+    #[must_use]
+    pub fn without_theme_names(&self) -> Self {
+        Self {
+            property: self.property.clone(),
+            apply_if: DynamicSelectorVec::from_vec(
+                self.apply_if
+                    .as_slice()
+                    .iter()
+                    .filter(|c| !matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))))
+                    .cloned()
+                    .collect(),
+            ),
+        }
     }
 
     /// Create a property for Windows only (const version)
@@ -2283,14 +2976,24 @@ impl CssPropertyWithConditionsVec {
             }
         }
 
-        // @theme dark, @theme light
-        if let Some(rest) = rule_content.strip_prefix("theme ") {
-            let theme = rest.trim();
-            match theme {
-                "dark" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
-                "light" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Light)]),
-                _ => return None,
-            }
+        // @theme dark / @theme(dark) - the colour scheme; any other name,
+        // @theme flora / @theme(flora), is an app theme.
+        let theme_body = rule_content
+            .strip_prefix("theme")
+            .filter(|rest| rest.starts_with('(') || rest.starts_with(char::is_whitespace));
+        if let Some(rest) = theme_body {
+            let rest = rest.trim();
+            let body = rest
+                .strip_prefix('(')
+                .and_then(|r| r.strip_suffix(')'))
+                .unwrap_or(rest)
+                .trim();
+            let name = body
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .or_else(|| body.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(body);
+            return DynamicSelector::from_theme_block_name(name).map(|c| vec![c]);
         }
 
         // @lang("de-DE") or @lang de-DE
@@ -2500,9 +3203,9 @@ impl CssPropertyWithConditionsVec {
             }
             "prefers-color-scheme" => {
                 if value.eq_ignore_ascii_case("dark") {
-                    Some(DynamicSelector::Theme(ThemeCondition::Dark))
+                    Some(DynamicSelector::Mode(ModeCondition::Dark))
                 } else if value.eq_ignore_ascii_case("light") {
-                    Some(DynamicSelector::Theme(ThemeCondition::Light))
+                    Some(DynamicSelector::Mode(ModeCondition::Light))
                 } else {
                     None
                 }
@@ -2708,13 +3411,14 @@ mod autotest_generated {
             DynamicSelector::ContainerWidth(MinMaxRange::new(Some(1.0), Some(2.0))),
             DynamicSelector::ContainerHeight(MinMaxRange::new(None, None)),
             DynamicSelector::ContainerName(AzString::from_const_str("sidebar")),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora"))),
             DynamicSelector::AspectRatio(MinMaxRange::with_min(0.5)),
             DynamicSelector::Orientation(OrientationType::Portrait),
             DynamicSelector::PrefersReducedMotion(BoolCondition::True),
             DynamicSelector::PrefersHighContrast(BoolCondition::False),
             DynamicSelector::PseudoState(PseudoStateType::Hover),
             DynamicSelector::Language(LanguageCondition::Prefix(AzString::from_const_str("de"))),
+            DynamicSelector::Mode(ModeCondition::Dark),
         ]
     }
 
@@ -2843,7 +3547,7 @@ mod autotest_generated {
     #[test]
     fn variant_tag_matches_declared_repr_discriminants() {
         for (expected, sel) in all_selector_variants().iter().enumerate() {
-            let expected = u8::try_from(expected).expect("15 variants fit in u8");
+            let expected = u8::try_from(expected).expect("16 variants fit in u8");
             assert_eq!(
                 sel.variant_tag(),
                 expected,
@@ -3571,19 +4275,6 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn theme_condition_from_system_theme_is_total() {
-        use crate::system::Theme;
-        assert_eq!(
-            ThemeCondition::from_system_theme(Theme::Light),
-            ThemeCondition::Light
-        );
-        assert_eq!(
-            ThemeCondition::from_system_theme(Theme::Dark),
-            ThemeCondition::Dark
-        );
-    }
-
     // ---------------------------------------------------------------
     // 25. LanguageCondition::matches
     // ---------------------------------------------------------------
@@ -3671,7 +4362,7 @@ mod autotest_generated {
         assert_eq!(ctx.os, OsCondition::Any);
         assert_eq!(ctx.desktop_env, OptionLinuxDesktopEnv::None);
         assert_eq!(ctx.de_version, 0);
-        assert_eq!(ctx.theme, ThemeCondition::Light);
+        assert_eq!(ctx.mode, DarkLightMode::Light);
         assert_eq!(ctx.media_type, MediaType::Screen);
         assert_eq!(ctx.viewport_width, DEFAULT_VIEWPORT_WIDTH);
         assert_eq!(ctx.viewport_height, DEFAULT_VIEWPORT_HEIGHT);
@@ -3734,7 +4425,7 @@ mod autotest_generated {
         let base = DynamicSelectorContext::default();
         let updated = base.with_viewport(1.0, 2.0);
         assert_eq!(updated.os, base.os);
-        assert_eq!(updated.theme, base.theme);
+        assert_eq!(updated.mode, base.mode);
         assert_eq!(updated.language, base.language);
         assert_eq!(updated.pseudo_state, base.pseudo_state);
     }
@@ -4074,34 +4765,115 @@ mod autotest_generated {
     }
 
     #[test]
-    fn match_theme_system_preferred_is_a_wildcard() {
-        for actual in [
-            ThemeCondition::Light,
-            ThemeCondition::Dark,
-            ThemeCondition::SystemPreferred,
-            ThemeCondition::Custom(AzString::from_const_str("solarized")),
-        ] {
-            assert!(DynamicSelector::match_theme(
-                &ThemeCondition::SystemPreferred,
-                &actual
-            ));
+    fn a_system_preferred_mode_matches_in_both_modes() {
+        for mode in [DarkLightMode::Light, DarkLightMode::Dark] {
+            assert!(ModeCondition::SystemPreferred.matches(mode));
         }
+        assert!(ModeCondition::Dark.matches(DarkLightMode::Dark));
+        assert!(!ModeCondition::Dark.matches(DarkLightMode::Light));
+        assert!(ModeCondition::Light.matches(DarkLightMode::Light));
+        assert!(!ModeCondition::Light.matches(DarkLightMode::Dark));
     }
 
     #[test]
-    fn match_theme_custom_compares_the_name() {
-        let a = ThemeCondition::Custom(AzString::from_const_str("nord"));
-        let b = ThemeCondition::Custom(AzString::from_const_str("nord"));
-        let c = ThemeCondition::Custom(AzString::from_const_str("Nord"));
-        assert!(DynamicSelector::match_theme(&a, &b));
-        // Theme names are compared case-sensitively.
-        assert!(!DynamicSelector::match_theme(&a, &c));
-        assert!(!DynamicSelector::match_theme(&a, &ThemeCondition::Dark));
-        // `SystemPreferred` as the *actual* theme does not satisfy a concrete rule.
-        assert!(!DynamicSelector::match_theme(
-            &ThemeCondition::Dark,
-            &ThemeCondition::SystemPreferred
-        ));
+    fn a_theme_block_name_is_a_mode_or_an_app_theme() {
+        assert_eq!(
+            DynamicSelector::from_theme_block_name("Dark"),
+            Some(DynamicSelector::Mode(ModeCondition::Dark))
+        );
+        assert_eq!(
+            DynamicSelector::from_theme_block_name("light"),
+            Some(DynamicSelector::Mode(ModeCondition::Light))
+        );
+        // App theme names are kept as written (compared case-sensitively).
+        assert_eq!(
+            DynamicSelector::from_theme_block_name("Nord"),
+            Some(DynamicSelector::Theme(ThemeCondition::Custom(
+                AzString::from_const_str("Nord")
+            )))
+        );
+        assert_eq!(DynamicSelector::from_theme_block_name(""), None);
+    }
+
+    /// A theme NAME (`@theme(flora)`) is matched against the app theme
+    /// chain, never against the colour-scheme slot: `ctx.mode` holds light
+    /// or dark, and keeps answering `@theme(light)` / `@theme(dark)` under
+    /// any app theme.
+    #[test]
+    fn a_theme_name_matches_the_app_theme_chain_not_the_colour_scheme_slot() {
+        let flora =
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora")));
+        let under_flora = DynamicSelectorContext::default().with_app_theme("flora");
+        assert!(flora.matches(&under_flora));
+        assert!(
+            !flora.matches(&DynamicSelectorContext::default()),
+            "the default app theme is flat"
+        );
+        let dark = DynamicSelector::Mode(ModeCondition::Dark);
+        let dark_flora = DynamicSelectorContext {
+            mode: DarkLightMode::Dark,
+            ..Default::default()
+        }
+        .with_app_theme("flora");
+        assert!(dark.matches(&dark_flora));
+        assert!(!dark.matches(&under_flora), "flora is not dark");
+        assert!(DynamicSelector::Mode(ModeCondition::SystemPreferred).matches(&under_flora));
+    }
+
+    #[test]
+    fn a_themes_rank_is_its_position_in_the_chain_its_spin_offs_before_it() {
+        let expanded = ["xyz:pink", "xyz", "flat"];
+        assert_eq!(app_theme_rank(&expanded, "xyz:pink"), Some(0));
+        assert_eq!(app_theme_rank(&expanded, "xyz"), Some(1));
+        assert_eq!(app_theme_rank(&expanded, "flat"), Some(2));
+        assert_eq!(app_theme_rank(&expanded, "xyzzy"), None);
+        // An entry not yet expanded: its bases follow it, each at its first position.
+        let bare = ["xyz:pink:night", "flat"];
+        assert_eq!(app_theme_rank(&bare, "xyz:pink:night"), Some(0));
+        assert_eq!(app_theme_rank(&bare, "xyz:pink"), Some(1));
+        assert_eq!(app_theme_rank(&bare, "xyz"), Some(2));
+        assert_eq!(app_theme_rank(&bare, "flat"), Some(3));
+        // The floor: only the first compiled-in theme ranks at all.
+        assert_eq!(app_theme_rank(&["flora", "flat"], "flora"), Some(0));
+        assert_eq!(app_theme_rank(&["flora", "flat"], "flat"), None);
+        assert_eq!(app_theme_rank(&["flora:abc", "flat"], "flora"), Some(1));
+        assert_eq!(app_theme_rank(&["abc", "flat"], "flat"), Some(1));
+        assert_eq!(structural_app_theme(&["abc", "flora:x", "flat"]), Some("flora"));
+        assert_eq!(structural_app_theme(&["abc"]), None);
+        let empty: [&str; 0] = [];
+        assert_eq!(app_theme_rank(&empty, "flat"), None);
+    }
+
+    #[test]
+    fn a_declarations_cascade_rank_is_its_most_specific_theme_and_last_outside_every_block() {
+        let named = |n: &'static str| {
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str(n)))
+        };
+        let mut ctx = DynamicSelectorContext::default();
+        ctx.theme_chain = StringVec::from_vec(vec![
+            AzString::from_const_str("xyz:pink"),
+            AzString::from_const_str("xyz"),
+            AzString::from_const_str("flat"),
+        ]);
+        assert_eq!(ctx.cascade_rank(&[]), UNTHEMED_RANK);
+        assert_eq!(
+            ctx.cascade_rank(&[DynamicSelector::Mode(ModeCondition::Dark)]),
+            UNTHEMED_RANK,
+            "the colour scheme is not a layer"
+        );
+        assert_eq!(ctx.cascade_rank(&[named("xyz")]), 1);
+        assert_eq!(
+            ctx.cascade_rank(&[named("xyz"), DynamicSelector::Mode(ModeCondition::Dark)]),
+            1
+        );
+        assert_eq!(
+            ctx.cascade_rank(&[named("xyz"), named("xyz:pink")]),
+            0,
+            "a block nested in two theme blocks ranks as the more specific"
+        );
+        assert!(ctx.cascade_rank(&[named("flat")]) < UNTHEMED_RANK);
+        assert_eq!(ctx.app_theme_rank("xyz"), Some(1));
+        assert!(ctx.has_app_theme("xyz") && !ctx.has_app_theme("flora"));
     }
 
     #[test]
@@ -4131,6 +4903,24 @@ mod autotest_generated {
             PseudoStateType::Normal,
             &ctx
         ));
+    }
+
+    /// `:backdrop` is a property of the WINDOW (GTK: the toplevel is not
+    /// focused), not of a node: nothing sets a node's `backdrop` flag, so a
+    /// matcher that reads only the node state can never match, and the
+    /// titlebar's inactive dimming (`TitleBar::background_inactive`) never
+    /// applied on any platform.
+    #[test]
+    fn backdrop_matches_when_the_window_is_unfocused() {
+        let backdrop = DynamicSelector::PseudoState(PseudoStateType::Backdrop);
+        let mut ctx = DynamicSelectorContext::default();
+        assert!(ctx.window_focused, "premise: a context defaults to focused");
+        assert!(!backdrop.matches(&ctx), "a focused window is not :backdrop");
+        ctx.window_focused = false;
+        assert!(
+            backdrop.matches(&ctx),
+            "an unfocused window matches :backdrop, whatever the node state"
+        );
     }
 
     #[test]
@@ -4348,20 +5138,20 @@ mod autotest_generated {
             &[DynamicSelector::Os(OsCondition::Web)]
         );
         assert_eq!(
-            CssPropertyWithConditions::dark_theme(paint_prop())
+            CssPropertyWithConditions::dark_mode(paint_prop())
                 .apply_if
                 .as_slice(),
-            &[DynamicSelector::Theme(ThemeCondition::Dark)]
+            &[DynamicSelector::Mode(ModeCondition::Dark)]
         );
         assert_eq!(
-            CssPropertyWithConditions::light_theme(paint_prop())
+            CssPropertyWithConditions::light_mode(paint_prop())
                 .apply_if
                 .as_slice(),
-            &[DynamicSelector::Theme(ThemeCondition::Light)]
+            &[DynamicSelector::Mode(ModeCondition::Light)]
         );
         // OS / theme conditions are not pseudo-state conditions.
         assert!(!CssPropertyWithConditions::on_linux(paint_prop()).is_pseudo_state_only());
-        assert!(!CssPropertyWithConditions::dark_theme(paint_prop()).is_pseudo_state_only());
+        assert!(!CssPropertyWithConditions::dark_mode(paint_prop()).is_pseudo_state_only());
     }
 
     #[test]
@@ -4963,16 +5753,32 @@ mod autotest_generated {
     fn parse_at_rule_theme_lang_and_accessibility() {
         assert_eq!(
             CssPropertyWithConditionsVec::parse_at_rule("theme dark"),
-            Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)])
+            Some(vec![DynamicSelector::Mode(ModeCondition::Dark)])
         );
         assert_eq!(
             CssPropertyWithConditionsVec::parse_at_rule("theme light"),
-            Some(vec![DynamicSelector::Theme(ThemeCondition::Light)])
+            Some(vec![DynamicSelector::Mode(ModeCondition::Light)])
         );
+        // Any other name is an APP theme (`AppConfig::with_theme`), not an
+        // unparseable rule - the block is live while the app theme is `neon`.
         assert_eq!(
             CssPropertyWithConditionsVec::parse_at_rule("theme neon"),
-            None
+            Some(vec![DynamicSelector::Theme(ThemeCondition::Custom(
+                AzString::from_const_str("neon")
+            ))])
         );
+        assert_eq!(
+            CssPropertyWithConditionsVec::parse_at_rule("theme(flora)"),
+            Some(vec![DynamicSelector::Theme(ThemeCondition::Custom(
+                AzString::from_const_str("flora")
+            ))])
+        );
+        assert_eq!(
+            CssPropertyWithConditionsVec::parse_at_rule("theme(dark)"),
+            Some(vec![DynamicSelector::Mode(ModeCondition::Dark)])
+        );
+        // No name, no condition: an empty block name is not a theme.
+        assert_eq!(CssPropertyWithConditionsVec::parse_at_rule("theme()"), None);
 
         assert_eq!(
             CssPropertyWithConditionsVec::parse_at_rule("lang(\"de-DE\")"),
@@ -5208,7 +6014,7 @@ mod autotest_generated {
                 "prefers-color-scheme",
                 "Dark"
             ),
-            Some(DynamicSelector::Theme(ThemeCondition::Dark))
+            Some(DynamicSelector::Mode(ModeCondition::Dark))
         );
         assert_eq!(
             CssPropertyWithConditionsVec::parse_media_feature_inline(
@@ -5507,12 +6313,12 @@ mod themed_pairs {
     fn the_dark_twin_only_matches_a_dark_context() {
         let [light, dark] = CssPropertyWithConditions::themed(colour(0), colour(255));
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Light,
+            mode: DarkLightMode::Light,
             ..Default::default()
         };
         assert!(light.matches(&ctx) && !dark.matches(&ctx));
         let ctx = DynamicSelectorContext {
-            theme: ThemeCondition::Dark,
+            mode: DarkLightMode::Dark,
             ..Default::default()
         };
         assert!(
@@ -5523,7 +6329,7 @@ mod themed_pairs {
 
     #[test]
     fn a_light_theme_only_value_is_a_light_half_but_an_os_gated_one_is_not() {
-        assert!(CssPropertyWithConditions::light_theme(colour(0)).is_light_half());
+        assert!(CssPropertyWithConditions::light_mode(colour(0)).is_light_half());
         assert!(!CssPropertyWithConditions::on_macos(colour(0)).is_light_half());
     }
 }

@@ -6,8 +6,26 @@ members = [
     "examples/azul-review", # AzReview — ink-first code review; tablet/pen stress test
     "examples/azul-widgets", # AzulWidgets demo (showcase of all widgets; W5 release demo)
     "examples/azul-maps", # AzMaps demo (SUPER_PLAN_2 P3 goal app)
-    "examples/azul-writer", # AzWriter demo (office-2013-style document editor; bin azwriter)
+    "examples/azul-writer",
+    "examples/azul-builder", # AzWriter demo (office-2013-style document editor; bin azwriter)
     "examples/azul-meet", # azul-meet demo (SUPER_PLAN_2 P8 goal app: Udp + AudioSink + MicrophoneWidget)
+    "examples/azul-calendar", # AzCalendar test app: week view, event files, mints AzMeet links
+    "examples/azul-storage", # azul-storage: the Drive trait (LocalDrive, S3Drive) AzDrive and AzMail share
+    "examples/azul-drive", # AzDrive: Explorer-like browser of Home and S3 drives (azul-storage)
+    "examples/azul-mail", # AzMail: IMAP sync to files (mail/<folder>/...), folder and message view
+    "examples/azul-shells", # AzShells: the eleven app shells (S1..S11) with placeholder content, a picker, the headless E2E
+    "examples/azul-appkit", # azul-appkit: the shared app skeleton (switches, data layout, settings, shortcuts, About, file jobs)
+    "examples/azul-calculator", # AzCalculator: Standard / Scientific / Programmer / Date / Convert on the S9 UtilityShell (azul-appkit)
+    "examples/azul-contacts", # AzContacts: the address book on the S4 PimShell, one contacts/<uuid>.vcf per contact (azul-appkit)
+    "examples/azul-setup", # AzSetup: a fake AzOffice installer (the wizard pages, the settings dialog, the standard dialogs), the headless E2E
+    "examples/azul-notes", # AzNotes: notes as Markdown files (notes/<notebook>/<uuid>.md), notebooks, tags, rich-text editor
+    "examples/azul-videocut", # AzVideoCut: Premiere-like editor on TimelineShell (Mp4Demuxer/VideoDecoder, CPU compositor, VideoEncoder/Mp4Muxer export)
+    "examples/azul-show", # AzShow: the PowerPoint clone (S1 shell, deck files show/<uuid>/deck.json, show + presenter)
+    "examples/azul-photo", # AzPhoto: the photo editor on CanvasShell, its own tiled raster core behind RasterEngine
+    "examples/azul-sheets", # AzSheets: the spreadsheet (IronCalc on a 256 MB worker thread behind the CellGrid widget)
+    "examples/azul-tasks", # AzTasks: to-dos and reminders (S4 PimShell), one JSON file per task through azul-storage
+    "examples/azul-pim", # azul-pim: the shared PIM logic (dates, RRULE, .ics/.vcf content lines, addresses, search, initials, the one task store)
+    "examples/azul-dashboard", # AzDashboard: 500k orders in the virtualized DataTable (sort, filter, edit) + charts, on the S6 RecordsShell
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
@@ -45,6 +63,12 @@ gleam = "0.15.1"
 # there is one ParsedFont. printpdf itself now comes from crates.io (0.10.0, in
 # dll/). Must NOT be an absolute path — breaks CI / `cargo metadata`.
 azul-css = { path = "css" }
+# TEMPORARY (2026-09-29): azul-core's ComponentDef::codegen replaced the
+# per-language compile_fn that printpdf 0.12.8's components used. Until
+# azul-core and printpdf are released as a pair (see THE RELEASE ORDER below),
+# printpdf comes from its branch that tracks this API. Drop this line, and pin
+# the released printpdf in dll/, at that release.
+printpdf = { git = "https://github.com/fschutt/printpdf", branch = "azul-codegen-api" }
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
 # agg-rust-azul (our fork) is never [patch]ed: publish the fork, then bump the pin in layout/Cargo.toml.

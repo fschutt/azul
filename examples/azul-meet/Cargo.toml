@@ -5,17 +5,29 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    azul-meet - a Google-Meet-style demo on the public azul API. Opens two
-    participants in one process, Ada in a CPU-rendered window with her camera
-    and Ben in a GPU-rendered window sharing his screen, linked by azul.iroh
-    endpoints: every captured frame is JPEG-encoded, sent as one QUIC stream,
-    and decoded into the other window's remote tile. Without a peer link it
-    falls back to a single window with placeholder participants.
+    azul-meet - a Google-Meet-style app on the public azul API. With a meeting
+    server (the `meet` Worker, AZMEET_WORKER) it starts a meeting or joins one
+    by its link, and connects to every participant over azul.iroh: every
+    captured frame is H.264-encoded where an encoder works (VideoToolbox on
+    macOS; keyframe requests on loss) and JPEG-encoded otherwise, and decoded
+    into that participant's tile. Without a reachable meeting server it opens the
+    in-process demo: Ada in a CPU-rendered window with her camera and Ben in a
+    GPU-rendered window sharing his screen.
 """
 publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# Plain Rust (no azul): the avatars' initials (azul_pim::initials, DEDUP_EDITORS B24).
+azul-pim = { path = "../azul-pim" }
+# The Azlin skeleton WITHOUT its `azul` feature (that one links libazul dynamically, which the
+# android / ios builds below must not): the switches, the data root, the settings file, the file
+# jobs. And the drive they run on.
+azul-appkit = { path = "../azul-appkit" }
+azul-storage = { path = "../azul-storage" }
+# chat.jsonl and meeting.json (already in the tree through azul-appkit).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lib]
 name = "azmeet"

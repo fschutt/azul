@@ -8,8 +8,17 @@
 //! (so the cursor stays inside the callback node for the whole drag, exactly like
 //! the map's pan), `MouseDown` near the divider begins the drag, `MouseOver` while
 //! dragging recomputes the split ratio from the cursor delta and live-resizes the
-//! two panes via `set_css_property` (`flex-grow`), and `MouseUp` / `MouseLeave`
-//! ends it.
+//! two panes via `set_css_property` (`flex-grow`), and `MouseUp` ends it. The
+//! grabbing press captures the pointer for the container, so the drag goes on
+//! outside it; a `MouseLeave` ends it only when the button is already up (a
+//! lost release). A rebuild of the app's DOM mid-drag keeps the drag
+//! (`merge_split_pane_state`).
+//!
+//! ## Keyboard + accessibility (the APG window splitter)
+//! The DIVIDER is the focusable separator: a tab stop with the splitter role,
+//! a name and the first pane's share as its value. The arrow keys along the
+//! split's axis move it by 1% (10% with Ctrl / Cmd), Home / End to the ends
+//! of the clamp - the same commit path as a drag (`flex-grow` + `on_resize`).
 //!
 //! ## Layout model
 //! The container is a flex row (horizontal split: panes left/right) or column
@@ -51,12 +60,12 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{color::ColorU, FloatValue, PixelValue},
         layout::{
-            LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink,
-            LayoutHeight, LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutWidth,
+            LayoutBoxSizing, LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutFlexShrink, LayoutHeight, LayoutLeft, LayoutMinHeight, LayoutMinWidth,
+            LayoutOverflow, LayoutPosition, LayoutTop, LayoutWidth,
         },
         property::{
             CssProperty, LayoutFlexBasisValue, LayoutFlexGrowValue, LayoutHeightValue,
@@ -67,7 +76,11 @@ use azul_css::{
     AzString,
 };
 
-use crate::{callbacks::CallbackInfo, solver3::layout_tree::LayoutNodeId};
+use crate::{
+    callbacks::CallbackInfo,
+    solver3::layout_tree::LayoutNodeId,
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static SPLIT_PANE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-split-pane"))];
@@ -79,6 +92,9 @@ static SPLIT_PANE_DIVIDER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str
 ))];
 static SPLIT_PANE_SECOND_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-split-pane-second",
+))];
+static SPLIT_PANE_SASH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-split-pane-sash",
 ))];
 
 /// Orientation of a [`SplitPane`].
@@ -127,6 +143,10 @@ pub struct SplitPane {
     pub second: Dom,
     /// Style for the outer container.
     pub container_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
+    /// theme is a DOM-level choice: it picks the skin the divider is built
+    /// from, so switching it rebuilds the pane.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -166,13 +186,25 @@ impl Default for SplitPaneState {
 }
 
 // ---- dimensions / limits ----
-/// Divider thickness in logical px.
-const DIVIDER_THICKNESS: isize = 6;
-/// How far (logical px) from the divider centre a press still grabs it.
+/// Divider thickness in logical px - every theme's divider has it (the drag
+/// arithmetic subtracts it).
+pub(crate) const DIVIDER_THICKNESS: isize = 6;
+/// How far (logical px) from the divider centre a press still grabs it:
+/// half the sash (`DIVIDER_THICKNESS + 2 * SASH_REACH`).
 const GRAB_THRESHOLD: f32 = 9.0;
+/// How far (logical px) the divider's grab area - its transparent sash -
+/// reaches past each side of the visible bar, over the panes' edges.
+const SASH_REACH: isize = 6;
 /// Smallest / largest allowed first-pane fraction (keeps both panes visible).
 const MIN_RATIO: f32 = 0.05;
 const MAX_RATIO: f32 = 0.95;
+/// How far one arrow key on the focused divider moves it, as a share of the
+/// split - and with Ctrl (Cmd on macOS) held, the coarse step. The slider's
+/// fine / coarse pair.
+const KEY_STEP: f32 = 0.01;
+const KEY_STEP_COARSE: f32 = 0.10;
+/// The divider's accessible name (the APG window splitter's label).
+const DIVIDER_NAME: &str = "Resize panes";
 
 // ---- colours ----
 /// Divider colour (#adb5bd, mid grey).
@@ -186,6 +218,14 @@ const DIVIDER_COLOR: ColorU = ColorU {
 const DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DIVIDER_COLOR)];
 const DIVIDER_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_BG_ITEMS);
+
+/// The divider in the dark theme: the desktop's separator colour, the slot
+/// every other widget draws its dividers with.
+const DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+    azul_css::props::basic::color::SystemColorRef::Separator,
+)];
+const DIVIDER_DARK_BG: StyleBackgroundContentVec =
+    StyleBackgroundContentVec::from_const_slice(DIVIDER_DARK_BG_ITEMS);
 
 /// `flex-grow: v` as a runtime `CssProperty` (floating-point ratio).
 fn flex_grow_prop(v: f32) -> CssProperty {
@@ -207,6 +247,33 @@ const fn main_size(dir: SplitDirection, size: LogicalSize) -> f32 {
     match dir {
         SplitDirection::Horizontal => size.width,
         SplitDirection::Vertical => size.height,
+    }
+}
+
+/// [`DIVIDER_THICKNESS`] as a length.
+const DIVIDER_THICKNESS_PX: f32 = DIVIDER_THICKNESS as f32;
+
+/// The main-axis space the two panes share: the container's, less the
+/// divider's fixed thickness (`flex-basis: 0` panes grow into what the
+/// divider leaves). A container no thicker than the divider has no such
+/// space; its whole size stands in, so the ratio stays a proportion.
+const fn pane_space(msize: f32) -> f32 {
+    if msize > DIVIDER_THICKNESS_PX {
+        msize - DIVIDER_THICKNESS_PX
+    } else {
+        msize
+    }
+}
+
+/// Where the divider's centre is along the main axis at `ratio`, the way
+/// the layout places it: the first pane takes `ratio` of the shared space,
+/// then comes half the divider. (`ratio * container` missed it by up to half
+/// the divider away from the middle, and the grab zone with it.)
+const fn divider_centre(ratio: f32, msize: f32) -> f32 {
+    if msize > DIVIDER_THICKNESS_PX {
+        ratio * pane_space(msize) + DIVIDER_THICKNESS_PX / 2.0
+    } else {
+        ratio * msize
     }
 }
 
@@ -255,31 +322,141 @@ fn pane_style(grow: f32) -> CssPropertyWithConditionsVec {
     ])
 }
 
-/// Builds the divider's style: fixed thickness, no grow/shrink, a resize cursor
-/// matching the drag axis, and a visible fill. The cross-axis size is left to the
-/// flex default (stretch), so the divider spans the container.
-fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
-    let (size_prop, cursor) = match dir {
-        SplitDirection::Horizontal => (
-            CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS)),
-            StyleCursor::ColResize,
-        ),
-        SplitDirection::Vertical => (
-            CssProperty::const_height(LayoutHeight::const_px(DIVIDER_THICKNESS)),
-            StyleCursor::RowResize,
-        ),
+/// The divider's BASE: how the splitter lays out, the same in every theme
+/// (R5). A bar that neither grows nor shrinks (either would let it eat the
+/// panes' space and silently change the split ratio), measured border-box
+/// (a theme that draws hairlines draws them INSIDE the
+/// [`DIVIDER_THICKNESS`] the drag arithmetic subtracts), the resize cursor
+/// of its drag axis, and the containing block of its sash (`sash_style`).
+/// Every theme's divider starts with it - flat's [`divider_style`],
+/// `themes::flora::split_pane_skin` - and adds its skin after it: the
+/// thickness, the fill, the hairlines, the states.
+///
+/// Declared once here, it is declared once in a divider that follows the
+/// app theme too (`themes::theme_blocks`): outside every `@theme` block, so
+/// it holds under an app theme no widget knows.
+pub(crate) fn divider_base(dir: SplitDirection) -> Vec<CssPropertyWithConditions> {
+    let cursor = match dir {
+        SplitDirection::Horizontal => StyleCursor::ColResize,
+        SplitDirection::Vertical => StyleCursor::RowResize,
     };
-    CssPropertyWithConditionsVec::from_vec(vec![
+    vec![
         CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
             0,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
             inner: FloatValue::const_new(0),
         })),
-        CssPropertyWithConditions::simple(size_prop),
+        CssPropertyWithConditions::simple(CssProperty::const_box_sizing(
+            LayoutBoxSizing::BorderBox,
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor)),
+        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    ]
+}
+
+/// Builds the divider's style: the [`divider_base`], then the flat skin -
+/// the fixed thickness and a visible fill. The cross-axis size is left to
+/// the flex default (stretch), so the divider spans the container. The flat
+/// theme's resting divider.
+pub(crate) fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
+    let mut v = divider_base(dir);
+    v.extend([
+        CssPropertyWithConditions::simple(divider_thickness(dir)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(DIVIDER_BG)),
+        CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
+            DIVIDER_DARK_BG,
+        )),
+    ]);
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The divider's [`DIVIDER_THICKNESS`] along the drag axis: its width in a
+/// horizontal split, its height in a vertical one. Every theme's skin
+/// declares it (the drag arithmetic subtracts it).
+pub(crate) fn divider_thickness(dir: SplitDirection) -> CssProperty {
+    match dir {
+        SplitDirection::Horizontal => {
+            CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS))
+        }
+        SplitDirection::Vertical => {
+            CssProperty::const_height(LayoutHeight::const_px(DIVIDER_THICKNESS))
+        }
+    }
+}
+
+/// Builds the divider's SASH: its grab area, transparent, `2 * GRAB_THRESHOLD`
+/// px along the drag axis and centred on the divider, spanning it across, with
+/// the divider's resize cursor. Absolutely positioned in the divider, so it
+/// lies over the panes' edges without taking their space: the visible line
+/// stays thin while the whole grab zone shows that it can be grabbed. (The
+/// grab itself is geometric - `on_split_pointer_down` - and matches the sash.)
+fn sash_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
+    let extent = DIVIDER_THICKNESS + 2 * SASH_REACH;
+    let full = PixelValue::percent(100.0);
+    let (along, start, extent_prop, across, cursor) = match dir {
+        SplitDirection::Horizontal => (
+            CssProperty::const_left(LayoutLeft::const_px(-SASH_REACH)),
+            CssProperty::const_top(LayoutTop::const_px(0)),
+            CssProperty::const_width(LayoutWidth::const_px(extent)),
+            CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight::Px(full))),
+            StyleCursor::ColResize,
+        ),
+        SplitDirection::Vertical => (
+            CssProperty::const_top(LayoutTop::const_px(-SASH_REACH)),
+            CssProperty::const_left(LayoutLeft::const_px(0)),
+            CssProperty::const_height(LayoutHeight::const_px(extent)),
+            CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Px(full))),
+            StyleCursor::RowResize,
+        ),
+    };
+    CssPropertyWithConditionsVec::from_vec(vec![
+        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        CssPropertyWithConditions::simple(along),
+        CssPropertyWithConditions::simple(start),
+        CssPropertyWithConditions::simple(extent_prop),
+        CssPropertyWithConditions::simple(across),
+        CssPropertyWithConditions::simple(CssProperty::const_cursor(cursor)),
     ])
+}
+
+/// What a theme supplies for a split pane: the divider's style, built for
+/// the pane's direction (`themes::flat::split_pane` /
+/// `themes::flora::split_pane`). The container, the panes and the sash are
+/// layout only, the same in every theme.
+pub(crate) struct SplitPaneSkin {
+    pub theme: UiTheme,
+    /// The divider - the focusable splitter, so it owes the focus ring - at
+    /// [`DIVIDER_THICKNESS`] along the drag axis.
+    pub divider: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws a pane split in `direction` with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme, direction: SplitDirection) -> SplitPaneSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::split_pane_skin(direction),
+        UiTheme::Flora => crate::widgets::themes::flora::split_pane_skin(direction),
+    }
+}
+
+/// The skin an UNPINNED split pane is built with, so it follows the app
+/// theme: `structure`'s theme (its marker goes on the container) and the
+/// divider in BOTH themes' blocks (`themes::theme_blocks::follow_props`). The panes'
+/// content is never cloned or walked.
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme, direction: SplitDirection) -> SplitPaneSkin {
+    let (flat, flora) = (
+        skin_for(UiTheme::Flat, direction),
+        skin_for(UiTheme::Flora, direction),
+    );
+    SplitPaneSkin {
+        theme: structure,
+        divider: crate::widgets::themes::theme_blocks::follow_props(
+            flat.divider.as_slice(),
+            flora.divider.as_slice(),
+        ),
+    }
 }
 
 impl SplitPane {
@@ -299,7 +476,23 @@ impl SplitPane {
             // No opinion: `resolved_container_style` derives it from the
             // direction when the DOM is built.
             container_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the pane follows the app theme
+    /// (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the first-pane fraction, clamped into `[MIN_RATIO, MAX_RATIO]`.
@@ -393,8 +586,27 @@ impl SplitPane {
         self
     }
 
+    /// Renders the pane. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the pane follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, its divider carrying
+    /// every theme's blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::split_pane(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::split_pane(self),
+            None => {
+                let direction = self.split_pane_state.inner.direction;
+                self.build(follow_skin(UiTheme::current(), direction))
+            }
+        }
+    }
+
+    /// Renders the pane with `skin` styling its divider - what
+    /// `themes::flat::split_pane` / `themes::flora::split_pane` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: SplitPaneSkin) -> Dom {
         // Resolved before the children are moved out below; the resolver reads
         // the direction off `self`.
         let container_css = self.resolved_container_style();
@@ -434,7 +646,7 @@ impl SplitPane {
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_split_pointer_up as usize,
+                on_split_pointer_leave as usize,
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::TouchStart),
@@ -449,6 +661,12 @@ impl SplitPane {
                 on_split_pointer_up as usize,
             ),
         ];
+        // The keyboard's handle is the DIVIDER - the focusable separator of
+        // the APG window splitter - sharing the pointer callbacks' state.
+        let divider_callbacks = vec![mk(
+            EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+            on_split_key as usize,
+        )];
 
         // Children: [first-pane, divider, second-pane] — the order the drag
         // handler relies on (first_child = pane0, then divider, then pane1).
@@ -457,27 +675,52 @@ impl SplitPane {
             .with_css_props(pane_style(ratio))
             .with_children(vec![self.first].into());
 
+        // The separator: a tab stop, the splitter role (`Grip`, which the a11y
+        // tree maps to a splitter), a name, and the first pane's share in
+        // percent as its value. It carries the role, not the container: a
+        // separator's children are presentational, so on the container the
+        // role hid both panes' content from a screen reader.
         let divider = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_DIVIDER_CLASS))
-            .with_css_props(divider_style(direction));
+            .with_css_props(skin.divider)
+            .with_callbacks(divider_callbacks.into())
+            .with_tab_index(TabIndex::Auto)
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Grip,
+                accessibility_name: Some(AzString::from_const_str(DIVIDER_NAME)).into(),
+                accessibility_value: Some(AzString::from(format!(
+                    "{}",
+                    (ratio * 100.0).round() as i32
+                )))
+                .into(),
+                ..Default::default()
+            })
+            // The grab area, wider than the thin bar (`sash_style`).
+            .with_children(
+                vec![Dom::create_div()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_SASH_CLASS))
+                    .with_css_props(sash_style(direction))]
+                .into(),
+            );
 
         let second_pane = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_SECOND_CLASS))
             .with_css_props(pane_style(1.0 - ratio))
             .with_children(vec![self.second].into());
 
+        let mut classes: Vec<IdOrClass> = SPLIT_PANE_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_css)
             .with_callbacks(callbacks.into())
-            .with_tab_index(TabIndex::Auto)
-            // Role so the accessibility tree knows what this IS:
-            // the splitter is a draggable grip. The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Grip,
-                ..Default::default()
-            })
+            // The callbacks' state is also the container's DATASET, so the
+            // reconciler can carry a drag across an app rebuild
+            // (`merge_split_pane_state`).
+            .with_dataset(OptionRefAny::Some(state))
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+                merge_split_pane_state,
+            ))
             .with_children(vec![first_pane, divider, second_pane].into())
     }
 }
@@ -492,10 +735,12 @@ impl Default for SplitPane {
     }
 }
 
-/// Pointer down → if the press lands near the divider, begin a drag and record
-/// the anchor (cursor position + ratio at this moment). A press elsewhere is left
-/// alone so it can reach the pane content.
-extern "C" fn on_split_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
+/// Pointer down → if the press lands near the divider, begin a drag, record
+/// the anchor (cursor position + ratio at this moment) and CAPTURE the
+/// pointer for the container, so the moves and the release reach it wherever
+/// the cursor goes until the button is up. A press elsewhere is left alone so
+/// it can reach the pane content.
+extern "C" fn on_split_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(pos) = info.get_cursor_relative_to_node().into_option() else {
         return Update::DoNothing;
     };
@@ -512,11 +757,12 @@ extern "C" fn on_split_pointer_down(mut data: RefAny, info: CallbackInfo) -> Upd
         return Update::DoNothing;
     }
     let main = main_axis(dir, pos);
-    let divider_center = sp.inner.ratio * msize;
-    if (main - divider_center).abs() <= GRAB_THRESHOLD {
+    if (main - divider_centre(sp.inner.ratio, msize)).abs() <= GRAB_THRESHOLD {
         sp.is_dragging = true;
         sp.drag_start_px = main;
         sp.ratio_at_drag_start = sp.inner.ratio;
+        let container = info.get_hit_node();
+        info.capture_pointer(container);
     }
     Update::DoNothing
 }
@@ -544,7 +790,17 @@ extern "C" fn on_split_pointer_move(mut data: RefAny, mut info: CallbackInfo) ->
     }
     let main = main_axis(dir, pos);
     let delta = main - sp.drag_start_px;
-    let new_ratio = (sp.ratio_at_drag_start + delta / msize).clamp(MIN_RATIO, MAX_RATIO);
+    // Over the space the panes share, not the whole container: a ratio step
+    // of `delta / container` moved the divider by `delta * (W - 6) / W`, so
+    // it slid out from under the cursor.
+    let new_ratio =
+        (sp.ratio_at_drag_start + delta / pane_space(msize)).clamp(MIN_RATIO, MAX_RATIO);
+    // `clamp` passes NaN through (a NaN cursor or container size): a NaN
+    // ratio wrote `flex-grow: 0` on both panes, an invisible split. Such a
+    // move is dropped; the drag goes on with the next one.
+    if new_ratio.is_nan() {
+        return Update::DoNothing;
+    }
     sp.inner.ratio = new_ratio;
 
     // Resize the two panes. Children are [pane0, divider, pane1]; the callback
@@ -566,12 +822,124 @@ extern "C" fn on_split_pointer_move(mut data: RefAny, mut info: CallbackInfo) ->
     }
 }
 
-/// Pointer up / leave → end the drag.
+/// Pointer up → end the drag.
 extern "C" fn on_split_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() {
         sp.is_dragging = false;
     }
     Update::DoNothing
+}
+
+/// Pointer leave → end a drag only if its release was lost.
+///
+/// Every event bubbles to the container (W3C `mouseleave` does not), so the
+/// DIVIDER's leave arrives here too - and the first pixels of every drag
+/// leave the 6px divider, which follows the cursor only after the relayout
+/// the move asks for. Ending the drag on that let the divider follow the
+/// cursor for a move or two and stop. While the button is held the press's
+/// pointer capture delivers the moves and the release to the container, so
+/// a leave means nothing; a leave with the button already UP is a release
+/// that never reached the container, and ends the drag so the divider cannot
+/// stay stuck to a hovering cursor.
+extern "C" fn on_split_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+    if info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
+    if let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() {
+        sp.is_dragging = false;
+    }
+    Update::DoNothing
+}
+
+/// The arrow keys on the focused divider (the APG window splitter), so the
+/// split is usable without a pointer: Left / Right move a side-by-side
+/// divider, Up / Down a stacked one, by [`KEY_STEP`] - [`KEY_STEP_COARSE`]
+/// with Ctrl (Cmd on macOS) held - and Home / End put it at either end of
+/// the clamp. Both panes follow and the app hears of it through
+/// `on_resize`, exactly like a drag; the key is consumed so it does not also
+/// move the focus or scroll. Any other key is left alone.
+extern "C" fn on_split_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let Some(mut sp) = data.downcast_mut::<SplitPaneStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let step = if ks.primary_down() {
+        KEY_STEP_COARSE
+    } else {
+        KEY_STEP
+    };
+    let ratio = sp.inner.ratio;
+    let target = match (sp.inner.direction, key) {
+        (SplitDirection::Horizontal, K::Left) | (SplitDirection::Vertical, K::Up) => ratio - step,
+        (SplitDirection::Horizontal, K::Right) | (SplitDirection::Vertical, K::Down) => {
+            ratio + step
+        }
+        (_, K::Home) => MIN_RATIO,
+        (_, K::End) => MAX_RATIO,
+        _ => return Update::DoNothing,
+    };
+    // `clamp` passes NaN through: a split built with a NaN ratio is left
+    // as it is rather than written with it.
+    let new_ratio = target.clamp(MIN_RATIO, MAX_RATIO);
+    if new_ratio.is_nan() {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    sp.inner.ratio = new_ratio;
+
+    // The divider sits between the two panes.
+    let divider = info.get_hit_node();
+    if let Some(first) = info.get_previous_sibling(divider) {
+        info.set_css_property(first, flex_grow_prop(new_ratio));
+    }
+    if let Some(second) = info.get_next_sibling(divider) {
+        info.set_css_property(second, flex_grow_prop(1.0 - new_ratio));
+    }
+
+    let inner = sp.inner;
+    match sp.on_resize.as_mut() {
+        Some(SplitPaneOnResize { callback, refany }) => callback.invoke(refany.clone(), info, inner),
+        None => Update::DoNothing,
+    }
+}
+
+/// Carry a divider drag across a parent rebuild.
+///
+/// An `on_resize` that returns `RefreshDom` - the `AzWidgets` demo's does,
+/// like every callback there - rebuilds the split pane from the app's state
+/// on the FIRST move of a drag. Without this the rebuilt pane started idle,
+/// at the ratio the app built it with: the second move found no drag in
+/// flight, and the divider snapped back to where the app last stored it.
+/// That was the "pretty much unusable" splitter.
+///
+/// Rule (the slider's, `merge_slider_state`): the pointer wins while it is
+/// down. Mid-drag the drag's anchor and the live ratio carry over (the app
+/// was told the ratio through `on_resize`; one that stores it builds the
+/// same number, one that does not would otherwise yank the divider from
+/// under the cursor). Once the pointer is up the app's ratio is the truth
+/// again, as for any controlled widget. A rebuild that turned the split
+/// round (the other direction) starts over: the anchor is on the other axis.
+/// The `on_resize` hook is always the FRESH build's.
+#[must_use]
+pub extern "C" fn merge_split_pane_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    {
+        let new_guard = new_data.downcast_mut::<SplitPaneStateWrapper>();
+        let old_guard = old_data.downcast_ref::<SplitPaneStateWrapper>();
+        if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
+            if old_g.is_dragging && old_g.inner.direction == new_g.inner.direction {
+                new_g.is_dragging = true;
+                new_g.drag_start_px = old_g.drag_start_px;
+                new_g.ratio_at_drag_start = old_g.ratio_at_drag_start;
+                new_g.inner.ratio = old_g.inner.ratio;
+            }
+        }
+    }
+    new_data
 }
 
 impl From<SplitPane> for Dom {
@@ -830,6 +1198,21 @@ mod autotest_generated {
             .collect()
     }
 
+    /// A node's declarations WITHOUT the interactive-state rules the theme
+    /// appends after its resting style (hover, press, focus).
+    fn resting_properties(d: &Dom) -> Vec<CssProperty> {
+        d.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| {
+                !c.as_ref().iter().any(|s| {
+                    matches!(s, azul_css::dynamic_selector::DynamicSelector::PseudoState(_))
+                })
+            })
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
     fn inline_grow(d: &Dom) -> Option<f32> {
         inline_properties(d).iter().find_map(flex_grow_of)
     }
@@ -908,6 +1291,19 @@ mod autotest_generated {
         cur: OptionLogicalPosition,
         f: impl FnOnce(CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
+        drive_in(FullWindowState::default(), styled_dom, boxes, hit, cur, f)
+    }
+
+    /// [`drive`] with the window in `current_window_state` - the pointer's
+    /// buttons and the keyboard as the callback reads them.
+    fn drive_in<R>(
+        current_window_state: FullWindowState,
+        styled_dom: StyledDom,
+        boxes: &[(usize, LogicalSize)],
+        hit: DomNodeId,
+        cur: OptionLogicalPosition,
+        f: impl FnOnce(CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         layout_window
@@ -916,7 +1312,6 @@ mod autotest_generated {
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
-        let current_window_state = FullWindowState::default();
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();
@@ -1372,7 +1767,15 @@ mod autotest_generated {
     fn divider_style_never_grows_or_shrinks_and_is_visible() {
         for dir in BOTH_DIRECTIONS {
             let s = divider_style(dir);
-            assert_eq!(properties(&s).len(), 5, "{dir:?}");
+            // Seven for the light bar (the base's grow, shrink, border-box,
+            // cursor and `position: relative` - the sash's containing block -
+            // then the thickness and the fill), plus its dark-theme colour.
+            assert_eq!(properties(&s).len(), 8, "{dir:?}");
+            assert_eq!(
+                s.as_ref().iter().filter(|p| p.is_dark_twin()).count(),
+                1,
+                "{dir:?}: the bar needs exactly one dark-theme colour"
+            );
             // A grow/shrink of anything but 0 would let the divider eat the
             // panes' space and silently change the split ratio.
             assert_eq!(grow(&s), Some(0.0), "{dir:?}");
@@ -1789,9 +2192,15 @@ mod autotest_generated {
         let dom = plain(SplitDirection::Horizontal).dom();
         assert_eq!(
             dom_classes(&dom),
-            vec!["__azul-native-split-pane".to_string()]
+            vec![
+                "__azul-native-split-pane".to_string(),
+                // The marker of the theme that drew it (flat, the default).
+                "__azul-theme-flat".to_string(),
+            ]
         );
-        assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto));
+        // The tab stop is the divider (the separator), not the container.
+        assert_eq!(dom.root.get_tab_index(), None);
+        assert_eq!(child(&dom, 1).root.get_tab_index(), Some(TabIndex::Auto));
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 3);
         assert_eq!(
@@ -1817,9 +2226,15 @@ mod autotest_generated {
         assert_eq!(second.children.as_ref().len(), 1);
         assert_eq!(dom_classes(child(first, 0)), vec!["alpha".to_string()]);
         assert_eq!(dom_classes(child(second, 0)), vec!["beta".to_string()]);
-        // The divider is a leaf: anything inside it would sit under the cursor
-        // during a drag.
-        assert!(child(&dom, 1).children.as_ref().is_empty());
+        // The divider holds its sash (the grab area) and nothing else: no
+        // user content sits under the cursor during a drag.
+        let divider = child(&dom, 1);
+        assert_eq!(divider.children.as_ref().len(), 1);
+        assert_eq!(
+            dom_classes(child(divider, 0)),
+            vec!["__azul-native-split-pane-sash".to_string()]
+        );
+        assert!(child(divider, 0).children.as_ref().is_empty());
     }
 
     #[test]
@@ -1856,11 +2271,12 @@ mod autotest_generated {
     #[test]
     fn dom_divider_matches_divider_style_for_the_direction() {
         for dir in BOTH_DIRECTIONS {
-            let dom = plain(dir).dom();
+            // The flat look (an unpinned pane carries every theme's blocks).
+            let dom = plain(dir).with_theme(UiTheme::Flat).dom();
             assert_eq!(
-                inline_properties(child(&dom, 1)),
+                resting_properties(child(&dom, 1)),
                 properties(&divider_style(dir)),
-                "{dir:?}"
+                "{dir:?}: the flat divider rests as divider_style (its states follow)"
             );
         }
     }
@@ -1902,7 +2318,7 @@ mod autotest_generated {
             ),
             (
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_split_pointer_up as usize,
+                on_split_pointer_leave as usize,
             ),
             (
                 EventFilter::Hover(HoverEventFilter::TouchStart),
@@ -1919,13 +2335,28 @@ mod autotest_generated {
         ];
         assert_eq!(wired, expected);
         // The drag lives on the container, never on the divider or the panes -
-        // otherwise the cursor would leave the callback node mid-drag.
-        for i in 0..3 {
+        // otherwise the cursor would leave the callback node mid-drag. The
+        // divider carries the keyboard's handler and nothing else.
+        for i in [0, 2] {
             assert!(
                 child(&dom, i).root.callbacks.as_ref().is_empty(),
-                "child {i} must not carry pointer callbacks"
+                "pane {i} must not carry callbacks"
             );
         }
+        let divider: Vec<(EventFilter, usize)> = child(&dom, 1)
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .map(|c| (c.event, c.callback.cb))
+            .collect();
+        assert_eq!(
+            divider,
+            vec![(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                on_split_key as usize,
+            )]
+        );
     }
 
     #[test]
@@ -2057,7 +2488,8 @@ mod autotest_generated {
     #[test]
     fn pointer_down_records_the_anchor_when_it_lands_on_the_divider() {
         let (sd, state) = laid_out(plain(SplitDirection::Horizontal).with_ratio(0.25));
-        // 200px wide, ratio 0.25 -> the grab zone is centred on x = 50.
+        // 200px wide, ratio 0.25 -> the divider's centre (and the grab
+        // zone's) is at 0.25 * 194 + 3 = 51.5.
         let (update, changes) = drive(
             sd,
             &[(0, size(200.0, 100.0))],
@@ -2066,7 +2498,14 @@ mod autotest_generated {
             |info| on_split_pointer_down(state.clone(), info),
         );
         assert_eq!(update, Update::DoNothing, "the press itself never redraws");
-        assert!(changes.is_empty(), "the press must not touch the DOM");
+        assert!(
+            matches!(
+                changes.as_slice(),
+                [CallbackChange::CapturePointer { node: n, .. }] if *n == node(0)
+            ),
+            "the press captures the pointer for the container and touches nothing else: \
+             {changes:?}"
+        );
         let mut state = state;
         let w = wrapper(&mut state);
         assert!(w.is_dragging);
@@ -2238,6 +2677,13 @@ mod autotest_generated {
         assert_eq!(wrapper(&mut state).inner.ratio, 0.5);
     }
 
+    /// The ratio a drag of `delta` px from `anchor` lands on in a container
+    /// `main` px long: the delta over the space the panes share (the
+    /// container less the divider), so the divider tracks the cursor.
+    fn tracked(anchor: f32, delta: f32, main: f32) -> f32 {
+        anchor + delta / (main - DIVIDER_THICKNESS as f32)
+    }
+
     #[test]
     fn pointer_move_applies_the_cursor_delta_and_resizes_both_panes() {
         let boxes = [(0, size(200.0, 100.0))];
@@ -2247,14 +2693,16 @@ mod autotest_generated {
             (100.0, 50.0),
             (150.0, 50.0),
         );
-        // +50px over a 200px container = +0.25 on the anchor ratio of 0.5.
-        assert_eq!(wrapper(&mut state).inner.ratio, 0.75);
+        // +50px over the 194px the panes share, on the anchor ratio of 0.5.
+        let expected = tracked(0.5, 50.0, 200.0);
+        assert!((wrapper(&mut state).inner.ratio - expected).abs() < 1e-6);
         assert_eq!(update, Update::DoNothing, "no hook installed");
 
         let writes = css_changes(&changes);
         assert_eq!(writes.len(), 2, "exactly one flex-grow per pane");
-        assert_eq!(writes[0].1, 0.75);
-        assert_eq!(writes[1].1, 0.25);
+        // flex-grow is stored x1000 and truncated.
+        assert!((writes[0].1 - expected).abs() < 2e-3, "{writes:?}");
+        assert!((writes[1].1 - (1.0 - expected)).abs() < 2e-3, "{writes:?}");
         assert_ne!(
             writes[0].0, writes[1].0,
             "the two panes must be distinct nodes"
@@ -2356,16 +2804,18 @@ mod autotest_generated {
             (108.0, 50.0),
             (128.0, 50.0),
         );
-        // press at 108 (within 9 of the 100 centre), moved +20 over 200px.
+        // press at 108 (within 9 of the 100 centre), moved +20 over the
+        // 194px the panes share.
         let r = wrapper(&mut state).inner.ratio;
-        assert!((r - 0.6).abs() < 1e-6, "expected 0.5 + 20/200, got {r}");
+        let expected = tracked(0.5, 20.0, 200.0);
+        assert!((r - expected).abs() < 1e-6, "expected 0.5 + 20/194, got {r}");
     }
 
     #[test]
     fn pointer_move_back_to_the_press_point_restores_the_ratio() {
         let boxes = [(0, size(200.0, 100.0))];
         let (sd, state) = laid_out(plain(SplitDirection::Horizontal).with_ratio(0.4));
-        // ratio 0.4 over 200px -> the grab zone is centred on x = 80.
+        // ratio 0.4 over 200px -> the divider's centre is at 0.4 * 194 + 3 = 80.6.
         let a = sd.clone();
         let (_, _) = drive(a, &boxes, node(0), cursor(80.0, 50.0), |info| {
             on_split_pointer_down(state.clone(), info)
@@ -2389,17 +2839,17 @@ mod autotest_generated {
     #[test]
     fn pointer_move_uses_the_axis_that_matches_the_direction() {
         let boxes = [(0, size(200.0, 100.0))];
-        // Vertical: centre y = 50, main size = 100. +25px = +0.25.
+        // Vertical: centre y = 50, main size = 100 (94 shared). +25px.
         let (_, _, mut state) = press_then_move(
             plain(SplitDirection::Vertical),
             &boxes,
             (10.0, 50.0),
             (999.0, 75.0),
         );
-        assert_eq!(
-            wrapper(&mut state).inner.ratio,
-            0.75,
-            "a vertical split must ignore horizontal cursor motion"
+        let r = wrapper(&mut state).inner.ratio;
+        assert!(
+            (r - tracked(0.5, 25.0, 100.0)).abs() < 1e-6,
+            "a vertical split must ignore horizontal cursor motion, got {r}"
         );
     }
 
@@ -2417,7 +2867,7 @@ mod autotest_generated {
         );
         let seen = logged(&mut log);
         assert_eq!(seen.len(), 1);
-        assert_eq!(seen[0].ratio, 0.75);
+        assert!((seen[0].ratio - tracked(0.5, 50.0, 200.0)).abs() < 1e-6);
         assert_eq!(seen[0].direction, SplitDirection::Horizontal);
     }
 
@@ -2536,50 +2986,9 @@ mod autotest_generated {
         assert!(wrapper(&mut state).inner.ratio.is_finite());
     }
 
-    #[test]
-    fn pointer_move_with_a_nan_cursor_poisons_the_ratio() {
-        // PIN + KNOWN DEFECT: `clamp` passes NaN through, so a NaN cursor
-        // leaves the widget with a NaN ratio, which then encodes as
-        // flex-grow: 0 on BOTH panes (an invisible split). No panic, but the
-        // documented `[MIN_RATIO, MAX_RATIO]` invariant is broken.
-        let boxes = [(0, size(200.0, 100.0))];
-        let (_, changes, mut state) = press_then_move(
-            plain(SplitDirection::Horizontal),
-            &boxes,
-            (100.0, 50.0),
-            (f32::NAN, 50.0),
-        );
-        assert!(wrapper(&mut state).inner.ratio.is_nan());
-        let writes = css_changes(&changes);
-        assert_eq!(writes.len(), 2);
-        assert_eq!(writes[0].1, 0.0);
-        assert_eq!(writes[1].1, 0.0);
-    }
-
-    #[test]
-    fn pointer_move_with_a_nan_container_size_poisons_the_ratio() {
-        // Same defect from the other side: `msize <= 0.0` does not reject NaN,
-        // so `delta / NaN` reaches the clamp. Pinned, not endorsed.
-        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
-        let a = sd.clone();
-        let (_, _) = drive(
-            a,
-            &[(0, size(200.0, 100.0))],
-            node(0),
-            cursor(100.0, 50.0),
-            |info| on_split_pointer_down(state.clone(), info),
-        );
-        let (update, _) = drive(
-            sd,
-            &[(0, size(f32::NAN, 100.0))],
-            node(0),
-            cursor(150.0, 50.0),
-            |info| on_split_pointer_move(state.clone(), info),
-        );
-        assert_eq!(update, Update::DoNothing);
-        let mut state = state;
-        assert!(wrapper(&mut state).inner.ratio.is_nan());
-    }
+    // The NaN cursor / NaN container size cases: see
+    // `a_non_finite_move_leaves_the_split_where_it_was` (they used to be pinned
+    // here as a known defect - a NaN ratio, flex-grow 0 on both panes).
 
     #[test]
     fn pointer_move_with_extreme_cursors_stays_inside_the_clamp() {
@@ -2657,7 +3066,11 @@ mod autotest_generated {
         let mut state = state;
         let w = wrapper(&mut state);
         assert!(!w.is_dragging);
-        assert_eq!(w.inner.ratio, 0.75, "the drag result survives the release");
+        assert_eq!(
+            w.inner.ratio,
+            tracked(0.5, 50.0, 200.0),
+            "the drag result survives the release"
+        );
     }
 
     #[test]
@@ -2710,6 +3123,844 @@ mod autotest_generated {
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "post-release motion must not resize");
         let mut state = state;
-        assert_eq!(wrapper(&mut state).inner.ratio, 0.75);
+        assert_eq!(wrapper(&mut state).inner.ratio, tracked(0.5, 50.0, 200.0));
+    }
+
+    // ==================================================================
+    // A drag across the app's rebuilds
+    // ==================================================================
+
+    /// The split-pane container in a flattened DOM (found by its class).
+    fn split_container(data: &[azul_core::dom::NodeData]) -> &azul_core::dom::NodeData {
+        data.iter()
+            .find(|nd| {
+                nd.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-native-split-pane"))
+            })
+            .expect("a split-pane container")
+    }
+
+    /// The state the container's callbacks see - what the next pointer
+    /// event reads.
+    fn callback_state(container: &azul_core::dom::NodeData) -> SplitPaneStateWrapper {
+        let mut r = container.callbacks.as_ref()[0].refany.clone();
+        let w = r
+            .downcast_ref::<SplitPaneStateWrapper>()
+            .expect("split-pane state");
+        (*w).clone()
+    }
+
+    /// The reconciler's pass over an app rebuild: match `old` to `new` and
+    /// carry the matched nodes' states (merge callbacks) across. Returns the
+    /// new build's node data as the next frame sees it.
+    fn rebuild(old: &StyledDom, new: &StyledDom) -> Vec<azul_core::dom::NodeData> {
+        use azul_core::{
+            diff::{reconcile_dom, transfer_states},
+            dom::NodeData,
+            styled_dom::NodeHierarchyItem,
+            task::Instant,
+            OrderedMap,
+        };
+        let mut old_data: Vec<NodeData> = old.node_data.as_ref().to_vec();
+        let mut new_data: Vec<NodeData> = new.node_data.as_ref().to_vec();
+        let old_h: Vec<NodeHierarchyItem> = old.node_hierarchy.as_ref().to_vec();
+        let new_h: Vec<NodeHierarchyItem> = new.node_hierarchy.as_ref().to_vec();
+        let diff = reconcile_dom(
+            &old_data,
+            &new_data,
+            &old_h,
+            &new_h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        transfer_states(&mut old_data, &mut new_data, &diff.node_moves);
+        new_data
+    }
+
+    /// The app's page: a caption the app rewrites on every callback, and the
+    /// split pane at the ratio the app stores.
+    fn app_dom(ratio: f32, caption: &str) -> StyledDom {
+        StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_div().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(caption),
+                ))
+                .with_child(plain(SplitDirection::Horizontal).with_ratio(ratio).dom()),
+        )
+    }
+
+    /// Device bug (AzWidgets, 2026-09-28: the splitter is "pretty much
+    /// unusable"): the demo's `on_resize` returns `RefreshDom`, like every
+    /// callback there, so the FIRST move of a drag rebuilds the app's DOM -
+    /// and the rebuilt split pane starts idle, at the ratio the app built it
+    /// with. The second move found no drag in flight and the divider snapped
+    /// back. The reconciler matches the old container to the new one; the
+    /// drag has to survive that, the way a slider's does
+    /// (`merge_slider_state`).
+    #[test]
+    fn a_divider_drag_survives_the_rebuild_its_on_resize_asks_for() {
+        // Frame 1: a press on the divider at x = 100 and one move, to 0.7.
+        let old = app_dom(0.5, "callbacks: 0");
+        {
+            let mut r = split_container(old.node_data.as_ref()).callbacks.as_ref()[0]
+                .refany
+                .clone();
+            let mut w = r
+                .downcast_mut::<SplitPaneStateWrapper>()
+                .expect("split-pane state");
+            w.is_dragging = true;
+            w.drag_start_px = 100.0;
+            w.ratio_at_drag_start = 0.5;
+            w.inner.ratio = 0.7;
+        }
+        // Frame 2: the app rebuilt everything, the split pane at the ratio
+        // it was built with.
+        let new = app_dom(0.5, "callbacks: 1");
+
+        let new_data = rebuild(&old, &new);
+        let after = callback_state(split_container(&new_data));
+        assert!(
+            after.is_dragging,
+            "the drag must survive the rebuild - the next move must still resize"
+        );
+        assert_eq!(after.drag_start_px, 100.0, "the drag keeps its anchor");
+        assert_eq!(after.ratio_at_drag_start, 0.5);
+        assert_eq!(
+            after.inner.ratio, 0.7,
+            "mid-drag the pointer's ratio wins over the one the app rebuilt with"
+        );
+    }
+
+    /// Once the pointer is up the app's ratio is the truth again, as for any
+    /// controlled widget: an idle split pane takes the rebuilt ratio.
+    #[test]
+    fn an_idle_split_pane_takes_the_ratio_the_app_rebuilds_it_with() {
+        let old = app_dom(0.5, "callbacks: 0");
+        {
+            let mut r = split_container(old.node_data.as_ref()).callbacks.as_ref()[0]
+                .refany
+                .clone();
+            let mut w = r
+                .downcast_mut::<SplitPaneStateWrapper>()
+                .expect("split-pane state");
+            w.inner.ratio = 0.7;
+        }
+        let new = app_dom(0.3, "callbacks: 1");
+
+        let new_data = rebuild(&old, &new);
+        let after = callback_state(split_container(&new_data));
+        assert!(!after.is_dragging);
+        assert_eq!(
+            after.inner.ratio, 0.3,
+            "idle: the app's rebuilt ratio is kept"
+        );
+    }
+
+    // ==================================================================
+    // A drag holds the pointer
+    // ==================================================================
+
+    /// The window with the primary button held.
+    fn button_held() -> FullWindowState {
+        let mut ws = FullWindowState::default();
+        ws.mouse_state.left_down = true;
+        ws
+    }
+
+    /// The callback `dom`'s container registered for `filter`, the way the
+    /// dispatcher runs it.
+    fn registered(dom: &Dom, filter: EventFilter) -> crate::callbacks::Callback {
+        let core = dom
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .find(|c| c.event == filter)
+            .unwrap_or_else(|| panic!("no {filter:?} callback on the container"))
+            .callback
+            .clone();
+        crate::callbacks::Callback::from_core(core)
+    }
+
+    /// Device bug (AzWidgets, 2026-09-28): the first pixels of every drag
+    /// leave the 6px divider (it follows the cursor only after the relayout
+    /// the move asks for), and every event bubbles to the container - the
+    /// divider's `MouseLeave` too. It was wired to end the drag, so the
+    /// divider followed the cursor for a move or two and stopped. With the
+    /// button still held, a leave must not end the drag: the press holds
+    /// the pointer until the release.
+    #[test]
+    fn a_drag_that_leaves_the_divider_keeps_resizing_until_the_release() {
+        let boxes = [(0, size(200.0, 100.0))];
+        let dom = plain(SplitDirection::Horizontal).dom();
+        let leave = registered(&dom, EventFilter::Hover(HoverEventFilter::MouseLeave));
+        let state = dom.root.callbacks.as_ref()[0].refany.clone();
+        let sd = StyledDom::create_from_dom(dom);
+
+        let (_, _) = drive_in(
+            button_held(),
+            sd.clone(),
+            &boxes,
+            node(0),
+            cursor(100.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        // The divider's leave, bubbled to the container: the button is held.
+        let (_, _) = drive_in(
+            button_held(),
+            sd.clone(),
+            &boxes,
+            node(0),
+            cursor(104.0, 50.0),
+            |info| leave.invoke(state.clone(), info),
+        );
+        let (_, changes) = drive_in(
+            button_held(),
+            sd,
+            &boxes,
+            node(0),
+            cursor(150.0, 50.0),
+            |info| on_split_pointer_move(state.clone(), info),
+        );
+
+        let mut state = state;
+        let w = wrapper(&mut state);
+        assert!(
+            w.is_dragging,
+            "a leave with the button held ended the drag"
+        );
+        assert!(
+            w.inner.ratio > 0.7,
+            "the move after the leave must still move the divider, ratio is {}",
+            w.inner.ratio
+        );
+        assert_eq!(
+            css_changes(&changes).len(),
+            2,
+            "the move after the leave must still resize both panes"
+        );
+    }
+
+    /// A leave that comes after the button went up - a release that never
+    /// reached the container - does end the drag, so a lost release cannot
+    /// leave the divider stuck to a hovering cursor.
+    #[test]
+    fn a_leave_after_a_lost_release_ends_the_drag() {
+        let boxes = [(0, size(200.0, 100.0))];
+        let dom = plain(SplitDirection::Horizontal).dom();
+        let leave = registered(&dom, EventFilter::Hover(HoverEventFilter::MouseLeave));
+        let state = dom.root.callbacks.as_ref()[0].refany.clone();
+        let sd = StyledDom::create_from_dom(dom);
+
+        let (_, _) = drive_in(
+            button_held(),
+            sd.clone(),
+            &boxes,
+            node(0),
+            cursor(100.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        let (_, _) = drive(sd, &boxes, node(0), cursor(250.0, 50.0), |info| {
+            leave.invoke(state.clone(), info)
+        });
+        let mut state = state;
+        assert!(!wrapper(&mut state).is_dragging);
+    }
+
+    /// The press that grabs the divider CAPTURES the pointer for the
+    /// container (W3C `setPointerCapture`): the moves and the release go to
+    /// it wherever the cursor is - past the pane's edge, over another
+    /// widget - until the release. Without it a drag outside the split pane
+    /// stopped moving the divider and its release was never seen.
+    #[test]
+    fn a_press_on_the_divider_captures_the_pointer_for_the_split_pane() {
+        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
+        let (_, changes) = drive_in(
+            button_held(),
+            sd,
+            &[(0, size(200.0, 100.0))],
+            node(0),
+            cursor(100.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        assert!(
+            changes.iter().any(
+                |c| matches!(c, CallbackChange::CapturePointer { node: n, .. } if *n == node(0))
+            ),
+            "the grab must capture the pointer for the container: {changes:?}"
+        );
+    }
+
+    // ==================================================================
+    // The keyboard's handle: the divider
+    // ==================================================================
+
+    /// The window with `key` going down while `held` are held.
+    fn key_down(
+        key: azul_core::window::VirtualKeyCode,
+        held: &[azul_core::window::VirtualKeyCode],
+    ) -> FullWindowState {
+        let mut ws = FullWindowState::default();
+        ws.keyboard_state.current_virtual_keycode = Some(key).into();
+        let mut pressed: Vec<azul_core::window::VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        ws.keyboard_state.pressed_virtual_keycodes = pressed.into();
+        ws
+    }
+
+    /// Presses `key` (with `held`) on the divider (node 3 of the flattened
+    /// `[container 0, pane 1 > user 2, divider 3 > sash 4, pane 5 > user 6]`) through
+    /// the key handler the divider registered. Returns the handler's update
+    /// and changes.
+    fn press_key_on_divider(
+        sp: SplitPane,
+        key: azul_core::window::VirtualKeyCode,
+        held: &[azul_core::window::VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>, RefAny) {
+        let dom = sp.dom();
+        let registered_key = child(&dom, 1)
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .find(|c| {
+                c.event
+                    == EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown)
+            })
+            .expect("the divider has no key handler, so the keyboard cannot move the split")
+            .clone();
+        let state = registered_key.refany.clone();
+        let handler = crate::callbacks::Callback::from_core(registered_key.callback.clone());
+        let sd = StyledDom::create_from_dom(dom);
+        let boxes = [(0, size(200.0, 100.0)), (3, size(6.0, 100.0))];
+        let (update, changes) = drive_in(
+            key_down(key, held),
+            sd,
+            &boxes,
+            node(3),
+            OptionLogicalPosition::None,
+            |info| handler.invoke(state.clone(), info),
+        );
+        (update, changes, state)
+    }
+
+    fn prevented(changes: &[CallbackChange]) -> bool {
+        changes
+            .iter()
+            .any(|c| matches!(c, CallbackChange::PreventDefault))
+    }
+
+    /// The APG window splitter: the DIVIDER is the focusable separator - a
+    /// tab stop of its own, the splitter role (`Grip`, which the a11y tree
+    /// maps to a splitter), a name and its position as the value. The
+    /// container holds both panes' content and is no stop and no splitter:
+    /// a separator's children are presentational, so the role on the
+    /// container hid the panes from a screen reader.
+    #[test]
+    fn the_divider_is_the_split_panes_focusable_separator() {
+        let dom = plain(SplitDirection::Horizontal).with_ratio(0.25).dom();
+        let divider = child(&dom, 1);
+        assert_eq!(
+            divider.root.get_tab_index(),
+            Some(TabIndex::Auto),
+            "the divider is not a tab stop"
+        );
+        let a11y = divider
+            .root
+            .get_accessibility_info()
+            .expect("the divider carries no accessibility info");
+        assert_eq!(a11y.role, azul_core::a11y::AccessibilityRole::Grip);
+        assert!(
+            a11y.accessibility_name.clone().into_option().is_some(),
+            "the separator needs a name"
+        );
+        assert_eq!(
+            a11y.accessibility_value
+                .clone()
+                .into_option()
+                .map(|v| v.as_str().to_string()),
+            Some("25".to_string()),
+            "the separator's value is the first pane's share, in percent"
+        );
+
+        assert!(dom.root.get_tab_index().is_none(), "the container is a tab stop");
+        assert_ne!(
+            dom.root.get_accessibility_info().map(|a| a.role),
+            Some(azul_core::a11y::AccessibilityRole::Grip),
+            "the container must not be the splitter"
+        );
+    }
+
+    /// Left / Right move a side-by-side divider by 1% (10% with Ctrl),
+    /// Home / End to the ends of the clamp; both panes follow, the app hears
+    /// of it through `on_resize`, and the key does nothing else.
+    #[test]
+    fn the_arrow_keys_move_a_focused_divider() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        let mut log = RefAny::new(ResizeLog::default());
+        let sp = plain(SplitDirection::Horizontal)
+            .with_ratio(0.5)
+            .with_on_resize(log.clone(), record_resize as SplitPaneOnResizeCallbackType);
+        let (update, changes, mut state) = press_key_on_divider(sp, K::Right, &[]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.51).abs() < 1e-6, "Right: 0.5 -> {r}, expected 0.51");
+        let writes = css_changes(&changes);
+        assert_eq!(writes.len(), 2, "both panes follow the key: {changes:?}");
+        assert_eq!(writes[0].0, NodeId::new(1), "the first pane");
+        assert!((writes[0].1 - 0.51).abs() < 2e-3);
+        assert_eq!(writes[1].0, NodeId::new(5), "the second pane");
+        assert!((writes[1].1 - 0.49).abs() < 2e-3);
+        assert!(prevented(&changes), "the arrow must not also move the focus or scroll");
+        assert_eq!(update, Update::RefreshDom, "on_resize's update is returned");
+        assert_eq!(logged(&mut log).len(), 1);
+
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Left, &[]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.49).abs() < 1e-6, "Left: 0.5 -> {r}");
+
+        // The coarse step is the platform's PRIMARY modifier's (Cmd on a
+        // Mac, Ctrl elsewhere); the other command key is no modifier of the
+        // divider's (DEDUP_WIDGETS_API F9).
+        let (primary, other) = crate::widgets::roving::test_support::command_keys();
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Right, &[primary]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.6).abs() < 1e-6, "{primary:?}+Right: 0.5 -> {r}");
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Right, &[other]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.51).abs() < 1e-6, "{other:?}+Right is a fine step: 0.5 -> {r}");
+
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::Home, &[]);
+        assert_eq!(wrapper(&mut state).inner.ratio, MIN_RATIO);
+        let (_, _, mut state) =
+            press_key_on_divider(plain(SplitDirection::Horizontal), K::End, &[]);
+        assert_eq!(wrapper(&mut state).inner.ratio, MAX_RATIO);
+    }
+
+    /// A stacked split moves on Up / Down; Left / Right are not its keys and
+    /// are left to the rest of the app (spatial navigation).
+    #[test]
+    fn a_stacked_divider_moves_on_up_and_down_only() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        let (_, changes, mut state) =
+            press_key_on_divider(plain(SplitDirection::Vertical), K::Down, &[]);
+        let r = wrapper(&mut state).inner.ratio;
+        assert!((r - 0.51).abs() < 1e-6, "Down: 0.5 -> {r}");
+        assert!(prevented(&changes));
+
+        let (update, changes, mut state) =
+            press_key_on_divider(plain(SplitDirection::Vertical), K::Right, &[]);
+        assert_eq!(wrapper(&mut state).inner.ratio, 0.5);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "a key that is not the split's is left alone: {changes:?}");
+    }
+
+    // ==================================================================
+    // The divider tracks the cursor
+    // ==================================================================
+
+    /// Where the divider's centre is along the main axis at `ratio`, the way
+    /// the layout places it: the first pane is `ratio` of the space the two
+    /// panes share (the container LESS the fixed divider), then half the
+    /// divider.
+    fn laid_out_divider_centre(ratio: f32, main: f32) -> f32 {
+        let thickness = DIVIDER_THICKNESS as f32;
+        ratio * (main - thickness) + thickness / 2.0
+    }
+
+    /// The divider stays under the cursor that drags it. The panes share the
+    /// container's main size less the divider's thickness, so a ratio step
+    /// of `delta / container` moved the divider by `delta * (W - 6) / W`: it
+    /// slid out from under the cursor, 3% of the travel on a 200px pane.
+    #[test]
+    fn the_divider_stays_under_the_cursor_that_drags_it() {
+        let boxes = [(0, size(200.0, 100.0))];
+        for to in [150.0_f32, 60.0, 180.0] {
+            let (_, _, mut state) = press_then_move(
+                plain(SplitDirection::Horizontal),
+                &boxes,
+                (100.0, 50.0),
+                (to, 50.0),
+            );
+            let centre = laid_out_divider_centre(wrapper(&mut state).inner.ratio, 200.0);
+            assert!(
+                (centre - to).abs() < 1e-3,
+                "the cursor went to {to}, the divider's centre to {centre}"
+            );
+        }
+    }
+
+    /// The grab zone is centred on the divider as it is laid out - off the
+    /// middle too, where `ratio * container` missed its centre by up to
+    /// half the divider.
+    #[test]
+    fn the_grab_zone_is_centred_on_an_off_centre_divider() {
+        for (ratio, x) in [(0.25_f32, 60.0_f32), (0.75, 139.5)] {
+            let centre = laid_out_divider_centre(ratio, 200.0);
+            assert!((x - centre).abs() <= GRAB_THRESHOLD, "fixture: {x} vs {centre}");
+            let (sd, state) = laid_out(plain(SplitDirection::Horizontal).with_ratio(ratio));
+            let (_, _) = drive(
+                sd,
+                &[(0, size(200.0, 100.0))],
+                node(0),
+                cursor(x, 50.0),
+                |info| on_split_pointer_down(state.clone(), info),
+            );
+            let mut state = state;
+            assert!(
+                wrapper(&mut state).is_dragging,
+                "ratio {ratio}: a press at {x}, {} from the divider's centre, missed it",
+                (x - centre).abs()
+            );
+        }
+    }
+
+    /// A non-finite cursor or container size mid-drag leaves the split where
+    /// it was: `clamp` passes NaN through, and a NaN ratio wrote
+    /// `flex-grow: 0` on BOTH panes - an invisible split.
+    #[test]
+    fn a_non_finite_move_leaves_the_split_where_it_was() {
+        let boxes = [(0, size(200.0, 100.0))];
+        let (_, changes, mut state) = press_then_move(
+            plain(SplitDirection::Horizontal),
+            &boxes,
+            (100.0, 50.0),
+            (f32::NAN, 50.0),
+        );
+        let w = wrapper(&mut state);
+        assert_eq!(w.inner.ratio, 0.5, "a NaN cursor moved the split");
+        assert!(w.is_dragging, "a NaN cursor must not end the drag either");
+        assert!(css_changes(&changes).is_empty(), "{changes:?}");
+
+        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
+        let (_, _) = drive(sd.clone(), &boxes, node(0), cursor(100.0, 50.0), |info| {
+            on_split_pointer_down(state.clone(), info)
+        });
+        let (_, changes) = drive(
+            sd,
+            &[(0, size(f32::NAN, 100.0))],
+            node(0),
+            cursor(150.0, 50.0),
+            |info| on_split_pointer_move(state.clone(), info),
+        );
+        let mut state = state;
+        assert_eq!(
+            wrapper(&mut state).inner.ratio,
+            0.5,
+            "a NaN container size moved the split"
+        );
+        assert!(css_changes(&changes).is_empty(), "{changes:?}");
+    }
+
+    // ==================================================================
+    // The grab area
+    // ==================================================================
+
+    /// The visible divider is a thin 6px bar, but a press grabs it up to
+    /// `GRAB_THRESHOLD` px either side of its centre - and only the bar
+    /// showed the resize cursor, so two thirds of the grab zone looked like
+    /// plain pane content. The divider carries a transparent SASH exactly as
+    /// wide as the grab zone, centred on it, with the resize cursor, laid
+    /// over the panes' edges without taking their space.
+    #[test]
+    fn the_grab_area_reaches_past_the_thin_visible_line() {
+        use azul_css::props::layout::LayoutPosition;
+
+        for dir in BOTH_DIRECTIONS {
+            let dom = plain(dir).dom();
+            let divider = child(&dom, 1);
+            assert!(
+                inline_properties(divider).iter().any(|p| matches!(
+                    p,
+                    CssProperty::Position(v) if v.get_property() == Some(&LayoutPosition::Relative)
+                )),
+                "{dir:?}: the divider must be the sash's containing block"
+            );
+            assert_eq!(
+                divider.children.as_ref().len(),
+                1,
+                "{dir:?}: the divider has no grab area wider than itself"
+            );
+            let sash = inline_properties(child(divider, 0));
+            let position = sash.iter().find_map(|p| match p {
+                CssProperty::Position(v) => v.get_property().copied(),
+                _ => None,
+            });
+            assert_eq!(
+                position,
+                Some(LayoutPosition::Absolute),
+                "{dir:?}: the sash must take no layout space"
+            );
+            let sash_cursor = sash.iter().find_map(|p| match p {
+                CssProperty::Cursor(c) => c.get_property().copied(),
+                _ => None,
+            });
+            assert_eq!(
+                sash_cursor,
+                cursor_style(&divider_style(dir)),
+                "{dir:?}: the whole grab area shows the resize cursor"
+            );
+            let (extent, offset) = match dir {
+                SplitDirection::Horizontal => (
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Width(w) => match w.get_property() {
+                            Some(LayoutWidth::Px(pv)) => Some(px(*pv)),
+                            _ => None,
+                        },
+                        _ => None,
+                    }),
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Left(l) => l.get_property().map(|l| px(l.inner)),
+                        _ => None,
+                    }),
+                ),
+                SplitDirection::Vertical => (
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Height(h) => match h.get_property() {
+                            Some(LayoutHeight::Px(pv)) => Some(px(*pv)),
+                            _ => None,
+                        },
+                        _ => None,
+                    }),
+                    sash.iter().find_map(|p| match p {
+                        CssProperty::Top(t) => t.get_property().map(|t| px(t.inner)),
+                        _ => None,
+                    }),
+                ),
+            };
+            assert_eq!(
+                extent,
+                Some(2.0 * GRAB_THRESHOLD),
+                "{dir:?}: the sash is exactly the grab zone"
+            );
+            assert_eq!(
+                offset,
+                Some(DIVIDER_THICKNESS as f32 / 2.0 - GRAB_THRESHOLD),
+                "{dir:?}: the sash is centred on the divider"
+            );
+        }
+    }
+
+    /// A press on a pane (not the divider) is the pane's: nothing captured.
+    #[test]
+    fn a_press_beside_the_divider_captures_nothing() {
+        let (sd, state) = laid_out(plain(SplitDirection::Horizontal));
+        let (_, changes) = drive_in(
+            button_held(),
+            sd,
+            &[(0, size(200.0, 100.0))],
+            node(0),
+            cursor(10.0, 50.0),
+            |info| on_split_pointer_down(state.clone(), info),
+        );
+        assert!(changes.is_empty(), "{changes:?}");
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! The split pane's theme is a DOM-level choice: the divider - the only
+    //! part with a look of its own - is built from the skin of the theme the
+    //! pane carries, flat by default. Its geometry (the thickness the drag
+    //! arithmetic relies on) is the same in every theme.
+
+    use azul_core::dom::Dom;
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{
+            basic::color::ColorU,
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    fn split(dir: SplitDirection, theme: Option<UiTheme>) -> Dom {
+        let sp = SplitPane::create(dir, Dom::create_div(), Dom::create_div());
+        match theme {
+            Some(t) => sp.with_theme(t).dom(),
+            None => sp.dom(),
+        }
+    }
+
+    fn divider(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[1]
+    }
+
+    fn edge_color(node: &Dom, ty: CssPropertyType, dark: bool) -> Option<ColorU> {
+        tc::resolve(node, ty, dark, None).as_ref().and_then(tc::border_color)
+    }
+
+    #[test]
+    fn a_split_pane_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let sp = SplitPane::create(SplitDirection::Horizontal, Dom::create_div(), Dom::create_div());
+        assert_eq!(sp.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&split(SplitDirection::Horizontal, None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            split(SplitDirection::Horizontal, None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a =
+            SplitPane::create(SplitDirection::Vertical, Dom::create_div(), Dom::create_div());
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        let b = SplitPane::create(SplitDirection::Vertical, Dom::create_div(), Dom::create_div())
+            .with_theme(UiTheme::Flora);
+        assert_eq!(b.theme, a.theme);
+    }
+
+    #[test]
+    fn a_flat_divider_keeps_its_grey_bar_and_the_desktop_separator_in_the_dark() {
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flat));
+        let d = divider(&dom);
+        assert_eq!(
+            tc::background(d, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(173, 181, 189))
+        );
+        assert_eq!(
+            tc::background(d, true).map(|p| tc::bg_layers(&p)),
+            Some(alloc::vec![azul_css::props::style::StyleBackgroundContent::SystemColor(
+                azul_css::props::basic::color::SystemColorRef::Separator
+            )])
+        );
+    }
+
+    #[test]
+    fn a_flora_divider_is_a_channel_between_two_hairlines() {
+        for (dir, sides) in [
+            (
+                SplitDirection::Horizontal,
+                [CssPropertyType::BorderLeftColor, CssPropertyType::BorderRightColor],
+            ),
+            (
+                SplitDirection::Vertical,
+                [CssPropertyType::BorderTopColor, CssPropertyType::BorderBottomColor],
+            ),
+        ] {
+            let dom = split(dir, Some(UiTheme::Flora));
+            assert!(tc::has_class(&dom, FLORA));
+            let d = divider(&dom);
+            assert_eq!(
+                tc::background(d, false).and_then(|p| tc::bg_color(&p)),
+                Some(flora::LIGHT_STRIP),
+                "{dir:?}"
+            );
+            assert_eq!(
+                tc::background(d, true).and_then(|p| tc::bg_color(&p)),
+                Some(flora::DARK_STRIP),
+                "{dir:?}"
+            );
+            for side in sides {
+                assert_eq!(edge_color(d, side, false), Some(flora::LIGHT_BD), "{dir:?} {side:?}");
+                assert_eq!(edge_color(d, side, true), Some(flora::DARK_BD), "{dir:?} {side:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_divider_keeps_its_thickness_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let d = split(SplitDirection::Horizontal, Some(theme));
+            let d = divider(&d);
+            assert_eq!(
+                tc::resolve(d, CssPropertyType::Width, false, None),
+                Some(CssProperty::const_width(LayoutWidth::const_px(DIVIDER_THICKNESS))),
+                "{theme:?}"
+            );
+        }
+        // Flora's hairlines sit INSIDE the bar, so the drag arithmetic's
+        // thickness is still the rendered one.
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flora));
+        assert_eq!(
+            tc::resolve(divider(&dom), CssPropertyType::BoxSizing, false, None),
+            Some(CssProperty::const_box_sizing(
+                azul_css::props::layout::LayoutBoxSizing::BorderBox
+            ))
+        );
+    }
+
+    #[test]
+    fn the_divider_shows_a_focus_ring_in_every_theme_and_mode() {
+        for dir in [SplitDirection::Horizontal, SplitDirection::Vertical] {
+            for theme in [UiTheme::Flat, UiTheme::Flora] {
+                let dom = split(dir, Some(theme));
+                let d = divider(&dom);
+                assert!(tc::has_focus_ring(d, false), "{dir:?} {theme:?}: light");
+                assert!(tc::has_focus_ring(d, true), "{dir:?} {theme:?}: dark");
+                tc::assert_theme_invariants(&format!("split_pane {dir:?} {theme:?}"), &dom);
+            }
+        }
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flora));
+        assert_eq!(tc::focus_ring_color(divider(&dom), false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(divider(&dom), true), Some(flora::DARK_GLOW));
+        // Flat lights the whole bar in the ring colour, so a thin divider still
+        // reads as focused.
+        let dom = split(SplitDirection::Horizontal, Some(UiTheme::Flat));
+        let focus = Some(PseudoStateType::Focus);
+        let lit = |dark: bool| {
+            tc::resolve(divider(&dom), CssPropertyType::BackgroundContent, dark, focus)
+                .and_then(|p| tc::bg_color(&p))
+        };
+        assert_eq!(lit(false), Some(crate::widgets::themes::flat::FIELD_RING));
+        assert_eq!(lit(true), Some(crate::widgets::themes::flat::DARK_ACC));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        for dir in [SplitDirection::Horizontal, SplitDirection::Vertical] {
+            let flat = split(dir, Some(UiTheme::Flat));
+            let flora_dom = split(dir, Some(UiTheme::Flora));
+            assert_eq!(tc::a11y_outline(&flat).len(), 1, "the divider");
+            assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+        }
+    }
+}
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a split pane's structure is its base, declared once for every app
+    //! theme - never inside a `@theme(<name>)` block.
+
+    use azul_core::dom::Dom;
+
+    use super::{SplitDirection, SplitPane};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_split_pane_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for dir in [SplitDirection::Horizontal, SplitDirection::Vertical] {
+                let dom = under(t, || {
+                    SplitPane::create(dir, Dom::create_div(), Dom::create_div()).dom()
+                });
+                assert_structure_is_shared(
+                    &format!("split pane {dir:?} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

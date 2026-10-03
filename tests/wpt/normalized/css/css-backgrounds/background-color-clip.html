@@ -1,0 +1,19 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Background Color Clip</title>
+<meta name="assert" content="Check that the background color is clipped according to the background-clip value associated with the bottom-most background image layer."/>
+<style>
+    div {
+        width: 120px;
+        height: 100px;
+        background-color: green;
+        background-clip: border-box, content-box, border-box;
+        background-image: none, none;
+        border-style: solid;
+        border-width: 10px;
+        border-color: transparent;
+    }
+</style>
+</head>
+<body><div></div></body>
+</html>

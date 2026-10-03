@@ -148,6 +148,41 @@ fn has_box_dependent_callback(data: &azul_core::dom::NodeData) -> bool {
         .any(|cb| matches!(cb.event, EventFilter::Hover(_) | EventFilter::Focus(_)))
 }
 
+/// Can the USER trigger one of this node's callbacks, i.e. is it a control?
+///
+/// The same split as [`has_box_dependent_callback`]: pointer (`Hover`) and
+/// keyboard (`Focus`) listeners are aimed at the node by the user. Lifecycle
+/// (`Component`: `AfterMount`, `NodeResized`), `Window`, `Application` and
+/// `External` listeners are delivered without anyone aiming at the node, so a
+/// node that has only those is not a control and owes nobody a name - the
+/// video widget's root (two lifecycle listeners around a `VirtualView`) was
+/// reported as an unnamed icon-only control.
+fn is_user_interactive(data: &azul_core::dom::NodeData) -> bool {
+    has_box_dependent_callback(data)
+}
+
+/// Does the element type carry a role of its own?
+///
+/// A declared role of `Unknown` means "not specified", and both accessibility
+/// trees then fall back to the element's own role
+/// (`managers::a11y_snapshot::node_type_to_role` and the accesskit mapping in
+/// `managers::a11y`): a named `<button>` IS a button there. Only the elements
+/// whose fallback is a real control or widget role are listed.
+const fn element_implies_a_role(node_type: &NodeType) -> bool {
+    matches!(
+        node_type,
+        NodeType::Button
+            | NodeType::A
+            | NodeType::Input
+            | NodeType::TextArea
+            | NodeType::Select
+            | NodeType::SelectOption
+            | NodeType::MenuItem
+            | NodeType::Progress
+            | NodeType::Meter
+    )
+}
+
 fn display_of(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     match get_display_property(styled_dom, Some(node_id)) {
         MultiValue::Exact(d) => d,
@@ -867,8 +902,9 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
         .linear_iter()
         .filter_map(|id| nodes.get(id).map(|n| (id, n)))
     {
-        // "Interactive" = the app attached a callback to it.
-        if node.get_callbacks().is_empty() {
+        // "Interactive" = the app attached a callback the USER can trigger.
+        // Lifecycle, window and application listeners do not make a control.
+        if !is_user_interactive(node) {
             continue;
         }
         if node.accessibility.is_some() {
@@ -1040,6 +1076,108 @@ mod semantic_and_a11y_lint_tests {
         azul_core::diagnostics::clear();
     }
 
+    /// Lifecycle listeners (`AfterMount`, `NodeResized`) are delivered by node
+    /// identity, never by the user: a node that has only those is not a
+    /// control, and asking for its accessible name is noise (the video
+    /// widget's root was reported as an unnamed icon-only control).
+    #[test]
+    fn a_node_with_only_lifecycle_callbacks_is_not_an_unnamed_control() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let host = Dom::create_div()
+            .with_callback(
+                azul_core::dom::EventFilter::Component(
+                    azul_core::dom::ComponentEventFilter::AfterMount,
+                ),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            )
+            .with_child(Dom::create_div());
+        warn_interactive_without_accessibility(&styled(Dom::create_body().with_child(host)));
+        assert!(
+            !azul_core::diagnostics::any_contains("[azul][a11y]"),
+            "a lifecycle listener does not make a node a control: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// A `<button>` element whose declared role is left `Unknown` (the "not
+    /// specified" default) IS a button to both accessibility trees, which fall
+    /// back to the element's own role. Naming it must not make the lint call
+    /// it "interactive, role Unknown".
+    #[test]
+    fn a_named_button_element_is_not_reported_as_role_unknown() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let button = Dom::create_node(NodeType::Button)
+            .with_accessibility_name("Play video")
+            .with_callback(
+                azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            );
+        warn_a11y_shape(&styled(Dom::create_body().with_child(button)));
+        assert!(
+            !azul_core::diagnostics::any_contains("is Unknown"),
+            "a <button> falls back to the button role: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// Window-level listeners fire for the window, wherever the node is: a
+    /// drop zone listening for dropped files is not a control, so a name
+    /// without a role on it is not "interactive, role Unknown".
+    #[test]
+    fn a_node_with_only_window_callbacks_is_not_reported_as_role_unknown() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let zone = Dom::create_div()
+            .with_accessibility_name("Drop zone")
+            .with_callback(
+                azul_core::dom::EventFilter::Window(
+                    azul_core::dom::WindowEventFilter::DroppedFile,
+                ),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            )
+            .with_child(Dom::create_span_with_text("Drag files here"));
+        warn_a11y_shape(&styled(Dom::create_body().with_child(zone)));
+        assert!(
+            !azul_core::diagnostics::any_contains("is Unknown"),
+            "a window listener does not make a node a control: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// Control for the two above: a plain div the user can CLICK, named but
+    /// with no role, is still reported.
+    #[test]
+    fn a_clickable_div_with_a_name_and_no_role_is_still_reported() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let seek = Dom::create_div()
+            .with_accessibility_name("Seek")
+            .with_callback(
+                azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            );
+        warn_a11y_shape(&styled(Dom::create_body().with_child(seek)));
+        assert!(
+            azul_core::diagnostics::any_contains("is Unknown"),
+            "a clickable div with no role must still be reported: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
     extern "C" fn noop_cb(
         _: azul_core::refany::RefAny,
         _: crate::callbacks::CallbackInfo,
@@ -1176,7 +1314,7 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             break; // one screenful is enough to act on
         }
         let idx = node_id.index();
-        let interactive = !node.get_callbacks().is_empty();
+        let interactive = is_user_interactive(node);
         let focusable = node.get_tab_index().is_some();
 
         let Some(info) = node.accessibility.as_ref() else {
@@ -1214,7 +1352,13 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
         let has_name = info.accessibility_name.as_ref().is_some();
         let has_value = info.accessibility_value.as_ref().is_some();
 
-        if matches!(role, AccessibilityRole::Unknown) && (interactive || focusable) {
+        // `Unknown` means "not specified": both accessibility trees then fall
+        // back to the ELEMENT's own role (a `<button>` is a button), so only a
+        // generic element left at `Unknown` really says nothing about itself.
+        if matches!(role, AccessibilityRole::Unknown)
+            && !element_implies_a_role(node.get_node_type())
+            && (interactive || focusable)
+        {
             reported += 1;
             azul_core::diagnostics::emit(format!(
                 "[azul][a11y-shape] node {idx} is interactive and declares accessibility, but its \

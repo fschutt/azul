@@ -37,6 +37,7 @@ pub use super::lang_java::{
     is_java_reserved, map_jvm_type as base_map_jvm_type, user_enum_type_name,
 };
 use super::{
+    c_layout::union_payload_layout,
     config::CodegenConfig,
     generator::CodeBuilder,
     ir::{
@@ -45,6 +46,18 @@ use super::{
         StructDef, TypeAliasDef, TypeCategory,
     },
 };
+
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant), as a JNA byte
+/// array listed right after `tag` in the field order. Nothing for N = 0
+/// (JNA rejects zero-length arrays).
+fn emit_variant_padding(builder: &mut CodeBuilder, padding: usize, field_names: &mut Vec<String>) {
+    if padding > 0 {
+        builder.line(&format!("@JvmField var _pad0: ByteArray = ByteArray({})", padding));
+        field_names.push("\"_pad0\"".to_string());
+    }
+}
 
 /// Library name JNA loads. Matches the Java side.
 pub const LIBRARY_NAME: &str = "azul";
@@ -410,6 +423,7 @@ fn emit_tagged_union(
     builder.blank();
 
     // 2. Per-variant payload structures
+    let payload = union_payload_layout(&enum_def.name, ir);
     for v in &enum_def.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
         builder.line(&format!("open class {} : Structure() {{", variant_struct));
@@ -420,6 +434,11 @@ fn emit_tagged_union(
         builder.line(&format!("@JvmField var tag: Byte = 0 // {}_Tag", name));
 
         let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
+        emit_variant_padding(
+            builder,
+            payload.as_ref().map_or(0, |p| p.padding(&v.name)),
+            &mut field_names,
+        );
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {
@@ -669,12 +688,18 @@ fn emit_monomorphized_alias(
             builder.line("}");
 
             // Per-variant payload structs
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
                 builder.line(&format!("open class {} : Structure() {{", variant_struct));
                 builder.indent();
                 builder.line("@JvmField var tag: Byte = 0 // repr(C, u8)");
                 let mut field_names = vec!["\"tag\"".to_string()];
+                emit_variant_padding(
+                    builder,
+                    payload.as_ref().map_or(0, |p| p.padding(&v.name)),
+                    &mut field_names,
+                );
                 if let Some(ref payload_type) = v.payload_type {
                     let jt = ref_kind_field_type_kt(payload_type, &v.payload_ref_kind, ir);
                     // Enums can't be `Foo()`-instantiated; declare as

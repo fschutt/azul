@@ -83,6 +83,12 @@ mod wasm_stub {
         pub fn send_message(&self, _peer: u64, _data: U8Vec) -> bool {
             false
         }
+        pub fn set_track_priority(&self, _track: u32, _priority: i32) -> bool {
+            false
+        }
+        pub fn set_message_priority(&self, _priority: i32) -> bool {
+            false
+        }
         pub fn disconnect(&self, _peer: u64) -> bool {
             false
         }

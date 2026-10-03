@@ -8,6 +8,11 @@
 //! `0..=59`), updates the state, retexts the display node via
 //! `info.change_node_text`, and invokes the optional `on_change(state)`.
 //!
+//! From the keyboard each column is a SPIN BUTTON (WAI-ARIA APG spinbutton):
+//! the column is ONE Tab stop whose value Up / Down, PageUp / PageDown and
+//! Home / End change, through the same clamp + retext + `on_change` a click
+//! takes. The arrows are click targets only, no Tab stops.
+//!
 //! The clamping/retext path mirrors `number_input.rs` (a proven pattern) and the
 //! clickable-cell + sibling navigation mirrors `segmented.rs`, so this widget is
 //! well-supported. The only deliberate behaviour note:
@@ -29,7 +34,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{
@@ -51,7 +55,10 @@ use azul_css::{
     AzString, OptionString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{style_kit, system_palette as sys, OptionUiTheme, UiTheme},
+};
 
 // ---- classes ----
 static TIME_PICKER_CLASS: &[IdOrClass] =
@@ -119,6 +126,10 @@ pub struct TimePicker {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
+    /// theme is a DOM-level choice: it picks the skin the frame, spinners and
+    /// toggle are built from, so switching it rebuilds the picker.
+    pub theme: OptionUiTheme,
 }
 
 /// Wraps [`TimePickerState`] together with its change callback.
@@ -213,13 +224,39 @@ const ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Col
 const ACCENT_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(ACCENT_BG_ITEMS);
 
-/// Container: a horizontal row that hugs its content.
-static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+// ---- R5: the parts' BASE - the structure every theme's picker shares ----
+//
+// A theme's part is its base below, THEN its skin (paint and metrics): the
+// `*_STYLE` statics for flat (`themes::flat::time_picker_skin`), and
+// `themes::flora::time_picker_skin` for flora. The base comes first in every
+// theme, so an unpinned picker (`follow_skin`) declares it once, outside
+// every `@theme` block. The spinner column is `SPINNER_STYLE` in every theme;
+// a theme adds only its focus ring (the column is the spin button).
+
+/// The frame's structure: a horizontal row that hugs its content (the parent
+/// decides where it goes, `align-self: start`).
+pub(crate) static CONTAINER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// A clickable part's structure (an arrow, the AM/PM toggle): the pointer,
+/// never a text selection.
+pub(crate) static CLICKABLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// A readout's structure (the value, the `:`): never a text selection.
+pub(crate) static READOUT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// Container: flat's frame, on [`CONTAINER_BASE`].
+pub(crate) static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         4,
     ))),
@@ -276,6 +313,11 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    // The outline is the desktop's separator colour in the dark theme.
+    sys::DARK_SEPARATOR_BORDER_TOP,
+    sys::DARK_SEPARATOR_BORDER_BOTTOM,
+    sys::DARK_SEPARATOR_BORDER_LEFT,
+    sys::DARK_SEPARATOR_BORDER_RIGHT,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
     )),
@@ -291,7 +333,7 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 /// One spinner column: up arrow, value, down arrow.
-static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -301,8 +343,8 @@ static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(40))),
 ];
 
-/// Up/down arrow cell.
-static ARROW_STYLE: &[CssPropertyWithConditions] = &[
+/// Up/down arrow cell: flat's, on [`CLICKABLE_BASE`].
+pub(crate) static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     // An EXPLICIT hit box. Without it the arrow `<p>` is shrink-to-fit inside an
     // `align-items: center` column, so its target was the advance of the glyph
     // itself (~11x17 px) — and it collapsed to ZERO WIDTH whenever U+25B2/25BC
@@ -311,11 +353,10 @@ static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ARROW_COLOR,
     })),
+    sys::DARK_SECONDARY_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         2,
     ))),
@@ -324,14 +365,14 @@ static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// The value display in the middle of a spinner.
-static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
+/// The value display in the middle of a spinner: flat's, on [`READOUT_BASE`].
+pub(crate) static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         2,
     ))),
@@ -340,13 +381,14 @@ static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// The `:` separator between the hour and minute spinners.
-static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
+/// The `:` separator between the hour and minute spinners: flat's, on
+/// [`READOUT_BASE`].
+pub(crate) static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(2),
     )),
@@ -355,16 +397,17 @@ static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// The clickable AM/PM toggle (12-hour mode only).
-static AMPM_STYLE: &[CssPropertyWithConditions] = &[
+/// The clickable AM/PM toggle (12-hour mode only): flat's, on
+/// [`CLICKABLE_BASE`].
+pub(crate) static AMPM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: WHITE,
     })),
+    sys::DARK_ACCENT_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_background_content(ACCENT_BG_VEC)),
+    sys::DARK_ACCENT_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         8,
     ))),
@@ -394,6 +437,65 @@ static AMPM_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
+/// What a theme supplies for a time picker: the style of every part (the
+/// frame is the default the app's `container_style` replaces). Built by
+/// `themes::flat::time_picker_skin` / `themes::flora::time_picker_skin`.
+pub(crate) struct TimePickerSkin {
+    pub theme: UiTheme,
+    /// The frame, unless the app brings a container style.
+    pub container: CssPropertyWithConditionsVec,
+    /// One spinner column - the spin button, the Tab stop, so it owes the
+    /// focus ring.
+    pub spinner: CssPropertyWithConditionsVec,
+    /// An up / down arrow - a click target, no Tab stop. Every theme keeps
+    /// its 40x16 hit box.
+    pub arrow: CssPropertyWithConditionsVec,
+    /// The value readout.
+    pub display: CssPropertyWithConditionsVec,
+    /// The `:` between the spinners.
+    pub separator: CssPropertyWithConditionsVec,
+    /// The AM/PM toggle - focusable too.
+    pub ampm: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws time pickers with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme) -> TimePickerSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::time_picker_skin(),
+        UiTheme::Flora => crate::widgets::themes::flora::time_picker_skin(),
+    }
+}
+
+/// The skin an UNPINNED time picker is built with, so it follows the app
+/// theme: `structure`'s theme (its marker goes on the frame) and every part
+/// in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme) -> TimePickerSkin {
+    use crate::widgets::themes::theme_blocks::follow_props as both;
+    let (flat, flora) = (skin_for(UiTheme::Flat), skin_for(UiTheme::Flora));
+    TimePickerSkin {
+        theme: structure,
+        container: both(flat.container.as_slice(), flora.container.as_slice()),
+        spinner: both(flat.spinner.as_slice(), flora.spinner.as_slice()),
+        arrow: both(flat.arrow.as_slice(), flora.arrow.as_slice()),
+        display: both(flat.display.as_slice(), flora.display.as_slice()),
+        separator: both(flat.separator.as_slice(), flora.separator.as_slice()),
+        ampm: both(flat.ampm.as_slice(), flora.ampm.as_slice()),
+    }
+}
+
+/// The skin a picker carrying `theme` renders with: the pinned theme's, or
+/// - unpinned - [`follow_skin`] in the structure of the theme the DOM is
+/// built for. What the render and `resolved_container_style` both ask.
+#[must_use]
+pub(crate) fn skin_of(theme: OptionUiTheme) -> TimePickerSkin {
+    match theme.into_option() {
+        Some(pinned) => skin_for(pinned),
+        None => follow_skin(UiTheme::current()),
+    }
+}
+
 impl TimePicker {
     /// Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)
     /// and minute (`0..=59`), both clamped into range.
@@ -418,19 +520,35 @@ impl TimePicker {
             },
             container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the picker follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this time picker renders with.
     ///
-    /// `None` means no opinion, so the widget's default applies — the same
-    /// answer both themes give, asked in one place so they cannot drift.
+    /// `None` means no opinion, so the theme's frame applies - asked of the
+    /// same skin the render uses, so the two cannot drift.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style
             .clone()
             .into_option()
-            .unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE))
+            .unwrap_or_else(|| skin_of(self.theme).container)
     }
 
     /// Switches between 24-hour (no AM/PM) and 12-hour (with AM/PM) display,
@@ -494,35 +612,59 @@ impl TimePicker {
         s
     }
 
+    /// Renders the picker. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the picker follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::time_picker(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::time_picker(self),
+            None => self.build(follow_skin(UiTheme::current())),
+        }
+    }
+
+    /// Renders the picker with `skin` styling its parts - what
+    /// `themes::flat::time_picker` / `themes::flora::time_picker` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: TimePickerSkin) -> Dom {
         let inner = self.state.inner;
         let is_24h = inner.is_24h;
         let hour_text = AzString::from(format!("{}", inner.hour));
         let minute_text = AzString::from(format!("{:02}", inner.minute));
-        let container_style = self.resolved_container_style();
+        let container_style = self
+            .container_style
+            .clone()
+            .into_option()
+            .unwrap_or_else(|| skin.container.clone());
 
         let state = RefAny::new(self.state);
 
         let mut children = alloc::vec![
-            build_spinner(
+            build_spinner_skinned(
                 hour_text,
                 state.clone(),
                 on_hour_up as usize,
                 on_hour_down as usize,
                 on_hour_scroll as usize,
+                on_hour_key as usize,
+                "hour",
+                &skin,
             ),
             crate::widgets::widget_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    SEPARATOR_STYLE
-                )),
-            build_spinner(
+                .with_css_props(skin.separator.clone()),
+            build_spinner_skinned(
                 minute_text,
                 state.clone(),
                 on_minute_up as usize,
                 on_minute_down as usize,
                 on_minute_scroll as usize,
+                on_minute_key as usize,
+                "minute",
+                &skin,
             ),
         ];
 
@@ -535,7 +677,7 @@ impl TimePicker {
             children.push(
                 crate::widgets::widget_p_with_text(ampm_text)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(AMPM_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(AMPM_STYLE))
+                    .with_css_props(skin.ampm.clone())
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
                             event: azul_core::dom::EventFilter::Hover(
@@ -550,7 +692,7 @@ impl TimePicker {
                         .into(),
                     )
                     .with_tab_index(TabIndex::Auto)
-                    // Hour/minute steppers act as buttons.
+                    // The AM/PM toggle is a button (a Tab stop of its own).
                     .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                         role: azul_core::a11y::AccessibilityRole::PushButton,
                         ..Default::default()
@@ -558,8 +700,10 @@ impl TimePicker {
             );
         }
 
+        let mut classes: Vec<IdOrClass> = TIME_PICKER_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TIME_PICKER_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             .with_children(children.into())
     }
@@ -571,22 +715,56 @@ impl Default for TimePicker {
     }
 }
 
-/// Builds one spinner column (up arrow / value display / down arrow). The up and
-/// down arrows carry the shared `state` `RefAny` and the given click handlers; the
-/// middle display is class-tagged so handlers can re-text it.
+/// Builds one spinner column in the flat theme - see [`build_spinner_skinned`].
+/// The tests' entry point; the widget itself builds through its skin.
+#[cfg(test)]
 fn build_spinner(
     value: AzString,
     state: RefAny,
     up_cb: usize,
     down_cb: usize,
     scroll_cb: usize,
+    key_cb: usize,
+    unit: &str,
 ) -> Dom {
-    use azul_core::dom::{EventFilter, HoverEventFilter};
+    build_spinner_skinned(
+        value,
+        state,
+        up_cb,
+        down_cb,
+        scroll_cb,
+        key_cb,
+        unit,
+        &skin_for(UiTheme::Flat),
+    )
+}
 
-    let arrow_cell = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
+/// Builds one spinner column (up arrow / value display / down arrow). The up and
+/// down arrows carry the shared `state` `RefAny` and the given click handlers; the
+/// middle display is class-tagged so handlers can re-text it. `skin` styles the
+/// column, the arrows and the readout.
+///
+/// The COLUMN is a spin button (WAI-ARIA APG): the one Tab stop, named for its
+/// `unit` ("Hour"), carrying its value and the keys (`key_cb`, see
+/// [`spin_on_key`]). The arrows are click targets only - no Tab stops; a click
+/// on one focuses its column, the nearest focusable ancestor of the click.
+#[allow(clippy::too_many_arguments)] // one column: its value, state, four handlers, unit and skin
+fn build_spinner_skinned(
+    value: AzString,
+    state: RefAny,
+    up_cb: usize,
+    down_cb: usize,
+    scroll_cb: usize,
+    key_cb: usize,
+    unit: &str,
+    skin: &TimePickerSkin,
+) -> Dom {
+    use azul_core::dom::{EventFilter, FocusEventFilter, HoverEventFilter};
+
+    let arrow_cell = |arrow: AzString, name: String, cb: usize, refany: RefAny| -> Dom {
         crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ARROW_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ARROW_STYLE))
+            .with_css_props(skin.arrow.clone())
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Click),
@@ -598,41 +776,67 @@ fn build_spinner(
                 }]
                 .into(),
             )
-            .with_tab_index(TabIndex::Auto)
+            // No tab index: the column is the spin button's one Tab stop.
             // A stepper arrow IS a button. It used to declare `ComboBox` (the
             // comment "the time field opens a chooser" belongs to a field, not
             // to an arrow) — a screen reader announced a combo box that offered
-            // nothing to choose.
+            // nothing to choose. Its glyph (▲ / ▼) is not a name, so it says
+            // what it changes: "Increase hour".
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                 role: azul_core::a11y::AccessibilityRole::PushButton,
+                accessibility_name: Some(AzString::from(name)).into(),
                 ..Default::default()
             })
     };
 
+    // "hour" -> "Hour": what the column is called.
+    let mut column_name = String::from(unit);
+    if let Some(first) = column_name.get_mut(..1) {
+        first.make_ascii_uppercase();
+    }
+
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SPINNER_STYLE))
+        .with_css_props(skin.spinner.clone())
         // The WHOLE column takes the wheel, not just the arrows: spinning the
         // hours by pointing at them is what a native time field does, and the
-        // arrows are far too small to aim a gesture at.
+        // arrows are far too small to aim a gesture at. And it takes the
+        // keys: it is the spin button.
         .with_callbacks(
-            alloc::vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::Scroll),
-                callback: CoreCallback {
-                    cb: scroll_cb,
-                    ctx: OptionRefAny::None,
+            alloc::vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Scroll),
+                    callback: CoreCallback {
+                        cb: scroll_cb,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: state.clone(),
                 },
-                refany: state.clone(),
-            }]
+                CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: key_cb,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: state.clone(),
+                },
+            ]
             .into(),
         )
+        .with_tab_index(TabIndex::Auto)
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::SpinButton,
+            accessibility_name: Some(AzString::from(column_name)).into(),
+            accessibility_value: Some(value.clone()).into(),
+            ..Default::default()
+        })
         .with_children(
             alloc::vec![
-                arrow_cell(UP_ARROW, up_cb, state.clone()),
+                arrow_cell(UP_ARROW, format!("Increase {unit}"), up_cb, state.clone()),
                 crate::widgets::widget_p_with_text(value)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(DISPLAY_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DISPLAY_STYLE)),
-                arrow_cell(DOWN_ARROW, down_cb, state),
+                    .with_css_props(skin.display.clone()),
+                arrow_cell(DOWN_ARROW, format!("Decrease {unit}"), down_cb, state),
             ]
             .into(),
         )
@@ -703,8 +907,68 @@ fn adjust_spinner_at(
         (update, display_text)
     };
 
-    info.change_node_text(display, display_text);
+    info.change_node_text(display, display_text.clone());
+    // The column is a spin button and its value is live: announced whichever
+    // way it changed (an arrow, the wheel, a key) - no rebuild follows.
+    info.set_accessibility_value(spinner, display_text);
     update
+}
+
+/// How far PageUp / PageDown move the hour column: the spin button's "larger
+/// step" (WAI-ARIA APG) - two hours, as react-aria's time field steps.
+const PAGE_STEP_HOURS: i64 = 2;
+
+/// How far PageUp / PageDown move the minute column: a quarter hour.
+const PAGE_STEP_MINUTES: i64 = 15;
+
+/// A delta past both ends of every band, however far out of range a
+/// hand-written state is: Home / End hand it to the clamp, which lands on the
+/// band's end. Small enough that `i64::from(u32::MAX) + TO_THE_END` cannot
+/// overflow.
+const TO_THE_END: i64 = 1 << 40;
+
+/// A column is a SPIN BUTTON (WAI-ARIA APG spinbutton): ONE Tab stop whose
+/// value the keys change - Up / Down by one, PageUp / PageDown by the large
+/// step, Home / End to the ends of its band - through the very body an arrow
+/// click and the wheel take ([`adjust_spinner_at`]: clamp, retext, announce,
+/// `on_change`, which also fires for a step clamped away, as a click does).
+/// A handled key's default (spatial navigation, scrolling) is cancelled, also
+/// at an end, so Up / Down never walk out of the column. Every other key, and
+/// every key held with Alt, Ctrl, Cmd or Shift, keeps its default
+/// (`roving::plain_key`, as the stepper's spin button). Focus stays on the
+/// column.
+fn spin_on_key(mut data: RefAny, mut info: CallbackInfo, is_hour: bool) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let page = if is_hour {
+        PAGE_STEP_HOURS
+    } else {
+        PAGE_STEP_MINUTES
+    };
+    let delta = match crate::widgets::roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Up) => 1,
+        Some(K::Down) => -1,
+        Some(K::PageUp) => page,
+        Some(K::PageDown) => -page,
+        Some(K::Home) => -TO_THE_END,
+        Some(K::End) => TO_THE_END,
+        _ => return Update::DoNothing,
+    };
+    // Not our state (or already borrowed): leave the key alone.
+    if data.downcast_ref::<TimePickerStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+    info.prevent_default();
+    let column = info.get_hit_node();
+    adjust_spinner_at(data, info, column, is_hour, delta)
+}
+
+extern "C" fn on_hour_key(data: RefAny, info: CallbackInfo) -> Update {
+    spin_on_key(data, info, true)
+}
+
+extern "C" fn on_minute_key(data: RefAny, info: CallbackInfo) -> Update {
+    spin_on_key(data, info, false)
 }
 
 /// How much wheel travel advances the spinner by one unit.
@@ -784,14 +1048,28 @@ fn spin_on_scroll(data: RefAny, mut info: CallbackInfo, is_hour: bool) -> Update
     if steps == 0 {
         // Still consumed: the gesture belongs to this spinner even on the
         // events that do not yet complete a step.
-        info.stop_propagation();
+        claim_the_wheel(&mut info);
         return Update::DoNothing;
     }
 
     // Wheel-up (dy < 0) must INCREASE the value.
     let update = adjust_spinner_at(data, info, spinner, is_hour, -steps);
-    info.stop_propagation();
+    claim_the_wheel(&mut info);
     update
+}
+
+/// THE WHEEL HAS ONE CONSUMER. The column took this gesture, so the page it
+/// sits on must not scroll as well.
+///
+/// Two different refusals, both needed: `stop_propagation` keeps the event
+/// from other CALLBACKS, and `prevent_default` cancels the container scroll —
+/// which is not a callback. That scroll is queued against the innermost
+/// scrollable ancestor at ingress (`ScrollManager::record_scroll_from_hit_test`),
+/// before any handler can see the delta, and the veto is the only thing that
+/// takes it back.
+fn claim_the_wheel(info: &mut CallbackInfo) {
+    info.prevent_default();
+    info.stop_propagation();
 }
 
 extern "C" fn on_hour_scroll(data: RefAny, info: CallbackInfo) -> Update {
@@ -865,13 +1143,15 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        dom::{
+            DomId, DomNodeId, EventFilter, FocusEventFilter, HoverEventFilter, NodeId, NodeType,
+        },
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use rust_fontconfig::FcFontCache;
 
@@ -881,6 +1161,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -1024,11 +1305,25 @@ mod autotest_generated {
         hit: DomNodeId,
         f: impl FnOnce(&mut CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
+        with_info_wheel(styled_dom, hit, None, f)
+    }
+
+    /// [`with_info`] with this pass's wheel delta staged the way a platform
+    /// scroll handler stages it — `ScrollManager::pending_wheel_event`, which
+    /// is the single thing `CallbackInfo::get_scroll_delta` reads. Without it
+    /// a `Scroll` handler sees no delta and returns before it does anything.
+    fn with_info_wheel<R>(
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        wheel: Option<azul_core::geom::LogicalPosition>,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         layout_window
             .layout_results
             .insert(DomId::ROOT_ID, layout_result(styled_dom));
+        layout_window.scroll_manager.pending_wheel_event = wheel;
 
         let renderer_resources = RendererResources::default();
         let previous_window_state: Option<FullWindowState> = None;
@@ -1101,14 +1396,19 @@ mod autotest_generated {
     }
 
     /// The classes of a *flattened* node.
+    /// The widget classes of a flattened node - without the theme marker the
+    /// root also carries (`__azul-theme-flat` / `-flora`), which names the
+    /// theme that drew it rather than the part it is.
     fn flat_classes(sd: &StyledDom, idx: usize) -> Vec<String> {
         sd.node_data.as_ref()[idx]
             .get_ids_and_classes()
             .as_ref()
             .iter()
             .filter_map(|c| match c {
-                Class(s) => Some(s.as_str().to_string()),
-                IdOrClass::Id(_) => None,
+                Class(s) if !s.as_str().starts_with("__azul-theme-") => {
+                    Some(s.as_str().to_string())
+                }
+                Class(_) | IdOrClass::Id(_) => None,
             })
             .collect()
     }
@@ -1234,6 +1534,22 @@ mod autotest_generated {
         with_info(styled_dom, hit, |info| handler(payload.clone(), *info))
     }
 
+    /// One wheel event of `dy` pixels delivered to `handler` on `hit`.
+    fn wheel(
+        styled_dom: StyledDom,
+        payload: &RefAny,
+        hit: DomNodeId,
+        handler: extern "C" fn(RefAny, CallbackInfo) -> Update,
+        dy: f32,
+    ) -> (Update, Vec<CallbackChange>) {
+        with_info_wheel(
+            styled_dom,
+            hit,
+            Some(azul_core::geom::LogicalPosition::new(0.0, dy)),
+            |info| handler(payload.clone(), *info),
+        )
+    }
+
     /// `times` presses of `handler` against `payload`, all delivered on `hit`.
     fn press_n(
         styled_dom: StyledDom,
@@ -1265,7 +1581,9 @@ mod autotest_generated {
     }
 
     /// The single retext a spinner/toggle press must push, asserting there is
-    /// exactly one and that it is the *only* change of any kind.
+    /// exactly one and that nothing else was pushed - apart from the value a
+    /// column announces live as the spin button it is (`announced`, pinned
+    /// by the spin-button tests below).
     fn only_retext(changes: &[CallbackChange]) -> (DomNodeId, String) {
         let texts = pushed_texts(changes);
         assert_eq!(
@@ -1274,11 +1592,19 @@ mod autotest_generated {
             "expected exactly one retext, got {} change(s) total",
             changes.len(),
         );
+        let others = changes
+            .iter()
+            .filter(|c| {
+                !matches!(
+                    c,
+                    CallbackChange::ChangeNodeText { .. }
+                        | CallbackChange::ChangeNodeAccessibilityValue { .. }
+                )
+            })
+            .count();
         assert_eq!(
-            changes.len(),
-            1,
-            "the press pushed {} change(s) beyond its retext",
-            changes.len() - 1,
+            others, 0,
+            "the press pushed {others} change(s) beyond its retext and its announced value",
         );
         texts.into_iter().next().unwrap()
     }
@@ -1726,12 +2052,15 @@ mod autotest_generated {
     #[test]
     fn create_uses_the_shared_const_container_style() {
         // A per-instance style vec would allocate on every rebuild; the widget is
-        // deliberately built from a `'static` slice.
-        let p = TimePicker::create(9, 15);
+        // deliberately built from a `'static` slice. (The flat frame: an
+        // unpinned picker carries every theme's blocks.)
+        // R5: the frame is the widget's `CONTAINER_BASE`, then flat's const.
+        let p = TimePicker::create(9, 15).with_theme(UiTheme::Flat);
         assert_eq!(
             properties(&p.resolved_container_style()),
-            CONTAINER_STYLE
+            CONTAINER_BASE
                 .iter()
+                .chain(CONTAINER_STYLE.iter())
                 .map(|c| c.property.clone())
                 .collect::<Vec<_>>(),
             "the container style is not the shared const declaration",
@@ -2201,7 +2530,11 @@ mod autotest_generated {
     fn dom_renders_three_columns_in_24h_mode_and_four_in_12h() {
         let h24 = TimePicker::create(9, 5).dom();
         assert!(matches!(h24.root.get_node_type(), NodeType::Div));
-        assert_eq!(classes(&h24), vec![CLASS_CONTAINER.to_string()]);
+        assert_eq!(
+            classes(&h24),
+            vec![CLASS_CONTAINER.to_string(), "__azul-theme-flat".to_string()],
+            "the picker class and the marker of the theme that drew it"
+        );
         assert_eq!(
             h24.children.as_ref().len(),
             3,
@@ -2369,7 +2702,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_wires_each_of_the_five_handlers_exactly_once() {
+    fn dom_wires_each_of_the_seven_handlers_exactly_once() {
         let styled = StyledDom::create_from_dom(TimePicker::create(8, 8).with_24h(false).dom());
         for (name, handler) in [
             ("on_hour_up", on_hour_up as usize),
@@ -2377,6 +2710,8 @@ mod autotest_generated {
             ("on_minute_up", on_minute_up as usize),
             ("on_minute_down", on_minute_down as usize),
             ("on_ampm_toggle", on_ampm_toggle as usize),
+            ("on_hour_key", on_hour_key as usize),
+            ("on_minute_key", on_minute_key as usize),
         ] {
             let count = styled
                 .node_data
@@ -2393,21 +2728,23 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_registers_every_handler_on_mouse_up_and_makes_the_cell_focusable() {
+    fn dom_registers_clicks_on_the_arrows_and_the_toggle_and_keys_on_the_columns() {
         let styled = StyledDom::create_from_dom(TimePicker::create(8, 8).with_24h(false).dom());
-        let mut interactive = 0;
-        for nd in styled.node_data.as_ref() {
+        let key_down = EventFilter::Focus(FocusEventFilter::VirtualKeyDown);
+        let (mut clicks, mut keys) = (0, 0);
+        for (idx, nd) in styled.node_data.as_ref().iter().enumerate() {
             for cb in nd.callbacks.as_ref() {
                 // Arrows and the AM/PM toggle fire on mouse-up; the two spinner
-                // COLUMNS additionally take the wheel, so a gesture anywhere on
-                // a column spins its value instead of scrolling the page.
+                // COLUMNS take the wheel, so a gesture anywhere on a column
+                // spins its value instead of scrolling the page, and - being
+                // the spin buttons - the keys.
                 assert!(
                     matches!(
                         cb.event,
                         EventFilter::Hover(HoverEventFilter::Click)
                             | EventFilter::Hover(HoverEventFilter::Scroll)
-                    ),
-                    "a time-picker cell fires on {:?}, not mouse-up or scroll",
+                    ) || cb.event == key_down,
+                    "a time-picker cell fires on {:?}, not mouse-up, scroll or a key",
                     cb.event,
                 );
                 assert!(
@@ -2415,30 +2752,29 @@ mod autotest_generated {
                     "a native handler carries an FFI context",
                 );
                 if cb.event == EventFilter::Hover(HoverEventFilter::Click) {
-                    interactive += 1;
+                    clicks += 1;
+                }
+                if cb.event == key_down {
+                    keys += 1;
                 }
             }
-            // CLICK targets must be keyboard-reachable. A WHEEL target need not
-            // be: you do not tab to a scroll area to spin it — the arrows inside
-            // the column are its keyboard affordance, and making the column a
-            // tab stop would put a focus ring on a box with no keyboard action.
-            let has_click = nd
-                .callbacks
-                .as_ref()
-                .iter()
-                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click));
-            if has_click {
-                assert_eq!(
-                    nd.flags.get_tab_index(),
-                    Some(TabIndex::Auto),
-                    "a clickable time-picker cell is not keyboard-focusable",
-                );
-            }
+            // WAI-ARIA APG spinbutton: a COLUMN is the Tab stop - its value is
+            // what the keys change. An arrow is a click target only: it is no
+            // Tab stop, and a click on it focuses its column (the engine
+            // focuses the nearest focusable ancestor of a click). The AM/PM
+            // toggle is a button of its own.
+            let stop = matches!(idx, N_HOUR_SPINNER | N_MINUTE_SPINNER | N_AMPM);
+            assert_eq!(
+                nd.flags.get_tab_index(),
+                stop.then_some(TabIndex::Auto),
+                "flattened node {idx}: only the two columns and AM/PM are Tab stops",
+            );
         }
         assert_eq!(
-            interactive, 5,
+            clicks, 5,
             "12-hour mode must expose 4 arrows + 1 AM/PM toggle"
         );
+        assert_eq!(keys, 2, "each column takes the keys");
     }
 
     #[test]
@@ -2453,30 +2789,62 @@ mod autotest_generated {
                 "flattened node {idx} registered a handler it should not have",
             );
         }
-        // The spinner columns take the WHEEL (and nothing else): scrolling over
-        // the hours must spin the hours, not scroll the page.
+        // The spinner columns take the WHEEL - scrolling over the hours must
+        // spin the hours, not scroll the page - and the spin button's keys,
+        // and nothing else.
         for idx in [N_HOUR_SPINNER, N_MINUTE_SPINNER] {
             let cbs = styled.node_data.as_ref()[idx].callbacks.clone();
             let cbs = cbs.as_ref();
             assert_eq!(
                 cbs.len(),
-                1,
-                "a spinner column carries exactly the scroll handler"
+                2,
+                "a spinner column carries exactly the scroll and the key handler"
             );
             assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Scroll));
+            assert_eq!(
+                cbs[1].event,
+                EventFilter::Focus(FocusEventFilter::VirtualKeyDown)
+            );
         }
     }
 
     #[test]
+    fn a_column_that_takes_the_wheel_vetoes_the_page_scroll_under_it() {
+        // THE WHEEL HAS ONE CONSUMER (bug W1). A widget either takes the
+        // gesture or leaves it to the nearest scrollable ancestor — never
+        // both. The spinner column takes it (it spins the hours), so the page
+        // under it must not ALSO move.
+        //
+        // Only `preventDefault` says that. `stopPropagation` silences other
+        // CALLBACKS, and the container scroll is not a callback: it was queued
+        // against the innermost scrollable ancestor at ingress
+        // (`ScrollManager::record_scroll_from_hit_test`, scroll_state.rs) long
+        // before any handler ran, and the veto is the only thing that takes it
+        // back.
+        let (styled, _shared) = laid_out(TimePicker::create(8, 30));
+        let (hit, payload) = wired_to(&styled, on_hour_scroll as usize);
+
+        let (_, changes) = wheel(styled, &payload, hit, on_hour_scroll, 120.0);
+
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "the column consumed the wheel without vetoing the default page scroll — it pushed \
+             {changes:?}",
+        );
+    }
+
+    #[test]
     fn dom_shares_one_state_refany_across_every_handler() {
-        // Four arrows, the AM/PM toggle and the two column wheel handlers must
-        // all mutate the *same* state; a per-cell copy would let the hour and
-        // the minute drift apart.
+        // Four arrows, the AM/PM toggle, the two column wheel handlers and the
+        // two column key handlers must all mutate the *same* state; a per-cell
+        // copy would let the hour and the minute drift apart.
         let styled = StyledDom::create_from_dom(TimePicker::create(5, 5).with_24h(false).dom());
         let payloads = state_payloads(&styled);
         assert_eq!(
             payloads.len(),
-            7,
+            9,
             "not every handler carries the widget state"
         );
 
@@ -2607,6 +2975,8 @@ mod autotest_generated {
                 up,
                 down,
                 on_hour_scroll as usize,
+                on_hour_key as usize,
+                "hour",
             );
             let cells = dom.children.as_ref();
             assert_eq!(cells.len(), 3);
@@ -2631,6 +3001,8 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            on_hour_key as usize,
+            "hour",
         );
         assert_eq!(classes(&dom), vec![CLASS_SPINNER.to_string()]);
         let cells = dom.children.as_ref();
@@ -2663,7 +3035,7 @@ mod autotest_generated {
             long,
         ];
         for v in values {
-            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2, 3);
+            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2, 3, 4, "hour");
             let shown = text_of(&dom.children.as_ref()[1]);
             assert_eq!(
                 shown.as_deref(),
@@ -2683,6 +3055,8 @@ mod autotest_generated {
             1,
             2,
             on_hour_scroll as usize,
+            on_hour_key as usize,
+            "hour",
         );
         let cells = dom.children.as_ref();
 
@@ -2711,13 +3085,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn build_spinner_makes_both_arrows_focusable_click_targets() {
+    fn build_spinner_makes_both_arrows_click_targets_but_no_tab_stops() {
         let dom = build_spinner(
             AzString::from_const_str("0"),
             RefAny::new(0u8),
             1,
             2,
             on_hour_scroll as usize,
+            on_hour_key as usize,
+            "hour",
         );
         for (which, cell) in [("up", 0usize), ("down", 2usize)] {
             let cell = &dom.children.as_ref()[cell];
@@ -2728,10 +3104,12 @@ mod autotest_generated {
                 "{which}: an arrow registers exactly one handler"
             );
             assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
+            // The COLUMN is the spin button's one Tab stop; a click on an
+            // arrow focuses the column (its nearest focusable ancestor).
             assert_eq!(
                 cell.root.flags.get_tab_index(),
-                Some(TabIndex::Auto),
-                "{which}: the arrow is not keyboard-focusable",
+                None,
+                "{which}: the arrow is a Tab stop of its own",
             );
             assert_eq!(classes(cell), vec![CLASS_ARROW.to_string()]);
         }
@@ -2740,7 +3118,7 @@ mod autotest_generated {
     #[test]
     fn build_spinner_reports_its_three_children() {
         for value in ["", "0", "999999"] {
-            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2, 3);
+            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2, 3, 4, "hour");
             assert_eq!(dom.estimated_total_children, descendants(&dom));
             // Three cells (▲ / value / ▼), each a styled `<p>` wrapping its
             // bare text leaf per the label convention: 6 descendants.
@@ -3247,7 +3625,7 @@ mod autotest_generated {
         );
         assert_eq!(read_state(&shared).hour, 10);
         assert_eq!(
-            changes.len(),
+            pushed_texts(&changes).len(),
             1,
             "the retext was skipped because a callback ran"
         );
@@ -3597,6 +3975,487 @@ mod autotest_generated {
                 Some(pushed.as_str()),
                 "the pushed label and the re-rendered label disagree (start_pm={start_pm})",
             );
+        }
+    }
+
+    // ==================================================================
+    // Accessibility of the stepper arrows
+    // ==================================================================
+
+    /// The ▲ / ▼ glyphs are not names: each arrow says what it changes.
+    #[test]
+    fn the_spinner_arrows_are_named_after_what_they_change() {
+        let name = |dom: &Dom| -> Option<String> {
+            dom.root
+                .accessibility
+                .as_ref()
+                .and_then(|info| info.accessibility_name.as_ref().map(|s| s.as_str().to_string()))
+        };
+        let dom = TimePicker::create(14, 30).dom();
+        let (hour, _, minute) = columns(&dom);
+        let hour_cells = hour.children.as_ref();
+        let minute_cells = minute.children.as_ref();
+        assert_eq!(name(&hour_cells[0]).as_deref(), Some("Increase hour"));
+        assert_eq!(name(&hour_cells[2]).as_deref(), Some("Decrease hour"));
+        assert_eq!(name(&minute_cells[0]).as_deref(), Some("Increase minute"));
+        assert_eq!(name(&minute_cells[2]).as_deref(), Some("Decrease minute"));
+    }
+
+    // ==================================================================
+    // A column is a SPIN BUTTON (WAI-ARIA APG spinbutton): its value is ONE
+    // Tab stop, and Up / Down, PageUp / PageDown and Home / End change it.
+    // The arrows stay click targets, but they are no Tab stops. (The stepper
+    // went this way in S2; the column reuses its key rules,
+    // `roving::plain_key`.)
+    // ==================================================================
+
+    /// Presses `key` (holding `held`) on the column at flattened node
+    /// `column`; panics when the column has no key handler - every column
+    /// before the spin-button model.
+    fn press_column(
+        styled: &StyledDom,
+        column: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, node(column), key, held)
+            .expect("every column must carry the spin button's key handler")
+    }
+
+    #[test]
+    fn tab_visits_the_hour_the_minute_and_am_pm_but_never_an_arrow() {
+        let (styled, _) = laid_out(TimePicker::create(9, 30).with_24h(false));
+        assert_eq!(
+            rv::tab_walk(&styled, None, true, 4),
+            vec![
+                node(N_HOUR_SPINNER),
+                node(N_MINUTE_SPINNER),
+                node(N_AMPM),
+                node(N_HOUR_SPINNER),
+            ],
+            "three stops - hour, minute, AM/PM - and round again",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(node(N_AMPM)), false, 2),
+            vec![node(N_MINUTE_SPINNER), node(N_HOUR_SPINNER)],
+        );
+    }
+
+    #[test]
+    fn an_arrow_stays_clickable_and_its_click_focuses_its_column() {
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let nodes = styled.node_data.as_ref();
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (arrow, column) in [
+            (N_HOUR_UP, N_HOUR_SPINNER),
+            (N_HOUR_DOWN, N_HOUR_SPINNER),
+            (N_MINUTE_UP, N_MINUTE_SPINNER),
+            (N_MINUTE_DOWN, N_MINUTE_SPINNER),
+        ] {
+            assert!(
+                nodes[arrow]
+                    .callbacks
+                    .as_ref()
+                    .iter()
+                    .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click)),
+                "arrow {arrow} is no longer a click target",
+            );
+            // A press focuses the nearest focusable ancestor of what it hit
+            // (`managers::hover::focusable_under_pointer`): an unfocusable
+            // arrow hands the focus to its column, where the keys work.
+            assert!(
+                !nodes[arrow].is_focusable(),
+                "arrow {arrow} takes the focus itself, away from the column's keys",
+            );
+            assert_eq!(hierarchy[arrow].parent_id(), Some(NodeId::new(column)));
+            assert!(nodes[column].is_focusable(), "column {column} is not focusable");
+        }
+    }
+
+    #[test]
+    fn a_column_declares_a_spin_button_named_for_its_unit_with_its_value() {
+        let (styled, _) = laid_out(TimePicker::create(9, 5));
+        for (column, name, value) in [
+            (N_HOUR_SPINNER, "Hour", "9"),
+            (N_MINUTE_SPINNER, "Minute", "05"),
+        ] {
+            let info = styled.node_data.as_ref()[column]
+                .get_accessibility_info()
+                .unwrap_or_else(|| panic!("column {column} declares nothing to assistive technology"));
+            assert_eq!(
+                info.role,
+                azul_core::a11y::AccessibilityRole::SpinButton,
+                "column {column}"
+            );
+            assert_eq!(
+                info.accessibility_name.as_ref().map(|s| s.as_str().to_string()),
+                Some(name.to_string()),
+            );
+            assert_eq!(
+                info.accessibility_value.as_ref().map(|s| s.as_str().to_string()),
+                Some(value.to_string()),
+            );
+        }
+    }
+
+    #[test]
+    fn up_and_down_move_the_focused_column_by_one() {
+        use VirtualKeyCode as K;
+        for (column, key, want, display, text) in [
+            (N_HOUR_SPINNER, K::Up, (10, 30), N_HOUR_DISPLAY, "10"),
+            (N_HOUR_SPINNER, K::Down, (8, 30), N_HOUR_DISPLAY, "8"),
+            (N_MINUTE_SPINNER, K::Up, (9, 31), N_MINUTE_DISPLAY, "31"),
+            (N_MINUTE_SPINNER, K::Down, (9, 29), N_MINUTE_DISPLAY, "29"),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(9, 30));
+            let (_, changes) = press_column(&styled, column, key, &[]);
+            let s = read_state(&shared);
+            assert_eq!((s.hour, s.minute), want, "{key:?} on column {column}");
+            assert_eq!(
+                pushed_texts(&changes),
+                vec![(node(text_leaf(display)), text.to_string())],
+                "{key:?} on column {column} retexts its readout",
+            );
+            assert!(
+                rv::prevented(&changes),
+                "{key:?} on column {column} is the column's, not spatial navigation's",
+            );
+            assert_eq!(
+                rv::focus_request(&changes),
+                None,
+                "the focus stays on the column"
+            );
+        }
+    }
+
+    #[test]
+    fn page_up_and_page_down_take_the_large_step_and_clamp() {
+        use VirtualKeyCode as K;
+        // Two hours, a quarter hour - clamped to the band like every step.
+        for (start, column, key, want) in [
+            ((9, 30), N_HOUR_SPINNER, K::PageUp, (11, 30)),
+            ((9, 30), N_HOUR_SPINNER, K::PageDown, (7, 30)),
+            ((9, 30), N_MINUTE_SPINNER, K::PageUp, (9, 45)),
+            ((9, 30), N_MINUTE_SPINNER, K::PageDown, (9, 15)),
+            ((23, 50), N_HOUR_SPINNER, K::PageUp, (23, 50)),
+            ((1, 50), N_HOUR_SPINNER, K::PageDown, (0, 50)),
+            ((9, 50), N_MINUTE_SPINNER, K::PageUp, (9, 59)),
+            ((9, 10), N_MINUTE_SPINNER, K::PageDown, (9, 0)),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(start.0, start.1));
+            let (_, changes) = press_column(&styled, column, key, &[]);
+            let s = read_state(&shared);
+            assert_eq!((s.hour, s.minute), want, "{key:?} on column {column} from {start:?}");
+            assert!(rv::prevented(&changes), "{key:?} on column {column}");
+        }
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_ends_of_the_columns_band() {
+        use VirtualKeyCode as K;
+        for (is_24h, column, key, want_hour, want_minute) in [
+            (true, N_HOUR_SPINNER, K::Home, 0, 30),
+            (true, N_HOUR_SPINNER, K::End, 23, 30),
+            (false, N_HOUR_SPINNER, K::Home, 1, 30),
+            (false, N_HOUR_SPINNER, K::End, 12, 30),
+            (true, N_MINUTE_SPINNER, K::Home, 9, 0),
+            (true, N_MINUTE_SPINNER, K::End, 9, 59),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(9, 30).with_24h(is_24h));
+            let (_, changes) = press_column(&styled, column, key, &[]);
+            let s = read_state(&shared);
+            assert_eq!(
+                (s.hour, s.minute),
+                (want_hour, want_minute),
+                "{key:?} on column {column} (24h: {is_24h})",
+            );
+            assert!(rv::prevented(&changes), "{key:?} on column {column}");
+        }
+        // Already at the end: the key is still the column's.
+        let (styled, shared) = laid_out(TimePicker::create(23, 59));
+        let (_, changes) = press_column(&styled, N_HOUR_SPINNER, K::End, &[]);
+        assert_eq!(read_state(&shared).hour, 23);
+        assert!(rv::prevented(&changes), "End at the end still holds the key");
+    }
+
+    /// A key is an arrow click in every other way: the host hears the new
+    /// state and its verdict is forwarded.
+    #[test]
+    fn a_key_on_a_column_notifies_the_host_like_an_arrow_click() {
+        let probe = log_refany();
+        let (styled, _) = laid_out(TimePicker::create(9, 30).with_on_change(
+            probe.clone(),
+            record_change as TimePickerOnChangeCallbackType,
+        ));
+        let (update, _) = press_column(&styled, N_MINUTE_SPINNER, VirtualKeyCode::Up, &[]);
+        assert_eq!(
+            read_log(&probe).seen,
+            vec![TimePickerState {
+                hour: 9,
+                minute: 31,
+                is_pm: false,
+                is_24h: true,
+            }],
+        );
+        assert_eq!(update, Update::RefreshDom, "the host's verdict");
+    }
+
+    /// The spin button's value is live: whichever way the column changed - a
+    /// key, an arrow click, the wheel - the column announces the new value
+    /// without waiting for a rebuild.
+    #[test]
+    fn every_change_of_a_column_announces_its_new_value() {
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let (_, changes) = press_column(&styled, N_HOUR_SPINNER, VirtualKeyCode::Up, &[]);
+        assert_eq!(
+            rv::announced_values(&changes),
+            vec![(node(N_HOUR_SPINNER), "10".to_string())],
+            "by key",
+        );
+
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let (hit, payload) = wired_to(&styled, on_minute_down as usize);
+        let (_, changes) = press(styled, &payload, hit, on_minute_down);
+        assert_eq!(
+            rv::announced_values(&changes),
+            vec![(node(N_MINUTE_SPINNER), "29".to_string())],
+            "by arrow click",
+        );
+
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let (hit, payload) = wired_to(&styled, on_hour_scroll as usize);
+        let (_, changes) = wheel(styled, &payload, hit, on_hour_scroll, -120.0);
+        assert_eq!(
+            rv::announced_values(&changes),
+            vec![(node(N_HOUR_SPINNER), "10".to_string())],
+            "by wheel",
+        );
+    }
+
+    #[test]
+    fn a_modified_or_unused_key_on_a_column_is_not_consumed() {
+        use VirtualKeyCode as K;
+        for (key, held) in [
+            (K::Up, Some(K::LAlt)),
+            (K::Up, Some(K::RControl)),
+            (K::Down, Some(K::LWin)),
+            (K::Down, Some(K::LShift)),
+            (K::Left, None),
+            (K::Right, None),
+            (K::Tab, None),
+            (K::Escape, None),
+            (K::Space, None),
+        ] {
+            let (styled, shared) = laid_out(TimePicker::create(9, 30));
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_column(&styled, N_HOUR_SPINNER, key, &held);
+            assert_eq!(update, Update::DoNothing, "{held:?}+{key:?}");
+            assert_eq!(read_state(&shared).hour, 9, "{held:?}+{key:?}");
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! The time picker's theme is a DOM-level choice: the frame, spinners,
+    //! arrows, readouts and AM/PM toggle are built from the skin of the theme
+    //! the picker carries, flat by default.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+
+    /// A 12-hour picker, so the AM/PM toggle is there too.
+    fn picker(theme: Option<UiTheme>) -> Dom {
+        let p = TimePicker::create(9, 30)
+            .with_24h(false)
+            .with_accessibility_name("Alarm");
+        match theme {
+            Some(t) => p.with_theme(t).dom(),
+            None => p.dom(),
+        }
+    }
+
+    fn bg(node: &Dom, dark: bool) -> Option<ColorU> {
+        tc::background(node, dark).and_then(|p| tc::bg_color(&p))
+    }
+
+    #[test]
+    fn a_time_picker_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let p = TimePicker::create(0, 0);
+        assert_eq!(p.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&picker(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            picker(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = TimePicker::create(1, 2);
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(a, TimePicker::create(1, 2).with_theme(UiTheme::Flora));
+    }
+
+    #[test]
+    fn a_flat_time_picker_keeps_its_frame_and_accent_toggle() {
+        let dom = picker(Some(UiTheme::Flat));
+        assert_eq!(
+            tc::border_top_color(&dom, false, None),
+            Some(ColorU::rgb(206, 212, 218))
+        );
+        let ampm = tc::find(&dom, "__azul-native-time-picker-ampm").expect("AM/PM");
+        assert_eq!(bg(ampm, false), Some(ColorU::rgb(13, 110, 253)));
+    }
+
+    #[test]
+    fn a_flora_time_picker_is_a_well_of_field_paper_with_a_paper_toggle() {
+        let dom = picker(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        assert_eq!(bg(&dom, false), Some(flora::LIGHT_FLD));
+        assert_eq!(bg(&dom, true), Some(flora::DARK_FLD));
+        assert_eq!(tc::border_top_color(&dom, false, None), Some(flora::LIGHT_BD2));
+        assert_eq!(tc::border_top_color(&dom, true, None), Some(flora::DARK_BD2));
+
+        let display = tc::find(&dom, "__azul-native-time-picker-display").expect("readout");
+        assert_eq!(tc::text_color(display, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(display, true), Some(flora::DARK_INK));
+        let arrow = tc::find(&dom, "__azul-native-time-picker-arrow").expect("arrow");
+        assert_eq!(tc::text_color(arrow, false), Some(flora::LIGHT_ICON));
+        assert_eq!(tc::text_color(arrow, true), Some(flora::DARK_ICON));
+
+        let ampm = tc::find(&dom, "__azul-native-time-picker-ampm").expect("AM/PM");
+        let face = |dark: bool| {
+            tc::background(ampm, dark)
+                .map(|p| tc::bg_layers(&p))
+                .unwrap_or_default()
+        };
+        assert_eq!(face(false), vec![flora::RAISED_FACE_LIGHT]);
+        assert_eq!(face(true), vec![flora::RAISED_FACE_DARK]);
+        assert_eq!(tc::text_color(ampm, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(ampm, true), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn the_container_resolver_answers_for_the_theme() {
+        let flora_picker = TimePicker::create(1, 2).with_theme(UiTheme::Flora);
+        assert!(
+            flora_picker
+                .resolved_container_style()
+                .as_ref()
+                .iter()
+                .any(|p| tc::bg_color(&p.property) == Some(flora::LIGHT_FLD)),
+            "the resolver and the render agree on flora's frame"
+        );
+    }
+
+    #[test]
+    fn an_arrow_keeps_its_hit_box_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = picker(Some(theme));
+            for arrow in tc::find_all(&dom, "__azul-native-time-picker-arrow") {
+                assert_eq!(
+                    tc::resolve(arrow, CssPropertyType::Width, false, None),
+                    Some(CssProperty::const_width(LayoutWidth::const_px(40))),
+                    "{theme:?}"
+                );
+                assert_eq!(
+                    tc::resolve(arrow, CssPropertyType::Height, false, None),
+                    Some(CssProperty::const_height(LayoutHeight::const_px(16))),
+                    "{theme:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_column_and_the_toggle_show_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = picker(Some(theme));
+            // A column is ONE spin button (WAI-ARIA APG): its value is the
+            // Tab stop, the arrows are click targets only.
+            assert_eq!(
+                tc::focusable(&dom).len(),
+                3,
+                "{theme:?}: the hour, the minute and AM/PM"
+            );
+            tc::assert_theme_invariants(&format!("time_picker {theme:?}"), &dom);
+        }
+        let column = |dom: &Dom| -> Dom {
+            tc::find(dom, "__azul-native-time-picker-spinner")
+                .expect("column")
+                .clone()
+        };
+        let flora_column = column(&picker(Some(UiTheme::Flora)));
+        assert_eq!(tc::focus_ring_color(&flora_column, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(&flora_column, true), Some(flora::DARK_GLOW));
+        let flat_column = column(&picker(Some(UiTheme::Flat)));
+        assert_eq!(
+            tc::focus_ring_color(&flat_column, false),
+            Some(crate::widgets::themes::flat::FIELD_RING)
+        );
+        assert_eq!(
+            tc::focus_ring_color(&flat_column, true),
+            Some(crate::widgets::themes::flat::DARK_ACC)
+        );
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = picker(Some(UiTheme::Flat));
+        let flora_dom = picker(Some(UiTheme::Flora));
+        assert!(tc::a11y_outline(&flat).len() >= 5);
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+}
+
+/// R5: a time picker's STRUCTURE (display, flex, align-self, cursor,
+/// user-select, ...) is its base - declared once, outside every
+/// `@theme(<name>)` block, so it holds under flat, flora and any theme to
+/// come. What a theme owns is its skin: paint and metrics.
+#[cfg(test)]
+mod structure_tests {
+    use super::TimePicker;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_time_picker_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            let pickers = [
+                ("24-hour", TimePicker::create(9, 30)),
+                ("12-hour, AM", TimePicker::create(9, 30).with_24h(false)),
+                (
+                    "12-hour, PM",
+                    TimePicker::create(9, 30).with_24h(false).with_pm(true),
+                ),
+            ];
+            for (what, picker) in pickers {
+                let dom = under(t, move || picker.dom());
+                assert_structure_is_shared(
+                    &format!("{what} time picker, built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
         }
     }
 }

@@ -1,0 +1,37 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test (Tables): collapsing borders with empty tbody</title>
+<meta name="assert" content="border-collapse should work correctly when a table has an empty tbody"/>
+<style>
+table {
+    border-collapse: collapse;
+    border: 2px solid blue;
+}
+th {
+    font-weight: normal;
+    text-align: left;
+}
+    
+</style>
+</head>
+<body>
+    <table>
+        <thead>
+            <tr>
+                <th>One</th>
+                <th>Two</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+        <tfoot>
+            <tr>
+                <td>Three</td>
+                <td>Four</td>
+            </tr>
+        </tfoot>
+    </table>
+    <p>Test passes if there is a solid blue border around the <strong>entire perimeter</strong> of the table.</p>
+
+
+</body>
+</html>

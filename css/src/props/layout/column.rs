@@ -9,7 +9,10 @@ use core::num::ParseIntError;
 
 use crate::props::{
     basic::{
-        color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+        color::{
+            parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+            CssColorParseErrorOwned,
+        },
         pixel::{
             parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
         },
@@ -184,11 +187,12 @@ impl Default for ColumnRuleColor {
 
 impl PrintAsCssValue for ColumnRuleColor {
     fn print_as_css_value(&self) -> String {
-        self.inner.to_hash()
+        self.inner.to_css_value()
     }
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnCount {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -198,6 +202,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnCount {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -210,6 +215,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnWidth {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnSpan {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -219,6 +225,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnSpan {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnFill {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -228,6 +235,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnFill {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnRuleWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -237,6 +245,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnRuleWidth {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnRuleStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -246,6 +255,7 @@ impl crate::codegen::format::FormatAsRustCode for ColumnRuleStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ColumnRuleColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -568,11 +578,14 @@ pub mod parser {
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `column-rule-color` value.
+    ///
+    /// Accepts the `system:` colour keywords, like the `column-rule`
+    /// shorthand (which parses through the border grammar) always did.
     pub fn parse_column_rule_color(
         input: &str,
     ) -> Result<ColumnRuleColor, ColumnRuleColorParseError<'_>> {
         Ok(ColumnRuleColor {
-            inner: parse_css_color(input)?,
+            inner: parse_color_or_system_token(input)?,
         })
     }
 }
@@ -638,7 +651,9 @@ mod tests {
 #[allow(clippy::float_cmp)] // parsed values are compared against the exact source literals
 mod autotest_generated {
     use super::*;
-    use crate::{codegen::format::FormatAsRustCode, corety::AzString, props::basic::SizeMetric};
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
+    use crate::{corety::AzString, props::basic::SizeMetric};
 
     // A long-but-not-pathological input size for the "does not hang" cases.
     const LONG: usize = 1_000_000;
@@ -1414,6 +1429,7 @@ mod autotest_generated {
         assert_ne!(hash_of(&ColumnFill::Auto), hash_of(&ColumnFill::Balance));
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_constructible_snippets() {
         assert_eq!(

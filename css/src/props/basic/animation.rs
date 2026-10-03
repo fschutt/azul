@@ -122,18 +122,37 @@ impl SpringCurve {
     /// Longest step handed to the integrator, in seconds (~3 frames at 60 Hz).
     pub const MAX_STEP_SECS: f32 = 0.05;
 
-    /// Whether the spring has effectively arrived.
+    /// Whether the spring has effectively arrived: it can never again move
+    /// further than [`Self::EPSILON_VALUE`] from the target.
     ///
-    /// Both conditions are required: near the target AND barely moving. Position
-    /// alone would settle at the peak of an overshoot, mid-flight.
+    /// Position AND velocity decide, through the spring's energy: the
+    /// displacement `x` and velocity `v` hold `k x^2 / 2 + m v^2 / 2`, damping
+    /// only ever removes energy, so the spring's future excursion is bounded
+    /// by `sqrt(x^2 + (m / k) v^2)`. Settled is that bound under the epsilon.
+    /// Position alone would settle at a zero crossing, mid-flight.
+    ///
+    /// The previous test, `|x| < 0.06 && |v| < 0.06`, put the two epsilons on
+    /// unrelated scales: on a spring's tail `|v| ~ omega |x|` (omega = 13 for
+    /// SMOOTH), so the velocity term demanded `|x| < 0.005` and a converged,
+    /// invisible state such as `(0.016, -0.2)` counted as moving - AzWidgets
+    /// held 476 such FLIP moves at rest and never went idle (PR #476 ledger).
     #[must_use]
     pub fn is_settled(&self, value: f32, target: f32, velocity: f32) -> bool {
-        (value - target).abs() < Self::EPSILON_VALUE && velocity.abs() < Self::EPSILON_VELOCITY
+        let x = value - target;
+        if self.stiffness <= 0.0 || self.mass <= 0.0 {
+            // No restoring force (or degenerate inertia): no energy bound.
+            return x.abs() < Self::EPSILON_VALUE && velocity.abs() < Self::EPSILON_VELOCITY;
+        }
+        // Explicit FP for bit-reproducibility, as in `step`.
+        #[allow(clippy::suboptimal_flops)]
+        let reach_sq = x * x + (self.mass / self.stiffness) * velocity * velocity;
+        reach_sq < Self::EPSILON_VALUE * Self::EPSILON_VALUE
     }
 
     /// Distance below which a spring counts as arrived (~a sixteenth of a device px).
     pub const EPSILON_VALUE: f32 = 0.06;
-    /// Speed below which a spring counts as stopped, in units/second.
+    /// Speed below which a spring WITHOUT a restoring force (stiffness or mass
+    /// not positive) counts as stopped, in units/second.
     pub const EPSILON_VELOCITY: f32 = 0.06;
 }
 
@@ -339,6 +358,61 @@ impl SvgCubicCurve {
         let a_y = f64::from(self.end.y) - f64::from(self.start.y) - c_y - b_y;
 
         (a_y * t * t * t) + (b_y * t * t) + (c_y * t) + f64::from(self.start.y)
+    }
+
+    /// The slope dx/dt of the curve at parameter `t`.
+    #[must_use]
+    fn get_x_derivative_at_t(&self, t: f64) -> f64 {
+        let c_x = 3.0 * (f64::from(self.ctrl_1.x) - f64::from(self.start.x));
+        let b_x = 3.0 * (f64::from(self.ctrl_2.x) - f64::from(self.ctrl_1.x)) - c_x;
+        let a_x = f64::from(self.end.x) - f64::from(self.start.x) - c_x - b_x;
+        (3.0 * a_x * t * t) + (2.0 * b_x * t) + c_x
+    }
+
+    /// The y of the curve where its x is `x`: how a CSS `cubic-bezier()`
+    /// timing function turns linear progress `x` into eased progress (CSS
+    /// Easing 1: solve x(t) = x for t, answer y(t)). NOT [`Self::get_y_at_t`]
+    /// with `t = x` - that reads the curve at its PARAMETER, which for
+    /// `linear` ((0,0) (0,0) (1,1) (1,1)) is the smoothstep 3x^2 - 2x^3, and
+    /// for every other curve a different easing than the one declared.
+    ///
+    /// A timing curve's x runs monotonically from 0 to 1 (its control x's
+    /// lie in [0, 1]), so Newton steps converge; bisection takes over where
+    /// the slope vanishes.
+    #[must_use]
+    pub fn get_y_at_x(&self, x: f64) -> f64 {
+        const EPSILON: f64 = 1e-7;
+        if x.is_nan() {
+            return x;
+        }
+        let x = x.clamp(0.0, 1.0);
+        let mut t = x;
+        for _ in 0..8 {
+            let error = self.get_x_at_t(t) - x;
+            if error.abs() < EPSILON {
+                return self.get_y_at_t(t);
+            }
+            let slope = self.get_x_derivative_at_t(t);
+            if slope.abs() < 1e-6 {
+                break;
+            }
+            t = (t - error / slope).clamp(0.0, 1.0);
+        }
+        let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+        t = x;
+        for _ in 0..64 {
+            let at = self.get_x_at_t(t);
+            if (at - x).abs() < EPSILON {
+                break;
+            }
+            if at < x {
+                lo = t;
+            } else {
+                hi = t;
+            }
+            t = (lo + hi) * 0.5;
+        }
+        self.get_y_at_t(t)
     }
 
     /// Returns the approximate arc length of the curve using linear sampling.
@@ -670,14 +744,16 @@ impl AnimationInterpolationFunction {
         matches!(self, Self::Spring(_))
     }
 
-    /// Evaluates the interpolation function at time `t`, returning the eased value.
+    /// Evaluates the interpolation function at linear progress `t`, returning
+    /// the eased value - the curve's y where its x is `t`
+    /// ([`SvgCubicCurve::get_y_at_x`]).
     ///
     /// For a spring this evaluates the ease-in-out stand-in from
     /// [`Self::get_curve`]; integrate the spring instead if you need its real
     /// trajectory.
     #[must_use]
     pub fn evaluate(self, t: f64) -> f32 {
-        f64_to_f32(self.get_curve().get_y_at_t(t))
+        f64_to_f32(self.get_curve().get_y_at_x(t))
     }
 }
 
@@ -685,6 +761,35 @@ impl AnimationInterpolationFunction {
 #[allow(clippy::float_cmp, clippy::unreadable_literal)]
 mod autotest_generated {
     use super::*;
+
+    // ---- timing functions map PROGRESS, not the curve parameter ----------
+
+    #[test]
+    fn linear_timing_is_linear() {
+        for x in [0.0, 0.1, 0.25, 0.5, 0.75, 1.0] {
+            let y = AnimationInterpolationFunction::Linear.evaluate(x);
+            assert!(
+                (f64::from(y) - x).abs() < 1e-5,
+                "linear at {x} must be {x}, is {y} (smoothstep would be {})",
+                3.0 * x * x - 2.0 * x * x * x
+            );
+        }
+    }
+
+    #[test]
+    fn ease_timing_matches_css_cubic_bezier() {
+        // cubic-bezier(0.25, 0.1, 0.25, 1) at x = 0.5 is ~0.8024 in every
+        // browser; read at the PARAMETER 0.5 it would be 0.5375.
+        let y = AnimationInterpolationFunction::Ease.evaluate(0.5);
+        assert!((y - 0.8024).abs() < 1e-3, "ease(0.5) = {y}");
+        // ease-in (0.42, 0, 1, 1) at x = 0.5 is ~0.3153.
+        let y = AnimationInterpolationFunction::EaseIn.evaluate(0.5);
+        assert!((y - 0.3153).abs() < 1e-3, "ease-in(0.5) = {y}");
+        // The ends are exact and out-of-range progress clamps.
+        assert_eq!(AnimationInterpolationFunction::Ease.evaluate(0.0), 0.0);
+        assert!((AnimationInterpolationFunction::Ease.evaluate(1.0) - 1.0).abs() < 1e-6);
+        assert!((AnimationInterpolationFunction::Ease.evaluate(2.0) - 1.0).abs() < 1e-6);
+    }
 
     // ---- helpers -----------------------------------------------------------
 
@@ -2164,53 +2269,41 @@ mod autotest_generated {
     }
 
     #[test]
-    fn evaluate_samples_the_curve_by_parameter_t_not_by_progress_x() {
-        // ADVERSARIAL / SPEC NOTE: `evaluate` feeds `t` straight into the bezier's
-        // *parameter*, instead of solving x(t) == t first (as CSS timing functions
-        // require). The observable consequence pinned here: `Linear` is not linear.
-        // y(t) = -2t^3 + 3t^2  =>  y(0.25) = 0.15625, not 0.25.
+    fn evaluate_samples_the_curve_at_progress_x() {
+        // CSS timing functions map PROGRESS (the curve's x) to eased progress:
+        // solve x(t) == progress, answer y(t). Read at the curve's PARAMETER
+        // instead, `linear` was the smoothstep -2t^3 + 3t^2 (0.25 -> 0.15625).
         let linear = AnimationInterpolationFunction::Linear;
-        assert_eq!(linear.evaluate(0.5), 0.5);
-        assert_eq!(linear.evaluate(0.25), 0.15625);
-        assert_eq!(linear.evaluate(0.75), 0.84375);
-        assert!(
-            linear.evaluate(0.25) != 0.25,
-            "if this ever becomes 0.25, evaluate() started doing the x-inversion"
-        );
+        for x in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            assert!((f64::from(linear.evaluate(x)) - x).abs() < 1e-5, "linear({x})");
+        }
     }
 
     #[test]
-    fn evaluate_cannot_distinguish_four_of_the_five_timing_functions() {
-        // ADVERSARIAL / SPEC NOTE: Linear, EaseIn, EaseOut and EaseInOut all share
-        // the same *y* control points (0, 0, 1, 1) and differ only in x. Because
-        // `evaluate` never inverts x, all four collapse onto the same output.
-        // Only `Ease` (ctrl_1.y = 0.1) differs.
-        let same = [
-            AnimationInterpolationFunction::Linear,
-            AnimationInterpolationFunction::EaseIn,
-            AnimationInterpolationFunction::EaseOut,
-            AnimationInterpolationFunction::EaseInOut,
-        ];
-        for step in 0..=10 {
-            let t = f64::from(step) / 10.0;
-            let reference = same[0].evaluate(t);
-            for f in same {
-                assert_eq!(f.evaluate(t), reference, "{f:?} vs Linear at t = {t}");
+    fn evaluate_tells_the_five_timing_functions_apart() {
+        // Linear, EaseIn, EaseOut and EaseInOut share their y control points
+        // (0, 0, 1, 1) and differ only in x - so reading at the parameter made
+        // all four the same curve. At progress 0.25 all five differ.
+        let values: Vec<f32> = ALL_VARIANTS.iter().map(|f| f.evaluate(0.25)).collect();
+        for (i, a) in values.iter().enumerate() {
+            for (j, b) in values.iter().enumerate().skip(i + 1) {
+                assert!(
+                    (a - b).abs() > 1e-3,
+                    "{:?} and {:?} agree at 0.25: {a} vs {b}",
+                    ALL_VARIANTS[i],
+                    ALL_VARIANTS[j]
+                );
             }
         }
-        assert!(
-            AnimationInterpolationFunction::Ease.evaluate(0.5)
-                != AnimationInterpolationFunction::Linear.evaluate(0.5),
-            "Ease must at least differ from Linear"
-        );
     }
 
     #[test]
-    fn evaluate_outside_the_unit_interval_extrapolates_without_clamping() {
-        // t is not clamped, so animations driven past their duration overshoot.
+    fn evaluate_clamps_progress_outside_the_unit_interval() {
+        // Progress past the end is the end: an animation driven past its
+        // duration holds its last value instead of overshooting.
         let linear = AnimationInterpolationFunction::Linear;
-        assert_eq!(linear.evaluate(-1.0), 5.0);
-        assert_eq!(linear.evaluate(2.0), -4.0);
+        assert_eq!(linear.evaluate(-1.0), 0.0);
+        assert!((linear.evaluate(2.0) - 1.0).abs() < 1e-6);
     }
 
     #[test]
@@ -2221,20 +2314,20 @@ mod autotest_generated {
     }
 
     #[test]
-    fn evaluate_at_extreme_t_never_panics_and_never_lies() {
+    fn evaluate_at_extreme_progress_clamps_to_the_ends() {
         for f in ALL_VARIANTS {
-            for t in [
-                f64::MAX,
-                f64::MIN,
-                1e300,
-                -1e300,
-                f64::INFINITY,
-                f64::NEG_INFINITY,
+            for (x, end) in [
+                (f64::MAX, 1.0),
+                (1e300, 1.0),
+                (f64::INFINITY, 1.0),
+                (f64::MIN, 0.0),
+                (-1e300, 0.0),
+                (f64::NEG_INFINITY, 0.0),
             ] {
-                let v = f.evaluate(t);
+                let v = f.evaluate(x);
                 assert!(
-                    !v.is_finite(),
-                    "{f:?} at t = {t} returned a plausible-looking {v}"
+                    (f64::from(v) - end).abs() < 1e-6,
+                    "{f:?} at progress {x} must hold the end {end}, is {v}"
                 );
             }
         }
@@ -2269,10 +2362,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn evaluate_of_a_huge_cubic_bezier_saturates_to_infinity_when_extrapolated() {
-        // Outside [0, 1] the convex-hull bound is gone. y(t) = MAX*t^3 - 3*MAX*t^2
-        // + 3*MAX*t, so y(3) = 9 * f32::MAX -- far past the f32 range. The f64 ->
-        // f32 narrowing in evaluate() must saturate to +inf rather than wrap.
+    fn evaluate_of_a_huge_cubic_bezier_holds_its_end_past_the_end() {
+        // Progress is clamped, so no extrapolation can leave the curve's hull:
+        // past the end it is the end point, f32::MAX here - never infinity.
         let f = AnimationInterpolationFunction::CubicBezier(SvgCubicCurve::new(
             p(0.0, 0.0),
             p(0.0, f32::MAX),
@@ -2280,7 +2372,7 @@ mod autotest_generated {
             p(1.0, f32::MAX),
         ));
         let v = f.evaluate(3.0);
-        assert!(v.is_infinite() && v > 0.0, "expected +inf, got {v}");
+        assert!(v.is_finite() && v > 0.0, "expected the end point, got {v}");
     }
 
     /// The full shorthand grammar, order-insensitive except duration-before-
@@ -2727,34 +2819,9 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
     let mut timing: Option<AnimationTiming> = None;
     let mut iterations: Option<AnimationIterationCount> = None;
     let mut clip: Option<bool> = None;
-    // Paren-aware token scan: `cubic-bezier(0.4, 0, 0.2, 1)` contains spaces
-    // and must arrive as ONE token, so whitespace only splits at depth 0.
-    let mut tokens: Vec<&str> = Vec::new();
-    {
-        let bytes = input.as_bytes();
-        let mut depth = 0usize;
-        let mut start: Option<usize> = None;
-        for (i, b) in bytes.iter().enumerate() {
-            match b {
-                b'(' => depth += 1,
-                b')' => depth = depth.saturating_sub(1),
-                b' ' | b'\t' | b'\n' | b'\r' if depth == 0 => {
-                    if let Some(st) = start.take() {
-                        tokens.push(&input[st..i]);
-                    }
-                    continue;
-                }
-                _ => {}
-            }
-            if start.is_none() {
-                start = Some(i);
-            }
-        }
-        if let Some(st) = start {
-            tokens.push(&input[st..]);
-        }
-    }
-    for tok in tokens {
+    // Top-level whitespace only: `cubic-bezier(0.4, 0, 0.2, 1)` contains
+    // spaces and must arrive as ONE token.
+    for tok in crate::props::basic::parse::split_string_respect_whitespace(input) {
         if let Ok(d) = crate::props::basic::time::parse_duration(tok) {
             if duration.is_none() {
                 duration = Some(d);
@@ -2813,7 +2880,9 @@ pub fn parse_style_animation_vec(
     input: &str,
 ) -> Result<StyleAnimationVec, StyleAnimationParseError<'_>> {
     let mut out = Vec::new();
-    for seg in input.split(',') {
+    // Top-level commas only: the commas inside `cubic-bezier(0.4, 0, 0.2, 1)`
+    // do not end an entry.
+    for seg in crate::props::basic::parse::split_string_respect_comma(input) {
         let seg = seg.trim();
         if seg.is_empty() {
             continue;
@@ -2862,6 +2931,7 @@ impl crate::css::PrintAsCssValue for StyleAnimationVec {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleAnimationVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode as _;
@@ -2876,6 +2946,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleAnimationVec {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleAnimation {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::FormatAsRustCode as _;

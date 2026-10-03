@@ -1,5 +1,6 @@
 //! Built-in widgets for the Azul GUI system
 
+use azul_css::system::DarkLightMode;
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
 /// for a Callback with a `.cb` field.
 ///
@@ -26,7 +27,7 @@ macro_rules! impl_widget_callback {
         #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
         #[repr(C)]
         pub struct $callback_wrapper {
-            pub refany: RefAny,
+            pub refany: azul_core::refany::RefAny,
             pub callback: $callback_value,
         }
 
@@ -49,6 +50,23 @@ macro_rules! impl_widget_callback {
             /// Create a new callback with just a function pointer (for native Rust code)
             pub fn create<I: Into<$callback_value>>(cb: I) -> $callback_value {
                 cb.into()
+            }
+        }
+
+        impl $callback_wrapper {
+            /// The hook a widget stores: `callback`, called with `refany`.
+            /// What the widgets' `with_on_*(data, callback)` setters build,
+            /// for a field that takes a ready hook (a `StatusBarZoom`
+            /// button, a `RibbonGroup` launcher) - no caller needs to fill
+            /// the callback's foreign-callable slot by hand.
+            pub fn create<I: Into<$callback_value>>(
+                refany: azul_core::refany::RefAny,
+                callback: I,
+            ) -> $callback_wrapper {
+                $callback_wrapper {
+                    refany,
+                    callback: callback.into(),
+                }
             }
         }
 
@@ -136,6 +154,11 @@ macro_rules! impl_widget_callback {
 ///
 /// One or more collapsible titled sections; see `accordion.rs`.
 pub mod accordion;
+/// Address bar widget.
+///
+/// A file manager's Back / Forward / Up, path trail, Refresh and search box;
+/// see `address_bar.rs`.
+pub mod address_bar;
 /// Alert / banner widget.
 ///
 /// A coloured inline message box with an optional dismissible close button; see `alert.rs`.
@@ -196,6 +219,19 @@ pub mod combobox;
 /// number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid
 /// in-widget (prominent module TODO2); see `date_picker.rs`.
 pub mod date_picker;
+/// `<input type=datetime-local>`: a `DatePicker` and a `TimePicker` composed
+/// into one control with one combined state; see `datetime_local.rs`.
+pub mod datetime_local;
+/// Details pane widget.
+///
+/// A file manager's description of the selected item: icon, name, kind and
+/// key / value rows; see `details_pane.rs`.
+pub mod details_pane;
+/// Dialog widget: HTML `<dialog>` semantics (`show` / `show_modal` / `close`,
+/// `returnValue`, a cancelable `cancel`, `closedby`, focus in and back, a
+/// modal `::backdrop` in the top layer) on a `<transient-window>`. Popover
+/// and Modal are front-ends over it; see `dialog.rs`.
+pub mod dialog;
 /// Divider / separator rule widget (horizontal or vertical).
 ///
 /// See `divider.rs`.
@@ -204,8 +240,17 @@ pub mod divider;
 pub mod drop_down;
 /// File input widget
 pub mod file_input;
+/// `<form>`: a container whose submit collects its NAMED controls into a
+/// `FormData` for the app and whose reset restores their initial values;
+/// submit / reset / image buttons act on it. See `form.rs`.
+pub mod form;
 /// Frame container widget
 pub mod frame;
+/// Info bar widget.
+///
+/// The notice strip across the top of a mail's reading pane: a glyph, a line
+/// of text and an action link (Outlook's blue "i" bar); see `info_bar.rs`.
+pub mod info_bar;
 /// Label widget (centered text)
 pub mod label;
 /// List view widget
@@ -222,16 +267,21 @@ pub mod map_themes;
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
 /// unified `WindowPosition::RelativeToParentWindow` popup path.
 pub mod menubar;
+/// Summary list widget (was `SummaryList`).
+///
+/// A mail window's middle pane, a notes app's note list: a search row, the
+/// sort header and the virtualised, grouped rows; see `summary_list.rs`.
+pub mod summary_list;
 /// Microphone-capture widget (P7) — same "dumb widget" architecture as the
 /// capture widgets, audio instead of video (no GL): a background thread feeds
 /// each `AudioFrame` to the user's `on_frame` hook.
 ///
 /// See `microphone.rs`.
 pub mod microphone;
-/// Modal / dialog widget.
+/// Modal widget.
 ///
-/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state
-/// toggle; see `modal.rs`.
+/// HTML `showModal()`: a titled panel over a dimmed backdrop covering the window, Escape closes
+/// it; a front-end over `dialog`; see `modal.rs`.
 pub mod modal;
 /// Node graph widget
 pub mod node_graph;
@@ -244,8 +294,8 @@ pub mod number_input;
 pub mod pagination;
 /// Popover widget.
 ///
-/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the
-/// click-toggled sibling of tooltip); see `popover.rs`.
+/// HTML `popover="auto"`: a floating panel holding arbitrary content, shown below its anchor on
+/// a click and light-dismissed; a front-end over `dialog`; see `popover.rs`.
 pub mod popover;
 /// Progress bar widget
 pub mod progressbar;
@@ -259,13 +309,28 @@ pub mod quick_access;
 /// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular
 /// indicator; see `radio_group.rs`.
 pub mod radio_group;
+/// Reading pane widget.
+///
+/// A mail window's open message: header, notice strip, fields,
+/// attachments, the body on paper and the people footer; see
+/// `reading_pane.rs`.
+pub mod reading_pane;
 /// Ribbon widget
 pub mod ribbon;
+/// WAI-ARIA "roving tabindex" shared by the composite widgets (radio group,
+/// segmented control, tabs, list view, tree view, date grid): one Tab stop per
+/// group, arrow keys move within it; see `roving.rs`.
+pub(crate) mod roving;
 /// Screen-capture widget (P6) — identical "dumb widget" architecture to the
 /// camera widget, capturing a display/window instead.
 ///
 /// See `screencap.rs`.
 pub mod screencap;
+/// The app shells: the eleven window layouts the Azlin apps share
+/// (OfficeShell, the navigation pane, the command palette, S1..S11) in one
+/// Office-like design; see `shells/mod.rs`. Their own api.json module,
+/// `shells`, apart from the smaller widgets.
+pub mod shells;
 /// Segmented control widget.
 ///
 /// Joined row of mutually-exclusive buttons; see `segmented.rs`.
@@ -305,6 +370,11 @@ pub mod tabs;
 pub mod text_area;
 /// Single line text input widget
 pub mod text_input;
+/// Tile widget.
+///
+/// One item of a file manager's tile view: icon, title, capacity bar,
+/// detail; see `tile.rs`.
+pub mod tile;
 /// Time picker widget.
 ///
 /// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle
@@ -319,6 +389,11 @@ pub mod titlebar;
 /// (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned
 /// as an overlay; see `toast.rs`.
 pub mod toast;
+/// To-Do bar widget.
+///
+/// A mail window's right column: the mini calendar, the appointments, a
+/// task line and the task list; see `todo_bar.rs`.
+pub mod todo_bar;
 /// Tooltip widget.
 ///
 /// Shows a small text popup near an anchor on hover; see `tooltip.rs`.
@@ -330,8 +405,116 @@ pub mod tree_view;
 ///
 /// See `video.rs`.
 pub mod video;
+/// Wizard layout widget.
+///
+/// The frame of a multi-page dialog: the steps rail, the current page and
+/// the Back / Next / Finish buttons; see `wizard_layout.rs`.
+pub mod wizard_layout;
+/// Dialog kit: the look and the parts the dialog-shaped widgets share (the
+/// wizard pages, the path input, the shortcut recorder, the settings rows,
+/// the standard dialogs); see `dialog_kit.rs`.
+pub mod dialog_kit;
+/// Path input widget.
+///
+/// A path field with a "Browse..." button that opens the folder (or file)
+/// picker; see `path_input.rs`.
+pub mod path_input;
+/// Wizard pages.
+///
+/// The reusable pages of an install wizard (welcome, license, destination,
+/// components, options, summary, progress, finish) for the wizard layout;
+/// see `wizard_pages.rs`.
+pub mod wizard_pages;
+/// Shortcut recorder widget.
+///
+/// The field a settings page records a keyboard shortcut with (a
+/// `GlobalHotkey`): click or Enter listens, the next chord is the shortcut;
+/// see `shortcut_recorder.rs`.
+pub mod shortcut_recorder;
+/// Standard dialogs.
+///
+/// The bodies of the dialogs every app shows: message box (with "Don't ask
+/// again"), About box, progress dialog, login, find / replace; see
+/// `standard_dialogs.rs`.
+pub mod standard_dialogs;
+/// Timeline widget.
+///
+/// Tracks of clips under a time ruler, the playhead, zoom, snapping and the
+/// keyboard, only the clips in view rendered (a video editor's timeline, a
+/// calendar's day lanes, a slide show's animation pane); see `timeline.rs`.
+pub mod timeline;
+/// Selection adorner widget.
+///
+/// The editing layer of a canvas of objects (a slide, a page, a drawing):
+/// the selection's frame, its resize and rotate handles, the snapping guides
+/// and the marquee over the app's content, and the pointer and keyboard turned
+/// into select / move / resize / rotate / nudge events; see
+/// `selection_adorner.rs`.
+pub mod selection_adorner;
+/// Thumbnail strip widget.
+///
+/// A column (a slide rail) or a wrapping grid (a slide sorter) of previews
+/// with numbers, badges and folding section headers: click / arrow selection,
+/// drag and Ctrl+arrow reorder, activate, delete; see `thumbnail_strip.rs`.
+pub mod thumbnail_strip;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
+/// Cell grid widget.
+///
+/// The surface of a spreadsheet: column letters and row numbers, frozen
+/// panes, a cell cursor, ranges, in-cell editing, the fill handle and
+/// resizable columns and rows; only the cells in view are in the DOM, their
+/// content and looks asked from the app's data and style callbacks. See
+/// `cell_grid.rs`.
+pub mod cell_grid;
+/// List selection model.
+///
+/// The selected items of a list, a tile grid, a slide rail or a canvas with
+/// the anchor and the focus: click, Ctrl / Shift / Ctrl+Shift click, the
+/// arrows, select all / none / invert - Explorer's rules written once; see
+/// `list_selection.rs`.
+pub mod list_selection;
+/// Close guard.
+///
+/// "Save changes?" before a window with unsaved work closes: the close
+/// request is held while the app's document is dirty, the standard
+/// question (a message box in a modal) asks, the answer comes back as one
+/// event; see `close_guard.rs`.
+pub mod close_guard;
+/// The shared rich-text model: one document type for every rich editor
+/// (blocks of styled runs), its edits, its Markdown / HTML / plain-text
+/// forms and its undo history; see `rich_text/`.
+pub mod rich_text;
+/// Rich-text editor widget.
+///
+/// ONE editor for notes, mail compose and documents: a `contenteditable`
+/// host over a [`rich_text::RichTextDoc`], formats, headings, nested lists,
+/// check items, quotes, code, tables, Markdown shortcuts, one undo history;
+/// see `rich_text_editor.rs`.
+pub mod rich_text_editor;
+/// Date repeat picker widget.
+///
+/// How an appointment or a to-do repeats: daily / weekly on chosen days /
+/// monthly on a day or a weekday / yearly, every N, ending never / after N
+/// times / on a date (and "from completion" for a to-do), producing an
+/// RFC 5545 RRULE; see `date_repeat_picker.rs`.
+pub mod date_repeat_picker;
+/// Data table widget.
+///
+/// Records under a header of column titles over as many rows as the app has
+/// (500,000 is the yardstick): only the rows in view are built, a header
+/// click sorts (Shift adds a key), a filter row filters, cells edit in place
+/// (the app validates), the keyboard moves a cell cursor and selects rows;
+/// a big table is sorted off the UI thread. See `data_table.rs`.
+pub mod data_table;
+/// Chart widget.
+///
+/// Line, area, bar (grouped / stacked), scatter, pie and donut charts over
+/// series of numbers: nice 1-2-5 axes, gridlines, a legend, a tooltip under
+/// the pointer, a click that reports the point, a text summary and a table
+/// view for screen readers; a long line decimated per pixel column. Drawn
+/// with the engine's SVG path; see `chart.rs`.
+pub mod chart;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -363,7 +546,7 @@ pub(crate) mod theme_probe {
         conditions
             .as_ref()
             .iter()
-            .any(|c| matches!(c, DynamicSelector::Theme(_)))
+            .any(|c| matches!(c, DynamicSelector::Theme(_) | DynamicSelector::Mode(_)))
     }
 
     /// The node's inline declarations that apply in EVERY theme, in declaration
@@ -371,11 +554,10 @@ pub(crate) mod theme_probe {
     /// additions left out. Pair it with [`dark`] so skipping them here cannot
     /// hide a theme that forgot its dark half.
     pub(crate) fn unthemed(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        live(dom)
+            .into_iter()
             .filter(|(_, c)| !is_theme_gated(c))
-            .map(|(p, _)| p.clone())
+            .map(|(p, _)| p)
             .collect()
     }
 
@@ -388,26 +570,35 @@ pub(crate) mod theme_probe {
     /// carries conditional declarations the widget itself never declared; a test
     /// comparing "what landed on this node" against a widget's style wants this.
     pub(crate) fn unconditional(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        live(dom)
+            .into_iter()
             .filter(|(_, c)| c.as_ref().is_empty())
-            .map(|(p, _)| p.clone())
+            .map(|(p, _)| p)
             .collect()
     }
 
     /// The node's inline declarations that apply only in dark mode.
     pub(crate) fn dark(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        live(dom)
+            .into_iter()
             .filter(|(_, c)| {
                 c.as_ref()
                     .iter()
-                    .any(|s| matches!(s, DynamicSelector::Theme(ThemeCondition::Dark)))
+                    .any(|s| matches!(s, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
             })
-            .map(|(p, _)| p.clone())
+            .map(|(p, _)| p)
             .collect()
+    }
+
+    /// The node's inline declarations as the app theme the probes evaluate
+    /// under sees them (`themes::theme_checks::probe_theme`, the one rule
+    /// every probe shares): a declaration inside another app theme's block
+    /// (`@theme(<name>)`) is dropped and the live theme's name is stripped
+    /// from the rest. A widget that follows the app theme carries every
+    /// theme's block; read through here it is exactly the widget pinned to the
+    /// live theme, so the probes above answer the same for both.
+    fn live(dom: &Dom) -> Vec<(CssProperty, DynamicSelectorVec)> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom)
     }
 }
 
@@ -436,8 +627,8 @@ pub(crate) mod theme_probe {
 // for any widget `<p>` built without these helpers.
 
 /// The component sheet [`widget_p`] attaches: `margin-top: 0; margin-bottom: 0`
-/// at AUTHOR priority on a `*` path.
-pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
+/// at AUTHOR priority on a `*` path, plus whatever `extra` the caller adds.
+fn widget_p_sheet(extra: Vec<azul_css::css::CssDeclaration>) -> azul_css::css::Css {
     use azul_css::{
         css::{rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
         props::{
@@ -445,24 +636,59 @@ pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
             property::CssProperty,
         },
     };
+    let mut declarations = vec![
+        CssDeclaration::Static(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
+        CssDeclaration::Static(CssProperty::const_margin_bottom(
+            LayoutMarginBottom::const_px(0),
+        )),
+    ];
+    declarations.extend(extra);
     Css {
         rules: vec![CssRuleBlock {
             path: CssPath {
                 selectors: vec![CssPathSelector::Global].into(),
             },
-            declarations: vec![
-                CssDeclaration::Static(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
-                CssDeclaration::Static(CssProperty::const_margin_bottom(
-                    LayoutMarginBottom::const_px(0),
-                )),
-            ]
-            .into(),
+            declarations: declarations.into(),
             conditions: Vec::new().into(),
             priority: rule_priority::AUTHOR,
         }]
         .into(),
         ..Css::default()
     }
+}
+
+/// The component sheet [`widget_p`] attaches: `margin-top: 0; margin-bottom: 0`
+/// at AUTHOR priority on a `*` path.
+pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
+    widget_p_sheet(Vec::new())
+}
+
+/// [`widget_p_margin_reset`] plus `user-select: none` — the sheet a CHROME text
+/// carrier gets.
+///
+/// A widget's OWN text is chrome: a button's label, a tab's caption, a menu
+/// item, a dropdown's current value, a stepper's step name. No toolkit lets a
+/// drag across those paint a text selection, and azul's default is the
+/// opposite — `is_text_selectable` answers "selectable" for anything that does
+/// not say otherwise — so every widget label in the tree was draggable text.
+/// The rule is stated once, here, because every widget-owned carrier goes
+/// through [`widget_p_with_text`] / [`widget_p_chrome`].
+///
+/// AUTHOR priority, like the margin reset, so a widget that deliberately wants
+/// its text selectable can still say so inline. The `*` path scopes to the
+/// `<p>`'s subtree — the `<p>` and the text node under it — which is what the
+/// pointer path asks about: it tests the HIT node, deepest first.
+///
+/// NOT on [`widget_p`] itself: that is what TextInput and TextArea build their
+/// editable text on, and the user's own content is selectable by definition.
+pub(crate) fn widget_p_chrome_sheet() -> azul_css::css::Css {
+    use azul_css::{
+        css::CssDeclaration,
+        props::{property::CssProperty, style::text::StyleUserSelect},
+    };
+    widget_p_sheet(vec![CssDeclaration::Static(CssProperty::user_select(
+        StyleUserSelect::None,
+    ))])
 }
 
 /// A `<p>` that carries a widget's OWN text (not a paragraph of the app's
@@ -474,11 +700,22 @@ pub(crate) fn widget_p() -> azul_core::dom::Dom {
     azul_core::dom::Dom::create_p().with_component_css(widget_p_margin_reset())
 }
 
-/// [`widget_p`] with a text child — the widget-owned twin of
+/// [`widget_p`] for text the WIDGET owns rather than text the user typed: the
+/// same margin reset plus `user-select: none` (see [`widget_p_chrome_sheet`]).
+///
+/// Every widget label goes through this or through [`widget_p_with_text`]; the
+/// only carriers that deliberately keep plain [`widget_p`] are TextInput's and
+/// TextArea's, whose text is the user's content.
+#[must_use]
+pub(crate) fn widget_p_chrome() -> azul_core::dom::Dom {
+    azul_core::dom::Dom::create_p().with_component_css(widget_p_chrome_sheet())
+}
+
+/// [`widget_p_chrome`] with a text child — the widget-owned twin of
 /// `Dom::create_p_with_text`.
 #[must_use]
 pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_core::dom::Dom {
-    widget_p()
+    widget_p_chrome()
         .with_child(azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(text))
 }
 
@@ -501,9 +738,11 @@ pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_c
 /// `AZ_SUPPRESS=a11y_widget` (or `AZ_SUPPRESS=all`).
 #[cfg(feature = "std")]
 pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
-    if has_name || crate::dom_lint::lint_suppressed("a11y_widget") {
+    if has_name || building_a_style_twin() || crate::dom_lint::lint_suppressed("a11y_widget") {
         return;
     }
+    #[cfg(test)]
+    A11Y_WARNINGS_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
     azul_core::diagnostics::emit(alloc::format!(
         "[azul][a11y-widget] {widget_type} was built without an accessible name. It has no text \
          of its own to derive one from, so a screen reader announces its ROLE and nothing else. \
@@ -516,6 +755,125 @@ pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
 
 #[cfg(not(feature = "std"))]
 pub fn warn_widget_needs_a_name(_widget_type: &str, _has_name: bool) {}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Set while this thread builds a widget's STYLE-ONLY twin
+    /// ([`style_only_build`]).
+    static BUILDING_A_STYLE_TWIN: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Whether this thread is building a style-only twin ([`style_only_build`]).
+#[cfg(feature = "std")]
+fn building_a_style_twin() -> bool {
+    BUILDING_A_STYLE_TWIN
+        .try_with(core::cell::Cell::get)
+        .unwrap_or(false)
+}
+
+/// Runs `build` as a STYLE-ONLY twin: the other theme's build of a widget
+/// that follows the app theme (`themes::theme_blocks::follow_app_theme`),
+/// read for its styles and dropped. Its warnings stay silent - the app built
+/// ONE widget, and the structure theme's build, the one it keeps, already
+/// said what there was to say ([`warn_widget_needs_a_name`]). Nests, and
+/// restores the flag however `build` ends.
+pub(crate) fn style_only_build<T>(build: impl FnOnce() -> T) -> T {
+    #[cfg(feature = "std")]
+    let _restore = StyleTwinFlag(
+        BUILDING_A_STYLE_TWIN
+            .try_with(|flag| flag.replace(true))
+            .unwrap_or(false),
+    );
+    build()
+}
+
+/// Puts [`BUILDING_A_STYLE_TWIN`] back to what it was (the field) when
+/// dropped - the guard [`style_only_build`] holds.
+#[cfg(feature = "std")]
+struct StyleTwinFlag(bool);
+
+#[cfg(feature = "std")]
+impl Drop for StyleTwinFlag {
+    fn drop(&mut self) {
+        let was = self.0;
+        let _ = BUILDING_A_STYLE_TWIN.try_with(|flag| flag.set(was));
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many [`warn_widget_needs_a_name`] warnings this thread emitted. A
+    /// test counts its own builds here: the diagnostics ring is shared by
+    /// every test of the binary, running in parallel.
+    static A11Y_WARNINGS_ON_THIS_THREAD: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, feature = "std"))]
+mod a11y_warning_per_build {
+    //! A widget that follows the app theme may build itself twice - once per
+    //! theme - and keep only the structure theme's tree. The user built ONE
+    //! widget, so they get ONE warning.
+    use azul_core::dom::Dom;
+
+    use super::{check_box::CheckBox, slider::Slider, switch::Switch, A11Y_WARNINGS_ON_THIS_THREAD};
+    use crate::widgets::themes::{theme_blocks::checks::under, UiTheme};
+
+    /// The accessible-name warnings `build` emits on this thread.
+    fn warnings_while(build: impl FnOnce() -> Dom) -> usize {
+        let before = A11Y_WARNINGS_ON_THIS_THREAD.with(core::cell::Cell::get);
+        let _dom = build();
+        A11Y_WARNINGS_ON_THIS_THREAD.with(core::cell::Cell::get) - before
+    }
+
+    fn unnamed() -> [(&'static str, fn() -> Dom); 3] {
+        [
+            ("slider", || Slider::create(40.0, 0.0, 100.0).dom()),
+            ("switch", || Switch::create(true).dom()),
+            ("check box", || CheckBox::create(true).dom()),
+        ]
+    }
+
+    #[test]
+    fn an_unnamed_widget_that_follows_the_app_theme_warns_once_per_build() {
+        if crate::dom_lint::lint_suppressed("a11y_widget") {
+            return;
+        }
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            for (what, build) in unnamed() {
+                assert_eq!(
+                    under(theme, || warnings_while(build)),
+                    1,
+                    "an unnamed {what} built for {theme:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_unnamed_pinned_widget_warns_once_per_build_too() {
+        if crate::dom_lint::lint_suppressed("a11y_widget") {
+            return;
+        }
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            assert_eq!(
+                warnings_while(|| Slider::create(40.0, 0.0, 100.0).with_theme(theme).dom()),
+                1,
+                "a slider pinned to {theme:?}"
+            );
+            assert_eq!(
+                warnings_while(|| Switch::create(true).with_theme(theme).dom()),
+                1,
+                "a switch pinned to {theme:?}"
+            );
+            assert_eq!(
+                warnings_while(|| CheckBox::create(true).with_theme(theme).dom()),
+                1,
+                "a check box pinned to {theme:?}"
+            );
+        }
+    }
+}
 
 #[allow(clippy::too_many_lines)]
 #[cfg(test)]
@@ -557,7 +915,7 @@ mod ua_paragraph_margin {
                 global
                     && rule.declarations.as_ref().iter().any(|d| match d {
                         CssDeclaration::Static(p) => p.get_type() == ty,
-                        CssDeclaration::Dynamic(_) => false,
+                        CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => false,
                     })
             })
         })
@@ -798,6 +1156,7 @@ mod label_convention {
             color_input::ColorInput,
             combobox::ComboBox,
             date_picker::DatePicker,
+            dialog::Dialog,
             divider::Divider,
             drop_down::DropDown,
             file_input::FileInput,
@@ -834,7 +1193,7 @@ mod label_convention {
             tree_view::{TreeView, TreeViewNode},
         };
 
-        vec![
+        let mut all: Vec<(&'static str, Dom)> = vec![
             (
                 "accordion",
                 Accordion::new(AccordionSectionVec::from_vec(vec![
@@ -884,6 +1243,13 @@ mod label_convention {
             ),
             ("combobox", ComboBox::new(labels(&["one", "two"])).dom()),
             ("date_picker", DatePicker::create(2024, 2, 15).dom()),
+            (
+                "dialog",
+                Dialog::create(user_content())
+                    .with_title(AzString::from("Dialog"))
+                    .show_modal()
+                    .dom(),
+            ),
             ("divider", Divider::create().dom()),
             ("drop_down", DropDown::new(labels(&["one", "two"])).dom()),
             ("file_input", FileInput::create(OptionString::None).dom()),
@@ -999,7 +1365,490 @@ mod label_convention {
                 )
                 .dom(),
             ),
-        ]
+            // The HTML input types built on existing widgets (W1): the same
+            // lints hold for every mode.
+            (
+                "text_input (password)",
+                TextInput::create_password()
+                    .with_text(AzString::from("hunter2"))
+                    .dom(),
+            ),
+            (
+                "text_input (search)",
+                TextInput::create_search()
+                    .with_text(AzString::from("query"))
+                    .dom(),
+            ),
+            (
+                "text_input (search, flora)",
+                TextInput::create_search()
+                    .with_theme(super::themes::UiTheme::Flora)
+                    .with_text(AzString::from("query"))
+                    .dom(),
+            ),
+            (
+                "text_input (email)",
+                TextInput::create_email()
+                    .with_text(AzString::from("someone@example.com"))
+                    .dom(),
+            ),
+            ("date_picker (month)", DatePicker::create_month(2026, 9).dom()),
+            ("date_picker (week)", DatePicker::create_week(2026, 40).dom()),
+            (
+                "datetime_local",
+                super::datetime_local::DateTimeLocalPicker::create(2026, 9, 29, 14, 5).dom(),
+            ),
+            (
+                "button (submit)",
+                Button::create_submit(AzString::from("Send")).dom(),
+            ),
+            (
+                "drop_down (optgroup)",
+                DropDown::new(labels(&["None"]))
+                    .with_optgroup(AzString::from("Fruit"), labels(&["Apple", "Pear"]))
+                    .dom(),
+            ),
+            (
+                "hidden_input",
+                super::form::HiddenInput::create(AzString::from("token"), AzString::from("x"))
+                    .dom(),
+            ),
+            (
+                "form",
+                super::form::Form::create(azul_core::dom::DomVec::from_vec(vec![
+                    TextInput::create()
+                        .with_name(AzString::from("user"))
+                        .dom(),
+                    Button::create_submit(AzString::from("Send")).dom(),
+                ]))
+                .dom(),
+            ),
+            (
+                "accordion (groups)",
+                Accordion::new(AccordionSectionVec::from_vec(vec![
+                    AccordionSection::new("Local", user_content())
+                        .with_count(1)
+                        .with_open(true),
+                    AccordionSection::new("Cloud / S3", user_content()).with_count(2),
+                ]))
+                .with_variant(super::accordion::AccordionVariant::Groups)
+                .dom(),
+            ),
+            (
+                "address_bar",
+                super::address_bar::AddressBar::create(labels(&["This PC", "Home"]))
+                    .with_can_go(true, true, true)
+                    .dom(),
+            ),
+            (
+                "address_bar (editing)",
+                super::address_bar::AddressBar::create(labels(&["This PC"]))
+                    .with_path(AzString::from("/home"))
+                    .with_editing(true)
+                    .dom(),
+            ),
+            (
+                "details_pane",
+                super::details_pane::DetailsPane::create(AzString::from("Home"))
+                    .with_icon(AzString::from("home"))
+                    .with_subtitle(AzString::from("Local Disk"))
+                    .with_property(AzString::from("Total size"), AzString::from("456 GB"))
+                    .dom(),
+            ),
+            (
+                "tile",
+                super::tile::Tile::create(AzString::from("Home"))
+                    .with_icon(AzString::from("home"))
+                    .with_capacity(super::tile::TileCapacity::create(456, 324))
+                    .dom(),
+            ),
+            (
+                "tile (detail)",
+                super::tile::Tile::create(AzString::from("S3 Drive"))
+                    .with_detail(AzString::from("S3 bucket"))
+                    .with_selected(true)
+                    .dom(),
+            ),
+            (
+                "info_bar",
+                super::info_bar::InfoBar::create(AzString::from(
+                    "Click here to download pictures.",
+                ))
+                .with_icon(AzString::from("info"))
+                .with_action(AzString::from("Download pictures"))
+                .dom(),
+            ),
+            (
+                "date_picker (inline)",
+                DatePicker::create(2026, 9, 12)
+                    .with_inline(true)
+                    .with_today(2026, 9, 30)
+                    // The lit range (a calendar's week): the lints read its wash too.
+                    .with_range(
+                        super::date_picker::DatePickerState { year: 2026, month: 9, day: 28 },
+                        super::date_picker::DatePickerState { year: 2026, month: 10, day: 4 },
+                    )
+                    .with_accessibility_name("Calendar")
+                    .dom(),
+            ),
+            (
+                "statusbar (sync)",
+                super::statusbar::StatusBar::new(
+                    super::statusbar::StatusBarSegmentVec::from_vec(vec![
+                        super::statusbar::StatusBarSegment::new(AzString::from("Filter applied")),
+                    ]),
+                )
+                .with_sync(super::statusbar::StatusBarSync::create(
+                    AzString::from("Send/Receive error"),
+                    super::statusbar::StatusBarSyncKind::Error,
+                ))
+                .dom(),
+            ),
+            (
+                "summary_list",
+                super::summary_list::SummaryList::create(
+                    super::summary_list::SummaryRowVec::from_vec(vec![
+                        super::summary_list::SummaryRow::create_group(AzString::from("Today")),
+                        super::summary_list::SummaryRow::create(
+                            1,
+                            AzString::from("Google Mail-Team"),
+                            AzString::from("Welcome"),
+                        )
+                        .with_date(AzString::from("21:12"))
+                        .with_unread(true)
+                        .with_selected(true),
+                        super::summary_list::SummaryRow::create(
+                            2,
+                            AzString::from("Alice"),
+                            AzString::from("Invoice"),
+                        )
+                        .with_attachment(true),
+                    ]),
+                )
+                .with_scopes(labels(&["All", "Unread"]), 0)
+                .dom(),
+            ),
+            (
+                "reading_pane",
+                super::reading_pane::ReadingPane::create(
+                    AzString::from("Welcome"),
+                    AzString::from("Google Mail-Team <mail-noreply@google.com>"),
+                )
+                .with_date(AzString::from("21:12"))
+                .with_field(AzString::from("To"), AzString::from("felix@example.com"))
+                .with_attachments(labels(&["invoice.pdf"]))
+                .with_info_bar(
+                    super::info_bar::InfoBar::create(AzString::from(
+                        "Click here to download pictures.",
+                    ))
+                    .with_action(AzString::from("Download pictures")),
+                )
+                .with_body(user_content())
+                .with_people(labels(&["GM"]), AzString::from("More about: Google Mail-Team"))
+                .dom(),
+            ),
+            (
+                "todo_bar",
+                super::todo_bar::ToDoBar::create(2026, 9, 12)
+                    .with_today(2026, 9, 30)
+                    .with_tasks(super::todo_bar::ToDoTaskVec::from_vec(vec![
+                        super::todo_bar::ToDoTask::create(1, AzString::from("Reply to Alice"))
+                            .with_due(AzString::from("Today")),
+                        super::todo_bar::ToDoTask::create(2, AzString::from("Book flights"))
+                            .with_done(true),
+                    ]))
+                    .dom(),
+            ),
+            (
+                "wizard_layout",
+                super::wizard_layout::WizardLayout::create(
+                    AzString::from("Add account"),
+                    labels(&["Address", "Server", "Done"]),
+                )
+                .with_current_step(1)
+                .with_page(user_content())
+                .dom(),
+            ),
+            (
+                "wizard_layout (banner)",
+                super::wizard_layout::WizardLayout::create(
+                    AzString::from("AzOffice Setup"),
+                    labels(&["License", "Folder", "Install"]),
+                )
+                .with_current_step(1)
+                .with_style(super::wizard_layout::WizardLayoutStyle::Banner)
+                .with_subtitle(AzString::from("Where should AzOffice be installed?"))
+                .with_icon(AzString::from("install_desktop"))
+                .with_validation(AzString::from("Choose a folder to install into."))
+                .with_page(user_content())
+                .dom(),
+            ),
+            (
+                "wizard_layout (side panel)",
+                super::wizard_layout::WizardLayout::create(
+                    AzString::from("AzOffice Setup"),
+                    labels(&["Introduction", "License", "Installation", "Summary"]),
+                )
+                .with_current_step(2)
+                .with_style(super::wizard_layout::WizardLayoutStyle::SidePanel)
+                .with_icon(AzString::from("install_desktop"))
+                .with_can_go_back(false)
+                .with_page(user_content())
+                .dom(),
+            ),
+            (
+                "path_input",
+                super::path_input::PathInput::create(AzString::from("/opt/AzOffice"))
+                    .with_accessibility_name(AzString::from("Destination folder"))
+                    .dom(),
+            ),
+            (
+                "wizard_pages (welcome)",
+                super::wizard_pages::WizardWelcomePage::create(
+                    AzString::from("Welcome to the AzOffice Setup Wizard"),
+                    AzString::from("This will install AzOffice on your computer."),
+                )
+                .with_logo(AzString::from("install_desktop"))
+                .dom(),
+            ),
+            (
+                "wizard_pages (license)",
+                super::wizard_pages::WizardLicensePage::create(AzString::from(
+                    "Permission is hereby granted.\n\nThe software is provided as is.",
+                ))
+                .dom(),
+            ),
+            (
+                "wizard_pages (destination)",
+                super::wizard_pages::WizardDestinationPage::create(
+                    AzString::from("/opt/AzOffice"),
+                    1 << 30,
+                )
+                .with_available(1 << 29)
+                .dom(),
+            ),
+            (
+                "wizard_pages (components)",
+                super::wizard_pages::WizardComponentsPage::create(
+                    super::wizard_pages::WizardComponentVec::from_vec(vec![
+                        super::wizard_pages::WizardComponent::create(
+                            AzString::from("Program files"),
+                            300 << 20,
+                        )
+                        .with_required(true),
+                        super::wizard_pages::WizardComponent::create(
+                            AzString::from("Writer"),
+                            120 << 20,
+                        )
+                        .with_depth(1)
+                        .with_description(AzString::from("Documents and letters")),
+                    ]),
+                )
+                .dom(),
+            ),
+            (
+                "wizard_pages (options)",
+                super::wizard_pages::WizardOptionsPage::create(
+                    super::wizard_pages::WizardOptionVec::from_vec(vec![
+                        super::wizard_pages::WizardOption::create(
+                            AzString::from("Create a desktop shortcut"),
+                            true,
+                        )
+                        .with_description(AzString::from("On every user's desktop")),
+                        super::wizard_pages::WizardOption::create(AzString::from("For me only"), true)
+                            .with_group(1),
+                        super::wizard_pages::WizardOption::create(AzString::from("For all users"), false)
+                            .with_group(1),
+                    ]),
+                )
+                .dom(),
+            ),
+            (
+                "wizard_pages (summary)",
+                super::wizard_pages::WizardSummaryPage::create(
+                    azul_core::window::StringPairVec::from_const_slice(&[]),
+                )
+                .with_row(AzString::from("Destination folder"), AzString::from("/opt/AzOffice"))
+                .dom(),
+            ),
+            (
+                "wizard_pages (progress)",
+                super::wizard_pages::WizardProgressPage::create(42.0)
+                    .with_current_item(AzString::from("Copying azword.dll"))
+                    .with_log(labels(&["Created /opt/AzOffice"]))
+                    .with_show_log(true)
+                    .dom(),
+            ),
+            (
+                "wizard_pages (finish)",
+                super::wizard_pages::WizardFinishPage::create(
+                    AzString::from("Completing the AzOffice Setup Wizard"),
+                    AzString::from("Setup has installed AzOffice."),
+                )
+                .with_options(super::wizard_pages::WizardOptionVec::from_vec(vec![
+                    super::wizard_pages::WizardOption::create(AzString::from("Launch AzOffice now"), true),
+                ]))
+                .dom(),
+            ),
+            (
+                "shortcut_recorder",
+                super::shortcut_recorder::ShortcutRecorder::create()
+                    .with_accessibility_name(AzString::from("Command palette"))
+                    .with_hotkey(azul_core::global_hotkey::GlobalHotkey::create(
+                        azul_core::global_hotkey::HotkeyModifiers {
+                            ctrl: true,
+                            alt: false,
+                            shift: true,
+                            meta: false,
+                        },
+                        azul_core::window::VirtualKeyCode::P,
+                    ))
+                    .dom(),
+            ),
+            (
+                "shortcut_recorder (recording)",
+                super::shortcut_recorder::ShortcutRecorder::create()
+                    .with_recording(true)
+                    .dom(),
+            ),
+            (
+                "standard_dialogs (message box)",
+                super::standard_dialogs::MessageBox::create(
+                    super::standard_dialogs::MessageBoxKind::Warning,
+                    AzString::from("Replace the existing file?"),
+                    AzString::from("A file named Report.docx already exists."),
+                )
+                .with_buttons(labels(&["Replace", "Cancel"]), 1)
+                .with_dont_ask(AzString::from("Don't ask again"), false)
+                .dom(),
+            ),
+            (
+                "standard_dialogs (about)",
+                super::standard_dialogs::AboutDialog::create(
+                    AzString::from("AzOffice"),
+                    AzString::from("Version 1.0.0"),
+                )
+                .with_icon(AzString::from("apps"))
+                .with_copyright(AzString::from("Copyright 2026 Azul contributors"))
+                .with_credit(AzString::from("azul"), AzString::from("MIT"))
+                .dom(),
+            ),
+            (
+                "standard_dialogs (progress)",
+                super::standard_dialogs::ProgressDialog::create(AzString::from("Copying 12 files"), 42.0)
+                    .with_detail(AzString::from("report.docx"))
+                    .dom(),
+            ),
+            (
+                "standard_dialogs (login)",
+                super::standard_dialogs::LoginDialog::create(AzString::from("Sign in to AzOffice"))
+                    .with_error(AzString::from("The password is wrong."))
+                    .with_remember(AzString::from("Remember me"), false)
+                    .dom(),
+            ),
+            (
+                "standard_dialogs (find / replace)",
+                super::standard_dialogs::FindReplaceDialog::create(AzString::from("azul"))
+                    .with_replace(AzString::from("Azul"))
+                    .with_status(AzString::from("3 of 12"))
+                    .dom(),
+            ),
+            (
+                "timeline",
+                super::timeline::Timeline::create(
+                    super::timeline::TimelineTrackVec::from_vec(vec![
+                        super::timeline::TimelineTrack::create(
+                            1,
+                            AzString::from("V1"),
+                            super::timeline::TimelineTrackKind::Video,
+                        )
+                        .with_clip(
+                            super::timeline::TimelineClip::create(
+                                11,
+                                0.0,
+                                2.0,
+                                AzString::from("pier.mp4"),
+                            )
+                            .with_selected(true),
+                        ),
+                        super::timeline::TimelineTrack::create(
+                            2,
+                            AzString::from("A1"),
+                            super::timeline::TimelineTrackKind::Audio,
+                        )
+                        .with_clip(
+                            super::timeline::TimelineClip::create(
+                                21,
+                                0.5,
+                                3.0,
+                                AzString::from("voice.wav"),
+                            )
+                            .with_tint(super::timeline::TimelineClipTint::Audio),
+                        ),
+                    ]),
+                    10.0,
+                )
+                .with_playhead(1.0)
+                .with_view(0.0, 80.0)
+                .with_view_width(800.0)
+                .dom(),
+            ),
+            (
+                "selection_adorner",
+                super::selection_adorner::SelectionAdorner::create(user_content(), 400.0, 300.0)
+                    .with_item(
+                        super::selection_adorner::AdornerItem::create(
+                            super::selection_adorner::AdornerFrame::create(20.0, 20.0, 100.0, 60.0),
+                        )
+                        .with_selected(true),
+                    )
+                    .with_accessibility_name(AzString::from("Slide 1"))
+                    .dom(),
+            ),
+            (
+                "thumbnail_strip",
+                super::thumbnail_strip::ThumbnailStrip::create(
+                    super::thumbnail_strip::ThumbnailItemVec::from_vec(vec![
+                        super::thumbnail_strip::ThumbnailItem::create(
+                            user_content(),
+                            AzString::from("1"),
+                            AzString::from("Slide 1"),
+                        )
+                        .with_section(AzString::from("Intro"))
+                        .with_selected(true),
+                        super::thumbnail_strip::ThumbnailItem::create(
+                            user_content(),
+                            AzString::from("2"),
+                            AzString::from("Slide 2"),
+                        )
+                        .with_badge(AzString::from("star")),
+                    ]),
+                )
+                .with_accessibility_name(AzString::from("Slides"))
+                .dom(),
+            ),
+        
+        ];
+        // The app shells, each with placeholder content (`shells::fixtures`).
+        all.extend(super::shells::fixtures::every_shell());
+        // The spreadsheet grid, with a block of numbers as its data.
+        all.push(("cell_grid", super::cell_grid::fixtures::small().dom()));
+        // The rich-text editor with its toolbar and a block of every kind.
+        all.push((
+            "rich_text_editor",
+            super::rich_text_editor::fixtures::sample().dom(),
+        ));
+        // The date repeat picker: weekly on two days, ending after ten times.
+        all.push((
+            "date_repeat_picker",
+            super::date_repeat_picker::fixtures::sample().dom(),
+        ));
+        // The data table: 1,000 rows of five columns, a 400 x 300 window.
+        all.push(("data_table", super::data_table::fixtures::small().dom()));
+        // The chart: three series of bars over four categories, a legend and
+        // the table view.
+        all.push(("chart", super::chart::fixtures::sample().dom()));
+        all
     }
 
     /// THE convention. A widget that trips this has attached box-model CSS, a
@@ -1085,16 +1934,11 @@ mod theme_pairs {
             "node root declares a dark twin for color (states [])",
             "light text = the UA default by design; the dark twin predates the themed UA colour",
         ),
-        (
-            "tree_view",
-            "node root/0/1 declares a dark twin for color (states [])",
-            "light text = the UA default by design; the dark twin predates the themed UA colour",
-        ),
-        (
-            "tree_view",
-            "node root/1/0/1 declares a dark twin for color (states [])",
-            "light text = the UA default by design; the dark twin predates the themed UA colour",
-        ),
+        // The tree view's label used to be listed here twice (its root row's
+        // and its first child's label): the label now declares its light ink
+        // beside the dark twin (`tree_view::LABEL_STYLE`), so the pair is
+        // whole wherever the tree is built - the shells' navigation pane
+        // embeds it at paths no mask could name.
     ];
 
     /// Every half-pair in one node's inline declarations, as messages. The
@@ -1109,10 +1953,15 @@ mod theme_pairs {
             }
             let ty = twin.property.get_type();
             let states = twin.pseudo_state_conditions();
+            // A dark twin's light half is the same property, in the same
+            // states AND the same app theme: a flora dark value paired with
+            // a flat light one is no pair.
+            let themes = twin.theme_names();
             let counterpart_at = props.iter().position(|p| {
                 p.property.get_type() == ty
                     && p.is_light_half()
                     && p.pseudo_state_conditions() == states
+                    && p.theme_names() == themes
             });
             match counterpart_at {
                 None => out.push(format!(
@@ -1194,13 +2043,13 @@ mod theme_pairs {
             })
         };
         // Missing half.
-        let bad = findings(&[CssPropertyWithConditions::dark_theme(c(1))], "fixture", "root");
+        let bad = findings(&[CssPropertyWithConditions::dark_mode(c(1))], "fixture", "root");
         assert_eq!(bad.len(), 1, "{bad:?}");
         assert!(bad[0].contains("NO light counterpart"), "{}", bad[0]);
         // Reversed pair.
         let bad = findings(
             &[
-                CssPropertyWithConditions::dark_theme(c(1)),
+                CssPropertyWithConditions::dark_mode(c(1)),
                 CssPropertyWithConditions::simple(c(2)),
             ],
             "fixture",
@@ -1242,4 +2091,901 @@ mod theme_pairs {
     }
 }
 
+#[cfg(test)]
+mod var_fallbacks {
+    //! Design gap 1 (`RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` §9):
+    //! every `var()` declares a fallback, so an unknown or mistyped variable
+    //! always degrades to a working value - there is no manifest of a theme's
+    //! variables to check a name against, only this rule. The parser warns at
+    //! runtime (`CssParseWarnMsgInner::VarWithoutFallback`); for the widgets
+    //! it is an ERROR, here, over the same manifest the pair lint walks: every
+    //! node's own declarations and every stylesheet attached to its subtree.
+    use azul_core::dom::Dom;
+    use azul_css::css::Css;
+
+    /// Every fallback-less `var()` in `css`, as messages.
+    fn findings(css: &Css, widget: &str, path: &str) -> Vec<String> {
+        css.rules()
+            .flat_map(|r| r.declarations.as_ref().iter())
+            .filter_map(azul_css::css::CssDeclaration::var_without_fallback)
+            .map(|name| {
+                format!("{widget}: node {path} reads var(--{name}) without a fallback")
+            })
+            .collect()
+    }
+
+    fn walk(node: &Dom, widget: &str, path: &str, out: &mut Vec<String>) {
+        out.extend(findings(&node.root.style, widget, path));
+        for sheet in node.css.as_ref() {
+            out.extend(findings(sheet, widget, path));
+        }
+        for (i, child) in node.children.as_ref().iter().enumerate() {
+            walk(child, widget, &format!("{path}/{i}"), out);
+        }
+    }
+
+    #[test]
+    fn every_widget_var_declares_a_fallback() {
+        let mut bad = Vec::new();
+        for (widget, dom) in super::label_convention::every_widget_dom() {
+            walk(&dom, widget, "root", &mut bad);
+        }
+        assert!(
+            bad.is_empty(),
+            "{} var() without a fallback in the widget styles:\n  {}\n\nWrite \
+             `var(--name, <fallback>)`, e.g. `var(--azul-button-face, system:button-face)`.",
+            bad.len(),
+            bad.join("\n  ")
+        );
+    }
+
+    /// A guard on the guard: the walk sees both channels, and a fallback
+    /// (even one that is itself a variable with a fallback) is clean.
+    #[test]
+    fn the_walk_reports_a_var_without_a_fallback() {
+        let fixture = Dom::create_div()
+            .with_style(Css::parse_inline("color: var(--fg);"))
+            .with_child(Dom::create_div().with_css(".x { width: var(--w); }"))
+            .with_child(Dom::create_div().with_style(Css::parse_inline(
+                "color: var(--fg, var(--accent, #000000)); background: var(--bg, #ffffff);",
+            )));
+        let mut bad = Vec::new();
+        walk(&fixture, "fixture", "root", &mut bad);
+        assert_eq!(bad.len(), 2, "{bad:?}");
+        assert!(bad[0].contains("node root reads var(--fg)"), "{}", bad[0]);
+        assert!(bad[1].contains("node root/0 reads var(--w)"), "{}", bad[1]);
+    }
+}
+
+#[cfg(test)]
+mod wheel_ownership {
+    //! Workspace-level guard for the wheel rule (bug W1, 2026-09-21): a wheel
+    //! over a CLOSED control belongs to the page, not to the control.
+    //!
+    //! Every platform toolkit and every browser agrees: wheeling over a
+    //! closed `<select>`, over a slider or over a colour swatch scrolls the
+    //! nearest scrollable ancestor and leaves the control's value alone
+    //! (Chrome and Firefox both dropped wheel-to-change on `<select>`; a
+    //! range input never had it). A control that listens for `Scroll` cannot
+    //! honour that rule for free — the listener fires whether or not the
+    //! control is focused or open — so the rule is enforced here, over the
+    //! widget set as a whole: only a widget whose whole purpose IS the
+    //! gesture may register a `Scroll` handler at all.
+    //!
+    //! Scope: the widget DOMs of the lint manifest
+    //! (`all_widget_doms_for_lint`), i.e. what `dom()` emits. The map's
+    //! wheel-to-zoom handler is registered inside its `VirtualView` render
+    //! callback (`map::map_widget_render`, map.rs ~2802) and is therefore out
+    //! of this walk's reach; the rule it obeys is the other half of W1 — a
+    //! widget that DOES take the wheel must veto the page scroll — which the
+    //! wheel handlers assert for themselves.
+    use azul_core::{
+        dom::Dom,
+        events::{EventFilter, FocusEventFilter, HoverEventFilter, WindowEventFilter},
+    };
+
+    /// Names of the manifest widgets whose `dom()` registers a `Scroll`
+    /// handler anywhere in its tree, in manifest order, each named once.
+    fn wheel_takers() -> Vec<String> {
+        fn takes_the_wheel(node: &Dom) -> bool {
+            node.root.get_callbacks().as_ref().iter().any(|cb| {
+                matches!(
+                    cb.event,
+                    EventFilter::Hover(HoverEventFilter::Scroll)
+                        | EventFilter::Focus(FocusEventFilter::Scroll)
+                        | EventFilter::Window(WindowEventFilter::Scroll)
+                )
+            })
+        }
+        fn walk(node: &Dom, widget: &str, out: &mut Vec<String>) {
+            if takes_the_wheel(node) && !out.iter().any(|w| w == widget) {
+                out.push(widget.to_string());
+            }
+            for child in node.children.as_ref() {
+                walk(child, widget, out);
+            }
+        }
+
+        let mut out = Vec::new();
+        for (widget, dom) in super::all_widget_doms_for_lint() {
+            walk(&dom, widget, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn a_closed_control_leaves_the_wheel_to_the_page() {
+        // The time picker's two spinner columns are the one sanctioned
+        // exception: a stepper column IS a wheel affordance, the way a native
+        // time field is. Everything else — the drop-down trigger, the slider,
+        // the colour swatch, the number input, the segmented control — stays
+        // deaf to the wheel so the gesture reaches the scrollable ancestor.
+        // `datetime_local` is not a second exception: its time half IS the
+        // time picker, spinner columns and all. The cell grid is not a
+        // closed control but a scroll surface: it scrolls by whole rows
+        // (`cell_grid::on_grid_wheel`) and claims the gesture, as a scroll
+        // box would.
+        assert_eq!(
+            wheel_takers(),
+            vec![
+                "time_picker".to_string(),
+                "datetime_local".to_string(),
+                "cell_grid".to_string(),
+                // The data table scrolls by whole rows too.
+                "data_table".to_string(),
+            ],
+            "a widget started listening for the wheel: a closed control must leave the gesture to \
+             the page under it",
+        );
+    }
+}
+
 pub mod themes;
+
+#[cfg(test)]
+mod chrome_text_is_not_selectable {
+    //! A widget's OWN text - a button's label, a tab's caption, a menu item, a
+    //! dropdown's current value - is chrome, not content. No toolkit lets a
+    //! drag across it paint a text selection, and azul's default (`user-select`
+    //! unset means selectable, `solver3::getters::is_text_selectable`) makes
+    //! every one of them selectable.
+    //!
+    //! The rule this pins: text a WIDGET wrote is not selectable; text the USER
+    //! put in is. The widget-owned carriers all go through
+    //! `widgets::widget_p_with_text` / `widget_p_chrome`, so the rule rides on
+    //! that one sheet — an editable carrier (TextInput, TextArea) deliberately
+    //! keeps plain `widget_p`.
+
+    use azul_core::{
+        dom::{Dom, NodeId, NodeType},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{
+        css::{Css, CssDeclaration, CssPathSelector},
+        props::property::CssPropertyType,
+    };
+
+    /// The node's OWN component sheet (attached to this `Dom`, `*` path)
+    /// declares `ty`.
+    fn own_sheet_sets(node: &Dom, ty: CssPropertyType) -> bool {
+        node.css.as_ref().iter().any(|sheet| {
+            sheet.rules.as_ref().iter().any(|rule| {
+                let global = matches!(
+                    rule.path.selectors.as_ref().first(),
+                    None | Some(CssPathSelector::Global)
+                );
+                global
+                    && rule.declarations.as_ref().iter().any(|d| match d {
+                        CssDeclaration::Static(p) => p.get_type() == ty,
+                        CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => false,
+                    })
+            })
+        })
+    }
+
+    /// Is `node_id` selectable, asked exactly the way the pointer path asks it
+    /// (`LayoutWindow::process_mouse_click_for_selection` and the shell's
+    /// drag-arming check both call this with the HIT node).
+    fn selectable(sd: &StyledDom, node_id: NodeId) -> bool {
+        let states = sd.styled_nodes.as_container();
+        crate::solver3::getters::is_text_selectable(
+            sd,
+            node_id,
+            &states[node_id].styled_node_state,
+        )
+    }
+
+    /// `body(0) > p(1) > text(2)` out of whatever builder is handed in.
+    fn styled(p: Dom) -> StyledDom {
+        let mut dom = Dom::create_body().with_child(p);
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    /// Every `<p>` in the subtree, in pre-order.
+    fn paragraphs<'a>(node: &'a Dom, out: &mut Vec<&'a Dom>) {
+        if matches!(node.root.get_node_type(), NodeType::P) {
+            out.push(node);
+        }
+        for child in node.children.as_ref() {
+            paragraphs(child, out);
+        }
+    }
+
+    /// The builder's contract: the rule rides on the node's own component
+    /// sheet, where `with_css_props` (which every call site uses for its own
+    /// style) cannot wipe it.
+    ///
+    /// EXPECTED TO FAIL TODAY: `widget_p_with_text`'s sheet declares only
+    /// `margin-top` and `margin-bottom`, so `own_sheet_sets(.., UserSelect)`
+    /// is `false`.
+    #[test]
+    fn a_widget_text_carrier_declares_user_select_on_its_own_sheet() {
+        assert!(
+            own_sheet_sets(
+                &super::widget_p_with_text("Click me"),
+                CssPropertyType::UserSelect
+            ),
+            "a widget's own text carrier must say it is not selectable"
+        );
+    }
+
+    /// The same law through the REAL predicate, after the cascade — the
+    /// question the hit path actually asks, of the `<p>` and of the text node
+    /// under it.
+    ///
+    /// EXPECTED TO FAIL TODAY: both asserts see `true`, because nothing sets
+    /// `user-select` and `is_text_selectable` defaults to selectable.
+    #[test]
+    fn a_widget_text_carrier_is_not_selectable_after_the_cascade() {
+        let sd = styled(super::widget_p_with_text("Click me"));
+        assert_eq!(sd.node_data.len(), 3, "premise: body > p > text");
+        assert!(
+            !selectable(&sd, NodeId::new(1)),
+            "a widget's label block is chrome, not selectable text"
+        );
+        assert!(
+            !selectable(&sd, NodeId::new(2)),
+            "the glyphs under it are the thing a drag would highlight"
+        );
+    }
+
+    /// The other half: ordinary prose the APP wrote stays selectable, so the
+    /// fix cannot be "nothing is selectable any more".
+    #[test]
+    fn an_app_paragraph_is_still_selectable() {
+        let sd = styled(Dom::create_p_with_text("user prose"));
+        assert!(selectable(&sd, NodeId::new(1)));
+        assert!(selectable(&sd, NodeId::new(2)));
+    }
+
+    /// And on a real widget, end to end: every `<p>` a Button emits is its
+    /// label.
+    ///
+    /// EXPECTED TO FAIL TODAY for the same reason — the Button label is built
+    /// with bare `widget_p()` (`themes/flat.rs`, `themes/flora.rs`), whose
+    /// sheet carries the margin reset and nothing else.
+    #[test]
+    fn a_buttons_label_is_not_selectable() {
+        let (_, dom) = super::label_convention::every_widget_dom()
+            .into_iter()
+            .find(|(name, _)| *name == "button")
+            .expect("every_widget_dom must build a button");
+        let mut ps = Vec::new();
+        paragraphs(&dom, &mut ps);
+        assert!(!ps.is_empty(), "premise: a Button emits a label <p>");
+        for p in ps {
+            assert!(
+                own_sheet_sets(p, CssPropertyType::UserSelect),
+                "a button's label must not be selectable"
+            );
+        }
+    }
+
+    /// The exception, stated so it cannot be optimised away: `widget_p` is what
+    /// the EDITABLE carriers (TextInput, TextArea) build on, and their text is
+    /// the user's content.
+    #[test]
+    fn the_plain_carrier_editables_use_stays_selectable() {
+        let sd = styled(super::widget_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("typed by the user"),
+        ));
+        assert!(
+            selectable(&sd, NodeId::new(1)),
+            "widget_p is the editable carriers' base and must not forbid selection"
+        );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+mod theme_contrast {
+    //! Every widget follows the theme it is rendered in.
+    //!
+    //! The widget demo on a dark desktop painted a dark text field on a white
+    //! card: the flat theme's fields had dark twins, most other widgets kept
+    //! their light colours, and nothing noticed - every widget test asks for
+    //! the widget's DECLARATIONS, none asks what a user sees.
+    //!
+    //! This asks the user's question. Each widget is styled under the macOS
+    //! light and dark presets the way a window does it (the cascade runs
+    //! under the window's context from the first pass), and for every visible
+    //! text node the text colour is composited over the stack of backgrounds
+    //! behind it, down to the window canvas. Two findings, both "this widget
+    //! did not follow the theme":
+    //!
+    //! * CONTRAST below 2:1 - dark text on a dark surface, or light on light;
+    //! * in the DARK theme, text on a light NEUTRAL surface (relative luminance
+    //!   above 0.45, chroma below 0.25) - a light island: legible, and exactly
+    //!   the white card on the dark page. A saturated surface (an accent
+    //!   button, a yellow warning badge) is the widget's own colour in both
+    //!   themes and does not count.
+    //!
+    //! The 2:1 floor separates "follows the theme" from "does not"; it is not
+    //! a WCAG grade, because light values never move and some light-theme
+    //! greys are deliberately quiet.
+    use std::sync::Arc;
+
+    use azul_core::{
+        dom::{Dom, NodeId, NodeType},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{
+        dynamic_selector::DynamicSelectorContext,
+        props::{
+            basic::{
+                color::{ColorOrSystem, ColorU, SystemColorRef},
+                PhysicalSize,
+            },
+            layout::LayoutDisplay,
+            style::StyleBackgroundContent,
+        },
+        system::{defaults, SystemStyle, DarkLightMode},
+        AzString,
+    };
+
+    use crate::solver3::getters;
+
+    /// One theme to render under: its preset and the context a window
+    /// builds from it.
+    struct Probe {
+        theme: DarkLightMode,
+        style: Arc<SystemStyle>,
+        ctx: DynamicSelectorContext,
+    }
+
+    fn probe(theme: DarkLightMode) -> Probe {
+        let style = Arc::new(match theme {
+            DarkLightMode::Light => defaults::macos_modern_light(),
+            DarkLightMode::Dark => defaults::macos_modern_dark(),
+        });
+        let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(800.0, 600.0);
+        Probe { theme, style, ctx }
+    }
+
+    type Rgb = [f32; 3];
+
+    fn rgb(c: ColorU) -> Rgb {
+        [f32::from(c.r), f32::from(c.g), f32::from(c.b)]
+    }
+
+    fn to_color(c: Rgb) -> ColorU {
+        ColorU {
+            r: c[0].round() as u8,
+            g: c[1].round() as u8,
+            b: c[2].round() as u8,
+            a: 255,
+        }
+    }
+
+    /// `top` (straight alpha) over an opaque `base`.
+    fn over(top: ColorU, base: Rgb) -> Rgb {
+        let a = f32::from(top.a) / 255.0;
+        let t = rgb(top);
+        [
+            t[0] * a + base[0] * (1.0 - a),
+            t[1] * a + base[1] * (1.0 - a),
+            t[2] * a + base[2] * (1.0 - a),
+        ]
+    }
+
+    /// WCAG 2 relative luminance of an sRGB colour.
+    fn luminance(c: Rgb) -> f32 {
+        let lin = |v: f32| {
+            let v = v / 255.0;
+            if v <= 0.040_45 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
+    }
+
+    fn contrast(a: Rgb, b: Rgb) -> f32 {
+        let (la, lb) = (luminance(a), luminance(b));
+        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    }
+
+    fn chroma(c: Rgb) -> f32 {
+        let max = c[0].max(c[1]).max(c[2]);
+        let min = c[0].min(c[1]).min(c[2]);
+        (max - min) / 255.0
+    }
+
+    /// The colour one background layer contributes. A gradient counts as the
+    /// average of its stops; an image is unknowable here and contributes
+    /// nothing.
+    fn layer_color(layer: &StyleBackgroundContent, p: &Probe) -> Option<ColorU> {
+        let stop = |c: &ColorOrSystem| match c {
+            ColorOrSystem::Color(c) => *c,
+            ColorOrSystem::System(r) => p.ctx.system_color(*r),
+        };
+        let average = |colors: Vec<ColorU>| -> Option<ColorU> {
+            if colors.is_empty() {
+                return None;
+            }
+            let n = colors.len() as f32;
+            let sum = colors.iter().fold([0.0_f32; 4], |acc, c| {
+                [
+                    acc[0] + f32::from(c.r),
+                    acc[1] + f32::from(c.g),
+                    acc[2] + f32::from(c.b),
+                    acc[3] + f32::from(c.a),
+                ]
+            });
+            Some(ColorU {
+                r: (sum[0] / n).round() as u8,
+                g: (sum[1] / n).round() as u8,
+                b: (sum[2] / n).round() as u8,
+                a: (sum[3] / n).round() as u8,
+            })
+        };
+        match layer {
+            StyleBackgroundContent::Color(c) => Some(*c),
+            StyleBackgroundContent::SystemColor(r) => Some(p.ctx.system_color(*r)),
+            StyleBackgroundContent::LinearGradient(g) => {
+                average(g.stops.as_ref().iter().map(|s| stop(&s.color)).collect())
+            }
+            StyleBackgroundContent::RadialGradient(g) => {
+                average(g.stops.as_ref().iter().map(|s| stop(&s.color)).collect())
+            }
+            StyleBackgroundContent::ConicGradient(g) => {
+                average(g.stops.as_ref().iter().map(|s| stop(&s.color)).collect())
+            }
+            StyleBackgroundContent::Image(_) => None,
+        }
+    }
+
+    /// `node` and its ancestors, root first.
+    fn root_path(sd: &StyledDom, node: NodeId) -> Vec<NodeId> {
+        let hierarchy = sd.node_hierarchy.as_container();
+        let mut path = vec![node];
+        let mut cur = hierarchy[node].parent_id();
+        while let Some(n) = cur {
+            path.push(n);
+            cur = hierarchy[n].parent_id();
+        }
+        path.reverse();
+        path
+    }
+
+    /// Nothing on `path` is `display: none` or fully transparent.
+    fn is_visible(sd: &StyledDom, path: &[NodeId]) -> bool {
+        let states = sd.styled_nodes.as_container();
+        path.iter().all(|&n| {
+            !matches!(
+                getters::get_display_property(sd, Some(n)),
+                getters::MultiValue::Exact(LayoutDisplay::None)
+            ) && getters::get_opacity(sd, n, &states[n].styled_node_state) > 0.0
+        })
+    }
+
+    /// `body > dom`, cascaded under the probe's context from the first pass.
+    fn styled(dom: Dom, p: &Probe) -> StyledDom {
+        StyledDom::create_from_dom_with_context(
+            Dom::create_body().with_child(dom),
+            Some(p.ctx.clone()),
+        )
+    }
+
+    /// What a user sees at a text node: the composited ink and background.
+    fn seen(sd: &StyledDom, text: NodeId, p: &Probe) -> (Rgb, Rgb) {
+        let states = sd.styled_nodes.as_container();
+        let mut bg = rgb(p.ctx.system_color(SystemColorRef::WindowBackground));
+        for n in root_path(sd, text) {
+            for layer in getters::get_background_contents(sd, n, &states[n].styled_node_state) {
+                if let Some(c) = layer_color(&layer, p) {
+                    bg = over(c, bg);
+                }
+            }
+        }
+        let ink = getters::get_style_properties(
+            sd,
+            text,
+            Some(&p.style),
+            PhysicalSize::new(800.0, 600.0),
+        )
+        .color;
+        (over(ink, bg), bg)
+    }
+
+    /// Every finding for one widget under one theme, as messages.
+    fn findings(name: &str, dom: Dom, p: &Probe) -> Vec<String> {
+        let sd = styled(dom, p);
+        let nodes = sd.node_data.as_container();
+        let mut out = Vec::new();
+        for i in 0..nodes.len() {
+            let id = NodeId::new(i);
+            let NodeType::Text(text) = nodes[id].get_node_type() else {
+                continue;
+            };
+            let label = text.as_str();
+            if label.trim().is_empty() || !is_visible(&sd, &root_path(&sd, id)) {
+                continue;
+            }
+            let (fg, bg) = seen(&sd, id, p);
+            let ratio = contrast(fg, bg);
+            if ratio < 2.0 {
+                out.push(format!(
+                    "{name} ({:?}): {label:?} reads {ratio:.2}:1 - ink {:?} on {:?}",
+                    p.theme,
+                    to_color(fg),
+                    to_color(bg),
+                ));
+            } else if p.theme == DarkLightMode::Dark && luminance(bg) > 0.45 && chroma(bg) < 0.25 {
+                out.push(format!(
+                    "{name} (Dark): {label:?} sits on the light surface {:?} - a light island",
+                    to_color(bg),
+                ));
+            }
+        }
+        out
+    }
+
+    fn assert_follow_the_theme(widgets: Vec<(&'static str, Dom)>) {
+        let (light, dark) = (probe(DarkLightMode::Light), probe(DarkLightMode::Dark));
+        let mut bad = Vec::new();
+        for (name, dom) in widgets {
+            bad.extend(findings(name, dom.clone(), &light));
+            bad.extend(findings(name, dom, &dark));
+        }
+        assert!(
+            bad.is_empty(),
+            "{} widget text(s) do not follow the theme:\n  {}",
+            bad.len(),
+            bad.join("\n  ")
+        );
+    }
+
+    /// The manifest widgets named in `names`.
+    fn manifest(names: &[&str]) -> Vec<(&'static str, Dom)> {
+        super::all_widget_doms_for_lint()
+            .into_iter()
+            .filter(|(n, _)| names.contains(n))
+            .collect()
+    }
+
+    /// Feedback and tags: the widgets with a semantic colour per kind.
+    const STATUS: &[&str] = &["alert", "badge", "chip", "toast", "spinner", "info_bar"];
+    /// Surfaces that hold the application's own content.
+    const CONTAINERS: &[&str] = &[
+        "accordion",
+        "accordion (groups)",
+        "card",
+        "details_pane",
+        "tile",
+        "tile (detail)",
+        "dialog",
+        "divider",
+        "frame",
+        "modal",
+        "popover",
+        "split_pane",
+        "tabs (content)",
+        "tooltip",
+        "form",
+        "reading_pane",
+        "todo_bar",
+        "wizard_layout",
+        "wizard_layout (banner)",
+        "wizard_layout (side panel)",
+        "wizard_pages (welcome)",
+        "wizard_pages (license)",
+        "wizard_pages (destination)",
+        "wizard_pages (components)",
+        "wizard_pages (options)",
+        "wizard_pages (summary)",
+        "wizard_pages (progress)",
+        "wizard_pages (finish)",
+        "standard_dialogs (message box)",
+        "standard_dialogs (about)",
+        "standard_dialogs (progress)",
+        "standard_dialogs (login)",
+        "standard_dialogs (find / replace)",
+        // The rich-text editor: a page of the user's own text.
+        "rich_text_editor",
+    ];
+    /// Controls a user types into, picks from or toggles.
+    const INPUTS: &[&str] = &[
+        "avatar",
+        "button",
+        "check_box",
+        "color_input",
+        "combobox",
+        "date_picker",
+        "drop_down",
+        "file_input",
+        "label",
+        "number_input",
+        "progressbar",
+        "radio_group",
+        "segmented",
+        "slider",
+        "switch",
+        "text_area",
+        "text_input",
+        "time_picker",
+        "text_input (password)",
+        "text_input (search)",
+        "text_input (search, flora)",
+        "text_input (email)",
+        "date_picker (month)",
+        "date_picker (week)",
+        "datetime_local",
+        "button (submit)",
+        "drop_down (optgroup)",
+        "hidden_input",
+        "date_picker (inline)",
+        "path_input",
+        "shortcut_recorder",
+        "shortcut_recorder (recording)",
+        "date_repeat_picker",
+    ];
+    /// Navigation and application chrome.
+    const CHROME: &[&str] = &[
+        "address_bar",
+        "address_bar (editing)",
+        "backstage",
+        "breadcrumb",
+        "list_view",
+        "map",
+        "menubar",
+        "node_graph",
+        "pagination",
+        "quick_access",
+        "ribbon",
+        "statusbar",
+        "statusbar (sync)",
+        "stepper",
+        "tabs (header)",
+        "titlebar",
+        "tree_view",
+        "summary_list",
+        // The app shells (`shells::fixtures::every_shell`): window chrome.
+        "office_shell",
+        "navigation_pane",
+        "navigation_pane (collapsed)",
+        "command_palette",
+        "settings_layout",
+        "settings_dialog",
+        "empty_state",
+        "theme_scope",
+        "document_shell",
+        "canvas_shell",
+        "timeline_shell",
+        "pim_shell",
+        "browser_shell",
+        "records_shell",
+        "media_shell",
+        "developer_shell",
+        "utility_shell",
+        "call_shell",
+        "mobile_shell",
+        "timeline",
+        "selection_adorner",
+        "thumbnail_strip",
+        "call_shell_stage",
+        // The spreadsheet grid: the surface of a document window.
+        "cell_grid",
+        // The data table: a records window's table.
+        "data_table",
+        // A chart: a data surface like the grid (its title, ticks, legend
+        // and table text on the chart's own sheet).
+        "chart",
+    ];
+
+    /// A widget added to the manifest must land in a group, or it is simply
+    /// not checked.
+    #[test]
+    fn every_manifest_widget_is_checked_by_exactly_one_group() {
+        for (name, _) in super::all_widget_doms_for_lint() {
+            let groups = [STATUS, CONTAINERS, INPUTS, CHROME]
+                .iter()
+                .filter(|g| g.contains(&name))
+                .count();
+            assert_eq!(groups, 1, "{name} is in {groups} theme-contrast group(s)");
+        }
+    }
+
+    #[test]
+    fn status_widgets_follow_the_theme() {
+        use super::{
+            alert::{Alert, AlertKind},
+            badge::{Badge, BadgeKind},
+            chip::{Chip, ChipKind},
+            toast::{Toast, ToastKind},
+        };
+
+        let mut widgets = manifest(STATUS);
+        for (name, kind) in [
+            ("alert success", AlertKind::Success),
+            ("alert warning", AlertKind::Warning),
+            ("alert danger", AlertKind::Danger),
+        ] {
+            widgets.push((
+                name,
+                Alert::with_kind(AzString::from("Message"), kind)
+                    .with_dismissible(true)
+                    .dom(),
+            ));
+        }
+        for (name, kind) in [
+            ("badge primary", BadgeKind::Primary),
+            ("badge success", BadgeKind::Success),
+            ("badge danger", BadgeKind::Danger),
+            ("badge warning", BadgeKind::Warning),
+            ("badge info", BadgeKind::Info),
+        ] {
+            widgets.push((name, Badge::with_kind(AzString::from("New"), kind).dom()));
+        }
+        for (name, kind) in [
+            ("chip primary", ChipKind::Primary),
+            ("chip success", ChipKind::Success),
+            ("chip danger", ChipKind::Danger),
+            ("chip warning", ChipKind::Warning),
+            ("chip info", ChipKind::Info),
+        ] {
+            widgets.push((
+                name,
+                Chip::with_kind(AzString::from("Rust"), kind)
+                    .with_removable(true)
+                    .dom(),
+            ));
+        }
+        for (name, kind) in [
+            ("toast success", ToastKind::Success),
+            ("toast warning", ToastKind::Warning),
+            ("toast danger", ToastKind::Danger),
+        ] {
+            widgets.push((
+                name,
+                Toast::with_kind(AzString::from("Saved"), kind)
+                    .with_dismissible(true)
+                    .dom(),
+            ));
+        }
+        assert_follow_the_theme(widgets);
+    }
+
+    #[test]
+    fn container_widgets_follow_the_theme() {
+        use super::{
+            accordion::{Accordion, AccordionSection, AccordionSectionVec},
+            card::Card,
+            frame::Frame,
+            modal::Modal,
+            popover::Popover,
+            split_pane::{SplitDirection, SplitPane},
+            tabs::TabContent,
+        };
+
+        // The manifest's containers hold an empty div; the application's own
+        // text is what shows whether the SURFACE followed the theme.
+        let body = || Dom::create_p_with_text("Body text");
+        let mut widgets = manifest(CONTAINERS);
+        widgets.push(("card + text", Card::create(body()).dom()));
+        widgets.push((
+            "frame + text",
+            Frame::create(AzString::from("Frame title"), body()).dom(),
+        ));
+        widgets.push((
+            "modal + text",
+            Modal::create(body())
+                .with_title(AzString::from("Dialog"))
+                .with_open(true)
+                .dom(),
+        ));
+        widgets.push((
+            "popover + text",
+            Popover::new(Dom::create_p_with_text("Anchor"), body())
+                .with_open(true)
+                .dom(),
+        ));
+        widgets.push((
+            "split_pane + text",
+            SplitPane::create(SplitDirection::Horizontal, body(), body()).dom(),
+        ));
+        widgets.push(("tabs (content) + text", TabContent::new(body()).dom()));
+        widgets.push((
+            "accordion + text",
+            Accordion::new(AccordionSectionVec::from_vec(vec![
+                AccordionSection::new("Open section", body()).with_open(true),
+                AccordionSection::new("Closed section", body()),
+            ]))
+            .dom(),
+        ));
+        assert_follow_the_theme(widgets);
+    }
+
+    #[test]
+    fn input_widgets_follow_the_theme() {
+        use super::button::{Button, ButtonType};
+
+        let mut widgets = manifest(INPUTS);
+        for (name, kind) in [
+            ("button primary", ButtonType::Primary),
+            ("button secondary", ButtonType::Secondary),
+            ("button success", ButtonType::Success),
+            ("button danger", ButtonType::Danger),
+            ("button warning", ButtonType::Warning),
+            ("button info", ButtonType::Info),
+            ("button link", ButtonType::Link),
+        ] {
+            widgets.push((name, Button::with_type(AzString::from("Go"), kind).dom()));
+        }
+        assert_follow_the_theme(widgets);
+    }
+
+    #[test]
+    fn chrome_widgets_follow_the_theme() {
+        assert_follow_the_theme(manifest(CHROME));
+    }
+
+    /// The text fields the demo showed dark-on-white: in the dark theme they
+    /// sit on the desktop's FIELD colour and write in its LABEL colour, like
+    /// the native fields around them - not on a hand-picked bluish grey that
+    /// agrees with nothing else on the page.
+    #[test]
+    fn the_flat_fields_take_the_system_palette_in_the_dark_theme() {
+        use super::{number_input::NumberInput, text_area::TextArea, text_input::TextInput};
+
+        let p = probe(DarkLightMode::Dark);
+        let field = p.ctx.system_color(SystemColorRef::ControlBackground);
+        let label = p.ctx.system_color(SystemColorRef::Text);
+        for (name, dom) in [
+            (
+                "text_input",
+                TextInput::create().with_text(AzString::from("abc")).dom(),
+            ),
+            ("number_input", NumberInput::create(4.0).dom()),
+            (
+                "text_area",
+                TextArea::create().with_text(AzString::from("abc")).dom(),
+            ),
+        ] {
+            let sd = styled(dom, &p);
+            let states = sd.styled_nodes.as_container();
+            let nodes = sd.node_data.as_container();
+            // The field is the first node under the body that paints a
+            // surface; the ink is its first text.
+            let surface = (1..nodes.len())
+                .map(NodeId::new)
+                .map(|n| getters::get_background_color(&sd, n, &states[n].styled_node_state))
+                .find(|c| c.a > 0);
+            assert_eq!(surface, Some(field), "{name}: the field surface in the dark theme");
+            let ink = (1..nodes.len())
+                .map(NodeId::new)
+                .find(|n| matches!(nodes[*n].get_node_type(), NodeType::Text(_)))
+                .map(|n| {
+                    getters::get_style_properties(
+                        &sd,
+                        n,
+                        Some(&p.style),
+                        PhysicalSize::new(800.0, 600.0),
+                    )
+                    .color
+                });
+            assert_eq!(ink, Some(label), "{name}: the field's text in the dark theme");
+        }
+    }
+}

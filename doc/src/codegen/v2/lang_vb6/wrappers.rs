@@ -50,6 +50,7 @@ use super::{
             ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
         },
     },
+    functions::{arg_clause_and_type, call_lines, uses_byref_twin},
     ffi_type_name, idiomatic_method_name, map_type_to_vb6, sanitize_comment, sanitize_identifier,
 };
 
@@ -280,28 +281,34 @@ fn emit_init_sub(
         .iter()
         .map(|a| sanitize_identifier(&a.name))
         .collect();
-    let call = format!("{}({})", func.c_name, call_args.join(", "));
 
     if returns_self {
-        // The C function returns the AzXxx record by value — but VB6
-        // Declare cannot return UDTs by value (see functions.rs).
-        // SKIPPED: real assignment uses CopyMemory from the C-shim
-        // out-pointer; here we record the limitation in a comment.
-        builder.line(&format!(
-            "' SKIPPED: {} returns AzXxx ByVal — VB6 Declare cannot return UDTs.",
-            func.c_name
-        ));
-        builder.line("' Use a C-side shim that writes the result via an out-pointer instead.");
-        builder.line(&format!("' Pseudo: m_raw = {}", call));
-    } else {
-        // Constructor returns Long (a pointer) or void.
+        // The record comes back by value: through the Byref twin's
+        // out-pointer, straight into m_raw (functions::call_lines).
+        for l in call_lines(func, ir, &call_args, Some("m_raw")) {
+            builder.line(&l);
+        }
+    } else if func.return_type.is_some() && !uses_byref_twin(func, ir) {
+        // Constructor returns a pointer to the record.
         builder.line(&"Dim ret_ As Long".to_string());
-        builder.line(&format!("ret_ = {}", call));
+        for l in call_lines(func, ir, &call_args, Some("ret_")) {
+            builder.line(&l);
+        }
         builder.line("If ret_ <> 0 Then");
         builder.indent();
         builder.line("CopyMemory m_raw, ByVal ret_, LenB(m_raw)");
         builder.dedent();
         builder.line("End If");
+    } else {
+        // Anything else (an Option/Result of the record, or nothing):
+        // the class holds only the record itself, so the result is
+        // dropped here - call the Declare directly to keep it.
+        if let Some(ret) = func.return_type.as_deref() {
+            builder.line(&format!("Dim ret_ As {}", map_type_to_vb6(ret, ir)));
+        }
+        for l in call_lines(func, ir, &call_args, Some("ret_")) {
+            builder.line(&l);
+        }
     }
     builder.line("m_owned = True");
     builder.dedent();
@@ -329,15 +336,20 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
         }
     }
 
-    // Build call argument list. `self` is passed as VarPtr(m_raw).
+    // Build call argument list, one per `func.args` entry. A borrowed
+    // `self` is a pointer (VarPtr(m_raw)); a consumed `self` (a builder
+    // method taking the record by value) goes to the Byref twin as the
+    // record itself, which the call then owns.
+    let receiver = func.args.iter().find(|a| func.is_receiver_arg(a));
+    let consumes_self = takes_self && receiver.is_some_and(|r| r.ref_kind == ArgRefKind::Owned);
     let mut call_args: Vec<String> = Vec::new();
-    if takes_self {
-        call_args.push("VarPtr(m_raw)".to_string());
+    if takes_self && receiver.is_some() {
+        let this = if consumes_self { "m_raw" } else { "VarPtr(m_raw)" };
+        call_args.push(this.to_string());
     }
     for a in &visible {
         call_args.push(sanitize_identifier(&a.name));
     }
-    let call = format!("{}({})", func.c_name, call_args.join(", "));
 
     let prefix = if is_static { "' Static method." } else { "" };
     if !prefix.is_empty() {
@@ -346,10 +358,9 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
 
     match &func.return_type {
         Some(ret) => {
+            // A VB6 Function may return a UDT (only a Declare cannot); the
+            // result lands in a local, which the Byref twin fills.
             let vb_ret = map_type_to_vb6(ret, ir);
-            // SKIPPED: returning a UDT ByVal is forbidden in VB6 Declare.
-            // We still emit the wrapper so user code compiles, but the
-            // actual call may fail — see functions.rs SKIPPED comment.
             if args_str.is_empty() {
                 builder.line(&format!("Public Function {}() As {}", method_name, vb_ret));
             } else {
@@ -359,7 +370,14 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
                 ));
             }
             builder.indent();
-            builder.line(&format!("{} = {}", method_name, call));
+            builder.line(&format!("Dim r_ As {}", vb_ret));
+            for l in call_lines(func, ir, &call_args, Some("r_")) {
+                builder.line(&l);
+            }
+            if consumes_self {
+                builder.line("m_owned = False ' the call took the record");
+            }
+            builder.line(&format!("{} = r_", method_name));
             builder.dedent();
             builder.line("End Function");
         }
@@ -370,7 +388,12 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
                 builder.line(&format!("Public Sub {}({})", method_name, args_str));
             }
             builder.indent();
-            builder.line(&call);
+            for l in call_lines(func, ir, &call_args, None) {
+                builder.line(&l);
+            }
+            if consumes_self {
+                builder.line("m_owned = False ' the call took the record");
+            }
             builder.dedent();
             builder.line("End Sub");
         }
@@ -395,19 +418,7 @@ fn format_arg_list(args: &[&FunctionArg], ir: &CodegenIR) -> String {
     let parts: Vec<String> = args
         .iter()
         .map(|a| {
-            let (clause, vb_ty) = match a.ref_kind {
-                ArgRefKind::Owned => {
-                    let vb = map_type_to_vb6(&a.type_name, ir);
-                    let is_udt = ir.find_struct(a.type_name.trim()).is_some()
-                        || ir.find_enum(a.type_name.trim()).is_some();
-                    if is_udt {
-                        ("ByRef", vb)
-                    } else {
-                        ("ByVal", vb)
-                    }
-                }
-                _ => ("ByVal", "Long".to_string()),
-            };
+            let (clause, vb_ty) = arg_clause_and_type(&a.ref_kind, &a.type_name, ir);
             format!("{} {} As {}", clause, sanitize_identifier(&a.name), vb_ty)
         })
         .collect();

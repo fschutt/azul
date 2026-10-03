@@ -6,14 +6,14 @@ use core::ffi::c_void;
 
 #[cfg(target_arch = "wasm32")]
 use azul_core::audio::{AudioConfig, AudioFrame};
-// wasm: stub with an identical `#[repr(C)]` layout (ptr + run_destructor) so
-// the C-ABI transmute to `AzAudioSink` stays valid. Defined directly in this
-// module so the path resolves to `azul_dll::unified::audio::AudioSink`.
-// Includes a `Drop` impl to match the real desktop type's `custom_impl(Drop)`.
+// wasm: stub with an identical `#[repr(C)]` layout (ptr + error +
+// run_destructor) so the C-ABI transmute to `AzAudioSink` stays valid. Defined
+// directly in this module so the path resolves to
+// `azul_dll::unified::audio::AudioSink`. Includes a `Drop` impl to match the
+// real desktop type's `custom_impl(Drop)`.
 #[cfg(target_arch = "wasm32")]
-use azul_css::impl_option_inner;
 #[cfg(target_arch = "wasm32")]
-use azul_css::StringVec;
+use azul_css::{AzString, OptionString, StringVec};
 
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub use crate::desktop::extra::audio::*;
@@ -23,6 +23,7 @@ pub use crate::desktop::extra::audio::*;
 #[repr(C)]
 pub struct AudioSink {
     pub ptr: *mut c_void,
+    pub error: OptionString,
     pub run_destructor: bool,
 }
 
@@ -31,6 +32,7 @@ impl Clone for AudioSink {
     fn clone(&self) -> Self {
         AudioSink {
             ptr: self.ptr,
+            error: self.error.clone(),
             run_destructor: false,
         }
     }
@@ -41,6 +43,7 @@ impl Default for AudioSink {
     fn default() -> Self {
         AudioSink {
             ptr: core::ptr::null_mut(),
+            error: OptionString::None,
             run_destructor: false,
         }
     }
@@ -53,9 +56,15 @@ impl Drop for AudioSink {
 
 #[cfg(target_arch = "wasm32")]
 impl AudioSink {
-    /// No audio backend on wasm: always returns an invalid handle.
+    /// No audio backend on wasm: always returns a closed handle that says so.
     pub fn open(_config: AudioConfig) -> AudioSink {
-        AudioSink::default()
+        AudioSink {
+            ptr: core::ptr::null_mut(),
+            error: OptionString::Some(AzString::from(
+                "this platform has no audio output backend in azul yet (wasm)",
+            )),
+            run_destructor: false,
+        }
     }
     pub fn is_open(&self) -> bool {
         false
@@ -63,6 +72,9 @@ impl AudioSink {
     pub fn play(&self, _frame: AudioFrame) {}
     pub fn frames_played(&self) -> u64 {
         0
+    }
+    pub fn error_message(&self) -> OptionString {
+        self.error.clone()
     }
     pub fn close(&mut self) {}
 }
@@ -115,4 +127,163 @@ impl AudioDeviceList {
             inputs: StringVec::from_const_slice(&[]),
         }
     }
+}
+
+/// wasm stubs of the desktop Opus handles (`audio::codec`): no Opus engine on
+/// wasm, so every handle is closed. `#[repr(C)]` layout MUST match the desktop
+/// `AudioEncoder` / `AudioDecoder` (ptr + run_destructor).
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct AudioEncoder {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for AudioEncoder {
+    fn clone(&self) -> Self {
+        AudioEncoder {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for AudioEncoder {
+    fn default() -> Self {
+        AudioEncoder {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for AudioEncoder {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AudioEncoder {
+    pub fn create(_config: AudioConfig, _bitrate_kbps: u32) -> AudioEncoder {
+        AudioEncoder::default()
+    }
+    pub fn backend_name() -> AzString {
+        AzString::from_const_str("none")
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn encode(&mut self, _frame: AudioFrame) -> bool {
+        false
+    }
+    pub fn recv_packet(&mut self) -> azul_css::corety::OptionU8Vec {
+        azul_css::corety::OptionU8Vec::None
+    }
+    pub fn close(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct AudioDecoder {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for AudioDecoder {
+    fn clone(&self) -> Self {
+        AudioDecoder {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for AudioDecoder {
+    fn default() -> Self {
+        AudioDecoder {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for AudioDecoder {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AudioDecoder {
+    pub fn create(_config: AudioConfig) -> AudioDecoder {
+        AudioDecoder::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn decode(&mut self, _packet: azul_css::U8Vec) -> azul_core::audio::OptionAudioFrame {
+        azul_core::audio::OptionAudioFrame::None
+    }
+    pub fn close(&mut self) {}
+}
+
+/// wasm stub of the desktop `EchoCanceller` (`audio::echo`): closed, so
+/// `process` hands the microphone back unchanged. `#[repr(C)]` layout MUST
+/// match the desktop type (ptr + run_destructor).
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+pub struct EchoCanceller {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Clone for EchoCanceller {
+    fn clone(&self) -> Self {
+        EchoCanceller {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for EchoCanceller {
+    fn default() -> Self {
+        EchoCanceller {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for EchoCanceller {
+    fn drop(&mut self) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl EchoCanceller {
+    pub fn create(_sample_rate: u32, _tail_ms: u32) -> EchoCanceller {
+        EchoCanceller::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn far_end(&self, _frame: AudioFrame) -> bool {
+        false
+    }
+    pub fn process(&self, frame: AudioFrame) -> AudioFrame {
+        frame
+    }
+    pub fn latency_samples(&self) -> u32 {
+        0
+    }
+    pub fn erle_db(&self) -> f32 {
+        0.0
+    }
+    pub fn close(&mut self) {}
 }

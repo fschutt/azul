@@ -328,6 +328,7 @@ impl crate::css::PrintAsCssValue for PixelValue {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for PixelValue {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -900,6 +901,26 @@ fn parse_pixel_value_inner<'a>(
         }
     }
 
+    // The font-relative units without a `SizeMetric` of their own: `ex` (the
+    // x-height) and `ch` (the advance of "0"). A length is resolved here
+    // without its font, so they take the fallback CSS Values 4 (6.1.1) gives
+    // when the font's measure is not at hand, half an em each - wherever the
+    // caller accepts em at all. (Gmail indents every quote by `0.8ex`.)
+    if match_values.iter().any(|(_, m)| *m == SizeMetric::Em) {
+        for unit in ["ex", "ch"] {
+            if let Some(value) = input.strip_suffix(unit) {
+                let value = value.trim();
+                if value.is_empty() {
+                    return Err(CssPixelValueParseError::NoValueGiven(input, SizeMetric::Em));
+                }
+                return match value.parse::<f32>() {
+                    Ok(o) => Ok(PixelValue::em(o * 0.5)),
+                    Err(e) => Err(CssPixelValueParseError::ValueParseErr(e, value)),
+                };
+            }
+        }
+    }
+
     input.trim().parse::<f32>().map_or_else(
         |_| Err(CssPixelValueParseError::InvalidPixelValue(input)),
         |o| Ok(PixelValue::px(o)),
@@ -1334,8 +1355,9 @@ mod autotest_generated {
     };
 
     use super::*;
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
     use crate::{
-        codegen::format::FormatAsRustCode,
         css::PrintAsCssValue,
         props::{
             basic::length::{FloatValue, SizeMetric},
@@ -2875,6 +2897,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_a_reconstructible_literal() {
         assert_eq!(
@@ -3090,5 +3113,27 @@ mod autotest_generated {
             let s = PixelValueOrSystem::value(PixelValue::px(v)).to_string();
             assert!(!s.contains("NaN") && !s.contains("inf"), "leaked {s:?}");
         }
+    }
+
+    /// `ex` and `ch` lengths parse with the fallback CSS Values 4 (6.1.1)
+    /// gives where the font's own measure is not at hand: half an em each.
+    /// Gmail indents every quote with `margin: 0 0 0 0.8ex` and
+    /// `padding-left: 1ex`; refused, the whole margin declaration was
+    /// dropped and the blockquote fell back to the 40px UA margin.
+    #[test]
+    fn ex_and_ch_lengths_are_half_an_em() {
+        assert_eq!(parse_pixel_value("0.8ex").unwrap(), PixelValue::em(0.4));
+        assert_eq!(parse_pixel_value("1ex").unwrap(), PixelValue::em(0.5));
+        assert_eq!(parse_pixel_value("2ch").unwrap(), PixelValue::em(1.0));
+        assert_eq!(parse_pixel_value(" -4ex ").unwrap(), PixelValue::em(-2.0));
+        assert_eq!(
+            parse_pixel_value_no_percent("1ex").unwrap().inner,
+            PixelValue::em(0.5)
+        );
+        assert!(matches!(
+            parse_pixel_value("ex").unwrap_err(),
+            CssPixelValueParseError::NoValueGiven("ex", SizeMetric::Em)
+        ));
+        assert!(parse_pixel_value("1.2.3ex").is_err());
     }
 }

@@ -1,0 +1,69 @@
+[package]
+name = "AzMail"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzMail - a mail client on the public azul API. It signs in to an IMAP
+    account (an app password or password over TLS, or an OAuth access token
+    with XOAUTH2; the secret lives only in the OS keyring) and syncs every
+    folder to plain files: mail/<folder>/<yyyy>/<mm>/<uid>.eml (the exact
+    bytes), mail/<folder>/index.jsonl and mail/<folder>/state.json, the same
+    layout as an object store's keys. Spam is the folder mail/spam. The sync
+    runs on an azul Thread; the window lists folders and messages from the
+    local files and shows a message as plain text or as sanitized HTML.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The PIM logic the Azlin apps share: address lines, search, initials, the task store the
+# To-Do bar shows (plain Rust, no new crates).
+azul-pim = { path = "../azul-pim" }
+# The Azlin apps' skeleton: switches, the data root, settings.json, the settings page, the
+# shortcut table, file jobs on a Thread.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The drive every durable write goes through (LocalDrive today, S3 later) and the id seed.
+azul-storage = { path = "../azul-storage" }
+# The same features azul-layout builds chrono with: UTC dates for the files, local dates for the list.
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# A sync IMAP client over any Read + Write stream (it runs on an azul Thread). No TLS feature: the
+# stream is AzMail's own rustls connection below, so neither OpenSSL nor rustls-connector enter.
+# Pinned: the 3.0 line is still published as alphas.
+imap = { version = "=3.0.0-alpha.15", default-features = false }
+# imap's parser; named directly only for its LIST attribute type (NameAttribute).
+imap-proto = "0.16"
+# MIME parsing for the index and the message view; full_encoding decodes every charset through
+# encoding_rs (already in azul's tree).
+mail-parser = { version = "0.11", features = ["full_encoding"] }
+# TLS exactly as azul-layout's HTTP client has it: rustls with the pure-Rust RustCrypto provider
+# and the Mozilla roots.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
+rustls-rustcrypto = "0.0.2-alpha"
+webpki-roots = "1.0"
+# Sending (send.rs): the MIME builder, DKIM signing (mini-mail-auth) and the SMTP client - direct to
+# the recipients' MX hosts or through one SMTP server, STARTTLS verified against the Mozilla roots
+# with the same pure-Rust provider as above. Our crate, the client azul's crash mail uses too.
+micromail = { version = "0.2", default-features = false, features = ["tls-rustcrypto", "dkim"] }
+
+[lib]
+name = "azmail"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzMail"
+path = "src/main.rs"
+
+# The sanitizer as a filter (stdin -> stdout), for scripts/refci/mail_boxes.py.
+[[bin]]
+name = "azmail-sanitize"
+path = "src/bin/azmail_sanitize.rs"
+
+# Sends one mail through send.rs from the command line (scripts/azmail_send_test.py).
+[[bin]]
+name = "azmail-send"
+path = "src/bin/azmail_send.rs"

@@ -3,7 +3,7 @@ readme = "../README.md"
 name = "azul-css"
 version = "0.0.16"
 # Lean published package: ship src only, not the test/bench/example/fuzz harnesses.
-exclude = ["tests", "benches", "examples", "fuzz"]
+exclude = ["tests", "benches", "examples", "fuzz", "tools"]
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -20,13 +20,21 @@ autoexamples = false
 
 [dependencies]
 libm = { version = "0.2.2", default-features = false }
-azul-simplecss = { version = "0.2.1", default-features = false, optional = true }
+azul-simplecss = { version = "0.2.2", default-features = false, optional = true }
 
 [features]
 default = ["parser"]
 
 # CSS parser support (azul-simplecss)
 parser = ["dep:azul-simplecss"]
+
+# CSS -> source code generation (`azul_css::codegen`): one language-neutral IR
+# lowered from the parsed model + one printer per binding language (Rust, C,
+# C++, Python, C#, Java, ...), and the legacy `FormatAsRustCode` impls. Off by
+# default; enabled by azul-core's own `codegen` feature (the DOM half,
+# `azul_core::codegen`), azul-layout's `codegen` feature and the dll's debug
+# server. Its golden tests: `cargo test -p azul-css --features codegen`.
+codegen = []
 
 # Opt-in: integration tests that perform live system/theme IO
 # (tests/test_system_style.rs). Off by default so CI doesn't probe the host.
@@ -43,3 +51,20 @@ io = []
 name = "test_system_style"
 path = "tests/test_system_style.rs"
 required-features = ["io"]
+
+# Golden + structural tests of the CSS code generators (every binding
+# language). Needs the parser to build the input stylesheets from CSS text.
+# `AZ_BLESS=1` rewrites the golden files instead of comparing.
+[[test]]
+name = "codegen_goldens"
+path = "tests/codegen_goldens.rs"
+required-features = ["codegen", "parser"]
+
+# Structural tests of the code generators: every property covered, every C-ABI
+# name the IR produces exists in the generated azul.h (skipped without it),
+# every language's output balanced / ASCII / free of `new` constructors.
+[[test]]
+name = "codegen_structure"
+path = "tests/codegen_structure.rs"
+required-features = ["codegen", "parser"]
+

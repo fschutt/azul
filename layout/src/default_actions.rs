@@ -45,7 +45,10 @@ use azul_core::{
 };
 use azul_css::props::style::spatial_nav::StyleSpatialNavigationAction;
 
-use crate::window::DomLayoutResult;
+use crate::{
+    managers::focus_cursor::{SpatialNavigationEnv, SpatialNavigationOutcome},
+    window::DomLayoutResult,
+};
 
 /// Editing state of the focused node, as the caret sees it — built by the
 /// caller (`LayoutWindow::build_editing_query_state`) because the decision
@@ -90,7 +93,11 @@ pub fn determine_keyboard_default_action(
 /// stays a soft line break through the text path); Backspace at block start /
 /// Delete at block end record structural MERGES. `editing: None` behaves
 /// exactly like the editing-blind variant.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+///
+/// Layout only: spatial navigation sees the STATIC geometry (every scroll
+/// offset zero). The shells use [`determine_keyboard_default_action_with_env`]
+/// through `LayoutWindow::keyboard_default_action`, which hands in the live
+/// scroll state and the window's focus scope.
 #[must_use]
 pub fn determine_keyboard_default_action_with_editing(
     keyboard_state: &KeyboardState,
@@ -99,6 +106,30 @@ pub fn determine_keyboard_default_action_with_editing(
     prevented: bool,
     editing: Option<&EditingQueryState>,
 ) -> DefaultActionResult {
+    let out_of_scope = BTreeSet::new();
+    determine_keyboard_default_action_with_env(
+        keyboard_state,
+        focused_node,
+        &SpatialNavigationEnv::layout_only(layout_results, &out_of_scope),
+        prevented,
+        editing,
+    )
+}
+
+/// [`determine_keyboard_default_action_with_editing`] against a
+/// [`SpatialNavigationEnv`]: an arrow key runs the css-nav-1 steps over the
+/// PAINTED geometry the env describes, within the env's focus scope.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use]
+pub fn determine_keyboard_default_action_with_env(
+    keyboard_state: &KeyboardState,
+    focused_node: Option<DomNodeId>,
+    env: &SpatialNavigationEnv<'_>,
+    prevented: bool,
+    editing: Option<&EditingQueryState>,
+) -> DefaultActionResult {
+    let layout_results = env.layout_results;
+
     // If prevented, return early with no action
     if prevented {
         return DefaultActionResult::prevented();
@@ -113,6 +144,48 @@ pub fn determine_keyboard_default_action_with_editing(
     let shift_down = keyboard_state.shift_down();
     let ctrl_down = keyboard_state.ctrl_down();
     let alt_down = keyboard_state.alt_down();
+
+    // The formatting keys of a RICH editing host: Ctrl+B / I / U (Cmd on
+    // macOS), `execCommand("bold" | "italic" | "underline")`. A plain-text
+    // host (a text area, a `white-space: pre*` host) has no formats.
+    if keyboard_state.primary_down() && !shift_down && !alt_down {
+        let format = match current_key {
+            VirtualKeyCode::B => Some(azul_core::events::TextFormat::Bold),
+            VirtualKeyCode::I => Some(azul_core::events::TextFormat::Italic),
+            VirtualKeyCode::U => Some(azul_core::events::TextFormat::Underline),
+            _ => None,
+        };
+        if let (Some(format), Some(focus), Some(e)) = (format, focused_node.as_ref(), editing) {
+            if e.is_contenteditable && !e.host_preserves_newlines {
+                return DefaultActionResult::new(DefaultAction::ToggleTextFormat {
+                    target: *focus,
+                    format,
+                });
+            }
+        }
+    }
+
+    // Undo / redo of ANY editing host (rich or plain text): Ctrl/Cmd+Z,
+    // Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y. The engine's text undo is the key's
+    // default action - an editor with its own history vetoes it with
+    // `prevent_default` in its key handler (the browser keydown model).
+    if keyboard_state.primary_down() && !alt_down {
+        if let (Some(focus), Some(e)) = (focused_node.as_ref(), editing) {
+            if e.is_contenteditable {
+                let action = match current_key {
+                    VirtualKeyCode::Z if shift_down => {
+                        Some(DefaultAction::RedoTextEdit { target: *focus })
+                    }
+                    VirtualKeyCode::Z => Some(DefaultAction::UndoTextEdit { target: *focus }),
+                    VirtualKeyCode::Y => Some(DefaultAction::RedoTextEdit { target: *focus }),
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    return DefaultActionResult::new(action);
+                }
+            }
+        }
+    }
 
     // Determine action based on key
     let action = match current_key {
@@ -247,6 +320,14 @@ pub fn determine_keyboard_default_action_with_editing(
                 if is_text_input(focus, layout_results) {
                     return DefaultAction::None;
                 }
+                // A MODIFIED arrow is not navigation (P2-10): Ctrl / Alt /
+                // Super (Cmd) + arrow are OS and app chords - Spaces and
+                // Mission Control, window snapping, history back, word
+                // motion - so on a focused control they neither move focus
+                // nor scroll. Shift+arrow stays an arrow.
+                if ctrl_down || alt_down || keyboard_state.super_down() {
+                    return DefaultAction::None;
+                }
                 // SPATIAL NAVIGATION, per CSS Spatial Navigation Level 1: an
                 // arrow does not choose between focus and scroll, it tries them
                 // IN ORDER. Look for a focusable in that direction first; only
@@ -288,25 +369,35 @@ pub fn determine_keyboard_default_action_with_editing(
                     FocusDirection::Left => DefaultAction::FocusLeft,
                     FocusDirection::Right => DefaultAction::FocusRight,
                 };
-                // `spatial-navigation-action` (9a-i-b) is how a container opts
-                // OUT of the ordered fallback. `Scroll` answers BEFORE the
-                // spatial search runs, so a map or a canvas also pays nothing
-                // for a search whose answer it would discard.
-                let action = spatial_navigation_action(layout_results, focus);
-                if action == StyleSpatialNavigationAction::Scroll {
-                    return resolve_arrow_action(action, focus_move, false, scroll);
+                // The css-nav-1 steps decide (`spatial_navigation_steps`):
+                // each container's `spatial-navigation-action` (9a-i-b) says
+                // whether only VISIBLE candidates count and whether it
+                // scrolls, and a container scrolls only while it CAN.
+                match crate::managers::focus_cursor::spatial_navigation_steps(env, *focus, dir) {
+                    SpatialNavigationOutcome::Focus(_) => focus_move,
+                    // The container the steps picked, by name: the nearest
+                    // overflowing ancestor `ScrollFocusedContainer` would
+                    // scroll can be one the steps passed (at its boundary,
+                    // or `spatial-navigation-action: focus`).
+                    SpatialNavigationOutcome::Scroll(container) => {
+                        DefaultAction::ScrollContainer {
+                            container,
+                            direction,
+                            amount: ScrollAmount::Line,
+                        }
+                    }
+                    // Nothing to focus and nothing the steps could scroll.
+                    // The consumer may still find an overflowing ancestor
+                    // (a no-op at a boundary), so keep the ordered fallback
+                    // 9a-i-a shipped - except under `focus`, which opts out
+                    // of scrolling.
+                    SpatialNavigationOutcome::NoTarget => resolve_arrow_action(
+                        spatial_navigation_action(layout_results, focus),
+                        focus_move,
+                        false,
+                        scroll,
+                    ),
                 }
-                let spatial = crate::managers::focus_cursor::resolve_focus_target(
-                    &FocusTarget::Directional(dir),
-                    layout_results,
-                    Some(*focus),
-                    &BTreeSet::new(),
-                );
-                let found = matches!(
-                    spatial,
-                    Ok(crate::managers::focus_cursor::FocusResolution::Resolved(_))
-                );
-                resolve_arrow_action(action, focus_move, found, scroll)
             })
         }
 
@@ -450,14 +541,15 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
         .any(|cb| matches!(cb.event, EventFilter::Focus(FocusEventFilter::TextInput)))
 }
 
-/// What an arrow key does, given the container's `spatial-navigation-action`
-/// and whether spatial navigation found anywhere to go.
+/// What an arrow key does when the css-nav-1 steps found NOTHING - neither a
+/// candidate nor a container that could scroll - given the
+/// `spatial-navigation-action` in force (`found` is `false` on that path; the
+/// table keeps both rows so it stays a complete, testable truth table).
 ///
-/// Split out as a pure function because it is the whole behaviour of 9a-i-b in
-/// three lines, and the alternative - asserting it through
-/// `determine_keyboard_default_action` - needs a fixture with a real layout
-/// tree carrying `scrollbar_info`, which no test in this file has. The truth
-/// table gets tested directly instead.
+/// `focus` opts out of scrolling; `auto` and `scroll` fall back to the
+/// consumer's nearest overflowing ancestor, which is a no-op at a boundary.
+/// The steps themselves (`focus_cursor::spatial_navigation_steps`) decide
+/// every case where something CAN happen.
 const fn resolve_arrow_action(
     action: StyleSpatialNavigationAction,
     focus_move: DefaultAction,
@@ -465,13 +557,9 @@ const fn resolve_arrow_action(
     scroll: DefaultAction,
 ) -> DefaultAction {
     match action {
-        // Always scroll, focusable children or not. `found` is not even
-        // consulted, which is why the caller can skip the search.
+        // Always scroll, focusable children or not.
         StyleSpatialNavigationAction::Scroll => scroll,
         // Always focus. Nothing found means NOTHING HAPPENS - not a scroll.
-        // The spec's "continue the search outward" is already covered, because
-        // `next_in_direction` searches the whole candidate pool rather than
-        // just this container.
         StyleSpatialNavigationAction::Focus => {
             if found {
                 focus_move
@@ -490,74 +578,66 @@ const fn resolve_arrow_action(
     }
 }
 
-/// The `spatial-navigation-action` in force for an arrow press from `focus`.
+/// The `spatial-navigation-action` in force for an arrow press from `focus`:
+/// css-nav-1 §9.2, "the value ... on the currently focused element if that
+/// element is a scroll container, or of its nearest scroll container ancestor
+/// if it isn't".
 ///
-/// Read off the nearest SCROLL CONTAINER at or above the focused node, not off
-/// the focused node itself: the property answers "what does an arrow do when
-/// this element is the container being navigated", and the element an arrow
-/// would scroll is the one `ScrollFocusedContainer` acts on.
+/// "Scroll container" is the CSS answer - `overflow` other than
+/// `visible`/`clip` on either axis. It used to be "the layout node has
+/// `scrollbar_info`", but layout gives EVERY laid-out box a
+/// `scrollbar_info` (all-false for a box that does not scroll), so the walk
+/// always stopped at the focused node itself: a container's `focus` or
+/// `scroll` was never read unless the container was the focused node.
 ///
-/// "Scroll container" here is the layout's own answer - `scrollbar_info` is
-/// present - and NOT "does it currently overflow". The stricter test lives on
-/// `LayoutWindow::find_scrollable_ancestor` and needs the scroll manager,
-/// which this decision function deliberately does not have; the looser one is
-/// also the right question, because an author who wrote
-/// `spatial-navigation-action: scroll` meant it whether or not the box happens
-/// to overflow at this instant.
+/// "Nearest ancestor" is by CONTAINING BLOCK: the innermost scroll container
+/// of the focus's `ScrollChain`, self-inclusive (a focusable list box is its
+/// own container). A DOM-parent walk let a scroll box the focus is not
+/// painted in - an `absolute` box escapes a non-positioned one, a `fixed`
+/// box every one - decide its arrows. A node without a box reads `auto`.
 fn spatial_navigation_action(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     focus: &DomNodeId,
 ) -> StyleSpatialNavigationAction {
+    use azul_core::spaces::Inclusivity;
+
+    use crate::solver3::{
+        getters::{get_spatial_navigation_action, MultiValue},
+        scroll_chain::ScrollChain,
+    };
+
     let Some(lr) = layout_results.get(&focus.dom) else {
         return StyleSpatialNavigationAction::Auto;
     };
     let Some(node) = focus.node.into_crate_internal() else {
         return StyleSpatialNavigationAction::Auto;
     };
-    let Some(start) = lr
-        .layout_tree
-        .dom_to_layout
-        .get(&node)
-        .and_then(|v| v.first())
+    let Some(chain) = ScrollChain::of_node(
+        &lr.layout_tree,
+        &lr.styled_dom,
+        &lr.scroll_ids,
+        node,
+        Inclusivity::SelfAndAncestors,
+    ) else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    // The NEAREST scroll container decides, even when it says nothing:
+    // walking past it to an outer one would let a grandparent override a
+    // panel the author scoped deliberately.
+    let Some(container) = chain
+        .innermost_scroll_container(&lr.styled_dom)
+        .map(|link| link.node)
     else {
         return StyleSpatialNavigationAction::Auto;
     };
-    let states = lr.styled_dom.styled_nodes.as_container();
-    // SELF-inclusive, like `find_scrollable_ancestor`: a focused node can BE
-    // the scroll container - a focusable list box is the common case.
-    for idx in lr
-        .layout_tree
-        .ancestor_chain(*start, azul_core::spaces::Inclusivity::SelfAndAncestors)
-    {
-        let is_scroll_container = lr
-            .layout_tree
-            .warm(idx)
-            .and_then(|w| w.scrollbar_info.as_ref())
-            .is_some();
-        if !is_scroll_container {
-            continue;
-        }
-        let Some(dom_node) = lr.layout_tree.get(idx).and_then(|n| n.dom_node_id) else {
-            continue;
-        };
-        let Some(sn) = states.get(dom_node) else {
-            continue;
-        };
-        if let crate::solver3::getters::MultiValue::Exact(action) =
-            crate::solver3::getters::get_spatial_navigation_action(
-                &lr.styled_dom,
-                dom_node,
-                &sn.styled_node_state,
-            )
-        {
-            return action;
-        }
-        // The NEAREST scroll container decides, even when it says nothing:
-        // walking past it to an outer one would let a grandparent override a
-        // panel the author scoped deliberately.
+    let styled_nodes = lr.styled_dom.styled_nodes.as_container();
+    let Some(sn) = styled_nodes.get(container) else {
         return StyleSpatialNavigationAction::Auto;
+    };
+    match get_spatial_navigation_action(&lr.styled_dom, container, &sn.styled_node_state) {
+        MultiValue::Exact(action) => action,
+        _ => StyleSpatialNavigationAction::Auto,
     }
-    StyleSpatialNavigationAction::Auto
 }
 
 /// The default action a gamepad button press asks for.
@@ -1698,6 +1778,41 @@ mod autotest_generated {
                 DefaultAction::None,
                 "{key:?} in a text input must move the caret, not scroll"
             );
+        }
+    }
+
+    /// P2-10: spatial navigation (and its scroll fallback) is the default of
+    /// an UNMODIFIED arrow. Ctrl, Alt and Super (Cmd) + arrow on a focused
+    /// control belong to the OS and the app - Mission Control / Spaces on a
+    /// Mac, window snapping on Windows, history back, word motion - and must
+    /// neither move focus nor scroll. Shift+arrow is left alone.
+    #[test]
+    fn ctrl_or_alt_arrow_on_a_button_has_no_default_action() {
+        let layouts = fixture();
+        let focus = Some(button(&layouts));
+        for key in [
+            VirtualKeyCode::Up,
+            VirtualKeyCode::Down,
+            VirtualKeyCode::Left,
+            VirtualKeyCode::Right,
+        ] {
+            for mods in [
+                &[VirtualKeyCode::LControl][..],
+                &[VirtualKeyCode::RControl][..],
+                &[VirtualKeyCode::LAlt][..],
+                &[VirtualKeyCode::RAlt][..],
+                &[VirtualKeyCode::LWin][..],
+                &[VirtualKeyCode::LControl, VirtualKeyCode::LShift][..],
+            ] {
+                let action =
+                    determine_keyboard_default_action(&kbd(key, mods), focus, &layouts, false)
+                        .action;
+                assert_eq!(
+                    action,
+                    DefaultAction::None,
+                    "{key:?} + {mods:?} on a focused button must neither move focus nor scroll"
+                );
+            }
         }
     }
 

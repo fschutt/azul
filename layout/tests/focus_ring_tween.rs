@@ -189,7 +189,7 @@ fn ring_is_suppressed_while_a_text_editing_session_owns_focus() {
     let mut lw = build(ring_on(10_000));
     focus(&mut lw, 1);
     // An active editing session (caret) = the caret is the focus indicator.
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         azul_core::selection::TextCursor {
             cluster_id: azul_core::selection::GraphemeClusterId {
                 source_run: 0,

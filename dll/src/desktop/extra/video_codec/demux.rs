@@ -17,6 +17,10 @@ use std::io::Cursor;
 
 use mp4::{MediaType, Mp4Reader};
 
+// AVCC -> Annex-B is the container module's (`container::append_avcc_as_annexb`):
+// one rewrite for this demuxer and the VideoToolbox encoder's output.
+use super::container::append_avcc_as_annexb;
+
 /// 4-byte Annex-B start code, prefixed before every NAL unit.
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 
@@ -110,7 +114,7 @@ pub fn demux_mp4_h264(mp4_bytes: &[u8]) -> Result<DemuxedH264, String> {
             annexb.extend_from_slice(&pps);
         }
         append_avcc_as_annexb(&sample.bytes, &mut annexb);
-        let pts_ms = sample.start_time as f64 * 1000.0 / timescale;
+        let pts_ms = presentation_ms(sample.start_time, sample.rendering_offset, timescale);
         chunks.push(H264Chunk {
             annexb,
             pts_ms,
@@ -128,21 +132,10 @@ pub fn demux_mp4_h264(mp4_bytes: &[u8]) -> Result<DemuxedH264, String> {
     })
 }
 
-/// Rewrite one AVCC sample (a run of `[u32 big-endian length][NAL bytes]`) into
-/// Annex-B by replacing each length prefix with a start code. Malformed tails
-/// (a length that runs past the buffer) stop the walk rather than panicking.
-fn append_avcc_as_annexb(avcc: &[u8], out: &mut Vec<u8>) {
-    let mut i = 0usize;
-    while i + 4 <= avcc.len() {
-        let len = u32::from_be_bytes([avcc[i], avcc[i + 1], avcc[i + 2], avcc[i + 3]]) as usize;
-        i += 4;
-        if len == 0 || i + len > avcc.len() {
-            break;
-        }
-        out.extend_from_slice(&START_CODE);
-        out.extend_from_slice(&avcc[i..i + len]);
-        i += len;
-    }
+/// When a sample is SHOWN, in milliseconds: its decode time `start_time` plus
+/// its composition offset (`ctts`), over the track's `timescale`.
+fn presentation_ms(start_time: u64, rendering_offset: i32, timescale: f64) -> f64 {
+    (start_time as f64 + f64::from(rendering_offset)) * 1000.0 / timescale
 }
 
 #[cfg(test)]
@@ -164,6 +157,18 @@ mod demux_tests {
                 0, 0, 0, 1, 0xDD, 0xEE, // second NAL
             ]
         );
+    }
+
+    /// A stream with B-frames DECODES a frame before it SHOWS it: the `ctts`
+    /// offset is what moves it to its place. Big Buck Bunny's 360p clip has
+    /// 194 `ctts` entries; without them its frames play in decode order.
+    #[test]
+    fn a_presentation_time_includes_the_composition_offset() {
+        // 15360 ticks per second (BBB's timescale), 512 ticks per frame.
+        assert_eq!(presentation_ms(0, 1024, 15360.0), 1024.0 * 1000.0 / 15360.0);
+        assert_eq!(presentation_ms(512, 1536, 15360.0), 2048.0 * 1000.0 / 15360.0);
+        assert_eq!(presentation_ms(1024, 0, 15360.0), 1024.0 * 1000.0 / 15360.0);
+        assert_eq!(presentation_ms(1536, -512, 15360.0), 1024.0 * 1000.0 / 15360.0);
     }
 
     /// A truncated length prefix (claims 9 bytes, only 2 present) stops cleanly.

@@ -1,0 +1,51 @@
+# U1 - one theme merge (progress)
+
+Branch `wt/u1-one-theme-merge`, cut from `fix/input-bugs-2026-09-19` @ 0a326afe5.
+Nothing is compiled here (house rule).
+
+## Plan
+
+1. ONE merge in `themes/theme_blocks.rs` with T3's names (`follow_props`, `follow_dom`,
+   `follow_app_theme`, plus `follow_css` for a whole sheet). Semantic: T3's per-PROPERTY sharing
+   (a property both themes declare alike is unconditional once), emitted ORDER-PRESERVING (T2's
+   guarantee: under app theme T the live declarations ARE pinned T's, in order). Where the two
+   orders cross, the property whose twin is further away gives way (written per theme). Rules are
+   never split; a rule declaring a shared and a differing property goes whole into each block.
+   Keeps T2's `flat == flora` short-circuit (per part / per sheet / per node style) and its
+   component-sheet + keyframes merge. RED tests first, then move T3's section out of `flat.rs`,
+   delete `every_theme_*`, switch the 18 T2 + all T3 call sites.
+2. `theme_checks`: ONE evaluator of app-theme conditions for every probe (`tc::*`,
+   `theme_probe::*`, `theme_blocks::checks::*`), under the app theme the test builds for.
+3. Silent style-only twin build: a thread-local flag in `widgets/mod.rs`; `follow_app_theme` builds
+   the other theme's twin under it. RED: an unnamed follower warns once.
+4. Embedders pass their pin: audit; single-look embedders pin their chassis widgets to their one
+   look (flat). RED first.
+5. frame: skin merge (build once, no content clone). accordion: call-site switch only (V1 owns it).
+
+## DONE
+
+- 1 RED d08f7bfbf (theme_blocks tests: order-preserving per-property merge)
+- 1 GREEN 0233bf13a (one merge in theme_blocks.rs; T3 section out of flat.rs; every_theme_* gone;
+  all call sites switched; follow_tests moved)
+
+- 2 3f9390e33 (theme_checks::probe_theme / live_conditions; applies, checks::live_rules,
+  theme_probe::live all through it)
+
+- 3 RED 8da8a8a20, fix ea3ef9457 (`widgets::style_only_build`; follow_app_theme's other build)
+
+- 4 RED bb3ddfcdc, fix 6820d6bd8 (audit: pinned embedders already pass; single-look embedders
+  ribbon / statusbar / quick_access / backstage / node_graph pin to `UiTheme::SINGLE_LOOK`)
+
+- 5 9edbd35ce (frame built once from the merged look; accordion left to after V1)
+- style 6b28c0738, reuse of `CssPropertyWithConditions::in_theme` 38f1d7046
+- report `scripts/U1_ONE_THEME_MERGE_2026_09_29.md`
+
+## IN PROGRESS
+
+- none
+
+## NEXT
+
+- parent: compile + run the suites in the report's section 4
+
+## Open questions

@@ -21,6 +21,7 @@ use azul_css::{
     *,
 };
 
+use super::system_palette;
 use crate::widgets::button::{Button, ButtonOnClick};
 
 // ---------------------------------------------------------------------------
@@ -581,6 +582,9 @@ pub fn button(btn: Button) -> Dom {
     };
 
     let btn_type = btn.button_type;
+    // The states `Button::with_disabled` / `with_toggled` asked for.
+    let toggled_on = btn.toggled == azul_css::OptionBool::Some(true);
+    let disabled = btn.is_disabled();
     let type_class = btn.button_type.class_name();
     let classes: Vec<IdOrClass> = vec![
         Class(AzString::from("__azul-native-button")),
@@ -632,7 +636,7 @@ pub fn button(btn: Button) -> Dom {
     let skip_label = btn.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
     if !skip_label {
         button = button.with_child(
-            crate::widgets::widget_p()
+            crate::widgets::widget_p_chrome()
                 .with_css_props(btn_label_style)
                 .with_children(azul_core::dom::DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(btn.label),
@@ -662,22 +666,34 @@ pub fn button(btn: Button) -> Dom {
     if btn_owns_style {
         // The dark face and ink — for the NEUTRAL surface only. A coloured
         // command (primary, danger, ...) is its own colour in both modes and
-        // a link has no face; painting `DARK_BG` over every type, as this
-        // did, turned a blue primary button into an invisible dark box on a
-        // dark window. (`ButtonType::surface` is the one place that rule
+        // a link has no face; painting a dark face over every type, as this
+        // once did, turned a blue primary button into an invisible dark box
+        // on a dark window. (`ButtonType::surface` is the one place that rule
         // lives; `button_states` reads it too.)
-        if btn_type.surface() == crate::widgets::button::ButtonSurface::Neutral {
-            container_style.push(CssPropertyWithConditions::dark_theme(
-                CssProperty::BackgroundContent(
-                    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
-                        DARK_BG,
-                    )])
-                    .into(),
-                ),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_theme(
-                CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-            ));
+        //
+        // The neutral face is the DESKTOP's button: `system:button-face` and
+        // `system:button-text`, with the outline in `system:separator` - the
+        // light grey outline of the light face would otherwise ring a dark
+        // button in light grey.
+        match btn_type.surface() {
+            crate::widgets::button::ButtonSurface::Neutral => {
+                container_style.push(system_palette::DARK_BUTTON_FACE);
+                container_style.push(system_palette::DARK_BUTTON_TEXT);
+                container_style.extend(system_palette::dark_border(system_palette::SEPARATOR));
+            }
+            // A link is text on whatever surface it sits on: in the dark
+            // theme it takes the desktop's link colour, which is chosen to
+            // read on a dark surface - the light theme's blue is not.
+            crate::widgets::button::ButtonSurface::NoSurface => {
+                container_style.push(system_palette::DARK_LINK);
+            }
+            crate::widgets::button::ButtonSurface::OwnColour => {}
+        }
+
+        // A toggled-on button rests on its pressed face - a resting face with
+        // its dark twin, so before the states like the faces above.
+        if toggled_on {
+            container_style.extend(button_toggled_face(btn_type));
         }
 
         // The interactive states go LAST. Inline declarations resolve last-match
@@ -685,6 +701,20 @@ pub fn button(btn: Button) -> Dom {
         // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
         // would shadow it — no ring, no hover face, in dark mode.
         container_style.extend(button_states(btn_type));
+        // The face follows the pointer in a short fade and darkens the
+        // instant it is pressed (`decl::state_fade`). A link only underlines.
+        if btn_type != crate::widgets::button::ButtonType::Link {
+            container_style.extend(super::decl::state_fade(
+                super::decl::BUTTON_FACE,
+                super::decl::BUTTON_FADE_MS,
+            ));
+        }
+    }
+
+    // A disabled button has no hover / pressed paint and is dimmed - whoever
+    // owns the style (a ribbon button hands in its own).
+    if disabled {
+        container_style = crate::widgets::button::disabled_style(&container_style);
     }
 
     button
@@ -709,25 +739,19 @@ pub fn check_box(cb: CheckBox) -> Dom {
         dom::{EventFilter, HoverEventFilter},
     };
 
+    // The box is a field: in the dark theme it sits on the desktop's
+    // `system:control-background`, like the text fields next to it.
     let mut container_style: Vec<CssPropertyWithConditions> =
         cb.resolved_container_style().as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    // Flat checkmark background in dark mode
+    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    // The checked mark in the dark theme: the desktop's label colour, which
+    // reads on the dark field the way the light theme's grey mark reads on
+    // white.
     let is_checked = cb.check_box_state.inner.checked;
     let mut content_style: Vec<CssPropertyWithConditions> =
         cb.resolved_content_style().as_slice().to_vec();
     if checked_now {
-        content_style.push(CssPropertyWithConditions::dark_theme(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)])
-                    .into(),
-            ),
-        ));
+        content_style.push(system_palette::dark_background(SystemColorRef::Text));
     }
 
     Dom::create_div()
@@ -795,13 +819,10 @@ pub fn text_input(mut ti: TextInput) -> Dom {
 
     ti.text_input_state.inner.cursor_pos = ti.text_input_state.inner.text.len();
 
-    let label_text: String = ti
-        .text_input_state
-        .inner
-        .text
-        .iter()
-        .filter_map(|s| core::char::from_u32(*s))
-        .collect();
+    // What the line SHOWS - the value, or a password's mask. The engine's
+    // buffer is seeded from it, so this is also what every caret offset the
+    // engine reports indexes into.
+    let label_text: String = crate::widgets::text_input::display_text(&ti.text_input_state.inner);
 
     let placeholder = ti
         .text_input_state
@@ -819,17 +840,12 @@ pub fn text_input(mut ti: TextInput) -> Dom {
 
     let state_ref = RefAny::new(ti.text_input_state);
 
+    // The dark field is the DESKTOP's field: `system:control-background`
+    // under `system:text`, the colours the native text fields around it use.
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    container_style.push(system_palette::DARK_TEXT);
 
     // The interactive states the widget no longer declares. Appended LAST —
     // after the base style and after the theme's own dark resting colours —
@@ -839,9 +855,9 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     container_style.extend_from_slice(&FIELD_BORDER_STATES);
 
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
-    label_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    label_style.push(system_palette::DARK_TEXT);
+    // After the resting ink, which matches in the `::placeholder` state too.
+    label_style.push(FIELD_PLACEHOLDER_DARK);
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(TEXT_INPUT_CONTAINER_CLASS.into())].into())
@@ -988,29 +1004,11 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
 // PROGRESSBAR
 // -----------------------------------------------------------------------------
 
+/// The flat bar, mounted in the widget's `VirtualView` wrapper (the same box
+/// in every theme: `progressbar::mount`).
 #[must_use]
 pub fn progressbar(bar: crate::widgets::progressbar::ProgressBar) -> Dom {
-    let height = bar.height;
-    let dataset = RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset { bar });
-    Dom::create_virtual_view(
-        dataset.clone(),
-        azul_core::callbacks::VirtualViewCallback::create(progressbar_render_virtual_view),
-    )
-    .with_dataset(Some(dataset).into())
-    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight::Px(height),
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth::Px(PixelValue::percent(100.0)),
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
-            LayoutOverflow::Hidden,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
-            LayoutOverflow::Hidden,
-        ))),
-    ]))
+    crate::widgets::progressbar::mount(bar, progressbar_render_virtual_view)
 }
 
 /// The render core behind [`ProgressBar::render_bar`] (percentage widths,
@@ -1058,23 +1056,13 @@ pub fn progressbar_render_bar_impl(
             None => this.height,
         };
 
-        let mut container_props = vec![
-            // .__azul-native-progress-bar-container
+        // .__azul-native-progress-bar-container: the widget's base (its
+        // structure, the same in every theme), then flat's skin.
+        let mut container_props = crate::widgets::progressbar::BAR_CONTAINER_BASE.to_vec();
+        container_props.extend(vec![
             CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
                 LayoutHeight::Px(container_height),
             ))),
-            // `display: flex` is LOAD-BEARING: azul's default display is
-            // BLOCK, so `flex-direction: row` alone stacks the two
-            // children as full-width, zero-height block boxes - the fill
-            // never painted anywhere the widget was used (found 2026-08-29
-            // via the azpaint pressure meter; also the real culprit behind
-            // the "inline-width meter never repaints" ledger entry).
-            CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-                LayoutDisplay::Flex,
-            ))),
-            CssPropertyWithConditions::simple(CssProperty::FlexDirection(
-                LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
-            )),
             CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
                 StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
                     inner: PixelValue::const_px(3),
@@ -1150,7 +1138,7 @@ pub fn progressbar_render_bar_impl(
             CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
                 StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
             )),
-        ];
+        ]);
         if let Some((w, _)) = bounds_px {
             container_props.push(CssPropertyWithConditions::simple(CssProperty::Width(
                 LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px((w - 2.0).max(0.0)))),
@@ -1172,6 +1160,9 @@ pub fn progressbar_render_bar_impl(
             // `CallbackInfo::set_accessibility_value` on this node.
             .with_accessibility_info(AccessibilityInfo {
                 role: AccessibilityRole::ProgressBar,
+                // What the bar measures - only the caller knows; see
+                // `ProgressBar::with_accessibility_name`.
+                accessibility_name: this.accessibility_name.clone(),
                 accessibility_value: Some(AzString::from(alloc::format!(
                     "{:.0}%",
                     // NaN clamps to NaN and would read "NaN%"; an unknown
@@ -1376,6 +1367,9 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     // borrow `&slider`, and the thumb's margin is derived from the state.
     let resolved_track_style = slider.resolved_track_style();
     let resolved_thumb_style = slider.resolved_thumb_style();
+    // A part the caller styled (`Some`) is the caller's: no theme paint on it.
+    let track_is_callers = slider.track_style.is_some();
+    let thumb_is_callers = slider.thumb_style.is_some();
 
     let state = RefAny::new(slider.slider_state);
     let mk = |event: EventFilter, cb: usize| CoreCallbackData {
@@ -1424,19 +1418,16 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     let mut track_style = resolved_track_style.as_slice().to_vec();
     let mut thumb_style = resolved_thumb_style.as_slice().to_vec();
 
-    // Flat specific:
-    track_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    thumb_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_FG)])
-                .into(),
-        ),
-    ));
+    // Flat specific, dark theme: the rail is a groove in the desktop's field
+    // colour and the thumb keeps the role it has in the light theme - the
+    // accent - in the desktop's own accent. Only on the widget's own parts:
+    // a style the caller set is the caller's (the status bar's zoom slider).
+    if !track_is_callers {
+        track_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    }
+    if !thumb_is_callers {
+        thumb_style.push(system_palette::DARK_ACCENT_BACKGROUND);
+    }
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
@@ -1497,17 +1488,12 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     let state_ref = RefAny::new(ta.text_area_state);
 
+    // Same field as the text input: `system:control-background` under
+    // `system:text` in the dark theme.
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_BG)])
-                .into(),
-        ),
-    ));
-    container_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
+    container_style.push(system_palette::DARK_TEXT);
 
     let mut label_style: Vec<CssPropertyWithConditions> = match &ta.label_style {
         azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => {
@@ -1517,9 +1503,9 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
             crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec()
         }
     };
-    label_style.push(CssPropertyWithConditions::dark_theme(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_FG }.into()),
-    ));
+    label_style.push(system_palette::DARK_TEXT);
+    // After the resting ink, which matches in the `::placeholder` state too.
+    label_style.push(FIELD_PLACEHOLDER_DARK);
 
     // The interactive states go LAST. Inline declarations resolve last-match
     // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
@@ -1595,15 +1581,11 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 /// The dropdown's border, as a palette token rather than a private literal.
 ///
 /// It had no dark counterpart, so a dropdown kept a light-grey outline on a
-/// dark surface; the rules that use it now pair it with `DARK_BD`.
+/// dark surface; the rules that use it now pair it with `system:separator`.
 const FLAT_BORDER_NORMAL: ColorU = LIGHT_BD;
 
+/// Flat's trigger skin, after `drop_down::DROPDOWN_WRAPPER_BASE` (R5).
 const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
@@ -1668,50 +1650,36 @@ const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
             inner: FLAT_BORDER_NORMAL,
         },
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(DARK_BG)]),
-    )),
+    // The dark trigger is a field like the text input's: the desktop's
+    // `system:control-background` under `system:text`.
+    system_palette::DARK_CONTROL_BACKGROUND,
     // The four border colours above are light-mode values; without these the
     // dropdown kept a light-grey outline on a dark surface.
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_top_color(
-        StyleBorderTopColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_left_color(
-        StyleBorderLeftColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_FG,
-    })),
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
+    system_palette::DARK_TEXT,
 ];
 
+/// Flat's label skin, after `drop_down::DROPDOWN_LABEL_BASE` (R5).
 const FLAT_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(8),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_FG,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_FG,
-    })),
+    system_palette::DARK_TEXT,
 ];
 
+/// Flat's arrow skin, after `drop_down::DROPDOWN_ARROW_BASE` (R5).
 const FLAT_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_FG,
     })),
-    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_FG,
-    })),
+    system_palette::DARK_TEXT,
 ];
 
 #[must_use]
@@ -1743,9 +1711,14 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
 
     let refany = RefAny::new(dd);
 
+    // Every part: the widget's structure (R5), then flat's skin.
+    use crate::widgets::drop_down::{
+        DROPDOWN_ARROW_BASE, DROPDOWN_LABEL_BASE, DROPDOWN_WRAPPER_BASE,
+    };
+
     Dom::create_div()
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-            FLAT_DROPDOWN_WRAPPER_STYLE,
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(
+            [DROPDOWN_WRAPPER_BASE, FLAT_DROPDOWN_WRAPPER_STYLE].concat(),
         ))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
@@ -1766,15 +1739,17 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
             .into(),
         )
         .with_children(DomVec::from_vec(vec![
-            crate::widgets::widget_p()
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    FLAT_DROPDOWN_LABEL_STYLE,
+            crate::widgets::widget_p_chrome()
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                    [DROPDOWN_LABEL_BASE, FLAT_DROPDOWN_LABEL_STYLE].concat(),
                 ))
                 .with_children(DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),
                 ])),
             Dom::create_icon(AzString::from_const_str("arrow_drop_down")).with_css_props(
-                CssPropertyWithConditionsVec::from_const_slice(FLAT_DROPDOWN_ARROW_STYLE),
+                CssPropertyWithConditionsVec::from_vec(
+                    [DROPDOWN_ARROW_BASE, FLAT_DROPDOWN_ARROW_STYLE].concat(),
+                ),
             ),
         ]))
 }
@@ -2039,6 +2014,26 @@ pub const HOVER_BORDER_RIGHT_DARK: CssPropertyWithConditions =
         StyleBorderRightColor { inner: DARK_ACC },
     ));
 
+/// The prompt of an empty field in the dark theme: `system:placeholder-text`.
+///
+/// The prompt's own dark colour: `::placeholder` is a pseudo-element, so only
+/// declarations naming it style the prompt (the host's dark resting ink does
+/// not), and without this the dark prompt kept the light `on_placeholder`
+/// grey. Pushed after the light half (last match wins); its light half is the
+/// field's own `on_placeholder` colour.
+pub const FIELD_PLACEHOLDER_DARK: CssPropertyWithConditions =
+    CssPropertyWithConditions::with_single_condition(
+        CssProperty::const_text_color(StyleTextColor {
+            inner: system_palette::PLACEHOLDER_TEXT,
+        }),
+        &[
+            azul_css::dynamic_selector::DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
+            azul_css::dynamic_selector::DynamicSelector::PseudoState(
+                azul_css::dynamic_selector::PseudoStateType::Placeholder,
+            ),
+        ],
+    );
+
 /// Every border state a text field takes: the accent on hover and on focus, each
 /// edge, each with its dark twin.
 ///
@@ -2094,7 +2089,7 @@ pub fn button_states(
     };
 
     if button_type == ButtonType::Link {
-        return alloc::vec![
+        let mut out = alloc::vec![
             CssPropertyWithConditions::on_hover(CssProperty::TextDecoration(
                 StyleTextDecoration::Underline.into(),
             )),
@@ -2102,6 +2097,10 @@ pub fn button_states(
                 StyleTextDecoration::Underline.into(),
             )),
         ];
+        // A link is a keyboard stop too: it shows focus as a halo, which
+        // takes no room, so nothing moves when it is focused.
+        out.extend(super::decl::focus_halo(FIELD_RING, DARK_ACC));
+        return out;
     }
 
     let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
@@ -2554,18 +2553,22 @@ pub const LIST_HEADER_HOVER_LINE_COLOR_DARK: CssPropertyWithConditions =
 // fading into `LIGHT_LIST_HEADER_HOVER_BOTTOM`.
 const LIST_HEADER_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_TOP),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(50),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_TOP),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(51),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_MID),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(LIGHT_LIST_HEADER_HOVER_BOTTOM),
     },
@@ -2969,10 +2972,12 @@ pub const LIGHT_TAB_HOVER_BOTTOM: ColorU = ColorU {
 // and `HT` -> `HB` is what the plan names for a hovered control face.
 const TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(LIGHT_TAB_HOVER_TOP),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(LIGHT_TAB_HOVER_BOTTOM),
     },
@@ -2980,10 +2985,12 @@ const TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
 
 const TAB_HOVER_STOPS_DARK: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(DARK_HT),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(DARK_HB),
     },
@@ -3423,3 +3430,3040 @@ pub const fn hover_radius_pair(radius: PixelValue) -> [CssPropertyWithConditions
 //
 //
 //
+
+// ==== dialog ====
+//
+// Dialog, Modal and Popover share one builder (`widgets::dialog::build_dialog`);
+// what a theme hands it is a skin, the style of every part. Flat is the
+// established look, unchanged: white paper with a #ccc hairline and an 8px
+// radius, the desktop's window surface and separator in the dark, a 50% black
+// `::backdrop`. What it adds is the focus ring the close glyph never had: a
+// transparent 1px ring slot at rest, `FIELD_RING` / `DARK_ACC` on focus, and
+// the ink hover every flat quiet control takes.
+
+/// Flat's dialog skin (also the modal's; the popover swaps in its panel).
+#[must_use]
+pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
+    use super::decl;
+    use crate::widgets::dialog as d;
+
+    // Every part: the dialog's structure (R5), then flat's skin.
+    let mut close = d::DIALOG_CLOSE_BASE.to_vec();
+    close.extend_from_slice(d::DIALOG_CLOSE_STYLE);
+    close.extend(decl::radius(3));
+    close.extend(decl::ring_slot());
+    // States last: a resting dark twin matches in every state.
+    close.extend(decl::hover_ink(LIGHT_INK, system_palette::TEXT));
+    close.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+
+    d::DialogSkin {
+        theme: super::UiTheme::Flat,
+        panel: CssPropertyWithConditionsVec::from_vec(
+            [d::DIALOG_PANEL_BASE, d::DIALOG_PANEL_STYLE].concat(),
+        ),
+        title: CssPropertyWithConditionsVec::from_vec(
+            [d::DIALOG_TITLE_BASE, d::DIALOG_TITLE_STYLE].concat(),
+        ),
+        close_row: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE),
+        close: CssPropertyWithConditionsVec::from_vec(close),
+        content: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CONTENT_STYLE),
+        backdrop: d::default_backdrop_style(),
+    }
+}
+
+/// Flat's popover panel: the established small bordered surface.
+#[must_use]
+pub fn popover_panel_style() -> CssPropertyWithConditionsVec {
+    crate::widgets::popover::build_panel_style()
+}
+
+/// Renders a [`crate::widgets::dialog::Dialog`] in the flat theme.
+#[must_use]
+pub fn dialog(d: crate::widgets::dialog::Dialog) -> Dom {
+    d.build(dialog_skin())
+}
+
+/// Renders a [`crate::widgets::modal::Modal`] in the flat theme.
+#[must_use]
+pub fn modal(m: crate::widgets::modal::Modal) -> Dom {
+    m.build(dialog_skin())
+}
+
+/// Renders a [`crate::widgets::popover::Popover`] in the flat theme.
+#[must_use]
+pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
+    let mut skin = dialog_skin();
+    skin.panel = popover_panel_style();
+    p.build(skin)
+}
+
+// ==== number_input ====
+//
+// A NumberInput draws nothing of its own: the TextInput it wraps is the field.
+// Flat hands it the flat theme - the established white field, the desktop's
+// field in the dark, the `FIELD_RING` / `DARK_ACC` ring - and marks the root.
+
+/// Renders a [`crate::widgets::number_input::NumberInput`] in the flat theme.
+#[must_use]
+pub fn number_input(mut n: crate::widgets::number_input::NumberInput) -> Dom {
+    n.text_input.set_theme(super::UiTheme::Flat);
+    let mut dom = n.build();
+    dom.add_class(AzString::from_const_str(super::style_kit::FLAT_CLASS));
+    dom
+}
+
+// ==== pagination ====
+//
+// Flat is the established bar: white paper pages under a #ced4da hairline, the
+// accent page in the fixed accent blue, the desktop's button face and separator
+// in the dark. What it adds are the states the bar never had: a neutral page
+// hovers to `LIGHT_HT` / `DARK_HT` and presses to `LIGHT_PT` / `DARK_PT`, and
+// every button is ringed on focus - an inset 2px ring, because the inner
+// buttons share their side borders and a border ring would miss an edge
+// (`FIELD_RING` / `DARK_ACC`; white on the accent page, where blue would vanish).
+
+/// Flat's pagination skin.
+#[must_use]
+pub(crate) fn pagination_skin() -> crate::widgets::pagination::PaginationSkin {
+    crate::widgets::pagination::PaginationSkin {
+        theme: super::UiTheme::Flat,
+        button: pagination_button,
+    }
+}
+
+/// One flat pagination button: the established face and dark twins, then the
+/// states.
+fn pagination_button(
+    face: crate::widgets::pagination::PageFace,
+    is_first: bool,
+    is_last: bool,
+) -> CssPropertyWithConditionsVec {
+    use super::decl;
+    use crate::widgets::pagination::{button_style, PageFace};
+
+    let mut v = button_style(
+        face == PageFace::Current,
+        face == PageFace::Disabled,
+        is_first,
+        is_last,
+    )
+    .into_library_owned_vec();
+    if face == PageFace::Neutral {
+        v.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+        v.extend(decl::active_fill(LIGHT_PT, DARK_PT));
+    }
+    let (ring, ring_dark) = if face == PageFace::Current {
+        (LIGHT_ON_ACC, DARK_ON_ACC)
+    } else {
+        (FIELD_RING, DARK_ACC)
+    };
+    v.extend(decl::focus_halo_inset_stacked(ring, ring_dark));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::pagination::Pagination`] in the flat theme.
+#[must_use]
+pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
+    p.build(pagination_skin())
+}
+
+// ==== radio_group ====
+//
+// Flat is the established group: the #9b9b9b ring holding the accent dot (the
+// desktop's accent in the dark), labels in the page's ink. What it adds is the
+// focus ring the rows never had - the row is the focusable radio (the group's
+// Tab stop, and the arrow keys' targets), so the row gets a transparent 1px ring
+// slot and a little inset, and takes `FIELD_RING` / `DARK_ACC` on focus. The
+// indicator's fixed geometry is the widget's own and stays.
+
+/// Flat's radio-group skin for a group laid out `horizontal`ly or not.
+#[must_use]
+pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group::RadioGroupSkin {
+    use super::decl;
+    use crate::widgets::radio_group as r;
+
+    let mut row = r::build_row_style(horizontal).into_library_owned_vec();
+    row.extend(decl::padding(1, 4, 1, 2));
+    row.extend(decl::radius(3));
+    row.extend(decl::ring_slot());
+    row.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+
+    // The indicator: the widget's base (its structure, the same in every
+    // theme), then flat's established skin.
+    let on_base = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        CssPropertyWithConditionsVec::from_vec([base, skin].concat())
+    };
+
+    r::RadioGroupSkin {
+        theme: super::UiTheme::Flat,
+        row: CssPropertyWithConditionsVec::from_vec(row),
+        circle: on_base(r::RADIO_GROUP_CIRCLE_BASE, r::RADIO_GROUP_CIRCLE_STYLE),
+        dot_selected: on_base(r::RADIO_GROUP_DOT_BASE, r::RADIO_GROUP_DOT_STYLE_SELECTED),
+        dot_unselected: on_base(r::RADIO_GROUP_DOT_BASE, r::RADIO_GROUP_DOT_STYLE_UNSELECTED),
+        label: CssPropertyWithConditionsVec::from_const_slice(r::RADIO_GROUP_LABEL_STYLE),
+    }
+}
+
+/// Renders a [`crate::widgets::radio_group::RadioGroup`] in the flat theme.
+#[must_use]
+pub fn radio_group(rg: crate::widgets::radio_group::RadioGroup) -> Dom {
+    let skin = radio_group_skin(rg.radio_group_state.horizontal);
+    rg.build(skin)
+}
+
+// ==== segmented ====
+//
+// Flat is the established control: white segments under a #ced4da hairline,
+// the choice in the fixed accent, the desktop's button face and accent in the
+// dark, and the same colours from the selection restyle. What it adds are the
+// states it never had: an unselected segment hovers to `LIGHT_HT` / `DARK_HT`
+// and presses to `LIGHT_PT` / `DARK_PT`, and every segment is ringed on focus
+// with an inset 2px ring (inner segments share their side borders) -
+// `FIELD_RING` / `DARK_ACC`, white on the accent choice.
+
+/// Flat's segmented skin.
+#[must_use]
+pub(crate) fn segmented_skin() -> crate::widgets::segmented::SegmentedSkin {
+    crate::widgets::segmented::SegmentedSkin {
+        theme: super::UiTheme::Flat,
+        segment: segmented_segment,
+    }
+}
+
+/// One flat segment: the established face and dark twins, then the states.
+fn segmented_segment(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+    use super::decl;
+
+    let mut v = crate::widgets::segmented::segment_style(selected, is_first, is_last)
+        .into_library_owned_vec();
+    if !selected {
+        v.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+        v.extend(decl::active_fill(LIGHT_PT, DARK_PT));
+    }
+    let (ring, ring_dark) = if selected {
+        (LIGHT_ON_ACC, DARK_ON_ACC)
+    } else {
+        (FIELD_RING, DARK_ACC)
+    };
+    v.extend(decl::focus_halo_inset_stacked(ring, ring_dark));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::segmented::Segmented`] in the flat theme.
+#[must_use]
+pub fn segmented(s: crate::widgets::segmented::Segmented) -> Dom {
+    s.build(segmented_skin())
+}
+
+// ==== split_pane ====
+//
+// Flat is the established divider: a 6px #adb5bd bar, the desktop's separator
+// in the dark. What it adds is the focus it never showed - the divider is the
+// splitter's keyboard handle (Tab, then the arrows) - so on focus the whole bar
+// lights in `FIELD_RING` / `DARK_ACC` and carries an inset ring of the same
+// colour: on a 6px bar a ring alone would be two hairlines.
+
+/// Flat's split-pane skin for a pane split in `direction`.
+#[must_use]
+pub(crate) fn split_pane_skin(
+    direction: crate::widgets::split_pane::SplitDirection,
+) -> crate::widgets::split_pane::SplitPaneSkin {
+    use super::decl;
+    use crate::widgets::split_pane as s;
+
+    let mut divider = s::divider_style(direction).into_library_owned_vec();
+    // States last: the resting dark twin matches in every state.
+    divider.extend(CssPropertyWithConditions::themed_on_focus(
+        decl::fill(FIELD_RING),
+        decl::fill(DARK_ACC),
+    ));
+    divider.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
+
+    s::SplitPaneSkin {
+        theme: super::UiTheme::Flat,
+        divider: CssPropertyWithConditionsVec::from_vec(divider),
+    }
+}
+
+/// Renders a [`crate::widgets::split_pane::SplitPane`] in the flat theme.
+#[must_use]
+pub fn split_pane(sp: crate::widgets::split_pane::SplitPane) -> Dom {
+    let skin = split_pane_skin(sp.split_pane_state.inner.direction);
+    sp.build(skin)
+}
+
+// ==== stepper ====
+//
+// Flat is the established stepper: accent circles and line for the way walked,
+// #e9ecef circles and a #ced4da line ahead, dark / muted labels, the desktop's
+// quiet highlight and label colours in the dark - and the same colours from the
+// click restyle. What it adds is the focus ring the step cells never had: each
+// cell is a tab stop, so it takes an inset 2px ring (`FIELD_RING` / `DARK_ACC`)
+// on focus - declared for `:focus` only, so the resting cell is unchanged.
+
+/// Flat's stepper skin.
+#[must_use]
+pub(crate) fn stepper_skin() -> crate::widgets::stepper::StepperSkin {
+    use crate::widgets::stepper as s;
+    s::StepperSkin {
+        theme: super::UiTheme::Flat,
+        cell: stepper_cell,
+        circle: stepper_circle,
+        connector: stepper_connector,
+        label: stepper_label,
+    }
+}
+
+fn stepper_cell() -> CssPropertyWithConditionsVec {
+    let mut v = crate::widgets::stepper::STEPPER_STEP_STYLE.to_vec();
+    v.extend(super::decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+fn stepper_circle(reached: bool) -> CssPropertyWithConditionsVec {
+    use crate::widgets::stepper as s;
+    s::with_dark_twins(s::circle_style(reached), &s::circle_dark_twins(reached))
+}
+
+fn stepper_connector(fill: crate::widgets::stepper::ConnFill) -> CssPropertyWithConditionsVec {
+    use crate::widgets::stepper as s;
+    s::with_dark_twins(s::connector_style(fill), &s::connector_dark_twins(fill))
+}
+
+fn stepper_label(reached: bool) -> CssPropertyWithConditionsVec {
+    use crate::widgets::stepper as s;
+    s::with_dark_twins(s::label_style(reached), &s::label_dark_twins(reached))
+}
+
+/// Renders a [`crate::widgets::stepper::Stepper`] in the flat theme.
+#[must_use]
+pub fn stepper(s: crate::widgets::stepper::Stepper) -> Dom {
+    s.build(stepper_skin())
+}
+
+// ==== time_picker ====
+//
+// Flat is the established picker: a #ced4da frame (the desktop's separator in
+// the dark), grey arrows, dark readouts, the accent AM/PM pill. What it adds are
+// the states its buttons never had: an arrow hovers to `LIGHT_HT` / `DARK_HT` and
+// presses to `LIGHT_PT` / `DARK_PT`, and every column (the spin button, the Tab
+// stop - the arrows are click targets only) and the toggle are ringed on focus
+// with an inset 2px ring (`FIELD_RING` / `DARK_ACC`; white on the accent pill) -
+// no border, so the arrows keep their 40x16 hit box.
+
+/// Flat's time picker skin.
+#[must_use]
+pub(crate) fn time_picker_skin() -> crate::widgets::time_picker::TimePickerSkin {
+    use super::decl;
+    use crate::widgets::time_picker as t;
+
+    // The column is the spin button: its base, then its focus ring.
+    let mut spinner = t::SPINNER_STYLE.to_vec();
+    spinner.extend(decl::radius(3));
+    spinner.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
+
+    // Every part is the widget's base, then flat's established const skin.
+    let mut arrow = on_base(t::CLICKABLE_BASE, t::ARROW_STYLE).into_library_owned_vec();
+    arrow.extend(decl::radius(3));
+    // States last: the resting dark twin matches in every state.
+    arrow.extend(decl::hover_fill(LIGHT_HT, DARK_HT));
+    arrow.extend(decl::active_fill(LIGHT_PT, DARK_PT));
+
+    let mut ampm = on_base(t::CLICKABLE_BASE, t::AMPM_STYLE).into_library_owned_vec();
+    ampm.extend(decl::focus_halo_inset_stacked(LIGHT_ON_ACC, DARK_ON_ACC));
+
+    t::TimePickerSkin {
+        theme: super::UiTheme::Flat,
+        container: on_base(t::CONTAINER_BASE, t::CONTAINER_STYLE),
+        spinner: CssPropertyWithConditionsVec::from_vec(spinner),
+        arrow: CssPropertyWithConditionsVec::from_vec(arrow),
+        display: on_base(t::READOUT_BASE, t::DISPLAY_STYLE),
+        separator: on_base(t::READOUT_BASE, t::SEPARATOR_STYLE),
+        ampm: CssPropertyWithConditionsVec::from_vec(ampm),
+    }
+}
+
+/// Renders a [`crate::widgets::time_picker::TimePicker`] in the flat theme.
+#[must_use]
+pub fn time_picker(p: crate::widgets::time_picker::TimePicker) -> Dom {
+    p.build(time_picker_skin())
+}
+
+// ==== toast ====
+//
+// Flat is the established toast: the kind's alert palette on a 6px card by day,
+// its deep tint under light ink by night. What it adds is the focus ring the
+// "x" never had - a 2px halo just outside the glyph, `FIELD_RING` / `DARK_ACC`,
+// declared for `:focus` only so the resting button is unchanged.
+
+/// Flat's toast skin.
+#[must_use]
+pub(crate) fn toast_skin() -> crate::widgets::toast::ToastSkin {
+    use crate::widgets::toast as t;
+
+    // The widget's close base, then flat's static; the card's base is laid by
+    // `build_toast_style` itself.
+    let mut close = on_base(t::TOAST_CLOSE_BASE, t::TOAST_CLOSE_STYLE).into_library_owned_vec();
+    close.extend(super::decl::focus_halo_stacked(FIELD_RING, DARK_ACC));
+
+    t::ToastSkin {
+        theme: super::UiTheme::Flat,
+        container: toast_container,
+        message: CssPropertyWithConditionsVec::from_const_slice(t::TOAST_MESSAGE_STYLE),
+        close: CssPropertyWithConditionsVec::from_vec(close),
+    }
+}
+
+/// The kind's card: its light face, then its dark twins.
+fn toast_container(kind: crate::widgets::toast::ToastKind) -> CssPropertyWithConditionsVec {
+    use crate::widgets::toast as t;
+    let mut v = t::build_toast_style(kind).into_library_owned_vec();
+    v.extend(t::build_toast_dark_twins(kind));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::toast::Toast`] in the flat theme.
+#[must_use]
+pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
+    t.build(toast_skin())
+}
+
+// ==== tooltip ====
+//
+// Flat is the established tip: a translucent #333 chip under white text - its
+// own colour, so the same chip by day and by night (a dark tip reads over
+// either). Nothing in a tooltip takes focus, so it owes no ring.
+
+/// Flat's tooltip skin.
+#[must_use]
+pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
+    use crate::widgets::tooltip as t;
+    t::TooltipSkin {
+        theme: super::UiTheme::Flat,
+        wrapper: CssPropertyWithConditionsVec::from_const_slice(t::TOOLTIP_WRAPPER_STYLE),
+        // The widget's tip base (placement, one line, hidden), then flat's chip.
+        tip: on_base(t::TIP_BASE, t::TOOLTIP_TIP_STYLE),
+    }
+}
+
+/// Renders a [`crate::widgets::tooltip::Tooltip`] in the flat theme.
+#[must_use]
+pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
+    t.build(tooltip_skin())
+}
+
+// ==== video ====
+//
+// The picture is the source's own; the video widget's only chrome is the
+// "no signal" poster it shows until the first frame arrives. Flat's is the
+// established dark screen - #2a2a30 under a #44444c hairline - the same by day
+// and by night: a screen is dark whatever the window around it is. Nothing in
+// the widget takes focus (the app builds and names the controls).
+
+/// Flat's "no signal" poster.
+#[must_use]
+pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
+    use super::decl;
+    const SCREEN: ColorU = ColorU::new(42, 42, 48, 255);
+    const SCREEN_EDGE: ColorU = ColorU::new(68, 68, 76, 255);
+
+    let mut v = decl::fill_box().to_vec();
+    v.push(CssPropertyWithConditions::simple(decl::fill(SCREEN)));
+    v.extend(decl::themed_border(decl::Edges::ALL, 1, SCREEN_EDGE, SCREEN_EDGE));
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// Renders a [`crate::widgets::video::VideoWidget`] in the flat theme.
+#[must_use]
+pub fn video(w: crate::widgets::video::VideoWidget) -> Dom {
+    w.build(super::UiTheme::Flat)
+}
+
+// ==== text input kinds (type=search) ====
+//
+// The search field's row and its clear button. `text_input.rs` builds the
+// field itself (the same `text_input()` above) and wires the button's click;
+// the look is the theme's.
+
+/// The clear button (a cross) of a `type=search` field, shown only while the field
+/// holds text (`visible`). The widget flips `display` live on the
+/// empty/non-empty transition; this is the state it is BUILT in. Its
+/// structure is the widget's (`text_input::search_clear_base`); flat's skin
+/// is a bare glyph with a little air either side.
+#[must_use]
+pub fn search_clear_button(visible: bool) -> Dom {
+    let mut style: Vec<CssPropertyWithConditions> =
+        crate::widgets::text_input::search_clear_base(visible).to_vec();
+    style.extend([
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(6),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+    ]);
+    // A quiet glyph that darkens under the pointer, in both modes.
+    style.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_text_color(StyleTextColor { inner: LIGHT_ICON }),
+        CssProperty::const_text_color(StyleTextColor {
+            inner: system_palette::SECONDARY_TEXT,
+        }),
+    ));
+    style.extend(CssPropertyWithConditions::themed_on_hover(
+        CssProperty::const_text_color(StyleTextColor { inner: LIGHT_INK }),
+        CssProperty::const_text_color(StyleTextColor {
+            inner: system_palette::TEXT,
+        }),
+    ));
+
+    crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::text_input::SEARCH_CLEAR_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+}
+
+/// The row of a `type=search` field: the field (which grows) and its clear
+/// button after it - the widget's row (`text_input::SEARCH_FIELD_BASE`);
+/// flat paints nothing on it.
+#[must_use]
+pub fn search_field(field: Dom, clear: Dom) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::text_input::SEARCH_FIELD_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            crate::widgets::text_input::SEARCH_FIELD_BASE,
+        ))
+        .with_children(vec![field, clear].into())
+}
+
+// ==== text input kinds (invalid look) ====
+
+/// The border of a text field whose value the user edited into an INVALID
+/// state (`type=email` / `type=url` syntax, `pattern`): the danger red the
+/// flat Danger button carries. Light mode.
+pub const INVALID_RING: ColorU = ColorU {
+    r: 220,
+    g: 53,
+    b: 69,
+    a: 255,
+};
+
+/// [`INVALID_RING`] in the dark theme: lifted so it still reads as red on a
+/// dark field instead of sinking into it.
+pub const DARK_INVALID_RING: ColorU = ColorU {
+    r: 241,
+    g: 112,
+    b: 123,
+    a: 255,
+};
+
+/// The four border colours of the invalid look, for the light (`dark ==
+/// false`) or the dark theme. `text_input.rs` writes them as an OVERRIDE on
+/// the field host while the value is invalid (see its `paint_invalid_ring`),
+/// which is why they are plain properties and not a light/dark pair: an
+/// override carries no theme condition, so the mode is chosen when it is
+/// written.
+#[must_use]
+pub fn text_input_invalid_ring(dark: bool) -> Vec<CssProperty> {
+    let inner = if dark { DARK_INVALID_RING } else { INVALID_RING };
+    vec![
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner }),
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner }),
+    ]
+}
+
+// ==== datetime-local ====
+
+/// The four border edges of a 1 px solid outline in `light`, each with its
+/// dark twin in `dark` - one call so no edge ships without its twin.
+fn outline_pairs(light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    let mut v = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+            LayoutBorderRightWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+            LayoutBorderBottomWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+            LayoutBorderLeftWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+            StyleBorderBottomStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ];
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
+        CssProperty::const_border_top_color(StyleBorderTopColor { inner: dark }),
+    ));
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
+        CssProperty::const_border_right_color(StyleBorderRightColor { inner: dark }),
+    ));
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: light }),
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dark }),
+    ));
+    v.extend(CssPropertyWithConditions::themed(
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
+        CssProperty::const_border_left_color(StyleBorderLeftColor { inner: dark }),
+    ));
+    v
+}
+
+/// `<input type=datetime-local>`: the date part and the time part in one row,
+/// held together by a hairline outline so the pair reads as ONE control.
+#[must_use]
+pub fn datetime_local(date: Dom, time: Dom) -> Dom {
+    // The widget's structure (R5), then flat's skin.
+    let mut style: Vec<CssPropertyWithConditions> = crate::widgets::datetime_local::base_row();
+    style.extend([
+        CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
+                inner: PixelValue::const_px(8),
+            },
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(4),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(4),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+            2,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+            LayoutPaddingBottom::const_px(2),
+        )),
+    ]);
+    style.extend(outline_pairs(LIGHT_BD, system_palette::SEPARATOR));
+
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::datetime_local::DATETIME_LOCAL_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+        .with_children(vec![date, time].into())
+}
+
+// ==== form ====
+
+/// `<form>`: a `NodeType::Form` node stacking its content in a column. The
+/// form paints nothing of its own in either mode - it is structure, and its
+/// controls carry their own light and dark faces.
+#[must_use]
+pub fn form(children: azul_core::dom::DomVec) -> Dom {
+    Dom::create_node(NodeType::Form)
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(AzString::from_const_str(
+            crate::widgets::form::FORM_CLASS,
+        ))]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec({
+            // The widget's structure (R5), then flat's gap.
+            let mut style = crate::widgets::form::base_form();
+            style.push(CssPropertyWithConditions::simple(CssProperty::RowGap(
+                LayoutRowGapValue::Exact(LayoutRowGap {
+                    inner: PixelValue::const_px(8),
+                }),
+            )));
+            style
+        }))
+        .with_children(children)
+}
+
+// ==== badge ====
+//
+// The flat badge is the widget's established pill: a kind-coloured fill with
+// white (or, on the light Warning / Info fills, near-black) text, 2px 8px
+// padding, a 10px radius. Its colour IS its meaning, so it is the same pill in
+// the dark theme - the rule `button_states` applies to a coloured command - and
+// every kind reads at better than 2:1 on either window
+// (`widgets::theme_contrast`). A badge is not focusable, so it has no ring.
+
+/// The flat badge: [`crate::widgets::badge::Badge::resolved_badge_style`] on a
+/// `<p>` pill.
+#[must_use]
+pub fn badge(b: crate::widgets::badge::Badge) -> Dom {
+    // Resolved before `b.string` is moved out below.
+    let style = b.resolved_badge_style();
+    crate::widgets::widget_p_with_text(b.string)
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+            crate::widgets::badge::BADGE_CLASS,
+        ))
+        .with_css_props(style)
+}
+
+// ==== divider ====
+//
+// The flat divider is the widget's established rule: 1px of #DDDDDD with 4px
+// of breathing room, the desktop's `system:separator` as its dark twin - the
+// slot every other widget draws its rules with. Not focusable: no ring.
+
+/// The flat divider:
+/// [`crate::widgets::divider::Divider::resolved_divider_style`] on a `div`.
+#[must_use]
+pub fn divider(d: crate::widgets::divider::Divider) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+            crate::widgets::divider::DIVIDER_CLASS,
+        ))
+        .with_css_props(d.resolved_divider_style())
+}
+
+// ==== spinner ====
+//
+// Flat's own indicator is the Windows 11 ProgressRing: a round-capped arc in
+// the desktop accent. `system:accent` resolves in whichever theme paints it,
+// so the arc needs no dark twin - it is the user's accent in both. Asked for
+// the spokes, flat draws macOS's exactly: pure black by day, pure white at
+// night; the sprite is ink and only its alpha varies. The show / hide fade is
+// quick, 150 ms (KDE fades its busy indicator over 100). A spinner takes no
+// focus, so there is no ring to draw.
+
+/// The flat spinner: the Windows ring, or the macOS spokes when asked.
+#[must_use]
+pub fn spinner(s: crate::widgets::spinner::Spinner) -> Dom {
+    use crate::widgets::spinner::{SpinnerLook, SpinnerStyle};
+    crate::widgets::spinner::build(
+        s,
+        &SpinnerLook {
+            auto: SpinnerStyle::Ring,
+            spoke_ink: (
+                StyleBackgroundContent::Color(ColorU::BLACK),
+                Some(StyleBackgroundContent::Color(ColorU::WHITE)),
+            ),
+            arc_ink: (
+                StyleBackgroundContent::SystemColor(SystemColorRef::Accent),
+                None,
+            ),
+            fade_ms: 150,
+            marker: None,
+        },
+    )
+}
+
+// ==== chip ====
+//
+// The flat chip is the widget's established tag: a 12px-radius pill, the
+// neutral kind light grey (the desktop's quiet neutral highlight and label
+// ink at night), a coloured kind its own colour in both modes. What it
+// lacked was a visible focus: the remove button and a clickable label take
+// the keyboard but had no border to colour, so a focused "x" looked exactly
+// like an unfocused one. They get a halo in flat's focus colour (the fields'
+// ring, #4286F4; flat's night accent in the dark theme) - a spread shadow,
+// so the pill's geometry does not move.
+
+/// The flat pill for a chip kind: the widget's own style, plus the neutral
+/// tag's dark twins (a coloured chip is its own colour in both modes).
+fn flat_chip_container(
+    kind: crate::widgets::chip::ChipKind,
+) -> Vec<CssPropertyWithConditions> {
+    let mut style = crate::widgets::chip::build_chip_style(kind).into_library_owned_vec();
+    if kind == crate::widgets::chip::ChipKind::Default {
+        style.extend_from_slice(crate::widgets::chip::CHIP_DEFAULT_DARK_TWINS);
+    }
+    style
+}
+
+/// The flat chip: the established tag, with a focus halo on everything that
+/// takes the keyboard.
+#[must_use]
+pub fn chip(c: crate::widgets::chip::Chip) -> Dom {
+    use super::decl;
+    use crate::widgets::chip::{ChipLook, CHIP_REMOVE_STYLE};
+
+    // The skins: `chip::build` lays the label's and the "x"'s over their
+    // bases; the pill starts with its own (`build_chip_style`).
+    let mut label_focus = decl::radius(3).to_vec();
+    label_focus.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
+    let mut remove = CHIP_REMOVE_STYLE.to_vec();
+    remove.extend(decl::radius(4));
+    remove.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
+    crate::widgets::chip::build(
+        c,
+        &ChipLook {
+            container: flat_chip_container,
+            label: Vec::new(),
+            label_focus,
+            remove,
+            marker: None,
+        },
+    )
+}
+
+// ==== alert ====
+//
+// The flat alert is the widget's established Bootstrap banner - a pastel face
+// in a 1px rule, a 6px radius - with Bootstrap's dark alert palette as its
+// night twins. Its close button takes the keyboard but had nothing to show
+// focus with; it gets flat's focus halo (#4286F4, the night accent at night).
+
+/// The flat banner for an alert kind: the widget's own pastel face, then its
+/// dark twins (Bootstrap's dark alert palette).
+fn flat_alert_container(
+    kind: crate::widgets::alert::AlertKind,
+) -> Vec<CssPropertyWithConditions> {
+    let mut style = crate::widgets::alert::build_alert_style(kind).into_library_owned_vec();
+    style.extend(crate::widgets::alert::build_alert_dark_twins(kind));
+    style
+}
+
+/// The flat alert: the established banner, with a focus halo on its close
+/// button.
+#[must_use]
+pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
+    use super::decl;
+    use crate::widgets::alert::{AlertLook, ALERT_CLOSE_STYLE};
+
+    // The skins: `alert::build` lays the message's and the close button's
+    // over their bases; the banner starts with its own
+    // (`build_alert_style`).
+    let mut close = ALERT_CLOSE_STYLE.to_vec();
+    close.extend(decl::radius(4));
+    close.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
+    crate::widgets::alert::build(
+        a,
+        &AlertLook {
+            container: flat_alert_container,
+            message: Vec::new(),
+            close,
+            marker: None,
+        },
+    )
+}
+
+// ==== card ====
+//
+// The flat card is the widget's established panel: white, a #DEE2E6 hairline,
+// an 8px radius and a soft drop shadow, with the desktop's window surface and
+// separator as its night twins - the application's text inside it inherits
+// the themed ink. A card takes no focus, so it has no ring.
+
+/// The flat card: the widget's own panel style.
+#[must_use]
+pub fn card(c: crate::widgets::card::Card) -> Dom {
+    crate::widgets::card::build(
+        c,
+        crate::widgets::card::CARD_STYLE,
+        IdOrClassVec::from_const_slice(crate::widgets::card::CARD_CLASS),
+    )
+}
+
+// ==== frame ====
+//
+// The flat frame is the widget's established group box: #DDDDDD rules split
+// around an 11px system-UI title, the desktop's separator for every rule at
+// night. A frame takes no focus.
+
+/// The flat frame's look: the widget's own part styles.
+#[must_use]
+pub(crate) fn frame_look() -> crate::widgets::frame::FrameLook {
+    use crate::widgets::frame::{
+        FrameLook, FRAME_AFTER_STYLE, FRAME_BEFORE_STYLE, FRAME_CONTENT_STYLE,
+        FRAME_HEADER_STYLE, FRAME_ROOT_STYLE, FRAME_TITLE_STYLE,
+    };
+    FrameLook {
+        root: FRAME_ROOT_STYLE.to_vec(),
+        header: FRAME_HEADER_STYLE.to_vec(),
+        before: FRAME_BEFORE_STYLE.to_vec(),
+        title: FRAME_TITLE_STYLE.to_vec(),
+        after: FRAME_AFTER_STYLE.to_vec(),
+        content: FRAME_CONTENT_STYLE.to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat frame: the widget's own part styles.
+#[must_use]
+pub fn frame(f: crate::widgets::frame::Frame) -> Dom {
+    crate::widgets::frame::build(f, &frame_look())
+}
+
+// ==== breadcrumb ====
+//
+// The flat breadcrumb is the widget's established trail: Bootstrap-blue
+// links (the desktop's link colour at night), a grey "/" between them, the
+// current page bold. Each crumb is a keyboard stop with nothing to show
+// focus, and a link that never underlined because the widget's style had to
+// stay a const slice; the theme can say both, so a crumb underlines under the
+// pointer and shows flat's focus halo.
+
+/// The flat breadcrumb: the established trail, with a hover underline and a
+/// focus halo on every crumb.
+#[must_use]
+pub fn breadcrumb(b: crate::widgets::breadcrumb::Breadcrumb) -> Dom {
+    use super::decl;
+    use crate::widgets::breadcrumb::{
+        BreadcrumbLook, BREADCRUMB_CURRENT_STYLE, BREADCRUMB_ITEM_STYLE,
+        BREADCRUMB_SEPARATOR_STYLE, SEPARATOR_GLYPH,
+    };
+
+    // The skins: `breadcrumb::build` lays each over the crumb's base.
+    let mut item = BREADCRUMB_ITEM_STYLE.to_vec();
+    item.extend(decl::radius(3));
+    item.extend(decl::hover_underline());
+    item.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
+    crate::widgets::breadcrumb::build(
+        b,
+        &BreadcrumbLook {
+            item,
+            current: BREADCRUMB_CURRENT_STYLE.to_vec(),
+            separator: BREADCRUMB_SEPARATOR_STYLE.to_vec(),
+            separator_glyph: SEPARATOR_GLYPH,
+            marker: None,
+        },
+    )
+}
+
+// ==== accordion ====
+//
+// The flat accordion is the widget's established panel: a #DEE2E6 hairline,
+// a 6px radius, #F8F9FA header bars; the window surface, separator and label
+// ink at night. Each header is a keyboard stop and a click target that never
+// showed either: it now lights up under the pointer (the neutral hover grey
+// flat's buttons use, flat's night hover face at night) and rings on focus -
+// drawn inside the header, because the rounded panel clips its edges.
+
+/// The flat accordion: the established panel, with a hover face and an inset
+/// focus ring on every header.
+#[must_use]
+pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
+    use super::decl;
+    use crate::widgets::accordion::{
+        AccordionLook, ACCORDION_CONTAINER_STYLE, ACCORDION_HEADER_STYLE, ACCORDION_SECTION_STYLE,
+    };
+
+    // The skins: `accordion::build` lays each over the part's base.
+    let mut header = ACCORDION_HEADER_STYLE.to_vec();
+    header.extend(decl::hover_fill(ColorU::rgb(233, 236, 239), DARK_HT));
+    header.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    crate::widgets::accordion::build(
+        a,
+        &AccordionLook {
+            container: ACCORDION_CONTAINER_STYLE.to_vec(),
+            section: ACCORDION_SECTION_STYLE.to_vec(),
+            header,
+            title: Vec::new(),
+            // The Windows 11 expander's chevron: down, up when open.
+            chevron: crate::widgets::accordion::chevron_box(16),
+            chevron_icon: "expand_more",
+            chevron_turn_deg: 180,
+            marker: None,
+        },
+    )
+}
+
+// ==== menubar ====
+//
+// The flat menu bar is the widget's established bar, styled with the
+// desktop's own `system:` colours (window background, text, and the selection
+// colours under the pointer) - which resolve in whichever theme paints them,
+// so the bar needs no dark twins. Its items are pointer targets, not keyboard
+// stops (the keyboard reaches a menu through the platform), so there is no
+// focus ring to draw.
+
+/// The flat menu bar.
+#[must_use]
+pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
+    crate::widgets::menubar::build_flat(&m.menu)
+}
+
+// ==== color_input ====
+//
+// The flat colour input is the widget's established swatch and Chrome-style
+// picker: a white panel in a #c8c8c8 rule, the desktop's window surface and
+// separator at night. Two things were missing. The swatch and the picker's
+// plane, hue and alpha bars are keyboard stops (arrows drive the bars) that
+// showed no focus; each now gets flat's focus halo, which moves nothing. And
+// the preview's frame and the grip's handle kept their light grey at night;
+// they take the separator, as the panel's own border does (`PREVIEW_CSS`,
+// `GRIP_HANDLE_CSS`).
+
+/// The flat colour input: the established swatch and picker, with focus
+/// rings on every keyboard stop.
+#[must_use]
+pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
+    use super::decl;
+    use crate::widgets::color_input::{
+        ColorInputLook, EYEDROPPER_CSS, GRIP_HANDLE_CSS, PANEL_CSS, PREVIEW_CSS,
+    };
+    let ring = decl::focus_halo(FIELD_RING, DARK_ACC).to_vec();
+    crate::widgets::color_input::build(
+        c,
+        &ColorInputLook {
+            swatch: ring.clone(),
+            panel_css: PANEL_CSS,
+            preview_css: PREVIEW_CSS,
+            eyedropper_css: EYEDROPPER_CSS,
+            grip_handle_css: GRIP_HANDLE_CSS,
+            slider_focus: ring,
+            marker: None,
+        },
+    )
+}
+
+// ==== date_picker ====
+//
+// The flat date picker is the widget's established field and calendar: a
+// white field in a #CED4DA rule, a white calendar, the Bootstrap-blue
+// picked cell; the desktop's field, separator, accent and label colours at
+// night. Its keyboard stops - the field, the two header buttons (month or
+// year) and the grid (one roving stop over the days, the whole-week days or
+// the twelve months) - showed no focus. The field (it has a border) takes
+// the fields' ring on it; the buttons and the cells, which have none, take
+// flat's focus halo. The month grid's cells are the day faces, so they ring
+// too.
+
+/// The flat date picker: the established field and calendar, with a focus
+/// ring on every keyboard stop in every mode.
+#[must_use]
+pub fn date_picker(d: crate::widgets::date_picker::DatePicker) -> Dom {
+    use super::decl;
+    use crate::widgets::date_picker::DatePickerLook;
+
+    let mut look = DatePickerLook::established();
+    look.field.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+    look.nav.extend(decl::radius(3));
+    look.nav.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    look.day_selected
+        .extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    look.day_other.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    // Today: a 1px ring inside the cell in the field ring, the night accent
+    // at night.
+    look.day_today = CssPropertyWithConditions::themed(
+        decl::shadow(0, 0, 1, FIELD_RING, true),
+        decl::shadow(0, 0, 1, DARK_ACC, true),
+    )
+    .to_vec();
+    crate::widgets::date_picker::build(d, &look)
+}
+
+// ==== combobox ====
+//
+// Flat is the established combobox, unchanged: a white field in a #acacac
+// hairline with a 4px radius, the desktop's field and separator at night, the
+// `FIELD_RING` / `DARK_ACC` ring on focus; a white list in the same hairline;
+// option rows in the page's ink that wash on hover. What it adds is the ring
+// the option rows never had - each row is a Tab stop - drawn as flat's inset
+// focus ring, so the row's box does not grow.
+
+/// Flat's combobox skin.
+#[must_use]
+pub(crate) fn combobox_skin() -> crate::widgets::combobox::ComboBoxSkin {
+    use super::decl;
+    use crate::widgets::combobox as c;
+
+    // The widget's structure first (R5), then flat's skin.
+    let mut option = c::COMBOBOX_OPTION_BASE.to_vec();
+    option.extend_from_slice(c::COMBOBOX_OPTION_STYLE);
+    // States last: the hover wash (and its dark twin) is already declared.
+    option.extend(decl::focus_halo_inset_stacked(FIELD_RING, DARK_ACC));
+
+    c::ComboBoxSkin {
+        theme: super::UiTheme::Flat,
+        wrapper: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_WRAPPER_STYLE),
+        field: CssPropertyWithConditionsVec::from_vec(
+            [c::COMBOBOX_FIELD_BASE, c::COMBOBOX_INPUT_STYLE].concat(),
+        ),
+        text: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_TEXT_STYLE),
+        arrow: CssPropertyWithConditionsVec::from_const_slice(c::COMBOBOX_ARROW_STYLE),
+        option: CssPropertyWithConditionsVec::from_vec(option),
+        list: c::build_list_style(false),
+    }
+}
+
+/// Renders a [`crate::widgets::combobox::ComboBox`] in the flat theme.
+#[must_use]
+pub fn combobox(c: crate::widgets::combobox::ComboBox) -> Dom {
+    c.build(combobox_skin())
+}
+
+// ==== tree_view ====
+//
+// The flat tree is the widget's established look, unchanged: a near-white
+// field (the list view's surface) in the system font, rows that wash on hover
+// (`ROW_HOVER`, with its dark twin), the selected row in the Windows accent
+// with white ink, a 16px indent per level. Its selected row's icon and label
+// keep the resting styles, as they always had.
+
+/// Flat's tree-view look: the widget's base under each part ([`on_base`]),
+/// then the tree's established const styles.
+#[must_use]
+pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
+    use crate::widgets::tree_view as t;
+    t::TreeViewLook {
+        container: on_base(t::TREE_CONTAINER_BASE, t::TREE_CONTAINER_STYLE),
+        row: on_base(t::ROW_BASE, t::ROW_STYLE),
+        row_selected: on_base(t::ROW_BASE, t::ROW_SELECTED_STYLE),
+        children: on_base(t::CHILDREN_BASE, t::CHILDREN_STYLE),
+        icon: on_base(t::ICON_BASE, t::ICON_STYLE),
+        icon_selected: on_base(t::ICON_BASE, t::ICON_STYLE),
+        // No skin: the spacer's style is the same in every theme.
+        leaf_spacer: CssPropertyWithConditionsVec::from_const_slice(t::LEAF_SPACER_STYLE),
+        label: on_base(t::LABEL_BASE, t::LABEL_STYLE),
+        label_selected: on_base(t::LABEL_BASE, t::LABEL_STYLE),
+        marker: None,
+    }
+}
+
+// ==== tabs ====
+//
+// The flat tab bar is the widget's established Windows-native look,
+// unchanged: grey gradient tabs in a #acacac rule, the active tab white and
+// two pixels taller, its neighbours sharing one seam with it; the hover ring
+// and fill (`TAB_HOVER_*`, with their dark twins) and the desktop's surfaces
+// at night. The panel is white in the same rule, open at the top, the
+// desktop's window surface at night.
+
+/// Flat's tab-bar look: the widget's base under each part ([`on_base`]),
+/// then the tab bar's established const styles.
+#[must_use]
+pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
+    use crate::widgets::tabs as t;
+    t::TabHeaderLook {
+        header: on_base(t::HEADER_BASE, t::CSS_MATCH_9988039989460234263.as_slice()),
+        // No base: flat's spacer grows (`flex-grow: 1`), flora's does not.
+        before: t::CSS_MATCH_17290739305197504468,
+        after: on_base(t::AFTER_BASE, t::CSS_MATCH_3088386549906605418.as_slice()),
+        active: on_base(t::TAB_BASE, t::CSS_MATCH_14575853790110873394.as_slice()),
+        before_active: on_base(t::TAB_BASE, t::CSS_MATCH_4415083954137121609.as_slice()),
+        after_active: on_base(t::TAB_BASE, t::CSS_MATCH_13824480602841492081.as_slice()),
+        inactive: on_base(t::TAB_BASE, t::CSS_MATCH_11510695043643111367.as_slice()),
+        marker: None,
+    }
+}
+
+/// Flat's tab-panel look: the widget's base, then the panel's established
+/// const styles.
+#[must_use]
+pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
+    use crate::widgets::tabs as t;
+    t::TabContentLook {
+        padded: on_base(t::PANEL_BASE, t::CSS_MATCH_18014909903571752977.as_slice()),
+        unpadded: on_base(
+            t::PANEL_BASE,
+            t::CSS_MATCH_18014909903571752977_NO_PADDING.as_slice(),
+        ),
+        marker: None,
+    }
+}
+
+// ==== titlebar ====
+//
+// The flat titlebar is the NATIVE one, unchanged: no fill of its own (the
+// window shows through, as behind a transparent native bar) unless the
+// desktop stated a titlebar colour, the platform's title colour (with a dark
+// twin for the light default), the platform's line (macOS: one device pixel
+// of #D0D0D0, #000000 at night), `:backdrop` dimming where the desktop gives
+// it, and the desktop's hover colours on the window controls.
+
+/// Flat's titlebar look: the bar's native paint, from its colour fields.
+#[must_use]
+pub(crate) fn titlebar_look(
+    bar: &crate::widgets::titlebar::Titlebar,
+    show_buttons: bool,
+) -> crate::widgets::titlebar::TitlebarLook {
+    use crate::widgets::titlebar::{flat_control_hover, TitlebarLook};
+    TitlebarLook {
+        container: bar.build_container_style(show_buttons),
+        title: bar.build_title_style(show_buttons),
+        button: flat_control_hover(bar.button_hover_color),
+        close: flat_control_hover(bar.close_hover_color),
+        marker: None,
+    }
+}
+
+// ==== combobox (active option) ====
+//
+// The option the arrow keys made ACTIVE (the field keeps focus; WAI-ARIA
+// combobox) wears the row-hover wash its options take under the pointer, so
+// the keyboard's "you are here" reads like the mouse's. Light, then dark.
+
+/// The fill of a flat combobox's active option, `[light, dark]`.
+pub(crate) const COMBOBOX_ACTIVE_OPTION: [ColorU; 2] = [LIGHT_OPTION_HOVER, DARK_ROW_HOVER];
+
+// ==== R5-D: a flat part is the widget's base, then flat's skin ====
+
+/// A part as flat builds it from a widget's const styles: the widget's
+/// `base` (its structure, the same in every theme - R5), then flat's `skin`
+/// (paint and metrics). Both are plain declarations: the `@theme` blocks of
+/// an unpinned widget are made from the whole part afterwards
+/// (`theme_blocks::follow_props`), so the part is simply the two lists one
+/// after the other - no `@theme` rank to keep (`theme_blocks::stack_parts`
+/// is for stacking parts that already carry theme blocks).
+/// (`decl::on_base` as the vector type flat's builders answer.)
+fn on_base(
+    base: &[CssPropertyWithConditions],
+    skin: &[CssPropertyWithConditions],
+) -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from_vec(super::decl::on_base(base, skin))
+}
+
+// ==== accordion (groups) ====
+//
+// The flat GROUPS accordion is Explorer's group header (Windows 7's
+// "Hard Disk Drives (2)"): the title and its count in the group-header blue,
+// a #E2E2E2 hairline to the end of the row, and the indicator - a chevron
+// that points right while the group is closed and turns down when it opens.
+// No panel: the groups sit on the page. A header washes to the row-hover
+// blue under the pointer and rings inside on focus. At night the title takes
+// the desktop's link ink, the rule the separator, the wash flat's dark row
+// hover.
+
+/// The group-header blue of Explorer's groups (#1E3287).
+const GROUP_HEADER_INK: ColorU = ColorU {
+    r: 30,
+    g: 50,
+    b: 135,
+    a: 255,
+};
+
+/// The hairline after a group's title (#E2E2E2).
+const GROUP_RULE: ColorU = ColorU {
+    r: 226,
+    g: 226,
+    b: 226,
+    a: 255,
+};
+
+/// The flat groups accordion: Explorer's group headers.
+#[must_use]
+pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
+    use super::decl;
+    use crate::widgets::accordion::AccordionLook;
+
+    let container = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        CssPropertyWithConditions::simple(decl::ink(LIGHT_INK)),
+        system_palette::DARK_TEXT,
+    ];
+
+    let section = decl::margin(0, 0, 6, 0).to_vec();
+
+    let mut header = decl::padding(3, 4, 3, 4).to_vec();
+    header.extend(decl::radius(2));
+    header.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    header.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    // The title hugs its text; the rule takes the rest of the row.
+    let title = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
+        CssPropertyWithConditions::simple(decl::ink(GROUP_HEADER_INK)),
+        system_palette::DARK_LINK,
+    ];
+
+    let mut rule = decl::margin(0, 0, 0, 8).to_vec();
+    rule.extend(decl::border_bottom(1));
+    rule.extend(decl::themed_border_bottom_color(GROUP_RULE, DARK_SEP));
+
+    crate::widgets::accordion::build_groups(
+        a,
+        &AccordionLook {
+            container,
+            section,
+            header,
+            title,
+            chevron: crate::widgets::accordion::chevron_box(16),
+            chevron_icon: "chevron_right",
+            chevron_turn_deg: 90,
+            marker: None,
+        },
+        &rule,
+    )
+}
+
+// ==== tile ====
+//
+// The flat tile is Windows 7 Explorer's drive tile: the icon in a steel
+// blue beside the title, the capacity bar in Explorer's #26A0DA (the alarm
+// red #DA2626 past a tenth free) on a #E6E6E6 track, the "x free of y" line
+// in the secondary ink. A tile washes to the row-hover blue under the
+// pointer, the selected one takes the selection blue #CCE8FF; focus is an
+// inset ring. At night: the desktop's secondary ink, the tree's dark
+// selection, flat's dark row hover.
+
+/// Explorer's capacity blue.
+const TILE_BAR_FILL: ColorU = ColorU {
+    r: 38,
+    g: 160,
+    b: 218,
+    a: 255,
+};
+/// Explorer's capacity red: the volume is nearly full.
+const TILE_BAR_ALARM: ColorU = ColorU {
+    r: 218,
+    g: 38,
+    b: 38,
+    a: 255,
+};
+/// The bar's track.
+const TILE_BAR_TRACK: ColorU = ColorU {
+    r: 230,
+    g: 230,
+    b: 230,
+    a: 255,
+};
+/// The tile icon's steel blue, by day and by night.
+const TILE_ICON_LIGHT: ColorU = ColorU {
+    r: 74,
+    g: 122,
+    b: 181,
+    a: 255,
+};
+const TILE_ICON_DARK: ColorU = ColorU {
+    r: 122,
+    g: 167,
+    b: 224,
+    a: 255,
+};
+/// Explorer's selection blue (#CCE8FF); the tree's dark selection at night.
+const TILE_SELECTED_LIGHT: ColorU = ColorU {
+    r: 204,
+    g: 232,
+    b: 255,
+    a: 255,
+};
+const TILE_SELECTED_DARK: ColorU = ColorU {
+    r: 9,
+    g: 71,
+    b: 113,
+    a: 255,
+};
+
+/// One solid layer, as a bar's fill or track.
+fn solid(color: ColorU) -> StyleBackgroundContentVec {
+    StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(color)])
+}
+
+/// Flat's tile look.
+#[must_use]
+pub(crate) fn tile_look() -> crate::widgets::tile::TileLook {
+    use super::decl;
+    let mut tile = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    tile.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    tile.extend(decl::padding(6, 6, 6, 6));
+    tile.extend(decl::radius(3));
+    tile.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    tile.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let tile_selected = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(44),
+    ))];
+    icon.extend(decl::margin(0, 8, 0, 0));
+    icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut detail = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(12),
+    ))];
+    detail.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::tile::TileLook {
+        tile,
+        tile_selected,
+        icon,
+        title: Vec::new(),
+        detail,
+        bar: decl::margin(3, 0, 3, 0).to_vec(),
+        bar_height: 12,
+        bar_track: solid(TILE_BAR_TRACK),
+        bar_fill: solid(TILE_BAR_FILL),
+        bar_fill_alarm: solid(TILE_BAR_ALARM),
+        marker: None,
+    }
+}
+
+/// The flat tile: Explorer's drive tile.
+#[must_use]
+pub fn tile(t: crate::widgets::tile::Tile) -> Dom {
+    crate::widgets::tile::build(t, &tile_look())
+}
+
+// ==== details_pane ====
+//
+// The flat details pane is Explorer's: a strip on the window surface under
+// a hairline, the big icon in the tile's steel blue, the item's name a shade
+// heavier than its kind, the keys in the secondary ink set right so the
+// values line up. At night the desktop's surfaces and inks.
+
+/// Flat's details-pane look.
+#[must_use]
+pub(crate) fn details_pane_look() -> crate::widgets::details_pane::DetailsPaneLook {
+    use super::decl;
+    let mut pane = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    pane.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    pane.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    pane.extend(decl::padding(8, 16, 8, 16));
+    pane.extend([
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]);
+    pane.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(56),
+    ))];
+    icon.extend(decl::margin(0, 12, 0, 0));
+    icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let heading = decl::margin(0, 24, 0, 0).to_vec();
+    let title = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14,
+        ))),
+        decl::semibold(),
+    ];
+    let mut subtitle = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(12),
+    ))];
+    subtitle.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut key = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(110),
+    ))];
+    key.extend(decl::margin(0, 6, 0, 0));
+    key.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::details_pane::DetailsPaneLook {
+        pane,
+        icon,
+        heading,
+        title,
+        subtitle,
+        properties: Vec::new(),
+        row: decl::margin(1, 0, 1, 0).to_vec(),
+        key,
+        value: Vec::new(),
+        marker: None,
+    }
+}
+
+/// The flat details pane.
+#[must_use]
+pub fn details_pane(p: crate::widgets::details_pane::DetailsPane) -> Dom {
+    crate::widgets::details_pane::build(p, &details_pane_look())
+}
+
+// ==== address_bar ====
+//
+// The flat address bar is Explorer's: a strip on the window surface over a
+// hairline, the arrows and Refresh as flat icon buttons, the path in a
+// field - a white box in the field rule, ringed by the field ring under the
+// pointer - and the search box at a fixed width. At night the desktop's
+// surfaces, the dark field and the accent ring.
+
+/// Flat's address-bar look.
+#[must_use]
+pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook {
+    use super::decl;
+    let mut bar = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    bar.extend(decl::padding(4, 8, 4, 8));
+    bar.extend(decl::border_bottom(1));
+    bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut field = vec![CssPropertyWithConditions::simple(CssProperty::const_height(
+        LayoutHeight::const_px(26),
+    ))];
+    field.extend(decl::padding(0, 6, 0, 6));
+    field.extend(decl::margin(0, 8, 0, 4));
+    field.extend(decl::border(1));
+    field.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    field.extend(decl::radius(2));
+    field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    field.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+
+    crate::widgets::address_bar::AddressBarLook {
+        bar,
+        nav: decl::margin(0, 2, 0, 0).to_vec(),
+        field,
+        field_editing: decl::margin(0, 8, 0, 4).to_vec(),
+        search: vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(220),
+        ))],
+        marker: None,
+    }
+}
+
+/// The flat address bar.
+#[must_use]
+pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
+    crate::widgets::address_bar::build(b, &address_bar_look())
+}
+
+// ==== shells ====
+//
+// The flat shells are Outlook 2010 and Windows Explorer: the window's page
+// ground under white panes, hairlines in the border grey between them,
+// the quiet toolbar strip for the module switcher, the rails and the bars,
+// Explorer's selection blue (#CCE8FF) on the active module, row, category
+// and tab, the row-hover wash under the pointer, and the field ring inside
+// every pane F6 lands on. At night: the desktop's dark surfaces and inks,
+// the tree's dark selection, flat's dark row hover, the accent ring.
+//
+// ONE look for every shell (`ShellLook`): the shells are one design. Every
+// part is paint and metrics only - the structure is the shells' own
+// (`shells::*_BASE`).
+
+/// A font declaration pair: the chrome size and the system family.
+fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            px,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ]
+}
+
+/// `border-right: 1px solid` without a colour.
+const fn shell_border_right() -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+            LayoutBorderRightWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// `border-top: 1px solid` without a colour.
+const fn shell_border_top() -> [CssPropertyWithConditions; 2] {
+    [
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+            LayoutBorderTopWidth::const_px(1),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
+    ]
+}
+
+/// The backdrop tint under the command palette, by day and by night.
+const SHELL_BACKDROP_LIGHT: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 96,
+};
+const SHELL_BACKDROP_DARK: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 150,
+};
+/// The palette panel's shadow.
+const SHELL_SHADOW_LIGHT: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 70,
+};
+const SHELL_SHADOW_DARK: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 160,
+};
+
+/// Flat's shell look.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
+    use super::decl;
+    use crate::widgets::shells::ShellLook;
+
+    let px = |p: CssProperty| CssPropertyWithConditions::simple(p);
+
+    // ---- a clickable item of the chrome: a module button, a row, a tab ----
+    let item = || {
+        let mut v = decl::padding(6, 10, 6, 10).to_vec();
+        v.extend(decl::radius(3));
+        v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+        v.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+        v.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+        v
+    };
+    // ---- Explorer's selection on the active item ----
+    let selected = || {
+        let mut v = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+        v.push(decl::semibold());
+        v
+    };
+    // ---- a pane: a surface and the ring F6 shows ----
+    let pane = || {
+        let mut v = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+        v.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+        v
+    };
+    // ---- a strip of the chrome (toolbar, bars) ----
+    let strip = || decl::themed_fill(LIGHT_STRIP, DARK_STRIP).to_vec();
+    let hairline_right = || {
+        let mut v = shell_border_right().to_vec();
+        v.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+        v
+    };
+    let hairline_top = || {
+        let mut v = shell_border_top().to_vec();
+        v.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+        v
+    };
+    let hairline_bottom = || {
+        let mut v = decl::border_bottom(1).to_vec();
+        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+        v
+    };
+    let hairline_left = || {
+        let mut v = decl::border_left(1).to_vec();
+        v.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+        v
+    };
+
+    // ---- OfficeShell ----
+    let mut shell_root = shell_font(13).to_vec();
+    shell_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    shell_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    let mut shell_rail = strip();
+    shell_rail.extend(hairline_right());
+    shell_rail.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut shell_right_bar = vec![px(CssProperty::const_width(LayoutWidth::const_px(240)))];
+    shell_right_bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    shell_right_bar.extend(hairline_left());
+    shell_right_bar.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    // ---- ShellNavigationPane ----
+    let mut nav_root = vec![px(CssProperty::const_width(LayoutWidth::const_px(230)))];
+    nav_root.extend(shell_font(13));
+    nav_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    nav_root.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    nav_root.extend(hairline_right());
+
+    let mut nav_modules = strip();
+    nav_modules.extend(hairline_top());
+
+    let mut nav_module_icon = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(20)))];
+    nav_module_icon.extend(decl::margin(0, 8, 0, 0));
+    nav_module_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut nav_footer = decl::padding(4, 4, 4, 4).to_vec();
+    nav_footer.push(px(CssProperty::const_justify_content(LayoutJustifyContent::End)));
+
+    let mut nav_strip = vec![px(CssProperty::const_width(LayoutWidth::const_px(40)))];
+    nav_strip.extend(strip());
+    nav_strip.extend(hairline_right());
+
+    let mut nav_strip_item = decl::padding(8, 0, 8, 0).to_vec();
+    nav_strip_item.push(px(CssProperty::const_justify_content(LayoutJustifyContent::Center)));
+    nav_strip_item.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+    nav_strip_item.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    nav_strip_item.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    // ---- ShellCommandPalette ----
+    let mut palette_backdrop = vec![
+        px(CssProperty::const_top(LayoutTop::const_px(0))),
+        px(CssProperty::const_left(LayoutLeft::const_px(0))),
+        px(CssProperty::const_right(LayoutRight::const_px(0))),
+        px(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+        px(CssProperty::const_z_index(LayoutZIndex::Integer(100))),
+        px(CssProperty::const_padding_top(LayoutPaddingTop::const_px(80))),
+    ];
+    palette_backdrop.extend(decl::themed_fill(SHELL_BACKDROP_LIGHT, SHELL_BACKDROP_DARK));
+
+    let mut palette_panel = vec![
+        px(CssProperty::const_width(LayoutWidth::const_px(560))),
+        px(CssProperty::const_max_width(LayoutMaxWidth {
+            inner: PixelValue::const_percent(90),
+        })),
+    ];
+    palette_panel.extend(shell_font(13));
+    palette_panel.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    palette_panel.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    palette_panel.extend(decl::border(1));
+    palette_panel.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    palette_panel.extend(decl::radius(4));
+    palette_panel.extend(decl::themed_shadow(8, 24, SHELL_SHADOW_LIGHT, SHELL_SHADOW_DARK));
+
+    let mut palette_input = decl::padding(8, 8, 8, 8).to_vec();
+    palette_input.extend(decl::border_bottom(1));
+    palette_input.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut palette_list = vec![px(CssProperty::const_max_height(LayoutMaxHeight::const_px(
+        360,
+    )))];
+    palette_list.extend(decl::padding(4, 4, 4, 4));
+
+    let mut palette_row_icon = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(18)))];
+    palette_row_icon.extend(decl::margin(0, 8, 0, 0));
+    palette_row_icon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut palette_row_shortcut = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(
+        12,
+    )))];
+    palette_row_shortcut.extend(decl::margin(0, 0, 0, 12));
+    palette_row_shortcut.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut palette_empty = decl::padding(12, 12, 12, 12).to_vec();
+    palette_empty.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    // ---- ShellSettingsLayout ----
+    let mut settings_root = shell_font(13).to_vec();
+    settings_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    settings_root.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+
+    let mut settings_search = decl::padding(8, 12, 8, 12).to_vec();
+    settings_search.extend(strip());
+    settings_search.extend(hairline_bottom());
+
+    let mut settings_categories = vec![px(CssProperty::const_width(LayoutWidth::const_px(200)))];
+    settings_categories.extend(decl::padding(8, 4, 8, 4));
+    settings_categories.extend(strip());
+    settings_categories.extend(hairline_right());
+
+    let mut settings_section_title = vec![px(CssProperty::const_font_size(
+        StyleFontSize::const_px(12),
+    ))];
+    settings_section_title.push(decl::semibold());
+    settings_section_title.push(decl::letter_spacing_em(0.04));
+    settings_section_title.extend(decl::margin(0, 0, 8, 0));
+    settings_section_title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    // ---- ShellEmptyState ----
+    let mut empty_root = decl::padding(32, 32, 32, 32).to_vec();
+    empty_root.extend(shell_font(13));
+    empty_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut empty_icon = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(48)))];
+    empty_icon.extend(decl::margin(0, 0, 12, 0));
+    empty_icon.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+
+    let mut empty_title = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
+    empty_title.push(decl::semibold());
+    empty_title.extend(decl::margin(0, 0, 4, 0));
+
+    let mut empty_detail = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(13)))];
+    empty_detail.extend(decl::margin(0, 0, 12, 0));
+    empty_detail.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    // ---- ShellThemeScope ----
+    let mut scope_root = shell_font(13).to_vec();
+    scope_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    scope_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    // ---- the bars ----
+    let mut toolbar_row = decl::padding(4, 8, 4, 8).to_vec();
+    toolbar_row.extend(strip());
+    toolbar_row.extend(hairline_bottom());
+
+    let mut drawer = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    drawer.extend(hairline_top());
+
+    let mut tiles_grid = decl::padding(8, 8, 8, 8).to_vec();
+    tiles_grid.extend(decl::themed_fill(LIGHT_DESK, DARK_DESK));
+
+    let mut app_bar = vec![px(CssProperty::const_height(LayoutHeight::const_px(48)))];
+    app_bar.extend(decl::padding(0, 8, 0, 8));
+    app_bar.extend(shell_font(13));
+    app_bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    app_bar.extend(strip());
+    app_bar.extend(hairline_bottom());
+
+    let mut app_bar_title = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    app_bar_title.push(decl::semibold());
+    app_bar_title.extend(decl::margin(0, 8, 0, 8));
+
+    let fab = vec![
+        px(CssProperty::const_bottom(LayoutInsetBottom::const_px(16))),
+        px(CssProperty::const_right(LayoutRight::const_px(16))),
+    ];
+
+    let mut bottom_tabs = vec![px(CssProperty::const_height(LayoutHeight::const_px(56)))];
+    bottom_tabs.extend(strip());
+    bottom_tabs.extend(hairline_top());
+
+    let mut bottom_tab = decl::padding(6, 4, 6, 4).to_vec();
+    bottom_tab.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    bottom_tab.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    bottom_tab.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut bottom_tab_label = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(11)))];
+    bottom_tab_label.extend(decl::margin(2, 0, 0, 0));
+
+    ShellLook {
+        shell_root,
+        shell_title: Vec::new(),
+        shell_ribbon: Vec::new(),
+        shell_body: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        shell_pane: pane(),
+        shell_rail,
+        shell_right_bar,
+        shell_status: Vec::new(),
+        shell_backstage: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        nav_root,
+        nav_header: decl::padding(8, 8, 4, 8).to_vec(),
+        nav_groups: decl::padding(4, 4, 4, 4).to_vec(),
+        nav_modules,
+        nav_module: item(),
+        nav_module_active: selected(),
+        nav_module_icon,
+        nav_module_label: vec![px(CssProperty::const_font_size(StyleFontSize::const_px(13)))],
+        nav_footer,
+        nav_strip,
+        nav_strip_item,
+        palette_backdrop,
+        palette_panel,
+        palette_input,
+        palette_list,
+        palette_row: item(),
+        palette_row_selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        palette_row_icon,
+        palette_row_label: vec![px(CssProperty::const_font_size(StyleFontSize::const_px(13)))],
+        palette_row_shortcut,
+        palette_empty,
+        settings_root,
+        settings_search,
+        settings_categories,
+        settings_category: item(),
+        settings_category_active: selected(),
+        settings_sections: decl::padding(16, 24, 16, 24).to_vec(),
+        settings_section: decl::margin(0, 0, 20, 0).to_vec(),
+        settings_section_title,
+        empty_root,
+        empty_icon,
+        empty_title,
+        empty_detail,
+        empty_action: decl::margin(8, 0, 0, 0).to_vec(),
+        scope_root,
+        toolbar_row,
+        drawer,
+        tiles_grid,
+        tile_cell: decl::padding(4, 4, 4, 4).to_vec(),
+        app_bar,
+        app_bar_title,
+        page: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        fab,
+        bottom_tabs,
+        bottom_tab,
+        bottom_tab_active: decl::themed_ink(LIGHT_ACC, DARK_ACC).to_vec(),
+        bottom_tab_icon: vec![px(CssProperty::const_font_size(StyleFontSize::const_px(22)))],
+        bottom_tab_label,
+        marker: None,
+    }
+}
+// ==== info_bar ====
+//
+// The flat info bar is Outlook's: the alert palette's pastel face for the
+// kind across the width under a hairline in the kind's rule colour, its ink
+// for the text, the glyph the same ink; Bootstrap's dark alert palette at
+// night (the alert's own twins). The action is a link button.
+
+/// The flat strip for one kind: the alert's kind colours, as a strip.
+fn flat_info_bar_strip(kind: crate::widgets::alert::AlertKind) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let (bg, border, text) = kind.colors();
+    let (dark_bg, dark_border, dark_text) = kind.dark_colors();
+    let mut v = vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    v.extend(decl::padding(6, 12, 6, 12));
+    v.extend(decl::border_bottom(1));
+    v.extend(decl::themed_border_bottom_color(border, dark_border));
+    v.extend(decl::themed_fill(bg, dark_bg));
+    v.extend(decl::themed_ink(text, dark_text));
+    v
+}
+
+/// Flat's info-bar look.
+#[must_use]
+pub(crate) fn info_bar_look() -> crate::widgets::info_bar::InfoBarLook {
+    use super::decl;
+    let mut icon = vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(18),
+    ))];
+    icon.extend(decl::margin(0, 8, 0, 0));
+    crate::widgets::info_bar::InfoBarLook {
+        strip: flat_info_bar_strip,
+        icon,
+        text: Vec::new(),
+        action: decl::margin(0, 0, 0, 12).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat info bar.
+#[must_use]
+pub fn info_bar(b: crate::widgets::info_bar::InfoBar) -> Dom {
+    crate::widgets::info_bar::build(b, &info_bar_look())
+}
+
+// ==== mail widgets: shared strokes ====
+//
+// What the mail panes share in the flat look: the window-surface strip
+// under a hairline (a search row, a sort band, a footer, a button row) and
+// the page-coloured sheet the list and the message sit on.
+
+/// A strip of the window surface closed by a hairline below.
+fn flat_strip_below() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    v.extend(decl::border_bottom(1));
+    v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    v
+}
+
+/// A strip of the window surface opened by a hairline above.
+fn flat_strip_above() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec();
+    v.extend(decl::border_top(1));
+    v.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    v
+}
+
+/// The sheet: the UI face in the ink on the page colour.
+fn flat_sheet() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = vec![
+        super::decl::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    v.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    v
+}
+
+// ==== summary_list ====
+//
+// The flat message list is Outlook 2010's on Windows 7: a white list under
+// a search strip and a sort band on the window surface, the rows a hairline
+// apart, the sender in the ink and bold when unread, the subject, the
+// preview and the date in the secondary inks, the glyphs in the tile's
+// steel blue; a row washes to the row-hover blue under the pointer, the
+// selected one takes the selection blue, focus is an inset ring; a group
+// header is a band of the strip colour. At night the desktop's surfaces and
+// inks and the tree's dark selection.
+
+/// Flat's summary-list look.
+#[must_use]
+pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLook {
+    use super::decl;
+
+    let mut toolbar = decl::padding(6, 8, 6, 8).to_vec();
+    toolbar.extend(flat_strip_below());
+
+    let mut sort = vec![decl::font_size(12)];
+    sort.extend(decl::padding(3, 8, 3, 8));
+    sort.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    sort.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    sort.extend(decl::border_bottom(1));
+    sort.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut row = decl::padding(5, 8, 5, 8).to_vec();
+    row.extend(decl::border_bottom(1));
+    row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    row.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+    row.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut group = vec![decl::font_size(12), decl::semibold()];
+    group.extend(decl::padding(3, 8, 3, 8));
+    group.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    group.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+    group.extend(decl::border_bottom(1));
+    group.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut icon = vec![decl::font_size(18)];
+    icon.extend(decl::margin(0, 8, 0, 0));
+    icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut subject = vec![decl::font_size(12)];
+    subject.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut preview = vec![decl::font_size(12)];
+    preview.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+    let mut date = vec![decl::font_size(12)];
+    date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    date.extend(decl::margin(0, 0, 2, 8));
+    let mut attachment = vec![decl::font_size(14)];
+    attachment.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::summary_list::SummaryListLook {
+        list: flat_sheet(),
+        toolbar,
+        search: decl::margin(0, 6, 0, 0).to_vec(),
+        scopes: Vec::new(),
+        sort,
+        rows: Vec::new(),
+        row,
+        row_unread: Vec::new(),
+        row_selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        group,
+        icon,
+        from: Vec::new(),
+        from_unread: vec![decl::bold()],
+        subject,
+        preview,
+        date,
+        attachment,
+        flag: decl::margin(0, 0, 0, 4).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat message list.
+#[must_use]
+pub fn summary_list(l: crate::widgets::summary_list::SummaryList) -> Dom {
+    crate::widgets::summary_list::build(l, &summary_list_look())
+}
+
+// ==== reading_pane ====
+//
+// The flat reading pane is Outlook's: the message on the page colour, its
+// subject large and semibold over the sender line, the header fields in a
+// block under a hairline with the keys in the secondary ink set right, the
+// body on the same sheet, and the people footer a strip of the window
+// surface over a hairline. At night the desktop's surfaces and inks.
+
+/// Flat's reading-pane look.
+#[must_use]
+pub(crate) fn reading_pane_look() -> crate::widgets::reading_pane::ReadingPaneLook {
+    use super::decl;
+
+    let mut header = decl::padding(12, 16, 8, 16).to_vec();
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut subject = vec![decl::font_size(20), decl::semibold()];
+    subject.extend(decl::margin(0, 0, 4, 0));
+
+    let mut date = vec![decl::font_size(12)];
+    date.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    date.extend(decl::margin(0, 0, 0, 12));
+
+    let mut fields = vec![decl::font_size(12)];
+    fields.extend(decl::padding(8, 16, 8, 16));
+    fields.extend(decl::border_bottom(1));
+    fields.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut field_key = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(56),
+    ))];
+    field_key.extend(decl::margin(0, 6, 0, 0));
+    field_key.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut attachments = decl::padding(6, 16, 6, 16).to_vec();
+    attachments.extend(decl::border_bottom(1));
+    attachments.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut footer = vec![decl::font_size(12)];
+    footer.extend(decl::padding(8, 16, 8, 16));
+    footer.extend(flat_strip_above());
+
+    crate::widgets::reading_pane::ReadingPaneLook {
+        pane: flat_sheet(),
+        header,
+        subject,
+        sender_line: vec![decl::font_size(12)],
+        date,
+        notice: Vec::new(),
+        fields,
+        field_key,
+        field_value: Vec::new(),
+        attachments,
+        body: decl::padding(16, 16, 16, 16).to_vec(),
+        footer,
+        footer_line: decl::margin(0, 0, 0, 8).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat reading pane.
+#[must_use]
+pub fn reading_pane(p: crate::widgets::reading_pane::ReadingPane) -> Dom {
+    crate::widgets::reading_pane::build(p, &reading_pane_look())
+}
+
+// ==== todo_bar ====
+//
+// The flat To-Do bar is Outlook's: a column of the window surface, the
+// calendar at the top, the appointments between two hairlines in the
+// secondary ink when there are none, the task line, and the tasks a
+// hairline apart, a done task's date dimmed. At night the desktop's
+// surfaces and inks.
+
+/// Flat's To-Do bar look.
+#[must_use]
+pub(crate) fn todo_bar_look() -> crate::widgets::todo_bar::ToDoBarLook {
+    use super::decl;
+
+    let mut bar = vec![
+        decl::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    bar.extend(decl::padding(8, 8, 8, 8));
+
+    let mut appointments = decl::padding(6, 4, 6, 4).to_vec();
+    appointments.extend(decl::border_top(1));
+    appointments.extend(decl::themed_border_top_color(LIGHT_BD, DARK_BD));
+    appointments.extend(decl::border_bottom(1));
+    appointments.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut empty = vec![decl::font_size(12)];
+    empty.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    empty.extend(decl::padding(4, 0, 4, 0));
+
+    let mut task = decl::padding(3, 0, 3, 0).to_vec();
+    task.extend(decl::border_bottom(1));
+    task.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut task_due = vec![decl::font_size(11)];
+    task_due.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    task_due.extend(decl::margin(0, 0, 0, 6));
+
+    crate::widgets::todo_bar::ToDoBarLook {
+        bar,
+        calendar: decl::margin(0, 0, 8, 0).to_vec(),
+        appointments,
+        appointment: decl::padding(2, 0, 2, 0).to_vec(),
+        empty,
+        task_input: decl::margin(6, 0, 6, 0).to_vec(),
+        tasks: Vec::new(),
+        task,
+        task_done: decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2).to_vec(),
+        task_title: decl::margin(0, 0, 0, 6).to_vec(),
+        task_due,
+        marker: None,
+    }
+}
+
+/// The flat To-Do bar.
+#[must_use]
+pub fn todo_bar(b: crate::widgets::todo_bar::ToDoBar) -> Dom {
+    crate::widgets::todo_bar::build(b, &todo_bar_look())
+}
+
+// ==== wizard_layout ====
+//
+// The flat wizard is an Office dialog: the rail on a strip of the window
+// surface over a hairline, the page on the page colour with its title
+// semibold, the buttons on a strip under a hairline. At night the desktop's
+// surfaces and inks.
+
+/// Flat's wizard-layout look.
+#[must_use]
+pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayoutLook {
+    use super::decl;
+
+    let mut rail = decl::padding(12, 16, 12, 16).to_vec();
+    rail.extend(flat_strip_below());
+
+    let mut title = vec![decl::font_size(18), decl::semibold()];
+    title.extend(decl::margin(0, 0, 12, 0));
+
+    let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
+    buttons.extend(flat_strip_above());
+
+    // The frames: a Windows installer's white banner over a hairline, the
+    // macOS installer's side panel on the window surface.
+    let mut subtitle = vec![decl::font_size(12)];
+    subtitle.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+    subtitle.extend(decl::margin(2, 0, 8, 0));
+
+    let mut banner = decl::padding(12, 16, 4, 16).to_vec();
+    banner.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    banner.extend(decl::border_bottom(1));
+    banner.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut banner_icon = vec![decl::font_size(32)];
+    banner_icon.extend(decl::margin(0, 0, 8, 12));
+    banner_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut side_panel = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(180),
+    ))];
+    side_panel.extend(decl::padding(16, 12, 16, 16));
+    side_panel.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    side_panel.extend(shell_border_right());
+    side_panel.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+
+    let mut side_icon = vec![decl::font_size(40)];
+    side_icon.extend(decl::margin(0, 0, 16, 0));
+    side_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut side_step = vec![decl::font_size(13)];
+    side_step.extend(decl::padding(4, 0, 4, 0));
+    side_step.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut side_step_current = vec![decl::semibold()];
+    side_step_current.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let warning = crate::widgets::alert::AlertKind::Warning;
+    let mut reason = vec![decl::font_size(12)];
+    reason.extend(decl::margin(0, 12, 0, 12));
+    reason.extend(decl::themed_ink(warning.colors().2, warning.dark_colors().2));
+
+    crate::widgets::wizard_layout::WizardLayoutLook {
+        layout: flat_sheet(),
+        rail,
+        page: decl::padding(16, 16, 16, 16).to_vec(),
+        title,
+        buttons,
+        button: decl::margin(0, 0, 0, 8).to_vec(),
+        subtitle,
+        banner,
+        banner_title: vec![decl::font_size(14), decl::semibold()],
+        banner_icon,
+        side_panel,
+        side_icon,
+        side_step,
+        side_step_current,
+        reason,
+        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
+            StyleOpacity::const_new(50),
+        ))],
+        marker: None,
+    }
+}
+
+/// The flat wizard layout.
+#[must_use]
+pub fn wizard_layout(w: crate::widgets::wizard_layout::WizardLayout) -> Dom {
+    crate::widgets::wizard_layout::build(w, &wizard_layout_look())
+}
+
+// ==== dialog kit (wizard pages, path input, shortcut recorder, settings rows, standard dialogs) ====
+//
+// The flat dialog is an Office dialog on Windows 7: the system face in the
+// ink, a heading semibold, sizes / help / descriptions in the secondary
+// ink, a white field box with a grey hairline that takes the field ring on
+// focus (a license, a log, a list), list rows a separator apart, a setting
+// row's label column 240 wide, a search match on a pale yellow wash (an
+// amber one at night), the recorder a field that turns the selection blue
+// while it listens, the message glyphs in the alert palette's inks, the
+// button row a strip of the window surface over a hairline. At night the
+// desktop's surfaces and inks.
+
+/// The search match's wash, light and dark.
+const KIT_MARK_LIGHT: ColorU = ColorU::new(255, 230, 150, 255);
+const KIT_MARK_DARK: ColorU = ColorU::new(110, 90, 20, 255);
+const KIT_MARK_INK_DARK: ColorU = ColorU::new(255, 236, 179, 255);
+
+/// Flat's dialog-kit look.
+#[must_use]
+pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
+    use super::decl;
+    use crate::widgets::alert::AlertKind;
+
+    let px = |p: CssProperty| CssPropertyWithConditions::simple(p);
+    let soft = |size: isize| {
+        let mut v = vec![decl::font_size(size)];
+        v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        v
+    };
+    let glyph_of = |kind: AlertKind| {
+        let mut v = vec![decl::font_size(32)];
+        v.extend(decl::margin(0, 16, 0, 0));
+        v.extend(decl::themed_ink(kind.colors().2, kind.dark_colors().2));
+        v
+    };
+
+    let mut page = vec![
+        decl::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    page.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut logo = vec![decl::font_size(48)];
+    logo.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
+
+    let mut label = vec![decl::semibold()];
+    label.extend(decl::margin(0, 0, 4, 0));
+
+    let mut scroll_box = decl::border(1).to_vec();
+    scroll_box.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    scroll_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    scroll_box.extend(decl::padding(6, 8, 6, 8));
+    scroll_box.extend(decl::radius(2));
+    scroll_box.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+
+    let mut list_row = decl::padding(4, 4, 4, 4).to_vec();
+    list_row.extend(decl::border_bottom(1));
+    list_row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut size = soft(12);
+    size.extend(decl::margin(0, 0, 0, 12));
+
+    let mut total = vec![decl::semibold()];
+    total.extend(decl::padding(8, 0, 0, 0));
+
+    let mut description = soft(12);
+    description.extend(decl::margin(0, 0, 6, 28));
+
+    let mut summary_key = vec![decl::font_size(12), decl::semibold()];
+    summary_key.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut field_row = decl::padding(8, 0, 8, 0).to_vec();
+    field_row.extend(decl::border_bottom(1));
+    field_row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut field_label = vec![px(CssProperty::const_width(LayoutWidth::const_px(240)))];
+    field_label.extend(decl::margin(0, 16, 0, 0));
+
+    let mut help = soft(12);
+    help.extend(decl::margin(2, 0, 0, 0));
+
+    let mut mark = decl::themed_fill(KIT_MARK_LIGHT, KIT_MARK_DARK).to_vec();
+    mark.extend(decl::themed_ink(LIGHT_INK, KIT_MARK_INK_DARK));
+
+    let mut modified = vec![decl::font_size(12)];
+    modified.extend(decl::margin(0, 6, 0, 0));
+    modified.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
+
+    let mut unit = soft(12);
+    unit.extend(decl::margin(0, 0, 0, 6));
+
+    let mut recorder = vec![
+        px(CssProperty::const_min_width(LayoutMinWidth::const_px(160))),
+        decl::font_size(13),
+    ];
+    recorder.extend(decl::border(1));
+    recorder.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    recorder.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    recorder.extend(decl::padding(4, 8, 4, 8));
+    recorder.extend(decl::radius(2));
+    recorder.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+    recorder.extend(decl::focus_ring(FIELD_RING, DARK_ACC));
+
+    let mut recorder_recording = decl::themed_border_color(FIELD_RING, DARK_ACC);
+    recorder_recording.extend(decl::themed_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
+
+    let mut dialog = vec![px(CssProperty::const_min_width(LayoutMinWidth::const_px(360)))];
+    dialog.extend(decl::padding(16, 20, 16, 20));
+
+    let mut icon_question = vec![decl::font_size(32)];
+    icon_question.extend(decl::margin(0, 16, 0, 0));
+    icon_question.extend(decl::themed_ink(LIGHT_ACC, DARK_ACC));
+
+    let warning = AlertKind::Warning;
+    let mut notice = vec![decl::font_size(12)];
+    notice.extend(decl::margin(0, 12, 0, 12));
+    notice.extend(decl::themed_ink(warning.colors().2, warning.dark_colors().2));
+
+    let mut category_icon = vec![decl::font_size(16)];
+    category_icon.extend(decl::margin(0, 8, 0, 0));
+    category_icon.extend(decl::themed_ink(TILE_ICON_LIGHT, TILE_ICON_DARK));
+
+    let mut buttons = decl::padding(10, 16, 10, 16).to_vec();
+    buttons.extend(flat_strip_above());
+
+    crate::widgets::dialog_kit::DialogKitLook {
+        page,
+        heading: vec![decl::font_size(18), decl::semibold()],
+        text: vec![decl::font_size(13)],
+        hint: soft(12),
+        logo,
+        block: decl::margin(0, 0, 12, 0).to_vec(),
+        label,
+        scroll_box,
+        list_row,
+        size,
+        total,
+        check_row: decl::padding(3, 0, 3, 0).to_vec(),
+        check_label: decl::margin(0, 0, 0, 8).to_vec(),
+        description,
+        summary_key,
+        summary_row: decl::padding(2, 0, 0, 16).to_vec(),
+        field_row,
+        field_label,
+        help,
+        mark,
+        modified,
+        unit,
+        recorder,
+        recorder_recording,
+        dialog,
+        icon_info: glyph_of(AlertKind::Info),
+        icon_warning: glyph_of(AlertKind::Warning),
+        icon_error: glyph_of(AlertKind::Danger),
+        icon_question,
+        buttons,
+        button: decl::margin(0, 0, 0, 8).to_vec(),
+        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
+            StyleOpacity::const_new(50),
+        ))],
+        notice,
+        category_icon,
+        marker: None,
+    }
+}
+// ==== timeline ====
+//
+// The flat timeline is Premiere's on the Windows 7 desktop: the ruler on
+// the window strip under its hairline, the track headers on the surface,
+// the lanes on the desk a hairline apart, the clips as rounded blocks in
+// their tint (video blue, audio green, titles violet, the accent, a quiet
+// grey) with white names, the selected clip ringed in gold, the playhead a
+// red line through the ruler and the lanes; focus is the field ring inside
+// the lanes. At night the desktop's dark surfaces, the tints a step deeper.
+
+const TIMELINE_VIDEO_LIGHT: ColorU = ColorU::rgb(0x4F, 0x74, 0xBF);
+const TIMELINE_VIDEO_DARK: ColorU = ColorU::rgb(0x3D, 0x5C, 0x99);
+const TIMELINE_AUDIO_LIGHT: ColorU = ColorU::rgb(0x3F, 0x8C, 0x5E);
+const TIMELINE_AUDIO_DARK: ColorU = ColorU::rgb(0x33, 0x70, 0x4B);
+const TIMELINE_TITLE_LIGHT: ColorU = ColorU::rgb(0x8E, 0x58, 0xB0);
+const TIMELINE_TITLE_DARK: ColorU = ColorU::rgb(0x6E, 0x44, 0x8A);
+const TIMELINE_MUTED_LIGHT: ColorU = ColorU::rgb(0x7A, 0x80, 0x8A);
+const TIMELINE_MUTED_DARK: ColorU = ColorU::rgb(0x52, 0x57, 0x5F);
+const TIMELINE_CLIP_INK: ColorU = ColorU::rgb(0xFF, 0xFF, 0xFF);
+const TIMELINE_PLAYHEAD_LIGHT: ColorU = ColorU::rgb(0xD0, 0x33, 0x2B);
+const TIMELINE_PLAYHEAD_DARK: ColorU = ColorU::rgb(0xFF, 0x5F, 0x52);
+const TIMELINE_SELECTED_RING: ColorU = ColorU::rgb(0xFF, 0xD3, 0x4D);
+
+/// A line `px` wide (a tick, the playhead).
+fn flat_timeline_line(px: isize, light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = vec![CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(px),
+    ))];
+    v.extend(decl::themed_fill(light, dark));
+    v
+}
+
+/// A flat clip of `tint`: its block, its white name.
+fn flat_timeline_clip(
+    tint: crate::widgets::timeline::TimelineClipTint,
+) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    use crate::widgets::timeline::TimelineClipTint as T;
+    let (light, dark) = match tint {
+        T::Video => (TIMELINE_VIDEO_LIGHT, TIMELINE_VIDEO_DARK),
+        T::Audio => (TIMELINE_AUDIO_LIGHT, TIMELINE_AUDIO_DARK),
+        T::Title => (TIMELINE_TITLE_LIGHT, TIMELINE_TITLE_DARK),
+        T::Accent => (LIGHT_ACC, DARK_ACC),
+        T::Muted => (TIMELINE_MUTED_LIGHT, TIMELINE_MUTED_DARK),
+    };
+    let mut v = decl::themed_fill(light, dark).to_vec();
+    v.extend(decl::themed_ink(TIMELINE_CLIP_INK, TIMELINE_CLIP_INK));
+    v.extend(decl::radius(3));
+    v.extend(decl::padding(0, 6, 0, 4));
+    v
+}
+
+/// Flat's timeline look.
+#[must_use]
+pub(crate) fn timeline_look() -> crate::widgets::timeline::TimelineLook {
+    use super::decl;
+
+    let mut corner = vec![decl::font_size(12), decl::semibold()];
+    corner.extend(decl::padding(0, 8, 0, 8));
+    corner.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut ruler = decl::border_left(1).to_vec();
+    ruler.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+
+    let mut tick_label = vec![decl::font_size(10)];
+    tick_label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut header = decl::padding(0, 2, 0, 8).to_vec();
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut track_name = vec![decl::font_size(12), decl::semibold()];
+    track_name.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+
+    let mut lanes = decl::themed_fill(LIGHT_DESK, DARK_DESK).to_vec();
+    lanes.extend(decl::border_left(1));
+    lanes.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+    lanes.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut lane = decl::border_bottom(1).to_vec();
+    lane.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let selected = CssPropertyWithConditions::themed(
+        decl::shadow(0, 0, 2, TIMELINE_SELECTED_RING, true),
+        decl::shadow(0, 0, 2, TIMELINE_SELECTED_RING, true),
+    )
+    .to_vec();
+
+    let mut clip_thumb = decl::margin(0, 5, 0, 0).to_vec();
+    clip_thumb.extend(decl::radius(2));
+
+    let clip_label = vec![decl::font_size(11), decl::semibold()];
+    let mut clip_detail = vec![decl::font_size(10)];
+    clip_detail.extend(decl::margin(0, 0, 0, 6));
+
+    let mut scroll_track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    scroll_track.extend(decl::radius(4));
+    scroll_track.extend(decl::margin(2, 8, 2, 4));
+
+    let mut thumb = decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec();
+    thumb.extend(decl::radius(3));
+
+    crate::widgets::timeline::TimelineLook {
+        root: flat_sheet(),
+        head: flat_strip_below(),
+        corner,
+        ruler,
+        tick: flat_timeline_line(1, LIGHT_BD3, DARK_BD3),
+        tick_minor: flat_timeline_line(1, LIGHT_BD, DARK_BD),
+        tick_label,
+        ruler_head: flat_timeline_line(2, TIMELINE_PLAYHEAD_LIGHT, TIMELINE_PLAYHEAD_DARK),
+        headers: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        header,
+        track_name,
+        lanes,
+        lane,
+        clip: flat_timeline_clip,
+        clip_selected: selected,
+        clip_thumb,
+        clip_label,
+        clip_detail,
+        playhead: flat_timeline_line(2, TIMELINE_PLAYHEAD_LIGHT, TIMELINE_PLAYHEAD_DARK),
+        scroll: flat_strip_above(),
+        scroll_track,
+        thumb,
+        marker: None,
+    }
+}
+
+/// The flat timeline.
+#[must_use]
+pub fn timeline(t: crate::widgets::timeline::Timeline) -> Dom {
+    crate::widgets::timeline::build(t, &timeline_look())
+}
+// ==== selection_adorner ====
+//
+// The flat selection adorner is PowerPoint 2013's: a hairline grey frame,
+// white square handles ringed in the same grey, a round rotate handle on a
+// grey stem, the smart guides in the orange-red of Office's alignment
+// guides, the marquee a pale blue wash in a blue hairline; the canvas's
+// focus is the field ring inside it. At night the grey lightens, the handles
+// take the desktop's surface and the blue lifts.
+
+const ADORNER_FRAME_LIGHT: ColorU = ColorU::new(0x7A, 0x7A, 0x7A, 255);
+const ADORNER_FRAME_DARK: ColorU = ColorU::new(0xB4, 0xB4, 0xB4, 255);
+const ADORNER_HANDLE_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
+const ADORNER_GUIDE_LIGHT: ColorU = ColorU::new(0xE0, 0x4E, 0x39, 255);
+const ADORNER_GUIDE_DARK: ColorU = ColorU::new(0xFF, 0x7B, 0x63, 255);
+const ADORNER_MARQUEE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 31);
+const ADORNER_MARQUEE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 46);
+const ADORNER_MARQUEE_EDGE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 255);
+const ADORNER_MARQUEE_EDGE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 255);
+
+/// Flat's selection-adorner look.
+#[must_use]
+pub(crate) fn selection_adorner_look() -> crate::widgets::selection_adorner::SelectionAdornerLook {
+    use super::decl;
+
+    let mut frame = decl::border(1).to_vec();
+    frame.extend(decl::themed_border_color(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK));
+
+    let mut handle = decl::border(1).to_vec();
+    handle.extend(decl::themed_border_color(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK));
+    handle.extend(decl::themed_fill(ADORNER_HANDLE_LIGHT, DARK_SUR));
+
+    let mut marquee = decl::themed_fill(ADORNER_MARQUEE_LIGHT, ADORNER_MARQUEE_DARK).to_vec();
+    marquee.extend(decl::border(1));
+    marquee.extend(decl::themed_border_color(
+        ADORNER_MARQUEE_EDGE_LIGHT,
+        ADORNER_MARQUEE_EDGE_DARK,
+    ));
+
+    crate::widgets::selection_adorner::SelectionAdornerLook {
+        root: decl::focus_halo_inset(FIELD_RING, DARK_ACC).to_vec(),
+        frame: frame.clone(),
+        group: frame,
+        editing: decl::themed_fill(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK).to_vec(),
+        handle,
+        rotate: decl::radius(4).to_vec(),
+        stem: decl::themed_fill(ADORNER_FRAME_LIGHT, ADORNER_FRAME_DARK).to_vec(),
+        guide: decl::themed_fill(ADORNER_GUIDE_LIGHT, ADORNER_GUIDE_DARK).to_vec(),
+        marquee,
+        marker: None,
+    }
+}
+
+// ==== thumbnail_strip ====
+//
+// The flat thumbnail strip is PowerPoint 2013's slide rail: the window
+// surface, each slide's number small and grey beside (or under) its
+// preview, the preview in a grey 2 px frame that turns PowerPoint's orange
+// (the item washed peach) when the slide is selected, a hidden slide's preview at half strength,
+// the section headers semibold in the ink; focus is the field ring inside
+// the item. At night the desktop's surfaces and inks, the orange lifts.
+
+const THUMB_SELECTED_LIGHT: ColorU = ColorU::new(0xD2, 0x47, 0x26, 255);
+const THUMB_SELECTED_DARK: ColorU = ColorU::new(0xF2, 0x8B, 0x6A, 255);
+const THUMB_PAPER_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
+const THUMB_ITEM_SELECTED_LIGHT: ColorU = ColorU::new(0xFC, 0xE4, 0xD6, 255);
+const THUMB_ITEM_SELECTED_DARK: ColorU = ColorU::new(0x4A, 0x30, 0x26, 255);
+
+/// Flat's thumbnail-strip look.
+#[must_use]
+pub(crate) fn thumbnail_strip_look() -> crate::widgets::thumbnail_strip::ThumbnailStripLook {
+    use super::decl;
+
+    let mut strip = vec![
+        decl::font_size(12),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    strip.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    strip.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    strip.extend(decl::padding(6, 6, 6, 6));
+
+    let mut section = vec![decl::font_size(12), decl::semibold()];
+    section.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    section.extend(decl::padding(6, 4, 4, 2));
+
+    let mut section_icon = vec![decl::font_size(16)];
+    section_icon.extend(decl::margin(0, 4, 0, 0));
+    section_icon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut item = decl::padding(4, 6, 4, 2).to_vec();
+    item.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut number = vec![decl::font_size(12)];
+    number.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    number.extend(decl::margin(2, 6, 0, 0));
+
+    let mut badge = vec![decl::font_size(14)];
+    badge.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut thumb = decl::border(2).to_vec();
+    thumb.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    thumb.extend(decl::themed_fill(THUMB_PAPER_LIGHT, DARK_SUR));
+
+    crate::widgets::thumbnail_strip::ThumbnailStripLook {
+        strip,
+        section,
+        section_icon,
+        item,
+        item_selected: decl::themed_fill(THUMB_ITEM_SELECTED_LIGHT, THUMB_ITEM_SELECTED_DARK).to_vec(),
+        number,
+        badge,
+        thumb,
+        thumb_selected: decl::themed_border_color(THUMB_SELECTED_LIGHT, THUMB_SELECTED_DARK),
+        thumb_hidden: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
+            azul_css::props::style::StyleOpacity::const_new(50),
+        ))],
+        marker: None,
+    }
+}
+
+// ==== cell_grid ====
+//
+// The flat grid is Excel 2010's on Windows 7: white cells a light hairline
+// apart, the column letters and row numbers on the window strip in the
+// secondary ink, the headers of the selection washed in the selection blue
+// (a wholly selected column or row in the accent), the selected cells
+// tinted, the current range outlined in the accent with the fill handle at
+// its corner, the in-cell editor a page-coloured box in the accent. At
+// night the desktop's surfaces and inks.
+
+/// Flat's cell-grid look.
+#[must_use]
+pub(crate) fn cell_grid_look() -> crate::widgets::cell_grid::CellGridLook {
+    use super::decl;
+
+    let mut grid = alloc::vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY)
+    )];
+    grid.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    grid.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    let mut header = alloc::vec![decl::font_size(11)];
+    header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    header.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    header.extend(decl::border_right(1));
+    header.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut header_active = decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec();
+    header_active.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut header_selected = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    header_selected.extend(decl::themed_ink(LIGHT_ON_ACC, DARK_ON_ACC));
+
+    let mut grid_line_right = decl::border_right(1).to_vec();
+    grid_line_right.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    let mut grid_line_bottom = decl::border_bottom(1).to_vec();
+    grid_line_bottom.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    let mut no_line_right = decl::border_right(1).to_vec();
+    no_line_right.extend(decl::themed_border_right_color(LIGHT_PG, DARK_PG));
+    let mut no_line_bottom = decl::border_bottom(1).to_vec();
+    no_line_bottom.extend(decl::themed_border_bottom_color(LIGHT_PG, DARK_PG));
+
+    let mut outline = decl::border(2).to_vec();
+    outline.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    let mut fill_handle = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    fill_handle.extend(decl::border(1));
+    fill_handle.extend(decl::themed_border_color(LIGHT_PG, DARK_PG));
+    let mut fill_preview = decl::border(1).to_vec();
+    fill_preview.extend(decl::themed_border_color(LIGHT_SOFT1, DARK_SOFT1));
+    let mut editor = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    editor.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    editor.extend(decl::border(2));
+    editor.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    editor.extend(decl::padding(0, 3, 0, 3));
+
+    crate::widgets::cell_grid::CellGridLook {
+        grid,
+        corner: header.clone(),
+        header,
+        header_active,
+        header_selected,
+        grid_line_right,
+        grid_line_bottom,
+        no_line_right,
+        no_line_bottom,
+        selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        freeze_line: decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec(),
+        outline,
+        fill_handle,
+        fill_preview,
+        editor,
+        caret: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat cell grid.
+#[must_use]
+pub(crate) fn cell_grid(g: crate::widgets::cell_grid::CellGridResolved) -> Dom {
+    crate::widgets::cell_grid::build(g, &cell_grid_look())
+}
+
+// ==== tree_view badge ====
+//
+// The count after a tree node's label (a mail folder's unread messages):
+// flat writes it semibold in Windows' accent blue, and on a selected row in
+// the label's ink. The skins are the widget's own statics, like the rest of
+// flat's tree (`tree_view::BADGE_STYLE`, `BADGE_SELECTED_STYLE`).
+
+/// Flat's look for a tree node's badge.
+#[must_use]
+pub(crate) fn tree_view_badge_look() -> crate::widgets::tree_view::TreeViewBadgeLook {
+    use crate::widgets::tree_view as t;
+    t::TreeViewBadgeLook {
+        badge: on_base(t::BADGE_BASE, t::BADGE_STYLE),
+        badge_selected: on_base(t::BADGE_BASE, t::BADGE_SELECTED_STYLE),
+    }
+}
+
+// ==== button: toggled ====
+
+/// The face a toggled-on button rests on (`Button::with_toggled(true)`):
+/// the face its `:active` state shows, at rest, in both modes - a neutral
+/// button the desktop's pressed tone, a coloured one its own pressed
+/// colour, a link underlined.
+#[must_use]
+pub fn button_toggled_face(
+    button_type: crate::widgets::button::ButtonType,
+) -> Vec<CssPropertyWithConditions> {
+    use crate::widgets::button::{ButtonSurface, ButtonType};
+
+    if button_type == ButtonType::Link {
+        return CssPropertyWithConditions::themed(
+            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+        )
+        .to_vec();
+    }
+    let bg = |c: ColorU| {
+        CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(c)])
+                .into(),
+        )
+    };
+    let (_, _, active) = crate::widgets::button::get_button_colors(button_type);
+    let dark_active = if button_type.surface() == ButtonSurface::Neutral {
+        DARK_PT
+    } else {
+        active
+    };
+    CssPropertyWithConditions::themed(bg(active), bg(dark_active)).to_vec()
+}
+
+// ==== rich_text_editor ====
+//
+// The flat rich-text editor is the mail panes' sheet (the page colour, the
+// ink, the UI face) in a hairline frame, under a toolbar strip of the
+// window surface closed by a hairline. The document on the sheet is the
+// user's content: the mode's system colours, the same in every theme.
+
+/// Flat's rich-text editor look.
+#[must_use]
+pub(crate) fn rich_text_editor_look() -> crate::widgets::rich_text_editor::RichTextEditorLook {
+    use super::decl;
+    let mut frame = decl::border(1).to_vec();
+    frame.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    let mut toolbar = decl::padding(2, 4, 2, 4).to_vec();
+    toolbar.extend(flat_strip_below());
+    crate::widgets::rich_text_editor::RichTextEditorLook {
+        frame,
+        toolbar,
+        page: flat_sheet(),
+    }
+}
+
+/// The flat rich-text editor's chrome (frame, toolbar strip, page).
+#[must_use]
+pub fn rich_text_editor(chrome: crate::widgets::rich_text_editor::RichTextEditorChrome) -> Dom {
+    crate::widgets::rich_text_editor::build_chrome(chrome, &rich_text_editor_look())
+}
+
+// ==== date_repeat_picker ====
+//
+// The flat date repeat picker is Outlook's "Appointment Recurrence" form:
+// rows a few pixels apart, each a label column in the secondary ink, then
+// the controls 8 px apart; the units after a number in the secondary ink.
+// The controls are the toolkit's own widgets in flat. At night the
+// desktop's inks.
+
+/// Flat's date-repeat-picker look.
+#[must_use]
+pub(crate) fn date_repeat_picker_look() -> crate::widgets::date_repeat_picker::DateRepeatPickerLook {
+    use super::decl;
+
+    let gap = |px: isize| {
+        CssPropertyWithConditions::simple(CssProperty::ColumnGap(LayoutColumnGapValue::Exact(
+            LayoutColumnGap {
+                inner: PixelValue::const_px(px),
+            },
+        )))
+    };
+    let mut editor = vec![
+        decl::font_size(13),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    editor.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut row = decl::margin(4, 0, 4, 0).to_vec();
+    row.push(gap(8));
+    let mut label = vec![decl::px_width(64.0)];
+    label.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let unit = decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec();
+
+    crate::widgets::date_repeat_picker::DateRepeatPickerLook {
+        editor,
+        row,
+        label,
+        unit,
+        number: vec![decl::px_width(64.0)],
+        weekdays: vec![gap(4)],
+        marker: None,
+    }
+}
+
+/// The flat date repeat picker.
+#[must_use]
+pub fn date_repeat_picker(e: crate::widgets::date_repeat_picker::DateRepeatPicker) -> Dom {
+    crate::widgets::date_repeat_picker::build(e, &date_repeat_picker_look())
+}
+
+// ==== data_table ====
+//
+// The flat data table is a Windows list view in Details mode on the
+// desktop's palette: white rows a light hairline apart with a faint zebra
+// band, the column titles semibold on the window strip (a sorted column's
+// title in the accent, its arrow beside it), the filter row in field white
+// with a quiet "Filter" placeholder, selected rows washed in the selection
+// blue, the cursor's cell outlined in the accent, thin grey scroll bars.
+// At night the desktop's surfaces and inks.
+
+/// Flat's data-table look.
+#[must_use]
+pub(crate) fn data_table_look() -> crate::widgets::data_table::DataTableLook {
+    use super::decl;
+
+    let mut table = alloc::vec![CssPropertyWithConditions::simple(
+        CssProperty::const_font_family(SYSTEM_UI_FAMILY)
+    )];
+    table.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    table.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+
+    let mut header = alloc::vec![decl::semibold()];
+    header.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    header.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    header.extend(decl::border_right(1));
+    header.extend(decl::themed_border_right_color(LIGHT_BD, DARK_BD));
+    header.extend(decl::border_bottom(1));
+    header.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut filter = decl::themed_fill(LIGHT_FLD, DARK_FLD).to_vec();
+    filter.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    filter.extend(decl::border_right(1));
+    filter.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    filter.extend(decl::border_bottom(1));
+    filter.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+
+    let mut cell = decl::border_right(1).to_vec();
+    cell.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+    let mut row = decl::border_bottom(1).to_vec();
+    row.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+
+    let mut cursor = decl::border(2).to_vec();
+    cursor.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    let mut editor = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    editor.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    editor.extend(decl::border(2));
+    editor.extend(decl::themed_border_color(LIGHT_ACC, DARK_ACC));
+    editor.extend(decl::padding(0, 5, 0, 5));
+
+    let mut thumb = decl::themed_fill(LIGHT_SOFT2, DARK_SOFT2).to_vec();
+    thumb.extend(decl::radius(4));
+    let mut notice = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    notice.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    notice.extend(decl::padding(2, 6, 2, 6));
+    notice.extend(decl::border(1));
+    notice.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
+    notice.extend(decl::radius(3));
+
+    crate::widgets::data_table::DataTableLook {
+        table,
+        header,
+        header_sorted: decl::themed_ink(LIGHT_ACC, DARK_SOFT).to_vec(),
+        filter,
+        filter_empty: decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec(),
+        cell,
+        row,
+        row_alternate: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        row_selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        cursor,
+        editor,
+        caret: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
+        freeze_line: decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec(),
+        track: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        thumb,
+        notice,
+        marker: None,
+    }
+}
+
+/// The flat data table.
+#[must_use]
+pub(crate) fn data_table(t: crate::widgets::data_table::DataTableResolved) -> Dom {
+    crate::widgets::data_table::build(t, &data_table_look())
+}
+
+// ==== chart ====
+//
+// The flat chart is a white sheet (the page colour; flat's night page in
+// the dark) in the UI face at 12 px: the title semibold in the ink, tick
+// labels in the muted ink, legend names and axis titles in the secondary
+// ink. Gridlines are the faint separator, the baseline the strong border,
+// the crosshair the strong border too. The series wear the chart's
+// categorical palette (`chart::CHART_PALETTE`, the same in every theme: it
+// is checked for colour-blind separation, a theme's accent is not); the
+// selection and the focus ring wear flat's accent. The tooltip is the
+// tooltip widget's own chip.
+
+/// Flat's chart skin.
+#[must_use]
+pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
+    use super::decl;
+    use crate::widgets::chart::{ChartColor, ChartSkin, CHART_PALETTE};
+
+    let mut root = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    root.push(decl::font_size(12));
+    root.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
+        SYSTEM_UI_FAMILY,
+    )));
+    root.extend(decl::radius(4));
+
+    let mut title = vec![decl::font_size(14), decl::semibold()];
+    title.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    let mut tick = vec![decl::font_size(11)];
+    tick.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut caption = vec![decl::font_size(12)];
+    caption.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+
+    let mut table_head = decl::padding(4, 8, 4, 8).to_vec();
+    table_head.push(decl::semibold());
+    table_head.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    table_head.extend(decl::border_bottom(1));
+    table_head.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    let mut table_cell = decl::padding(3, 8, 3, 8).to_vec();
+    table_cell.extend(decl::themed_ink(LIGHT_INTRO, DARK_INTRO));
+
+    ChartSkin {
+        root,
+        title,
+        tick,
+        caption,
+        tip: tooltip_skin().tip.as_slice().to_vec(),
+        table_head,
+        table_cell,
+        surface: ChartColor::create(LIGHT_PG, DARK_PG),
+        grid: ChartColor::create(LIGHT_SEP2, DARK_SEP2),
+        axis: ChartColor::create(LIGHT_BD3, DARK_BD),
+        crosshair: ChartColor::create(LIGHT_BD3, DARK_BD3),
+        accent: ChartColor::create(LIGHT_ACC, DARK_ACC),
+        palette: CHART_PALETTE,
+        marker: None,
+    }
+}

@@ -47,7 +47,6 @@ This is the standard configuration for screenshot diffing in CI, smoke tests, an
 Two environment variables, set before the process starts:
 
 - `AZ_BACKEND=headless`. Forces the headless backend even when a display is available.
-- `AZUL_HEADLESS=1`. Legacy alias for the same.
 - `AZ_DEBUG=<port>`. Starts the HTTP debug server (event injection plus screenshot capture).
 
 ```bash

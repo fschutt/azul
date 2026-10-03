@@ -4,10 +4,7 @@ use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{
-        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-        TabIndex,
-    },
+    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     geom::{LogicalPosition, LogicalSize},
     menu::{Menu, OptionMenu},
     refany::{OptionRefAny, RefAny},
@@ -69,6 +66,7 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
     &[StyleFontFamily::System(STRING_16146701490593874959)];
 const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
             r: 255,
@@ -78,6 +76,7 @@ const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] =
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(50),
         color: ColorOrSystem::color(ColorU {
             r: 255,
@@ -87,6 +86,7 @@ const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] =
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(51),
         color: ColorOrSystem::color(ColorU {
             r: 247,
@@ -96,6 +96,7 @@ const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] =
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(ColorU {
             r: 243,
@@ -237,7 +238,7 @@ const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = 
     ))),
     // Same reason as the tree's label: a conditional inline value is not
     // inherited, so the cell states its own dark colour.
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+    CssPropertyWithConditions::dark_mode(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
             inner: ColorU {
                 r: 230,
@@ -279,7 +280,7 @@ const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS,
         )),
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::dark_mode(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
             StyleBackgroundContent::Color(ColorU {
                 r: 43,
@@ -321,7 +322,7 @@ const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+    CssPropertyWithConditions::dark_mode(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
             inner: ColorU {
                 r: 230,
@@ -350,7 +351,7 @@ const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = 
     // Dark defaults. Inline CSS takes `@theme dark` conditions and the last
     // matching property wins, so each dark value sits after the light one it
     // replaces. A list is a FIELD: in a dark window it must not stay white.
-    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::dark_mode(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(&[
             StyleBackgroundContent::Color(ColorU {
                 r: 31,
@@ -360,7 +361,7 @@ const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = 
             }),
         ])),
     )),
-    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+    CssPropertyWithConditions::dark_mode(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
             inner: ColorU {
                 r: 230,
@@ -619,9 +620,10 @@ const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_7894335449545988724: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_7894335449545988724_PROPERTIES);
 
-const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul_native-list-rows-row",
-))];
+/// The class every row carries: how the arrow-key handler finds the rows.
+const ROW_CLASS_NAME: &str = "__azul_native-list-rows-row";
+const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] =
+    &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
 const ROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605);
 
 const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -806,6 +808,13 @@ pub struct ListView {
     /// What to do when the user left-clicks a row
     /// (usually used for selecting the row depending on the state)
     pub on_row_click: OptionListViewOnRowClick,
+    /// The selected row, if any (default = None).
+    ///
+    /// The list is ONE stop in the Tab order (WAI-ARIA listbox): Tab lands on
+    /// this row, or on the first row when none is selected, and the arrow keys
+    /// move between the rows from there. Up/Down/Home/End report the row they
+    /// land on through `on_row_click`, like a click - store it here on rebuild.
+    pub selected_row: OptionUsize,
 }
 
 impl Default for ListView {
@@ -822,6 +831,7 @@ impl Default for ListView {
             on_lazy_load_scroll: None.into(),
             on_column_click: None.into(),
             on_row_click: None.into(),
+            selected_row: None.into(),
         }
     }
 }
@@ -896,7 +906,7 @@ impl ListView {
     /// `(total, total)` once scrolled past the end.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     #[must_use]
-    pub fn visible_row_range(
+    pub(crate) fn visible_row_range(
         scroll_y: f32,
         viewport_height: f32,
         row_height: f32,
@@ -932,6 +942,19 @@ impl ListView {
 
     pub const fn set_sorted_by(&mut self, sorted_by: OptionUsize) {
         self.sorted_by = sorted_by;
+    }
+
+    /// Builder form of [`Self::set_selected_row`].
+    #[must_use]
+    pub const fn with_selected_row(mut self, selected_row: OptionUsize) -> Self {
+        self.set_selected_row(selected_row);
+        self
+    }
+
+    /// Which row is selected: the row Tab lands on (the list is one Tab stop).
+    /// `None` - or an index past the last row - puts the stop on the first row.
+    pub const fn set_selected_row(&mut self, selected_row: OptionUsize) {
+        self.selected_row = selected_row;
     }
 
     #[must_use]
@@ -1008,6 +1031,34 @@ impl ListView {
         .into();
     }
 
+    /// Builder form of [`Self::set_on_lazy_load_scroll`].
+    #[must_use]
+    pub fn with_on_lazy_load_scroll<C: Into<ListViewOnLazyLoadScrollCallback>>(
+        mut self,
+        refany: RefAny,
+        on_lazy_load_scroll: C,
+    ) -> Self {
+        self.set_on_lazy_load_scroll(refany, on_lazy_load_scroll);
+        self
+    }
+
+    /// The lazy-load hook: hears every SETTLED scroll of the row box (the
+    /// `ListViewState` it gets carries the live scroll position and the
+    /// box's size, so `visible_row_range` tells which rows came into view
+    /// and the app loads them and rebuilds). A settled gesture, not the
+    /// wheel: the list never takes the wheel from the page.
+    pub fn set_on_lazy_load_scroll<C: Into<ListViewOnLazyLoadScrollCallback>>(
+        &mut self,
+        refany: RefAny,
+        on_lazy_load_scroll: C,
+    ) {
+        self.on_lazy_load_scroll = Some(ListViewOnLazyLoadScroll {
+            refany,
+            callback: on_lazy_load_scroll.into(),
+        })
+        .into();
+    }
+
     #[must_use]
     pub fn dom(self) -> Dom {
         // Snapshot the state handed to row/column click callbacks. Runtime-only
@@ -1023,6 +1074,15 @@ impl ListView {
         };
         let on_column_click = self.on_column_click.clone();
         let on_row_click = self.on_row_click.clone();
+        let on_lazy_load_scroll = self.on_lazy_load_scroll.clone();
+        // WAI-ARIA listbox: the rows are ONE Tab stop - the selected row, or
+        // the first when none is. The arrow keys move within them.
+        let row_stop = crate::widgets::roving::stop_index(
+            self.selected_row.into_option(),
+            self.rows.as_ref().len(),
+        );
+        // The row the list announces as selected.
+        let selected_row = self.selected_row.into_option();
 
         Dom::create_div()
             .with_css_props(CSS_MATCH_17553577885456905601)
@@ -1071,10 +1131,14 @@ impl ListView {
                             .into(),
                     ),
                 // rows
-                Dom::create_div()
-                    .with_css_props(CSS_MATCH_4852927511892172364)
-                    .with_ids_and_classes(ROW_CONTAINER_CLASS)
-                    .with_children(
+                lazy_rows(
+                    on_lazy_load_scroll,
+                    &state,
+                    Dom::create_div()
+                        .with_css_props(CSS_MATCH_4852927511892172364)
+                        .with_ids_and_classes(ROW_CONTAINER_CLASS),
+                )
+                .with_children(
                         self.rows
                             .into_iter()
                             .enumerate()
@@ -1082,14 +1146,27 @@ impl ListView {
                                 let row_dom = Dom::create_div()
                                     .with_css_props(CSS_MATCH_7894335449545988724)
                                     .with_ids_and_classes(ROW_CLASS)
-                                    .with_tab_index(TabIndex::Auto)
-            // Role so the accessibility tree knows what this IS:
-            // a list, so a reader can say "3 of 12". The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::List,
-                ..Default::default()
-            })
+                                    .with_tab_index(crate::widgets::roving::item_tab_index(
+                                        row_index, row_stop,
+                                    ))
+                                    // An ITEM of the list, so a reader can say
+                                    // "3 of 12", and whether it is the selected
+                                    // one. The NAME comes from the row's own text.
+                                    .with_accessibility_info(
+                                        azul_core::a11y::AccessibilityInfo {
+                                            role: azul_core::a11y::AccessibilityRole::ListItem,
+                                            states: if selected_row == Some(row_index) {
+                                                azul_core::a11y::AccessibilityStateVec::from_vec(
+                                                    vec![
+                                                        azul_core::a11y::AccessibilityState::Selected,
+                                                    ],
+                                                )
+                                            } else {
+                                                azul_core::a11y::AccessibilityStateVec::from_const_slice(&[])
+                                            },
+                                            ..Default::default()
+                                        },
+                                    )
                                     .with_children(
                                         row.cells
                                             .as_ref()
@@ -1103,23 +1180,42 @@ impl ListView {
                                             .collect::<Vec<_>>()
                                             .into(),
                                     );
+                                let row_data = RefAny::new(RowClickData {
+                                    row_index,
+                                    state: state.clone(),
+                                    on_row_click: on_row_click.clone(),
+                                });
+                                // The arrow keys work on every list (focus moves
+                                // even when nobody listens for the selection);
+                                // the click is wired only when the app set a hook.
+                                let key = CoreCallbackData {
+                                    event: EventFilter::Focus(
+                                        azul_core::events::FocusEventFilter::VirtualKeyDown,
+                                    ),
+                                    refany: row_data.clone(),
+                                    callback: CoreCallback {
+                                        cb: on_list_view_row_key as usize,
+                                        ctx: OptionRefAny::None,
+                                    },
+                                };
                                 match &on_row_click {
                                     OptionListViewOnRowClick::Some(_) => row_dom.with_callbacks(
-                                        vec![CoreCallbackData {
-                                            event: EventFilter::Hover(HoverEventFilter::Click),
-                                            refany: RefAny::new(RowClickData {
-                                                row_index,
-                                                state: state.clone(),
-                                                on_row_click: on_row_click.clone(),
-                                            }),
-                                            callback: CoreCallback {
-                                                cb: on_list_view_row_click as usize,
-                                                ctx: OptionRefAny::None,
+                                        vec![
+                                            CoreCallbackData {
+                                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                                refany: row_data,
+                                                callback: CoreCallback {
+                                                    cb: on_list_view_row_click as usize,
+                                                    ctx: OptionRefAny::None,
+                                                },
                                             },
-                                        }]
+                                            key,
+                                        ]
                                         .into(),
                                     ),
-                                    OptionListViewOnRowClick::None => row_dom,
+                                    OptionListViewOnRowClick::None => {
+                                        row_dom.with_callbacks(vec![key].into())
+                                    }
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -1158,6 +1254,73 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
     }
 }
 
+/// Arrow keys on the focused row (WAI-ARIA APG single-select listbox): Up and
+/// Down move to the neighbouring row and hold at the ends, Home and End jump to
+/// the first / last row. The target row is focused, becomes the list's one Tab
+/// stop and is SELECTED - reported through `on_row_click` exactly like a click
+/// on it (selection follows focus). Every handled key is `prevent_default`-ed,
+/// an arrow at the end of the list included, so spatial navigation cannot walk
+/// out of the list. Left/Right, every other key and any key held with Alt,
+/// Ctrl, Cmd or Shift keep their default.
+extern "C" fn on_list_view_row_key(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Up) => Step::Previous,
+        Some(K::Down) => Step::Next,
+        Some(K::Home) => Step::First,
+        Some(K::End) => Step::Last,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(container) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let rows = roving::items_of(&info, container, ROW_CLASS_NAME);
+    let Some(current) = rows.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, rows.len(), step, false) else {
+        return Update::DoNothing;
+    };
+    let (state, on_row_click) = {
+        let Some(data) = refany.downcast_ref::<RowClickData>() else {
+            return Update::DoNothing;
+        };
+        (data.state.clone(), data.on_row_click.clone())
+    };
+
+    info.prevent_default();
+    if target == current {
+        // Already at that end: the key is the list's, but nothing moves.
+        return Update::DoNothing;
+    }
+    // Moved BEFORE the app hears the selection, so a focus it asks for wins.
+    roving::move_stop(&mut info, &rows, target);
+    // Selection follows focus: the target row is the selected one from now
+    // on, announced live - the app's rebuild (if it rebuilds) publishes it
+    // again from `selected_row`.
+    roving::announce_chosen(
+        &mut info,
+        &rows,
+        target,
+        azul_core::a11y::AccessibilityState::Selected,
+        None,
+    );
+    // The rows are the row container's children in order, so the target's
+    // position IS its row index.
+    match on_row_click.as_ref() {
+        Some(ListViewOnRowClick {
+            refany: user_data,
+            callback,
+        }) => callback.invoke(user_data.clone(), info, state, target),
+        None => Update::DoNothing,
+    }
+}
+
 /// `MouseUp` on a column header → invoke the app's `on_column_click(state, col_index)`.
 extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) -> Update {
     let Some(data) = refany.downcast_ref::<ColumnClickData>() else {
@@ -1170,6 +1333,93 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
         }) => callback.invoke(user_data.clone(), info, data.state.clone(), data.col_index),
         None => Update::DoNothing,
     }
+}
+
+// ---- the scroll window of a virtualised list ----
+//
+// A list that shows thousands of rows renders only the ones in view and asks
+// the app for the rest as the user scrolls. What it needs from the engine is
+// WHERE its scroll box stands once a gesture settles - never the wheel
+// itself, which stays the page's (`widgets::wheel_ownership`): the box
+// listens for `ScrollEnd`, reads its offset and size, and the app maps them
+// to rows (`ListView::visible_row_range`). Shared by every virtualised
+// list (the `ListView`'s lazy-load hook, the mail `SummaryList`).
+
+/// The hook a virtualised list's scroll box registers: `cb` runs with
+/// `refany` when a scroll gesture over the box SETTLES.
+pub(crate) fn scroll_settled_hook(
+    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+    refany: RefAny,
+) -> CoreCallbackData {
+    CoreCallbackData {
+        event: EventFilter::Hover(HoverEventFilter::ScrollEnd),
+        callback: CoreCallback {
+            cb: cb as usize,
+            ctx: OptionRefAny::None,
+        },
+        refany,
+    }
+}
+
+/// Where the scroll box `node` stands: its scroll offset and its size -
+/// zero where the engine keeps no scroll state for it yet (a box that never
+/// scrolled, a test harness), so the app still hears the settled gesture.
+#[must_use]
+pub(crate) fn scroll_window_of(
+    info: &CallbackInfo,
+    node: azul_core::dom::DomNodeId,
+) -> (LogicalPosition, LogicalSize) {
+    let offset = node
+        .node
+        .into_crate_internal()
+        .and_then(|n| info.get_scroll_offset_for_node(node.dom, n))
+        .unwrap_or_else(LogicalPosition::zero);
+    let size = info.get_node_size(node).unwrap_or_else(LogicalSize::zero);
+    (offset, size)
+}
+
+/// The row box `rows`, listening for a settled scroll when the list has a
+/// lazy-load hook.
+fn lazy_rows(hook: OptionListViewOnLazyLoadScroll, state: &ListViewState, rows: Dom) -> Dom {
+    match hook.into_option() {
+        Some(on_lazy_load_scroll) => rows.with_callbacks(
+            vec![scroll_settled_hook(
+                on_list_view_scroll_settled,
+                RefAny::new(LazyLoadData {
+                    state: state.clone(),
+                    on_lazy_load_scroll,
+                }),
+            )]
+            .into(),
+        ),
+        None => rows,
+    }
+}
+
+/// The row box's payload: the list state at build time plus the app's
+/// lazy-load hook.
+struct LazyLoadData {
+    state: ListViewState,
+    on_lazy_load_scroll: ListViewOnLazyLoadScroll,
+}
+
+/// A scroll over the row box settled: hand the app the state with the live
+/// scroll position and box size filled in.
+extern "C" fn on_list_view_scroll_settled(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let (mut state, hook) = {
+        let Some(data) = refany.downcast_ref::<LazyLoadData>() else {
+            return Update::DoNothing;
+        };
+        (data.state.clone(), data.on_lazy_load_scroll.clone())
+    };
+    let (offset, size) = scroll_window_of(&info, info.get_hit_node());
+    state.current_scroll_position = offset;
+    state.current_content_height = size;
+    let ListViewOnLazyLoadScroll {
+        refany: user_data,
+        callback,
+    } = hook;
+    callback.invoke(user_data, info, state)
 }
 
 #[cfg(test)]
@@ -1226,26 +1476,126 @@ mod list_view_click_tests {
         let on_row_click: ListViewOnRowClickCallbackType = noop_row;
         lv.set_on_row_click(RefAny::new(()), on_row_click);
         let dom = lv.dom();
+        let clicks = |row: &Dom| {
+            row.root
+                .callbacks
+                .as_ref()
+                .iter()
+                .filter(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click))
+                .count()
+        };
         // children = [header, rows]; each row div carries the MouseUp callback.
         let rows = dom.children.as_ref()[1].children.as_ref();
         assert_eq!(rows.len(), 2);
         for row in rows {
             assert_eq!(
-                row.root.callbacks.as_ref().len(),
+                clicks(row),
                 1,
                 "row must carry the click callback when on_row_click is set"
             );
         }
 
-        // Without the hook → no callbacks (opt-in, no wasted dispatch).
+        // Without the hook → no click callback (opt-in, no wasted dispatch).
+        // The arrow-key handler stays: focus still moves between the rows.
         let mut bare = ListView::default();
         bare.rows = ListViewRowVec::from_vec(vec![empty_row()]);
         let dom2 = bare.dom();
         let rows2 = dom2.children.as_ref()[1].children.as_ref();
         assert_eq!(rows2.len(), 1);
+        assert_eq!(clicks(&rows2[0]), 0, "no click callback when on_row_click is unset");
+        assert_eq!(rows2[0].root.callbacks.as_ref().len(), 1, "only the key handler");
+    }
+}
+
+#[cfg(test)]
+mod lazy_load_tests {
+    //! The lazy-load hook: a list that loads rows as the user scrolls must
+    //! HEAR the scroll. The hook sat on the struct but `dom()` never wired
+    //! it, so no app could ever be told to load more.
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::widgets::roving::test_support as rv;
+
+    type Log = Arc<Mutex<Vec<usize>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, state: ListViewState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state.current_row_count);
+        }
+        Update::RefreshDom
+    }
+
+    fn rows(n: usize) -> ListViewRowVec {
+        ListViewRowVec::from_vec(
+            (0..n)
+                .map(|_| ListViewRow {
+                    cells: DomVec::from_const_slice(&[]),
+                    height: None.into(),
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_lazily_loaded_list_hears_a_settled_scroll_and_a_plain_one_does_not() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = ListView::default()
+            .with_rows(rows(3))
+            .with_on_lazy_load_scroll(
+                RefAny::new(log.clone()),
+                record as ListViewOnLazyLoadScrollCallbackType,
+            )
+            .dom();
+        let row_box = &dom.children.as_ref()[1];
+        let events: Vec<EventFilter> = row_box
+            .root
+            .get_callbacks()
+            .as_ref()
+            .iter()
+            .map(|cb| cb.event)
+            .collect();
+        assert_eq!(
+            events,
+            vec![EventFilter::Hover(HoverEventFilter::ScrollEnd)],
+            "the row box reports a scroll once it settles - never the wheel itself, which the \
+             page keeps"
+        );
+        let plain = ListView::default().with_rows(rows(3)).dom();
         assert!(
-            rows2[0].root.callbacks.as_ref().is_empty(),
-            "no callback when on_row_click is unset"
+            plain.children.as_ref()[1]
+                .root
+                .get_callbacks()
+                .as_ref()
+                .is_empty(),
+            "no hook, no listener"
+        );
+
+        // root (0) > header (no columns: no children) > row box.
+        let styled = StyledDom::create_from_dom(dom);
+        let hierarchy = styled.node_hierarchy.as_ref();
+        let header = hierarchy[0]
+            .first_child_id(NodeId::new(0))
+            .expect("the header");
+        let row_box = hierarchy[header.index()]
+            .next_sibling_id()
+            .expect("the row box");
+        let target = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(row_box)),
+        };
+        let (update, _) = rv::fire(&styled, target, EventFilter::Hover(HoverEventFilter::ScrollEnd))
+            .expect("the hook runs");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(
+            *log.lock().expect("log"),
+            vec![3],
+            "the app hears how many rows are loaded"
         );
     }
 }
@@ -1486,6 +1836,7 @@ mod autotest_generated {
         assert!(lv.on_lazy_load_scroll.is_none());
         assert!(lv.on_column_click.is_none());
         assert!(lv.on_row_click.is_none());
+        assert!(lv.selected_row.is_none());
         assert_eq!(lv.scroll_offset, PixelValueNoPercent::zero());
 
         // An empty column list is accepted, not rejected or defaulted.
@@ -1862,7 +2213,7 @@ mod autotest_generated {
 
         for (i, row) in rows.children.as_ref().iter().enumerate() {
             let cbs = row.root.callbacks.as_ref();
-            assert_eq!(cbs.len(), 1);
+            assert_eq!(cbs.len(), 2, "the click and the arrow-key callback");
             assert!(matches!(
                 cbs[0].event,
                 EventFilter::Hover(HoverEventFilter::Click)
@@ -1898,9 +2249,20 @@ mod autotest_generated {
             .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
             .with_on_row_click(RefAny::new(()), rcb)
             .dom();
+        let is_click =
+            |cb: &CoreCallbackData| cb.event == EventFilter::Hover(HoverEventFilter::Click);
         let (h, r) = header_and_rows(&row_only);
         assert!(h.children.as_ref()[0].root.callbacks.as_ref().is_empty());
-        assert_eq!(r.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
+        assert_eq!(
+            r.children.as_ref()[0]
+                .root
+                .callbacks
+                .as_ref()
+                .iter()
+                .filter(|&cb| is_click(cb))
+                .count(),
+            1
+        );
 
         let col_only = ListView::create(cols(&["a"]))
             .with_rows(ListViewRowVec::from_vec(vec![row_with(1)]))
@@ -1908,7 +2270,15 @@ mod autotest_generated {
             .dom();
         let (h, r) = header_and_rows(&col_only);
         assert_eq!(h.children.as_ref()[0].root.callbacks.as_ref().len(), 1);
-        assert!(r.children.as_ref()[0].root.callbacks.as_ref().is_empty());
+        assert!(
+            !r.children.as_ref()[0]
+                .root
+                .callbacks
+                .as_ref()
+                .iter()
+                .any(|cb| is_click(cb)),
+            "a column hook must not attach a row click"
+        );
     }
 
     /// A wrong-typed payload must make the internal handlers bail out rather
@@ -1960,7 +2330,7 @@ mod autotest_generated {
         assert_eq!(r.children.as_ref().len(), N_ROWS);
         for row in r.children.as_ref() {
             assert_eq!(row.children.as_ref().len(), N_COLS);
-            assert_eq!(row.root.callbacks.as_ref().len(), 1);
+            assert_eq!(row.root.callbacks.as_ref().len(), 2, "click + arrow keys");
         }
     }
 
@@ -1990,7 +2360,7 @@ mod autotest_generated {
             }
             let dark_gated = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
             if dark_gated {
                 dark.push((p.get_type(), i));
             } else {
@@ -2064,6 +2434,291 @@ mod autotest_generated {
         assert!(
             !theme_probe::dark(row).is_empty() && !theme_probe::dark(header_item).is_empty(),
             "the theme contributed no dark-mode declarations at all"
+        );
+    }
+}
+
+/// WAI-ARIA APG single-select listbox (P2-12): the rows are ONE Tab stop and
+/// the arrow keys move focus - and the selection - between them.
+#[cfg(test)]
+mod roving_tabindex_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId, NodeId, TabIndex},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+        window::VirtualKeyCode,
+    };
+
+    use super::*;
+    use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
+
+    /// Every row index an `on_row_click` hears.
+    struct RowLog {
+        seen: Vec<usize>,
+    }
+
+    extern "C" fn record_row(
+        mut data: RefAny,
+        _: CallbackInfo,
+        _: ListViewState,
+        row: usize,
+    ) -> Update {
+        if let Some(mut log) = data.downcast_mut::<RowLog>() {
+            log.seen.push(row);
+        }
+        Update::RefreshDom
+    }
+
+    fn rows_heard(log: &mut RefAny) -> Vec<usize> {
+        log.downcast_ref::<RowLog>()
+            .expect("payload must still be a RowLog")
+            .seen
+            .clone()
+    }
+
+    fn empty_rows(n: usize) -> ListViewRowVec {
+        ListViewRowVec::from_vec(
+            (0..n)
+                .map(|_| ListViewRow {
+                    cells: DomVec::from_const_slice(&[]),
+                    height: None.into(),
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// A one-column list of `n` cell-less rows, with `on_row_click` logging
+    /// into `log` when one is given.
+    fn list(n: usize, log: Option<&RefAny>) -> ListView {
+        let lv = ListView::create(StringVec::from_vec(vec![AzString::from("name")]))
+            .with_rows(empty_rows(n));
+        match log {
+            Some(log) => {
+                let rcb: ListViewOnRowClickCallbackType = record_row;
+                lv.with_on_row_click(log.clone(), rcb)
+            }
+            None => lv,
+        }
+    }
+
+    /// A plain tab stop, the list, another plain tab stop. Flattened: root 0,
+    /// before 1, list container 2, header 3, column 4 (> label `<p>` 5 > text
+    /// 6), rows container 7, row `i` at `8 + i`, after at `8 + n`.
+    fn page(lv: ListView) -> StyledDom {
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), lv.dom(), stop()].into());
+        StyledDom::create_from_dom(page)
+    }
+
+    fn node(idx: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(idx))),
+        }
+    }
+
+    fn before() -> DomNodeId {
+        node(1)
+    }
+
+    fn row(i: usize) -> DomNodeId {
+        node(8 + i)
+    }
+
+    fn after(n: usize) -> DomNodeId {
+        node(8 + n)
+    }
+
+    fn press_row(
+        styled: &StyledDom,
+        i: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, row(i), key, held)
+            .expect("every list row must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn with_no_row_selected_tab_lands_on_the_first_row_and_the_next_tab_leaves_the_list() {
+        let styled = page(list(4, None));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(0), after(4)],
+            "the list is ONE tab stop, not one per row",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(after(4)), false, 2),
+            vec![row(0), before()],
+        );
+    }
+
+    #[test]
+    fn tab_lands_on_the_selected_row_and_an_out_of_range_selection_falls_back_to_the_first() {
+        let styled = page(list(4, None).with_selected_row(Some(2_usize).into()));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(2), after(4)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(after(4)), false, 2),
+            vec![row(2), before()],
+        );
+
+        let styled = page(list(4, None).with_selected_row(Some(9_usize).into()));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(0), after(4)],
+        );
+    }
+
+    #[test]
+    fn set_selected_row_and_with_selected_row_agree() {
+        let mut lv = list(3, None);
+        lv.set_selected_row(Some(1_usize).into());
+        assert_eq!(lv.selected_row.as_ref().copied(), Some(1));
+        let lv = lv.with_selected_row(None.into());
+        assert!(lv.selected_row.is_none());
+    }
+
+    #[test]
+    fn arrow_down_on_a_row_focuses_and_selects_the_next_row() {
+        let mut log = RefAny::new(RowLog { seen: Vec::new() });
+        let styled = page(list(4, Some(&log)));
+
+        let (update, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+
+        assert_eq!(rows_heard(&mut log), vec![1], "selection follows focus");
+        assert_eq!(update, Update::RefreshDom, "the app's verdict is forwarded");
+        assert_eq!(rv::focus_request(&changes), Some(row(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_ends_and_up_and_down_hold_there() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        // (focused row, key, selected row - or None when nothing moves)
+        for (from, key, to) in [
+            (2, K::Up, Some(1)),
+            (1, K::Down, Some(2)),
+            (2, K::Home, Some(0)),
+            (1, K::End, Some(3)),
+            (0, K::Up, None),
+            (3, K::Down, None),
+            (0, K::Home, None),
+            (3, K::End, None),
+        ] {
+            let mut log = RefAny::new(RowLog { seen: Vec::new() });
+            let styled = page(list(4, Some(&log)));
+            let (_, changes) = press_row(&styled, from, key, &[]);
+            assert!(
+                rv::prevented(&changes),
+                "{key:?} on row {from} must stay inside the list"
+            );
+            match to {
+                Some(to) => {
+                    assert_eq!(rows_heard(&mut log), vec![to], "{key:?} on row {from}");
+                    assert_eq!(rv::focus_request(&changes), Some(row(to)));
+                }
+                None => {
+                    assert!(
+                        rows_heard(&mut log).is_empty(),
+                        "{key:?} at the end re-selected row {from}"
+                    );
+                    assert_eq!(rv::focus_request(&changes), None);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_focused_row_is_the_only_tab_stop() {
+        let log = RefAny::new(RowLog { seen: Vec::new() });
+        let mut styled = page(list(4, Some(&log)));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::End, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(before()), true, 2),
+            vec![row(3), after(4)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(row(3)), false, 1),
+            vec![before()],
+        );
+    }
+
+    #[test]
+    fn a_list_without_on_row_click_still_moves_focus_with_the_arrows() {
+        let styled = page(list(3, None));
+        let (update, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(update, Update::DoNothing);
+        assert_eq!(rv::focus_request(&changes), Some(row(1)));
+        assert!(rv::prevented(&changes));
+    }
+
+    #[test]
+    fn sideways_modified_and_unused_keys_on_a_row_are_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Left, None),
+            (K::Right, None),
+            (K::Tab, None),
+            (K::Down, Some(K::LAlt)),
+            (K::Up, Some(K::LControl)),
+            (K::Down, Some(K::LShift)),
+            (K::End, Some(K::LWin)),
+        ] {
+            let mut log = RefAny::new(RowLog { seen: Vec::new() });
+            let styled = page(list(3, Some(&log)));
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_row(&styled, 1, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                rows_heard(&mut log).is_empty(),
+                "{held:?}+{key:?} selected a row"
+            );
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Accessibility: every row is an ITEM of the list (each row declared the
+    // `List` role itself) and the selected one says so - also LIVE when an
+    // arrow moves the selection, before the app rebuilds.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_row_is_a_list_item_and_the_selected_one_says_so() {
+        use azul_core::a11y::{AccessibilityRole::ListItem, AccessibilityState::Selected};
+
+        let styled = page(list(3, None).with_selected_row(Some(1_usize).into()));
+        for i in 0..3 {
+            assert_eq!(
+                rv::declared(&styled, row(i)),
+                Some((ListItem, if i == 1 { vec![Selected] } else { Vec::new() })),
+                "row {i}",
+            );
+        }
+    }
+
+    #[test]
+    fn an_arrow_announces_the_row_it_selects() {
+        use azul_core::a11y::AccessibilityState::Selected;
+
+        let log = RefAny::new(RowLog { seen: Vec::new() });
+        let styled = page(list(3, Some(&log)));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (row(0), Vec::new()),
+                (row(1), vec![Selected]),
+                (row(2), Vec::new()),
+            ],
         );
     }
 }

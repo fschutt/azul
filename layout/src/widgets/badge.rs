@@ -6,7 +6,7 @@
 //!
 //! Key types: [`Badge`], [`BadgeKind`].
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class};
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
@@ -27,6 +27,8 @@ use azul_css::{
     },
     AzString,
 };
+
+use crate::widgets::themes::{OptionUiTheme, UiTheme};
 
 /// The semantic colour variant of a [`Badge`] (mirrors `button::ButtonType`).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -153,29 +155,43 @@ pub struct Badge {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub badge_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another). A theme is a
+    /// DOM-level choice: the badge is rebuilt in the other look when it
+    /// changes.
+    pub theme: OptionUiTheme,
 }
 
-/// Builds the pill style for a given [`BadgeKind`]. The colours are the only
+/// The class every badge pill carries, in every theme.
+pub(crate) static BADGE_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-badge"))];
+
+/// The pill's structure, in every theme: a row that centres its label and
+/// hugs it rather than stretch across a flex parent's cross axis. Every
+/// theme's pill starts with it (R5: never inside a `@theme` block).
+pub(crate) static BADGE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    // Hug the content rather than stretch across a flex parent's cross axis.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// Builds the pill style for a given [`BadgeKind`]: the flat pill,
+/// [`BADGE_BASE`] then the flat skin. The colours are the only
 /// kind-dependent properties, so the style is built at runtime per the recipe's
 /// "runtime vec when param-dependent" path (see `switch::build_track_style`).
 fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
     let (bg, text) = kind.colors();
     let bg_vec =
         StyleBackgroundContentVec::from_vec(alloc::vec![StyleBackgroundContent::Color(bg)]);
-    CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-            LayoutFlexDirection::Row,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_justify_content(
-            LayoutJustifyContent::Center,
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        // Hug the content rather than stretch across a flex parent's cross axis.
-        CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-            0,
-        ))),
+    let mut style = BADGE_BASE.to_vec();
+    style.extend(alloc::vec![
         // padding: 2px 8px
         CssPropertyWithConditions::simple(CssProperty::const_padding_top(
             LayoutPaddingTop::const_px(2,)
@@ -210,7 +226,8 @@ fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
             inner: text,
         })),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
-    ])
+    ]);
+    CssPropertyWithConditionsVec::from_vec(style)
 }
 
 impl Badge {
@@ -229,6 +246,7 @@ impl Badge {
             string,
             kind,
             badge_style: OptionCssPropertyWithConditionsVec::None,
+            theme: OptionUiTheme::None,
         }
     }
 
@@ -271,24 +289,45 @@ impl Badge {
         s
     }
 
+    /// Pin the widget theme: the badge keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
     /// Converts this badge into a `<p>` pill carrying the
     /// `__azul-native-badge` class and wrapping a bare text node.
     ///
     /// The pill's background, padding and border-radius live on the `<p>`: a
     /// `NodeType::Text` node is always inline-level and owns no rect, so those
     /// properties would never paint on a raw text node.
+    ///
+    /// The look comes from the theme module (`themes::flat::badge` /
+    /// `themes::flora::badge`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        static BADGE_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-badge"))];
-
-        // Resolved before `self.string` is moved out below.
-        let badge_style = self.resolved_badge_style();
-
-        crate::widgets::widget_p_with_text(self.string)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(BADGE_CLASS))
-            .with_css_props(badge_style)
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::badge(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::badge(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::badge,
+                crate::widgets::themes::flora::badge,
+            ),
+        }
     }
 }
 
@@ -469,9 +508,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1253,6 +1290,276 @@ mod autotest_generated {
                 via_dom.root.get_node_type(),
                 "{kind:?}: `From` built a different node"
             );
+        }
+    }
+}
+
+/// The theme option: which look a badge renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::props::basic::pixel::PixelValue;
+
+    use super::*;
+    use crate::widgets::{theme_probe, themes::flora};
+
+    const COLOURED: [BadgeKind; 5] = [
+        BadgeKind::Primary,
+        BadgeKind::Success,
+        BadgeKind::Danger,
+        BadgeKind::Warning,
+        BadgeKind::Info,
+    ];
+
+    fn badge(kind: BadgeKind, theme: UiTheme) -> Dom {
+        Badge::with_kind(AzString::from_const_str("New"), kind)
+            .with_theme(theme)
+            .dom()
+    }
+
+    /// The declaration that wins: the LAST one `f` picks out (inline
+    /// declarations resolve last-match-wins).
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn inline(dom: &Dom) -> Vec<CssProperty> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_badge_without_a_theme_renders_flat() {
+        let plain = Badge::create(AzString::from_const_str("9"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            inline(&plain.clone().dom()),
+            inline(&plain.with_theme(UiTheme::Flat).dom()),
+            "an unset theme is the flat look"
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Badge::create(AzString::from_const_str("9"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Badge::create(AzString::from_const_str("9")).with_theme(UiTheme::Flora),
+            set
+        );
+    }
+
+    #[test]
+    fn a_flat_badge_is_the_established_pill_in_both_modes() {
+        for kind in [BadgeKind::Default, BadgeKind::Primary, BadgeKind::Warning] {
+            let b = Badge::with_kind(AzString::from_const_str("New"), kind);
+            let expected: Vec<CssProperty> = b
+                .resolved_badge_style()
+                .as_ref()
+                .iter()
+                .map(|p| p.property.clone())
+                .collect();
+            let dom = b.with_theme(UiTheme::Flat).dom();
+            assert_eq!(inline(&dom), expected, "{kind:?}: the flat pill moved");
+            assert!(
+                theme_probe::dark(&dom).is_empty(),
+                "{kind:?}: a badge's colour is its meaning - the same pill at night"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_badge_is_a_raised_paper_pill_with_a_hairline_border() {
+        let dom = badge(BadgeKind::Default, UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![flora::RAISED_FACE_LIGHT]),
+            "flora.css `.pill`: linear-gradient(--fl-rT, --fl-rB)"
+        );
+        assert_eq!(
+            last(&rest, top_edge),
+            Some(flora::LIGHT_BD2),
+            "`.pill`: 1px solid --fl-bd2"
+        );
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_SOFT1), "`.pill`: --fl-soft1");
+        assert!(
+            rest.iter().any(|p| matches!(
+                p,
+                CssProperty::BorderTopLeftRadius(r)
+                    if r.get_property().map(|r| r.inner) == Some(PixelValue::const_px(3))
+            )),
+            "the house radius, --fl-r: 3px"
+        );
+    }
+
+    #[test]
+    fn a_flora_badge_in_dark_mode_uses_the_dark_surface() {
+        let dark = theme_probe::dark(&badge(BadgeKind::Default, UiTheme::Flora));
+        assert_eq!(last(&dark, bg), Some(vec![flora::RAISED_FACE_DARK]));
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD2));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_SOFT1));
+    }
+
+    #[test]
+    fn a_flora_coloured_badge_is_a_stone_that_keeps_its_colour_at_night() {
+        // `.pill-live`: the accent stone for Primary; the other kinds are cut
+        // from the alternates flora.css lists as holding up against the ground
+        // (leaf, clay, slate) and an amber for warnings.
+        let stones = [
+            (BadgeKind::Primary, flora::LIGHT_ACC, flora::LIGHT_DEEP),
+            (
+                BadgeKind::Success,
+                ColorU::rgb(0x44, 0x68, 0x4F),
+                ColorU::rgb(0x2F, 0x4C, 0x39),
+            ),
+            (
+                BadgeKind::Danger,
+                ColorU::rgb(0x7E, 0x4A, 0x42),
+                ColorU::rgb(0x5E, 0x33, 0x2D),
+            ),
+            (
+                BadgeKind::Warning,
+                ColorU::rgb(0x8A, 0x5A, 0x1E),
+                ColorU::rgb(0x6B, 0x44, 0x15),
+            ),
+            (
+                BadgeKind::Info,
+                ColorU::rgb(0x4A, 0x5C, 0x6B),
+                ColorU::rgb(0x35, 0x45, 0x51),
+            ),
+        ];
+        for (kind, stone, deep) in stones {
+            let dom = badge(kind, UiTheme::Flora);
+            let rest = theme_probe::unconditional(&dom);
+            let face = last(&rest, bg).expect("a stone has a face");
+            assert_eq!(
+                face.first(),
+                Some(&StyleBackgroundContent::Color(stone)),
+                "{kind:?}: the stone's own colour is the base layer"
+            );
+            assert!(face.len() > 1, "{kind:?}: the depth rig lies over it");
+            assert_eq!(last(&rest, top_edge), Some(deep), "{kind:?}: a deep edge");
+            assert_eq!(last(&rest, ink), Some(flora::LIGHT_ON_ACC), "{kind:?}");
+            let dark = theme_probe::dark(&dom);
+            assert!(
+                last(&dark, bg).is_none() && last(&dark, ink).is_none(),
+                "{kind:?}: a stone is its own colour in both modes"
+            );
+        }
+    }
+
+    #[test]
+    fn every_coloured_flora_badge_is_a_different_stone() {
+        let faces: Vec<_> = COLOURED
+            .iter()
+            .map(|k| last(&theme_probe::unconditional(&badge(*k, UiTheme::Flora)), bg))
+            .collect();
+        for (i, a) in faces.iter().enumerate() {
+            for b in &faces[i + 1..] {
+                assert_ne!(a, b, "two badge kinds share a stone");
+            }
+        }
+    }
+
+    #[test]
+    fn a_flora_badge_carries_the_flora_theme_marker() {
+        let dom = badge(BadgeKind::Default, UiTheme::Flora);
+        assert!(has_class(&dom, "__azul-native-badge"));
+        assert!(has_class(&dom, "__azul-theme-flora"));
+    }
+
+    #[test]
+    fn a_callers_badge_style_wins_over_the_flora_look() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+                inner: ColorU::rgb(1, 2, 3),
+            }))
+        ]);
+        let mut b = Badge::create(AzString::from_const_str("9")).with_theme(UiTheme::Flora);
+        b.badge_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+        let expected: Vec<CssProperty> = custom
+            .as_ref()
+            .iter()
+            .map(|p| p.property.clone())
+            .collect();
+        assert_eq!(inline(&b.dom()), expected, "the caller chose every property");
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    const KINDS: [BadgeKind; 6] = [
+        BadgeKind::Default,
+        BadgeKind::Primary,
+        BadgeKind::Success,
+        BadgeKind::Danger,
+        BadgeKind::Warning,
+        BadgeKind::Info,
+    ];
+
+    #[test]
+    fn a_badge_without_a_theme_follows_the_app_theme() {
+        for kind in KINDS {
+            checks::assert_follows_the_app_theme(
+                &format!("badge {kind:?}"),
+                || Badge::with_kind(AzString::from("99+"), kind).dom(),
+                |t: UiTheme| Badge::with_kind(AzString::from("99+"), kind).with_theme(t).dom(),
+            );
+        }
+    }
+
+    /// R5: the pill's centred, hugging row is the badge's BASE, declared once
+    /// outside every `@theme` block. Every kind.
+    #[test]
+    fn a_badge_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            for kind in KINDS {
+                let dom = checks::under(t, || Badge::with_kind(AzString::from("99+"), kind).dom());
+                assert_structure_is_shared(
+                    &format!("badge {kind:?} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
         }
     }
 }

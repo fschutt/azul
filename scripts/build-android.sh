@@ -158,6 +158,9 @@ if [[ -n "${AZ_ANDROID_PERMISSIONS:-}" ]]; then
     for p in "${_perms[@]}"; do
         p="$(echo "$p" | tr -d '[:space:]')"
         [[ -z "$p" ]] && continue
+        # Already declared by the template (notifications); a second
+        # <uses-permission> for it is a duplicate declaration.
+        [[ "$p" == "android.permission.POST_NOTIFICATIONS" ]] && continue
         EXTRA_PERMISSIONS_XML+="    <uses-permission android:name=\"$p\" />"$'\n'
     done
 fi

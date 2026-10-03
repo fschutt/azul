@@ -408,14 +408,14 @@ fn clicking_a_paragraph_on_a_materialised_page_places_the_caret_in_it() {
         h.lw.text_edit_manager
             .multi_cursor
             .as_ref()
-            .map(|mc| mc.node_id);
+            .map(|mc| mc.block);
     assert!(
         session.is_some(),
         "clicking the text of a page sheet placed no caret at all (click {target:?}, paragraph \
          {origin:?} {size:?})"
     );
     assert_eq!(
-        session.unwrap().dom,
+        session.unwrap().dom(),
         nested,
         "the caret session must live in the VirtualView's nested dom"
     );

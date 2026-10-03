@@ -1,0 +1,32 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Vertical-align: baseline of inline-block with phantom line box</title>
+<meta name="assert" content="&#10;  From https://drafts.csswg.org/css2/#leading&#10;  > The baseline of an inline-block is the baseline of its last line box in the normal flow,&#10;  > unless it has either no in-flow line boxes or if its overflow property has a computed&#10;  > value other than visible, in which case the baseline is the bottom margin edge.&#10;&#10;  Here we have 2 inline-blocks. The 1st one is completely empty, so it baseline is its&#10;  bottom margin edge. The 2nd one has an empty span followed by a block.&#10;&#10;  The span would typically be placed in a line box. However, it's a phantom line box.&#10;  From https://drafts.csswg.org/css2/#inline-formatting&#10;  > Line boxes that contain no text, no preserved white space, no inline elements with&#10;  > non-zero margins, padding, or borders, and no other in-flow content (such as images,&#10;  > inline blocks or inline tables), and do not end with a preserved newline must be&#10;  > treated as zero-height line boxes for the purposes of determining the positions of&#10;  > any elements inside of them, and must be treated as not existing for any other purpose.&#10;&#10;  So for the purpose of finding the baseline of the 2nd inline-block we ignore the phantom&#10;  line box, and thus the baseline is also the bottom margin edge.&#10;&#10;  Therefore, the inline-blocks should have their bottom margin edges aligned.&#10;"/>
+<style>
+.wrapper {
+  width: 200px;
+  background: red;
+  line-height: 0;
+  font-size: 0;
+}
+.green {
+  width: 100px;
+  height: 200px;
+  background: green;
+}
+.inline-block {
+  display: inline-block;
+}
+</style>
+</head>
+<body><p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+
+<div class="wrapper">
+  <div class="inline-block green"></div>
+  <div class="inline-block">
+    <span></span>
+    <div class="green"></div>
+  </div>
+</div>
+</body>
+</html>

@@ -6,99 +6,127 @@
 
 use crate::corety::AzString;
 
-/// Splits a string by commas, but respects parentheses/braces
-///
-/// E.g. `url(something,else), url(another,thing)` becomes `["url(something,else)",
-/// "url(another,thing)"]` whereas a normal split by comma would yield `["url(something", "else)",
-/// "url(another", "thing)"]`
+/// Whether `byte` is CSS whitespace: space, tab and the newlines LF, CR and
+/// FF (CSS Syntax 3, section 4.2). NOT the wider Unicode `White_Space` set
+/// `str::split_whitespace` uses: a no-break space is part of a token, as in
+/// a browser.
 #[must_use]
-pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
-    split_string_by_char(input, ',')
+pub const fn is_css_whitespace(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | b'\x0C')
 }
 
-/// Splits a string by whitespace, but respects parentheses/braces
+/// Byte offset of the first byte of `input` that sits at the TOP level and
+/// that `is_separator` accepts; `None` when there is none.
 ///
-/// E.g. `translateX(10px) rotate(90deg)` becomes `["translateX(10px)", "rotate(90deg)"]`
+/// The ONE scanner every value splitter of the crate goes through. The top
+/// level is outside every `( ... )` and outside every quoted string:
+///
+/// - a `"` or `'` opens a string that the same quote closes (a backslash inside it escapes the byte
+///   after it); parentheses and separators inside a string are text;
+/// - a `)` with no `(` open ends the search: nothing after it is at the top level, so an unbalanced
+///   value stays in one piece and fails in its own parser instead of being cut somewhere arbitrary.
+///
+/// `(`, `)`, `"`, `'` and non-ASCII bytes are never separators. Every byte
+/// the scan reacts to is ASCII and UTF-8 continuation bytes are >= 0x80, so
+/// the offset is always a char boundary.
 #[must_use]
-pub fn split_string_respect_whitespace(input: &str) -> Vec<&str> {
-    let mut items = Vec::<&str>::new();
-    let mut current_start = 0;
-    let mut depth = 0;
-    let input_bytes = input.as_bytes();
-
-    for (idx, &ch) in input_bytes.iter().enumerate() {
-        match ch {
-            b'(' => depth += 1,
-            b')' => depth -= 1,
-            b' ' | b'\t' | b'\n' | b'\r' if depth == 0 => {
-                if current_start < idx {
-                    items.push(&input[current_start..idx]);
-                }
-                current_start = idx + 1;
+pub fn find_top_level(input: &str, is_separator: impl Fn(u8) -> bool) -> Option<usize> {
+    let mut depth: usize = 0;
+    let mut quote: Option<u8> = None;
+    let mut escaped = false;
+    for (idx, &byte) in input.as_bytes().iter().enumerate() {
+        if let Some(open) = quote {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == open {
+                quote = None;
             }
+            continue;
+        }
+        match byte {
+            b'"' | b'\'' => quote = Some(byte),
+            b'(' => depth += 1,
+            b')' if depth == 0 => return None,
+            b')' => depth -= 1,
+            _ if depth == 0 && byte.is_ascii() && is_separator(byte) => return Some(idx),
             _ => {}
         }
     }
+    None
+}
 
-    // Add the last segment
-    if current_start < input.len() {
-        items.push(&input[current_start..]);
+/// The pieces of `input` between its top-level separators: see
+/// [`split_top_level`].
+struct TopLevelPieces<'a, F> {
+    /// What is left to cut; `None` once the last piece is out.
+    rest: Option<&'a str>,
+    is_separator: F,
+}
+
+impl<'a, F: Fn(u8) -> bool> Iterator for TopLevelPieces<'a, F> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        let rest = self.rest?;
+        // A separator is found only at depth 0 outside quotes - the scanner's
+        // start state - so the scan restarts cleanly after it.
+        if let Some(idx) = find_top_level(rest, &self.is_separator) {
+            self.rest = Some(&rest[idx + 1..]);
+            Some(&rest[..idx])
+        } else {
+            self.rest = None;
+            Some(rest)
+        }
     }
+}
 
+fn top_level_pieces<F: Fn(u8) -> bool>(input: &str, is_separator: F) -> TopLevelPieces<'_, F> {
+    TopLevelPieces {
+        rest: Some(input),
+        is_separator,
+    }
+}
+
+/// `input` cut at every top-level byte `is_separator` accepts (see
+/// [`find_top_level`]), otherwise exactly like `str::split`: N separators
+/// give N + 1 pieces, empty pieces included, an empty input is one empty
+/// piece, and the pieces are not trimmed.
+///
+/// `"a, 'b, c', f(d, e)"` split at `,` is `["a", " 'b, c'", " f(d, e)"]`.
+#[must_use]
+pub fn split_top_level(input: &str, is_separator: impl Fn(u8) -> bool) -> Vec<&str> {
+    top_level_pieces(input, is_separator).collect()
+}
+
+/// Splits a comma-separated list at its top-level commas (see
+/// [`split_top_level`]): never inside parentheses or a quoted string.
+///
+/// E.g. `url(something,else), url(another,thing)` becomes `["url(something,else)",
+/// " url(another,thing)"]` whereas a normal split by comma would yield `["url(something", "else)",
+/// " url(another", "thing)"]`. The items are not trimmed. Unlike `str::split`, a trailing comma
+/// adds no empty last item: `"a,"` is `["a"]` and `""` is `[]`.
+#[must_use]
+pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
+    let mut items = split_top_level(input, |byte| byte == b',');
+    if matches!(items.last(), Some(last) if last.is_empty()) {
+        items.pop();
+    }
     items
 }
 
-fn split_string_by_char(input: &str, target_char: char) -> Vec<&str> {
-    let mut comma_separated_items = Vec::<&str>::new();
-    let mut current_input = input;
-
-    'outer: loop {
-        let Some((skip_next_braces_result, character_was_found)) =
-            skip_next_braces(current_input, target_char)
-        else {
-            break 'outer;
-        };
-        if character_was_found {
-            comma_separated_items.push(&current_input[..skip_next_braces_result]);
-            current_input = &current_input[(skip_next_braces_result + 1)..];
-        } else {
-            comma_separated_items.push(current_input);
-            break 'outer;
-        }
-    }
-
-    comma_separated_items
-}
-
-/// Given a string, returns how many characters need to be skipped
-fn skip_next_braces(input: &str, target_char: char) -> Option<(usize, bool)> {
-    let mut depth = 0;
-    let mut last_character: Option<usize> = None;
-    let mut character_was_found = false;
-
-    if input.is_empty() {
-        return None;
-    }
-
-    for (idx, ch) in input.char_indices() {
-        last_character = Some(idx);
-        match ch {
-            '(' => {
-                depth += 1;
-            }
-            ')' => {
-                depth -= 1;
-            }
-            c => {
-                if c == target_char && depth == 0 {
-                    character_was_found = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    last_character.map(|lc| (lc, character_was_found))
+/// Splits a value into its space-separated components at its top-level CSS
+/// whitespace (see [`split_top_level`], [`is_css_whitespace`]): never inside
+/// parentheses or a quoted string. Runs of whitespace collapse; no component
+/// is empty.
+///
+/// E.g. `0 1px rgba(0, 0, 0, 0.5)` becomes `["0", "1px", "rgba(0, 0, 0, 0.5)"]`.
+#[must_use]
+pub fn split_string_respect_whitespace(input: &str) -> Vec<&str> {
+    top_level_pieces(input, is_css_whitespace)
+        .filter(|piece| !piece.is_empty())
+        .collect()
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
@@ -412,6 +440,53 @@ mod tests {
         let no_commas = "rgb(0,0,0)";
         assert_eq!(split_string_respect_comma(no_commas), vec!["rgb(0,0,0)"]);
     }
+
+    #[test]
+    fn a_comma_inside_a_quoted_string_does_not_split_a_list() {
+        assert_eq!(
+            split_string_respect_comma("\"Foo, Bar\", serif"),
+            vec!["\"Foo, Bar\"", " serif"]
+        );
+        assert_eq!(
+            split_string_respect_comma("'a, b', 'c'"),
+            vec!["'a, b'", " 'c'"]
+        );
+    }
+
+    #[test]
+    fn a_parenthesis_inside_a_quoted_string_does_not_change_the_nesting() {
+        assert_eq!(
+            split_string_respect_comma("url(\"a).png\"), red"),
+            vec!["url(\"a).png\")", " red"]
+        );
+        assert_eq!(
+            split_string_respect_whitespace("url('(.png') no-repeat"),
+            vec!["url('(.png')", "no-repeat"]
+        );
+    }
+
+    #[test]
+    fn whitespace_inside_a_quoted_string_does_not_split_a_value() {
+        assert_eq!(
+            split_string_respect_whitespace("'a b' \"c d\" e"),
+            vec!["'a b'", "\"c d\"", "e"]
+        );
+    }
+
+    #[test]
+    fn an_escaped_quote_does_not_end_a_quoted_string() {
+        // `"a\", b"` is ONE string: the backslash escapes the inner quote.
+        assert_eq!(
+            split_string_respect_comma("\"a\\\", b\", c"),
+            vec!["\"a\\\", b\"", " c"]
+        );
+    }
+
+    #[test]
+    fn a_form_feed_is_css_whitespace() {
+        // CSS whitespace: space, tab, LF, CR and FF.
+        assert_eq!(split_string_respect_whitespace("a\x0Cb"), vec!["a", "b"]);
+    }
 }
 
 #[cfg(test)]
@@ -419,123 +494,117 @@ mod autotest_generated {
     use super::*;
 
     // ---------------------------------------------------------------------
-    // skip_next_braces (private, parser)
+    // find_top_level (the one scanner; it replaced skip_next_braces)
     // ---------------------------------------------------------------------
 
-    #[test]
-    fn skip_next_braces_empty_input_returns_none() {
-        assert_eq!(skip_next_braces("", ','), None);
-        assert_eq!(skip_next_braces("", '('), None);
-        assert_eq!(skip_next_braces("", '\0'), None);
+    fn comma(byte: u8) -> bool {
+        byte == b','
     }
 
     #[test]
-    fn skip_next_braces_not_found_yields_last_char_start_not_len() {
-        // NOTE: the returned index is the byte offset of the *last char*, not the
-        // string length. Callers must not treat it as an exclusive end bound.
-        assert_eq!(skip_next_braces("abc", ','), Some((2, false)));
-        assert_eq!(skip_next_braces("a", ','), Some((0, false)));
-        // 4-byte emoji: index is the char start (0), never a mid-char offset.
-        assert_eq!(skip_next_braces("\u{1F600}", ','), Some((0, false)));
+    fn find_top_level_empty_and_separator_free_input_is_none() {
+        assert_eq!(find_top_level("", comma), None);
+        assert_eq!(find_top_level("abc", comma), None);
+        assert_eq!(find_top_level("\u{1F600}", comma), None);
+        assert_eq!(find_top_level("   ", comma), None);
+        assert_eq!(find_top_level("   ", is_css_whitespace), Some(0));
     }
 
     #[test]
-    fn skip_next_braces_finds_target_only_at_depth_zero() {
-        assert_eq!(skip_next_braces("a,b", ','), Some((1, true)));
-        // Comma nested inside parens is invisible; falls through to "not found".
-        assert_eq!(skip_next_braces("(a,b)", ','), Some((4, false)));
-        // First depth-0 comma, after the group closes.
-        assert_eq!(skip_next_braces("(a,b),c", ','), Some((5, true)));
+    fn find_top_level_finds_the_separator_only_at_depth_zero() {
+        assert_eq!(find_top_level("a,b", comma), Some(1));
+        // A comma nested inside parens is invisible.
+        assert_eq!(find_top_level("(a,b)", comma), None);
+        // The first depth-0 comma, after the group closes.
+        assert_eq!(find_top_level("(a,b),c", comma), Some(5));
+        assert_eq!(find_top_level("NaN,inf", comma), Some(3));
+        assert_eq!(find_top_level("1e309,-1e309", comma), Some(5));
     }
 
     #[test]
-    fn skip_next_braces_unbalanced_closing_paren_drives_depth_negative() {
-        // A stray ')' makes depth == -1, so no later comma is ever "at depth 0".
-        // Deterministic + no panic, but the separator is silently swallowed.
-        assert_eq!(skip_next_braces(")a,b", ','), Some((3, false)));
-        assert_eq!(skip_next_braces("))))", ','), Some((3, false)));
+    fn find_top_level_skips_quoted_strings() {
+        assert_eq!(find_top_level("\"a,b\",c", comma), Some(5));
+        // A paren inside a string does not open a group...
+        assert_eq!(find_top_level("'a(b',c", comma), Some(5));
+        // ...and a closing one does not end the search.
+        assert_eq!(find_top_level("f(\")\"),c", comma), Some(6));
+        // An escaped quote does not close the string.
+        assert_eq!(find_top_level("\"a\\\",b\",c", comma), Some(7));
+        // The other quote character is text inside a string.
+        assert_eq!(find_top_level("\"it's, ok\",c", comma), Some(10));
+        // An unclosed string runs to the end of the input.
+        assert_eq!(find_top_level("'a,b", comma), None);
     }
 
     #[test]
-    fn skip_next_braces_paren_as_target_char_can_never_match() {
-        // The '(' / ')' match arms shadow the target-char arm, so asking for a
-        // parenthesis as the separator always reports "not found".
-        assert_eq!(skip_next_braces("a(b", '('), Some((2, false)));
-        assert_eq!(skip_next_braces("a)b", ')'), Some((2, false)));
+    fn find_top_level_a_stray_closing_paren_ends_the_search() {
+        // Nothing after an unbalanced ')' is at the top level, so the value
+        // stays one piece and fails in its own parser.
+        assert_eq!(find_top_level(")a,b", comma), None);
+        assert_eq!(find_top_level("))))", comma), None);
+        assert_eq!(find_top_level("a) (b,c", comma), None);
     }
 
     #[test]
-    fn skip_next_braces_whitespace_only() {
-        assert_eq!(skip_next_braces("   ", ','), Some((2, false)));
-        assert_eq!(skip_next_braces("\t\n", ','), Some((1, false)));
-        assert_eq!(skip_next_braces("   ", ' '), Some((0, true)));
+    fn find_top_level_parens_quotes_and_non_ascii_are_never_separators() {
+        assert_eq!(find_top_level("a(b", |b| b == b'('), None);
+        assert_eq!(find_top_level("a)b", |b| b == b')'), None);
+        assert_eq!(find_top_level("a\"b\"", |b| b == b'"'), None);
+        assert_eq!(find_top_level("a\u{A0}b", |b| b >= 0x80), None);
     }
 
     #[test]
-    fn skip_next_braces_boundary_number_strings() {
-        assert_eq!(skip_next_braces("0", ','), Some((0, false)));
-        assert_eq!(skip_next_braces("-0", ','), Some((1, false)));
-        assert_eq!(
-            skip_next_braces("9223372036854775807", ','),
-            Some((18, false))
-        );
-        assert_eq!(skip_next_braces("NaN,inf", ','), Some((3, true)));
-        assert_eq!(skip_next_braces("1e309,-1e309", ','), Some((5, true)));
-    }
-
-    #[test]
-    fn skip_next_braces_unicode_indices_stay_on_char_boundaries() {
+    fn find_top_level_offsets_stay_on_char_boundaries() {
         // "e" + combining acute (2 bytes) => comma sits at byte 3.
-        assert_eq!(skip_next_braces("e\u{0301},x", ','), Some((3, true)));
+        assert_eq!(find_top_level("e\u{0301},x", comma), Some(3));
         // 4-byte emoji then comma at byte 4.
-        assert_eq!(skip_next_braces("\u{1F600},x", ','), Some((4, true)));
-        let s = "\u{1F600}\u{0301}\u{4E2D}";
-        let (idx, found) = skip_next_braces(s, ',').expect("non-empty input");
-        assert!(!found);
-        assert!(s.is_char_boundary(idx));
+        assert_eq!(find_top_level("\u{1F600},x", comma), Some(4));
+        assert_eq!(find_top_level("\u{4E2D} x", is_css_whitespace), Some(3));
     }
 
     #[test]
-    fn skip_next_braces_extremely_long_input_terminates() {
+    fn find_top_level_extremely_long_input_terminates() {
         let mut input = "a".repeat(1_000_000);
         input.push(',');
-        assert_eq!(skip_next_braces(&input, ','), Some((1_000_000, true)));
+        assert_eq!(find_top_level(&input, comma), Some(1_000_000));
     }
 
     #[test]
-    fn skip_next_braces_deeply_nested_does_not_stack_overflow() {
-        let input = format!("{}{}", "(".repeat(10_000), ")".repeat(10_000));
-        // Iterative, not recursive: 20k parens, no target found.
-        assert_eq!(skip_next_braces(&input, ','), Some((19_999, false)));
+    fn find_top_level_deeply_nested_does_not_stack_overflow() {
+        let input = format!("{}{},", "(".repeat(10_000), ")".repeat(10_000));
+        // Iterative, not recursive: 20k parens, then the top-level comma.
+        assert_eq!(find_top_level(&input, comma), Some(20_000));
     }
 
     // ---------------------------------------------------------------------
-    // split_string_by_char (private, other)
+    // split_top_level (it replaced split_string_by_char)
     // ---------------------------------------------------------------------
 
     #[test]
-    fn split_string_by_char_empty_input_yields_empty_vec() {
-        // NOTE: differs from str::split, which yields [""] for an empty input.
-        assert!(split_string_by_char("", ',').is_empty());
-        assert!(split_string_by_char("", ';').is_empty());
-    }
-
-    #[test]
-    fn split_string_by_char_respects_nesting_for_any_ascii_separator() {
+    fn split_top_level_is_str_split_outside_parens_and_quotes() {
+        // Like str::split: an empty input is one empty piece, every separator
+        // makes one more piece, empty pieces stay.
+        assert_eq!(split_top_level("", comma), vec![""]);
+        assert_eq!(split_top_level(",,", comma), vec!["", "", ""]);
+        assert_eq!(split_top_level("a,", comma), vec!["a", ""]);
         assert_eq!(
-            split_string_by_char("a;b(c;d);e", ';'),
+            split_top_level("a;b(c;d);e", |b| b == b';'),
             vec!["a", "b(c;d)", "e"]
         );
         assert_eq!(
-            split_string_by_char("a b(c d) e", ' '),
+            split_top_level("a b(c d) e", |b| b == b' '),
             vec!["a", "b(c d)", "e"]
+        );
+        assert_eq!(
+            split_top_level("a, 'b, c', f(d, e)", comma),
+            vec!["a", " 'b, c'", " f(d, e)"]
         );
     }
 
     #[test]
-    fn split_string_by_char_paren_separator_never_splits() {
-        assert_eq!(split_string_by_char("a(b)c", '('), vec!["a(b)c"]);
-        assert_eq!(split_string_by_char("a(b)c", ')'), vec!["a(b)c"]);
+    fn split_top_level_paren_separator_never_splits() {
+        assert_eq!(split_top_level("a(b)c", |b| b == b'('), vec!["a(b)c"]);
+        assert_eq!(split_top_level("a(b)c", |b| b == b')'), vec!["a(b)c"]);
     }
 
     // ---------------------------------------------------------------------

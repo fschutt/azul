@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use azul_core::{
     dom::{DomId, NodeId, NodeType},
-    resources::{ImageRef, ImageRefHash},
+    resources::{ImageDirtyRect, ImageRef, ImageRefHash},
     selection::TextCursor,
     styled_dom::StyledDom,
 };
@@ -56,6 +56,50 @@ pub struct DirtyTextNode {
     /// entries are exempt from the acked-revision GC and fall back to the
     /// text-equality rule.
     pub revision: u64,
+    /// The DOM's text at this node when the user started typing over it - what
+    /// the app last rendered there ([`dom_text_of`]). A new generation that
+    /// renders something ELSE here (neither this nor the typed text) is the
+    /// app setting the value, HTML's `input.value = ..`: the app's text wins
+    /// ([`ContentOverlay::gc_app_set_text`]). `None` = unknown (an entry
+    /// written without a DOM to read, or constructed directly): exempt, as
+    /// before.
+    pub typed_over: Option<String>,
+}
+
+/// The text the DOM holds at `node_id`, flattened the way the text overlay
+/// compares it: a text node's own text, or - for an element (a
+/// contenteditable host, a paragraph) - the concatenated text of its DIRECT
+/// text children, a direct `<br>` as '\n'. `None` when the DOM has no such
+/// node.
+#[must_use]
+pub fn dom_text_of(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {
+    let node_data = styled_dom.node_data.as_container();
+    let node = node_data.get(node_id)?;
+    if let NodeType::Text(s) = node.get_node_type() {
+        return Some(s.as_str().to_string());
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut text = String::new();
+    if let Some(n) = hierarchy.get(node_id) {
+        let mut child = n.first_child_id(node_id);
+        while let Some(c) = child {
+            if let Some(cd) = node_data.get(c) {
+                match cd.get_node_type() {
+                    NodeType::Text(t) => text.push_str(t.as_str()),
+                    // The edit model holds a `<br>` as its line break, which
+                    // flattens to '\n': without it here, an edited paragraph
+                    // with a `<br>` never equalled the text it was typed over
+                    // or committed to.
+                    NodeType::Br => text.push('\n'),
+                    _ => {}
+                }
+            }
+            child = hierarchy
+                .get(c)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+        }
+    }
+    Some(text)
 }
 
 /// Flatten inline content to the plain string it displays.
@@ -82,6 +126,77 @@ pub fn flatten_inline_content(content: &[InlineContent]) -> String {
     result
 }
 
+/// The inline formats of `content`'s text, as byte spans of its
+/// [`flatten_inline_content`] string - the two walk the items alike, so the
+/// spans index exactly the text an edit report carries. Each span is a
+/// maximal stretch whose runs carry the same formats OVER `base` (the block
+/// element's own style, `FormatOverrides::formats_over`); plain text is in
+/// no span. Spans are ordered and disjoint.
+///
+/// A space or a line break has no style of its own: it carries the formats
+/// its two neighbours share, so `bold text` is one bold span and the space
+/// between bold and plain text is plain.
+#[must_use]
+pub fn inline_content_formats(
+    content: &[InlineContent],
+    base: &crate::text3::cache::StyleProperties,
+) -> Vec<azul_core::selection::TextFormatSpan> {
+    use azul_core::{events::TextFormatSet, selection::TextFormatSpan};
+
+    // (byte length in the flattened text, formats; `None`: no style of its own)
+    fn collect(
+        content: &[InlineContent],
+        base: &crate::text3::cache::StyleProperties,
+        out: &mut Vec<(usize, Option<TextFormatSet>)>,
+    ) {
+        use crate::text3::edit::FormatOverrides;
+        for item in content {
+            match item {
+                InlineContent::Text(run) | InlineContent::Marker { run, .. } => out.push((
+                    run.text.len(),
+                    Some(FormatOverrides::formats_over(&run.style, base)),
+                )),
+                InlineContent::Tab { style } => {
+                    out.push((1, Some(FormatOverrides::formats_over(style, base))));
+                }
+                InlineContent::Space(_) | InlineContent::LineBreak(_) => out.push((1, None)),
+                InlineContent::Ruby { base: ruby_base, .. } => collect(ruby_base, base, out),
+                InlineContent::Image(_) | InlineContent::Shape(_) => {}
+            }
+        }
+    }
+
+    let mut items = Vec::new();
+    collect(content, base, &mut items);
+
+    let mut spans: Vec<TextFormatSpan> = Vec::new();
+    let mut at = 0_usize;
+    for (i, &(len, formats)) in items.iter().enumerate() {
+        let formats = formats.unwrap_or_else(|| {
+            let before = items[..i].iter().rev().find_map(|(_, f)| *f);
+            let after = items[i + 1..].iter().find_map(|(_, f)| *f);
+            match (before, after) {
+                (Some(b), Some(a)) => b.intersection(a),
+                _ => TextFormatSet::default(),
+            }
+        });
+        if len > 0 && !formats.is_empty() {
+            let start = u32::try_from(at).unwrap_or(u32::MAX);
+            let end = u32::try_from(at + len).unwrap_or(u32::MAX);
+            match spans.last_mut() {
+                Some(last) if last.end == start && last.formats == formats => last.end = end,
+                _ => spans.push(TextFormatSpan {
+                    start,
+                    end,
+                    formats,
+                }),
+            }
+        }
+        at += len;
+    }
+    spans
+}
+
 /// How many PRESENTED frames of history the journal keeps.
 ///
 /// A backend re-presenting a not-fully-redrawn buffer composed `k` frames
@@ -104,6 +219,10 @@ pub enum ContentChange {
         dom_id: DomId,
         node_id: NodeId,
         image: ImageRef,
+        /// The rect (image pixels) in which the new image differs from the
+        /// node's previous one (`CallbackInfo::change_node_image_rect`), so
+        /// the renderer uploads only that; `None` = the whole image changed.
+        dirty_rect: Option<azul_css::props::basic::LayoutRect>,
     },
     /// A `RenderImageCallback` produced a frame for a callback-image node.
     /// Always paint-tier: callback frames are PAINT content — the box is
@@ -135,6 +254,16 @@ pub enum ContentChange {
         props: Vec<azul_css::props::property::CssProperty>,
         override_only: bool,
     },
+    /// Replace a node's inline style - the stylesheet the node stores,
+    /// conditional rules included (`CallbackInfo::set_node_style`). No
+    /// override is written: the node resolves like a node BUILT with
+    /// `style`, now and on every later mode switch. Tier: paint-only unless
+    /// a layout-affecting property's declarations changed.
+    NodeStyle {
+        dom_id: DomId,
+        node_id: NodeId,
+        style: azul_css::css::Css,
+    },
     /// Change a node's image mask (an attribute-slot write like css props —
     /// fingerprinted by reconcile, not a content-identity mutation).
     ImageMask {
@@ -151,9 +280,17 @@ pub enum ContentChange {
 pub enum ContentDirtyTier {
     /// The change was a no-op (same image re-set, unknown node).
     Unchanged,
+    /// Display-list items were patched in place, but the node shows no pixel
+    /// right now (scrolled out of its box, below the window, the window
+    /// minimized): no frame is owed. The next frame painted for any other
+    /// reason (the scroll that brings the tile back) shows the patched items.
+    /// A video tile nobody can see costs no repaint.
+    PaintHidden,
     /// Display-list items were patched in place; repaint. Damage discovery is
     /// the backend diff's job — `ImageRef` identity makes patched items
-    /// unequal to the previous frame's.
+    /// unequal to the previous frame's. The display list is NOT dirty: the
+    /// GPU backends take their lightweight path, which uploads a video
+    /// tile's new frame into the tile's stable image key.
     Paint,
     /// The display list must be rebuilt (css-id images resolve at build time).
     RebuildDisplayList,
@@ -165,15 +302,16 @@ impl ContentDirtyTier {
     /// The ONE mapping from content dirty tier to the event-loop result every
     /// host consumes. Defined here — next to the tier — so a backend cannot
     /// invent its own interpretation:
+    /// - `PaintHidden`: nothing (the patch waits for the next frame).
     /// - `Paint`: the DL was already patched in place; a re-render picks it up (CPU: the DL diff
-    ///   sees the `ImageRef` identity change and damages those bounds; GPU: the translator re-reads
-    ///   the patched DL).
+    ///   sees the `ImageRef` identity change and damages those bounds; GPU: the lightweight
+    ///   transaction uploads the new frame into the node's stable image key).
     /// - `RebuildDisplayList`: DL regeneration + re-render.
     /// - `Relayout`: incremental relayout (which rebuilds the DL).
     pub const fn to_process_event_result(self) -> azul_core::events::ProcessEventResult {
         use azul_core::events::ProcessEventResult;
         match self {
-            Self::Unchanged => ProcessEventResult::DoNothing,
+            Self::Unchanged | Self::PaintHidden => ProcessEventResult::DoNothing,
             Self::Paint => ProcessEventResult::ShouldReRenderCurrentWindow,
             Self::RebuildDisplayList => ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
             Self::Relayout => ProcessEventResult::ShouldIncrementalRelayout,
@@ -274,6 +412,13 @@ pub struct ContentOverlay {
     /// Node-image arm: the currently-displayed image for a node, overriding
     /// the immutable DOM's `NodeType::Image` content.
     images: BTreeMap<(DomId, NodeId), ImageRef>,
+    /// The node-image arm's damage: per node, the part of its CURRENT image
+    /// the renderer has not uploaded yet - the union of every change since the
+    /// last upload (`All` once a change did not name a rect). The GPU
+    /// renderer reads it to upload a dirty rect instead of the whole image and
+    /// clears it after the upload ([`Self::clear_image_dirty`]). Absent =
+    /// nothing pending.
+    image_dirty: BTreeMap<(DomId, NodeId), ImageDirtyRect>,
     /// Text arm: edited inline content per IFC root ("optimistic state"),
     /// overriding the immutable DOM's text. Written only through
     /// `LayoutWindow::update_text_cache_after_edit` (the documented single
@@ -329,13 +474,44 @@ impl ContentOverlay {
         self.images.is_empty() && self.text.is_empty() && self.pending_structure.is_empty()
     }
 
+    /// Set a node's image, the whole of it new to the renderer.
     pub(crate) fn set_image(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
         image: ImageRef,
     ) -> Option<ImageRef> {
+        self.set_image_with_dirty(dom_id, node_id, image, ImageDirtyRect::All)
+    }
+
+    /// Set a node's image that differs from the previous one only inside
+    /// `dirty`. The region adds to what is still pending for the node: the
+    /// renderer may not have seen the previous image either.
+    pub(crate) fn set_image_with_dirty(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        image: ImageRef,
+        dirty: ImageDirtyRect,
+    ) -> Option<ImageRef> {
+        let pending = self
+            .image_dirty
+            .get(&(dom_id, node_id))
+            .map_or(dirty, |before| before.union(&dirty));
+        self.image_dirty.insert((dom_id, node_id), pending);
         self.images.insert((dom_id, node_id), image)
+    }
+
+    /// The part of a node's current image the renderer has not uploaded yet,
+    /// or `None` when nothing is pending.
+    #[must_use]
+    pub fn image_dirty(&self, dom_id: DomId, node_id: NodeId) -> Option<ImageDirtyRect> {
+        self.image_dirty.get(&(dom_id, node_id)).copied()
+    }
+
+    /// The renderer uploaded every node image it needs: nothing is pending.
+    pub fn clear_image_dirty(&mut self) {
+        self.image_dirty.clear();
     }
 
     pub(crate) fn set_text(
@@ -353,6 +529,12 @@ impl ContentOverlay {
         node_id: NodeId,
     ) -> Option<&mut DirtyTextNode> {
         self.text.get_mut(&(dom_id, node_id))
+    }
+
+    /// Drop the text entry of one IFC root: the app set that node's text
+    /// (`LayoutWindow::set_node_text`), which supersedes the user's typing.
+    pub(crate) fn remove_text(&mut self, dom_id: DomId, node_id: NodeId) -> Option<DirtyTextNode> {
+        self.text.remove(&(dom_id, node_id))
     }
 
     /// The pending structural deltas of `dom` (empty slice = none).
@@ -474,38 +656,45 @@ impl ContentOverlay {
     /// remapped forward FOREVER and DOM-reading exports silently saw pre-edit
     /// text.
     pub(crate) fn gc_converged_text(&mut self, dom_id: DomId, styled_dom: &StyledDom) {
-        let node_data = styled_dom.node_data.as_container();
         self.text.retain(|&(d, node_id), dirty| {
             if d != dom_id {
                 return true;
             }
-            let Some(node) = node_data.get(node_id) else {
-                // Node gone in the new generation: nothing to converge to.
-                return false;
+            // Non-text IFC roots (contenteditable hosts) compare against the
+            // concatenated text of their DIRECT text children (`dom_text_of`).
+            // Node gone in the new generation: nothing to converge to.
+            dom_text_of(styled_dom, node_id)
+                .is_some_and(|dom_text| flatten_inline_content(&dirty.content) != dom_text)
+        });
+    }
+
+    /// App-set GC - the other half of convergence, for a NEW generation only
+    /// (a DOM the app just built from its model): an entry whose node now
+    /// renders a text that is neither what the user typed over
+    /// ([`DirtyTextNode::typed_over`]) nor what they typed has been SET by the
+    /// app - a clear, a fill, a formatter, a changed default - and the app's
+    /// text wins, as `input.value = ..` does in HTML. The same text as before
+    /// means the app has not adopted the typing (a raw input, a widget without
+    /// a hook): the entry stays authoritative. The typed text itself is the
+    /// equality rule's ([`Self::gc_converged_text`]); entries without a
+    /// `typed_over` are exempt.
+    ///
+    /// What this cannot see: an app that adopted the typing WITHOUT rendering
+    /// it and then set the value back to the one typed over (clear-after-send
+    /// on a field built empty). That app says so with
+    /// `CallbackInfo::mark_text_revision_synced`, or sets the text through
+    /// `ChangeNodeText` (`LayoutWindow::set_node_text`).
+    pub(crate) fn gc_app_set_text(&mut self, dom_id: DomId, styled_dom: &StyledDom) {
+        self.text.retain(|&(d, node_id), dirty| {
+            if d != dom_id {
+                return true;
+            }
+            let (Some(typed_over), Some(dom_text)) =
+                (dirty.typed_over.as_deref(), dom_text_of(styled_dom, node_id))
+            else {
+                return true;
             };
-            let dom_text = if let NodeType::Text(s) = node.get_node_type() {
-                s.as_str().to_string()
-            } else {
-                // Non-text IFC roots (contenteditable hosts): compare against
-                // the concatenated text of DIRECT text children.
-                let hierarchy = styled_dom.node_hierarchy.as_container();
-                let mut s = String::new();
-                if let Some(n) = hierarchy.get(node_id) {
-                    let mut child = n.first_child_id(node_id);
-                    while let Some(c) = child {
-                        if let Some(cd) = node_data.get(c) {
-                            if let NodeType::Text(t) = cd.get_node_type() {
-                                s.push_str(t.as_str());
-                            }
-                        }
-                        child = hierarchy
-                            .get(c)
-                            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
-                    }
-                }
-                s
-            };
-            flatten_inline_content(&dirty.content) != dom_text
+            dom_text == typed_over || dom_text == flatten_inline_content(&dirty.content)
         });
     }
 
@@ -513,6 +702,7 @@ impl ContentOverlay {
     /// remap — the new generation's DOM is the authority again).
     pub(crate) fn clear_dom(&mut self, dom_id: DomId) {
         self.images.retain(|(d, _), _| *d != dom_id);
+        self.image_dirty.retain(|(d, _), _| *d != dom_id);
         self.text.retain(|(d, _), _| *d != dom_id);
         self.pending_structure.remove(&dom_id);
     }
@@ -521,6 +711,7 @@ impl ContentOverlay {
 impl NodeIdRemap for ContentOverlay {
     fn remap_node_ids(&mut self, dom: DomId, map: &NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.images, dom, map);
+        crate::managers::remap_dom_keys(&mut self.image_dirty, dom, map);
         crate::managers::remap_dom_keys(&mut self.text, dom, map);
         // Previews do NOT remap: a remap means a new generation landed,
         // which ends every preview's life (gc at the layout tail); remapping
@@ -539,6 +730,10 @@ pub struct ResolvedContent<'a> {
     pub overlay: Option<&'a ContentOverlay>,
     pub styled_dom: &'a StyledDom,
     pub dom_id: DomId,
+    /// The window's image cache: a placeholder `<img src>` from markup shows
+    /// the picture the app cached under its src. `None` where there is no
+    /// window (the DOM is then authoritative).
+    pub image_cache: Option<&'a azul_core::resources::ImageCache>,
 }
 
 impl ResolvedContent<'_> {
@@ -576,7 +771,18 @@ impl ResolvedContent<'_> {
     fn dom_image(&self, node_id: NodeId) -> Option<ImageRef> {
         let node_data = self.styled_dom.node_data.as_container();
         match node_data.get(node_id)?.get_node_type() {
-            NodeType::Image(image_ref) => Some(image_ref.as_ref().clone()),
+            NodeType::Image(image_ref) => {
+                let image = image_ref.as_ref();
+                // `<img src>` from markup is a placeholder carrying its src:
+                // the picture is the one the app cached under that src (the
+                // ids `background-image: url(..)` resolves against), if any.
+                let cached = image.source_tag().and_then(|src| {
+                    self.image_cache?
+                        .get_css_image_id(&azul_css::AzString::from(src))
+                        .cloned()
+                });
+                Some(cached.unwrap_or_else(|| image.clone()))
+            }
             _ => None,
         }
     }
@@ -924,6 +1130,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled_dom,
             dom_id: dom0(),
+            image_cache: None,
         };
         assert_eq!(
             resolved.image_for_paint(node).map(|i| i.get_hash()),
@@ -936,6 +1143,7 @@ mod tests {
             overlay: None,
             styled_dom: &styled_dom,
             dom_id: dom0(),
+            image_cache: None,
         };
         assert!(resolved.image_for_paint(node).is_none());
     }
@@ -987,6 +1195,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled,
             dom_id: dom0(),
+            image_cache: None,
         };
         let base = resolved.children_for_node(root);
         assert_eq!(base.len(), 2);
@@ -1015,6 +1224,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled,
             dom_id: dom0(),
+            image_cache: None,
         };
         let with_insert = resolved.children_for_node(root);
         assert_eq!(with_insert.len(), 3);
@@ -1036,6 +1246,7 @@ mod tests {
             overlay: Some(&overlay),
             styled_dom: &styled,
             dom_id: dom0(),
+            image_cache: None,
         };
         let with_both = resolved.children_for_node(root);
         assert_eq!(
@@ -1066,6 +1277,7 @@ mod tests {
                 cursor: None,
                 needs_ancestor_relayout: false,
                 revision,
+                typed_over: None,
             }
         }
 
@@ -1115,6 +1327,7 @@ mod tests {
                 cursor: None,
                 needs_ancestor_relayout: false,
                 revision: 0,
+                typed_over: None,
             }
         }
 
@@ -1187,5 +1400,87 @@ mod tests {
             Some(other_hash),
             "other DOMs untouched"
         );
+    }
+
+    // ---- The node-image arm's dirty region: what the renderer still has to upload ----
+
+    fn dirty(x: isize, y: isize, w: isize, h: isize) -> azul_core::resources::ImageDirtyRect {
+        use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
+        azul_core::resources::ImageDirtyRect::Partial(LayoutRect::new(
+            LayoutPoint::new(x, y),
+            LayoutSize::new(w, h),
+        ))
+    }
+
+    #[test]
+    fn a_partial_image_change_leaves_only_its_rect_for_the_renderer() {
+        let mut overlay = ContentOverlay::default();
+        let node = NodeId::new(4);
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(8, 8, 4, 4));
+        assert_eq!(overlay.image_dirty(dom0(), node), Some(dirty(8, 8, 4, 4)));
+        assert_eq!(
+            overlay.image_dirty(dom0(), NodeId::new(5)),
+            None,
+            "a node nobody changed has nothing pending"
+        );
+    }
+
+    #[test]
+    fn partial_image_changes_before_an_upload_add_up() {
+        let mut overlay = ContentOverlay::default();
+        let node = NodeId::new(4);
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(0, 0, 2, 2));
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(10, 10, 2, 2));
+        assert_eq!(
+            overlay.image_dirty(dom0(), node),
+            Some(dirty(0, 0, 12, 12)),
+            "the renderer never saw the first image, so the next upload covers both rects"
+        );
+    }
+
+    #[test]
+    fn a_whole_image_change_keeps_the_next_upload_whole_until_the_renderer_took_it() {
+        use azul_core::resources::ImageDirtyRect;
+        let mut overlay = ContentOverlay::default();
+        let node = NodeId::new(4);
+        overlay.set_image(dom0(), node, img(64, 64));
+        assert_eq!(overlay.image_dirty(dom0(), node), Some(ImageDirtyRect::All));
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(1, 1, 1, 1));
+        assert_eq!(
+            overlay.image_dirty(dom0(), node),
+            Some(ImageDirtyRect::All),
+            "the whole first image is not up yet"
+        );
+        overlay.clear_image_dirty();
+        assert_eq!(
+            overlay.image_dirty(dom0(), node),
+            None,
+            "the renderer took everything"
+        );
+        overlay.set_image_with_dirty(dom0(), node, img(64, 64), dirty(1, 1, 1, 1));
+        assert_eq!(overlay.image_dirty(dom0(), node), Some(dirty(1, 1, 1, 1)));
+    }
+
+    #[test]
+    fn the_dirty_region_moves_with_its_node_and_leaves_with_its_dom() {
+        let mut overlay = ContentOverlay::default();
+        overlay.set_image_with_dirty(dom0(), NodeId::new(2), img(8, 8), dirty(1, 1, 2, 2));
+        overlay.set_image_with_dirty(dom0(), NodeId::new(3), img(8, 8), dirty(0, 0, 1, 1));
+        let mut moves = BTreeMap::new();
+        moves.insert(NodeId::new(2), NodeId::new(1));
+        overlay.remap_node_ids(dom0(), &NodeIdMap::from_pairs(moves));
+        assert_eq!(
+            overlay.image_dirty(dom0(), NodeId::new(1)),
+            Some(dirty(1, 1, 2, 2))
+        );
+        assert_eq!(overlay.image_dirty(dom0(), NodeId::new(2)), None);
+        assert_eq!(
+            overlay.image_dirty(dom0(), NodeId::new(3)),
+            None,
+            "an unmounted node's region goes with it"
+        );
+        overlay.set_image_with_dirty(dom0(), NodeId::new(1), img(8, 8), dirty(4, 4, 1, 1));
+        overlay.clear_dom(dom0());
+        assert_eq!(overlay.image_dirty(dom0(), NodeId::new(1)), None);
     }
 }

@@ -74,8 +74,9 @@ pub(crate) fn resolve_position_offsets(
 ) -> PositionOffsets {
     use azul_css::props::basic::pixel::{PhysicalSize, PropertyContext, ResolutionContext};
 
+    // CSS `zoom` scales an absolute offset (LAYOUT7).
     use crate::solver3::getters::{
-        get_element_font_size, get_parent_font_size, get_root_font_size,
+        get_element_font_size, get_parent_font_size, get_root_font_size, zoomed_length,
     };
 
     let Some(id) = dom_id else {
@@ -106,31 +107,43 @@ pub(crate) fn resolve_position_offsets(
     // height (top/bottom) Resolve offsets using compact-cache-aware getters
     // top/bottom use Height context (% refers to containing block height)
     offsets.top = match get_css_top(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Height),
+        )),
         _ => None,
     };
 
     offsets.bottom = match get_css_bottom(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Height),
+        )),
         _ => None,
     };
 
     // left/right use Width context (% refers to containing block width)
     offsets.left = match get_css_left(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Width),
+        )),
         _ => None,
     };
 
     offsets.right = match get_css_right(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => {
-            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width))
-        }
+        MultiValue::Exact(pv) => Some(zoomed_length(
+            styled_dom,
+            id,
+            pv.metric,
+            pv.resolve_with_context(&resolution_context, PropertyContext::Width),
+        )),
         _ => None,
     };
 
@@ -182,21 +195,33 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
         // dimensions (replaced) +spec:positioning:9020aa - "absolutely positioned" means
         // position:absolute or position:fixed
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-            // is a grid container have their CB determined by grid-placement properties;
-            // Taffy already handles this during grid layout, so skip re-positioning here.
-            // Same applies to flex containers (Flexbox §4.1).
+            // An absolutely positioned child of a flex or grid container that IS
+            // its containing block (the container is positioned) was already
+            // placed by taffy, grid-placement included (CSS Grid §9.1); keep that.
+            //
+            // Only then. Taffy has no `static`: it treats every container as
+            // positioned, so it places an abspos child against its immediate
+            // flex/grid parent even when the real containing block is further up
+            // (the nearest positioned ancestor, else the initial containing
+            // block) - and a `fixed` child against it too. Flexbox §4.1 lets the
+            // flex parent supply only the STATIC position, which taffy's result
+            // already is for an axis whose insets are both auto. Skipping every
+            // flex/grid child pinned the Toast widget (`bottom; right`) to the
+            // bottom of a label-high unpositioned column, over the row above it.
             {
                 use azul_core::dom::FormattingContext;
-                let parent_is_flex_or_grid = node
-                    .parent
-                    .and_then(|p| tree.get(LayoutNodeId::new(p)))
-                    .is_some_and(|pn| {
-                        matches!(
-                            pn.formatting_context,
-                            FormattingContext::Flex | FormattingContext::Grid
-                        )
-                    });
-                if parent_is_flex_or_grid {
+                let parent_is_the_flex_or_grid_cb = position_type == LayoutPosition::Absolute
+                    && node
+                        .parent
+                        .and_then(|p| tree.get(LayoutNodeId::new(p)))
+                        .is_some_and(|pn| {
+                            matches!(
+                                pn.formatting_context,
+                                FormattingContext::Flex | FormattingContext::Grid
+                            ) && get_position_type(ctx.styled_dom, pn.dom_node_id)
+                                .is_positioned()
+                        });
+                if parent_is_the_flex_or_grid_cb {
                     continue;
                 }
             }
@@ -749,6 +774,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         inner.width,
                     ),
                     fragmentainer: None,
+                    column_flow: None,
                 };
                 let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
                     std::collections::HashMap::new();
@@ -784,9 +810,22 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 if height_is_auto && (top_is_auto || bottom_is_auto) {
                     if let Ok(res) = &interior {
                         let bp = tree.nodes[node_index].box_props.unpack();
+                        // A flex or grid box's overflow size already includes its
+                        // padding (taffy measures the padding box); a block's does
+                        // not. Adding the padding again made an auto-height
+                        // padded flex abspos box (the Toast) a padding too tall.
+                        let padding_in_overflow = matches!(
+                            tree.nodes[node_index].formatting_context,
+                            azul_core::dom::FormattingContext::Flex
+                                | azul_core::dom::FormattingContext::Grid
+                        );
+                        let padding = if padding_in_overflow {
+                            0.0
+                        } else {
+                            bp.padding.top + bp.padding.bottom
+                        };
                         solved_size.height = res.output.overflow_size.height
-                            + bp.padding.top
-                            + bp.padding.bottom
+                            + padding
                             + bp.border.top
                             + bp.border.bottom;
                         if top_is_auto && !bottom_is_auto {
@@ -1048,110 +1087,101 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 // +spec:overflow:bac4e5 - sticky view rectangle from inset properties relative to nearest
 // scrollport
 
-/// Finds the nearest scrollport (ancestor with overflow: scroll or auto) for a node.
-/// Returns the content-box rect of the scrollport, or the viewport if none found.
-fn find_nearest_scrollport(
+/// The scrollport the sticky box at `node_index` sticks to, and how far that
+/// box has scrolled: its NEAREST SCROLL CONTAINER by containing block - the
+/// innermost CSS scroll container of its `ScrollChain` (`hidden | scroll |
+/// auto`: a program scrolls an `overflow: hidden` box, so it is one) - as
+/// the content box and the offset of that box. With none, the viewport, and
+/// the page's offset (the root's entry) only when the box is painted in the
+/// page: a `fixed` box is moved by no frame.
+///
+/// One walk for both answers. They were two walks up the LAYOUT parents
+/// with two rules - the scrollport of the nearest `scroll | auto` box, the
+/// offset of the nearest box with ANY entry - so a hidden box paired its
+/// offset with the viewport, and a scroll box an `absolute` ancestor
+/// escapes pulled the sticky box by an offset that does not move it.
+///
+/// Scroll ids do not exist yet at this step of layout. The chain is walked
+/// with the root standing in for the viewport's frame (the id
+/// `LayoutWindow::compute_scroll_ids` gives it when the page overflows):
+/// that is all it takes to tell "painted in the page" from "fixed". Every
+/// scroll container clips, so it is a link without an id.
+///
+/// `children_rect.origin` IS the offset (see
+/// `ScrollManager::get_scroll_states_for_dom`), positive meaning "scrolled
+/// down/right"; `parent_rect.origin` is an ABSOLUTE window coordinate and
+/// is never subtracted from it (that reported a container's own y as a
+/// scroll amount for every scroller below the top of the window).
+fn nearest_scrollport(
     tree: &LayoutTree,
     node_index: usize,
     styled_dom: &StyledDom,
     calculated_positions: &super::PositionVec,
     viewport: LogicalRect,
-) -> LogicalRect {
-    use azul_css::props::layout::LayoutOverflow;
-
-    use crate::solver3::getters::{get_overflow_x, get_overflow_y};
-
-    let mut current_parent_idx = tree
-        .get(LayoutNodeId::new(node_index))
-        .and_then(|n| n.parent);
-
-    while let Some(parent_index) = current_parent_idx {
-        let Some(parent_node) = tree.get(LayoutNodeId::new(parent_index)) else {
-            break;
-        };
-        let Some(parent_dom_id) = parent_node.dom_node_id else {
-            current_parent_idx = parent_node.parent;
-            continue;
-        };
-
-        let node_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
-        let ox = get_overflow_x(styled_dom, parent_dom_id, node_state);
-        let oy = get_overflow_y(styled_dom, parent_dom_id, node_state);
-
-        let is_scrollport = matches!(
-            ox,
-            MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
-        ) || matches!(
-            oy,
-            MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
-        );
-
-        if is_scrollport {
-            let margin_box_pos = calculated_positions
-                .get(parent_index)
-                .copied()
-                .unwrap_or_default();
-            let border_box_size = parent_node.used_size.unwrap_or_default();
-
-            // Content-box = margin-box pos + border + padding, size - border - padding
-            let pbp = parent_node.box_props.unpack();
-            let content_pos = LogicalPosition::new(
-                margin_box_pos.x + pbp.border.left + pbp.padding.left,
-                margin_box_pos.y + pbp.border.top + pbp.padding.top,
-            );
-            let content_size = LogicalSize::new(
-                (border_box_size.width
-                    - pbp.border.left
-                    - pbp.border.right
-                    - pbp.padding.left
-                    - pbp.padding.right)
-                    .max(0.0),
-                (border_box_size.height
-                    - pbp.border.top
-                    - pbp.border.bottom
-                    - pbp.padding.top
-                    - pbp.padding.bottom)
-                    .max(0.0),
-            );
-            return LogicalRect::new(content_pos, content_size);
-        }
-
-        current_parent_idx = parent_node.parent;
-    }
-
-    viewport
-}
-
-/// Find the scroll offset of the nearest scroll container ancestor.
-/// Returns the scroll offset as a `LogicalPosition` (how far the content has scrolled).
-///
-/// `children_rect.origin` IS that offset (see
-/// `ScrollManager::get_scroll_states_for_dom`), positive meaning "scrolled
-/// down/right". `parent_rect.origin` is an ABSOLUTE window coordinate and must
-/// NOT be subtracted from it — doing so mixed two spaces and reported a
-/// container's own y as a scroll amount for every scroller below the top of
-/// the window.
-fn find_nearest_scroll_offset(
-    tree: &LayoutTree,
-    node_index: usize,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
-) -> LogicalPosition {
-    let mut parent = tree
-        .get(LayoutNodeId::new(node_index))
-        .and_then(|n| n.parent);
-    while let Some(pidx) = parent {
-        if let Some(pnode) = tree.get(LayoutNodeId::new(pidx)) {
-            if let Some(dom_id) = pnode.dom_node_id {
-                if let Some(scroll_pos) = scroll_offsets.get(&dom_id) {
-                    return scroll_pos.children_rect.origin;
-                }
-            }
-            parent = pnode.parent;
-        } else {
-            break;
-        }
+) -> (LogicalRect, LogicalPosition) {
+    use azul_core::spaces::Inclusivity;
+
+    use crate::solver3::scroll_chain::{is_css_scroll_container, ScrollChain};
+
+    let offset_of = |node: NodeId| {
+        scroll_offsets
+            .get(&node)
+            .map_or_else(LogicalPosition::zero, |p| p.children_rect.origin)
+    };
+    let root = LayoutNodeId::new(tree.root);
+    let viewport_frame: std::collections::HashMap<LayoutNodeId, u64> =
+        core::iter::once((root, 0)).collect();
+    let chain = ScrollChain::of(
+        tree,
+        styled_dom,
+        &viewport_frame,
+        LayoutNodeId::new(node_index),
+        Inclusivity::AncestorsOnly,
+    );
+    let Some(link) = chain
+        .links
+        .iter()
+        .rev()
+        .find(|link| link.layout_index == root || is_css_scroll_container(styled_dom, link.node))
+    else {
+        return (viewport, LogicalPosition::zero());
+    };
+    let scroll_offset = offset_of(link.node);
+    if !is_css_scroll_container(styled_dom, link.node) {
+        // The root, standing in for the viewport.
+        return (viewport, scroll_offset);
     }
-    LogicalPosition::zero()
+    let Some(scroller) = tree.get(link.layout_index) else {
+        return (viewport, scroll_offset);
+    };
+    let margin_box_pos = calculated_positions
+        .get(link.layout_index.index())
+        .copied()
+        .unwrap_or_default();
+    let border_box_size = scroller.used_size.unwrap_or_default();
+
+    // Content-box = margin-box pos + border + padding, size - border - padding
+    let pbp = scroller.box_props.unpack();
+    let content_pos = LogicalPosition::new(
+        margin_box_pos.x + pbp.border.left + pbp.padding.left,
+        margin_box_pos.y + pbp.border.top + pbp.padding.top,
+    );
+    let content_size = LogicalSize::new(
+        (border_box_size.width
+            - pbp.border.left
+            - pbp.border.right
+            - pbp.padding.left
+            - pbp.padding.right)
+            .max(0.0),
+        (border_box_size.height
+            - pbp.border.top
+            - pbp.border.bottom
+            - pbp.padding.top
+            - pbp.padding.bottom)
+            .max(0.0),
+    );
+    (LogicalRect::new(content_pos, content_size), scroll_offset)
 }
 
 /// Adjusts positions of sticky-positioned elements based on scroll offset.
@@ -1189,13 +1219,15 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             continue;
         };
 
-        // Find the nearest scrollport for this sticky element
-        let scrollport = find_nearest_scrollport(
+        // The nearest scrollport for this sticky element, and how far it
+        // has scrolled: one answer (`nearest_scrollport`).
+        let (scrollport, scroll_offset) = nearest_scrollport(
             tree,
             node_index,
             ctx.styled_dom,
             calculated_positions,
             viewport,
+            scroll_offsets,
         );
 
         // The containing block for percentage resolution is the parent's content box
@@ -1228,9 +1260,6 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
         // Resolve inset properties (top, right, bottom, left)
         let offsets =
             resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size, viewport.size);
-
-        // Get the scroll offset from the nearest scroll container
-        let scroll_offset = find_nearest_scroll_offset(tree, node_index, scroll_offsets);
 
         let Some(current_pos) = calculated_positions.get_mut(node_index) else {
             continue;
@@ -2015,42 +2044,60 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // find_nearest_scrollport (numeric)
+    // nearest_scrollport (numeric): the scrollport half and the offset half
     // ==================================================================
 
+    /// The scrollport [`nearest_scrollport`] finds, nothing scrolled.
+    fn scrollport_of(tree: &LayoutTree, index: usize, sd: &StyledDom, pos: &PositionVec) -> LogicalRect {
+        nearest_scrollport(tree, index, sd, pos, viewport(), &BTreeMap::new()).0
+    }
+
+    /// The offset [`nearest_scrollport`] finds.
+    fn offset_of(
+        tree: &LayoutTree,
+        index: usize,
+        sd: &StyledDom,
+        offsets: &BTreeMap<NodeId, ScrollPosition>,
+    ) -> LogicalPosition {
+        nearest_scrollport(tree, index, sd, &Vec::new(), viewport(), offsets).1
+    }
+
     #[test]
-    fn find_nearest_scrollport_without_a_scroll_ancestor_is_the_viewport() {
+    fn nearest_scrollport_without_a_scroll_ancestor_is_the_viewport() {
         let (sd, tree) = two_level("");
         let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
         assert_eq!(
-            find_nearest_scrollport(&tree, 1, &sd, &pos, viewport()),
+            scrollport_of(&tree, 1, &sd, &pos),
             viewport()
         );
     }
 
     #[test]
-    fn find_nearest_scrollport_out_of_range_index_is_the_viewport_not_a_panic() {
+    fn nearest_scrollport_out_of_range_index_is_the_viewport_not_a_panic() {
         let (sd, tree) = two_level(".root { overflow-y: scroll; }");
         let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
         assert_eq!(
-            find_nearest_scrollport(&tree, 9_999, &sd, &pos, viewport()),
+            scrollport_of(&tree, 9_999, &sd, &pos),
             viewport()
         );
     }
 
     #[test]
-    fn find_nearest_scrollport_returns_the_ancestor_content_box() {
+    fn nearest_scrollport_returns_the_ancestor_content_box() {
         for css in [
             ".root { overflow-x: scroll; }",
             ".root { overflow-y: scroll; }",
             ".root { overflow-x: auto; }",
             ".root { overflow-y: auto; }",
+            // A lone `hidden` makes the other axis compute to `auto` (CSS
+            // Overflow 3 §3.1): the box scrolls vertically.
+            ".root { overflow-x: hidden; }",
         ] {
             let (sd, mut tree) = two_level(css);
             tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 150.0));
             tree.nodes[0].box_props = bp(uniform(0.0), uniform(5.0), uniform(10.0));
             let pos = positions(&[(20.0, 30.0), (0.0, 0.0)]);
-            let got = find_nearest_scrollport(&tree, 1, &sd, &pos, viewport());
+            let got = scrollport_of(&tree, 1, &sd, &pos);
             // content box = margin-box pos + border + padding, size - 2*(border+padding)
             assert_eq!(got.origin, LogicalPosition::new(35.0, 45.0), "{css}");
             assert_eq!(got.size, LogicalSize::new(170.0, 120.0), "{css}");
@@ -2058,17 +2105,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn find_nearest_scrollport_ignores_non_scrolling_overflow() {
-        for css in [
-            ".root { overflow-x: hidden; }",
-            ".root { overflow-y: visible; }",
-            ".root { overflow-x: clip; }",
-        ] {
+    fn nearest_scrollport_ignores_non_scrolling_overflow() {
+        // `hidden` is NOT in this list: it makes a scroll container (CSS
+        // Overflow 3 §3.1, a program scrolls it), so a sticky box sticks to
+        // it - `nearest_scrollport_of_a_hidden_box_is_its_content_box`.
+        for css in [".root { overflow-y: visible; }", ".root { overflow-x: clip; }"] {
             let (sd, mut tree) = two_level(css);
             tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 150.0));
             let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
             assert_eq!(
-                find_nearest_scrollport(&tree, 1, &sd, &pos, viewport()),
+                scrollport_of(&tree, 1, &sd, &pos),
                 viewport(),
                 "{css}"
             );
@@ -2076,13 +2122,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn find_nearest_scrollport_picks_the_nearest_of_two_scroll_ancestors() {
+    fn nearest_scrollport_of_a_hidden_box_is_its_content_box() {
+        let (sd, mut tree) = two_level(".root { overflow: hidden; }");
+        tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 150.0));
+        let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
+        assert_eq!(
+            scrollport_of(&tree, 1, &sd, &pos),
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(200.0, 150.0))
+        );
+    }
+
+    #[test]
+    fn nearest_scrollport_picks_the_nearest_of_two_scroll_ancestors() {
         let (sd, mut tree) =
             three_level(".root { overflow-y: scroll; } .mid { overflow-y: scroll; }");
         tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
         tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
         let pos = positions(&[(0.0, 0.0), (11.0, 12.0), (0.0, 0.0)]);
-        let got = find_nearest_scrollport(&tree, 2, &sd, &pos, viewport());
+        let got = scrollport_of(&tree, 2, &sd, &pos);
         assert_eq!(
             got.origin,
             LogicalPosition::new(11.0, 12.0),
@@ -2092,40 +2149,40 @@ mod autotest_generated {
     }
 
     #[test]
-    fn find_nearest_scrollport_walks_past_anonymous_boxes() {
+    fn nearest_scrollport_walks_past_anonymous_boxes() {
         // An anonymous box (dom_node_id: None) has no style — it must be skipped,
         // not treated as the end of the ancestor chain.
         let (sd, mut tree) = three_level(".root { overflow-y: scroll; }");
         tree.nodes[1].dom_node_id = None; // .mid becomes anonymous
         tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
         let pos = positions(&[(1.0, 2.0), (0.0, 0.0), (0.0, 0.0)]);
-        let got = find_nearest_scrollport(&tree, 2, &sd, &pos, viewport());
+        let got = scrollport_of(&tree, 2, &sd, &pos);
         assert_eq!(got.origin, LogicalPosition::new(1.0, 2.0));
         assert_eq!(got.size, LogicalSize::new(400.0, 300.0));
     }
 
     #[test]
-    fn find_nearest_scrollport_clamps_the_content_box_to_zero_when_padding_exceeds_the_box() {
+    fn nearest_scrollport_clamps_the_content_box_to_zero_when_padding_exceeds_the_box() {
         let (sd, mut tree) = two_level(".root { overflow-y: scroll; }");
         tree.nodes[0].used_size = Some(LogicalSize::new(10.0, 10.0));
         tree.nodes[0].box_props = bp(uniform(0.0), uniform(1e30), uniform(1e30));
         let pos = positions(&[(0.0, 0.0), (0.0, 0.0)]);
-        let got = find_nearest_scrollport(&tree, 1, &sd, &pos, viewport());
+        let got = scrollport_of(&tree, 1, &sd, &pos);
         assert_eq!(got.size, LogicalSize::new(0.0, 0.0));
         assert!(got.size.width >= 0.0 && got.size.height >= 0.0);
     }
 
     #[test]
-    fn find_nearest_scrollport_unsized_scrollport_is_zero_sized() {
+    fn nearest_scrollport_unsized_scrollport_is_zero_sized() {
         let (sd, tree) = two_level(".root { overflow-y: scroll; }"); // used_size None
         let pos: PositionVec = Vec::new();
-        let got = find_nearest_scrollport(&tree, 1, &sd, &pos, viewport());
+        let got = scrollport_of(&tree, 1, &sd, &pos);
         assert_eq!(got.origin, LogicalPosition::new(0.0, 0.0));
         assert_eq!(got.size, LogicalSize::new(0.0, 0.0));
     }
 
     // ==================================================================
-    // find_nearest_scroll_offset (numeric)
+    // the offset half of nearest_scrollport (numeric)
     // ==================================================================
 
     /// `container_origin` is the scroller's ABSOLUTE window position, `offset`
@@ -2146,17 +2203,17 @@ mod autotest_generated {
     }
 
     #[test]
-    fn find_nearest_scroll_offset_empty_map_is_zero() {
-        let (_sd, tree) = two_level("");
+    fn nearest_scroll_offset_empty_map_is_zero() {
+        let (sd, tree) = two_level("");
         let offsets: BTreeMap<NodeId, ScrollPosition> = BTreeMap::new();
         assert_eq!(
-            find_nearest_scroll_offset(&tree, 1, &offsets),
+            offset_of(&tree, 1, &sd, &offsets),
             LogicalPosition::zero()
         );
     }
 
     #[test]
-    fn find_nearest_scroll_offset_out_of_range_index_is_zero_not_a_panic() {
+    fn nearest_scroll_offset_out_of_range_index_is_zero_not_a_panic() {
         let (sd, tree) = two_level("");
         let mut offsets = BTreeMap::new();
         offsets.insert(
@@ -2164,13 +2221,13 @@ mod autotest_generated {
             scroll_at((0.0, 120.0), (0.0, 50.0)),
         );
         assert_eq!(
-            find_nearest_scroll_offset(&tree, 9_999, &offsets),
+            offset_of(&tree, 9_999, &sd, &offsets),
             LogicalPosition::zero()
         );
     }
 
     #[test]
-    fn find_nearest_scroll_offset_ignores_the_nodes_own_entry() {
+    fn nearest_scroll_offset_ignores_the_nodes_own_entry() {
         // The walk starts at the PARENT — a node's own scroll offset must not
         // shift the node itself.
         let (sd, tree) = two_level("");
@@ -2180,13 +2237,13 @@ mod autotest_generated {
             scroll_at((0.0, 120.0), (0.0, 50.0)),
         );
         assert_eq!(
-            find_nearest_scroll_offset(&tree, 1, &offsets),
+            offset_of(&tree, 1, &sd, &offsets),
             LogicalPosition::zero()
         );
     }
 
     #[test]
-    fn find_nearest_scroll_offset_is_the_raw_offset_not_a_container_relative_one() {
+    fn nearest_scroll_offset_is_the_raw_offset_not_a_container_relative_one() {
         // CONVENTION PIN. `children_rect.origin` IS the scroll offset;
         // `parent_rect.origin` is an absolute window coordinate in a different
         // space. Subtracting the two (as this used to) reported the AzWriter
@@ -2199,7 +2256,7 @@ mod autotest_generated {
             scroll_at((10.0, 120.0), (0.0, 0.0)),
         );
         assert_eq!(
-            find_nearest_scroll_offset(&tree, 1, &offsets),
+            offset_of(&tree, 1, &sd, &offsets),
             LogicalPosition::zero(),
             "an unscrolled container reports zero wherever it sits"
         );
@@ -2209,15 +2266,18 @@ mod autotest_generated {
             scroll_at((10.0, 120.0), (5.0, 80.0)),
         );
         assert_eq!(
-            find_nearest_scroll_offset(&tree, 1, &offsets),
+            offset_of(&tree, 1, &sd, &offsets),
             LogicalPosition::new(5.0, 80.0),
             "the offset is reported verbatim, not relative to the container"
         );
     }
 
     #[test]
-    fn find_nearest_scroll_offset_picks_the_nearest_ancestor() {
-        let (sd, tree) = three_level("");
+    fn nearest_scroll_offset_picks_the_nearest_ancestor() {
+        // The nearest SCROLL CONTAINER's offset: an entry on a box that is
+        // none (a stray programmatic offset on a plain div) moves nothing,
+        // and is not read.
+        let (sd, tree) = three_level(".mid { overflow-y: scroll; }");
         let mut offsets = BTreeMap::new();
         offsets.insert(
             node_by_class(&sd, "root"),
@@ -2228,14 +2288,14 @@ mod autotest_generated {
             scroll_at((0.0, 120.0), (0.0, 7.0)),
         );
         assert_eq!(
-            find_nearest_scroll_offset(&tree, 2, &offsets),
+            offset_of(&tree, 2, &sd, &offsets),
             LogicalPosition::new(0.0, 7.0),
             "mid wins over root"
         );
     }
 
     #[test]
-    fn find_nearest_scroll_offset_walks_past_anonymous_ancestors() {
+    fn nearest_scroll_offset_walks_past_anonymous_ancestors() {
         let (sd, mut tree) = three_level("");
         tree.nodes[1].dom_node_id = None;
         let mut offsets = BTreeMap::new();
@@ -2244,20 +2304,20 @@ mod autotest_generated {
             scroll_at((0.0, 120.0), (0.0, 30.0)),
         );
         assert_eq!(
-            find_nearest_scroll_offset(&tree, 2, &offsets),
+            offset_of(&tree, 2, &sd, &offsets),
             LogicalPosition::new(0.0, 30.0)
         );
     }
 
     #[test]
-    fn find_nearest_scroll_offset_at_f32_extremes_stays_deterministic() {
+    fn nearest_scroll_offset_at_f32_extremes_stays_deterministic() {
         let (sd, tree) = two_level("");
         let mut offsets = BTreeMap::new();
         offsets.insert(
             node_by_class(&sd, "root"),
             scroll_at((f32::MAX, f32::MAX), (f32::MIN, f32::MIN)),
         );
-        let got = find_nearest_scroll_offset(&tree, 1, &offsets);
+        let got = offset_of(&tree, 1, &sd, &offsets);
         // No arithmetic is performed any more, so an extreme offset passes
         // through as-is instead of overflowing to -inf. It must never be NaN
         // (which would poison every downstream sticky comparison silently).
@@ -2320,6 +2380,7 @@ mod autotest_generated {
                     debug_messages: &mut self.debug_messages,
                     counters: &mut self.counters,
                     viewport_size: LogicalSize::new(800.0, 600.0),
+                    canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), LogicalSize::new(800.0, 600.0)),
                     fragmentation_context: None,
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
@@ -2860,7 +2921,7 @@ mod autotest_generated {
 
         #[test]
         fn sticky_does_not_move_when_a_low_container_is_unscrolled() {
-            // REGRESSION: `find_nearest_scroll_offset` used to return
+            // REGRESSION: the sticky offset walk used to return
             // `children_rect.origin - parent_rect.origin`, so this container —
             // at y = 120 with the scroll offset still at zero — reported -120
             // and pushed the sticky box a screenful out of its scrollport.
@@ -2872,6 +2933,101 @@ mod autotest_generated {
             offsets.insert(root, scroll_at((0.0, 120.0), (0.0, 0.0)));
             run_sticky(&mut env, &tree, &mut pos, &offsets);
             assert_eq!(pos[1].y, 10.0, "unscrolled: only the inset applies");
+        }
+
+        // The sticky box's scrollport is its nearest scroll container by
+        // CONTAINING BLOCK (the `ScrollChain` paint follows), and the offset
+        // it follows is that same box's. Two layout-parent walks with two
+        // rules answered it: `scroll | auto` for the scrollport, "any
+        // ancestor with an offset" for the offset.
+
+        /// `body.root(0) > div.scroller(1) > div.abs(2) > div.sticky(3)`, a
+        /// linear chain mirrored 1:1: a 200x100 scroller at the origin, a
+        /// 100x200 box at (0,150), the 50x20 sticky box at its top.
+        fn escaping_sticky_fixture(css: &str) -> (Env, LayoutTree, PositionVec) {
+            let sd = styled(
+                body_class("root").with_child(
+                    div_class("scroller")
+                        .with_child(div_class("abs").with_child(div_class("sticky"))),
+                ),
+                css,
+            );
+            let ids = ["root", "scroller", "abs", "sticky"].map(|c| node_by_class(&sd, c));
+            let mut tree = raw_tree(
+                vec![
+                    hot(None, Some(ids[0])),
+                    hot(Some(0), Some(ids[1])),
+                    hot(Some(1), Some(ids[2])),
+                    hot(Some(2), Some(ids[3])),
+                ],
+                &[vec![1], vec![2], vec![3], vec![]],
+            );
+            tree.nodes[0].used_size = Some(LogicalSize::new(800.0, 600.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(100.0, 200.0));
+            tree.nodes[3].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let pos = positions(&[(0.0, 0.0), (0.0, 0.0), (0.0, 150.0), (0.0, 150.0)]);
+            (Env::new(sd), tree, pos)
+        }
+
+        /// The absolute box's containing block is the initial one: it and the
+        /// sticky box in it are painted outside the (non-positioned)
+        /// scroller's frame, and the scroller's offset does not move them.
+        /// The page does not scroll, so nothing sticks.
+        #[test]
+        fn sticky_does_not_stick_to_a_scroll_box_its_containing_block_escapes() {
+            let (mut env, tree, mut pos) = escaping_sticky_fixture(
+                ".scroller { overflow-y: scroll; } .abs { position: absolute; } .sticky { \
+                 position: sticky; top: 0px; }",
+            );
+            let scroller = node_by_class(&env.styled_dom, "scroller");
+            let mut offsets = BTreeMap::new();
+            offsets.insert(scroller, scroll_at((0.0, 0.0), (0.0, 200.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            assert_eq!(
+                pos[3].y, 150.0,
+                "the scroller scrolled by 200 does not move the box, so it must not pull it down"
+            );
+        }
+
+        /// `overflow: hidden` makes a scroll container (CSS Overflow 3 §3.1):
+        /// a program scrolls it, and a sticky box in it sticks to it.
+        /// `.mid` sits at y 100, scrolled by 30.
+        #[test]
+        fn sticky_sticks_to_an_overflow_hidden_scroll_box() {
+            let (sd, mut tree) =
+                three_level(".mid { overflow: hidden; } .child { position: sticky; top: 0px; }");
+            tree.nodes[0].used_size = Some(LogicalSize::new(800.0, 600.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let mut pos = positions(&[(0.0, 0.0), (0.0, 100.0), (0.0, 100.0)]);
+            let mid = node_by_class(&sd, "mid");
+            let mut env = Env::new(sd);
+            let mut offsets = BTreeMap::new();
+            offsets.insert(mid, scroll_at((0.0, 100.0), (0.0, 30.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            assert_eq!(
+                pos[2].y, 130.0,
+                "sticky edge = the hidden box's content top (100) + its scroll (30)"
+            );
+        }
+
+        /// A `fixed` box is moved by no scroll frame, the page's included: a
+        /// sticky box in it does not follow the page's offset.
+        #[test]
+        fn sticky_in_a_fixed_box_does_not_follow_the_page() {
+            let (sd, mut tree) =
+                three_level(".mid { position: fixed; } .child { position: sticky; top: 0px; }");
+            tree.nodes[0].used_size = Some(LogicalSize::new(800.0, 2000.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(50.0, 20.0));
+            let mut pos = positions(&[(0.0, 0.0), (0.0, 0.0), (0.0, 10.0)]);
+            let root = node_by_class(&sd, "root");
+            let mut env = Env::new(sd);
+            let mut offsets = BTreeMap::new();
+            offsets.insert(root, scroll_at((0.0, 0.0), (0.0, 500.0)));
+            run_sticky(&mut env, &tree, &mut pos, &offsets);
+            assert_eq!(pos[2].y, 10.0, "the page's 500px scroll does not move the fixed box");
         }
 
         #[test]

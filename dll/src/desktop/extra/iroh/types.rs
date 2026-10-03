@@ -1,6 +1,6 @@
 //! Plain data of the `azul.iroh` API, shared by the native engine and the wasm stub.
 
-use azul_css::{impl_option, impl_option_inner, AzString, U8Vec};
+use azul_css::{impl_option, AzString, U8Vec};
 
 /// Where an endpoint may relay traffic when no direct UDP path to a peer exists.
 #[repr(C)]
@@ -180,4 +180,9 @@ pub struct IrohPeerStats {
     pub frames_received: u64,
     /// Outbound frames replaced by a newer frame of the same track before they left.
     pub frames_skipped: u64,
+    /// Messages `send_message` accepted for this peer that have not been handed to the
+    /// connection yet: the outgoing backlog. It grows while the link is slower than the sender.
+    pub messages_queued: u64,
+    /// Payload bytes of `messages_queued`.
+    pub message_bytes_queued: u64,
 }

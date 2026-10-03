@@ -24,11 +24,14 @@ unsafe impl Send for CpalSink {}
 unsafe impl Sync for CpalSink {}
 
 impl CpalSink {
-    /// Open the default output device for `rate` x `channels` (f32 interleaved).
-    /// `None` if there's no device or the config is rejected.
-    pub fn open(rate: u32, channels: u16) -> Option<CpalSink> {
+    /// Open the default output device for `rate` x `channels` (f32 interleaved),
+    /// or a readable reason why not: no output device, or the device refused
+    /// the format.
+    pub fn open(rate: u32, channels: u16) -> Result<CpalSink, String> {
         let host = cpal::default_host();
-        let device = host.default_output_device()?;
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| String::from("no audio output device (WASAPI has no default output)"))?;
         let config = cpal::StreamConfig {
             channels: channels.max(1),
             sample_rate: cpal::SampleRate(if rate == 0 { 48_000 } else { rate }),
@@ -57,21 +60,33 @@ impl CpalSink {
                 },
                 None,
             )
-            .ok()?;
-        stream.play().ok()?;
-        Some(CpalSink {
+            .map_err(|e| {
+                format!(
+                    "the audio output device refused {} Hz x {} f32: {}",
+                    config.sample_rate.0, config.channels, e
+                )
+            })?;
+        stream
+            .play()
+            .map_err(|e| format!("the audio output stream did not start: {}", e))?;
+        Ok(CpalSink {
             _stream: stream,
             queue,
         })
     }
+}
 
-    /// Queue interleaved-f32 `samples` for playback. Bounded (~4 s at 48 kHz)
-    /// so a stalled stream can't grow the queue without limit.
-    pub fn play(&self, samples: &[f32]) {
+impl super::OutputDevice for CpalSink {
+    /// Queue interleaved-f32 `samples` for the output callback. Bounded (~4 s
+    /// at 48 kHz) so a stalled stream can't grow the queue without limit: a
+    /// frame that does not fit is not taken.
+    fn play(&self, samples: &[f32]) -> bool {
         if let Ok(mut q) = self.queue.lock() {
             if q.len() < 48_000 * 4 {
                 q.extend(samples.iter().copied());
+                return true;
             }
         }
+        false
     }
 }

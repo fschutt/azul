@@ -17,20 +17,19 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
-        basic::{color::ColorU, StyleFontSize},
+        basic::{color::ColorU, FloatValue, StyleFontSize},
         layout::{
             LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutJustifyContent, LayoutMarginBottom, LayoutMarginLeft,
-            LayoutMarginRight, LayoutWidth,
+            LayoutFlexShrink, LayoutHeight, LayoutJustifyContent, LayoutMarginBottom,
+            LayoutMarginLeft, LayoutMarginRight, LayoutWidth,
         },
         property::{CssProperty, *},
         style::{
@@ -46,12 +45,18 @@ use azul_css::{
     AzString, OptionString, StringVec,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::{style_kit, OptionUiTheme, UiTheme},
+};
 
 static RADIO_GROUP_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-radio-group"))];
+/// The class every option row carries: how the key handler tells the group's
+/// rows apart from anything else.
+const RADIO_GROUP_ROW_CLASS_NAME: &str = "__azul-native-radio-group-row";
 static RADIO_GROUP_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-    "__azul-native-radio-group-row",
+    RADIO_GROUP_ROW_CLASS_NAME,
 ))];
 static RADIO_GROUP_CIRCLE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-radio-group-circle",
@@ -109,6 +114,10 @@ pub struct RadioGroup {
     /// accessibility declaration the widget builds anyway, beside its role and
     /// state.
     pub accessibility_name: OptionString,
+    /// The widget theme, or `None` to follow the app theme (`AppConfig::with_theme`). A
+    /// theme is a DOM-level choice: it picks the skin the rows, indicators
+    /// and labels are built from, so switching it rebuilds the group.
+    pub theme: OptionUiTheme,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -131,16 +140,16 @@ pub struct RadioGroupState {
     pub selected_index: usize,
 }
 
-// ---- dimensions (logical px) ----
-const CIRCLE_SIZE: isize = 16;
-const CIRCLE_RADIUS: isize = 8;
-const CIRCLE_BORDER: isize = 1;
-const DOT_SIZE: isize = 8;
-const DOT_RADIUS: isize = 4;
+// ---- dimensions (logical px) - every theme's indicator has this geometry ----
+pub(crate) const CIRCLE_SIZE: isize = 16;
+pub(crate) const CIRCLE_RADIUS: isize = 8;
+pub(crate) const CIRCLE_BORDER: isize = 1;
+pub(crate) const DOT_SIZE: isize = 8;
+pub(crate) const DOT_RADIUS: isize = 4;
 /// Gap between stacked rows (vertical) / between side-by-side rows (horizontal).
 const ROW_GAP: isize = 6;
 /// Gap between the indicator circle and its label.
-const LABEL_GAP: isize = 8;
+pub(crate) const LABEL_GAP: isize = 8;
 
 // ---- colours ----
 /// Indicator ring colour (#9b9b9b).
@@ -161,9 +170,29 @@ const DOT_COLOR: ColorU = ColorU {
 const DOT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DOT_COLOR)];
 const DOT_BG: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(DOT_BG_ITEMS);
 
-/// Outer ring of one option's indicator (parameter-independent → const slice).
-/// A flex box that centres its inner dot.
-static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
+/// Never shrink: the indicator is a fixed-size shape, not a share of its row.
+///
+/// A flex item shrinks by default, down to its content's minimum - for the
+/// ring that is the 8 px dot plus its borders - so a row handed less width
+/// than ring + label (a narrow column, a relayout pass that measured the
+/// group short) squeezed the 18 x 18 ring into a 10 x 18 pill with the dot
+/// off its centre. The label wraps or overflows instead, as next to a native
+/// radio button.
+pub(crate) const NO_SHRINK: CssPropertyWithConditions =
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    }));
+
+/// The indicator ring's BASE: how it lays out, the same in every theme (R5) -
+/// a flex box that centres its inner dot, never grown and never shrunk
+/// ([`NO_SHRINK`]). Every theme's ring starts with it - flat's
+/// [`RADIO_GROUP_CIRCLE_STYLE`] (`themes::flat::radio_group_skin`),
+/// `themes::flora::radio_group_skin` - and adds its skin after it.
+///
+/// Declared once here, it is declared once in a group that follows the app
+/// theme too (`themes::theme_blocks`): outside every `@theme` block, so it
+/// holds under an app theme no widget knows.
+pub(crate) static RADIO_GROUP_CIRCLE_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
@@ -171,6 +200,19 @@ static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     )),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    NO_SHRINK,
+];
+
+/// The dot's BASE: never grown and never shrunk, the same in every theme
+/// (see [`RADIO_GROUP_CIRCLE_BASE`]). Every theme's dot starts with it.
+pub(crate) static RADIO_GROUP_DOT_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    NO_SHRINK,
+];
+
+/// Flat's skin for the outer ring of one option's indicator
+/// (parameter-independent → const slice), laid on [`RADIO_GROUP_CIRCLE_BASE`].
+pub(crate) static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
         CIRCLE_SIZE,
@@ -233,12 +275,14 @@ static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-/// Inner filled dot when the option is SELECTED (opacity 100).
-static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
+/// Flat's skin for the inner filled dot when the option is SELECTED (opacity
+/// 100), laid on [`RADIO_GROUP_DOT_BASE`].
+pub(crate) static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
+    // The checked dot is the desktop's accent in the dark theme.
+    crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(DOT_RADIUS),
     )),
@@ -254,12 +298,14 @@ static RADIO_GROUP_DOT_STYLE_SELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
-/// Inner filled dot when the option is UNSELECTED (opacity 0 — hidden but laid out).
-static RADIO_GROUP_DOT_STYLE_UNSELECTED: &[CssPropertyWithConditions] = &[
+/// Flat's skin for the inner filled dot when the option is UNSELECTED
+/// (opacity 0 — hidden but laid out), laid on [`RADIO_GROUP_DOT_BASE`].
+pub(crate) static RADIO_GROUP_DOT_STYLE_UNSELECTED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(DOT_SIZE))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(DOT_SIZE))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(DOT_BG)),
+    // The checked dot is the desktop's accent in the dark theme.
+    crate::widgets::themes::system_palette::DARK_ACCENT_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(DOT_RADIUS),
     )),
@@ -295,7 +341,7 @@ fn build_container_style(horizontal: bool) -> CssPropertyWithConditionsVec {
 
 /// Builds one option's row style. The orientation decides whether the inter-row
 /// gap is applied to the bottom (vertical) or the right (horizontal).
-fn build_row_style(horizontal: bool) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_row_style(horizontal: bool) -> CssPropertyWithConditionsVec {
     let mut v: Vec<CssPropertyWithConditions> = alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
         CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
@@ -321,13 +367,61 @@ fn build_row_style(horizontal: bool) -> CssPropertyWithConditionsVec {
 }
 
 /// The label-text style: a small left gap from the indicator.
-static RADIO_GROUP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
+pub(crate) static RADIO_GROUP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         LABEL_GAP,
     ))),
 ];
+
+/// What a theme supplies for a radio group: the style of each option's row,
+/// indicator ring, dot (checked / unchecked) and label. Built by
+/// `themes::flat::radio_group` / `themes::flora::radio_group` for the group's
+/// orientation. Every theme keeps the indicator's fixed geometry
+/// ([`CIRCLE_SIZE`], [`NO_SHRINK`]).
+pub(crate) struct RadioGroupSkin {
+    pub theme: UiTheme,
+    /// One option's row - the focusable radio, so it owes the focus ring.
+    pub row: CssPropertyWithConditionsVec,
+    /// The indicator ring.
+    pub circle: CssPropertyWithConditionsVec,
+    /// The dot of the checked option.
+    pub dot_selected: CssPropertyWithConditionsVec,
+    /// The dot of every other option (laid out, invisible).
+    pub dot_unselected: CssPropertyWithConditionsVec,
+    /// The option's text.
+    pub label: CssPropertyWithConditionsVec,
+}
+
+/// The skin `theme` draws a group laid out `horizontal`ly (or not) with.
+#[must_use]
+pub(crate) fn skin_for(theme: UiTheme, horizontal: bool) -> RadioGroupSkin {
+    match theme {
+        UiTheme::Flat => crate::widgets::themes::flat::radio_group_skin(horizontal),
+        UiTheme::Flora => crate::widgets::themes::flora::radio_group_skin(horizontal),
+    }
+}
+
+/// The skin an UNPINNED radio group is built with, so it follows the app
+/// theme: `structure`'s theme (its marker goes on the group) and every part
+/// in BOTH themes' blocks (`themes::theme_blocks::follow_props`).
+#[must_use]
+pub(crate) fn follow_skin(structure: UiTheme, horizontal: bool) -> RadioGroupSkin {
+    use crate::widgets::themes::theme_blocks::follow_props as both;
+    let (flat, flora) = (
+        skin_for(UiTheme::Flat, horizontal),
+        skin_for(UiTheme::Flora, horizontal),
+    );
+    RadioGroupSkin {
+        theme: structure,
+        row: both(flat.row.as_slice(), flora.row.as_slice()),
+        circle: both(flat.circle.as_slice(), flora.circle.as_slice()),
+        dot_selected: both(flat.dot_selected.as_slice(), flora.dot_selected.as_slice()),
+        dot_unselected: both(flat.dot_unselected.as_slice(), flora.dot_unselected.as_slice()),
+        label: both(flat.label.as_slice(), flora.label.as_slice()),
+    }
+}
 
 impl RadioGroup {
     /// Creates a radio group from the given options, with the first one selected.
@@ -349,7 +443,23 @@ impl RadioGroup {
             options,
             container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme. Unset (`None`), the group follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
+    #[inline]
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The container CSS this group renders with.
@@ -429,8 +539,27 @@ impl RadioGroup {
         self
     }
 
+    /// Renders the group. Rendering goes through the theme modules (as
+    /// `Button::dom` does): each hands [`Self::build`] its skin. Unpinned
+    /// (`theme: None`), the group follows the APP theme: built in the
+    /// structure of the theme its DOM is built for, carrying every theme's
+    /// blocks (`follow_skin`).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::radio_group(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::radio_group(self),
+            None => {
+                let horizontal = self.radio_group_state.horizontal;
+                self.build(follow_skin(UiTheme::current(), horizontal))
+            }
+        }
+    }
+
+    /// Renders the group with `skin` styling its rows, indicators and labels
+    /// - what `themes::flat::radio_group` / `themes::flora::radio_group` call.
+    #[must_use]
+    pub(crate) fn build(self, skin: RadioGroupSkin) -> Dom {
         // Read before the widget's fields are moved into the DOM below.
         let rg_name = self.accessibility_name.clone();
         let container_style = self.resolved_container_style();
@@ -439,14 +568,19 @@ impl RadioGroup {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
+            events::FocusEventFilter,
             refany::OptionRefAny,
         };
 
         let selected = self.radio_group_state.inner.selected_index;
-        let horizontal = self.radio_group_state.horizontal;
         let count = self.options.as_ref().len();
+        // WAI-ARIA APG: the group is ONE Tab stop - the checked radio, or the
+        // first one when none is checked. The arrow keys move within it.
+        let tab_stop = crate::widgets::roving::stop_index(Some(selected), count);
 
-        let row_style = build_row_style(horizontal);
+        // The skin's row already follows the orientation (the theme module
+        // built it from the horizontal flag).
+        let row_style = skin.row;
 
         // One shared RefAny across every row's callback (RefAny::clone shares
         // the underlying state — same pattern as segmented/tabs/map).
@@ -457,16 +591,14 @@ impl RadioGroup {
         let mut children: Vec<Dom> = Vec::with_capacity(count);
         for (i, label) in self.options.as_ref().iter().enumerate() {
             let dot_style = if i == selected {
-                CssPropertyWithConditionsVec::from_const_slice(RADIO_GROUP_DOT_STYLE_SELECTED)
+                skin.dot_selected.clone()
             } else {
-                CssPropertyWithConditionsVec::from_const_slice(RADIO_GROUP_DOT_STYLE_UNSELECTED)
+                skin.dot_unselected.clone()
             };
 
             let circle = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_CIRCLE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    RADIO_GROUP_CIRCLE_STYLE,
-                ))
+                .with_css_props(skin.circle.clone())
                 .with_children(
                     vec![Dom::create_div()
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_DOT_CLASS))
@@ -476,26 +608,34 @@ impl RadioGroup {
 
             let label_node = crate::widgets::widget_p_with_text(label.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_LABEL_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    RADIO_GROUP_LABEL_STYLE,
-                ));
+                .with_css_props(skin.label.clone());
 
             children.push(
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_ROW_CLASS))
                     .with_css_props(row_style.clone())
                     .with_callbacks(
-                        vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::Click),
-                            callback: CoreCallback {
-                                cb: on_radio_row_click as usize,
-                                ctx: OptionRefAny::None,
+                        vec![
+                            CoreCallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::Click),
+                                callback: CoreCallback {
+                                    cb: on_radio_row_click as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
                             },
-                            refany: state.clone(),
-                        }]
+                            CoreCallbackData {
+                                event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                                callback: CoreCallback {
+                                    cb: on_radio_row_key as usize,
+                                    ctx: OptionRefAny::None,
+                                },
+                                refany: state.clone(),
+                            },
+                        ]
                         .into(),
                     )
-                    .with_tab_index(TabIndex::Auto)
+                    .with_tab_index(crate::widgets::roving::item_tab_index(i, tab_stop))
                     // Each row is its own radio button and must say whether IT
                     // is the chosen one. A group where every row announces the
                     // same thing is unusable: the user cannot tell which is
@@ -515,8 +655,10 @@ impl RadioGroup {
             );
         }
 
+        let mut classes: Vec<IdOrClass> = RADIO_GROUP_CLASS.to_vec();
+        classes.push(style_kit::marker(skin.theme));
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(container_style)
             // The name belongs to the GROUP, not to each row. Every row already
             // has its own option text, which azul derives a name from; stamping
@@ -541,9 +683,10 @@ impl Default for RadioGroup {
 /// position among its siblings (the hit node resolves to the row the callback is
 /// registered on — currentTarget semantics — regardless of whether the dot,
 /// circle or label was clicked), updates the selection, invokes the user
-/// callback, and live-restyles every row's indicator dot.
-extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    use azul_core::dom::DomNodeId;
+/// callback, and live-restyles every row's indicator dot. The clicked row also
+/// becomes the group's one Tab stop (the click itself already focused it).
+extern "C" fn on_radio_row_click(data: RefAny, mut info: CallbackInfo) -> Update {
+    use crate::widgets::roving;
 
     let clicked = info.get_hit_node();
     let Some(parent) = info.get_parent(clicked) else {
@@ -551,27 +694,93 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     };
 
     // Collect the option rows in document order.
-    let mut rows: Vec<DomNodeId> = Vec::new();
-    let mut cur = info.get_first_child(parent);
-    while let Some(node) = cur {
-        rows.push(node);
-        cur = info.get_next_sibling(node);
-    }
+    let rows = roving::children_of(&info, parent);
 
     let Some(selected) = rows.iter().position(|n| *n == clicked) else {
         return Update::DoNothing;
     };
 
+    let Some(result) = check_row(data, &mut info, &rows, selected) else {
+        return Update::DoNothing;
+    };
+
+    // Only real option rows take part in the Tab order and announce their
+    // check; an inner node that reached this handler has no rows among its
+    // siblings to rewrite.
+    let items = roving::items_of(&info, parent, RADIO_GROUP_ROW_CLASS_NAME);
+    if let Some(stop) = items.iter().position(|n| *n == clicked) {
+        roving::set_stop(&mut info, &items, stop);
+        announce_check(&mut info, &items, stop);
+    }
+
+    result
+}
+
+/// Every option row says, live, whether it is the checked one (see
+/// `roving::announce_chosen`).
+fn announce_check(info: &mut CallbackInfo, rows: &[azul_core::dom::DomNodeId], checked: usize) {
+    use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+    crate::widgets::roving::announce_chosen(info, rows, checked, CheckedTrue, Some(CheckedFalse));
+}
+
+/// Arrow keys on the focused radio (WAI-ARIA APG radio group): Down and Right
+/// check the next option, Up and Left the previous one, wrapping at the ends.
+/// Focus and the group's one Tab stop move with the check, and the key's
+/// default action (spatial navigation) is cancelled. Every other key - and an
+/// arrow held with Alt, Ctrl, Cmd or Shift - keeps its default.
+extern "C" fn on_radio_row_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let step = match roving::plain_key(&info.get_current_keyboard_state()) {
+        Some(K::Down | K::Right) => Step::Next,
+        Some(K::Up | K::Left) => Step::Previous,
+        _ => return Update::DoNothing,
+    };
+
+    let focused = info.get_hit_node();
+    let Some(parent) = info.get_parent(focused) else {
+        return Update::DoNothing;
+    };
+    let rows = roving::items_of(&info, parent, RADIO_GROUP_ROW_CLASS_NAME);
+    let Some(current) = rows.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let Some(target) = roving::step_target(current, rows.len(), step, true) else {
+        return Update::DoNothing;
+    };
+    // Not our state (or already borrowed): leave the key alone rather than
+    // move focus onto a radio whose check could not follow.
+    if data.downcast_ref::<RadioGroupStateWrapper>().is_none() {
+        return Update::DoNothing;
+    }
+
+    info.prevent_default();
+    // Moved BEFORE the user callback runs, so a focus it asks for wins.
+    roving::move_stop(&mut info, &rows, target);
+    announce_check(&mut info, &rows, target);
+    check_row(data, &mut info, &rows, target).unwrap_or(Update::DoNothing)
+}
+
+/// Checks option `selected` of `rows`: updates the shared state, invokes the
+/// user callback and live-restyles every row's dot. `None` when the payload is
+/// not this widget's state (or is already borrowed) - nothing was changed.
+fn check_row(
+    mut data: RefAny,
+    info: &mut CallbackInfo,
+    rows: &[azul_core::dom::DomNodeId],
+    selected: usize,
+) -> Option<Update> {
     let result = {
-        let Some(mut rg) = data.downcast_mut::<RadioGroupStateWrapper>() else {
-            return Update::DoNothing;
-        };
+        let mut rg = data.downcast_mut::<RadioGroupStateWrapper>()?;
         rg.inner.selected_index = selected;
         let inner = rg.inner;
         let rg = &mut *rg;
         match rg.on_change.as_mut() {
             Some(RadioGroupOnChange { callback, refany }) => {
-                callback.invoke(refany.clone(), info, inner)
+                callback.invoke(refany.clone(), *info, inner)
             }
             None => Update::DoNothing,
         }
@@ -594,7 +803,7 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
         );
     }
 
-    result
+    Some(result)
 }
 
 impl From<RadioGroup> for Dom {
@@ -618,14 +827,14 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType},
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, NodeType, TabIndex},
         geom::{LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
         refany::OptionRefAny,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::{
         props::basic::{length::SizeMetric, pixel::PixelValue},
@@ -639,6 +848,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -1253,10 +1463,20 @@ mod autotest_generated {
             ("the unselected dot style", RADIO_GROUP_DOT_STYLE_UNSELECTED),
             ("the label style", RADIO_GROUP_LABEL_STYLE),
         ] {
-            no_duplicate_properties(name, style);
+            // The light face: every unconditional declaration, each once.
+            let light: Vec<CssPropertyWithConditions> = style
+                .iter()
+                .filter(|p| p.apply_if.as_ref().is_empty())
+                .cloned()
+                .collect();
+            no_duplicate_properties(name, &light);
+            // Anything conditional is a resting dark-theme twin and nothing
+            // else - a stray `@media`/`:hover` condition would make the
+            // property silently not apply.
             assert!(
-                all_unconditional(style),
-                "{name} must apply unconditionally"
+                style.iter().all(|p| all_unconditional(core::slice::from_ref(p))
+                    || (p.is_dark_twin() && p.pseudo_state_conditions().is_empty())),
+                "{name} must apply unconditionally, apart from its dark-theme twins"
             );
         }
     }
@@ -1767,7 +1987,8 @@ mod autotest_generated {
     fn dom_renders_one_row_per_option_with_the_documented_structure() {
         let dom = group(&["a", "b", "c"]).dom();
 
-        assert_eq!(classes(&dom), vec!["__azul-native-radio-group"]);
+        // The group class and the marker of the theme that drew it (flat).
+        assert_eq!(classes(&dom), vec!["__azul-native-radio-group", "__azul-theme-flat"]);
         assert_eq!(dom.children.as_ref().len(), 3, "one row per option");
 
         for i in 0..3 {
@@ -1778,10 +1999,16 @@ mod autotest_generated {
                 2,
                 "row {i} must be `circle, label`",
             );
+            // One Tab stop per group (WAI-ARIA APG): the checked radio - row 0
+            // of a fresh group. The others are reached with the arrow keys.
             assert_eq!(
                 row.root.get_tab_index(),
-                Some(TabIndex::Auto),
-                "row {i} is not keyboard reachable",
+                Some(if i == 0 {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                }),
+                "row {i} has the wrong tab index",
             );
 
             let circle = &row.children.as_ref()[0];
@@ -1804,12 +2031,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_row_carries_exactly_one_mouse_up_handler_pointing_at_the_row_handler() {
+    fn every_row_carries_the_click_and_the_arrow_key_handler() {
         let dom = group(&["a", "b", "c"]).dom();
 
         for i in 0..3 {
             let cbs = row_of(&dom, i).root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "row {i} must have one callback");
+            assert_eq!(cbs.as_ref().len(), 2, "row {i} must have two callbacks");
             let cb = &cbs.as_ref()[0];
             assert_eq!(
                 cb.event,
@@ -1819,6 +2046,18 @@ mod autotest_generated {
             assert_eq!(
                 cb.callback.cb, on_radio_row_click as usize,
                 "row {i} is wired to the wrong handler",
+            );
+            let key = &cbs.as_ref()[1];
+            assert_eq!(
+                key.event,
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                "row {i} does not listen for the arrow keys",
+            );
+            assert_eq!(key.callback.cb, on_radio_row_key as usize);
+            assert_eq!(
+                key.refany.get_data_ptr(),
+                cb.refany.get_data_ptr(),
+                "row {i}'s key handler must share the group's state",
             );
         }
 
@@ -1858,7 +2097,8 @@ mod autotest_generated {
             "a group with no options invented a row",
         );
         assert!(dom.root.get_callbacks().as_ref().is_empty());
-        assert_eq!(classes(&dom), vec!["__azul-native-radio-group"]);
+        // The group class and the marker of the theme that drew it (flat).
+        assert_eq!(classes(&dom), vec!["__azul-native-radio-group", "__azul-theme-flat"]);
     }
 
     #[test]
@@ -2218,6 +2458,459 @@ mod autotest_generated {
                 expected_opacities(5, expected),
                 "click #{click}: the pushed opacities disagree with the stored index",
             );
+        }
+    }
+
+    // ==================================================================
+    // Roving tabindex (WAI-ARIA APG radio group, P2-12)
+    // ==================================================================
+
+    /// A plain tab stop, the group, another plain tab stop - the smallest page
+    /// on which "Tab leaves the group" means anything. Flattened: root 0,
+    /// before 1, group 2, option row `i` at `3 + 5 * i`, after at `3 + 5 * n`.
+    /// Also hands back the group's shared state.
+    fn page(rg: RadioGroup) -> (StyledDom, RefAny) {
+        let dom = rg.dom();
+        let state = row_state(&dom, 0);
+        let stop = || Dom::create_div().with_tab_index(TabIndex::Auto);
+        let page = Dom::create_div().with_children(vec![stop(), dom, stop()].into());
+        (StyledDom::create_from_dom(page), state)
+    }
+
+    fn page_before() -> DomNodeId {
+        node(1)
+    }
+
+    fn page_row(i: usize) -> DomNodeId {
+        node(3 + 5 * i)
+    }
+
+    fn page_after(n: usize) -> DomNodeId {
+        node(3 + 5 * n)
+    }
+
+    /// Presses `key` on option `row` of `page`; panics when the row has no key
+    /// handler at all - the state of every radio before P2-12.
+    fn press_row(
+        styled: &StyledDom,
+        row: usize,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, page_row(row), key, held)
+            .expect("every radio must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn tab_from_the_item_before_the_group_lands_on_the_checked_radio_and_the_next_tab_leaves() {
+        let (styled, _) = page(group(&["a", "b", "c"]).with_selected_index(1));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_row(1), page_after(3)],
+            "the group is ONE tab stop: the checked radio, then out",
+        );
+    }
+
+    #[test]
+    fn shift_tab_from_the_item_after_the_group_lands_on_the_checked_radio_and_then_leaves() {
+        let (styled, _) = page(group(&["a", "b", "c"]).with_selected_index(1));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_after(3)), false, 2),
+            vec![page_row(1), page_before()],
+        );
+    }
+
+    #[test]
+    fn with_no_option_checked_the_first_radio_is_the_tab_stop() {
+        let (styled, _) = page(group(&["a", "b", "c"]).with_selected_index(usize::MAX));
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_row(0), page_after(3)],
+        );
+    }
+
+    #[test]
+    fn arrow_down_on_a_radio_checks_and_focuses_the_next_one() {
+        let (styled, state) = page(group(&["a", "b", "c"]));
+        let mut probe = state.clone();
+
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+
+        assert_eq!(
+            selected_index_of(&mut probe),
+            1,
+            "Down must CHECK the next radio"
+        );
+        assert_eq!(rv::focus_request(&changes), Some(page_row(1)));
+        assert!(
+            rv::prevented(&changes),
+            "a handled arrow must cancel spatial navigation"
+        );
+        let lit: Vec<f32> = pushed_opacities(&changes)
+            .iter()
+            .map(|(_, o)| *o)
+            .collect();
+        assert_eq!(lit, vec![0.0, 1.0, 0.0], "the dots follow the check");
+    }
+
+    #[test]
+    fn arrows_move_the_check_both_ways_and_wrap_around() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        // (checked, key, then checked) - Right/Down forward, Left/Up back.
+        for (from, key, to) in [
+            (0, K::Right, 1),
+            (1, K::Up, 0),
+            (1, K::Left, 0),
+            (2, K::Down, 0),
+            (2, K::Right, 0),
+            (0, K::Up, 2),
+            (0, K::Left, 2),
+        ] {
+            let (styled, state) = page(group(&["a", "b", "c"]).with_selected_index(from));
+            let mut probe = state.clone();
+            let (_, changes) = press_row(&styled, from, key, &[]);
+            assert_eq!(
+                selected_index_of(&mut probe),
+                to,
+                "{key:?} on radio {from} must check radio {to}",
+            );
+            assert_eq!(rv::focus_request(&changes), Some(page_row(to)));
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    #[test]
+    fn after_an_arrow_the_group_is_still_one_tab_stop_on_the_newly_checked_radio() {
+        let (mut styled, _) = page(group(&["a", "b", "c"]));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_before()), true, 2),
+            vec![page_row(1), page_after(3)],
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(page_row(1)), false, 1),
+            vec![page_before()],
+            "Shift+Tab from the new radio must leave the group, not walk back to the old one",
+        );
+    }
+
+    #[test]
+    fn the_user_callback_hears_a_check_made_with_the_arrow_keys() {
+        let mut log = log_refany();
+        let (styled, _) =
+            page(group(&["a", "b", "c"]).with_on_change(log.clone(), change_cb(record_change)));
+        let (update, _) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(log_indices(&mut log), vec![1]);
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the callback's verdict is forwarded"
+        );
+    }
+
+    #[test]
+    fn a_modified_arrow_on_a_radio_is_left_to_the_os_and_the_app() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for held in [K::LAlt, K::LControl, K::LWin, K::LShift] {
+            let (styled, state) = page(group(&["a", "b", "c"]));
+            let mut probe = state.clone();
+            let (update, changes) = press_row(&styled, 0, K::Down, &[held]);
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(
+                selected_index_of(&mut probe),
+                0,
+                "{held:?}+Down changed the check"
+            );
+            assert!(
+                changes.is_empty(),
+                "{held:?}+Down must not be consumed: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_key_the_group_does_not_use_is_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for key in [K::Tab, K::Escape, K::A, K::Home] {
+            let (styled, _) = page(group(&["a", "b", "c"]));
+            let (_, changes) = press_row(&styled, 0, key, &[]);
+            assert!(
+                changes.is_empty(),
+                "{key:?} must keep its default: {changes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn clicking_a_radio_makes_it_the_tab_stop() {
+        let (mut styled, state) = flatten(group(&["a", "b", "c"]));
+        let (_, changes) = run_click(Some(styled.clone()), row_node(2), state);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        assert_eq!(
+            rv::tab_walk(&styled, None, true, 2),
+            vec![row_node(2), row_node(2)],
+            "after the click the clicked radio is the group's only stop",
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // The check is announced LIVE: an arrow or a click moves it without a
+    // rebuild, so the CheckedTrue / CheckedFalse published at build time kept
+    // telling a screen reader about the option the user had just left.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn an_arrow_announces_the_newly_checked_radio_and_unchecks_the_others() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, _) = page(group(&["a", "b", "c"]));
+        let (_, changes) = press_row(&styled, 0, VirtualKeyCode::Down, &[]);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (page_row(0), vec![CheckedFalse]),
+                (page_row(1), vec![CheckedTrue]),
+                (page_row(2), vec![CheckedFalse]),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_click_announces_the_checked_radio_too() {
+        use azul_core::a11y::AccessibilityState::{CheckedFalse, CheckedTrue};
+
+        let (styled, state) = flatten(group(&["a", "b", "c"]));
+        let (_, changes) = run_click(Some(styled), row_node(2), state);
+        assert_eq!(
+            rv::announced_states(&changes),
+            vec![
+                (row_node(0), vec![CheckedFalse]),
+                (row_node(1), vec![CheckedFalse]),
+                (row_node(2), vec![CheckedTrue]),
+            ],
+        );
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    //! The radio group's theme is a DOM-level choice: rows, indicators and
+    //! labels are built from the skin of the theme the group carries, flat by
+    //! default. The indicator keeps its fixed pill layout (`flex-shrink: 0`,
+    //! 16px) in every theme.
+
+    use azul_core::dom::Dom;
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+        style::StyleBackgroundContent,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc, OptionUiTheme, UiTheme};
+
+    const FLAT: &str = "__azul-theme-flat";
+    const FLORA: &str = "__azul-theme-flora";
+    const ROW: &str = "__azul-native-radio-group-row";
+    const CIRCLE: &str = "__azul-native-radio-group-circle";
+    const DOT: &str = "__azul-native-radio-group-dot";
+    const LABEL: &str = "__azul-native-radio-group-label";
+
+    fn group(theme: Option<UiTheme>) -> Dom {
+        let rg = RadioGroup::create(StringVec::from_vec(vec![
+            AzString::from("First"),
+            AzString::from("Second"),
+            AzString::from("Third"),
+        ]))
+        .with_accessibility_name("Choice");
+        match theme {
+            Some(t) => rg.with_theme(t).dom(),
+            None => rg.dom(),
+        }
+    }
+
+    fn shrink(node: &Dom) -> Option<CssProperty> {
+        tc::resolve(node, CssPropertyType::FlexShrink, false, None)
+    }
+
+    #[test]
+    fn a_radio_group_without_a_theme_follows_the_app_theme_flat_by_default() {
+        let rg = RadioGroup::create(StringVec::from_const_slice(&[]));
+        assert_eq!(rg.theme, OptionUiTheme::None);
+        assert!(tc::has_class(&group(None), FLAT));
+        let dom = {
+            let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str("flora"));
+            group(None)
+        };
+        assert!(tc::has_class(&dom, FLORA), "built for flora, it is flora's");
+        assert!(!tc::has_class(&dom, FLAT));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_agree() {
+        let mut a = RadioGroup::create(StringVec::from_const_slice(&[]));
+        a.set_theme(UiTheme::Flora);
+        assert_eq!(a.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            a,
+            RadioGroup::create(StringVec::from_const_slice(&[])).with_theme(UiTheme::Flora)
+        );
+    }
+
+    #[test]
+    fn a_flat_radio_group_keeps_its_ring_and_accent_dot() {
+        let dom = group(Some(UiTheme::Flat));
+        let circle = tc::find(&dom, CIRCLE).expect("an indicator");
+        assert_eq!(
+            tc::border_top_color(circle, false, None),
+            Some(ColorU::rgb(155, 155, 155))
+        );
+        let dot = tc::find(&dom, DOT).expect("a dot");
+        assert_eq!(
+            tc::background(dot, false).and_then(|p| tc::bg_color(&p)),
+            Some(ColorU::rgb(13, 110, 253))
+        );
+    }
+
+    #[test]
+    fn a_flora_radio_is_a_well_of_flora_field_paper_holding_an_accent_stone() {
+        let dom = group(Some(UiTheme::Flora));
+        assert!(tc::has_class(&dom, FLORA));
+        let circle = tc::find(&dom, CIRCLE).expect("an indicator");
+        assert_eq!(
+            tc::background(circle, false).and_then(|p| tc::bg_color(&p)),
+            Some(flora::LIGHT_FLD)
+        );
+        assert_eq!(
+            tc::background(circle, true).and_then(|p| tc::bg_color(&p)),
+            Some(flora::DARK_FLD)
+        );
+        assert_eq!(tc::border_top_color(circle, false, None), Some(flora::LIGHT_BD3));
+        assert_eq!(tc::border_top_color(circle, true, None), Some(flora::DARK_BD3));
+
+        let dot = tc::find(&dom, DOT).expect("the checked dot");
+        for dark in [false, true] {
+            let layers = tc::background(dot, dark)
+                .map(|p| tc::bg_layers(&p))
+                .unwrap_or_default();
+            assert_eq!(
+                layers.first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "dark={dark}: the stone is its own colour in both modes"
+            );
+        }
+
+        let label = tc::find(&dom, LABEL).expect("a label");
+        assert_eq!(tc::text_color(label, false), Some(flora::LIGHT_INK));
+        assert_eq!(tc::text_color(label, true), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn the_indicator_keeps_its_fixed_pill_layout_in_every_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = group(Some(theme));
+            for class in [CIRCLE, DOT] {
+                for node in tc::find_all(&dom, class) {
+                    assert_eq!(
+                        shrink(node),
+                        Some(NO_SHRINK.property.clone()),
+                        "{theme:?}: {class} must never shrink"
+                    );
+                }
+            }
+            let circle = tc::find(&dom, CIRCLE).expect("an indicator");
+            assert_eq!(
+                tc::resolve(circle, CssPropertyType::Width, false, None),
+                Some(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
+                "{theme:?}"
+            );
+            assert_eq!(
+                tc::resolve(circle, CssPropertyType::Height, false, None),
+                Some(CssProperty::const_height(LayoutHeight::const_px(CIRCLE_SIZE))),
+                "{theme:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_radio_row_shows_a_focus_ring_in_every_theme_and_mode() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = group(Some(theme));
+            let rows = tc::find_all(&dom, ROW);
+            assert_eq!(rows.len(), 3);
+            // The group is ONE Tab stop; the arrows focus the others, so every
+            // row owes a ring.
+            for (i, row) in rows.iter().enumerate() {
+                assert!(tc::has_focus_ring(row, false), "{theme:?}: row {i}, light");
+                assert!(tc::has_focus_ring(row, true), "{theme:?}: row {i}, dark");
+            }
+            tc::assert_theme_invariants(&format!("radio_group {theme:?}"), &dom);
+        }
+        let dom = group(Some(UiTheme::Flora));
+        let row = tc::find(&dom, ROW).expect("a row");
+        assert_eq!(tc::focus_ring_color(row, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(row, true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn the_theme_changes_the_look_not_the_accessibility_tree() {
+        let flat = group(Some(UiTheme::Flat));
+        let flora_dom = group(Some(UiTheme::Flora));
+        assert_eq!(tc::a11y_outline(&flat).len(), 4, "the group and its three radios");
+        assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora_dom));
+    }
+}
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a radio group's structure is its base, declared once for every
+    //! app theme - never inside a `@theme(<name>)` block.
+
+    use azul_css::{AzString, StringVec};
+
+    use super::RadioGroup;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_radio_group_declares_its_structure_once_for_every_theme() {
+        let options = || {
+            StringVec::from_vec(alloc::vec![
+                AzString::from("Small"),
+                AzString::from("Medium"),
+                AzString::from("Large"),
+            ])
+        };
+        for t in BOTH {
+            // Stacked and side by side, each with a checked and unchecked
+            // radio (the dot shown and laid out invisible).
+            for horizontal in [false, true] {
+                for selected in [0, 2] {
+                    let dom = under(t, || {
+                        RadioGroup::create(options())
+                            .with_accessibility_name("Size")
+                            .with_horizontal(horizontal)
+                            .with_selected_index(selected)
+                            .dom()
+                    });
+                    assert_structure_is_shared(
+                        &format!(
+                            "radio group (horizontal: {horizontal}, #{selected} checked) built \
+                             for {}",
+                            t.name()
+                        ),
+                        &dom,
+                        &[],
+                    );
+                }
+            }
         }
     }
 }

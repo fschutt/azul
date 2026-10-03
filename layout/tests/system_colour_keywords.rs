@@ -1,0 +1,275 @@
+//! A `system:` colour keyword paints the palette of the theme it is rendered
+//! in.
+//!
+//! `system:<name>` is how a stylesheet says "the desktop's window background"
+//! or "the desktop's label colour" instead of hard-coding one hex value that
+//! is right in one theme and wrong in the other. The keyword only earns that
+//! if it reaches the paint, resolved against the SAME theme the cascade used:
+//! a light field on a dark card is exactly the inconsistency the keywords are
+//! meant to rule out.
+//!
+//! Each check runs under the macOS light AND dark presets, so a keyword that
+//! "works" by resolving to one fixed colour cannot pass: the two presets
+//! disagree on every slot asked for here.
+
+use std::sync::Arc;
+
+use azul_core::{
+    dom::{Dom, DomId, NodeId},
+    geom::LogicalSize,
+    resources::RendererResources,
+    styled_dom::StyledDom,
+    window::DarkLightMode,
+};
+use azul_css::{
+    dynamic_selector::DynamicSelectorContext,
+    props::basic::{color::ColorU, PhysicalSize},
+    system::{defaults, SystemStyle},
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+    window::LayoutWindow, window_state::FullWindowState,
+};
+use rust_fontconfig::FcFontCache;
+
+const THEMES: [DarkLightMode; 2] = [DarkLightMode::Light, DarkLightMode::Dark];
+
+fn preset(theme: DarkLightMode) -> SystemStyle {
+    match theme {
+        DarkLightMode::Light => defaults::macos_modern_light(),
+        DarkLightMode::Dark => defaults::macos_modern_dark(),
+    }
+}
+
+fn window_theme(theme: DarkLightMode) -> DarkLightMode {
+    match theme {
+        DarkLightMode::Light => DarkLightMode::Light,
+        DarkLightMode::Dark => DarkLightMode::Dark,
+    }
+}
+
+/// The preset's own value for a slot, so the expectation is read from the
+/// same palette the window is handed, never restated here.
+fn slot(theme: DarkLightMode, pick: fn(&SystemStyle) -> Option<ColorU>) -> ColorU {
+    pick(&preset(theme)).expect("the macOS preset fills this slot")
+}
+
+/// Lay `body > div(css)` out in a real window under `theme` and return the
+/// size and fill of every rect the display list paints.
+fn painted_rects(css: &str, theme: DarkLightMode) -> Vec<(f32, f32, ColorU)> {
+    let dom = Dom::create_body().with_child(Dom::create_div().with_css(css));
+    let styled = StyledDom::create_from_dom(dom);
+
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    // Before the first layout: a system style handed over afterwards is
+    // invisible to the cascade that already ran.
+    lw.set_system_style(Arc::new(preset(theme)));
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(200.0, 100.0);
+    ws.mode = window_theme(theme);
+    lw.current_window_state = ws.clone();
+    let rr = RendererResources::default();
+    let sc = ExternalSystemCallbacks::rust_internal();
+    let mut dbg = Some(Vec::new());
+    lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+        .unwrap();
+
+    lw.get_layout_result(&DomId::ROOT_ID)
+        .expect("a layout result for the root DOM")
+        .display_list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Rect { bounds, color, .. } => {
+                Some((bounds.0.size.width, bounds.0.size.height, *color))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// `body(0) > div(1, css) > text(2)`, cascaded under `theme`'s preset the
+/// way a layout pass installs it.
+fn styled_under(css: &str, theme: DarkLightMode) -> (StyledDom, Arc<SystemStyle>) {
+    let dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_css(css)
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("ink")),
+    );
+    let mut sd = StyledDom::create_from_dom(dom);
+    let style = Arc::new(preset(theme));
+    let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(800.0, 600.0);
+    sd.set_dynamic_selector_context(ctx);
+    (sd, style)
+}
+
+fn text_color(css: &str, theme: DarkLightMode, node: usize) -> ColorU {
+    let (sd, style) = styled_under(css, theme);
+    azul_layout::solver3::getters::get_style_properties(
+        &sd,
+        NodeId::new(node),
+        Some(&style),
+        PhysicalSize::new(800.0, 600.0),
+    )
+    .color
+}
+
+fn background_color(css: &str, theme: DarkLightMode) -> ColorU {
+    let (sd, _style) = styled_under(css, theme);
+    let div = NodeId::new(1);
+    let state = sd.styled_nodes.as_container()[div].styled_node_state;
+    azul_layout::solver3::getters::get_background_color(&sd, div, &state)
+}
+
+fn border_top_color(css: &str, theme: DarkLightMode) -> Option<ColorU> {
+    let (sd, _style) = styled_under(css, theme);
+    let div = NodeId::new(1);
+    let state = sd.styled_nodes.as_container()[div].styled_node_state;
+    azul_layout::solver3::getters::get_border_info(&sd, div, &state)
+        .colors
+        .top
+        .and_then(|v| v.get_property().copied())
+        .map(|c| c.inner)
+}
+
+#[test]
+fn a_system_background_paints_the_window_background_of_the_theme() {
+    for theme in THEMES {
+        let want = slot(theme, |s| s.colors.window_background.into_option());
+        for css in [
+            "width: 40px; height: 20px; background-color: system:window-background;",
+            "width: 40px; height: 20px; background: system:window-background;",
+        ] {
+            let rects = painted_rects(css, theme);
+            let fill = rects
+                .iter()
+                .find(|(w, h, _)| (*w - 40.0).abs() < 0.01 && (*h - 20.0).abs() < 0.01)
+                .map(|(_, _, c)| *c);
+            assert_eq!(
+                fill,
+                Some(want),
+                "{theme:?}: `{css}` must paint its 40x20 box in the preset's window background; \
+                 rects painted: {rects:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_system_text_colour_resolves_to_the_label_colour_of_the_theme() {
+    for theme in THEMES {
+        let want = slot(theme, |s| s.colors.text.into_option());
+        assert_eq!(
+            text_color("color: system:text;", theme, 1),
+            want,
+            "{theme:?}: `color: system:text` on the div"
+        );
+        assert_eq!(
+            text_color("color: system:text;", theme, 2),
+            want,
+            "{theme:?}: the text node inherits the keyword and resolves it the same way"
+        );
+    }
+}
+
+#[test]
+fn a_system_border_colour_resolves_to_the_accent_of_the_theme() {
+    for theme in THEMES {
+        let want = slot(theme, |s| s.colors.accent.into_option());
+        assert_eq!(
+            border_top_color("border: 2px solid system:accent;", theme),
+            Some(want),
+            "{theme:?}: the `border` shorthand with a system colour"
+        );
+        assert_eq!(
+            border_top_color(
+                "border-width: 2px; border-style: solid; border-color: system:accent;",
+                theme
+            ),
+            Some(want),
+            "{theme:?}: the `border-color` longhand path"
+        );
+    }
+}
+
+/// One keyword per `SystemColors` slot - the slot's field name in kebab-case -
+/// in the order the struct declares them.
+const SLOT_KEYWORDS: [&str; 24] = [
+    "text",
+    "secondary-text",
+    "tertiary-text",
+    "background",
+    "accent",
+    "accent-text",
+    "button-face",
+    "button-text",
+    "disabled-text",
+    "window-background",
+    "under-page-background",
+    "selection-background",
+    "selection-text",
+    "selection-background-inactive",
+    "selection-text-inactive",
+    "link",
+    "separator",
+    "grid",
+    "find-highlight",
+    "sidebar-background",
+    "sidebar-selection",
+    "control-background",
+    "placeholder-text",
+    "text-selection-background",
+];
+
+/// A widget that wants the desktop's secondary label, its field background
+/// or its separator has to be able to SAY so: every slot the system style
+/// carries is one keyword, and the keyword round-trips.
+#[test]
+fn every_colour_slot_has_a_system_keyword() {
+    use azul_css::props::basic::color::{parse_color_or_system, ColorOrSystem};
+
+    let mut missing = Vec::new();
+    for name in SLOT_KEYWORDS {
+        let keyword = format!("system:{name}");
+        match parse_color_or_system(&keyword) {
+            Ok(ColorOrSystem::System(r)) if r.as_css_str() == keyword => {}
+            other => missing.push(format!("{keyword} -> {other:?}")),
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} of {} slot keywords do not parse and round-trip: {missing:#?}",
+        missing.len(),
+        SLOT_KEYWORDS.len()
+    );
+}
+
+/// The field background - what a text input, a list or a drop-down sits on -
+/// is the slot that went wrong in the widget demo. The presets report no
+/// field colour (only the platform probe reads one from the desktop), so
+/// this is the keyword's own default doing its job: it still follows the
+/// theme instead of painting one colour into both.
+#[test]
+fn the_field_background_keyword_follows_the_theme() {
+    let css = "width: 40px; height: 20px; background-color: system:control-background;";
+    assert_eq!(
+        background_color(css, DarkLightMode::Light),
+        ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255
+        },
+        "light: the field default is white"
+    );
+    assert_eq!(
+        background_color(css, DarkLightMode::Dark),
+        ColorU {
+            r: 30,
+            g: 30,
+            b: 30,
+            a: 255
+        },
+        "dark: the field default is #1e1e1e"
+    );
+}

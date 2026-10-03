@@ -71,6 +71,7 @@ pub const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackground
     })];
 pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
             r: 193,
@@ -80,6 +81,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(10),
         color: ColorOrSystem::color(ColorU {
             r: 205,
@@ -89,6 +91,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(15),
         color: ColorOrSystem::color(ColorU {
             r: 156,
@@ -98,6 +101,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(20),
         color: ColorOrSystem::color(ColorU {
             r: 0,
@@ -107,6 +111,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(30),
         color: ColorOrSystem::color(ColorU {
             r: 0,
@@ -116,6 +121,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(70),
         color: ColorOrSystem::color(ColorU {
             r: 32,
@@ -125,6 +131,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(ColorU {
             r: 32,
@@ -136,6 +143,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
 ];
 pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
         color: ColorOrSystem::color(ColorU {
             r: 243,
@@ -145,6 +153,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(10),
         color: ColorOrSystem::color(ColorU {
             r: 252,
@@ -154,6 +163,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(15),
         color: ColorOrSystem::color(ColorU {
             r: 218,
@@ -163,6 +173,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(20),
         color: ColorOrSystem::color(ColorU {
             r: 201,
@@ -172,6 +183,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(30),
         color: ColorOrSystem::color(ColorU {
             r: 218,
@@ -181,6 +193,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(70),
         color: ColorOrSystem::color(ColorU {
             r: 203,
@@ -190,6 +203,7 @@ pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorSt
         }),
     },
     NormalizedLinearColorStop {
+        offset_px: azul_css::props::basic::FloatValue::const_new(0),
         offset: PercentageValue::const_new(100),
         color: ColorOrSystem::color(ColorU {
             r: 203,
@@ -208,6 +222,12 @@ pub struct ProgressBar {
     pub height: PixelValue,
     pub bar_background: StyleBackgroundContentVec,
     pub container_background: StyleBackgroundContentVec,
+    /// What this bar is CALLED, for assistive technology ("Upload",
+    /// "Battery"). The bar's node announces its role and its value itself;
+    /// only the caller knows what it measures. Carried by the WIDGET because
+    /// the node that carries the role is rendered inside the `VirtualView`,
+    /// where a name patched onto the finished `Dom` never arrives.
+    pub accessibility_name: OptionString,
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
@@ -229,6 +249,60 @@ pub struct ProgressBarLocalDataset {
     pub bar: ProgressBar,
 }
 
+/// The bar container's BASE: how the bar lays out, the same in every theme
+/// (R5) - the fill and the remaining space side by side in a flex row. Every
+/// theme's `progressbar_render_bar_impl` (`themes::flat`, `themes::flora`)
+/// starts the container with it and adds its skin after it: the height, the
+/// border ring, the radii, the surface, the shadows.
+///
+/// `display: flex` is LOAD-BEARING: azul's default display is BLOCK, so
+/// `flex-direction: row` alone stacks the two children as full-width,
+/// zero-height block boxes - the fill never painted anywhere the widget was
+/// used (found 2026-08-29 via the azpaint pressure meter; also the real
+/// culprit behind the "inline-width meter never repaints" ledger entry).
+///
+/// Declared once here, it is declared once in a bar that follows the app
+/// theme too (`themes::theme_blocks`): outside every `@theme` block, so it
+/// holds under an app theme no widget knows.
+pub(crate) static BAR_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+];
+
+/// The `VirtualView` wrapper a progress bar mounts - the same box in every
+/// theme (the widget's height, the full width, clipping what it renders) -
+/// rendering its bar through `render`: a theme's callback
+/// (`themes::flat::progressbar_render_virtual_view`,
+/// `themes::flora::progressbar_render_virtual_view`), or the one an unpinned
+/// bar follows the app theme with.
+#[must_use]
+pub(crate) fn mount(
+    bar: ProgressBar,
+    render: azul_core::callbacks::VirtualViewCallbackType,
+) -> Dom {
+    let height = bar.height;
+    let dataset = RefAny::new(ProgressBarLocalDataset { bar });
+    Dom::create_virtual_view(
+        dataset.clone(),
+        azul_core::callbacks::VirtualViewCallback::create(render),
+    )
+    .with_dataset(Some(dataset).into())
+    .with_css_props(CssPropertyWithConditionsVec::from_vec(alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+            LayoutHeight::Px(height),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+            LayoutWidth::Px(PixelValue::percent(100.0)),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+    ]))
+}
+
 impl ProgressBar {
     /// Creates a new progress bar with the given completion percentage (0.0 to 100.0).
     #[inline]
@@ -246,9 +320,9 @@ impl ProgressBar {
             container_background: StyleBackgroundContentVec::from_const_slice(
                 STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS,
             ),
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            accessibility_name: OptionString::None,
+            // No opinion: the bar follows the app theme (`dom`).
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -285,17 +359,26 @@ impl ProgressBar {
         self.height = height;
     }
 
+    /// Name the bar for assistive technology, like every other widget's
+    /// `with_accessibility_name`:
+    ///
+    /// ```ignore
+    /// ProgressBar::create(40.0).with_accessibility_name("Upload").dom()
+    /// ```
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use]
     pub const fn with_height(mut self, height: PixelValue) -> Self {
         self.set_height(height);
         self
     }
 
-    /// Build the widget: a `VirtualView` node (explicitly sized to
-    /// [`height`](Self::height)) whose callback renders [`render_bar`]
-    /// (`Self::render_bar`) into the node's bounds. The node carries the
-    /// widget's private dataset so [`update_progress`](Self::update_progress)
-    /// can find and mutate it later - see the module docs for the fast path.
+    /// Pick the widget theme. Unset (`None`), the bar follows the app theme
+    /// (`AppConfig::with_theme`, flat by default).
     #[inline]
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
@@ -308,19 +391,23 @@ impl ProgressBar {
         self
     }
 
+    /// Build the widget: a `VirtualView` node (explicitly sized to
+    /// [`height`](Self::height)) whose callback renders [`render_bar`]
+    /// (`Self::render_bar`) into the node's bounds. The node carries the
+    /// widget's private dataset so [`update_progress`](Self::update_progress)
+    /// can find and mutate it later - see the module docs for the fast path.
+    ///
+    /// Unpinned (`theme: None`, the default), the bar follows the APP theme:
+    /// its `VirtualView` renders the bar in both themes and merges them in
+    /// the structure of the theme it is rendered for
+    /// (`render_virtual_view_following`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        let theme = self
-            .theme
-            .into_option()
-            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
-        match theme {
-            crate::widgets::themes::UiTheme::Flat => {
-                crate::widgets::themes::flat::progressbar(self)
-            }
-            crate::widgets::themes::UiTheme::Flora => {
-                crate::widgets::themes::flora::progressbar(self)
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::progressbar(self),
+            Some(UiTheme::Flora) => flora::progressbar(self),
+            None => mount(self, render_virtual_view_following),
         }
     }
 
@@ -352,19 +439,44 @@ impl ProgressBar {
     /// embedding in a context that manages its own updates.
     #[must_use]
     pub fn render_bar(self) -> Dom {
-        let theme = self
-            .theme
-            .into_option()
-            .unwrap_or(crate::widgets::themes::UiTheme::Flat);
-        match theme {
-            crate::widgets::themes::UiTheme::Flat => {
-                crate::widgets::themes::flat::progressbar_render_bar_impl(self, None)
-            }
-            crate::widgets::themes::UiTheme::Flora => {
-                crate::widgets::themes::flora::progressbar_render_bar_impl(self, None)
-            }
+        use crate::widgets::themes::{flat, flora, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::progressbar_render_bar_impl(self, None),
+            Some(UiTheme::Flora) => flora::progressbar_render_bar_impl(self, None),
+            None => follow_bar(self, None),
         }
     }
+}
+
+/// An UNPINNED bar's tree: rendered by BOTH themes and merged in the
+/// structure of the theme the DOM is built for (`themes::theme_blocks::follow_dom`).
+fn follow_bar(bar: ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {
+    use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+    theme_blocks::follow_dom(
+        UiTheme::current(),
+        flat::progressbar_render_bar_impl(bar.clone(), bounds_px),
+        flora::progressbar_render_bar_impl(bar, bounds_px),
+    )
+}
+
+/// The `VirtualView` callback of an UNPINNED bar: the stored bar rendered
+/// into the node's bounds by both themes ([`follow_bar`]) - in the theme of
+/// the pass that lays it out (`UiTheme::current`).
+extern "C" fn render_virtual_view_following(
+    mut data: RefAny,
+    info: VirtualViewCallbackInfo,
+) -> VirtualViewReturn {
+    let Some(state) = data.downcast_ref::<ProgressBarLocalDataset>() else {
+        // Foreign payload: render nothing rather than lying about bounds.
+        return VirtualViewReturn::default();
+    };
+    let size = info.bounds.get_logical_size();
+    let rect = LogicalRect::new(LogicalPosition::zero(), size);
+    VirtualViewReturn::with_dom(
+        follow_bar(state.bar.clone(), Some((size.width, size.height))),
+        rect,
+        rect,
+    )
 }
 
 #[cfg(test)]
@@ -385,6 +497,11 @@ mod autotest_generated {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    /// The theme the `render_bar` mechanics below are pinned to: an unpinned
+    /// bar follows the app theme, so its tree is two themes' builds merged
+    /// (cloned, not moved), which is not what these tests are about.
+    const FLAT: crate::widgets::themes::UiTheme = crate::widgets::themes::UiTheme::Flat;
 
     /// Every `f32` a caller can realistically hand to `ProgressBar::create`.
     /// The percentage is stored raw and only clamped inside `dom()`, where it is
@@ -881,7 +998,7 @@ mod autotest_generated {
         assert_eq!(pb.bar_background.len(), 0);
         assert!(pb.container_background.is_empty());
 
-        let dom = pb.render_bar();
+        let dom = pb.with_theme(FLAT).render_bar();
         assert_eq!(
             background_of(bar(&dom)),
             Some(Vec::new()),
@@ -929,7 +1046,7 @@ mod autotest_generated {
             "the setter deep-copied a 10k-layer background"
         );
 
-        let dom = pb.render_bar();
+        let dom = pb.with_theme(FLAT).render_bar();
         assert_eq!(
             background_of(bar(&dom)).map(|v| v.len()),
             Some(10_000),
@@ -1074,7 +1191,7 @@ mod autotest_generated {
 
     #[test]
     fn render_bar_is_a_container_div_with_exactly_two_leaf_children() {
-        let dom = ProgressBar::create(50.0).render_bar();
+        let dom = ProgressBar::create(50.0).with_theme(FLAT).render_bar();
 
         assert!(matches!(dom.root.get_node_type(), NodeType::Div));
         assert_eq!(
@@ -1125,7 +1242,7 @@ mod autotest_generated {
         ];
 
         for (input, bar_width, remaining_width) in CASES {
-            let dom = ProgressBar::create(input).render_bar();
+            let dom = ProgressBar::create(input).with_theme(FLAT).render_bar();
             let b = width_of(bar(&dom)).expect("the bar must declare a width");
             let r = width_of(remaining(&dom)).expect("the remaining space must declare a width");
 
@@ -1156,7 +1273,7 @@ mod autotest_generated {
         // cast inside `FloatValue::new` then turns it into 0. The documented result:
         // BOTH children get 0% — the bar renders as an empty container instead of
         // falling back to 0%/100%. It does not panic, and it is deterministic.
-        let dom = ProgressBar::create(f32::NAN).render_bar();
+        let dom = ProgressBar::create(f32::NAN).with_theme(FLAT).render_bar();
         let b = width_of(bar(&dom)).expect("the bar must declare a width");
         let r = width_of(remaining(&dom)).expect("the remaining space must declare a width");
 
@@ -1174,7 +1291,7 @@ mod autotest_generated {
     #[test]
     fn render_bar_splits_the_container_exactly_for_whole_percentages() {
         for i in 0..=100_isize {
-            let dom = ProgressBar::create(i as f32).render_bar();
+            let dom = ProgressBar::create(i as f32).with_theme(FLAT).render_bar();
             let b = raw(width_of(bar(&dom)).unwrap());
             let r = raw(width_of(remaining(&dom)).unwrap());
 
@@ -1203,7 +1320,7 @@ mod autotest_generated {
             f32::EPSILON,
             f32::MIN_POSITIVE,
         ] {
-            let dom = ProgressBar::create(p).render_bar();
+            let dom = ProgressBar::create(p).with_theme(FLAT).render_bar();
             let b = raw(width_of(bar(&dom)).unwrap());
             let r = raw(width_of(remaining(&dom)).unwrap());
 
@@ -1228,6 +1345,7 @@ mod autotest_generated {
         let dom = ProgressBar::create(25.0)
             .with_bar_background(bar_bg)
             .with_container_background(container_bg)
+            .with_theme(FLAT)
             .render_bar();
 
         assert_eq!(
@@ -1265,7 +1383,7 @@ mod autotest_generated {
     #[test]
     fn render_bar_forwards_any_height_to_the_container_and_to_nobody_else() {
         for h in adversarial_heights() {
-            let dom = ProgressBar::create(50.0).with_height(h).render_bar();
+            let dom = ProgressBar::create(50.0).with_height(h).with_theme(FLAT).render_bar();
             let got = height_of(&dom).expect("the container must declare a height");
 
             assert_eq!(
@@ -1299,6 +1417,7 @@ mod autotest_generated {
     fn render_bar_declares_the_expected_style_blocks_and_no_property_twice() {
         let dom = ProgressBar::create(50.0)
             .with_bar_background(solid(1))
+            .with_theme(FLAT)
             .render_bar();
 
         // `render_bar()` is the percentage-sized entry point (`bounds_px: None`),
@@ -1344,7 +1463,7 @@ mod autotest_generated {
         // Only the two child widths are relative. A border or radius that slipped
         // into `em`/`%` would resolve against the parent font or box and either
         // vanish or blow up.
-        let dom = ProgressBar::create(50.0).render_bar();
+        let dom = ProgressBar::create(50.0).with_theme(FLAT).render_bar();
         for node in [&dom, bar(&dom), remaining(&dom)] {
             for p in inline_props(node) {
                 for length in lengths_of(&p) {
@@ -1408,7 +1527,7 @@ mod autotest_generated {
             (f32::NAN, "0%"),
             (f32::INFINITY, "100%"),
         ] {
-            let dom = ProgressBar::create(input).render_bar();
+            let dom = ProgressBar::create(input).with_theme(FLAT).render_bar();
             let info = dom
                 .root
                 .get_accessibility_info()
@@ -1430,6 +1549,7 @@ mod autotest_generated {
                     .with_bar_background(solid(layers))
                     .with_container_background(solid(layers))
                     .with_height(PixelValue::px(f32::MAX))
+                    .with_theme(FLAT)
                     .render_bar();
 
                 assert_eq!(
@@ -1466,7 +1586,7 @@ mod autotest_generated {
             callbacks::{HidpiAdjustedBounds, VirtualViewCallbackReason},
             geom::LogicalSize,
             resources::{DpiScaleFactor, ImageCache},
-            window::WindowTheme,
+            window::DarkLightMode,
         };
         use rust_fontconfig::FcFontCache;
 
@@ -1477,7 +1597,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             &fonts,
             &images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,
@@ -1627,5 +1747,107 @@ mod autotest_generated {
         );
         assert_eq!(ret.materialized, LogicalRect::zero());
         assert_eq!(ret.virtual_rect, LogicalRect::zero());
+    }
+
+    /// The name given with `with_accessibility_name` lands on the node that
+    /// carries the ProgressBar role (the one a screen reader reads), in both
+    /// themes; a name on the outer `VirtualView` never reaches that node.
+    #[test]
+    fn a_named_progress_bar_carries_the_name_on_its_progress_bar_node() {
+        for theme in [
+            crate::widgets::themes::UiTheme::Flat,
+            crate::widgets::themes::UiTheme::Flora,
+        ] {
+            let dom = ProgressBar::create(65.0)
+                .with_theme(theme)
+                .with_accessibility_name("Upload")
+                .render_bar();
+            let info = dom
+                .root
+                .accessibility
+                .as_ref()
+                .expect("the bar declares accessibility");
+            assert_eq!(info.role, azul_core::a11y::AccessibilityRole::ProgressBar);
+            assert_eq!(
+                info.accessibility_name.as_ref().map(|s| s.as_str()),
+                Some("Upload"),
+                "{theme:?}: the name did not reach the progress bar node"
+            );
+        }
+    }
+
+    /// An UNPINNED bar follows the app theme through its `VirtualView`: the
+    /// callback renders the bar in BOTH themes and merges them in the
+    /// structure of the theme it is rendered for.
+    #[test]
+    fn an_unpinned_bars_virtual_view_renders_every_theme_in_the_app_themes_structure() {
+        use crate::widgets::themes::{flat, flora, UiTheme};
+
+        let bar = ProgressBar::create(40.0);
+        assert_eq!(
+            bar.theme,
+            crate::widgets::themes::OptionUiTheme::None,
+            "a fresh bar has no theme opinion: it follows the app"
+        );
+        let dom = bar.clone().dom();
+        let vv = dom
+            .root
+            .get_virtual_view_node_ref()
+            .expect("a VirtualView node stores its callback + refany");
+        let (render, payload) = (vv.callback.cb, vv.refany.clone());
+
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let ret = {
+                let _app = azul_core::app_theme::ThemeScope::enter(AzString::from_const_str(
+                    theme.name(),
+                ));
+                with_virtual_view_info(200.0, 15.0, |info| render(payload.clone(), info))
+            };
+            let rendered = match ret.dom {
+                azul_core::dom::OptionDom::Some(d) => d,
+                azul_core::dom::OptionDom::None => panic!("{theme:?}: the callback must render"),
+            };
+            let bounds = Some((200.0, 15.0));
+            let want = crate::widgets::themes::theme_blocks::follow_dom(
+                theme,
+                flat::progressbar_render_bar_impl(bar.clone(), bounds),
+                flora::progressbar_render_bar_impl(bar.clone(), bounds),
+            );
+            assert!(rendered == want, "{theme:?}: {rendered:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a progress bar's structure is its base, declared once for every
+    //! app theme - never inside a `@theme(<name>)` block.
+
+    use super::{follow_bar, ProgressBar};
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_progress_bar_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            for percent in [0.0_f32, 40.0, 100.0] {
+                let bar = ProgressBar::create(percent).with_accessibility_name("Upload");
+                let what = format!("progress bar at {percent}% built for {}", t.name());
+                // The mounted widget, the bare bar, and the bar its view
+                // renders into known bounds.
+                let (mounted, bare, sized) = under(t, || {
+                    (
+                        bar.clone().dom(),
+                        bar.clone().render_bar(),
+                        follow_bar(bar.clone(), Some((200.0, 15.0))),
+                    )
+                });
+                assert_structure_is_shared(&format!("{what} (mounted)"), &mounted, &[]);
+                assert_structure_is_shared(&format!("{what} (bare)"), &bare, &[]);
+                assert_structure_is_shared(&format!("{what} (in bounds)"), &sized, &[]);
+            }
+        }
     }
 }

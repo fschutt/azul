@@ -47,10 +47,7 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use crate::{
-    dom::{DomId, DomNodeId, NodeId},
-    geom::{LogicalPosition, LogicalRect},
-};
+use crate::dom::{DomId, DomNodeId, NodeId};
 
 /// A stable, logical pointer to an item within the original `InlineContent` array.
 ///
@@ -356,6 +353,172 @@ impl SelectionOwner {
     }
 }
 
+// ============================================================================
+// TEXT BLOCKS - which inline formatting context a caret lives in
+// ============================================================================
+
+/// A TEXT BLOCK: one inline formatting context (IFC) of one DOM - the box
+/// whose inline layout a [`TextCursor`]'s `source_run` / `start_byte_in_run`
+/// index.
+///
+/// Every caret, range and selection end lives in exactly one text block, and
+/// this is the only thing that may say which. A bare `NodeId` used to: the
+/// same field held the IFC root when a click opened a session, the text LEAF
+/// when a focus did, the editing HOST for assistive technology, and every
+/// reader re-resolved it with its own rule (walk up to any box, walk up to an
+/// inline layout, walk down caret-first, exact match). Where two rules
+/// disagreed a keystroke vanished or a highlight went unpainted, and an
+/// ANONYMOUS block could not be named at all.
+///
+/// Minted only by the layout's resolver - `LayoutWindow::text_block_of`,
+/// which ends in `LayoutTree::text_block_at` - and by
+/// [`TextBlock::remap`] of one it minted. Never built from a node id by hand.
+///
+/// ORDER is document order within one DOM (the arena's `NodeId` order is
+/// pre-order): blocks compare by the first DOM node inside them, an anonymous
+/// block before an element that is its own first node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextBlock {
+    dom: DomId,
+    key: TextBlockKey,
+}
+
+/// How a [`TextBlock`] is named inside its DOM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TextBlockKey {
+    /// The element whose box establishes the inline formatting context: a
+    /// paragraph, a list item, an `inline-block`, a flat editable.
+    Element(NodeId),
+    /// The ANONYMOUS block box CSS 2 §9.2.1.1 wraps around a run of inline
+    /// content in a container that also holds blocks - "Item" in
+    /// `li > ["Item", ul]`. It has no element of its own, so it is named by
+    /// the element that holds it and the first DOM node of the run.
+    Anonymous {
+        /// The element whose box holds the anonymous block.
+        parent: NodeId,
+        /// The first DOM node inside the anonymous block.
+        first_child: NodeId,
+    },
+}
+
+impl TextBlock {
+    /// For the layout's resolver ONLY (`LayoutTree::text_block_at`), and for
+    /// tests that stand in for it. Everything else asks the resolver.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn from_resolved(dom: DomId, key: TextBlockKey) -> Self {
+        Self { dom, key }
+    }
+
+    /// The DOM the block belongs to.
+    #[must_use]
+    pub const fn dom(&self) -> DomId {
+        self.dom
+    }
+
+    /// How the block is named in its DOM.
+    #[must_use]
+    pub const fn key(&self) -> TextBlockKey {
+        self.key
+    }
+
+    /// The element that owns the block's inline layout - `None` for an
+    /// anonymous block, which has none. What an EDIT is keyed to: the text of
+    /// an anonymous block is its container's inline run, not a node's content.
+    #[must_use]
+    pub const fn element(&self) -> Option<NodeId> {
+        match self.key {
+            TextBlockKey::Element(n) => Some(n),
+            TextBlockKey::Anonymous { .. } => None,
+        }
+    }
+
+    /// The element whose box holds the block: the block's own element, or the
+    /// container of an anonymous one. What the block's STYLE is read from
+    /// (`user-select`, `::selection`, editability) - an anonymous block has no
+    /// style of its own and takes its container's - and what an ancestor walk
+    /// (scroll container, focus scope, editing host) starts from.
+    #[must_use]
+    pub const fn container(&self) -> NodeId {
+        match self.key {
+            TextBlockKey::Element(n) => n,
+            TextBlockKey::Anonymous { parent, .. } => parent,
+        }
+    }
+
+    /// The first DOM node inside the block: its element, or the first node of
+    /// an anonymous block's run. Its position in the arena is the block's
+    /// position in the document.
+    #[must_use]
+    pub const fn first_node(&self) -> NodeId {
+        match self.key {
+            TextBlockKey::Element(n) => n,
+            TextBlockKey::Anonymous { first_child, .. } => first_child,
+        }
+    }
+
+    /// Whether this is an anonymous block box.
+    #[must_use]
+    pub const fn is_anonymous(&self) -> bool {
+        matches!(self.key, TextBlockKey::Anonymous { .. })
+    }
+
+    /// [`Self::container`] as a `DomNodeId`.
+    #[must_use]
+    pub fn container_dom_node(&self) -> DomNodeId {
+        DomNodeId {
+            dom: self.dom,
+            node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                self.container(),
+            )),
+        }
+    }
+
+    /// [`Self::element`] as a `DomNodeId`.
+    #[must_use]
+    pub fn element_dom_node(&self) -> Option<DomNodeId> {
+        self.element().map(|n| DomNodeId {
+            dom: self.dom,
+            node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+        })
+    }
+
+    /// The same block in a rebuilt DOM, through `resolve` (old id -> new id).
+    /// `None` when a node that names the block did not survive.
+    #[must_use]
+    pub fn remap(self, resolve: impl Fn(NodeId) -> Option<NodeId>) -> Option<Self> {
+        let key = match self.key {
+            TextBlockKey::Element(n) => TextBlockKey::Element(resolve(n)?),
+            TextBlockKey::Anonymous {
+                parent,
+                first_child,
+            } => TextBlockKey::Anonymous {
+                parent: resolve(parent)?,
+                first_child: resolve(first_child)?,
+            },
+        };
+        Some(Self { dom: self.dom, key })
+    }
+}
+
+impl Ord for TextBlock {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.dom
+            .cmp(&other.dom)
+            .then_with(|| self.first_node().cmp(&other.first_node()))
+            // An anonymous block starts BEFORE an element that is its first
+            // node (the element is inside it).
+            .then_with(|| other.is_anonymous().cmp(&self.is_anonymous()))
+            .then_with(|| self.key.cmp(&other.key))
+    }
+}
+
+impl PartialOrd for TextBlock {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// Multi-cursor state for a contenteditable element (Sublime Text style).
 ///
 /// Replaces the split `CursorManager` + `SelectionManager` pattern for text editing.
@@ -400,8 +563,9 @@ pub struct MultiCursorState {
     /// position sort in `merge_overlapping`, which would otherwise make the
     /// vector's last element (position-last) masquerade as the primary.
     pub primary_id: SelectionId,
-    /// The DOM node this multi-cursor state applies to.
-    pub node_id: DomNodeId,
+    /// The text block every selection's cursors index - one block by
+    /// construction; a selection spanning blocks is `TextSelection`'s.
+    pub block: TextBlock,
     /// Stable key that survives DOM rebuilds (from `calculate_contenteditable_key`).
     pub contenteditable_key: u64,
 }
@@ -409,11 +573,7 @@ pub struct MultiCursorState {
 impl MultiCursorState {
     /// Create a new `MultiCursorState` with a single cursor.
     #[must_use]
-    pub fn new_with_cursor(
-        cursor: TextCursor,
-        node_id: DomNodeId,
-        contenteditable_key: u64,
-    ) -> Self {
+    pub fn new_with_cursor(cursor: TextCursor, block: TextBlock, contenteditable_key: u64) -> Self {
         let id = SelectionId::new();
         Self {
             selections: vec![IdentifiedSelection {
@@ -422,7 +582,7 @@ impl MultiCursorState {
                 owner: SelectionOwner::LOCAL,
             }],
             primary_id: id,
-            node_id,
+            block,
             contenteditable_key,
         }
     }
@@ -954,21 +1114,18 @@ impl MultiCursorState {
         self.merge_overlapping();
     }
 
-    /// Remap the `NodeId` in `node_id` after DOM reconciliation.
+    /// Remap the session's text block after DOM reconciliation.
     ///
-    /// If the node was removed (not in the map), the multi-cursor state is cleared.
+    /// If a node naming the block was removed (not in the map), the
+    /// selections are cleared and the block is left as it was.
     pub fn remap_node_ids(&mut self, dom_id: DomId, node_id_map: &BTreeMap<NodeId, NodeId>) {
-        if self.node_id.dom != dom_id {
+        if self.block.dom() != dom_id {
             return;
         }
-        if let Some(old_node_id) = self.node_id.node.into_crate_internal() {
-            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
-                self.node_id.node =
-                    crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_node_id));
-            } else {
-                // Node removed — clear selections
-                self.selections.clear();
-            }
+        match self.block.remap(|old| node_id_map.get(&old).copied()) {
+            Some(block) => self.block = block,
+            // Block removed — clear selections
+            None => self.selections.clear(),
         }
     }
 }
@@ -1007,43 +1164,27 @@ fn selection_end_pos(sel: &Selection) -> TextCursor {
 
 /// The anchor point of a text selection - where the user started selecting.
 ///
-/// This is the fixed point during a drag operation. It records:
-/// - The IFC root node (where the `UnifiedLayout` lives)
-/// - The exact cursor position within that layout
-/// - The visual bounds of the anchor character (for logical rectangle calculations)
-///
-/// The anchor remains constant during a drag; only the focus moves.
+/// The fixed end during a drag; only the focus moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionAnchor {
-    /// The IFC root node ID where selection started.
-    /// This is the node that has `inline_layout_result` (e.g., `<p>`, `<div>`).
-    pub ifc_root_node_id: NodeId,
+    /// The text block the selection started in.
+    pub block: TextBlock,
 
-    /// The exact cursor position within the IFC's `UnifiedLayout`.
+    /// The exact cursor position within the block's `UnifiedLayout`.
     pub cursor: TextCursor,
-
-    /// Visual bounds of the anchor character in viewport coordinates.
-    /// Used for computing the logical selection rectangle during multi-line/multi-node selection.
-    pub char_bounds: LogicalRect,
-
-    /// The mouse position when the selection started (viewport coordinates).
-    pub mouse_position: LogicalPosition,
 }
 
 /// The focus point of a text selection - where the selection currently ends.
 ///
-/// This is the movable point during a drag operation. It updates on every mouse move.
+/// The moving end during a drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionFocus {
-    /// The IFC root node ID where selection currently ends.
-    /// May differ from anchor's IFC root during cross-node selection.
-    pub ifc_root_node_id: NodeId,
+    /// The text block the selection currently ends in. May differ from the
+    /// anchor's during a selection across blocks.
+    pub block: TextBlock,
 
-    /// The exact cursor position within the IFC's `UnifiedLayout`.
+    /// The exact cursor position within the block's `UnifiedLayout`.
     pub cursor: TextCursor,
-
-    /// Current mouse position in viewport coordinates.
-    pub mouse_position: LogicalPosition,
 }
 
 /// Complete selection state spanning potentially multiple DOM nodes.
@@ -1053,9 +1194,9 @@ pub struct SelectionFocus {
 ///
 /// ## Storage Model
 ///
-/// Uses `BTreeMap<NodeId, Vec<SelectionRange>>` for O(log N) lookup during rendering.
-/// The key is the **IFC root `NodeId`**, and the value is every `SelectionRange`
-/// that IFC contributes.
+/// Uses `BTreeMap<TextBlock, Vec<SelectionRange>>` for O(log N) lookup during
+/// rendering. The key is the **text block** (the IFC), and the value is every
+/// `SelectionRange` that block contributes.
 ///
 /// ## Example
 ///
@@ -1075,20 +1216,21 @@ pub struct TextSelection {
     /// The focus point - where the selection currently ends (moves during drag).
     pub focus: SelectionFocus,
 
-    /// Map from IFC root `NodeId` to the `SelectionRange`s for that IFC.
-    /// This allows O(log N) lookup during rendering.
+    /// Map from text block to the `SelectionRange`s in it, iterating in
+    /// document order.
     ///
-    /// Each `SelectionRange` contains the actual `TextCursor` positions for that IFC,
-    /// ready to be passed to `UnifiedLayout::get_selection_rects()`.
+    /// Each `SelectionRange` contains the actual `TextCursor` positions for that
+    /// block, ready to be passed to `UnifiedLayout::get_selection_rects()`.
     ///
-    /// A node carries SEVERAL ranges when a multi-cursor session selects several
-    /// occurrences in it (Ctrl+D); the ranges are disjoint and in document order.
-    pub affected_nodes: BTreeMap<NodeId, Vec<SelectionRange>>,
+    /// A block carries SEVERAL ranges when a multi-cursor session selects
+    /// several occurrences in it (Ctrl+D); the ranges are disjoint and in
+    /// document order.
+    pub affected_blocks: BTreeMap<TextBlock, Vec<SelectionRange>>,
 
-    /// OTHER PARTICIPANTS' ranges on the same nodes, with whose they are
+    /// OTHER PARTICIPANTS' ranges on the same blocks, with whose they are
     /// (U1-a).
     ///
-    /// Separate from `affected_nodes` rather than mixed into it, because the
+    /// Separate from `affected_blocks` rather than mixed into it, because the
     /// two are painted differently and mean different things: that one is the
     /// LOCAL user's selection and takes the node's `::selection` colour, while
     /// these take their owner's. Mixing them made a remote participant's range
@@ -1096,7 +1238,7 @@ pub struct TextSelection {
     ///
     /// Empty for a single-user app, which is every app until one injects a
     /// remote owner.
-    pub remote_ranges: BTreeMap<NodeId, Vec<(SelectionOwner, SelectionRange)>>,
+    pub remote_ranges: BTreeMap<TextBlock, Vec<(SelectionOwner, SelectionRange)>>,
 
     /// Indicates whether anchor comes before focus in document order.
     /// True = forward selection (left-to-right), False = backward selection.
@@ -1308,32 +1450,13 @@ impl RunTextChange {
 }
 
 impl TextSelection {
-    /// Create a new collapsed selection (cursor) at the given position.
+    /// Create a new collapsed selection (a caret) at `cursor` in `block`.
     #[must_use]
-    pub fn new_collapsed(
-        dom_id: DomId,
-        ifc_root_node_id: NodeId,
-        cursor: TextCursor,
-        char_bounds: LogicalRect,
-        mouse_position: LogicalPosition,
-    ) -> Self {
-        let anchor = SelectionAnchor {
-            ifc_root_node_id,
-            cursor,
-            char_bounds,
-            mouse_position,
-        };
-
-        let focus = SelectionFocus {
-            ifc_root_node_id,
-            cursor,
-            mouse_position,
-        };
-
-        // For a collapsed selection, the anchor node has a zero-width range
-        let mut affected_nodes = BTreeMap::new();
-        affected_nodes.insert(
-            ifc_root_node_id,
+    pub fn new_collapsed(block: TextBlock, cursor: TextCursor) -> Self {
+        // For a collapsed selection, the anchor block has a zero-width range
+        let mut affected_blocks = BTreeMap::new();
+        affected_blocks.insert(
+            block,
             vec![SelectionRange {
                 start: cursor,
                 end: cursor,
@@ -1342,10 +1465,10 @@ impl TextSelection {
 
         Self {
             remote_ranges: BTreeMap::new(),
-            dom_id,
-            anchor,
-            focus,
-            affected_nodes,
+            dom_id: block.dom(),
+            anchor: SelectionAnchor { block, cursor },
+            focus: SelectionFocus { block, cursor },
+            affected_blocks,
             is_forward: true, // Direction doesn't matter for collapsed selection
         }
     }
@@ -1353,27 +1476,23 @@ impl TextSelection {
     /// Check if this is a collapsed selection (cursor with no range).
     #[must_use]
     pub fn is_collapsed(&self) -> bool {
-        self.anchor.ifc_root_node_id == self.focus.ifc_root_node_id
-            && self.anchor.cursor == self.focus.cursor
+        self.anchor.block == self.focus.block && self.anchor.cursor == self.focus.cursor
     }
 
-    /// Get the FIRST selection range for a specific IFC root node.
-    /// Returns `None` if this node is not part of the selection.
+    /// Get the FIRST selection range in `block`. Returns `None` if the block is
+    /// not part of the selection.
     ///
-    /// A multi-range node has more; [`Self::ranges_for_node`] returns all of them.
+    /// A multi-range block has more; [`Self::ranges_for_block`] returns all of
+    /// them.
     #[must_use]
-    pub fn get_range_for_node(&self, ifc_root_node_id: &NodeId) -> Option<&SelectionRange> {
-        self.affected_nodes
-            .get(ifc_root_node_id)
-            .and_then(|r| r.first())
+    pub fn get_range_for_block(&self, block: &TextBlock) -> Option<&SelectionRange> {
+        self.affected_blocks.get(block).and_then(|r| r.first())
     }
 
-    /// Every range this IFC root contributes (empty slice when unaffected).
+    /// Every range `block` contributes (empty slice when unaffected).
     #[must_use]
-    pub fn ranges_for_node(&self, ifc_root_node_id: &NodeId) -> &[SelectionRange] {
-        self.affected_nodes
-            .get(ifc_root_node_id)
-            .map_or(&[], Vec::as_slice)
+    pub fn ranges_for_block(&self, block: &TextBlock) -> &[SelectionRange] {
+        self.affected_blocks.get(block).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -1451,18 +1570,63 @@ impl_vec_clone!(
 impl_vec_partialeq!(DocumentSelectionSpan, DocumentSelectionSpanVec);
 impl_vec_partialord!(DocumentSelectionSpan, DocumentSelectionSpanVec);
 
+/// Bytes `start..end` of a [`DocumentTextEdit`]'s `text` and the inline
+/// formats they carry over the style of the block element the edit names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct TextFormatSpan {
+    pub start: u32,
+    pub end: u32,
+    pub formats: crate::events::TextFormatSet,
+}
+
+impl_option!(
+    TextFormatSpan,
+    OptionTextFormatSpan,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
+
+impl_vec!(
+    TextFormatSpan,
+    TextFormatSpanVec,
+    TextFormatSpanVecDestructor,
+    TextFormatSpanVecDestructorType,
+    TextFormatSpanVecSlice,
+    OptionTextFormatSpan
+);
+impl_vec_debug!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_clone!(
+    TextFormatSpan,
+    TextFormatSpanVec,
+    TextFormatSpanVecDestructor
+);
+impl_vec_partialeq!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_eq!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_partialord!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_ord!(TextFormatSpan, TextFormatSpanVec);
+impl_vec_hash!(TextFormatSpan, TextFormatSpanVec);
+
 /// One un-synced character-level edit: `node`'s effective text is now
-/// `text` (revision-stamped).
+/// `text` (revision-stamped), formatted as `runs` say.
 ///
 /// The app folds it into its model and acks the highest revision it saw via
 /// `CallbackInfo::mark_text_revision_synced` — the character-path counterpart
 /// of the structural `DocumentEdit` loop.
+///
+/// `runs` are the inline formats of `text` as the user sees it: ordered,
+/// disjoint byte spans, each with the formats it carries OVER `node`'s own
+/// style (a heading's bold is the heading's, not a format of its text).
+/// Text in no span is plain. They cover what the text pipeline formats
+/// without the app: what was typed after a format toggle at a collapsed
+/// caret, an inline formatted paste, and typing into formatted text - so a
+/// model that replaces the block's runs from them keeps every format.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DocumentTextEdit {
     pub node: DomNodeId,
     pub text: azul_css::corety::AzString,
     pub revision: u64,
+    pub runs: TextFormatSpanVec,
 }
 
 impl_option!(

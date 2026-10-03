@@ -1732,6 +1732,25 @@ mod autotest_generated {
         assert!(!is_layout_equivalent(&build("a"), &build("b")));
     }
 
+    /// A node's `Dom::with_css` sheet is cascaded from the collected author CSS, not kept in
+    /// `NodeData::style`, so two builds that differ only in it looked equivalent: a rebuild
+    /// that only changed such a value (AzCalendar's zoom: every hour `height: 72px` instead of
+    /// `48px`) kept the previous layout, and the change never showed.
+    #[test]
+    fn is_layout_equivalent_rejects_a_changed_node_stylesheet() {
+        let build = |height: &str| {
+            let mut dom = Dom::create_body().with_children(
+                vec![Dom::create_div().with_css(&format!("height: {height};"))].into(),
+            );
+            StyledDom::create(&mut dom, Css::empty())
+        };
+        assert!(is_layout_equivalent(&build("48px"), &build("48px")));
+        assert!(
+            !is_layout_equivalent(&build("48px"), &build("72px")),
+            "a node whose with_css height changed must not reuse the old layout"
+        );
+    }
+
     #[test]
     fn is_layout_equivalent_rejects_a_changed_pseudo_state() {
         let base = flat_body(2);
@@ -2091,9 +2110,9 @@ mod theme_flip_is_a_restyle {
     use super::*;
     use crate::dom::NodeType;
 
-    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
-            theme,
+            mode: theme,
             ..Default::default()
         }
     }
@@ -2118,7 +2137,7 @@ mod theme_flip_is_a_restyle {
             .cloned()
     }
 
-    fn ua_border_top_color(theme: ThemeCondition) -> CssProperty {
+    fn ua_border_top_color(theme: azul_css::system::DarkLightMode) -> CssProperty {
         crate::ua_css::get_ua_property_themed(
             &NodeType::Button,
             CssPropertyType::BorderTopColor,
@@ -2148,31 +2167,31 @@ mod theme_flip_is_a_restyle {
         let mut sd = StyledDom::create(&mut dom, Css::empty());
         assert_eq!(
             border_top_color(&sd),
-            Some(ua_border_top_color(ThemeCondition::Light)),
+            Some(ua_border_top_color(azul_css::system::DarkLightMode::Light)),
             "no context yet: the light table"
         );
 
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
         assert_eq!(
             border_top_color(&sd),
-            Some(ua_border_top_color(ThemeCondition::Dark)),
+            Some(ua_border_top_color(azul_css::system::DarkLightMode::Dark)),
             "the dark window's border must be the dark twin, in the resolved style"
         );
         assert_eq!(
             cascaded_border_entries(&sd),
-            vec![(ua_border_top_color(ThemeCondition::Dark), true)],
+            vec![(ua_border_top_color(azul_css::system::DarkLightMode::Dark), true)],
             "exactly ONE UA-origin entry: the light one was stripped, not shadowed"
         );
 
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light));
         assert_eq!(
             border_top_color(&sd),
-            Some(ua_border_top_color(ThemeCondition::Light)),
+            Some(ua_border_top_color(azul_css::system::DarkLightMode::Light)),
             "and back"
         );
         assert_eq!(
             cascaded_border_entries(&sd),
-            vec![(ua_border_top_color(ThemeCondition::Light), true)],
+            vec![(ua_border_top_color(azul_css::system::DarkLightMode::Light), true)],
             "still one entry after the second flip"
         );
     }
@@ -2181,10 +2200,10 @@ mod theme_flip_is_a_restyle {
     fn a_dom_created_under_a_context_is_cascaded_for_it_at_once() {
         let mut dom = body_with_button();
         let mut sd =
-            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(azul_css::system::DarkLightMode::Dark)));
         assert_eq!(
             border_top_color(&sd),
-            Some(ua_border_top_color(ThemeCondition::Dark)),
+            Some(ua_border_top_color(azul_css::system::DarkLightMode::Dark)),
             "born dark: the first cascade already answered the dark table"
         );
         // (Creation prunes the compact-encoded Normal entries out of
@@ -2203,7 +2222,7 @@ mod theme_flip_is_a_restyle {
 
         // The funnel's offer of the SAME context is a no-op: no new
         // generation, no second cascade, nothing pushed twice.
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
         assert_eq!(
             sd.get_css_property_cache().cascade_epoch,
             epoch_before,
@@ -2212,7 +2231,7 @@ mod theme_flip_is_a_restyle {
         assert_eq!(sd.get_css_property_cache().cascaded_props, cascaded_before);
         assert_eq!(
             border_top_color(&sd),
-            Some(ua_border_top_color(ThemeCondition::Dark))
+            Some(ua_border_top_color(azul_css::system::DarkLightMode::Dark))
         );
     }
 
@@ -2220,18 +2239,18 @@ mod theme_flip_is_a_restyle {
     fn create_from_dom_with_context_threads_the_context_through() {
         let sd = StyledDom::create_from_dom_with_context(
             body_with_button(),
-            Some(ctx(ThemeCondition::Dark)),
+            Some(ctx(azul_css::system::DarkLightMode::Dark)),
         );
         assert_eq!(
             sd.get_css_property_cache()
                 .dynamic_context
                 .as_deref()
-                .map(|c| c.theme.clone()),
-            Some(ThemeCondition::Dark)
+                .map(|c| c.mode.clone()),
+            Some(azul_css::system::DarkLightMode::Dark)
         );
         assert_eq!(
             border_top_color(&sd),
-            Some(ua_border_top_color(ThemeCondition::Dark))
+            Some(ua_border_top_color(azul_css::system::DarkLightMode::Dark))
         );
     }
 
@@ -2245,7 +2264,7 @@ mod theme_flip_is_a_restyle {
         sd.restyle(Css::empty());
         assert_eq!(
             border_top_color(&sd),
-            Some(ua_border_top_color(ThemeCondition::Light))
+            Some(ua_border_top_color(azul_css::system::DarkLightMode::Light))
         );
         assert_eq!(
             cascaded_border_entries(&sd).len(),
@@ -2261,11 +2280,11 @@ mod theme_flip_is_a_restyle {
         let mut sd = StyledDom::create_with_context(
             &mut dom,
             Css::empty(),
-            Some(ctx(ThemeCondition::Light)),
+            Some(ctx(azul_css::system::DarkLightMode::Light)),
         );
         let before = sd.get_css_property_cache().cascaded_props.clone();
         // A resize: same theme, different viewport.
-        let resized = ctx(ThemeCondition::Light).with_viewport(320.0, 240.0);
+        let resized = ctx(azul_css::system::DarkLightMode::Light).with_viewport(320.0, 240.0);
         sd.set_dynamic_selector_context(resized);
         assert_eq!(
             sd.get_css_property_cache().cascaded_props,
@@ -2288,7 +2307,7 @@ mod theme_flip_is_a_restyle {
             .map(|cc| cc.get_border_top_color_raw(BUTTON.index()))
             .expect("compact cache built at creation");
 
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
         let dark_raw = sd
             .get_css_property_cache()
             .compact_cache
@@ -2349,7 +2368,7 @@ mod theme_flip_is_a_restyle {
     fn the_ua_text_colour_is_cascaded_onto_the_root_and_inherited_below() {
         let mut dom = body_p_text();
         let sd =
-            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(azul_css::system::DarkLightMode::Dark)));
         // `computed_values` is the record of the cascade (creation prunes
         // the compact-encoded Normal entries out of `cascaded_props` once
         // the compact cache holds them): the root OWNS the colour — it came
@@ -2397,7 +2416,7 @@ mod theme_flip_is_a_restyle {
         assert_eq!(slow_text_color(&sd, TEXT), Some(BLACK), "no context: light");
         assert_eq!(compact_text_color(&sd, TEXT), Some(BLACK));
 
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
         assert_eq!(
             slow_text_color(&sd, TEXT),
             Some(DARK_INK),
@@ -2427,7 +2446,7 @@ mod theme_flip_is_a_restyle {
         assert_eq!(ua_color_entries(NodeId::new(1)), Vec::<bool>::new());
         assert_eq!(ua_color_entries(TEXT), Vec::<bool>::new());
 
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light));
         assert_eq!(slow_text_color(&sd, TEXT), Some(BLACK), "back: slow path");
         assert_eq!(
             compact_text_color(&sd, TEXT),
@@ -2436,11 +2455,69 @@ mod theme_flip_is_a_restyle {
         );
     }
 
+    /// A UA default an ELEMENT gets - a link's `color` under a wrapper that
+    /// declares one - is inherited by the text inside it, and owned by nobody
+    /// below. The inheritance walk runs before the UA pass and had copied the
+    /// wrapper's colour onto the text; that stale copy is REMOVED, not
+    /// rewritten into a UA entry of the text's own: a child never owns a UA
+    /// colour (one that did would block an author colour above it).
+    #[test]
+    fn the_text_of_a_link_inherits_the_links_ua_colour_and_owns_none() {
+        use crate::{
+            dom::{AttributeType, NodeType},
+            prop_cache::CssPropertyOrigin,
+        };
+        let mut wrapper = Dom::create_div();
+        wrapper.root.set_css("color: rgb(51, 51, 51);");
+        let link = Dom::create_node(NodeType::A)
+            .with_attribute(AttributeType::Href("https://a.b/".into()))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "link",
+            ));
+        let mut dom = Dom::create_body().with_child(wrapper.with_child(link));
+        let sd = StyledDom::create(&mut dom, Css::empty());
+        // body(0) > div(1) > a(2) > "link"(3)
+        let (link, text) = (NodeId::new(2), NodeId::new(3));
+        const LINK_BLUE: (u8, u8, u8) = (0x00, 0x00, 0xee);
+        assert_eq!(
+            slow_text_color(&sd, link),
+            Some(LINK_BLUE),
+            "the link: its UA colour beats the wrapper's"
+        );
+        assert_eq!(
+            slow_text_color(&sd, text),
+            Some(LINK_BLUE),
+            "the text: slow path"
+        );
+        assert_eq!(
+            compact_text_color(&sd, text),
+            Some(LINK_BLUE),
+            "the text: compact tier"
+        );
+        let cv = &sd.get_css_property_cache().computed_values;
+        let own = cv
+            .get(link.index(), CssPropertyType::TextColor)
+            .expect("the link resolves `color`");
+        assert_eq!(
+            own.origin,
+            CssPropertyOrigin::Own,
+            "the link owns its UA colour"
+        );
+        let inherited = cv
+            .get(text.index(), CssPropertyType::TextColor)
+            .expect("the text resolves `color`");
+        assert_eq!(
+            inherited.origin,
+            CssPropertyOrigin::Inherited,
+            "the text INHERITS it: the wrapper's stale copy is gone and no entry took its place"
+        );
+    }
+
     #[test]
     fn get_text_color_or_default_never_needs_its_default_on_a_cascaded_dom() {
         let mut dom = body_p_text();
         let sd =
-            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(azul_css::system::DarkLightMode::Dark)));
         let node_data = sd.node_data.as_container();
         for i in 0..sd.node_count() {
             let n = NodeId::new(i);
@@ -2458,7 +2535,7 @@ mod theme_flip_is_a_restyle {
         let mut dom = body_p_text();
         dom.set_css("color: rgb(10, 20, 30);");
         let sd =
-            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Dark)));
+            StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(azul_css::system::DarkLightMode::Dark)));
         assert_eq!(slow_text_color(&sd, TEXT), Some((10, 20, 30)));
         assert_eq!(compact_text_color(&sd, TEXT), Some((10, 20, 30)));
         assert!(
@@ -2484,9 +2561,9 @@ mod cascade_epoch {
 
     use super::*;
 
-    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
-            theme,
+            mode: theme,
             ..Default::default()
         }
     }
@@ -2496,7 +2573,7 @@ mod cascade_epoch {
             Dom::create_p()
                 .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("5")),
         );
-        StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(ThemeCondition::Light)))
+        StyledDom::create_with_context(&mut dom, Css::empty(), Some(ctx(azul_css::system::DarkLightMode::Light)))
     }
 
     fn epoch(sd: &StyledDom) -> u64 {
@@ -2513,9 +2590,9 @@ mod cascade_epoch {
     fn a_theme_flip_bumps_the_epoch_and_an_equal_offer_does_not() {
         let mut sd = fixture();
         let e0 = epoch(&sd);
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light));
         assert_eq!(epoch(&sd), e0, "the same context again is free");
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Dark));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
         assert_ne!(epoch(&sd), e0, "a flip is a new generation");
     }
 
@@ -2525,7 +2602,7 @@ mod cascade_epoch {
         // but the context is a cascade input and the DL key must move.
         let mut sd = fixture();
         let e0 = epoch(&sd);
-        sd.set_dynamic_selector_context(ctx(ThemeCondition::Light).with_viewport(1.0, 1.0));
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Light).with_viewport(1.0, 1.0));
         assert_ne!(epoch(&sd), e0);
     }
 
@@ -2560,5 +2637,38 @@ mod cascade_epoch {
         let e0 = epoch(&sd);
         sd.recompute_inheritance_and_compact_cache();
         assert_ne!(epoch(&sd), e0);
+    }
+
+    /// Design §9.1 pitfall 11: a custom property is a cascade input like the
+    /// theme. A context change that moves a variable is a new generation
+    /// (every cache serving painted output keys on the epoch), and it moves
+    /// exactly the nodes that read the variable.
+    #[test]
+    fn a_variable_that_follows_the_mode_bumps_the_epoch_and_moves_only_its_readers() {
+        let mut dom = Dom::create_body()
+            .with_child(
+                Dom::create_div().with_style(Css::parse_inline("color: var(--fg, #ff0000)")),
+            )
+            .with_child(Dom::create_div().with_style(Css::parse_inline("color: #123456")));
+        let css = Css::from_string(
+            "@theme(dark) { :root { --fg: #ffffff; } } @theme(light) { :root { --fg: #000000; } }"
+                .into(),
+        );
+        let mut sd =
+            StyledDom::create_with_context(&mut dom, css, Some(ctx(azul_css::system::DarkLightMode::Light)));
+        let text = |sd: &StyledDom, n: usize| {
+            sd.get_css_property_cache()
+                .compact_cache
+                .as_ref()
+                .expect("compact cache")
+                .tier2b_text[n]
+                .text_color
+        };
+        let (e0, reader0, bystander0) = (epoch(&sd), text(&sd, 1), text(&sd, 2));
+
+        sd.set_dynamic_selector_context(ctx(azul_css::system::DarkLightMode::Dark));
+        assert_ne!(epoch(&sd), e0, "a variable change is a new generation");
+        assert_ne!(text(&sd, 1), reader0, "the reader follows the variable");
+        assert_eq!(text(&sd, 2), bystander0, "a node that reads nothing keeps its value");
     }
 }

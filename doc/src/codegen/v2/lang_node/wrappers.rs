@@ -800,7 +800,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
 ///   - Fallback (no clone): yield `buf[i]` with a doc comment warning the user not to retain past
 ///     Vec lifetime.
 fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return;
     }
     if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {

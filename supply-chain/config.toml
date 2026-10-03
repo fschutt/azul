@@ -280,7 +280,7 @@ version = "1.5.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.azul-simplecss]]
-version = "0.2.1"
+version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.backon]]
@@ -325,6 +325,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.bindgen]]
 version = "0.65.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.bitcode]]
+version = "0.6.9"
+criteria = "safe-to-deploy"
+
+[[exemptions.bitcode_derive]]
+version = "0.6.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.bitflags]]
@@ -379,6 +387,10 @@ criteria = "safe-to-deploy"
 version = "1.13.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.bufstream]]
+version = "0.1.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.bytecount]]
 version = "0.6.9"
 criteria = "safe-to-deploy"
@@ -400,7 +412,15 @@ version = "1.12.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.bzip2]]
+version = "0.4.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.bzip2]]
 version = "0.6.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.bzip2-sys]]
+version = "0.1.13+1.0.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.calendrical_calculations]]
@@ -479,6 +499,10 @@ criteria = "safe-to-deploy"
 version = "0.4.45"
 criteria = "safe-to-deploy"
 
+[[exemptions.chrono-tz]]
+version = "0.10.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.cipher]]
 version = "0.5.2"
 criteria = "safe-to-deploy"
@@ -549,6 +573,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.const-oid]]
 version = "0.10.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.constant_time_eq]]
+version = "0.1.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.constant_time_eq]]
@@ -1059,6 +1087,10 @@ criteria = "safe-to-deploy"
 version = "0.1.10"
 criteria = "safe-to-deploy"
 
+[[exemptions.glam]]
+version = "0.33.7"
+criteria = "safe-to-deploy"
+
 [[exemptions.glob]]
 version = "0.3.4"
 criteria = "safe-to-deploy"
@@ -1113,6 +1145,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.hashbrown]]
 version = "0.16.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.hashify]]
+version = "0.2.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.heapless]]
@@ -1355,6 +1391,14 @@ criteria = "safe-to-deploy"
 version = "0.2.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.imap]]
+version = "3.0.0-alpha.15"
+criteria = "safe-to-deploy"
+
+[[exemptions.imap-proto]]
+version = "0.16.7"
+criteria = "safe-to-deploy"
+
 [[exemptions.indexmap]]
 version = "2.14.1"
 criteria = "safe-to-deploy"
@@ -1417,6 +1461,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.iroh-tickets]]
 version = "1.0.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.ironcalc]]
+version = "0.8.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.ironcalc_base]]
+version = "0.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.is_terminal_polyfill]]
@@ -1591,6 +1643,10 @@ criteria = "safe-to-deploy"
 version = "0.4.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.mail-parser]]
+version = "0.11.9"
+criteria = "safe-to-deploy"
+
 [[exemptions.material-icons]]
 version = "0.3.0"
 criteria = "safe-to-deploy"
@@ -1616,7 +1672,7 @@ version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.micromail]]
-version = "0.1.0"
+version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.miette]]
@@ -1629,6 +1685,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.mimalloc]]
 version = "0.1.52"
+criteria = "safe-to-deploy"
+
+[[exemptions.mini-mail-auth]]
+version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.minimal-lexical]]
@@ -2047,6 +2107,10 @@ criteria = "safe-to-deploy"
 version = "0.9.12"
 criteria = "safe-to-deploy"
 
+[[exemptions.password-hash]]
+version = "0.4.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.paste]]
 version = "1.0.15"
 criteria = "safe-to-deploy"
@@ -2061,6 +2125,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.pathfinder_simd]]
 version = "0.5.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.pbkdf2]]
+version = "0.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.pbkdf2]]
@@ -2088,6 +2156,10 @@ version = "0.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.phf]]
+version = "0.12.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.phf]]
 version = "0.13.1"
 criteria = "safe-to-deploy"
 
@@ -2097,6 +2169,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.phf_macros]]
 version = "0.13.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.phf_shared]]
+version = "0.12.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.phf_shared]]
@@ -2440,6 +2516,10 @@ version = "0.11.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.roxmltree]]
+version = "0.19.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.roxmltree]]
 version = "0.20.0"
 criteria = "safe-to-deploy"
 
@@ -2753,6 +2833,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.stable_deref_trait]]
 version = "1.2.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.statrs]]
+version = "0.18.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.strfmt]]
@@ -3492,6 +3576,10 @@ version = "0.11.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.zip]]
+version = "0.6.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.zip]]
 version = "6.0.0"
 criteria = "safe-to-deploy"
 
@@ -3512,7 +3600,15 @@ version = "0.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd]]
+version = "0.11.2+zstd.1.5.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.zstd]]
 version = "0.13.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.zstd-safe]]
+version = "5.0.2+zstd.1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd-safe]]

@@ -122,6 +122,43 @@ pub struct TransientWindowData {
     /// even though it is `torn`, so it follows the cursor from drag START, not
     /// only once the pointer leaves the parent. Cleared on drop.
     pub following: bool,
+    /// Parent → popup: keyboard transitions the PARENT received while this
+    /// popup held the keyboard, oldest first, for the popup to replay through
+    /// its own pipeline (see [`forward_key`]).
+    pub forwarded_keys: Vec<ForwardedKey>,
+    /// Parent → popup: does this popup TAKE focus when it opens (a picker,
+    /// anything you work in), or leave it on its invoker (a combobox's list)?
+    /// See `azul_layout::transient::transient_takes_focus`. A popup that
+    /// leaves it does not autofocus its first control.
+    pub takes_focus: bool,
+    /// Popup → popup: the autofocus of its first control has happened. It
+    /// happens ONCE per window: a click on nothing that clears focus later
+    /// must not be undone by the next pass.
+    pub autofocused: bool,
+}
+
+/// One keyboard transition a parent received while its popup held the
+/// keyboard. X11 never gives an override-redirect popup the input focus, so
+/// every key lands in the parent; the parent hands it over here instead of
+/// running its own defaults on it (report 2: arrows moved the parent's focus
+/// onto a control hidden under the colour picker, and the picker never saw a
+/// key). Wayland does the same forwarding in its `handle_key`; macOS and
+/// Win32 make the popup the key window, so their parents never see the key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForwardedKey {
+    /// The parent's whole keyboard state AFTER the transition. The popup
+    /// adopts it, so its own state diff yields the KeyDown / KeyUp /
+    /// ModifiersChanged - the same events it would have seen as the key
+    /// window, modifiers included.
+    pub keyboard: azul_core::window::KeyboardState,
+    /// The key the parent's PREVIOUS state held as current. The popup's diff
+    /// starts from it, so it sees exactly the transition the parent saw - an
+    /// auto-repeat included, which the backends express as `None` -> the key
+    /// (X11 clears the previous key for a repeat; without this a held arrow
+    /// would nudge the picker once).
+    pub previous_key: azul_core::window::OptionVirtualKeyCode,
+    /// Text the key typed, as the parent's input method resolved it.
+    pub text: Option<String>,
 }
 
 /// A tear-off drag in progress, inside the popup window.
@@ -188,6 +225,145 @@ pub fn opened_with_visible_focus(state: &FullWindowState) -> bool {
         .unwrap_or(false)
 }
 
+/// Does this popup take focus when it opens? `true` for a window that is not
+/// a transient at all. See [`TransientWindowData::takes_focus`].
+#[must_use]
+pub fn popup_takes_focus(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| d.takes_focus))
+        .unwrap_or(true)
+}
+
+/// Has this popup already autofocused its first control? `true` for a
+/// window that is not a transient (nothing to autofocus there).
+#[must_use]
+pub fn popup_autofocused(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| d.autofocused))
+        .unwrap_or(true)
+}
+
+/// Record that this popup's one autofocus has happened.
+pub fn mark_popup_autofocused(state: &FullWindowState) {
+    if let Some(m) = mailbox_of(state) {
+        write(&m, |d| d.autofocused = true);
+    }
+}
+
+/// The mailbox of the popup that holds `lw`'s keyboard (see
+/// `LayoutWindow::transient_keyboard_owner`), once its window exists.
+#[must_use]
+pub fn keyboard_owner_mailbox(lw: &LayoutWindow) -> Option<RefAny> {
+    match &lw.transient_keyboard_owner()?.surface {
+        OptionRefAny::Some(m) => Some(m.clone()),
+        OptionRefAny::None => None,
+    }
+}
+
+/// The mailbox of the open popup that leaves focus on its invoker (a
+/// combobox's list, see `LayoutWindow::transient_list_popup`), once its
+/// window exists.
+#[must_use]
+pub fn list_popup_mailbox(lw: &LayoutWindow) -> Option<RefAny> {
+    match &lw.transient_list_popup()?.surface {
+        OptionRefAny::Some(m) => Some(m.clone()),
+        OptionRefAny::None => None,
+    }
+}
+
+/// The keys that belong to an open LIST popup even though its invoker keeps
+/// focus: the ones that walk a list and pick from it. Everything else - the
+/// text, Backspace, the caret keys Left / Right - keeps editing the field.
+#[must_use]
+pub const fn is_list_navigation_key(key: VirtualKeyCode) -> bool {
+    matches!(
+        key,
+        VirtualKeyCode::Up
+            | VirtualKeyCode::Down
+            | VirtualKeyCode::PageUp
+            | VirtualKeyCode::PageDown
+            | VirtualKeyCode::Home
+            | VirtualKeyCode::End
+            | VirtualKeyCode::Return
+            | VirtualKeyCode::NumpadEnter
+    )
+}
+
+/// Where a keyboard transition the PARENT received goes while popups are
+/// open - the one routing rule `PlatformWindow::forward_keys_to_popup`
+/// applies on every backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParentKeyRoute {
+    /// The parent's own key: it runs through the parent's pass.
+    Parent,
+    /// The key of the popup that holds the keyboard (a picker): forwarded
+    /// with the text it typed; the parent's pass does not see it.
+    KeyboardOwner,
+    /// A key of the open LIST popup (a combobox's options): forwarded; the
+    /// field keeps its focus and every other key.
+    ListPopup,
+}
+
+/// Decides [`ParentKeyRoute`] for one transition of `key`, given whether a
+/// focus-taking popup (`keyboard_owner`) and a list popup (`list_popup`) are
+/// open with a window, and whether this backend gives a focus-taking popup
+/// its keys by itself (`PlatformWindow::popups_route_keys_natively`).
+///
+/// `native` only concerns the focus-taking popup: where it is the key /
+/// active window (macOS, Win32, Wayland's grab) a key that reached the
+/// parent was typed INTO the parent. A list popup is never the key window
+/// on any backend - its invoker keeps focus - so its navigation keys always
+/// come through here.
+#[must_use]
+pub fn parent_key_route(
+    keyboard_owner: bool,
+    list_popup: bool,
+    native: bool,
+    key: Option<VirtualKeyCode>,
+) -> ParentKeyRoute {
+    if keyboard_owner {
+        return if native {
+            ParentKeyRoute::Parent
+        } else {
+            ParentKeyRoute::KeyboardOwner
+        };
+    }
+    if list_popup && key.is_some_and(is_list_navigation_key) {
+        return ParentKeyRoute::ListPopup;
+    }
+    ParentKeyRoute::Parent
+}
+
+/// Parent side: hand one keyboard transition to the popup behind `mailbox`,
+/// which replays it on its next pass ([`take_forwarded_keys`]). Returns
+/// whether the mailbox took it - a popup the parent already closed takes
+/// nothing.
+pub fn forward_key(mailbox: &RefAny, key: ForwardedKey) -> bool {
+    if read(mailbox, |d| d.closed).unwrap_or(true) {
+        return false;
+    }
+    write(mailbox, |d| d.forwarded_keys.push(key))
+}
+
+/// Popup side: the keys the parent forwarded since the last call, oldest
+/// first. Empty for a window that is not a transient.
+pub fn take_forwarded_keys(state: &FullWindowState) -> Vec<ForwardedKey> {
+    let Some(m) = mailbox_of(state) else {
+        return Vec::new();
+    };
+    let mut taken = Vec::new();
+    write(&m, |d| taken = core::mem::take(&mut d.forwarded_keys));
+    taken
+}
+
+/// Popup side: are there forwarded keys this popup has not replayed yet?
+#[must_use]
+pub fn has_forwarded_keys(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| !d.forwarded_keys.is_empty()))
+        .unwrap_or(false)
+}
+
 /// Read a field off a mailbox without holding the borrow.
 fn read<T>(mailbox: &RefAny, f: impl FnOnce(&TransientWindowData) -> T) -> Option<T> {
     let mut m = mailbox.clone();
@@ -244,11 +420,14 @@ pub fn popup_create_options(
         drag: None,
         drop: None,
         following: false,
+        forwarded_keys: Vec::new(),
+        takes_focus: true,
+        autofocused: false,
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
     window_state.size.dpi = parent.size.dpi;
-    window_state.theme = parent.theme;
+    window_state.mode = parent.mode;
     // `material="transparent"` (or a clip mask on the node): the frame
     // clears to transparent and whatever the content leaves at alpha 0 is
     // not window - clicks fall through, the corners are really round.
@@ -262,7 +441,7 @@ pub fn popup_create_options(
         window_state,
         size_to_content: false,
         renderer: None.into(),
-        theme: None.into(),
+        mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id,
@@ -311,6 +490,9 @@ pub fn toplevel_create_options(
         // Set true by the parent's drag handler on the first move after an
         // inline tear, so the proxy follows the cursor from drag start.
         following: false,
+        forwarded_keys: Vec::new(),
+        takes_focus: true,
+        autofocused: false,
     });
 
     // A torn-off panel is exactly the popover the picker uses, only `torn`:
@@ -321,7 +503,7 @@ pub fn toplevel_create_options(
     // rectangle. A `Normal` toplevel at an absolute position got neither.
     let mut window_state = popup_window_state(title, "azul-transient-torn", size, origin);
     window_state.size.dpi = parent.size.dpi;
-    window_state.theme = parent.theme;
+    window_state.mode = parent.mode;
     window_state.flags.background_material = open.placement.material;
     // Unlike a menu/picker popup, a torn-off panel is a window the user parks
     // and works next to — it must not sit permanently above every other
@@ -336,7 +518,7 @@ pub fn toplevel_create_options(
         window_state,
         size_to_content: false,
         renderer: None.into(),
-        theme: None.into(),
+        mode: None.into(),
         create_callback: None.into(),
         hot_reload: false,
         parent_window_id,
@@ -505,17 +687,24 @@ pub fn sync_parent(
         })
         .map(|w| w.source_node)
         .collect();
+    let mut any_dismissed = false;
     for node in dismissed {
         if let Some(closed) = lw.dismiss_transient_window(node) {
             if let OptionRefAny::Some(m) = &closed.surface {
                 write(m, |d| d.closed = true);
             }
+            any_dismissed = true;
             log_debug!(
                 LogCategory::Window,
                 "[transient] popup {:?} dismissed by the user",
                 closed.content_dom
             );
         }
+    }
+    if any_dismissed {
+        // The popup handed the keyboard back: the invoker's ring returns.
+        // This runs after the pass's display list was built.
+        lw.refresh_focus_ring();
     }
 
     let diff = lw.take_transient_diff();
@@ -580,6 +769,11 @@ pub fn sync_parent(
                 if lw.inline_tear.map(|t| t.node) == Some(w.source_node) {
                     write(&mailbox, |d| d.following = true);
                 }
+                // The popup's focus model, decided where the content's roles
+                // are visible: a combobox's list leaves focus on the field.
+                let takes_focus =
+                    azul_layout::transient::transient_takes_focus(styled, w.source_node);
+                write(&mailbox, |d| d.takes_focus = takes_focus);
                 if let Some(slot) = lw.transient_windows.get_mut(w.content_dom) {
                     slot.surface = OptionRefAny::Some(mailbox);
                 }
@@ -926,8 +1120,9 @@ pub enum DismissCause {
 
 /// The popup side: should this input transition dismiss the popup?
 ///
-/// Escape counts for `dismiss=outside` and `dismiss=escape`; focus loss only
-/// for `outside`. `dismiss=none` never dismisses — the app closes it.
+/// Escape counts for `dismiss=outside` and `dismiss=escape`; focus loss for
+/// `outside` and `outside-only` (whose content answers Escape itself).
+/// `dismiss=none` never dismisses — the app closes it.
 #[must_use]
 pub fn popup_dismiss_cause(
     previous: &FullWindowState,
@@ -963,20 +1158,17 @@ pub fn popup_dismiss_cause(
     if azul_layout::managers::eyedropper::in_flight_anywhere() {
         return None;
     }
-    let escape_now = current
-        .keyboard_state
-        .pressed_virtual_keycodes
-        .as_ref()
-        .contains(&VirtualKeyCode::Escape);
-    let escape_before = previous
-        .keyboard_state
-        .pressed_virtual_keycodes
-        .as_ref()
-        .contains(&VirtualKeyCode::Escape);
-    if escape_now && !escape_before {
+    // `outside-only`: the content answers Escape (a dialog's cancelable
+    // `cancel` step), so the engine must not spend the key first.
+    if fresh_escape(previous, current) && policy != TransientDismiss::OutsideOnly {
         return Some(DismissCause::Escape);
     }
-    if policy == TransientDismiss::Outside && previous.window_focused && !current.window_focused {
+    if matches!(
+        policy,
+        TransientDismiss::Outside | TransientDismiss::OutsideOnly
+    ) && previous.window_focused
+        && !current.window_focused
+    {
         return Some(DismissCause::FocusLost);
     }
     None
@@ -1005,6 +1197,35 @@ pub fn post_dismissed_on_close(previous: &FullWindowState, current: &FullWindowS
     post_dismissed(current)
 }
 
+/// Any mouse button held in `state`.
+fn a_button_is_down(state: &FullWindowState) -> bool {
+    state.mouse_state.left_down || state.mouse_state.right_down || state.mouse_state.middle_down
+}
+
+/// A fresh mouse press: no button was down, one is now.
+#[must_use]
+pub fn fresh_press(previous: &FullWindowState, current: &FullWindowState) -> bool {
+    a_button_is_down(current) && !a_button_is_down(previous)
+}
+
+/// The press is over: a button was down, none is now.
+#[must_use]
+pub fn fresh_release(previous: &FullWindowState, current: &FullWindowState) -> bool {
+    a_button_is_down(previous) && !a_button_is_down(current)
+}
+
+/// A fresh Escape press: Escape was not held, it is now.
+#[must_use]
+pub fn fresh_escape(previous: &FullWindowState, current: &FullWindowState) -> bool {
+    let esc = |s: &FullWindowState| {
+        s.keyboard_state
+            .pressed_virtual_keycodes
+            .as_ref()
+            .contains(&VirtualKeyCode::Escape)
+    };
+    esc(current) && !esc(previous)
+}
+
 /// The parent side: Escape was pressed while popups are open. The popup
 /// handles its own Escape when it has keyboard focus; on a platform (or in a
 /// moment) where the parent still has it, the parent closes every popup
@@ -1014,13 +1235,7 @@ pub fn dismiss_on_escape(
     current: &FullWindowState,
     lw: &mut LayoutWindow,
 ) -> bool {
-    let esc = |s: &FullWindowState| {
-        s.keyboard_state
-            .pressed_virtual_keycodes
-            .as_ref()
-            .contains(&VirtualKeyCode::Escape)
-    };
-    if !(esc(current) && !esc(previous)) {
+    if !fresh_escape(previous, current) {
         return false;
     }
     let targets: Vec<NodeId> = lw
@@ -1028,7 +1243,14 @@ pub fn dismiss_on_escape(
         .open_windows()
         .iter()
         .filter(|w| !w.is_inline() && w.torn.is_none())
-        .filter(|w| w.placement.dismiss != TransientDismiss::None)
+        // `none` never closes, and `outside-only` leaves Escape to the
+        // content (the forwarded key reaches its handler instead).
+        .filter(|w| {
+            matches!(
+                w.placement.dismiss,
+                TransientDismiss::Outside | TransientDismiss::Escape
+            )
+        })
         .map(|w| w.source_node)
         .collect();
     let mut any = false;
@@ -1051,10 +1273,7 @@ pub fn dismiss_outside_on_press(
     current: &FullWindowState,
     lw: &mut LayoutWindow,
 ) -> bool {
-    let was_down = |s: &FullWindowState| {
-        s.mouse_state.left_down || s.mouse_state.right_down || s.mouse_state.middle_down
-    };
-    if !(was_down(current) && !was_down(previous)) {
+    if !fresh_press(previous, current) {
         return false;
     }
     // A press on the popup's own ANCHOR is not "outside": the anchor is the
@@ -1083,7 +1302,12 @@ pub fn dismiss_outside_on_press(
         // content, a torn-off palette is a window of its own - a press in
         // the parent is not "outside" either.
         .filter(|w| !w.is_inline() && w.torn.is_none())
-        .filter(|w| w.placement.dismiss == TransientDismiss::Outside && !on_anchor(w))
+        .filter(|w| {
+            matches!(
+                w.placement.dismiss,
+                TransientDismiss::Outside | TransientDismiss::OutsideOnly
+            ) && !on_anchor(w)
+        })
         .map(|w| w.source_node)
         .collect();
     let mut any = false;
@@ -1096,6 +1320,112 @@ pub fn dismiss_outside_on_press(
         }
     }
     any
+}
+
+/// The parent side: this window was DEACTIVATED (the user went to another
+/// window or app) while popups that leave focus on their invoker are open -
+/// a combobox's list. Such a popup is never the active window, so it has no
+/// focus loss of its own to close on; its parent's is the one. Dismisses
+/// those with a light-dismiss policy; returns whether any were.
+///
+/// A popup that TAKES focus is left alone: its parent resigns the keyboard
+/// TO it (macOS, Win32), which is no reason to close it - it closes on its
+/// own focus loss.
+pub fn dismiss_list_popups_on_deactivation(
+    previous: &FullWindowState,
+    current: &FullWindowState,
+    lw: &mut LayoutWindow,
+) -> bool {
+    if !(previous.is_window_active() && !current.is_window_active()) {
+        return false;
+    }
+    let targets: Vec<NodeId> = {
+        let Some(root) = lw
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .map(|r| &r.styled_dom)
+        else {
+            return false;
+        };
+        lw.transient_windows
+            .open_windows()
+            .iter()
+            .filter(|w| !w.is_inline() && w.torn.is_none())
+            .filter(|w| {
+                matches!(
+                    w.placement.dismiss,
+                    TransientDismiss::Outside | TransientDismiss::OutsideOnly
+                )
+            })
+            .filter(|w| !azul_layout::transient::transient_takes_focus(root, w.source_node))
+            .map(|w| w.source_node)
+            .collect()
+    };
+    let mut any = false;
+    for node in targets {
+        if let Some(closed) = lw.dismiss_transient_window(node) {
+            if let OptionRefAny::Some(m) = &closed.surface {
+                write(m, |d| d.closed = true);
+            }
+            any = true;
+        }
+    }
+    any
+}
+
+/// Which of a window's surfaces a Wayland `wl_keyboard.enter` / `leave`
+/// names. The events for a parent AND its `xdg_popup` arrive at the parent's
+/// one keyboard listener; the surface argument says which one got (or lost)
+/// the keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardFocusSurface {
+    /// The window's own surface: the window itself was (de)activated.
+    Parent,
+    /// The window's open popup: the popup took (or gave up) the keyboard.
+    Popup,
+    /// Neither (a destroyed surface arrives as null): treated as the parent.
+    Other,
+}
+
+/// Route a Wayland keyboard enter / leave by its surface. `surface`,
+/// `parent` and `popup` are the `wl_surface` addresses (`popup` is `None`
+/// while no popup is open).
+///
+/// The listener used to ignore the surface, so the popup taking the
+/// keyboard read as leave(parent) + enter(parent) and the parent flickered
+/// back to ACTIVE while the popup held the keyboard. Routed, the parent
+/// stays inactive until the keyboard enters its own surface again - the
+/// macOS / Win32 behaviour, which is what the focus ring and `:backdrop`
+/// follow.
+#[must_use]
+pub fn keyboard_focus_surface(
+    surface: usize,
+    parent: usize,
+    popup: Option<usize>,
+) -> KeyboardFocusSurface {
+    if surface == 0 {
+        KeyboardFocusSurface::Other
+    } else if popup == Some(surface) {
+        KeyboardFocusSurface::Popup
+    } else if surface == parent {
+        KeyboardFocusSurface::Parent
+    } else {
+        KeyboardFocusSurface::Other
+    }
+}
+
+/// The serial an `xdg_popup.grab` must carry: the one of the input event
+/// that opened the popup. `last_input_serial` is the latest key OR button
+/// serial - a keyboard-opened picker's is the key's; the pointer's own
+/// serial can be an `enter` serial, which a strict compositor (Mutter)
+/// answers by dismissing the popup at once. `0` = no input seen yet.
+#[must_use]
+pub const fn popup_grab_serial(last_input_serial: u32, pointer_serial: u32) -> u32 {
+    if last_input_serial != 0 {
+        last_input_serial
+    } else {
+        pointer_serial
+    }
 }
 
 #[cfg(test)]
@@ -1152,6 +1482,48 @@ mod tests {
         assert_eq!(w.placement.anchor, TransientAnchor::Bottom);
         assert!(mailbox_of(st).is_some(), "the ctx IS the mailbox");
         assert_eq!(read(&mailbox, |d| d.generation), Some(0));
+    }
+
+    /// A popup that leaves focus on its invoker (a combobox's list) is never
+    /// the key / active window, on ANY backend: the parent keeps every key
+    /// (typing keeps editing the field) and hands the list its navigation
+    /// keys through the mailbox. So the list route cannot depend on whether
+    /// the backend gives a FOCUS-TAKING popup its keys by itself (macOS and
+    /// Win32 make that one the key window; X11 never does). It used to: on
+    /// macOS / Win32 every popup was the key window, the list included, and
+    /// text typed while it was open went to the list and was lost.
+    #[test]
+    fn a_list_popup_gets_its_navigation_keys_through_the_parent_on_every_backend() {
+        use azul_core::window::VirtualKeyCode::{Down, Return, A};
+
+        for native in [false, true] {
+            for key in [Down, Return] {
+                assert_eq!(
+                    parent_key_route(false, true, native, Some(key)),
+                    ParentKeyRoute::ListPopup,
+                    "{key:?} belongs to the open list, native={native}"
+                );
+            }
+            assert_eq!(
+                parent_key_route(false, true, native, Some(A)),
+                ParentKeyRoute::Parent,
+                "text keeps editing the field, native={native}"
+            );
+        }
+        // A popup that TAKES focus: forwarded where it never gets the
+        // keyboard itself (X11), the parent's own key where it does.
+        assert_eq!(
+            parent_key_route(true, false, false, Some(A)),
+            ParentKeyRoute::KeyboardOwner
+        );
+        assert_eq!(
+            parent_key_route(true, false, true, Some(A)),
+            ParentKeyRoute::Parent
+        );
+        assert_eq!(
+            parent_key_route(false, false, false, Some(Down)),
+            ParentKeyRoute::Parent
+        );
     }
 
     /// Escape dismisses under `outside` and `escape`; focus loss only under
@@ -1226,6 +1598,56 @@ mod tests {
 
     /// A popup reports itself dismissed through the mailbox, and the parent
     /// can see it; a closed flag travels the other way.
+    /// P1-9: a keyboard enter / leave on the POPUP's surface is the popup's.
+    /// The listener ignored the surface, so the popup taking the keyboard
+    /// read as leave(parent) + enter(parent): the parent flickered inactive
+    /// and straight back to active while the popup held the keyboard.
+    #[test]
+    fn a_wayland_keyboard_enter_is_routed_by_its_surface() {
+        let (parent, popup) = (0x1000_usize, 0x2000_usize);
+        assert_eq!(
+            keyboard_focus_surface(popup, parent, Some(popup)),
+            KeyboardFocusSurface::Popup,
+            "the popup's surface is the popup's"
+        );
+        assert_eq!(
+            keyboard_focus_surface(parent, parent, Some(popup)),
+            KeyboardFocusSurface::Parent
+        );
+        assert_eq!(
+            keyboard_focus_surface(parent, parent, None),
+            KeyboardFocusSurface::Parent
+        );
+        assert_eq!(
+            keyboard_focus_surface(0, parent, Some(popup)),
+            KeyboardFocusSurface::Other,
+            "a destroyed (null) surface is neither"
+        );
+        assert_eq!(
+            keyboard_focus_surface(popup, parent, None),
+            KeyboardFocusSurface::Other,
+            "a popup that is already gone is not the popup"
+        );
+    }
+
+    /// P1-9: `xdg_popup.grab` must carry the serial of the input that opened
+    /// the popup - for a keyboard-opened picker that is the KEY's serial.
+    /// The pointer's serial can be an `enter` serial, which a strict
+    /// compositor (Mutter) rejects by dismissing the popup at once.
+    #[test]
+    fn a_popup_grab_carries_the_serial_of_the_last_input() {
+        assert_eq!(
+            popup_grab_serial(42, 7),
+            42,
+            "the key that opened the popup, not the pointer's older serial"
+        );
+        assert_eq!(
+            popup_grab_serial(0, 7),
+            7,
+            "no input serial recorded yet: the pointer's is all there is"
+        );
+    }
+
     #[test]
     fn the_mailbox_carries_both_directions() {
         let w = open_window(0);

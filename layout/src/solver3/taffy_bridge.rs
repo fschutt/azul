@@ -342,9 +342,7 @@ use crate::{
             LayoutConstraints, TextAlign as FcTextAlign,
         },
         getters::{
-            get_align_content, get_align_items, get_css_border_bottom_width,
-            get_css_border_left_width, get_css_border_right_width, get_css_border_top_width,
-            get_css_bottom, get_css_box_sizing, get_css_height, get_css_left,
+            get_align_content, get_align_items, get_css_bottom, get_css_box_sizing, get_css_height, get_css_left,
             get_css_margin_bottom, get_css_margin_left, get_css_margin_right, get_css_margin_top,
             get_css_max_height, get_css_max_width, get_css_min_height, get_css_min_width,
             get_css_padding_bottom, get_css_padding_left, get_css_padding_right,
@@ -903,24 +901,55 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             ),
         };
 
+        // The USED widths (`getters::used_border_width` via `get_border_info`):
+        // 0 for a side whose style is none, `medium` for a style without a
+        // width - the same box the block layout and the painter see. The
+        // declared widths alone gave a flex item a border its painter did
+        // not draw (a width without a style) or none it did (a style alone).
+        let used_border = crate::solver3::getters::get_border_info(styled_dom, id, node_state);
+        let used = |w: Option<PixelValue>| w.map_or(MultiValue::Auto, MultiValue::Exact);
         taffy_style.border = Rect {
             left: multi_value_to_lp_ctx(
-                get_css_border_left_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .left
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             right: multi_value_to_lp_ctx(
-                get_css_border_right_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .right
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             top: multi_value_to_lp_ctx(
-                get_css_border_top_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .top
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             bottom: multi_value_to_lp_ctx(
-                get_css_border_bottom_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .bottom
+                        .and_then(|v| v.get_property_owned())
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
@@ -1511,6 +1540,52 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         (px(style.min_size.height), px(style.max_size.height))
     }
 
+    /// The BORDER-BOX width the node's own style fixes: its `width` - a
+    /// length, or a percentage of a known `parent_width` - clamped by its
+    /// `min-width` / `max-width` of the same kinds, content-box sizing adding
+    /// `padding_border_width`. `None` for `auto` and every width that depends
+    /// on the content (min-/max-/fit-content, calc) or on an unknown parent.
+    ///
+    /// taffy's own leaf algorithm resolves exactly this into the known width
+    /// before it measures anything; the bridge's non-flex path must too, or a
+    /// min-content query lays a `width: 140px` box's text out at its longest
+    /// word while answering "140 wide" - and taffy serves that entry for the
+    /// box's real 140 px query
+    /// (tests/flex_items_keep_the_size_their_container_gave_them.rs, B).
+    fn own_definite_width(
+        &self,
+        node_idx: usize,
+        parent_width: Option<f32>,
+        padding_border_width: f32,
+    ) -> Option<f32> {
+        let style = self.get_taffy_style(node_idx);
+        let resolve = |d: Dimension| -> Option<f32> {
+            let raw = d.into_raw();
+            let value = raw.value();
+            let resolved = if raw.tag() == CompactLength::LENGTH_TAG {
+                Some(value)
+            } else if raw.tag() == CompactLength::PERCENT_TAG {
+                parent_width.map(|w| w * value)
+            } else {
+                None
+            };
+            resolved.filter(|v| v.is_finite())
+        };
+        let extra = if style.box_sizing == BoxSizing::ContentBox {
+            padding_border_width
+        } else {
+            0.0
+        };
+        let mut width = resolve(style.size.width)? + extra;
+        if let Some(max) = resolve(style.max_size.width) {
+            width = width.min(max + extra);
+        }
+        if let Some(min) = resolve(style.min_size.width) {
+            width = width.max(min + extra);
+        }
+        Some(width.max(padding_border_width))
+    }
+
     /// Determines if cross-axis intrinsic size should be suppressed for stretching.
     ///
     /// Per CSS Flexbox spec, align-items: stretch makes items fill the cross-axis
@@ -1910,13 +1985,23 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 .map(|s| s.formatting_context)
                 .unwrap_or_default();
 
-            match fc {
+            // Whatever this computes - a measure or the final layout - it
+            // rewrites the subtree's state (children's used sizes and
+            // offsets, inline layout, scrollbars) for THESE inputs, so the
+            // memoised final layout no longer describes it until a final
+            // computation has run again (`NodeCache::final_layout_current`).
+            tree.set_final_layout_current(node_idx, false);
+            let output = match fc {
                 FormattingContext::Flex => compute_flexbox_layout(tree, node_id, inputs),
                 FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
                 // For Block, Inline, Table, InlineBlock - delegate to layout_formatting_context
                 // This ensures proper recursive layout of all formatting contexts
                 _ => tree.compute_non_flex_layout(node_idx, inputs),
+            };
+            if inputs.run_mode == RunMode::PerformLayout {
+                tree.set_final_layout_current(node_idx, true);
             }
+            output
         });
 
         // Populate the pure-measure cache from the result we just computed.
@@ -1929,10 +2014,21 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             }
         }
 
-        // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
-        if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
-            let size = translate_taffy_size_back(result.size);
-            node.used_size = Some(size);
+        // Store the FINAL layout's size on the node. Only a final layout
+        // (`RunMode::PerformLayout`) may write it: a MEASURE answers a
+        // question ("how tall at this width?", "how wide at min-content?")
+        // and must leave the node as the last final layout left it. Writing
+        // every answer here - cache hits included - let a block parent's
+        // second measure of a flex row overwrite a stretched item with its
+        // measured size; the item's column then served its own final layout
+        // from taffy's cache, so the item's final layout never ran again and
+        // a 260 px capacity bar stayed 2 px wide
+        // (tests/flex_items_keep_the_size_their_container_gave_them.rs, A).
+        if inputs.run_mode == RunMode::PerformLayout {
+            if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                let size = translate_taffy_size_back(result.size);
+                node.used_size = Some(size);
+            }
         }
 
         // CRITICAL FIX: For Flex/Grid children with overflow:auto/scroll,
@@ -1980,6 +2076,24 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 }
 
 impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
+    /// Does the subtree of `node_idx` still hold what its last final layout
+    /// wrote? See `NodeCache::final_layout_current`. `false` for a node the
+    /// per-node cache does not cover (a context without one): its final
+    /// layout is then always computed.
+    fn final_layout_current(&self, node_idx: usize) -> bool {
+        self.ctx
+            .cache_map
+            .entries
+            .get(node_idx)
+            .is_some_and(|c| c.final_layout_current)
+    }
+
+    fn set_final_layout_current(&mut self, node_idx: usize, current: bool) {
+        if let Some(c) = self.ctx.cache_map.entries.get_mut(node_idx) {
+            c.final_layout_current = current;
+        }
+    }
+
     /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
     /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
     #[allow(clippy::match_same_arms)]
@@ -2007,6 +2121,32 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     bp.border.top + bp.border.bottom,
                 )
             });
+
+        // A box whose own style fixes its width lays its content out at that
+        // width, whatever the query's available space says: taffy resolves it
+        // into the known width in its own leaf algorithm (`own_definite_width`).
+        // The answer then describes one box - "140 wide, as tall as the text at
+        // 140" - not "140 wide, as tall as the text at its longest word", which
+        // taffy's cache served for the real 140 px query and a whole flex row
+        // came out four times too tall. The cache entry keeps the original
+        // inputs as its key (this runs inside `compute_cached_layout`).
+        let inputs = match inputs.known_dimensions.width {
+            Some(_) => inputs,
+            None => match self.own_definite_width(
+                node_idx,
+                inputs.parent_size.width,
+                node_padding_width + node_border_width,
+            ) {
+                Some(width) => LayoutInput {
+                    known_dimensions: Size {
+                        width: Some(width),
+                        height: inputs.known_dimensions.height,
+                    },
+                    ..inputs
+                },
+                None => inputs,
+            },
+        };
 
         // Determine available size from Taffy's inputs.
         // When known_dimensions is set (e.g. flex stretch), subtract the child's own
@@ -2127,6 +2267,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             containing_block_size: available_size,
             available_width_type,
             fragmentainer: None,
+            column_flow: None,
         };
 
         // A prior Taffy measurement pass (e.g. the min-content pass Taffy runs to
@@ -2140,6 +2281,15 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // content). Reset `used_size` to the border-box dims Taffy fixed for THIS
         // measure. When width is unknown (an intrinsic pass), clear it so layout_bfc
         // falls back to `constraints.available_size` (INFINITY → true intrinsic).
+        //
+        // A MEASURE hands the size back afterwards: what the node held before
+        // (its last FINAL layout) is restored below, so a measure leaves no
+        // size behind (see `compute_child_layout`, and
+        // tests/flex_items_keep_the_size_their_container_gave_them.rs, A).
+        let used_size_before_measure = self
+            .tree
+            .get(LayoutNodeId::new(node_idx))
+            .and_then(|n| n.used_size);
         if let Some(n) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
             n.used_size = match (
                 inputs.known_dimensions.width,
@@ -2356,48 +2506,58 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     max_h.map_or(clamped, |m| clamped.min(m.max(min_h.unwrap_or(0.0))))
                 };
 
-                // CRITICAL: Transfer positions from layout_formatting_context to child nodes.
-                // Without this, children of flex items won't have their relative_position set,
-                // causing them to all render at (0,0) relative to their parent.
-                for (child_idx, child_pos) in &output.positions {
-                    if let Some(child_warm) = self.tree.warm_mut(LayoutNodeId::new(*child_idx)) {
-                        child_warm.relative_position = Some(*child_pos);
+                if inputs.run_mode == RunMode::PerformLayout {
+                    // CRITICAL: Transfer positions from layout_formatting_context to child
+                    // nodes. Without this, children of flex items won't have their
+                    // relative_position set, causing them to all render at (0,0) relative to
+                    // their parent.
+                    for (child_idx, child_pos) in &output.positions {
+                        if let Some(child_warm) = self.tree.warm_mut(LayoutNodeId::new(*child_idx))
+                        {
+                            child_warm.relative_position = Some(*child_pos);
+                        }
                     }
-                }
 
-                // Compute scrollbar_info for this node (it's a child of a Flex/Grid container,
-                // so calculate_layout_for_subtree won't be called for it).
-                // Uses the unified compute_scrollbar_info_core path.
-                //
-                // content_width/height come from our own BFC/IFC overflow_size,
-                // which is already content-box relative — unlike Taffy's
-                // border-box-origin content_size.
-                let (scrollbar_info, _, _) = compute_taffy_scrollbar_info(
-                    self.ctx,
-                    self.tree,
-                    node_idx,
-                    final_width,
-                    final_height,
-                    content_width,
-                    content_height,
-                    ContentSizeOrigin::ContentBox,
-                );
+                    // Compute scrollbar_info for this node (it's a child of a Flex/Grid
+                    // container, so calculate_layout_for_subtree won't be called for it).
+                    // Uses the unified compute_scrollbar_info_core path.
+                    //
+                    // content_width/height come from our own BFC/IFC overflow_size,
+                    // which is already content-box relative — unlike Taffy's
+                    // border-box-origin content_size.
+                    let (scrollbar_info, _, _) = compute_taffy_scrollbar_info(
+                        self.ctx,
+                        self.tree,
+                        node_idx,
+                        final_width,
+                        final_height,
+                        content_width,
+                        content_height,
+                        ContentSizeOrigin::ContentBox,
+                    );
 
-                // Store the border-box size and scrollbar_info on the node for display list
-                // generation
-                if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
-                    node.used_size = Some(LogicalSize {
-                        width: final_width,
-                        height: final_height,
-                    });
-                }
-                if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
-                    warm.scrollbar_info = Some(scrollbar_info);
-                    // Store the actual content size for scroll calculations
-                    warm.overflow_content_size = Some(LogicalSize {
-                        width: content_width,
-                        height: content_height,
-                    });
+                    // Store the border-box size and scrollbar_info on the node for display
+                    // list generation
+                    if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                        node.used_size = Some(LogicalSize {
+                            width: final_width,
+                            height: final_height,
+                        });
+                    }
+                    if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                        warm.scrollbar_info = Some(scrollbar_info);
+                        // Store the actual content size for scroll calculations
+                        warm.overflow_content_size = Some(LogicalSize {
+                            width: content_width,
+                            height: content_height,
+                        });
+                    }
+                } else if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                    // A MEASURE: its children's positions, the scroll bars of a box
+                    // this tall and the size are the answer to a question, not the
+                    // node's layout - hand the size the last final layout left back
+                    // (taken before the reset above) and write nothing else.
+                    node.used_size = used_size_before_measure;
                 }
 
                 // Return the same size to Taffy for correct positioning
@@ -2420,6 +2580,12 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 }
             }
             Err(_e) => {
+                // A measure leaves no size behind, as on the success path.
+                if inputs.run_mode != RunMode::PerformLayout {
+                    if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                        node.used_size = used_size_before_measure;
+                    }
+                }
                 // Fallback to intrinsic sizes if layout fails
                 let intrinsic = self
                     .tree
@@ -2449,14 +2615,154 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     }
 }
 
+/// The second way of taffy's measurement cache for one node.
+///
+/// taffy's `Cache` keeps ONE measurement per slot class (nine classes: which
+/// of width and height are known, and whether an unknown axis is asked at
+/// min-content). A flex container measured twice in one pass with different
+/// available main sizes - its basis at max-content and its automatic minimum
+/// at min-content, as every flex item with a visible overflow is - asks each
+/// of its items for its cross size at the main size the item got in THAT
+/// run. An item whose size depends on that (anything holding wrapping lines)
+/// is asked several keys of one class: each run evicts the other's entry,
+/// and every pass misses them all, the item's whole subtree with it - and
+/// the levels below repeat it with keys of their own. AzWidgets' page column
+/// asked its form section `(None, 938)` and `(None, 906)`, the section's
+/// descendants up to four keys of one class and up to seven in all per pass:
+/// 173 of a switch-knob frame's 184 taffy misses and its 76 text re-flows.
+///
+/// Keeps the last `SPILL_ENTRIES` distinct measurements of such a node, of
+/// any class, matched by taffy's own rule; a pass that asks a node no more
+/// keys than that hits every one of them from the second pass on. It lives
+/// in the node's `NodeCache` (which follows the node across passes) and is
+/// allocated at the node's first eviction. It is part of the taffy cache for
+/// validity: never read while that cache is empty, dropped by the first
+/// store after it was emptied (a dirty subtree, a restyle, a clone that
+/// could not keep it all empty it).
+#[derive(Debug, Clone, Default)]
+pub struct TaffyMeasureSpill {
+    /// A ring, oldest overwritten first.
+    entries: [Option<SpilledMeasure>; SPILL_ENTRIES],
+    next: usize,
+}
+
+/// How many measurements a [`TaffyMeasureSpill`] keeps: above the seven
+/// distinct keys per pass the busiest AzWidgets node is asked.
+const SPILL_ENTRIES: usize = 12;
+
+/// One measurement in a [`TaffyMeasureSpill`]: the key taffy keys it by and
+/// the outer size it answered.
+#[derive(Debug, Clone, Copy)]
+struct SpilledMeasure {
+    known_dimensions: Size<Option<f32>>,
+    available_space: Size<AvailableSpace>,
+    size: Size<f32>,
+}
+
+impl SpilledMeasure {
+    /// taffy's own rule for a measurement answering a query (`Cache::get`,
+    /// `RunMode::ComputeSize`): a known axis matches the stored known value
+    /// or the stored result; an unknown axis matches the stored available
+    /// space.
+    fn answers(&self, input: &LayoutInput) -> bool {
+        let known = input.known_dimensions;
+        let avail = input.available_space;
+        (known.width == self.known_dimensions.width || known.width == Some(self.size.width))
+            && (known.height == self.known_dimensions.height
+                || known.height == Some(self.size.height))
+            && (known.width.is_some() || self.available_space.width.is_roughly_equal(avail.width))
+            && (known.height.is_some()
+                || self.available_space.height.is_roughly_equal(avail.height))
+    }
+
+    fn same_key(&self, other: &Self) -> bool {
+        self.known_dimensions == other.known_dimensions
+            && self
+                .available_space
+                .width
+                .is_roughly_equal(other.available_space.width)
+            && self
+                .available_space
+                .height
+                .is_roughly_equal(other.available_space.height)
+    }
+}
+
+impl TaffyMeasureSpill {
+    /// Any kept measurement that answers the query - taffy's `Cache::get`
+    /// searches all its measurement slots the same way.
+    fn get(&self, input: &LayoutInput) -> Option<Size<f32>> {
+        self.entries
+            .iter()
+            .flatten()
+            .find(|m| m.answers(input))
+            .map(|m| m.size)
+    }
+
+    /// Record a measurement: the same key again is refreshed where it is, a
+    /// new one overwrites the oldest.
+    fn store(&mut self, input: &LayoutInput, size: Size<f32>) {
+        let new = SpilledMeasure {
+            known_dimensions: input.known_dimensions,
+            available_space: input.available_space,
+            size,
+        };
+        if let Some(same) = self.entries.iter_mut().flatten().find(|m| m.same_key(&new)) {
+            *same = new;
+            return;
+        }
+        self.entries[self.next] = Some(new);
+        self.next = (self.next + 1) % SPILL_ENTRIES;
+    }
+}
+
+/// taffy's measurement slot class of a key (`Cache::compute_cache_slot`,
+/// private there): 0 both axes known; 1 / 2 only the width, the height asked
+/// at max-content-or-definite / min-content; 3 / 4 only the height, likewise
+/// for the width; 5 - 8 neither, by which of the two are asked at
+/// min-content.
+fn measure_slot(
+    known_dimensions: Size<Option<f32>>,
+    available_space: Size<AvailableSpace>,
+) -> usize {
+    let min = |a: AvailableSpace| usize::from(a == AvailableSpace::MinContent);
+    match (known_dimensions.width, known_dimensions.height) {
+        (Some(_), Some(_)) => 0,
+        (Some(_), None) => 1 + min(available_space.height),
+        (None, Some(_)) => 3 + min(available_space.width),
+        (None, None) => 5 + 2 * min(available_space.width) + min(available_space.height),
+    }
+}
+
 impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     fn cache_get(&self, node_id: taffy::NodeId, input: &LayoutInput) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
-        let hit = self
-            .tree
-            .warm(LayoutNodeId::new(node_idx))?
-            .taffy_cache
-            .get(input);
+        // A final layout is memoised by its inputs, but its side effects are
+        // not in the memo: a measure computed since then rewrote them. Serve
+        // it only while the subtree still holds what it wrote
+        // (`NodeCache::final_layout_current`), else lay it out again.
+        if input.run_mode == RunMode::PerformLayout && !self.final_layout_current(node_idx) {
+            drop(crate::probe::Probe::span("taffy_final_layout_stale"));
+            return None;
+        }
+        let primary = &self.tree.warm(LayoutNodeId::new(node_idx))?.taffy_cache;
+        let mut hit = primary.get(input);
+        // A measurement taffy's one entry per slot class evicted lives on in
+        // the node's second way (`TaffyMeasureSpill`). Never read past an
+        // empty primary: everything in the spill then predates its clear.
+        if hit.is_none() && input.run_mode == RunMode::ComputeSize && !primary.is_empty() {
+            hit = self
+                .ctx
+                .cache_map
+                .entries
+                .get(node_idx)
+                .and_then(|c| c.taffy_measure_spill.as_deref())
+                .and_then(|spill| spill.get(input))
+                .map(LayoutOutput::from_outer_size);
+            if hit.is_some() {
+                drop(crate::probe::Probe::span("taffy_cache_get_spill_hit"));
+            }
+        }
         drop(crate::probe::Probe::span(if hit.is_some() {
             "taffy_cache_get_hit"
         } else {
@@ -2488,8 +2794,33 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
+        let mut primary_was_empty = true;
         if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+            primary_was_empty = warm.taffy_cache.is_empty();
             warm.taffy_cache.store(input, layout_output);
+        }
+        let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
+            return;
+        };
+        // The first store after the primary was emptied: whatever the second
+        // way holds was measured before that clear.
+        if primary_was_empty {
+            cache.taffy_measure_spill = None;
+            cache.taffy_slots_stored = 0;
+        }
+        if input.run_mode != RunMode::ComputeSize {
+            return;
+        }
+        // A store is only ever made after a miss, so a second store into a
+        // slot class is an eviction: from then on this node keeps a second
+        // way for every measurement it stores.
+        let bit = 1u16 << measure_slot(input.known_dimensions, input.available_space);
+        if cache.taffy_slots_stored & bit != 0 && cache.taffy_measure_spill.is_none() {
+            cache.taffy_measure_spill = Some(Box::default());
+        }
+        cache.taffy_slots_stored |= bit;
+        if let Some(spill) = cache.taffy_measure_spill.as_deref_mut() {
+            spill.store(input, layout_output.size);
         }
     }
 
@@ -4208,7 +4539,18 @@ mod autotest_generated {
 
         impl Env {
             fn new() -> Self {
-                let mut dom = Dom::create_body();
+                Self::of(Dom::create_body())
+            }
+
+            /// `body > div`, for the laws that are about an ORDINARY box:
+            /// the root element's overflow belongs to the viewport (CSS
+            /// Overflow 3 3.3), so a law tested on the root tests the
+            /// viewport instead.
+            fn with_a_child() -> Self {
+                Self::of(Dom::create_body().with_child(Dom::create_div()))
+            }
+
+            fn of(mut dom: Dom) -> Self {
                 let (css, _warnings) = azul_css::parser2::new_from_str("");
                 Self {
                     styled_dom: StyledDom::create(&mut dom, css),
@@ -4236,6 +4578,7 @@ mod autotest_generated {
                     debug_messages: &mut self.debug_messages,
                     counters: &mut self.counters,
                     viewport_size: LogicalSize::new(800.0, 600.0),
+                    canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), LogicalSize::new(800.0, 600.0)),
                     fragmentation_context: None,
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
@@ -4316,18 +4659,19 @@ mod autotest_generated {
         }
 
         #[test]
-        fn compute_taffy_scrollbar_info_needs_no_scrollbars_for_an_overflow_visible_body() {
-            let mut env = Env::new();
+        fn compute_taffy_scrollbar_info_needs_no_scrollbars_for_an_overflow_visible_box() {
+            let mut env = Env::with_a_child();
             let mut ctx = env.ctx();
-            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
-            let root = tree.root;
+            let tree = generate_layout_tree(&mut ctx).expect("a body with a div builds");
+            let div = tree.children(tree.root)[0];
 
             // Content far larger than the box: `overflow: visible` still must not
-            // ask for scrollbars (only `auto`/`scroll` do).
+            // ask for scrollbars (only `auto`/`scroll` do). An ORDINARY box -
+            // the root's own `visible` belongs to the viewport, which scrolls.
             let (info, w, h) = compute_taffy_scrollbar_info(
                 &ctx,
                 &tree,
-                root,
+                div,
                 100.0,
                 100.0,
                 10_000.0,
@@ -4339,6 +4683,35 @@ mod autotest_generated {
             assert_eq!(info.scrollbar_width, 0.0);
             assert_eq!(info.scrollbar_height, 0.0);
             assert!(w > 0.0 && h > 0.0, "the taffy content size is passed back");
+        }
+
+        #[test]
+        fn compute_taffy_scrollbar_info_scrolls_the_viewport_for_an_overflow_visible_root() {
+            let mut env = Env::new();
+            let mut ctx = env.ctx();
+            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
+            let root = tree.root;
+
+            // CSS Overflow 3 3.3: on the ROOT element `visible` is applied to
+            // the viewport as `auto`, which is what scrolls a page taller than
+            // the window. The bar is an overlay, so it reserves no gutter.
+            let (info, _w, _h) = compute_taffy_scrollbar_info(
+                &ctx,
+                &tree,
+                root,
+                100.0,
+                100.0,
+                10_000.0,
+                10_000.0,
+                ContentSizeOrigin::BorderBox,
+            );
+            assert!(info.needs_vertical, "the page is taller than the window");
+            assert!(info.needs_horizontal, "and wider than it");
+            assert_eq!(
+                (info.scrollbar_width, info.scrollbar_height),
+                (0.0, 0.0),
+                "the viewport's bar is an overlay: it takes no space from the page"
+            );
         }
     }
 }

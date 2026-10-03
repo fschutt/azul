@@ -254,6 +254,7 @@ impl DenseText {
                     ascent: 0.0,
                     descent: 0.0,
                     cap_height: None,
+                    browser_ascent_boost: false,
                     x_height: None,
                     line_gap: 0.0,
                     units_per_em: 0,
@@ -687,19 +688,12 @@ impl DenseText {
     /// sizes mix), while the line record's y is only the FIRST item's.
     #[must_use]
     pub fn resolved_run_ascent(run: &DenseRun) -> f32 {
-        let m = &run.font_metrics;
-        if m.units_per_em == 0 {
-            return 0.0;
-        }
-        let scale = run.style.font_size_px / f32::from(m.units_per_em);
-        let font_ascent = m.ascent * scale;
-        let font_descent = (-m.descent * scale).max(0.0);
-        let ad = font_ascent + font_descent;
-        let lh = run
-            .style
-            .line_height
-            .resolve_with_metrics(run.style.font_size_px, m);
-        font_ascent + (lh - ad) / 2.0
+        // The glyph box of the sparse path, exactly
+        // (`text3::cache::get_item_vertical_metrics`): the face's rounded
+        // ascent plus its share of the leading. 0 for a face without units.
+        run.font_metrics
+            .inline_box_px(run.style.font_size_px, &run.style.line_height)
+            .map_or(0.0, |(above, _)| above)
     }
 
     /// The run containing cluster `ci` (runs partition clusters in
@@ -1140,45 +1134,6 @@ impl DenseText {
             affinity: azul_core::selection::CursorAffinity::Trailing,
         })
     }
-
-    /// (d4) Cursor for an IFC-wide byte offset — the dense twin of the
-    /// sparse accumulation walk: clusters in item order, each
-    /// contributing `cluster_byte_len`, first cluster whose span
-    /// contains the offset wins; past-the-end falls to the last cluster.
-    #[must_use]
-    pub fn byte_offset_to_cursor(
-        &self,
-        byte_offset: u32,
-    ) -> Option<azul_core::selection::TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-        let cursor_at = |ci: u32| -> Option<TextCursor> {
-            let c = self.clusters.get(ci as usize)?;
-            let run = self.runs.iter().find(|r| r.clusters.contains(&ci))?;
-            Some(TextCursor {
-                cluster_id: GraphemeClusterId {
-                    source_run: run.source_run,
-                    start_byte_in_run: c.start_byte,
-                },
-                affinity: CursorAffinity::Trailing,
-            })
-        };
-        if self.clusters.is_empty() {
-            return None;
-        }
-        if byte_offset == 0 {
-            return cursor_at(0);
-        }
-        let mut acc = 0u32;
-        for ci in 0..self.clusters.len() as u32 {
-            let len = self.cluster_byte_len(ci);
-            let end = acc + len;
-            if byte_offset >= acc && byte_offset <= end {
-                return cursor_at(ci);
-            }
-            acc = end;
-        }
-        cursor_at(self.clusters.len() as u32 - 1)
-    }
 }
 
 /// §3.2 step 3: the dense twin of [`super::glyphs::get_glyph_positions`]
@@ -1216,20 +1171,7 @@ pub fn get_glyph_positions_dense(dense: &DenseText) -> Vec<PositionedGlyph> {
         let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
         // Per-run ascent: the same math the reference derives per item
         // (metrics + half-leading), amortised — run metrics are uniform.
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;
@@ -1331,20 +1273,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
             }
         }
         let top_y = line_iter.peek().map_or(0.0, |l| l.top_y);
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;
@@ -1383,18 +1312,18 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 text_decoration: style.text_decoration,
                 is_ime_preview: false,
                 source_node_id,
+                end_x: c.x,
             });
         }
-        let out = &mut current_run
-            .as_mut()
-            .expect("opened above when absent")
-            .glyphs;
+        let open = current_run.as_mut().expect("opened above when absent");
 
+        // The run ends after this cluster (`SimpleGlyphRun::end_x`): the pen
+        // after its glyphs, as the reference walker advances it.
         match detail {
             Some(d) => {
                 let mut pen_x = c.x;
                 for dg in &dense.detail_glyphs[d.glyphs.0 as usize..d.glyphs.1 as usize] {
-                    out.push(GlyphInstance {
+                    open.glyphs.push(GlyphInstance {
                         index: u32::from(dg.glyph_id),
                         point: LogicalPosition {
                             x: pen_x + dg.offset_x,
@@ -1404,9 +1333,10 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                     });
                     pen_x += dg.advance;
                 }
+                open.end_x = pen_x;
             }
             None => {
-                out.push(GlyphInstance {
+                open.glyphs.push(GlyphInstance {
                     index: u32::from(c.glyph_id),
                     point: LogicalPosition {
                         x: c.x,
@@ -1414,6 +1344,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                     },
                     size: LogicalSize::default(),
                 });
+                open.end_x = c.x + c.advance;
             }
         }
     }
@@ -1498,20 +1429,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
         let (top_y, line_index) = line_iter
             .peek()
             .map_or((0.0, 0usize), |l| (l.top_y, l.source_index as usize));
-        let m = &run.font_metrics;
-        let ascent = if m.units_per_em == 0 {
-            0.0
-        } else {
-            let scale = run.style.font_size_px / f32::from(m.units_per_em);
-            let font_ascent = m.ascent * scale;
-            let font_descent = (-m.descent * scale).max(0.0);
-            let ad = font_ascent + font_descent;
-            let lh = run
-                .style
-                .line_height
-                .resolve_with_metrics(run.style.font_size_px, m);
-            font_ascent + (lh - ad) / 2.0
-        };
+        let ascent = DenseText::resolved_run_ascent(run);
         // The RUN's own solved y, not the line's: a line mixing sizes puts
         // its taller run on a different baseline (see DenseRun::y).
         let baseline_y = run.y + ascent;

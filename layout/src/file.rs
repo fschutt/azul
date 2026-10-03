@@ -9,7 +9,7 @@ use core::fmt;
 use std::path::Path;
 
 use azul_css::{
-    impl_option, impl_option_inner, impl_result, impl_result_inner, impl_vec, impl_vec_clone,
+    impl_option, impl_result, impl_vec, impl_vec_clone,
     impl_vec_debug, impl_vec_mut, impl_vec_partialeq, AzString, EmptyStruct, U8Vec,
 };
 
@@ -1304,6 +1304,205 @@ impl FilePath {
     }
 }
 
+// ============================================================================
+// Disk space
+// ============================================================================
+
+/// How big the volume that holds a path is, and how much of it a program may
+/// still write - what a file manager shows as "324 GB free of 456 GB".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(C)]
+pub struct DiskSpace {
+    /// The volume's size, in bytes.
+    pub total: u64,
+    /// The bytes this program may still write: the space available to an
+    /// unprivileged caller (statvfs `f_bavail`, `FreeBytesAvailableToCaller`),
+    /// which can be less than the volume's raw free space.
+    pub free: u64,
+}
+
+impl_option!(
+    DiskSpace,
+    OptionDiskSpace,
+    copy = false,
+    [Debug, Clone, Copy, PartialEq, Eq]
+);
+
+impl DiskSpace {
+    /// The bytes in use: `total - free`.
+    #[must_use]
+    pub const fn used(&self) -> u64 {
+        self.total.saturating_sub(self.free)
+    }
+
+    /// `bytes` as a file manager writes it: "500 B", "1.5 KB", "324 GB" -
+    /// 1024 per step, one decimal below ten, none above (Explorer's rule).
+    /// The one byte-size formatter: the Tile's capacity bar, the setup
+    /// wizard and the apps' size columns all write sizes with it.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn format_bytes(bytes: u64) -> String {
+        const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];
+        if bytes < 1024 {
+            return alloc::format!("{bytes} B");
+        }
+        let mut value = bytes as f64 / 1024.0;
+        let mut unit = 0;
+        while value >= 1024.0 && unit + 1 < UNITS.len() {
+            value /= 1024.0;
+            unit += 1;
+        }
+        if value < 10.0 {
+            alloc::format!("{value:.1} {}", UNITS[unit])
+        } else {
+            alloc::format!("{} {}", value.round() as u64, UNITS[unit])
+        }
+    }
+}
+
+/// The size and free space of the volume that holds `path` (a file or a
+/// folder), or `None` when the path does not exist or the platform cannot
+/// tell. One system call; call it from a thread for a network mount, which
+/// can take a while to answer.
+#[must_use]
+pub fn disk_space(path: &str) -> Option<DiskSpace> {
+    if path.is_empty() {
+        return None;
+    }
+    disk_space_of(path)
+}
+
+/// `statfs` on Apple platforms, `statvfs` on every other unix: Apple's
+/// `statvfs` counts blocks in 32 bits (`fsblkcnt_t` is an `unsigned int`
+/// there), which a big volume overflows; its `statfs` counts in 64.
+#[cfg(all(feature = "std", feature = "extra", unix))]
+#[allow(clippy::useless_conversion)] // the field widths differ per platform
+fn disk_space_of(path: &str) -> Option<DiskSpace> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = std::ffi::CString::new(Path::new(path).as_os_str().as_bytes()).ok()?;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        // SAFETY: `stats` is zero-initialised plain data and only read after
+        // the call reported success; `c_path` is a valid NUL-terminated path.
+        let mut stats: libc::statfs = unsafe { core::mem::zeroed() };
+        if unsafe { libc::statfs(c_path.as_ptr(), &mut stats) } != 0 {
+            return None;
+        }
+        let block = u64::from(stats.f_bsize);
+        Some(DiskSpace {
+            total: u64::from(stats.f_blocks).saturating_mul(block),
+            free: u64::from(stats.f_bavail).saturating_mul(block),
+        })
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        // SAFETY: as above.
+        let mut stats: libc::statvfs = unsafe { core::mem::zeroed() };
+        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats) } != 0 {
+            return None;
+        }
+        let block = u64::from(stats.f_frsize);
+        Some(DiskSpace {
+            total: u64::from(stats.f_blocks).saturating_mul(block),
+            free: u64::from(stats.f_bavail).saturating_mul(block),
+        })
+    }
+}
+
+/// `GetDiskFreeSpaceExW`, which takes a FOLDER: a file answers for its
+/// parent. kernel32 is linked by every Windows program, so no crate is
+/// needed for one function.
+#[cfg(all(feature = "std", windows))]
+fn disk_space_of(path: &str) -> Option<DiskSpace> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory_name: *const u16,
+            free_bytes_available_to_caller: *mut u64,
+            total_number_of_bytes: *mut u64,
+            total_number_of_free_bytes: *mut u64,
+        ) -> i32;
+    }
+
+    let path = Path::new(path);
+    let metadata = std::fs::metadata(path).ok()?;
+    let folder = if metadata.is_dir() {
+        path
+    } else {
+        path.parent()?
+    };
+    let wide: Vec<u16> = folder
+        .as_os_str()
+        .encode_wide()
+        .chain(core::iter::once(0))
+        .collect();
+    let (mut free, mut total) = (0_u64, 0_u64);
+    // SAFETY: `wide` is NUL-terminated; the two out-pointers are valid,
+    // writable u64s (ULARGE_INTEGER is a u64); the third may be null.
+    let ok =
+        unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, &mut total, core::ptr::null_mut()) };
+    (ok != 0).then_some(DiskSpace { total, free })
+}
+
+/// No way to ask on this platform (or without `std` / the `extra` feature).
+#[cfg(not(any(
+    all(feature = "std", feature = "extra", unix),
+    all(feature = "std", windows)
+)))]
+fn disk_space_of(_path: &str) -> Option<DiskSpace> {
+    None
+}
+
+/// The size and free space of the volume a NEW `path` would be created on:
+/// the volume of its nearest existing ancestor - what an installer asks
+/// about its destination ("C:\Program Files\AzOffice" does not exist yet;
+/// "C:\Program Files" answers for it). An existing path answers for itself.
+/// `None` when no ancestor exists or the platform cannot tell.
+#[must_use]
+pub fn disk_space_for_new(path: &str) -> Option<DiskSpace> {
+    if path.is_empty() {
+        return None;
+    }
+    #[cfg(feature = "std")]
+    {
+        // The path, then each ancestor in turn, until one exists.
+        let mut current = Some(Path::new(path));
+        while let Some(p) = current {
+            let s = p.to_string_lossy();
+            if !s.is_empty() {
+                if let Some(space) = disk_space(&s) {
+                    return Some(space);
+                }
+            }
+            current = p.parent();
+        }
+        None
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        disk_space(path)
+    }
+}
+
+impl FilePath {
+    /// The size and free space of the volume this path is on; `None` when the
+    /// path does not exist or the platform cannot tell. See [`disk_space`].
+    #[must_use]
+    pub fn disk_space(&self) -> Option<DiskSpace> {
+        disk_space(self.inner.as_str())
+    }
+
+    /// The size and free space of the volume this path WOULD be created on
+    /// (its nearest existing ancestor's). See [`disk_space_for_new`].
+    #[must_use]
+    pub fn disk_space_for_new(&self) -> Option<DiskSpace> {
+        disk_space_for_new(self.inner.as_str())
+    }
+}
+
 impl From<String> for FilePath {
     fn from(s: String) -> Self {
         Self {
@@ -1330,6 +1529,22 @@ impl From<AzString> for FilePath {
 mod tests {
     use super::*;
 
+    /// One decimal below ten, none above, 1024 per step - the Tile's
+    /// capacity bar, the setup wizard and the apps' size columns
+    /// (DEDUP_OFFICE D24 / A10, DEDUP_WIDGETS_API F10).
+    #[test]
+    fn bytes_read_like_a_file_manager_writes_them() {
+        const GB: u64 = 1024 * 1024 * 1024;
+        assert_eq!(DiskSpace::format_bytes(0), "0 B");
+        assert_eq!(DiskSpace::format_bytes(500), "500 B");
+        assert_eq!(DiskSpace::format_bytes(1024), "1.0 KB");
+        assert_eq!(DiskSpace::format_bytes(1536), "1.5 KB");
+        assert_eq!(DiskSpace::format_bytes(48_213), "47 KB");
+        assert_eq!(DiskSpace::format_bytes(324 * GB), "324 GB");
+        assert_eq!(DiskSpace::format_bytes(456 * GB), "456 GB");
+        assert_eq!(DiskSpace::format_bytes(GB * 1024 * 3 / 2), "1.5 TB");
+    }
+
     #[test]
     #[cfg(feature = "std")]
     fn test_temp_dir() {
@@ -1342,6 +1557,51 @@ mod tests {
     fn test_path_join() {
         let joined = path_join("/home/user", "file.txt");
         assert!(joined.as_str().contains("file.txt"));
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", any(all(unix, feature = "extra"), windows)))]
+    fn the_temp_folder_s_volume_reports_its_size_and_its_free_space() {
+        let space = disk_space(temp_dir().as_str())
+            .expect("the volume of the temp folder has a size the system can tell");
+        assert!(space.total > 0, "a volume of 0 bytes: {space:?}");
+        assert!(
+            space.free <= space.total,
+            "more free space than the volume holds: {space:?}"
+        );
+        assert_eq!(space.used(), space.total - space.free);
+        // A file on the volume answers for the volume, like its folder.
+        let file = FilePath::get_temp_dir().disk_space();
+        assert_eq!(file.map(|s| s.total), Some(space.total));
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn a_path_that_does_not_exist_has_no_disk_space() {
+        let missing = path_join(temp_dir().as_str(), "azul-fb2-no-such-folder/deeper/still");
+        assert_eq!(disk_space(missing.as_str()), None);
+        assert_eq!(disk_space(""), None);
+    }
+
+    #[test]
+    #[cfg(all(feature = "std", any(all(unix, feature = "extra"), windows)))]
+    fn a_folder_that_does_not_exist_yet_reports_the_space_of_its_nearest_existing_folder() {
+        let temp = temp_dir();
+        let missing = path_join(temp.as_str(), "azul-dialogs-no-such-folder/AzOffice/bin");
+        let here = disk_space(temp.as_str()).expect("the temp folder's volume");
+        let there = disk_space_for_new(missing.as_str())
+            .expect("an installer's destination that does not exist yet has a volume");
+        assert_eq!(there.total, here.total, "the temp folder's volume answers");
+        assert_eq!(
+            FilePath::new(missing.clone()).disk_space_for_new().map(|s| s.total),
+            Some(here.total)
+        );
+        assert_eq!(
+            disk_space_for_new(temp.as_str()).map(|s| s.total),
+            Some(here.total),
+            "an existing folder answers for itself"
+        );
+        assert_eq!(disk_space_for_new(""), None);
     }
 }
 

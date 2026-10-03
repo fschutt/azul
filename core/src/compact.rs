@@ -403,31 +403,18 @@ impl CssPropertyCache {
                 }
             }
 
-            // Line-height. Parser convention: a NEGATIVE normalized() is an
-            // ABSOLUTE pixel line-height, a positive one a unitless multiple
-            // (or percentage) of font-size. The two need different i16
-            // scales:
-            //  - positive: multiple × 1000 (120% -> 1200; range up to ~32x)
-            //  - negative: -px × 10 (line-height: 40px -> -400; ±3276.7px)
-            // The old single ×1000 scale overflowed i16 for any absolute
-            // line-height above 32.76px, stored the SENTINEL, and the getter
-            // decoded that as "line-height: normal" - `line-height: 40px`
-            // was silently dropped on every normal-state node.
+            // Line-height (`encode_line_height`): a number as its factor, a
+            // length as px - an `em` / percentage against this node's font
+            // size when the slot holds px (an inherited one arrives computed
+            // from `computed_values`), the viewport units as "read the
+            // cascade".
             if let Some(val) = self.get_line_height(nd, &node_id, &default_state) {
                 if let Some(lh) = val.get_property() {
-                    let n = lh.inner.normalized();
-                    let stored = if n < 0.0 {
-                        // Absolute px: clamp to the representable range
-                        // instead of falling to the sentinel ("normal").
-                        ((n * 10.0).round() as i32).max(-32768)
-                    } else {
-                        (n * 1000.0).round() as i32
-                    };
-                    if stored >= -32768 && stored < i32::from(I16_SENTINEL_THRESHOLD) {
-                        result.tier2b_text[i].line_height = stored as i16;
-                    } else {
-                        result.tier2b_text[i].line_height = I16_SENTINEL;
-                    }
+                    let font_size_px = decode_pixel_value_u32(result.tier2_dims[i].font_size)
+                        .filter(|pv| pv.metric == SizeMetric::Px)
+                        .map(|pv| pv.number.get());
+                    result.tier2b_text[i].line_height =
+                        encode_line_height(lh, font_size_px, DEFAULT_LINE_HEIGHT_ROOT_PX);
                 }
             }
 
@@ -715,9 +702,21 @@ impl CssPropertyCache {
             };
         }
 
+        // A node's inline declarations in cascade order (theme rank, then
+        // source order), refilled per node: Step 4 applies them in turn.
+        let mut inline_in_order = Vec::new();
+        let dyn_ctx = self.dynamic_context.as_deref();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
+        let rank = |conds: &[azul_css::dynamic_selector::DynamicSelector]| {
+            crate::prop_cache::rank_of(dyn_ctx, no_context_theme.as_ref(), conds)
+        };
+
         for i in 0..node_count {
             let node_id = NodeId::new(i);
             let nd = &node_data[i];
+            // This node's own winning `line-height`, re-encoded once its font
+            // size is resolved (below).
+            let mut own_line_height = None;
 
             // Step 0: Apply UA CSS defaults first (lowest priority).
             // Then global `*` rules override UA (higher priority).
@@ -844,6 +843,7 @@ impl CssPropertyCache {
                         &mut result.font_hash_to_families,
                     );
                     update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                    note_line_height(prop, &mut own_line_height);
                 }
             }
 
@@ -864,7 +864,7 @@ impl CssPropertyCache {
                     d.margin_right
                 );
                 let n_props = self.css_props.get_slice(i).len();
-                let n_inline = nd.style.iter_inline_properties().count();
+                let n_inline = self.inline_properties(nd, i).count();
                 cascade_debug!(
                     "node[{}] css_props={} entries, inline={} entries",
                     i,
@@ -900,6 +900,7 @@ impl CssPropertyCache {
                     &mut result.font_hash_to_families,
                 );
                 update_dom_declared_flags(&prop.property, &mut result.dom_declared_flags);
+                note_line_height(&prop.property, &mut own_line_height);
             }
 
             {
@@ -922,7 +923,17 @@ impl CssPropertyCache {
 
             // Scan inline CSS (node_data.style — typically 0-3 properties).
             // Inline CSS has highest specificity — applied last to override stylesheet.
-            for (prop, conds) in nd.style.iter_inline_properties() {
+            // In CASCADE ORDER, later overwriting earlier: a lower theme rank
+            // (`@theme(xyz:pink)` over `@theme(xyz)` over no block) applies
+            // later, source order among equals - the declaration
+            // `azul_css::css::winning_inline_in` picks on the slow path wins
+            // here - over the inline style AS RESOLVED (`var()` substituted).
+            azul_css::css::inline_in_cascade_order(
+                self.inline_properties(nd, i),
+                &rank,
+                &mut inline_in_order,
+            );
+            for &(prop, conds) in &inline_in_order {
                 // Apply when the conditions hold for the RESTING state:
                 // pseudo-state conditions must be Normal, and every other
                 // condition (viewport/@media, theme, OS...) is evaluated
@@ -957,9 +968,11 @@ impl CssPropertyCache {
                                     .inline_viewport_h
                                     .extend(h.into_iter().map(f32::to_bits));
                             }
-                            self.dynamic_context
-                                .as_deref()
-                                .is_some_and(|ctx| non_pseudo.matches(ctx))
+                            crate::prop_cache::condition_holds(
+                                self.dynamic_context.as_deref(),
+                                no_context_theme.as_ref(),
+                                non_pseudo,
+                            )
                         }
                     });
                 if !is_normal {
@@ -1000,6 +1013,7 @@ impl CssPropertyCache {
                     );
                 }
                 update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                note_line_height(prop, &mut own_line_height);
             }
 
             // Step 4b: user-overridden properties (runtime patches via
@@ -1042,6 +1056,7 @@ impl CssPropertyCache {
                         );
                     }
                     update_dom_declared_flags(prop, &mut result.dom_declared_flags);
+                    note_line_height(prop, &mut own_line_height);
                 }
             }
 
@@ -1049,6 +1064,24 @@ impl CssPropertyCache {
             // CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
             // Pre-order traversal guarantees parent's font_size is already resolved.
             resolve_font_size_to_px(&mut result.tier2_dims, i, parent_id);
+
+            // `bolder` / `lighter` compute against the parent's weight (CSS
+            // Fonts 4 s2.2): the children copy this slot in Step 1, so they
+            // inherit the number, not the keyword (which made every `<b>` and
+            // its text ask for 900, and a `<b>` in a `<b>` no bolder).
+            resolve_relative_font_weight(&mut result.tier1_enums, i, parent_id);
+
+            // A `line-height` in `em` / `%` computes to a length against THIS
+            // node's font size, resolved just above (`rem` against the
+            // root's): the children copy this slot in Step 1, so they inherit
+            // the length, not the factor (CSS 2.2 s10.8.1).
+            if let Some(lh) = own_line_height {
+                result.tier2b_text[i].line_height = encode_line_height(
+                    &lh,
+                    Some(compact_font_size_px(&result.tier2_dims[i])),
+                    compact_font_size_px(&result.tier2_dims[0]),
+                );
+            }
 
             // Set populated bit
             if result.tier1_enums[i] != 0 {
@@ -1148,6 +1181,29 @@ fn apply_ua_css_to_compact(
 /// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
 /// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
 /// Pre-order traversal guarantees parent's `font_size` is already resolved.
+/// Node `node_idx`'s tier-1 `font-weight` slot holding `bolder` / `lighter`
+/// becomes the weight it computes to against its parent's slot
+/// (`StyleFontWeight::computed`). A slot copied from the parent is already a
+/// number (the parent was computed first: pre-order arena), so a keyword here
+/// is always the node's OWN declaration.
+fn resolve_relative_font_weight(tier1: &mut [u64], node_idx: usize, parent_id: Option<NodeId>) {
+    let own = decode_font_weight(tier1[node_idx]);
+    if !own.is_relative() {
+        return;
+    }
+    let parent = parent_id
+        .map(|pid| pid.index())
+        .filter(|&pi| pi < node_idx)
+        .map_or(
+            azul_css::props::basic::font::StyleFontWeight::Normal,
+            |pi| decode_font_weight(tier1[pi]),
+        );
+    let encoded = u64::from(style_font_weight_to_u8(own.computed(parent)));
+    let mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
+    tier1[node_idx] =
+        (tier1[node_idx] & !mask) | ((encoded & FONT_WEIGHT_MASK) << FONT_WEIGHT_SHIFT);
+}
+
 fn resolve_font_size_to_px(
     tier2_dims: &mut [CompactNodeProps],
     node_idx: usize,
@@ -1209,6 +1265,69 @@ fn resolve_font_size_to_px(
     };
     tier2_dims[node_idx].font_size =
         encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
+}
+
+/// The font size `rem` and an unknown font size fall back to: the CSS
+/// initial `medium`, 16px.
+const DEFAULT_LINE_HEIGHT_ROOT_PX: f32 = 16.0;
+
+/// Encode a `line-height` into its compact slot ([`decode_line_height`]).
+///
+/// `font_size_px` is the font size of the node that DECLARES the value: with
+/// it, an `em` or a percentage is computed to the px length its descendants
+/// inherit (CSS 2.2 s10.8.1 - they copy the slot); without it (`None`, a
+/// caller that does not know it yet) it is stored as its factor. A number is
+/// stored as the number (inherited as such), `rem` against
+/// `root_font_size_px`, and the viewport units - unknown here - as
+/// `I16_AUTO`: read the cascade.
+fn encode_line_height(
+    lh: &azul_css::props::style::text::StyleLineHeight,
+    font_size_px: Option<f32>,
+    root_font_size_px: f32,
+) -> i16 {
+    use azul_css::props::style::text::StyleLineHeight;
+    match lh {
+        StyleLineHeight::Normal => I16_SENTINEL,
+        StyleLineHeight::Number(n) => encode_line_height_factor(n.get()),
+        StyleLineHeight::Percentage(p) => match font_size_px {
+            Some(fs) => encode_line_height_px(p.normalized() * fs),
+            None => encode_line_height_factor(p.normalized()),
+        },
+        StyleLineHeight::Length(l) => match l.metric {
+            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => I16_AUTO,
+            SizeMetric::Em => match font_size_px {
+                Some(fs) => encode_line_height_px(l.number.get() * fs),
+                None => encode_line_height_factor(l.number.get()),
+            },
+            SizeMetric::Percent => match font_size_px {
+                Some(fs) => encode_line_height_px(l.number.get() / 100.0 * fs),
+                None => encode_line_height_factor(l.number.get() / 100.0),
+            },
+            _ => encode_line_height_px(l.to_pixels_internal(0.0, 0.0, root_font_size_px)),
+        },
+    }
+}
+
+/// The resolved px font size in a node's compact `font_size` slot, the CSS
+/// initial 16px when it holds none.
+fn compact_font_size_px(dims: &CompactNodeProps) -> f32 {
+    decode_pixel_value_u32(dims.font_size)
+        .filter(|pv| pv.metric == SizeMetric::Px)
+        .map_or(DEFAULT_LINE_HEIGHT_ROOT_PX, |pv| pv.number.get())
+}
+
+/// Track a node's own winning `line-height` declaration while the builder
+/// applies its properties in cascade order: the last one with a value wins,
+/// as in [`apply_css_property_to_compact`].
+fn note_line_height(
+    prop: &CssProperty,
+    own: &mut Option<azul_css::props::style::text::StyleLineHeight>,
+) {
+    if let CssProperty::LineHeight(v) = prop {
+        if let Some(lh) = v.get_property() {
+            *own = Some(*lh);
+        }
+    }
 }
 
 /// Does this property's value use a viewport-relative unit (vw/vh/vmin/vmax)?
@@ -1279,6 +1398,11 @@ fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
         CssProperty::WordSpacing(v) => inner(v),
         CssProperty::TextIndent(v) => inner(v),
         CssProperty::TabSize(v) => inner(v),
+        CssProperty::LineHeight(v) => matches!(
+            v,
+            CssPropertyValue::Exact(azul_css::props::style::text::StyleLineHeight::Length(p))
+                if pv(p)
+        ),
         _ => false,
     }
 }
@@ -1711,23 +1835,11 @@ fn apply_css_property_to_compact(
         }
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
-                // Split scale by SIGN (see the builder's line-height pre-pass
-                // and compact_cache.rs field doc): negative normalized =
-                // absolute px, stored as -px x 10; positive = multiple,
-                // stored x 1000. A single x1000 scale overflowed i16 for any
-                // absolute line-height above 32.76px and silently became
-                // "normal" via the sentinel.
-                let n = lh.inner.normalized();
-                let stored = if n < 0.0 {
-                    ((n * 10.0).round() as i32).max(-32768)
-                } else {
-                    (n * 1000.0).round() as i32
-                };
-                if stored >= -32768 && stored < i32::from(I16_SENTINEL_THRESHOLD) {
-                    text.line_height = stored as i16;
-                } else {
-                    text.line_height = I16_SENTINEL;
-                }
+                // No font size is known here: an `em` / percentage is stored
+                // as its factor for now, and the inheritance builder
+                // re-encodes the node's own declaration once its font size
+                // is resolved (`encode_line_height`).
+                text.line_height = encode_line_height(lh, None, DEFAULT_LINE_HEIGHT_ROOT_PX);
             }
         }
         CssProperty::LetterSpacing(v) => {

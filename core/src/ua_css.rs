@@ -37,9 +37,13 @@ use azul_css::{
         ThemeCondition,
     },
     props::{
-        basic::{font::StyleFontWeight, pixel::PixelValue, ColorU, StyleFontSize},
+        basic::{
+            font::{StyleFontFamily, StyleFontFamilyVec, StyleFontStyle, StyleFontWeight},
+            pixel::PixelValue,
+            ColorU, StyleFontSize,
+        },
         layout::{
-            dimensions::{LayoutHeight, LayoutWidth},
+            dimensions::LayoutHeight,
             display::LayoutDisplay,
             fragmentation::{BreakInside, PageBreak},
             spacing::{
@@ -50,6 +54,7 @@ use azul_css::{
         },
         property::{CssProperty, CssPropertyType},
         style::{
+            background::{StyleBackgroundContent, StyleBackgroundContentVec},
             border::{
                 BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
                 LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
@@ -64,13 +69,14 @@ use azul_css::{
                 LayoutScrollbarWidth, ScrollbarColorCustom, ScrollbarFadeDelay,
                 ScrollbarFadeDuration, ScrollbarVisibilityMode, StyleScrollbarColor,
             },
-            text::StyleTextDecoration,
+            text::{StyleTextColor, StyleTextDecoration},
             StyleTextAlign, StyleVerticalAlign,
         },
     },
+    AzString,
 };
 
-use crate::dom::{NodeData, NodeType};
+use crate::dom::{AttributeType, NodeData, NodeType};
 
 /// `white-space: pre` — the `<pre>` default (HTML rendering §15.3.3).
 static WHITE_SPACE_PRE: CssProperty = CssProperty::WhiteSpace(CssPropertyValue::Exact(
@@ -87,11 +93,6 @@ static WHITE_SPACE_PRE_WRAP: CssProperty = CssProperty::WhiteSpace(CssPropertyVa
 static OVERFLOW_WRAP_BREAK_WORD: CssProperty = CssProperty::OverflowWrap(
     CssPropertyValue::Exact(azul_css::props::style::StyleOverflowWrap::BreakWord),
 );
-
-/// 100% width
-static WIDTH_100_PERCENT: CssProperty = CssProperty::Width(CssPropertyValue::Exact(
-    LayoutWidth::Px(PixelValue::const_percent(100)),
-));
 
 /// 100% height
 static HEIGHT_100_PERCENT: CssProperty = CssProperty::Height(CssPropertyValue::Exact(
@@ -377,6 +378,47 @@ static TEXT_ALIGN_CENTER: CssProperty =
 static VERTICAL_ALIGN_MIDDLE: CssProperty =
     CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Middle));
 
+// HTML rendering 15.3.8: `table { box-sizing: border-box; border-spacing:
+// 2px; border-color: gray }` - a `<table width="600" border="1">` is 600px
+// wide outside, and the cells of an unstyled table sit 2px apart.
+
+/// box-sizing: border-box (for table)
+static BOX_SIZING_BORDER_BOX: CssProperty = CssProperty::BoxSizing(CssPropertyValue::Exact(
+    azul_css::props::layout::dimensions::LayoutBoxSizing::BorderBox,
+));
+
+/// border-spacing: 2px (for table)
+static BORDER_SPACING_2PX: CssProperty = CssProperty::BorderSpacing(CssPropertyValue::Exact(
+    azul_css::props::layout::table::LayoutBorderSpacing {
+        horizontal: PixelValue::const_px(2),
+        vertical: PixelValue::const_px(2),
+    },
+));
+
+/// The table's border colour: gray (a `<table border>`'s outset frame).
+const TABLE_BORDER_GRAY: ColorU = ColorU {
+    r: 128,
+    g: 128,
+    b: 128,
+    a: 255,
+};
+static TABLE_BORDER_TOP_COLOR: CssProperty =
+    CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+static TABLE_BORDER_RIGHT_COLOR: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+static TABLE_BORDER_BOTTOM_COLOR: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+static TABLE_BORDER_LEFT_COLOR: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: TABLE_BORDER_GRAY,
+    }));
+
 /// list-style-type: disc (default for <ul>)
 static LIST_STYLE_TYPE_DISC: CssProperty =
     CssProperty::ListStyleType(CssPropertyValue::Exact(StyleListStyleType::Disc));
@@ -386,7 +428,14 @@ static LIST_STYLE_TYPE_DECIMAL: CssProperty =
     CssProperty::ListStyleType(CssPropertyValue::Exact(StyleListStyleType::Decimal));
 
 // --- HR Element Defaults ---
-// Per HTML spec, <hr> renders as a horizontal line with inset border style
+// HTML Living Standard 15.3.11 "The hr element" (Chrome draws exactly this):
+//   hr { color: gray; border-style: inset; border-width: 1px;
+//        margin-block: 0.5em; margin-inline: auto; overflow: hidden; }
+// A 2px rule - the top and the bottom border around no content - as wide as
+// its block (`width` auto), centred when an author narrows it. `overflow:
+// hidden` is left out: the box is empty, and a clip would give every rule a
+// clip of its own. (It was the top border alone at `width: 100%`: 1px short
+// of Chrome, and a rule with a side margin overflowed its block by it.)
 
 /// margin-top: 0.5em (for hr)
 static MARGIN_TOP_0_5EM: CssProperty =
@@ -400,40 +449,82 @@ static MARGIN_BOTTOM_0_5EM: CssProperty =
         inner: PixelValue::const_em_fractional(0, 5),
     }));
 
-/// border-top-style: inset (for hr - default browser style)
+/// margin-left: auto (for hr - `margin-inline: auto`)
+static MARGIN_LEFT_AUTO: CssProperty = CssProperty::MarginLeft(CssPropertyValue::Auto);
+
+/// margin-right: auto (for hr - `margin-inline: auto`)
+static MARGIN_RIGHT_AUTO: CssProperty = CssProperty::MarginRight(CssPropertyValue::Auto);
+
+/// border-*-style: inset (for hr)
 static BORDER_TOP_STYLE_INSET: CssProperty =
     CssProperty::BorderTopStyle(CssPropertyValue::Exact(StyleBorderTopStyle {
         inner: BorderStyle::Inset,
     }));
-
-/// border-top-width: 1px (for hr)
-static BORDER_TOP_WIDTH_1PX: CssProperty =
-    CssProperty::BorderTopWidth(CssPropertyValue::Exact(LayoutBorderTopWidth {
-        inner: PixelValue::const_px(1),
+static BORDER_BOTTOM_STYLE_INSET: CssProperty =
+    CssProperty::BorderBottomStyle(CssPropertyValue::Exact(StyleBorderBottomStyle {
+        inner: BorderStyle::Inset,
+    }));
+static BORDER_LEFT_STYLE_INSET: CssProperty =
+    CssProperty::BorderLeftStyle(CssPropertyValue::Exact(StyleBorderLeftStyle {
+        inner: BorderStyle::Inset,
+    }));
+static BORDER_RIGHT_STYLE_INSET: CssProperty =
+    CssProperty::BorderRightStyle(CssPropertyValue::Exact(StyleBorderRightStyle {
+        inner: BorderStyle::Inset,
     }));
 
-/// border-top-color: gray (for hr - default visible color)
+/// The hr's `color: gray` - its borders' colour (`currentcolor`).
+const HR_GRAY: ColorU = ColorU {
+    r: 128,
+    g: 128,
+    b: 128,
+    a: 255,
+};
+
+/// The hr's colour on a DARK window: a subtle divider, like the platforms'
+/// own separators on dark (#5a5a5a), where the light rule's mid grey would
+/// read as a bright bar.
+const HR_GRAY_DARK: ColorU = ColorU {
+    r: 90,
+    g: 90,
+    b: 90,
+    a: 255,
+};
+
+/// border-*-color: gray (for hr)
 static BORDER_TOP_COLOR_GRAY: CssProperty =
     CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
-        inner: ColorU {
-            r: 128,
-            g: 128,
-            b: 128,
-            a: 255,
-        },
+        inner: HR_GRAY,
+    }));
+static BORDER_BOTTOM_COLOR_GRAY: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: HR_GRAY,
+    }));
+static BORDER_LEFT_COLOR_GRAY: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: HR_GRAY,
+    }));
+static BORDER_RIGHT_COLOR_GRAY: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: HR_GRAY,
     }));
 
-/// border-top-color for hr on a DARK window: a subtle divider, like the
-/// platforms' own separators on dark (#5a5a5a), where the light rule's mid
-/// grey would read as a bright bar.
+/// border-*-color for hr on a DARK window (`HR_GRAY_DARK`)
 static BORDER_TOP_COLOR_GRAY_DARK: CssProperty =
     CssProperty::BorderTopColor(CssPropertyValue::Exact(StyleBorderTopColor {
-        inner: ColorU {
-            r: 90,
-            g: 90,
-            b: 90,
-            a: 255,
-        },
+        inner: HR_GRAY_DARK,
+    }));
+static BORDER_BOTTOM_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderBottomColor(CssPropertyValue::Exact(StyleBorderBottomColor {
+        inner: HR_GRAY_DARK,
+    }));
+static BORDER_LEFT_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderLeftColor(CssPropertyValue::Exact(StyleBorderLeftColor {
+        inner: HR_GRAY_DARK,
+    }));
+static BORDER_RIGHT_COLOR_GRAY_DARK: CssProperty =
+    CssProperty::BorderRightColor(CssPropertyValue::Exact(StyleBorderRightColor {
+        inner: HR_GRAY_DARK,
     }));
 /// height: 0 (for hr - the line comes from the border, not height)
 static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(
@@ -479,6 +570,110 @@ static PADDING_INLINE_START_40PX: CssProperty =
 /// Text decoration: underline - used for <a> and <u> elements
 static TEXT_DECORATION_UNDERLINE: CssProperty =
     CssProperty::TextDecoration(CssPropertyValue::Exact(StyleTextDecoration::Underline));
+
+// --- Phrasing and flow content (HTML Living Standard, rendering 15.3.3 / 15.3.4) ---
+//
+// What mail HTML leans on: `<em>` is italic, `<s>` struck through, `<code>`
+// monospace, a `<blockquote>` indented, a link blue. The XML loaders read the
+// legacy `<strike>` as `s` and `<tt>` as `code` (`tag_to_node_type`).
+
+/// `address, cite, dfn, em, i, var { font-style: italic }`
+static FONT_STYLE_ITALIC: CssProperty =
+    CssProperty::FontStyle(CssPropertyValue::Exact(StyleFontStyle::Italic));
+
+/// `del, s, strike { text-decoration: line-through }`
+static TEXT_DECORATION_LINE_THROUGH: CssProperty =
+    CssProperty::TextDecoration(CssPropertyValue::Exact(StyleTextDecoration::LineThrough));
+
+/// The generic `monospace` family, resolved like an author's `font-family: monospace`.
+const MONOSPACE_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(
+    AzString::from_const_str("monospace"),
+)];
+
+/// `code, kbd, pre, samp, tt { font-family: monospace }`
+static FONT_FAMILY_MONOSPACE: CssProperty = CssProperty::FontFamily(CssPropertyValue::Exact(
+    StyleFontFamilyVec::from_const_slice(MONOSPACE_FAMILIES),
+));
+
+/// `blockquote, figure { margin-inline: 40px }`, `dd { margin-inline-start: 40px }`
+/// (the left edge in LTR, as `PADDING_INLINE_START_40PX` does for lists).
+static MARGIN_LEFT_40PX: CssProperty =
+    CssProperty::MarginLeft(CssPropertyValue::Exact(LayoutMarginLeft {
+        inner: PixelValue::const_px(40),
+    }));
+
+/// `blockquote, figure { margin-inline: 40px }` (the right edge).
+static MARGIN_RIGHT_40PX: CssProperty =
+    CssProperty::MarginRight(CssPropertyValue::Exact(LayoutMarginRight {
+        inner: PixelValue::const_px(40),
+    }));
+
+/// `small, sub, sup { font-size: smaller }`. CSS Fonts leaves the ratio to
+/// the UA; 0.83em is the step the heading table uses (`h5`) and the browsers'
+/// 1/1.2.
+static FONT_SIZE_SMALLER: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+        inner: PixelValue::const_em_fractional(0, 83),
+    }));
+
+/// `big { font-size: larger }`: 1.2em, the inverse step.
+static FONT_SIZE_LARGER: CssProperty =
+    CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+        inner: PixelValue::const_em_fractional(1, 2),
+    }));
+
+/// `sub { vertical-align: sub }`
+static VERTICAL_ALIGN_SUB: CssProperty =
+    CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Sub));
+
+/// `sup { vertical-align: super }`
+static VERTICAL_ALIGN_SUPER: CssProperty =
+    CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Superscript));
+
+/// `mark { background: yellow }`
+const MARK_BACKGROUND_LAYERS: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::Color(ColorU {
+        r: 255,
+        g: 255,
+        b: 0,
+        a: 255,
+    })];
+static MARK_BACKGROUND: CssProperty = CssProperty::BackgroundContent(CssPropertyValue::Exact(
+    StyleBackgroundContentVec::from_const_slice(MARK_BACKGROUND_LAYERS),
+));
+
+/// `mark { color: black }` - in either mode: the highlight stays yellow.
+static MARK_TEXT_COLOR: CssProperty =
+    CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+        inner: ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+    }));
+
+/// `:link { color: #0000EE }` - a link (`<a href>`, see [`is_link`]).
+static LINK_COLOR: CssProperty = CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+    inner: ColorU {
+        r: 0x00,
+        g: 0x00,
+        b: 0xee,
+        a: 255,
+    },
+}));
+
+/// The link colour in the DARK mode: #9E9EFF, the browsers' dark
+/// `LinkText` - #0000EE is unreadable on a dark background.
+static LINK_COLOR_DARK: CssProperty =
+    CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+        inner: ColorU {
+            r: 0x9e,
+            g: 0x9e,
+            b: 0xff,
+            a: 255,
+        },
+    }));
 
 // --- Button Element Defaults ---
 // Per browser UA CSS, <button> has padding, border, and a system font size.
@@ -580,19 +775,21 @@ static BUTTON_BORDER_RIGHT_STYLE: CssProperty =
         inner: BorderStyle::Solid,
     }));
 
-static BUTTON_BORDER_TOP_WIDTH: CssProperty =
+/// border-*-width: 1px - the button's border and the hr's rule (one static
+/// per side; the hr's top and the button's four were twins).
+static BORDER_TOP_WIDTH_1PX: CssProperty =
     CssProperty::BorderTopWidth(CssPropertyValue::Exact(LayoutBorderTopWidth {
         inner: PixelValue::const_px(1),
     }));
-static BUTTON_BORDER_BOTTOM_WIDTH: CssProperty =
+static BORDER_BOTTOM_WIDTH_1PX: CssProperty =
     CssProperty::BorderBottomWidth(CssPropertyValue::Exact(LayoutBorderBottomWidth {
         inner: PixelValue::const_px(1),
     }));
-static BUTTON_BORDER_LEFT_WIDTH: CssProperty =
+static BORDER_LEFT_WIDTH_1PX: CssProperty =
     CssProperty::BorderLeftWidth(CssPropertyValue::Exact(LayoutBorderLeftWidth {
         inner: PixelValue::const_px(1),
     }));
-static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
+static BORDER_RIGHT_WIDTH_1PX: CssProperty =
     CssProperty::BorderRightWidth(CssPropertyValue::Exact(LayoutBorderRightWidth {
         inner: PixelValue::const_px(1),
     }));
@@ -728,45 +925,95 @@ pub fn get_ua_property(
         (NT::Ol, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Li, PT::Display) => Some(&DISPLAY_LIST_ITEM),
         (NT::Dl, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dl, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Dl, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Dt, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dd, PT::Display) => Some(&DISPLAY_BLOCK),
+        // `dd { margin-inline-start: 40px }` (the left edge in LTR).
+        (NT::Dd, PT::MarginLeft) => Some(&MARGIN_LEFT_40PX),
 
         // Inline Elements
         (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::A, PT::Display) => Some(&DISPLAY_INLINE),
-        (NT::A, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        // No underline here: only a LINK (`<a href>`) is underlined, see
+        // `get_ua_link_property`.
         (NT::Strong, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Strong, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
         (NT::Em, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Em, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::B, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::B, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
         (NT::I, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::I, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::U, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::U, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        // `del, s, strike { text-decoration: line-through }` (`<strike>` is
+        // read as `s`).
+        (NT::S, PT::TextDecoration) => Some(&TEXT_DECORATION_LINE_THROUGH),
         (NT::Small, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Small, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
+        (NT::Big, PT::FontSize) => Some(&FONT_SIZE_LARGER),
+        // `code, kbd, pre, samp, tt { font-family: monospace }` (`<tt>` is
+        // read as `code`).
         (NT::Code, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Code, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
         (NT::Kbd, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Kbd, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
         (NT::Samp, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Samp, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
         (NT::Sub, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Sub, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_SUB),
+        (NT::Sub, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
         (NT::Sup, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Sup, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_SUPER),
+        (NT::Sup, PT::FontSize) => Some(&FONT_SIZE_SMALLER),
 
         // Text Content
+        // `pre { margin-block: 1em; font-family: monospace; white-space: pre }`
         (NT::Pre, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Pre, PT::WhiteSpace) => Some(&WHITE_SPACE_PRE),
+        (NT::Pre, PT::FontFamily) => Some(&FONT_FAMILY_MONOSPACE),
+        (NT::Pre, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Pre, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        // `blockquote, figure { margin-block: 1em; margin-inline: 40px }`
         (NT::BlockQuote, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::BlockQuote, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::BlockQuote, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        (NT::BlockQuote, PT::MarginLeft) => Some(&MARGIN_LEFT_40PX),
+        (NT::BlockQuote, PT::MarginRight) => Some(&MARGIN_RIGHT_40PX),
+        // `address { display: block; font-style: italic }`
+        (NT::Address, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Address, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
+        // HTML 15.3.11: a 1px inset gray border on all four sides, width auto.
         (NT::Hr, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Hr, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::Hr, PT::Height) => Some(&HEIGHT_ZERO),
         (NT::Hr, PT::MarginTop) => Some(&MARGIN_TOP_0_5EM),
         (NT::Hr, PT::MarginBottom) => Some(&MARGIN_BOTTOM_0_5EM),
+        (NT::Hr, PT::MarginLeft) => Some(&MARGIN_LEFT_AUTO),
+        (NT::Hr, PT::MarginRight) => Some(&MARGIN_RIGHT_AUTO),
         (NT::Hr, PT::BorderTopStyle) => Some(&BORDER_TOP_STYLE_INSET),
+        (NT::Hr, PT::BorderBottomStyle) => Some(&BORDER_BOTTOM_STYLE_INSET),
+        (NT::Hr, PT::BorderLeftStyle) => Some(&BORDER_LEFT_STYLE_INSET),
+        (NT::Hr, PT::BorderRightStyle) => Some(&BORDER_RIGHT_STYLE_INSET),
         (NT::Hr, PT::BorderTopWidth) => Some(&BORDER_TOP_WIDTH_1PX),
+        (NT::Hr, PT::BorderBottomWidth) => Some(&BORDER_BOTTOM_WIDTH_1PX),
+        (NT::Hr, PT::BorderLeftWidth) => Some(&BORDER_LEFT_WIDTH_1PX),
+        (NT::Hr, PT::BorderRightWidth) => Some(&BORDER_RIGHT_WIDTH_1PX),
         (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY),
+        (NT::Hr, PT::BorderBottomColor) => Some(&BORDER_BOTTOM_COLOR_GRAY),
+        (NT::Hr, PT::BorderLeftColor) => Some(&BORDER_LEFT_COLOR_GRAY),
+        (NT::Hr, PT::BorderRightColor) => Some(&BORDER_RIGHT_COLOR_GRAY),
 
         // Table Elements
         // Per CSS Fragmentation Level 3: table ROWS should avoid breaks inside
         // Tables themselves should NOT have break-inside: avoid (they can span pages)
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
+        (NT::Table, PT::BoxSizing) => Some(&BOX_SIZING_BORDER_BOX),
+        (NT::Table, PT::BorderSpacing) => Some(&BORDER_SPACING_2PX),
+        (NT::Table, PT::BorderTopColor) => Some(&TABLE_BORDER_TOP_COLOR),
+        (NT::Table, PT::BorderRightColor) => Some(&TABLE_BORDER_RIGHT_COLOR),
+        (NT::Table, PT::BorderBottomColor) => Some(&TABLE_BORDER_BOTTOM_COLOR),
+        (NT::Table, PT::BorderLeftColor) => Some(&TABLE_BORDER_LEFT_COLOR),
         // NOTE: Removed break-inside: avoid from Table - tables CAN break across pages
         (NT::PageBreak, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::PageBreak, PT::BreakBefore) => Some(&BREAK_BEFORE_PAGE),
@@ -807,10 +1054,10 @@ pub fn get_ua_property(
         (NT::Button, PT::PaddingBottom) => Some(&PADDING_BOTTOM_5PX),
         (NT::Button, PT::PaddingLeft) => Some(&PADDING_LEFT_10PX),
         (NT::Button, PT::PaddingRight) => Some(&PADDING_RIGHT_10PX),
-        (NT::Button, PT::BorderTopWidth) => Some(&BUTTON_BORDER_TOP_WIDTH),
-        (NT::Button, PT::BorderBottomWidth) => Some(&BUTTON_BORDER_BOTTOM_WIDTH),
-        (NT::Button, PT::BorderLeftWidth) => Some(&BUTTON_BORDER_LEFT_WIDTH),
-        (NT::Button, PT::BorderRightWidth) => Some(&BUTTON_BORDER_RIGHT_WIDTH),
+        (NT::Button, PT::BorderTopWidth) => Some(&BORDER_TOP_WIDTH_1PX),
+        (NT::Button, PT::BorderBottomWidth) => Some(&BORDER_BOTTOM_WIDTH_1PX),
+        (NT::Button, PT::BorderLeftWidth) => Some(&BORDER_LEFT_WIDTH_1PX),
+        (NT::Button, PT::BorderRightWidth) => Some(&BORDER_RIGHT_WIDTH_1PX),
         (NT::Button, PT::BorderTopStyle) => Some(&BUTTON_BORDER_TOP_STYLE),
         (NT::Button, PT::BorderBottomStyle) => Some(&BUTTON_BORDER_BOTTOM_STYLE),
         (NT::Button, PT::BorderLeftStyle) => Some(&BUTTON_BORDER_LEFT_STYLE),
@@ -870,8 +1117,14 @@ pub fn get_ua_property(
             | NT::SvgUse,
             PT::Display,
         ) => Some(&DISPLAY_BLOCK),
-        // `<defs>` and friends define, they do not draw.
-        (NT::SvgDefs | NT::SvgSymbol | NT::SvgClipPathElement, PT::Display) => Some(&DISPLAY_NONE),
+        // `<defs>` and friends define, they do not draw. `<desc>` DESCRIBES
+        // the drawing - an icon theme's file carries one, and it was rendered
+        // as prose beside the glyph, the same defect as the `<metadata>`
+        // block the XML builder now drops.
+        (
+            NT::SvgDefs | NT::SvgSymbol | NT::SvgClipPathElement | NT::SvgDesc,
+            PT::Display,
+        ) => Some(&DISPLAY_NONE),
         // An `<svg>` is a REPLACED element, like `<img>` above - inline-level,
         // but with a box of its own. `inline` is what it used to be, and an
         // inline box has no width or height, so the intrinsic size the parser
@@ -900,12 +1153,20 @@ pub fn get_ua_property(
         // Other Inline Elements
         (NT::Abbr, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Cite, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Cite, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::Del, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Del, PT::TextDecoration) => Some(&TEXT_DECORATION_LINE_THROUGH),
         (NT::Ins, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Ins, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        // `mark { background: yellow; color: black }`
         (NT::Mark, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Mark, PT::BackgroundContent) => Some(&MARK_BACKGROUND),
+        (NT::Mark, PT::TextColor) => Some(&MARK_TEXT_COLOR),
         (NT::Q, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Dfn, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Dfn, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::Var, PT::Display) => Some(&DISPLAY_INLINE),
+        (NT::Var, PT::FontStyle) => Some(&FONT_STYLE_ITALIC),
         (NT::Time, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Data, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Wbr, PT::Display) => Some(&DISPLAY_INLINE),
@@ -921,20 +1182,32 @@ pub fn get_ua_property(
         (NT::FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Figure, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Figure, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
+        (NT::Figure, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Figure, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
+        (NT::Figure, PT::MarginLeft) => Some(&MARGIN_LEFT_40PX),
+        (NT::Figure, PT::MarginRight) => Some(&MARGIN_RIGHT_40PX),
         (NT::FigCaption, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::FigCaption, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Details, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Summary, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dialog, PT::Display) => Some(&DISPLAY_BLOCK),
 
-        // Table Caption
+        // Table Caption: `caption { text-align: center }`
         (NT::Caption, PT::Display) => Some(&DISPLAY_TABLE_CAPTION),
+        (NT::Caption, PT::TextAlign) => Some(&TEXT_ALIGN_CENTER),
         (NT::ColGroup, PT::Display) => Some(&DISPLAY_TABLE_COLUMN_GROUP),
         (NT::Col, PT::Display) => Some(&DISPLAY_TABLE_COLUMN),
 
-        // Legacy/Deprecated Elements
+        // Legacy/Deprecated Elements: `dir, menu` are lists
+        // (`margin-block: 1em; padding-inline-start: 40px`).
         (NT::Menu, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Menu, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
+        (NT::Menu, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Menu, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Dir, PT::PaddingLeft) => Some(&PADDING_INLINE_START_40PX),
+        (NT::Dir, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
+        (NT::Dir, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
 
         // Html (root) Element
         //
@@ -1006,6 +1279,8 @@ pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     CssPropertyType::Direction,
     CssPropertyType::VerticalAlign,
     CssPropertyType::BorderCollapse,
+    // `table { border-spacing: 2px }`.
+    CssPropertyType::BorderSpacing,
     // Tier2 dimension properties
     CssPropertyType::Width,
     CssPropertyType::Height,
@@ -1037,6 +1312,8 @@ pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     CssPropertyType::BreakBefore,
     // Text properties
     CssPropertyType::TextColor,
+    // `mark { background: yellow }`.
+    CssPropertyType::BackgroundContent,
     CssPropertyType::LineHeight,
     CssPropertyType::LetterSpacing,
     CssPropertyType::WordSpacing,
@@ -1102,6 +1379,13 @@ pub fn get_ua_default(
 ) -> Option<&'static CssProperty> {
     get_ua_property_themed(&node.node_type, property_type, ctx)
         .or_else(|| {
+            if is_link(node) {
+                get_ua_link_property(property_type, ctx)
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
             if node.is_contenteditable() {
                 get_ua_editing_host_property(property_type)
             } else {
@@ -1115,6 +1399,39 @@ pub fn get_ua_default(
                 None
             }
         })
+}
+
+/// Is `node` a LINK - the `:link` of the UA sheet: an `<a>` with an `href`
+/// (HTML 4.8.1: without one it is a placeholder, not a hyperlink).
+#[must_use]
+pub fn is_link(node: &NodeData) -> bool {
+    matches!(node.node_type, NodeType::A)
+        && node
+            .attributes()
+            .as_ref()
+            .iter()
+            .any(|a| matches!(a, AttributeType::Href(_)))
+}
+
+/// UA defaults of a LINK ([`is_link`]): `:link { color: #0000EE; cursor:
+/// pointer; text-decoration: underline }` (HTML rendering 15.3.4), the colour
+/// themed - #9E9EFF in the dark mode, where #0000EE cannot be read. An `<a>`
+/// without an `href` is a placeholder and gets none of them (the mail
+/// sanitizer drops the hrefs it cannot follow, and Chrome shows those
+/// anchors plain).
+#[must_use]
+pub fn get_ua_link_property(
+    property_type: CssPropertyType,
+    ctx: Option<&DynamicSelectorContext>,
+) -> Option<&'static CssProperty> {
+    let dark = ctx.is_some_and(|c| c.mode == azul_css::system::DarkLightMode::Dark);
+    match property_type {
+        CssPropertyType::TextColor if dark => Some(&LINK_COLOR_DARK),
+        CssPropertyType::TextColor => Some(&LINK_COLOR),
+        CssPropertyType::Cursor => Some(&CURSOR_POINTER),
+        CssPropertyType::TextDecoration => Some(&TEXT_DECORATION_UNDERLINE),
+        _ => None,
+    }
 }
 
 /// UA defaults of an EDITING HOST (a `contenteditable` node), inherited by
@@ -1174,10 +1491,13 @@ pub fn get_ua_property_themed(
 
     use crate::dom::NodeType as NT;
 
-    let dark = ctx.is_some_and(|c| c.theme == ThemeCondition::Dark);
+    let dark = ctx.is_some_and(|c| c.mode == azul_css::system::DarkLightMode::Dark);
     if dark {
         let twin = match (node_type, property_type) {
             (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY_DARK),
+            (NT::Hr, PT::BorderBottomColor) => Some(&BORDER_BOTTOM_COLOR_GRAY_DARK),
+            (NT::Hr, PT::BorderLeftColor) => Some(&BORDER_LEFT_COLOR_GRAY_DARK),
+            (NT::Hr, PT::BorderRightColor) => Some(&BORDER_RIGHT_COLOR_GRAY_DARK),
             (NT::Button, PT::BorderTopColor) => Some(&BUTTON_BORDER_TOP_COLOR_DARK),
             (NT::Button, PT::BorderBottomColor) => Some(&BUTTON_BORDER_BOTTOM_COLOR_DARK),
             (NT::Button, PT::BorderLeftColor) => Some(&BUTTON_BORDER_LEFT_COLOR_DARK),
@@ -1352,7 +1672,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::MacOS),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // macOS light: dark grey thumb on light semi-transparent track
@@ -1373,7 +1693,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::MacOS),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // Windows dark
@@ -1394,7 +1714,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Windows),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // Windows light
@@ -1415,7 +1735,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Windows),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // iOS dark
@@ -1431,7 +1751,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::IOS),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // iOS light
@@ -1447,7 +1767,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::IOS),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // Android dark
@@ -1463,7 +1783,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Android),
-            DynamicSelector::Theme(ThemeCondition::Dark),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark),
         ],
     ),
     // Android light
@@ -1479,7 +1799,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         ),
         &[
             DynamicSelector::Os(OsCondition::Android),
-            DynamicSelector::Theme(ThemeCondition::Light),
+            DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Light),
         ],
     ),
     // Linux / unknown dark fallback
@@ -1498,7 +1818,7 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
                 a: 255,
             },
         ),
-        &[DynamicSelector::Theme(ThemeCondition::Dark)],
+        &[DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)],
     ),
     // Unconditional fallback (classic light)
     CssPropertyWithConditions::simple(scrollbar_color(
@@ -1560,7 +1880,7 @@ pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
                 },
             },
         )),
-        &[DynamicSelector::Theme(ThemeCondition::Dark)],
+        &[DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)],
     ),
     // default -> opaque black, the CSS initial value.
     CssPropertyWithConditions::simple(CssProperty::TextColor(CssPropertyValue::Exact(

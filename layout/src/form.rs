@@ -158,6 +158,14 @@ pub fn validate_form(
                         push(ValidityReason::PatternMismatch);
                     }
                 }
+                // The syntax a `type` demands, again only for a NON-EMPTY
+                // value. `tel` has none (only the keyboard changes); a type
+                // this build does not check constrains nothing.
+                AttributeType::InputType(ty) if !value.is_empty() => {
+                    if !value_matches_type(ty.as_str(), &value) {
+                        push(ValidityReason::TypeMismatch);
+                    }
+                }
                 _ => {}
             }
         }
@@ -181,6 +189,103 @@ pub fn pattern_matches(pattern: &str, value: &str) -> Option<bool> {
     regex_lite::Regex::new(&anchored)
         .ok()
         .map(|re| re.is_match(value))
+}
+
+/// Does `value` have the syntax the `type` attribute `ty` demands?
+///
+/// `email` and `url` are checked (ASCII-case-insensitively, as HTML attribute
+/// values are); every other type - `tel` included - demands nothing.
+#[must_use]
+pub fn value_matches_type(ty: &str, value: &str) -> bool {
+    if ty.eq_ignore_ascii_case("email") {
+        is_valid_email(value)
+    } else if ty.eq_ignore_ascii_case("url") {
+        is_valid_absolute_url(value)
+    } else {
+        true
+    }
+}
+
+/// HTML's "valid e-mail address", the rule `type=email` enforces:
+///
+/// ```text
+/// 1*( ALPHA / DIGIT / "." / "!#$%&'*+/=?^_`{|}~-" ) "@" label *( "." label )
+/// label = ALPHA / DIGIT [ *61( ALPHA / DIGIT / "-" ) ALPHA / DIGIT ]
+/// ```
+///
+/// Deliberately HTML's rule and not RFC 5322's: a domain without a dot
+/// (`a@localhost`) passes, quoted local parts and IP literals do not, and
+/// neither does anything non-ASCII (HTML expects the punycode form).
+#[must_use]
+pub fn is_valid_email(value: &str) -> bool {
+    const LOCAL_SPECIALS: &str = ".!#$%&'*+/=?^_`{|}~-";
+    let Some((local, domain)) = value.split_once('@') else {
+        return false;
+    };
+    let local_ok = !local.is_empty()
+        && local
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || LOCAL_SPECIALS.contains(c));
+    local_ok && !domain.is_empty() && domain.split('.').all(is_valid_domain_label)
+}
+
+/// One dot-separated label of an e-mail domain: 1..=63 letters, digits and
+/// hyphens, starting and ending with a letter or digit.
+fn is_valid_domain_label(label: &str) -> bool {
+    let bytes = label.as_bytes();
+    match (bytes.first(), bytes.last()) {
+        (Some(first), Some(last)) => {
+            bytes.len() <= 63
+                && first.is_ascii_alphanumeric()
+                && last.is_ascii_alphanumeric()
+                && bytes.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-')
+        }
+        _ => false,
+    }
+}
+
+/// An ABSOLUTE URL, the rule `type=url` enforces: a scheme (a letter, then
+/// letters, digits, `+`, `-`, `.`), a colon, and - for the schemes that have
+/// a host (`http`, `https`, `ws`, `wss`, `ftp`) - a non-empty host. No
+/// whitespace or control characters anywhere.
+///
+/// A deliberately small subset of the URL parser a browser runs: it accepts
+/// every absolute URL a user types into such a field and rejects the classic
+/// mistakes (`example.com`, a relative path, `https://`), without claiming to
+/// validate hosts or percent-encoding.
+#[must_use]
+pub fn is_valid_absolute_url(value: &str) -> bool {
+    const HOSTED: [&str; 5] = ["http", "https", "ws", "wss", "ftp"];
+    if value.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return false;
+    }
+    let Some((scheme, rest)) = value.split_once(':') else {
+        return false;
+    };
+    let mut scheme_chars = scheme.chars();
+    let scheme_ok = scheme_chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && scheme_chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    if !scheme_ok {
+        return false;
+    }
+    if !HOSTED.iter().any(|s| scheme.eq_ignore_ascii_case(s)) {
+        // `mailto:`, `file:`, `urn:`, a custom scheme: the scheme is the
+        // whole requirement.
+        return true;
+    }
+    // Browsers tolerate a missing or doubled slash after a hosted scheme;
+    // what they cannot do without is the host.
+    let after = rest.trim_start_matches(['/', '\\']);
+    let authority_end = after.find(['/', '?', '#', '\\']).unwrap_or(after.len());
+    let authority = &after[..authority_end];
+    let host_and_port = authority.rsplit('@').next().unwrap_or("");
+    let host = if host_and_port.starts_with('[') {
+        // An IPv6 literal carries colons of its own.
+        host_and_port
+    } else {
+        host_and_port.split(':').next().unwrap_or("")
+    };
+    !host.is_empty()
 }
 
 /// What a control is FOR, so a soft keyboard can show the right layout.
@@ -693,5 +798,82 @@ mod tests {
     fn pattern_matching_is_unicode_aware() {
         assert_eq!(pattern_matches(".{2}", "\u{e9}a"), Some(true));
         assert_eq!(pattern_matches(".{3}", "\u{e9}a"), Some(false));
+    }
+
+    // -----------------------------------------------------------------
+    // type=email / type=url: HTML's own syntax checks (typeMismatch)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn an_email_address_is_checked_by_htmls_own_rule() {
+        for good in [
+            "a@b",
+            "first.last+tag@sub.example.com",
+            "x_y!#$%&'*/=?^`{|}~-@a-b.c",
+            "UPPER@EXAMPLE.COM",
+        ] {
+            assert!(is_valid_email(good), "{good:?} is a valid e-mail address");
+        }
+        for bad in [
+            "",
+            "plain",
+            "@example.com",
+            "a@",
+            "a@b@c",
+            "a@-bad.com",
+            "a@bad-.com",
+            "a b@c.com",
+            "a@b..com",
+            "a@.com",
+            "\u{fc}@example.com",
+        ] {
+            assert!(!is_valid_email(bad), "{bad:?} is NOT a valid e-mail address");
+        }
+    }
+
+    #[test]
+    fn a_url_must_be_absolute() {
+        for good in [
+            "https://example.com",
+            "http://localhost:8080/x?y#z",
+            "HTTPS://EXAMPLE.COM",
+            "mailto:someone@example.com",
+            "file:///tmp/x",
+            "custom+scheme.v2-x://anything",
+        ] {
+            assert!(is_valid_absolute_url(good), "{good:?} is an absolute URL");
+        }
+        for bad in [
+            "",
+            "example.com",
+            "/relative/path",
+            "1http://x",
+            "https://",
+            "http://exa mple.com",
+            "://x",
+            "https://user@",
+        ] {
+            assert!(!is_valid_absolute_url(bad), "{bad:?} is NOT an absolute URL");
+        }
+    }
+
+    #[test]
+    fn a_typed_control_with_a_malformed_value_fails_with_type_mismatch() {
+        for (ty, bad, good) in [
+            ("email", "nope", "a@b.c"),
+            ("url", "nope", "https://x.y"),
+            ("EMAIL", "nope", "a@b.c"),
+        ] {
+            let layouts = form_with(vec![vec![AttributeType::InputType(ty.into())]]);
+            let got = validate_form(node(FORM), &layouts, &|_| Some(bad.into()));
+            assert_eq!(got.len(), 1, "type={ty} accepted {bad:?}");
+            assert!(got[0].state.has(ValidityReason::TypeMismatch));
+            assert!(validate_form(node(FORM), &layouts, &|_| Some(good.into())).is_empty());
+            // Empty is exempt: that is `required`'s job.
+            assert!(validate_form(node(FORM), &layouts, &|_| Some(String::new())).is_empty());
+        }
+        // `tel` constrains nothing: only the keyboard changes.
+        let layouts = form_with(vec![vec![AttributeType::InputType("tel".into())]]);
+        assert!(validate_form(node(FORM), &layouts, &|_| Some("call me".into())).is_empty());
     }
 }

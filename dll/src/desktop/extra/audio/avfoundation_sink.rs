@@ -48,9 +48,9 @@ unsafe impl Sync for AvfSink {}
 impl AvfSink {
     /// Build + start an engine with a player node connected to the main mixer,
     /// using the standard (deinterleaved Float32) format the player node
-    /// requires. `None` on failure (note: the standard-format initializer
-    /// rejects more than 2 channels).
-    pub(super) fn open(rate: u32, channels: u16) -> Option<AvfSink> {
+    /// requires, or a readable reason why not (note: the standard-format
+    /// initializer rejects more than 2 channels).
+    pub(super) fn open(rate: u32, channels: u16) -> Result<AvfSink, String> {
         let ch = channels.max(1) as u32;
         let sample_rate = if rate == 0 { 48_000.0 } else { rate as f64 };
         unsafe {
@@ -61,12 +61,11 @@ impl AvfSink {
             ) {
                 Some(f) => f,
                 None => {
-                    crate::plog_warn!(
-                        "[audio] AVAudioFormat standard init failed ({}Hz x{}ch) - no sink",
-                        sample_rate,
-                        ch
-                    );
-                    return None;
+                    return Err(format!(
+                        "AVAudioEngine cannot play {} Hz x {} channels (its player takes at most \
+                         2 channels)",
+                        sample_rate, ch
+                    ));
                 }
             };
             let engine = AVAudioEngine::new();
@@ -76,10 +75,13 @@ impl AvfSink {
             engine.connect_to_format(&player, &mixer, Some(&format));
             engine.prepare();
             if engine.startAndReturnError().is_err() {
-                return None;
+                return Err(String::from(
+                    "AVAudioEngine did not start: no audio output device, or the device refused \
+                     the format",
+                ));
             }
             player.play();
-            Some(AvfSink {
+            Ok(AvfSink {
                 engine,
                 player,
                 format,
@@ -88,15 +90,18 @@ impl AvfSink {
             })
         }
     }
+}
 
+impl super::OutputDevice for AvfSink {
     /// Deinterleave `samples` (interleaved f32) into a standard-format PCM
-    /// buffer + schedule it. Drops the frame (logged once) when more than
-    /// [`MAX_IN_FLIGHT`] buffers are already queued on the player node.
-    pub(super) fn play(&self, samples: &[f32]) {
+    /// buffer + schedule it. Not taken (logged once) when more than
+    /// `MAX_IN_FLIGHT` buffers are already queued on the player node, or when
+    /// no buffer could be made for it.
+    fn play(&self, samples: &[f32]) -> bool {
         let ch = self.channels.max(1) as usize;
         let frames = samples.len() / ch;
         if frames == 0 {
-            return;
+            return false;
         }
         // Backpressure: never let the scheduled backlog grow past the cap.
         if self.in_flight.load(Ordering::Acquire) >= MAX_IN_FLIGHT {
@@ -108,7 +113,7 @@ impl AvfSink {
                     MAX_IN_FLIGHT
                 );
             });
-            return;
+            return false;
         }
         unsafe {
             let buf = match AVAudioPCMBuffer::initWithPCMFormat_frameCapacity(
@@ -117,11 +122,11 @@ impl AvfSink {
                 frames as u32,
             ) {
                 Some(b) => b,
-                None => return,
+                None => return false,
             };
             let data = buf.floatChannelData();
             if data.is_null() {
-                return;
+                return false;
             }
             // Standard format = deinterleaved: `data` is an array of `ch`
             // per-channel plane pointers. Strided copy interleaved → planar.
@@ -145,6 +150,7 @@ impl AvfSink {
             self.player
                 .scheduleBuffer_completionHandler(&buf, RcBlock::as_ptr(&done));
         }
+        true
     }
 }
 

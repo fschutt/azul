@@ -111,7 +111,7 @@ impl Harness {
         self.lw
             .focus_manager
             .set_focused_node(Some(dnid(0, CONTAINER)));
-        self.lw.text_edit_manager.initialize_editing(
+        self.lw.start_editing_at(
             cursor,
             DomId::ROOT_ID,
             NodeId::new(LABEL_P),
@@ -277,12 +277,14 @@ fn a_parked_full_tree_absorbs_a_later_incremental_update() {
         merged.tree.is_some(),
         "the increment must fold INTO the parked full tree, not replace it"
     );
+    // The increment is published on the editing HOST - the text field whose
+    // value a screen reader reads, and whose text the selection offsets index.
     let label = merged
         .nodes
         .iter()
-        .find(|(id, _)| *id == a11y_id(0, LABEL_P as u64))
+        .find(|(id, _)| *id == a11y_id(0, CONTAINER as u64))
         .map(|(_, n)| n.value().unwrap_or_default().to_string())
-        .expect("the edited node is in the merged tree");
+        .expect("the edited host is in the merged tree");
     assert!(
         label.contains('z'),
         "the merged tree carries the increment's fresh value, got {label:?}"

@@ -25,7 +25,9 @@ use objc2_app_kit::{
 use objc2_foundation::{NSPoint, NSSize, NSString};
 
 use super::{queue_tray_event, TrayError};
-use crate::desktop::shell2::macos::menu::{take_pending_menu_actions_matching, MenuState};
+use crate::desktop::shell2::macos::menu::{
+    alloc_menu_tags, take_pending_menu_actions_matching, AzulMenuTarget, MenuState,
+};
 
 /// The menu bar is ~22pt tall; 18pt is the conventional artwork box.
 const ICON_POINTS: u32 = 18;
@@ -41,6 +43,10 @@ pub(super) struct PlatformTray {
     /// Tags this tray owns, so the shared menu-action queue can be drained
     /// without stealing another window's actions.
     owned_tags: HashMap<isize, ()>,
+    /// The status item BUTTON's tag: a click on the icon itself (no menu
+    /// attached) files it into the same queue a menu pick does, and
+    /// [`Self::pump`] turns it into `TrayEventType::Activate`.
+    activate_tag: isize,
 }
 
 impl core::fmt::Debug for PlatformTray {
@@ -79,7 +85,24 @@ impl PlatformTray {
             item,
             menu: MenuState::new(),
             owned_tags: HashMap::new(),
+            activate_tag: alloc_menu_tags(1),
         };
+
+        // A click on the icon itself. With a menu attached AppKit opens the
+        // menu on mouse-down and never sends this action (see `apply`);
+        // without one the button's action is the ONLY thing a click does -
+        // and it had none, so a menu-less tray icon was deaf. The shared menu
+        // target files the tag into the pending-action queue and wakes the
+        // run loop, exactly as for a menu pick; `pump` reports it as
+        // `TrayEventType::Activate`. Set once: the button outlives `apply`.
+        if let Some(button) = unsafe { this.item.button(mtm) } {
+            let target = AzulMenuTarget::shared_instance(mtm);
+            unsafe {
+                button.setTarget(Some(&target));
+                button.setAction(Some(objc2::sel!(menuItemAction:)));
+            }
+            button.setTag(this.activate_tag);
+        }
 
         // `autosaveName` persists the item's POSITION in the menu bar across
         // launches. Without one the system invents a name, which is why
@@ -184,9 +207,6 @@ impl PlatformTray {
     /// window's menu bar, so this takes only the tags it owns and leaves the
     /// rest for whoever does.
     pub(super) fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
-        if self.owned_tags.is_empty() {
-            return Vec::new();
-        }
         // An item carrying a callback is DELIVERED to that callback and is not
         // also queued as an event; an item without one is queued for polling.
         // Splitting here keeps a tray menu item behaving exactly like a window
@@ -197,7 +217,15 @@ impl PlatformTray {
         // Invoking is the caller's job, not ours: a CallbackInfo needs a window
         // and the tray has none of its own.
         let mut to_invoke = Vec::new();
-        for tag in take_pending_menu_actions_matching(|t| self.owned_tags.contains_key(&t)) {
+        let activate_tag = self.activate_tag;
+        for tag in take_pending_menu_actions_matching(|t| {
+            t == activate_tag || self.owned_tags.contains_key(&t)
+        }) {
+            if tag == activate_tag {
+                // A click on the icon: the tray's own callback hears it.
+                queue_tray_event(TrayEvent::simple(TrayEventType::Activate));
+                continue;
+            }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let command = tag as u32;
             match self.menu_callback(command) {

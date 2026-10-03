@@ -182,6 +182,20 @@ pub fn create_hwnd(
         } else {
             WS_EX_APPWINDOW | WS_EX_ACCEPTFILES
         };
+        // A popup that LEAVES focus on its invoker (a combobox's list) must
+        // never become the active window: a click in it does not activate it
+        // (and `Win32Window::show_command` shows it without activation), so
+        // the owner keeps every key and forwards the list's navigation keys
+        // (`common::transient::parent_key_route`). Activated, it took the
+        // keys typed while it was open, and they were lost.
+        let style_ex = if owned_popup
+            && !crate::desktop::shell2::common::transient::popup_takes_focus(
+                &options.window_state,
+            ) {
+            style_ex | super::dlopen::constants::WS_EX_NOACTIVATE
+        } else {
+            style_ex
+        };
 
         let hwnd = (win32.user32.CreateWindowExW)(
             style_ex,

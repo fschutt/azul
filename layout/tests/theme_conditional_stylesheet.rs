@@ -16,7 +16,7 @@ use std::sync::Arc;
 use azul_core::{id::NodeId, styled_dom::StyledDom};
 use azul_css::{
     props::basic::{color::ColorU, PhysicalSize},
-    system::{SystemStyle, Theme},
+    system::{SystemStyle, DarkLightMode},
 };
 
 const LIGHT_INK: ColorU = ColorU {
@@ -32,9 +32,9 @@ const DARK_INK: ColorU = ColorU {
     a: 255,
 };
 
-fn style_for(theme: Theme) -> Arc<SystemStyle> {
+fn style_for(theme: DarkLightMode) -> Arc<SystemStyle> {
     let mut s = SystemStyle::default();
-    s.theme = theme;
+    s.mode = theme;
     Arc::new(s)
 }
 
@@ -42,7 +42,7 @@ fn style_for(theme: Theme) -> Arc<SystemStyle> {
 /// window's dynamic-selector context FIRST (author `@`-rule conditions are
 /// baked at CASCADE time - `set_dynamic_selector_context` re-runs the author
 /// cascade when the context moves), then read the property.
-fn text_color_at(styled_dom: &mut StyledDom, node: NodeId, theme: Theme) -> ColorU {
+fn text_color_at(styled_dom: &mut StyledDom, node: NodeId, theme: DarkLightMode) -> ColorU {
     let style = style_for(theme);
     let ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&style)
         .with_viewport(800.0, 600.0);
@@ -86,9 +86,9 @@ fn a_theme_dark_block_overrides_the_base_rule_only_in_the_dark_theme() {
 
     // Order matters as a control: light FIRST, then dark, then light again -
     // a context change that only ever moves one way would pass the first two.
-    let light = text_color_at(&mut styled_dom, root, Theme::Light);
-    let dark = text_color_at(&mut styled_dom, root, Theme::Dark);
-    let light_again = text_color_at(&mut styled_dom, root, Theme::Light);
+    let light = text_color_at(&mut styled_dom, root, DarkLightMode::Light);
+    let dark = text_color_at(&mut styled_dom, root, DarkLightMode::Dark);
+    let light_again = text_color_at(&mut styled_dom, root, DarkLightMode::Light);
     assert_eq!(
         light, light_again,
         "switching back to light must restore the base rule, not strand the document in the dark \
@@ -132,12 +132,12 @@ fn a_theme_dark_block_survives_the_xml_style_element() {
         .expect("the parsed document has a <p> with text");
 
     assert_eq!(
-        text_color_at(&mut styled_dom, p, Theme::Light),
+        text_color_at(&mut styled_dom, p, DarkLightMode::Light),
         LIGHT_INK,
         "base rule in the light theme"
     );
     assert_eq!(
-        text_color_at(&mut styled_dom, p, Theme::Dark),
+        text_color_at(&mut styled_dom, p, DarkLightMode::Dark),
         DARK_INK,
         "the @theme(dark) block must survive <style> parsing too"
     );
@@ -171,12 +171,12 @@ fn a_theme_dark_block_survives_the_dom_from_parsed_xml_path() {
         .expect("the parsed document has a <p> with text");
 
     assert_eq!(
-        text_color_at(&mut styled_dom, p, Theme::Light),
+        text_color_at(&mut styled_dom, p, DarkLightMode::Light),
         LIGHT_INK,
         "base rule in the light theme"
     );
     assert_eq!(
-        text_color_at(&mut styled_dom, p, Theme::Dark),
+        text_color_at(&mut styled_dom, p, DarkLightMode::Dark),
         DARK_INK,
         "the @theme(dark) block must survive create_from_parsed_xml + create_from_dom - this is \
          the path the document sheet takes"

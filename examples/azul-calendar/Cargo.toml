@@ -1,0 +1,43 @@
+[package]
+name = "AzCalendar"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzCalendar - a calendar like Outlook 2010's on the public azul API: the Office
+    scaffold (ribbon, backstage, navigation pane with the date navigator and
+    "My calendars", To-Do bar, status bar), Day / Work Week / Week / Month /
+    Schedule / List views, an event editor window (repeat rules, reminders,
+    attendees, AzMeet links made offline), .ics import and export. Events,
+    calendars and tasks are JSON files under <data dir>/events, /calendars and
+    /tasks (the same layout as an object store's keys).
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same features azul-layout builds chrono with (dates, and the local date for "today").
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# The PIM logic the Azlin apps share (dates, repeat rules, .ics content lines, addresses, the task
+# store) and the drive the tasks are written through; both plain Rust, no new crates.
+azul-pim = { path = "../azul-pim" }
+azul-storage = { path = "../azul-storage" }
+# The Azlin data root (where the shared task store is), and the file jobs on an azul Thread every
+# durable write goes through (`ui::spawn_file_jobs`, feature `azul`).
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
+
+[lib]
+name = "azcalendar"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzCalendar"
+path = "src/main.rs"

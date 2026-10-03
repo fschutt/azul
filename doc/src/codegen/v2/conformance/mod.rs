@@ -18,7 +18,10 @@
 //!   enum's first variant, `None`, an empty Vec) round-trips its derives:
 //!   a clone is equal, compares equal, hashes equal, formats non-empty, and
 //!   both copies drop;
-//! * every enum variant constructor whose payload can be built;
+//! * every enum variant constructor whose payload can be built, and - for one
+//!   by-value payload that can be compared - that payload read back through
+//!   the binding's union (`v.<Variant>.payload`), which pins the payload
+//!   offset the binding declares against the one libazul wrote;
 //! * every Vec whose element can be built: three elements in, three out;
 //! * every host-invokable callback kind: a wrapper around a host handle is
 //!   created and dropped.
@@ -31,7 +34,9 @@ pub mod c;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::ir::{CodegenIR, EnumVariantKind, FunctionDef, FunctionKind, TypeCategory};
+use super::ir::{
+    CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, TypeCategory,
+};
 
 /// How a conformance program makes a value of some type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +107,24 @@ pub struct VariantCase {
     pub delete: Option<String>,
     /// `Az<Enum>_partialEq`, to check two constructions are equal.
     pub partial_eq: Option<String>,
+    /// How the program reads the payload back through the binding's union
+    /// (`v.<Variant>.payload`) and compares it with what went in: set for a
+    /// variant with exactly one by-value payload that can be compared. It
+    /// pins the payload offset the binding declares against the one libazul
+    /// wrote (X3: azul.h put a 1-aligned payload at 1, Rust at 8).
+    pub payload_check: Option<PayloadCheck>,
+}
+
+/// How a variant's payload is compared after reading it back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PayloadCheck {
+    /// A primitive: the program passes a distinctive non-zero value (a zero
+    /// could match the padding it would read at a wrong offset) and
+    /// compares with `==`.
+    Primitive { ty: String },
+    /// Compared with a fresh value of the same recipe through
+    /// `Az<Payload>_partialEq`; `delete` frees that fresh value.
+    PartialEq { eq: String, delete: Option<String> },
 }
 
 /// A Vec filled with three elements from `element`, read back.
@@ -232,6 +255,25 @@ impl ConformancePlan {
                     continue;
                 }
             };
+            // One by-value payload that can be compared: read it back.
+            let one_by_value_payload = e.variants.iter().find(|v| v.name == variant).is_some_and(
+                |v| {
+                    matches!(&v.kind, EnumVariantKind::Tuple(ts)
+                        if ts.len() == 1 && ts[0].1 == FieldRefKind::Owned)
+                },
+            );
+            let payload_check = match args.as_slice() {
+                [Recipe::Primitive { ty }] if one_by_value_payload => {
+                    Some(PayloadCheck::Primitive { ty: ty.clone() })
+                }
+                [r] if one_by_value_payload => {
+                    fns.get(r.ty(), FunctionKind::PartialEq).map(|eq| PayloadCheck::PartialEq {
+                        eq,
+                        delete: fns.get(r.ty(), FunctionKind::Delete),
+                    })
+                }
+                _ => None,
+            };
             {
                 plan.variants.push(VariantCase {
                     ty: e.name.clone(),
@@ -241,6 +283,7 @@ impl ConformancePlan {
                     args,
                     delete: fns.get(&e.name, FunctionKind::Delete),
                     partial_eq: fns.get(&e.name, FunctionKind::PartialEq),
+                    payload_check,
                 });
             }
         }
@@ -249,7 +292,10 @@ impl ConformancePlan {
         // category the IR gave it: the plan must not inherit a classifier bug.
         for s in &ir.structs {
             let has = |n: &str| s.fields.iter().any(|f| f.name == n);
-            if !(s.fields.len() == 4 && has("ptr") && has("len") && has("cap") && has("destructor")) {
+            let vec_count = crate::codegen::v2::ir::is_vec_field_count(
+                s.fields.iter().map(|f| f.name.as_str()),
+            );
+            if !(vec_count && has("ptr") && has("len") && has("cap") && has("destructor")) {
                 continue;
             }
             let Some(elem) = s.fields.iter().find(|f| f.name == "ptr").map(|f| f.type_name.as_str()) else {
@@ -398,8 +444,12 @@ fn recipe(ir: &CodegenIR, fns: &FnIndex<'_>, ty: &str) -> Result<Recipe, String>
         // A Vec by its layout (never the IR category: the plan must not
         // inherit a classifier bug), made with its argument-free `create`.
         let has = |n: &str| s.fields.iter().any(|f| f.name == n);
-        let vec_layout =
-            s.fields.len() == 4 && has("ptr") && has("len") && has("cap") && has("destructor");
+        let vec_layout = crate::codegen::v2::ir::is_vec_field_count(
+            s.fields.iter().map(|f| f.name.as_str()),
+        ) && has("ptr")
+            && has("len")
+            && has("cap")
+            && has("destructor");
         if vec_layout {
             if let Some(f) = fns.by_method.get(&(ty, "create")).filter(|f| f.args.is_empty()) {
                 return Ok(Recipe::EmptyVec { ty: ty.to_string(), c_fn: f.c_name.clone() });
@@ -428,5 +478,61 @@ mod tests {
         assert!(!plan.derives.is_empty());
         assert!(!plan.variants.is_empty());
         assert!(!plan.callbacks.is_empty());
+    }
+
+    /// X3: the C program reads every constructible variant with one
+    /// by-value payload back through azul.h's union (`v.<Variant>.payload`)
+    /// and compares it with what it passed in, so the payload offset the
+    /// header declares is checked against the one libazul wrote - for every
+    /// such variant whose payload can be compared (a primitive, or a type
+    /// with `PartialEq`).
+    #[test]
+    fn the_c_program_reads_every_variant_payload_back_through_the_union() {
+        let api = crate::api::ApiData::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
+        )
+        .unwrap();
+        let ir = super::super::build_ir_from_api(&api).unwrap();
+        let plan = ConformancePlan::build(&ir);
+        let program = c::render(&plan);
+        let mut checked = 0usize;
+        let mut missing = Vec::new();
+        for (n, v) in plan.variants.iter().enumerate() {
+            let Some(e) = ir.find_enum(&v.ty) else { continue };
+            let one_by_value_payload = e.variants.iter().find(|ev| ev.name == v.variant).is_some_and(
+                |ev| {
+                    matches!(&ev.kind, EnumVariantKind::Tuple(ts)
+                        if ts.len() == 1
+                            && ts[0].1 == crate::codegen::v2::ir::FieldRefKind::Owned)
+                },
+            );
+            let comparable = match v.args.as_slice() {
+                [Recipe::Primitive { .. }] => true,
+                [r] => ir
+                    .functions
+                    .iter()
+                    .any(|f| f.class_name == r.ty() && f.kind == FunctionKind::PartialEq),
+                _ => false,
+            };
+            if !(one_by_value_payload && comparable) {
+                continue;
+            }
+            checked += 1;
+            let start = program
+                .find(&format!("static void check_variant_{n}(void)"))
+                .expect("every variant case is rendered");
+            let body = &program[start..];
+            let body = &body[..body.find("\n}\n").unwrap_or(body.len())];
+            if !body.contains(&format!("v.{}.payload", v.variant)) {
+                missing.push(format!("{}::{}", v.ty, v.variant));
+            }
+        }
+        assert!(checked > 0, "no variant has a comparable by-value payload");
+        assert!(
+            missing.is_empty(),
+            "{} of {checked} variant cases never read their payload back through the union:\n  {}",
+            missing.len(),
+            missing.join("\n  ")
+        );
     }
 }

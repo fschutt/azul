@@ -1,6 +1,8 @@
 //! Label widget for displaying static text with platform-specific default styling.
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::dom::Dom;
+#[cfg(test)]
+use azul_core::dom::{IdOrClass, IdOrClass::Class};
 use azul_css::dynamic_selector::{
     CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
 };
@@ -28,6 +30,10 @@ pub struct Label {
     /// widget picks, the second means the caller asked for no properties at all
     /// and gets none.
     pub label_style: OptionCssPropertyWithConditionsVec,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
 const SANS_SERIF_STR: &str = "system:ui";
@@ -57,6 +63,9 @@ static LABEL_STYLE_DEFAULT: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
+    // The grey is a light-theme ink: on a dark window it reads at 1.6:1. The
+    // dark twin is the desktop's own label colour.
+    crate::widgets::themes::system_palette::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -75,6 +84,9 @@ static LABEL_STYLE_MAC: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
+    // The grey is a light-theme ink: on a dark window it reads at 1.6:1. The
+    // dark twin is the desktop's own label colour.
+    crate::widgets::themes::system_palette::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -92,6 +104,7 @@ impl Label {
         Self {
             string,
             label_style: OptionCssPropertyWithConditionsVec::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 
@@ -124,24 +137,46 @@ impl Label {
         s
     }
 
+    /// Pin the widget theme: the label keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
     /// Converts this label into a `<p>` block carrying the
     /// `__azul-native-label` class and wrapping a bare text node.
     ///
     /// The `<p>` is the styled box: a `NodeType::Text` node is always
     /// inline-level and owns no rect, so every box-model property here would
     /// be inert on a raw text node.
+    ///
+    /// The look comes from the theme module (`themes::flat::label` /
+    /// `themes::flora::label`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        static LABEL_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-label"))];
-
-        // Resolved before `self.string` is moved out below.
-        let label_style = self.resolved_label_style();
-
-        crate::widgets::widget_p_with_text(self.string)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-            .with_css_props(label_style)
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::label(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::label(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::label,
+                crate::widgets::themes::flora::label,
+            ),
+        }
     }
 }
 
@@ -164,8 +199,9 @@ mod autotest_generated {
     // Helpers
     // ------------------------------------------------------------------
 
-    /// The number of declarations each *populated* platform table carries.
-    const DECL_COUNT: usize = 9;
+    /// The number of declarations each *populated* platform table carries:
+    /// nine resting properties plus the dark twin of the text colour.
+    const DECL_COUNT: usize = 10;
 
     /// The class `dom()` stamps onto the label `<p>`.
     const LABEL_CLASS_NAME: &str = "__azul-native-label";
@@ -259,9 +295,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -537,11 +571,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn every_declaration_is_unconditional() {
+    fn every_declaration_is_unconditional_but_the_dark_ink() {
         // A label is stateless — a declaration gated on `:hover`/`:active`
-        // would simply never paint.
+        // would simply never paint. The one conditional declaration is the
+        // text colour's dark twin, which follows the theme, not a state.
         for (name, table) in [("default", LABEL_STYLE_DEFAULT), ("mac", LABEL_STYLE_MAC)] {
             for p in table {
+                if p.is_dark_twin() {
+                    assert!(
+                        matches!(p.property, CssProperty::TextColor(_))
+                            && p.pseudo_state_conditions().is_empty(),
+                        "{name}: {:?} is a dark twin of something other than the resting ink",
+                        p.property
+                    );
+                    continue;
+                }
                 assert!(
                     p.apply_if.as_ref().is_empty(),
                     "{name}: {:?} is conditional on a stateless widget",
@@ -552,14 +596,15 @@ mod autotest_generated {
     }
 
     #[test]
-    fn no_property_is_declared_twice() {
+    fn no_property_is_declared_twice_in_one_theme() {
         // A duplicated declaration is a last-one-wins ambiguity: two font sizes
-        // would make one of them silently dead.
+        // would make one of them silently dead. The text colour's dark twin is
+        // the one property declared again - for the other theme.
         for (name, table) in [("default", LABEL_STYLE_DEFAULT), ("mac", LABEL_STYLE_MAC)] {
             let mut seen = HashSet::new();
             for p in table {
                 assert!(
-                    seen.insert(core::mem::discriminant(&p.property)),
+                    seen.insert((core::mem::discriminant(&p.property), p.is_dark_twin())),
                     "{name}: duplicate declaration of {:?}",
                     p.property
                 );
@@ -834,6 +879,7 @@ mod autotest_generated {
         let mut label = Label {
             string: AzString::from_const_str("custom"),
             label_style: OptionCssPropertyWithConditionsVec::Some(custom),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         };
         let taken = label.swap_with_default();
         assert_eq!(taken.string.as_str(), "custom");
@@ -902,12 +948,13 @@ mod autotest_generated {
             dom.estimated_total_children, 1,
             "the <p> owns exactly its text node"
         );
-        // The ONLY sheet a <p> widget carries is the UA-margin reset
-        // (`widgets::widget_p_margin_reset`), scoped to the node itself.
+        // The ONLY sheet a <p> widget carries is the widget-<p> sheet: the
+        // UA-margin reset plus, for a chrome carrier like this one,
+        // `user-select: none` (`widgets::widget_p_chrome_sheet`).
         assert_eq!(
             dom.css.as_ref().len(),
             1,
-            "a label attaches exactly the <p> margin reset, nothing else"
+            "a label attaches exactly the widget <p> sheet, nothing else"
         );
         assert!(
             dom.root.callbacks.as_ref().is_empty(),
@@ -968,6 +1015,7 @@ mod autotest_generated {
         let dom = Label {
             string: AzString::from_const_str("hand built"),
             label_style: OptionCssPropertyWithConditionsVec::Some(custom.clone()),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
         .dom();
         assert_eq!(
@@ -991,6 +1039,7 @@ mod autotest_generated {
             label_style: OptionCssPropertyWithConditionsVec::Some(
                 CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_OTHER),
             ),
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
         .dom();
         assert!(
@@ -1070,5 +1119,158 @@ mod autotest_generated {
             "the static class list did not survive the churn"
         );
         assert_eq!(inline_properties(&dom).len(), expected_table().len());
+    }
+}
+
+/// The theme option: which look a label renders in, and what each look is.
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn label(theme: UiTheme) -> Dom {
+        Label::create(AzString::from_const_str("Name")).with_theme(theme).dom()
+    }
+
+    fn last_ink(props: &[CssProperty]) -> Option<ColorU> {
+        props.iter().rev().find_map(|p| match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        })
+    }
+
+    fn classes(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                Class(s) => Some(s.as_str().to_string()),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    fn inline(dom: &Dom) -> Vec<CssProperty> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
+            .map(|(p, _)| p.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_label_without_a_theme_renders_flat() {
+        let plain = Label::create(AzString::from_const_str("Name"));
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(inline(&plain.clone().dom()), inline(&label(UiTheme::Flat)));
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Label::create(AzString::from_const_str("Name"));
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(
+            Label::create(AzString::from_const_str("Name"))
+                .with_theme(UiTheme::Flora)
+                .theme,
+            set.theme
+        );
+    }
+
+    #[test]
+    fn a_flora_label_writes_in_flora_s_quiet_ink_and_its_night_twin() {
+        if Label::create(AzString::from_const_str("x"))
+            .resolved_label_style()
+            .as_ref()
+            .is_empty()
+        {
+            // A platform with no default label style has no ink to replace.
+            return;
+        }
+        let dom = label(UiTheme::Flora);
+        assert_eq!(
+            last_ink(&theme_probe::unconditional(&dom)),
+            Some(flora::LIGHT_INTRO),
+            "flora.css --color-text-light: --fl-intro"
+        );
+        assert_eq!(
+            last_ink(&theme_probe::dark(&dom)),
+            Some(flora::DARK_INTRO),
+            "the same ink at night"
+        );
+    }
+
+    #[test]
+    fn a_flora_label_keeps_the_platform_geometry() {
+        let not_ink = |props: Vec<CssProperty>| -> Vec<CssProperty> {
+            props
+                .into_iter()
+                .filter(|p| !matches!(p, CssProperty::TextColor(_)))
+                .collect()
+        };
+        assert_eq!(
+            not_ink(theme_probe::unconditional(&label(UiTheme::Flora))),
+            not_ink(theme_probe::unconditional(&label(UiTheme::Flat))),
+            "a theme recolours a label; it does not move it"
+        );
+    }
+
+    #[test]
+    fn a_flora_label_carries_the_flora_theme_marker() {
+        let names = classes(&label(UiTheme::Flora));
+        assert!(names.iter().any(|c| c == "__azul-native-label"), "{names:?}");
+        assert!(names.iter().any(|c| c == "__azul-theme-flora"), "{names:?}");
+    }
+
+    #[test]
+    fn a_callers_label_style_wins_over_the_flora_look() {
+        let custom = CssPropertyWithConditionsVec::from_vec(alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_font_size(
+                StyleFontSize::const_px(40)
+            ))
+        ]);
+        let mut l = Label::create(AzString::from_const_str("x")).with_theme(UiTheme::Flora);
+        l.label_style = OptionCssPropertyWithConditionsVec::Some(custom.clone());
+        let expected: Vec<CssProperty> = custom
+            .as_ref()
+            .iter()
+            .map(|p| p.property.clone())
+            .collect();
+        assert_eq!(inline(&l.dom()), expected);
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_label_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "label",
+            || Label::create(AzString::from("Name")).dom(),
+            |t: UiTheme| Label::create(AzString::from("Name")).with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_label_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || Label::create(AzString::from("Name")).dom());
+            assert_structure_is_shared(&format!("label built for {}", theme.name()), &dom, &[]);
+        }
     }
 }

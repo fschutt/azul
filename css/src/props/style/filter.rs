@@ -18,14 +18,17 @@ use crate::props::basic::{
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
 use crate::{
-    codegen::format::GetHash,
+    hash::GetHash,
     props::{
         basic::{
             angle::{
                 parse_angle_value, AngleValue, CssAngleValueParseError,
                 CssAngleValueParseErrorOwned,
             },
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            color::{
+                parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+                CssColorParseErrorOwned,
+            },
             length::{FloatValue, PercentageParseError, PercentageValue},
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
@@ -133,6 +136,85 @@ impl StyleColorMatrix {
             self.m17, self.m18, self.m19,
         ]
     }
+
+    /// `flood(color) composite(in)` as one matrix: every pixel takes
+    /// `color`'s RGB, at the input's alpha times `color`'s alpha.
+    ///
+    /// Row-major (SVG `feColorMatrix` order: the R, G, B, A rows, each four
+    /// input weights and an offset): the colour rows are pure offsets, the
+    /// alpha row scales the input alpha. Exact on unpremultiplied colour,
+    /// which is what a colour-matrix filter works on.
+    #[must_use]
+    pub fn flood_in(color: ColorU) -> Self {
+        let zero = FloatValue::new(0.0);
+        let unit = |c: u8| FloatValue::new(f32::from(c) / 255.0);
+        Self {
+            m0: zero,
+            m1: zero,
+            m2: zero,
+            m3: zero,
+            m4: unit(color.r),
+            m5: zero,
+            m6: zero,
+            m7: zero,
+            m8: zero,
+            m9: unit(color.g),
+            m10: zero,
+            m11: zero,
+            m12: zero,
+            m13: zero,
+            m14: unit(color.b),
+            m15: zero,
+            m16: zero,
+            m17: zero,
+            m18: unit(color.a),
+            m19: zero,
+        }
+    }
+
+    /// This matrix in the layout WebRender's `ColorMatrix` takes: the
+    /// weights of each INPUT channel as a column (R, G, B, A), then the
+    /// offset vector - a GLSL `mat4` built from four column vectors plus an
+    /// offset. The azul value is row-major (see [`Self::flood_in`]), so it
+    /// has to be transposed; passing it through as-is scrambles the matrix.
+    #[must_use]
+    pub fn to_column_major(&self) -> [f32; 20] {
+        let m = self.to_array();
+        let at = |row: usize, col: usize| m[row * 5 + col].get();
+        let mut out = [0.0_f32; 20];
+        for col in 0..5 {
+            for row in 0..4 {
+                out[col * 4 + row] = at(row, col);
+            }
+        }
+        out
+    }
+}
+
+/// `filters` with every `flood(c) composite(in)` pair folded into the one
+/// colour matrix it is ([`StyleColorMatrix::flood_in`]).
+///
+/// For renderers with a colour matrix but no composite step: WebRender's
+/// `Flood` op REPLACES its input with the colour (so the pair's first half
+/// alone paints a filled box) and it has no `composite()` at all. Any other
+/// flood or composite is left as it is.
+#[must_use]
+pub fn fold_flood_in(filters: &[StyleFilter]) -> Vec<StyleFilter> {
+    let mut out = Vec::with_capacity(filters.len());
+    let mut i = 0;
+    while i < filters.len() {
+        match (filters[i], filters.get(i + 1)) {
+            (StyleFilter::Flood(color), Some(StyleFilter::Composite(StyleCompositeFilter::In))) => {
+                out.push(StyleFilter::ColorMatrix(StyleColorMatrix::flood_in(color)));
+                i += 2;
+            }
+            (other, _) => {
+                out.push(other);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -180,6 +262,7 @@ impl PrintAsCssValue for StyleFilterVec {
 }
 
 // Formatting to Rust code for StyleFilterVec
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleFilterVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -193,7 +276,7 @@ impl PrintAsCssValue for StyleFilter {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::Blend(mode) => format!("blend({})", mode.print_as_css_value()),
-            Self::Flood(c) => format!("flood({})", c.to_hash()),
+            Self::Flood(c) => format!("flood({})", c.to_css_value()),
             Self::Blur(c) => {
                 if c.width == c.height {
                     format!("blur({})", c.width)
@@ -731,7 +814,11 @@ pub mod parser {
             "blend" => Ok(StyleFilter::Blend(parse_style_mix_blend_mode(
                 filter_values,
             )?)),
-            "flood" => Ok(StyleFilter::Flood(parse_css_color(filter_values)?)),
+            // A `system:` keyword floods with the theme's colour (a token
+            // here, resolved where the filter is read).
+            "flood" => Ok(StyleFilter::Flood(parse_color_or_system_token(
+                filter_values,
+            )?)),
             "blur" => Ok(StyleFilter::Blur(parse_style_blur(filter_values)?)),
             "opacity" => {
                 let val = parse_percentage_value(filter_values)?;
@@ -2695,5 +2782,115 @@ mod tests {
         assert!(parse_style_filter_vec("opacity(2)").is_err()); // opacity must be % or 0-1
                                                                 // Unclosed parenthesis
         assert!(parse_style_filter_vec("blur(5px").is_err());
+    }
+}
+
+/// `flood(c) composite(in)` as the one colour matrix it is, for renderers
+/// with a matrix but no composite step (WebRender's `FilterOp`).
+#[cfg(test)]
+mod flood_in_matrix_tests {
+    use super::*;
+
+    const INK: ColorU = ColorU {
+        r: 255,
+        g: 51,
+        b: 0,
+        a: 204,
+    };
+
+    fn near(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.002
+    }
+
+    #[test]
+    fn the_identity_matrix_moves_to_webrender_column_order() {
+        let one = FloatValue::new(1.0);
+        let zero = FloatValue::new(0.0);
+        let identity = StyleColorMatrix {
+            m0: one,
+            m1: zero,
+            m2: zero,
+            m3: zero,
+            m4: zero,
+            m5: zero,
+            m6: one,
+            m7: zero,
+            m8: zero,
+            m9: zero,
+            m10: zero,
+            m11: zero,
+            m12: one,
+            m13: zero,
+            m14: zero,
+            m15: zero,
+            m16: zero,
+            m17: zero,
+            m18: one,
+            m19: zero,
+        };
+        // WebRender's own identity: four input columns, then the offsets.
+        let expected = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0,
+        ];
+        let got = identity.to_column_major();
+        assert!(
+            got.iter().zip(expected.iter()).all(|(a, b)| near(*a, *b)),
+            "{got:?}"
+        );
+    }
+
+    #[test]
+    fn a_row_offset_lands_in_the_offset_vector() {
+        // Row-major: the R row's fifth column is R's offset.
+        let mut m = StyleColorMatrix::flood_in(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        });
+        m.m4 = FloatValue::new(0.5);
+        let got = m.to_column_major();
+        assert!(near(got[16], 0.5), "R offset -> offset vector x, got {got:?}");
+    }
+
+    #[test]
+    fn flood_in_paints_the_colour_at_the_inputs_alpha() {
+        let got = StyleColorMatrix::flood_in(INK).to_column_major();
+        // No input colour channel contributes to anything...
+        assert!(got[..12].iter().all(|v| near(*v, 0.0)), "{got:?}");
+        // ...alpha is the input's alpha times the flood's...
+        assert!(near(got[12], 0.0) && near(got[13], 0.0) && near(got[14], 0.0));
+        assert!(near(got[15], 0.8), "{got:?}");
+        // ...and the colour is the flood's, as offsets.
+        assert!(near(got[16], 1.0) && near(got[17], 0.2) && near(got[18], 0.0));
+        assert!(near(got[19], 0.0));
+    }
+
+    #[test]
+    fn folding_turns_the_flood_in_pair_into_one_matrix() {
+        let folded = fold_flood_in(&[
+            StyleFilter::Grayscale(PercentageValue::new(100.0)),
+            StyleFilter::Flood(INK),
+            StyleFilter::Composite(StyleCompositeFilter::In),
+        ]);
+        assert_eq!(
+            folded,
+            vec![
+                StyleFilter::Grayscale(PercentageValue::new(100.0)),
+                StyleFilter::ColorMatrix(StyleColorMatrix::flood_in(INK)),
+            ]
+        );
+    }
+
+    #[test]
+    fn folding_leaves_other_floods_and_composites_alone() {
+        let bare = [StyleFilter::Flood(INK)];
+        assert_eq!(fold_flood_in(&bare), bare.to_vec());
+        let out = [
+            StyleFilter::Flood(INK),
+            StyleFilter::Composite(StyleCompositeFilter::Out),
+        ];
+        assert_eq!(fold_flood_in(&out), out.to_vec());
     }
 }

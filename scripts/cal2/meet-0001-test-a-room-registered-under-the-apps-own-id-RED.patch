@@ -1,0 +1,74 @@
+diff --git a/cf-workers/meet/test/handler.test.mjs b/cf-workers/meet/test/handler.test.mjs
+--- a/cf-workers/meet/test/handler.test.mjs
++++ b/cf-workers/meet/test/handler.test.mjs
+@@ -552,3 +552,70 @@
+     assert.ok(!none.includes('Starts'), none);
+   });
+ });
++
++describe('POST /rooms with the room id the app made: links that work offline', () => {
++  // AzCalendar makes a meeting link while it has no connection (the id is 26 random characters of
++  // the room-id alphabet, 130 bits, like the Worker's own) and registers it here once the server
++  // answers again. Registering is idempotent: an app that did not hear the answer sends it again.
++  const ID = 'a2h859hyqkfaa11nhzxfh3gd7f';
++  const STARTS = '2026-10-06T09:00:00Z';
++  const ENDS = '2026-10-06T10:00:00Z';
++
++  test('registers the room under the id the app sent, with a code and the app link', async () => {
++    const { call } = setup();
++    const r = await call('POST', '/rooms', { body: { room: ID, starts_at: STARTS, ends_at: ENDS } });
++    assert.equal(r.status, 201, r.text);
++    assert.equal(r.json.room, ID);
++    assert.match(r.json.code, ROOM_CODE);
++    assert.equal(r.json.link, `azlin://meet/${ID}`);
++    assert.equal(r.json.starts_at, '2026-10-06T09:00:00.000Z');
++    assert.equal(r.json.expires, '2026-10-06T12:00:00.000Z');
++    const known = await call('GET', `/rooms/${ID}?format=json`);
++    assert.equal(known.status, 200, known.text);
++    assert.equal(known.json.room, ID);
++    assert.equal(known.json.code, r.json.code);
++  });
++
++  test('registering the same id again answers the room it already is, not a new one', async () => {
++    const { call } = setup();
++    const first = await call('POST', '/rooms', { body: { room: ID, starts_at: STARTS, ends_at: ENDS } });
++    assert.equal(first.status, 201, first.text);
++    const again = await call('POST', '/rooms', {
++      body: { room: ID, starts_at: '2026-10-07T09:00:00Z', ends_at: '2026-10-07T10:00:00Z' },
++    });
++    assert.equal(again.status, 200, again.text);
++    assert.equal(again.json.room, ID);
++    assert.equal(again.json.code, first.json.code, 'the room keeps its code');
++    assert.equal(again.json.starts_at, first.json.starts_at, 'the first registration keeps its times');
++  });
++
++  test('an id in any case is the same room', async () => {
++    const { call } = setup();
++    const r = await call('POST', '/rooms', { body: { room: ID.toUpperCase() } });
++    assert.equal(r.status, 201, r.text);
++    assert.equal(r.json.room, ID);
++  });
++
++  test('refuses an id that is not a room id', async () => {
++    const { call } = setup();
++    for (const room of ['short', `${ID}x`, ID.replace('a', 'i'), 'xq4-8kd-2nm', 42, '']) {
++      const r = await call('POST', '/rooms', { body: { room } });
++      assert.equal(r.status, 400, `${JSON.stringify(room)}: ${r.text}`);
++      assert.equal(r.json.error, 'invalid_room');
++    }
++  });
++
++  test('without an id the Worker still mints one', async () => {
++    const { call } = setup();
++    const r = await call('POST', '/rooms', { body: { room: null } });
++    assert.equal(r.status, 201, r.text);
++    assert.match(r.json.room, ROOM_ID);
++  });
++
++  test('peers can announce in a registered room', async () => {
++    const { call, announce, peers } = setup();
++    assert.equal((await call('POST', '/rooms', { body: { room: ID } })).status, 201);
++    assert.equal((await announce(ID, A)).status, 200);
++    assert.deepEqual((await peers(ID)).map((p) => p.node_id), [A]);
++  });
++});

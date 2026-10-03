@@ -7,7 +7,10 @@ use crate::{
     corety::AzString,
     props::{
         basic::{
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            color::{
+                parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+                CssColorParseErrorOwned,
+            },
             pixel::{
                 parse_pixel_value_no_percent, CssPixelValueParseError,
                 CssPixelValueParseErrorOwned, PixelValueNoPercent,
@@ -91,7 +94,7 @@ impl PrintAsCssValue for StyleBoxShadow {
         }
         if self.color != ColorU::BLACK {
             // Assuming black is the default
-            components.push(self.color.to_hash());
+            components.push(self.color.to_css_value());
         }
 
         components.join(" ")
@@ -99,6 +102,7 @@ impl PrintAsCssValue for StyleBoxShadow {
 }
 
 // Formatting to Rust code for StyleBoxShadow
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleBoxShadow {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
@@ -187,17 +191,70 @@ impl CssShadowParseErrorOwned {
     }
 }
 
+/// How many shadows a node keeps: its four shadow slots
+/// (`-azul-box-shadow-left/right/top/bottom`) are its list of shadows (see
+/// [`box_shadow_slots`]).
+pub const MAX_BOX_SHADOWS: usize = 4;
+
+/// The four shadow slots a `box-shadow` list fills, as `[left, right, top,
+/// bottom]`; `None` for an empty list.
+///
+/// CSS paints the FIRST shadow of a list on top. The painter paints each
+/// DISTINCT slot shadow once, in slot order left, right, top, bottom - the
+/// last on top (`azul_layout::solver3::getters::get_box_shadows`). So the
+/// list fills the slots from the bottom up: bottom = 1st, top = 2nd, right =
+/// 3rd, left = 4th. A slot a shorter list leaves over repeats the list's LAST
+/// shadow, which paints nothing twice - one shadow fills all four slots, as
+/// the shorthand always did. Shadows past the [`MAX_BOX_SHADOWS`]th are
+/// dropped (the stylesheet parser warns).
+///
+/// A list that names the same shadow twice paints it once, at its lowest
+/// position.
+#[must_use]
+pub fn box_shadow_slots(list: &[StyleBoxShadow]) -> Option<[StyleBoxShadow; MAX_BOX_SHADOWS]> {
+    let kept = &list[..list.len().min(MAX_BOX_SHADOWS)];
+    let last = *kept.last()?;
+    let nth = |k: usize| kept.get(k).copied().unwrap_or(last);
+    Some([nth(3), nth(2), nth(1), nth(0)])
+}
+
+/// Parses a `box-shadow` value: one shadow or a comma-separated list of
+/// them, such as `"0 1px 2px red, 0 0 0 1px blue"`. Split at top-level
+/// commas only (`rgba(0, 0, 0, 0.5)` stays one colour); every shadow must
+/// parse, as in CSS, where one invalid shadow invalidates the list.
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is empty or any of its shadows is not a valid
+/// CSS shadow.
+pub fn parse_style_box_shadow_list(
+    input: &str,
+) -> Result<Vec<StyleBoxShadow>, CssShadowParseError<'_>> {
+    let items = crate::props::basic::parse::split_string_respect_comma(input);
+    if items.is_empty() {
+        return Err(CssShadowParseError::TooManyOrTooFewComponents(input));
+    }
+    items
+        .into_iter()
+        .map(|item| parse_style_box_shadow(item.trim()))
+        .collect()
+}
+
 /// Parses a CSS box-shadow, such as `"5px 10px #888 inset"`.
 ///
 /// Note: This parser does not handle the `none` keyword, as that is handled by the
-/// `CssPropertyValue` enum wrapper. It also does not handle comma-separated lists
-/// of multiple shadows; it only parses a single shadow value.
+/// `CssPropertyValue` enum wrapper. It parses ONE shadow; a comma-separated
+/// list is [`parse_style_box_shadow_list`].
 #[cfg(feature = "parser")]
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `box-shadow` value.
 pub fn parse_style_box_shadow(input: &str) -> Result<StyleBoxShadow, CssShadowParseError<'_>> {
-    let mut parts: Vec<&str> = input.split_whitespace().collect();
+    use crate::props::basic::parse::split_string_respect_whitespace;
+
+    // Parenthesis-aware: `rgba(16, 24, 40, 0.1)` is ONE component. A plain
+    // `split_whitespace` tore it into four and dropped the whole declaration.
+    let mut parts: Vec<&str> = split_string_respect_whitespace(input);
     let mut shadow = StyleBoxShadow::default();
 
     // The `inset` keyword can appear anywhere. Find it, set the flag, and remove it.
@@ -208,12 +265,14 @@ pub fn parse_style_box_shadow(input: &str) -> Result<StyleBoxShadow, CssShadowPa
 
     // The color can also be anywhere. Find it, set the color, and remove it.
     // It's the only part that isn't a length. We iterate from the back because
-    // it's slightly more common for the color to be last.
+    // it's slightly more common for the color to be last. A `system:` colour
+    // keyword is a colour too (its token, resolved where the shadow is read) -
+    // `box-shadow`, `text-shadow` and `drop-shadow()` all come through here.
     if let Some((pos, color)) = parts
         .iter()
         .enumerate()
         .rev()
-        .find_map(|(i, p)| parse_css_color(p).ok().map(|c| (i, c)))
+        .find_map(|(i, p)| parse_color_or_system_token(p).ok().map(|c| (i, c)))
     {
         shadow.color = color;
         parts.remove(pos);
@@ -323,8 +382,9 @@ mod tests {
 #[cfg(all(test, feature = "parser"))]
 mod autotest_generated {
     use super::*;
+    #[cfg(feature = "codegen")]
+    use crate::codegen::format::FormatAsRustCode;
     use crate::{
-        codegen::format::FormatAsRustCode,
         props::basic::{
             pixel::{CssPixelValueParseError, PixelValue},
             SizeMetric,
@@ -800,7 +860,7 @@ mod autotest_generated {
 
     #[test]
     fn parse_leading_trailing_junk_is_trimmed_or_rejected_deterministically() {
-        // Surrounding whitespace is absorbed by split_whitespace.
+        // Surrounding whitespace is absorbed by the component splitter.
         let padded = parse_style_box_shadow("   10px    5px   ").unwrap();
         assert_eq!(padded, parse_style_box_shadow("10px 5px").unwrap());
 
@@ -987,9 +1047,10 @@ mod autotest_generated {
             let _ = parse_style_box_shadow(input); // must not panic
         }
 
-        // Unicode whitespace still splits tokens, so this is a valid shadow.
-        let nbsp = parse_style_box_shadow("10px\u{00a0}5px").unwrap();
-        assert_eq!(nbsp, parse_style_box_shadow("10px 5px").unwrap());
+        // CSS whitespace is ASCII only (space, tab, LF, CR), so a no-break
+        // space does NOT separate components: `10px\u{00a0}5px` is one
+        // unparseable token, as in a browser.
+        assert!(parse_style_box_shadow("10px\u{00a0}5px").is_err());
     }
 
     #[test]
@@ -1133,6 +1194,7 @@ mod autotest_generated {
         }
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_is_well_formed_for_extremes() {
         for s in round_trip_corpus() {

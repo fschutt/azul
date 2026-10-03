@@ -9,6 +9,7 @@
 //! - [`shape`]: Text shaping and glyph layout.
 //! - [`shape_parser`]: Font and shape metric parsing.
 //! - [`dynamic_selector`]: Runtime selector matching helpers.
+//! - [`theme_chain`]: The theme chain and the `AZ_THEME` / `AZ_MODE` variables.
 //! - [`compact_cache`]: Compact caching utilities for resolved styles.
 //! - [`corety`]: Core type aliases re-exported at crate root.
 // Lint policy: deny correctness/safety issues, warn on style
@@ -75,14 +76,22 @@ pub mod macros;
 /// `redundant_pub_crate` (they conflict); `#[doc(hidden)]` keeps it out of the API.
 #[doc(hidden)]
 pub mod cast;
-/// Multi-language code generation backends (Rust, C++, Python).
+/// CSS -> source code generation for every binding language (one IR, one
+/// printer per language). Opt-in: enable the `codegen` cargo feature.
+#[cfg(feature = "codegen")]
 pub mod codegen;
 /// Three-tier numeric property cache for fast style resolution.
 pub mod compact_cache;
+/// Content hashing (`GetHash`) used for dedup / cache keys. Always compiled:
+/// it is runtime infrastructure, not code generation.
+pub mod hash;
 /// FFI-safe core type aliases (`AzString`, `AzVec`, `OptionT`, etc.).
 pub mod corety;
 /// Stylesheet types: rules, selectors, declarations, and specificity.
 pub mod css;
+/// Custom properties (`--name`) and `var()`: the per-node variable map and
+/// the resolver both cascades consult.
+pub mod custom_properties;
 /// Typed default values for CSS properties (font size, font id, text color).
 pub mod defaults;
 /// Runtime CSS selector matching (`:hover`, `@os`, `@media`, etc.).
@@ -98,5 +107,18 @@ pub mod shape;
 pub mod shape_parser;
 /// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
+/// The theme chain (`xyz:pink -> xyz -> flat`): which app themes are live.
+pub mod theme_chain;
+
+/// The end user's stylesheets ("rice"): discovery over the theme chain's
+/// directories (`~/.azul/css/<theme>/*.css`), the header meta-comment,
+/// hardening and the status listing.
+#[cfg(feature = "parser")]
+pub mod rice;
+
+/// The azul release this build is: the version of the C API (`api.json`), what
+/// generated build files depend on and what a rice file's `azul:` key is
+/// matched against.
+pub const AZUL_VERSION: &str = "0.2.0";
 
 pub use self::corety::*;

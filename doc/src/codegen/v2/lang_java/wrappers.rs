@@ -955,7 +955,7 @@ fn emit_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &Co
 /// Ruby I.1.6 pattern: struct fields exactly [ptr, len, cap, destructor]
 /// with ptr being a `*mut|*const T` typedef. Returns the element type T.
 fn detect_vec_elem_type_jvm(s: &StructDef) -> Option<String> {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return None;
     }
     if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {

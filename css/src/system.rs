@@ -4,21 +4,26 @@
 //! for its UI theme information. This is gated behind the **`io`** feature flag.
 //!
 //! **End-user customization (`AZ_RICING`):**
-//! By default (if the `io` feature is enabled), Azul looks for an
-//! application-specific stylesheet at `~/.config/azul/styles/<app_name>.css`
-//! (or `%APPDATA%\azul\styles\<app_name>.css` on Windows) and applies it as
-//! the last layer of the cascade, letting end-users "rice" any Azul app.
+//! The end user's stylesheets ("rice") are loaded by [`crate::rice`]: one
+//! directory per theme of the app's theme chain, `~/.azul/css/<theme>/*.css`
+//! (`xyz:pink` is `css/xyz/pink/`), plus the legacy per-app file
+//! `~/.config/azul/styles/<app_name>.css` (`%APPDATA%\azul\styles\` on
+//! Windows, `~/Library/Application Support/azul/styles/` on macOS), which keeps
+//! loading as a per-app file. Each file's header comment names its priority
+//! (`base` by default: it fills what nobody declared and cannot break the app).
 //!
-//! The `AZ_RICING` env var has three modes (case-insensitive):
+//! The `AZ_RICING` env var has four modes (case-insensitive):
 //!
-//! - unset (default): load the user CSS if present; on Linux, the detection chain is `KDE > GNOME >
+//! - unset (default): load the rice if present; on Linux, the detection chain is `KDE > GNOME >
 //!   riced > defaults`.
-//! - `AZ_RICING=off` (aliases: `disabled`, `none`, `0`): skip the user CSS file and the
-//!   riced-desktop sources (Hyprland config, pywal cache). Use for kiosk builds or CI runs that
-//!   mustn't pick up local customization.
+//! - `AZ_RICING=off` (aliases: `disabled`, `none`, `0`): skip every rice file and the
+//!   riced-desktop sources (Hyprland config, pywal cache). Use for kiosk builds, CI runs that
+//!   mustn't pick up local customization, and the "is it the rice?" check of a bug report.
 //! - `AZ_RICING=force` (aliases: `prefer`, `aggressive`, `1`): on Linux, reorder the detection
 //!   chain so riced-desktop sources win over GNOME/KDE — useful for tiling-WM users whose
-//!   `XDG_CURRENT_DESKTOP` still says `gnome`. The user CSS file still loads.
+//!   `XDG_CURRENT_DESKTOP` still says `gnome`. The rice still loads.
+//! - `AZ_RICING=watch` (aliases: `live`, `reload`): as the default, and a change to a rice file
+//!   rebuilds every window with the new rice (the app-theme rebuild path) - for writing a theme.
 
 #![cfg(feature = "parser")]
 
@@ -50,52 +55,64 @@ use crate::{
 /// User-customization mode controlled by the `AZ_RICING` env var.
 ///
 /// See the module-level documentation for the full description.
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RicingMode {
-    /// `AZ_RICING=off` (or `disabled` / `none` / `0`). Skip the user
-    /// CSS file *and* the riced-desktop sources. Vanilla detection.
+    /// `AZ_RICING=off` (or `disabled` / `none` / `0`). Skip every rice
+    /// file *and* the riced-desktop sources. Vanilla detection.
     Off,
-    /// Unset. Load the user CSS if present; standard detection chain
+    /// Unset. Load the rice if present; standard detection chain
     /// (`KDE > GNOME > riced > defaults` on Linux).
     #[default]
     Default,
     /// `AZ_RICING=force` (or `prefer` / `aggressive` / `1`). Reorder
     /// the Linux detection chain so riced-desktop sources win over
-    /// GNOME/KDE. The user CSS file still loads.
+    /// GNOME/KDE. The rice still loads.
     Force,
+    /// `AZ_RICING=watch` (or `live` / `reload`). As `Default`, and a
+    /// change to a rice file rebuilds every window with the new rice.
+    Watch,
 }
 
-/// Read the `AZ_RICING` env var and classify it. Case-insensitive.
+/// Classify an `AZ_RICING` value (`None`: unset). Case-insensitive.
 /// Anything we don't recognise falls through to `Default` so a typo
 /// degrades gracefully instead of disabling the feature silently.
 #[must_use]
-pub fn ricing_mode() -> RicingMode {
-    let Ok(raw) = std::env::var("AZ_RICING") else {
+pub fn ricing_mode_from(value: Option<&str>) -> RicingMode {
+    let Some(raw) = value else {
         return RicingMode::Default;
     };
     match raw.trim().to_ascii_lowercase().as_str() {
         "off" | "disabled" | "none" | "0" | "false" => RicingMode::Off,
         "force" | "prefer" | "aggressive" | "1" | "true" => RicingMode::Force,
+        "watch" | "live" | "reload" => RicingMode::Watch,
         _ => RicingMode::Default,
     }
 }
 
-/// True when the user CSS file at `~/.config/azul/styles/<app>.css`
-/// should be read. False only when `AZ_RICING=off` is set.
+/// Read the `AZ_RICING` env var and classify it ([`ricing_mode_from`]).
+#[must_use]
+pub fn ricing_mode() -> RicingMode {
+    ricing_mode_from(std::env::var("AZ_RICING").ok().as_deref())
+}
+
+/// True when the rice (`crate::rice`) should be read. False only when
+/// `AZ_RICING=off` is set.
 #[must_use]
 pub fn ricing_enabled() -> bool {
     !matches!(ricing_mode(), RicingMode::Off)
 }
 
-/// Force a freshly discovered [`SystemStyle`] to the polarity `AZ_THEME`
-/// pins, swapping in `light` / `dark` as the replacement palette.
+/// Force a freshly discovered [`SystemStyle`] to the polarity `AZ_MODE`
+/// pins (or the deprecated `AZ_THEME=light|dark`), swapping in `light` /
+/// `dark` as the replacement palette.
 ///
-/// `AZ_THEME=light|dark` exists so a screenshot or a reftest renders the same
-/// on any machine. It used to pin only the CASCADE (`@theme` blocks, via
-/// `dynamic_selector::theme_pinned_by_env`) and the WINDOW theme — but the
+/// `AZ_MODE=light|dark` exists so a screenshot or a reftest renders the same
+/// on any machine. The pin used to reach only the CASCADE (`@theme` blocks, via
+/// `dynamic_selector::mode_pinned_by_env`) and the WINDOW theme — but the
 /// window BACKGROUND, the "is this a full regeneration" decision and the
 /// display list's no-context fallback all read `SystemStyle` instead. On a
-/// dark desktop `AZ_THEME=light` therefore rendered light-theme TEXT on the
+/// dark desktop a light pin therefore rendered light-theme TEXT on the
 /// desktop's DARK background: unreadable, and shipped to the website as the
 /// "light" screenshot of the Linux build. A pin that does not reach here is
 /// not a pin.
@@ -107,21 +124,18 @@ pub fn ricing_enabled() -> bool {
 /// closures so the caller picks the palette family that matches what it just
 /// discovered — Breeze on a KDE session, Adwaita on GNOME — and so neither is
 /// built when nothing is pinned, which is every normal run.
-pub fn apply_env_theme_pin(
+pub fn apply_env_mode_pin(
     style: &mut SystemStyle,
     light: impl FnOnce() -> SystemStyle,
     dark: impl FnOnce() -> SystemStyle,
 ) {
     use crate::dynamic_selector::ThemeCondition;
 
-    let Some(pin) = crate::dynamic_selector::theme_pinned_by_env() else {
+    let Some(pin) = crate::dynamic_selector::mode_pinned_by_env() else {
         return;
     };
-    let wanted = match pin {
-        ThemeCondition::Dark => Theme::Dark,
-        _ => Theme::Light,
-    };
-    if style.theme == wanted {
+    let wanted = pin;
+    if style.mode == wanted {
         return;
     }
     adopt_theme_palette(style, wanted, light, dark);
@@ -130,13 +144,13 @@ pub fn apply_env_theme_pin(
 /// Gives `style` the palette of `wanted`, keeping non-polar fields and the accent, even if `style.theme` already matches.
 pub fn adopt_theme_palette(
     style: &mut SystemStyle,
-    wanted: Theme,
+    wanted: DarkLightMode,
     light: impl FnOnce() -> SystemStyle,
     dark: impl FnOnce() -> SystemStyle,
 ) {
     let mut replacement = match wanted {
-        Theme::Dark => dark(),
-        Theme::Light => light(),
+        DarkLightMode::Dark => dark(),
+        DarkLightMode::Light => light(),
     };
 
     // An EXPLICIT list of what has a polarity, not "replace the struct and put
@@ -145,7 +159,7 @@ pub fn adopt_theme_palette(
     // the user's ricing stylesheet have all been filled in, and a wholesale
     // replacement would quietly reset every one of them to whatever the
     // built-in palette carries.
-    style.theme = replacement.theme;
+    style.mode = replacement.mode;
     style.focus_visuals = replacement.focus_visuals;
     // `SystemStyle` implements `Drop` (the FFI double-drop guard), so the one
     // boxed field here has to be TAKEN rather than moved out of `replacement`.
@@ -229,13 +243,108 @@ pub enum DesktopEnvironment {
     Other(AzString),
 }
 
-/// The overall theme type.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// Dark or light: the MODE a window or the whole desktop is drawn in
+/// (`AppConfig::set_mode` pins it, `get_mode` reads it). A mode, not a
+/// theme: the THEME is the app's look (`flat`, `flora`, ...), and every
+/// theme comes in both modes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum Theme {
+pub enum DarkLightMode {
     #[default]
     Light,
     Dark,
+}
+
+crate::impl_option!(
+    DarkLightMode,
+    OptionDarkLightMode,
+    [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
+);
+
+/// A language as the OS (or the app) names it: a BCP 47 tag such as
+/// `"de-DE"`, and whether its script is written right-to-left.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct SystemLanguage {
+    pub id: AzString,
+    pub is_rtl: bool,
+}
+
+impl SystemLanguage {
+    pub fn new(id: &str, is_rtl: bool) -> Self {
+        Self {
+            id: AzString::from(id),
+            is_rtl,
+        }
+    }
+
+    /// The language an OS locale name stands for, with its right-to-left-ness
+    /// taken from `known` (the app's `LocalizationConfig::known_languages`).
+    ///
+    /// The name is normalized to a BCP 47 tag first: POSIX `_` becomes `-`,
+    /// and an encoding or modifier suffix (`de_DE.UTF-8`, `en_US@rg=dezzzz`)
+    /// is dropped. Then an exact, case-insensitive match in `known` wins
+    /// outright; failing that, the first known language with the same primary
+    /// language subtag lends its `is_rtl` (`ar-DZ` is RTL because `ar-SA`
+    /// is); failing that, the language is taken as left-to-right.
+    #[must_use]
+    pub fn resolve(os_locale: &str, known: &[SystemLanguage]) -> Self {
+        let tag = os_locale
+            .split(|c: char| c == '.' || c == '@')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .replace('_', "-");
+        if let Some(exact) = known
+            .iter()
+            .find(|l| l.id.as_str().eq_ignore_ascii_case(&tag))
+        {
+            return exact.clone();
+        }
+        let primary_subtag = |t: &str| -> String {
+            t.split(|c: char| c == '-' || c == '_')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+        };
+        let language = primary_subtag(&tag);
+        let is_rtl = !language.is_empty()
+            && known
+                .iter()
+                .find(|l| primary_subtag(l.id.as_str()) == language)
+                .is_some_and(|l| l.is_rtl);
+        Self::new(&tag, is_rtl)
+    }
+}
+
+
+crate::impl_option!(
+    SystemLanguage,
+    OptionSystemLanguage,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+crate::impl_vec!(
+    SystemLanguage,
+    SystemLanguageVec,
+    SystemLanguageVecDestructor,
+    SystemLanguageVecDestructorType,
+    SystemLanguageVecSlice,
+    OptionSystemLanguage
+);
+crate::impl_vec_mut!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_debug!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_clone!(SystemLanguage, SystemLanguageVec, SystemLanguageVecDestructor);
+crate::impl_vec_partialeq!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_eq!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_partialord!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_ord!(SystemLanguage, SystemLanguageVec);
+crate::impl_vec_hash!(SystemLanguage, SystemLanguageVec);
+
+impl Default for SystemLanguage {
+    fn default() -> Self {
+        Self::new("en-US", false)
+    }
 }
 
 /// A unified collection of discovered system style properties.
@@ -251,11 +360,13 @@ pub struct SystemStyle {
     pub focus_visuals: FocusVisuals,
     /// System language/locale in BCP 47 format (e.g., "en-US", "de-DE")
     /// Detected from OS settings at startup
-    pub language: AzString,
-    /// An optional, user-provided stylesheet loaded from a conventional
-    /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
-    /// application-specific "ricing". Only loaded when the "io" feature
-    /// is enabled and `AZ_RICING` is not set to `off`.
+    pub language: SystemLanguage,
+    /// Kept for ABI stability; discovery no longer fills it and nothing
+    /// reads it. The end user's stylesheets - the theme directories
+    /// `~/.azul/css/<theme>/` and the legacy per-app file
+    /// `~/.config/azul/styles/<app_name>.css` - are loaded by the rice
+    /// loader (`azul_css::rice`) and applied to every window's DOM; see
+    /// [`SystemStyle::get_rice_status`] for what it loaded.
     pub app_specific_stylesheet: Option<Box<Css>>,
     /// Scrollbar style information (boxed to ensure stable FFI size)
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,
@@ -263,7 +374,8 @@ pub struct SystemStyle {
     /// Platform-specific defaults are applied during system style discovery.
     /// Applications can override this to change the "feel" of scrolling globally.
     pub scroll_physics: ScrollPhysics,
-    pub theme: Theme,
+    /// The desktop's dark / light mode
+    pub mode: DarkLightMode,
     /// Detected OS version (e.g., Windows 11 22H2, macOS Sonoma, etc.)
     pub os_version: OsVersion,
     /// User prefers reduced motion (accessibility setting)
@@ -319,11 +431,11 @@ impl Default for SystemStyle {
             platform: Platform::default(),
             focus_visuals: FocusVisuals::default(),
             handedness: Handedness::default(),
-            language: AzString::default(),
+            language: SystemLanguage::default(),
             app_specific_stylesheet: None,
             scrollbar: None,
             scroll_physics: ScrollPhysics::default(),
-            theme: Theme::default(),
+            mode: DarkLightMode::default(),
             os_version: OsVersion::default(),
             prefers_reduced_motion: BoolCondition::default(),
             prefers_high_contrast: BoolCondition::default(),
@@ -536,7 +648,11 @@ pub struct AccessibilitySettings {
 /// On macOS, these correspond to `NSColor` semantic colors.
 /// On Windows, these come from `UISettings`.
 /// On Linux/GTK, these come from the GTK theme.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+///
+/// Stylesheets reach every slot as a `system:` colour keyword (the slot name
+/// in kebab-case, see `SystemColorRef`), resolved against the palette of the
+/// theme the cascade evaluates ([`SystemStyle::colors_for_theme`]).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct SystemColors {
     // === Primary semantic colors ===
@@ -596,6 +712,19 @@ pub struct SystemColors {
     pub sidebar_background: OptionColorU,
     /// Selected row in sidebar
     pub sidebar_selection: OptionColorU,
+
+    // === Editable controls (APPENDED 2026-09-26 for ABI stability) ===
+    /// Background of editable controls and content lists - a text field, a
+    /// list or table view (`NSColor.controlBackgroundColor` on macOS,
+    /// `COLOR_WINDOW` on Windows, `Colors:View` `BackgroundNormal` on KDE).
+    /// Distinct from `background` on the platforms that tell the two apart.
+    pub control_background: OptionColorU,
+    /// The prompt shown in an empty field (`NSColor.placeholderTextColor`)
+    pub placeholder_text: OptionColorU,
+    /// Background of selected TEXT (`NSColor.selectedTextBackgroundColor`),
+    /// as opposed to `selection_background`, the selected-content (row,
+    /// item) colour.
+    pub text_selection_background: OptionColorU,
 }
 
 /// Common system font settings.
@@ -767,6 +896,19 @@ pub struct TitlebarMetrics {
     /// platform (Breeze and Windows both go red), which is why it is not
     /// folded into `button_hover_background`.
     pub close_button_hover_background: OptionColorU,
+    /// The line under the bar, between it and the content, while the window
+    /// HAS focus. `None` = no line.
+    ///
+    /// macOS draws one under every standard titlebar: one device pixel
+    /// (0.5pt) of #D0D0D0 in light mode and #000000 in dark mode (measured
+    /// through AppKit on macOS 15.5), which is why the macOS presets carry it
+    /// per theme.
+    pub separator_color: OptionColorU,
+    /// The line's colour while the window does NOT have focus. `None` = the
+    /// focused colour.
+    pub separator_color_inactive: OptionColorU,
+    /// The line's thickness. `None` = the widget's default.
+    pub separator_width: OptionPixelValue,
 }
 
 impl Default for TitlebarMetrics {
@@ -791,6 +933,9 @@ impl Default for TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 }
@@ -820,6 +965,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 
@@ -840,13 +988,23 @@ impl TitlebarMetrics {
             safe_area: SafeAreaInsets::default(),
             title_font: OptionString::Some(".SF NS".into()),
             title_font_size: OptionF32::Some(13.0),
-            title_font_weight: OptionU16::Some(600), // Semibold
+            // `NSFont.titleBarFont`: weight trait 0.4 = NSFontWeightBold (700).
+            // Semibold (590/600) is a TOOLBAR-style bar's 15pt title.
+            title_font_weight: OptionU16::Some(700), // Bold
+            // No fill: behind a transparent titlebar (`NoTitle`,
+            // `NoTitleAutoInject`) the window's own background shows.
             background_active: OptionColorU::None,
             background_inactive: OptionColorU::None,
             text_active: OptionColorU::None,
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            // The separator's colour depends on the theme, so the macOS
+            // presets set it. Its thickness does not: one device pixel on a
+            // Retina display, 0.5pt.
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::Some(PixelValue::px(0.5)),
         }
     }
 
@@ -874,6 +1032,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 
@@ -910,6 +1071,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 
@@ -937,6 +1101,9 @@ impl TitlebarMetrics {
             text_inactive: OptionColorU::None,
             button_hover_background: OptionColorU::None,
             close_button_hover_background: OptionColorU::None,
+            separator_color: OptionColorU::None,
+            separator_color_inactive: OptionColorU::None,
+            separator_width: OptionPixelValue::None,
         }
     }
 }
@@ -1318,6 +1485,221 @@ pub mod windows_fonts {
     pub const COURIER_NEW: &str = "Courier New";
 }
 
+/// The Windows UI accent colour, parsed from the registry as the `reg query`
+/// CLI prints it. Pure text parsing, so it is tested on every platform; the
+/// Windows discovery (`dll/src/desktop/shell2/windows/system_style.rs`) runs
+/// the queries and hands the output here.
+pub mod windows_accent {
+    use super::SystemStyle;
+    use crate::props::basic::color::{ColorU, OptionColorU};
+
+    /// The key holding the accent Windows draws its UI with
+    /// (`UISettings.GetColorValue(UIColorType::Accent)` reads the same data).
+    pub const EXPLORER_ACCENT_KEY: &str =
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Accent";
+    /// DWM's key: `AccentColor` mirrors the accent, `ColorizationColor` is
+    /// the window-FRAME colourisation and must not be read as the accent.
+    pub const DWM_KEY: &str = r"HKCU\Software\Microsoft\Windows\DWM";
+
+    /// The seven accent shades of the `AccentPalette` value, named like the
+    /// `SystemAccentColorLight3` ... `SystemAccentColorDark3` theme resources.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct AccentPalette {
+        pub light_3: ColorU,
+        pub light_2: ColorU,
+        pub light_1: ColorU,
+        pub accent: ColorU,
+        pub dark_1: ColorU,
+        pub dark_2: ColorU,
+        pub dark_3: ColorU,
+    }
+
+    /// The UI accent from `reg query` output (of [`EXPLORER_ACCENT_KEY`] or
+    /// [`DWM_KEY`]).
+    ///
+    /// Reads the NAMED value, never the first number in the output:
+    /// `AccentColorMenu` (Explorer) or `AccentColor` (DWM), both `REG_DWORD`
+    /// in 0xAABBGGRR order, else the base entry of `AccentPalette`. The DWM
+    /// key also lists `ColorizationColor` (the window-frame tint, 0xAARRGGBB
+    /// with a translucent alpha), which is NOT the accent. The accent is an
+    /// opaque colour, so the stored alpha byte is ignored.
+    #[must_use]
+    pub fn accent_from_reg_query(output: &str) -> Option<ColorU> {
+        reg_dword(output, "AccentColorMenu")
+            .or_else(|| reg_dword(output, "AccentColor"))
+            .map(|abgr| {
+                let [r, g, b, _alpha] = abgr.to_le_bytes();
+                ColorU::new_rgb(r, g, b)
+            })
+            .or_else(|| accent_palette_from_reg_query(output).map(|p| p.accent))
+    }
+
+    /// The accent shades from `reg query` output of [`EXPLORER_ACCENT_KEY`]:
+    /// `AccentPalette` is a `REG_BINARY` of eight RGBA entries, Light3 first,
+    /// the base accent fourth, Dark3 seventh (the eighth is unused).
+    #[must_use]
+    pub fn accent_palette_from_reg_query(output: &str) -> Option<AccentPalette> {
+        let (ty, data) = reg_value(output, "AccentPalette")?;
+        if ty != "REG_BINARY" {
+            return None;
+        }
+        let bytes = palette_bytes(data)?;
+        let shade = |i: usize| ColorU::new_rgb(bytes[i * 4], bytes[i * 4 + 1], bytes[i * 4 + 2]);
+        Some(AccentPalette {
+            light_3: shade(0),
+            light_2: shade(1),
+            light_1: shade(2),
+            accent: shade(3),
+            dark_1: shade(4),
+            dark_2: shade(5),
+            dark_3: shade(6),
+        })
+    }
+
+    /// Writes the discovered accent into `style`. Only the ACCENT: the
+    /// selection colours are their own slots (Windows' highlight colour),
+    /// and copying the accent over them made every selection accent-blue.
+    pub const fn apply_accent(style: &mut SystemStyle, accent: ColorU) {
+        style.colors.accent = OptionColorU::Some(accent);
+    }
+
+    /// `(type, data)` of the value called `name` in `reg query` output,
+    /// whose value lines read `    <name>    <REG_TYPE>    <data>`.
+    fn reg_value<'a>(output: &'a str, name: &str) -> Option<(&'a str, &'a str)> {
+        output.lines().find_map(|line| {
+            let mut tokens = line.split_whitespace();
+            if tokens.next()? != name {
+                return None;
+            }
+            let ty = tokens.next()?;
+            let data = tokens.next()?;
+            Some((ty, data))
+        })
+    }
+
+    /// A `REG_DWORD` value, printed by `reg` as `0x` + hex.
+    fn reg_dword(output: &str, name: &str) -> Option<u32> {
+        let (ty, data) = reg_value(output, name)?;
+        if ty != "REG_DWORD" {
+            return None;
+        }
+        let hex = data
+            .strip_prefix("0x")
+            .or_else(|| data.strip_prefix("0X"))
+            .unwrap_or(data);
+        u32::from_str_radix(hex, 16).ok()
+    }
+
+    /// The first seven RGBA entries (28 bytes) of the `AccentPalette` hex.
+    fn palette_bytes(hex: &str) -> Option<[u8; 28]> {
+        let hex = hex.as_bytes();
+        if hex.len() < 56 {
+            return None;
+        }
+        let mut out = [0_u8; 28];
+        for (i, slot) in out.iter_mut().enumerate() {
+            let hi = hex_digit(hex[i * 2])?;
+            let lo = hex_digit(hex[i * 2 + 1])?;
+            *slot = (hi << 4) | lo;
+        }
+        Some(out)
+    }
+
+    const fn hex_digit(c: u8) -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            b'A'..=b'F' => Some(c - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::system::defaults;
+
+        /// `reg query HKCU\...\Explorer\Accent` on a Windows 11 machine with a
+        /// distinct value per shade (entry 8 of the palette is unused).
+        const EXPLORER_ACCENT: &str = "\r\n\
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent\r\n\
+    AccentPalette    REG_BINARY    99EBFF0060CDFF000093F9000078D400005FB80000429200002368004CC2FF00\r\n\
+    StartColorMenu    REG_DWORD    0xffb85f00\r\n\
+    AccentColorMenu    REG_DWORD    0xffd47800\r\n\
+    MotionAccentId_v1.00    REG_DWORD    0xdb\r\n\
+\r\n";
+
+        /// `reg query HKCU\...\DWM`: the frame colourisation comes first.
+        const DWM: &str = "\r\n\
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\DWM\r\n\
+    Composition    REG_DWORD    0x1\r\n\
+    ColorizationColor    REG_DWORD    0xc40078d4\r\n\
+    ColorizationAfterglow    REG_DWORD    0xc40078d4\r\n\
+    AccentColor    REG_DWORD    0xffd47800\r\n\
+    ColorPrevalence    REG_DWORD    0x0\r\n\
+\r\n";
+
+        const WIN11_BLUE: ColorU = ColorU::new_rgb(0x00, 0x78, 0xD4);
+
+        #[test]
+        fn the_accent_is_accent_color_menu_not_the_first_dword_of_the_key() {
+            assert_eq!(accent_from_reg_query(EXPLORER_ACCENT), Some(WIN11_BLUE));
+        }
+
+        #[test]
+        fn the_dwm_key_yields_accent_color_not_the_frame_colorization() {
+            assert_eq!(accent_from_reg_query(DWM), Some(WIN11_BLUE));
+        }
+
+        #[test]
+        fn without_accent_color_menu_the_palette_base_is_the_accent() {
+            let only_palette = "    AccentPalette    REG_BINARY    \
+                99EBFF0060CDFF000093F9000078D400005FB80000429200002368004CC2FF00\r\n";
+            assert_eq!(accent_from_reg_query(only_palette), Some(WIN11_BLUE));
+        }
+
+        #[test]
+        fn the_accent_palette_parses_light_3_through_dark_3() {
+            assert_eq!(
+                accent_palette_from_reg_query(EXPLORER_ACCENT),
+                Some(AccentPalette {
+                    light_3: ColorU::new_rgb(0x99, 0xEB, 0xFF),
+                    light_2: ColorU::new_rgb(0x60, 0xCD, 0xFF),
+                    light_1: ColorU::new_rgb(0x00, 0x93, 0xF9),
+                    accent: WIN11_BLUE,
+                    dark_1: ColorU::new_rgb(0x00, 0x5F, 0xB8),
+                    dark_2: ColorU::new_rgb(0x00, 0x42, 0x92),
+                    dark_3: ColorU::new_rgb(0x00, 0x23, 0x68),
+                })
+            );
+        }
+
+        #[test]
+        fn a_short_or_malformed_palette_is_none() {
+            for output in [
+                "    AccentPalette    REG_BINARY    99EBFF00\r\n",
+                "    AccentPalette    REG_BINARY    ZZEBFF0060CDFF000093F9000078D400005FB80000429200002368004CC2FF00\r\n",
+                "    AccentPalette    REG_DWORD    0xffd47800\r\n",
+                "",
+            ] {
+                assert_eq!(accent_palette_from_reg_query(output), None, "{output:?}");
+            }
+        }
+
+        #[test]
+        fn applying_the_accent_leaves_the_selection_colours_alone() {
+            let mut style = defaults::windows_11_light();
+            let selection = style.colors.selection_background;
+            let text_selection = style.colors.text_selection_background;
+            let purple = ColorU::new_rgb(0x88, 0x17, 0x98);
+            apply_accent(&mut style, purple);
+            assert_eq!(style.colors.accent, OptionColorU::Some(purple));
+            assert_eq!(style.colors.selection_background, selection);
+            assert_eq!(style.colors.text_selection_background, text_selection);
+        }
+    }
+}
+
 /// Linux/GTK common font family names.
 pub mod linux_fonts {
     /// GNOME default fonts
@@ -1370,16 +1752,18 @@ impl SystemFontType {
 
     fn macos_fallback_chain(self) -> Vec<&'static str> {
         match self {
-            // Normal weight: System Font first, then Helvetica Neue.
-            Self::Ui => vec![
+            // System Font first, regular AND bold. `SFNS.ttf` ("System Font")
+            // is ONE variable font: a `wght` axis from 1 to 1000, Bold at 700.
+            // rust-fontconfig indexes it at its default instance (400), and the
+            // resolver draws the instance at the requested weight
+            // (`solver3::getters::variable_weight_instance` in azul-layout).
+            // Helvetica Neue, which has static bold faces, stays behind it for
+            // a system without SFNS.
+            Self::Ui | Self::UiBold | Self::TitleBold => vec![
                 apple_fonts::SYSTEM_FONT,
                 apple_fonts::HELVETICA_NEUE,
                 apple_fonts::LUCIDA_GRANDE,
             ],
-            // Bold weights: Helvetica Neue first (System Font has no Bold variant in fontconfig).
-            Self::UiBold | Self::TitleBold => {
-                vec![apple_fonts::HELVETICA_NEUE, apple_fonts::LUCIDA_GRANDE]
-            }
             // Monospace: Menlo (has a Bold variant), then Monaco.
             Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => {
                 vec![apple_fonts::MENLO, apple_fonts::MONACO]
@@ -1553,7 +1937,10 @@ impl SystemStyle {
     "grid": {},
     "find_highlight": {},
     "sidebar_background": {},
-    "sidebar_selection": {}
+    "sidebar_selection": {},
+    "control_background": {},
+    "placeholder_text": {},
+    "text_selection_background": {}
   }},
   "fonts": {{
     "ui_font": {},
@@ -1629,11 +2016,11 @@ impl SystemStyle {
   }}
 }}"#,
             // top-level
-            self.theme,
+            self.mode,
             self.platform,
             self.os_version.os,
             self.os_version.version_id,
-            self.language.as_str(),
+            self.language.id.as_str(),
             self.prefers_reduced_motion,
             self.prefers_high_contrast,
             // colors
@@ -1658,6 +2045,9 @@ impl SystemStyle {
             opt_color(self.colors.find_highlight),
             opt_color(self.colors.sidebar_background),
             opt_color(self.colors.sidebar_selection),
+            opt_color(self.colors.control_background),
+            opt_color(self.colors.placeholder_text),
+            opt_color(self.colors.text_selection_background),
             // fonts
             opt_str(&self.fonts.ui_font),
             opt_f32(self.fonts.ui_font_size),
@@ -1723,6 +2113,32 @@ impl SystemStyle {
         );
 
         AzString::from(json)
+    }
+
+    /// The colour palette for `theme`: this style's own (detected) colours
+    /// when it IS that theme; otherwise an empty palette that keeps only the
+    /// user's accent, so every other slot takes the keyword's own default
+    /// for `theme` (`SystemColorRef::fallback`).
+    ///
+    /// The cascade can run in a theme the desktop is not in - an app that
+    /// pins its window light on a dark desktop, `AZ_MODE`, the frames
+    /// between a switch and the re-discovery - and a `system:` colour has to
+    /// follow the CASCADE's theme: resolved against the desktop's palette
+    /// instead, a light window would get the dark field background under its
+    /// light-theme text. What the desktop would show in the other theme is
+    /// only known to the platform probe; nothing platform-specific is
+    /// guessed here.
+    #[must_use]
+    pub fn colors_for_theme(&self, theme: DarkLightMode) -> SystemColors {
+        if self.mode == theme {
+            return self.colors;
+        }
+        // The accent is the one colour the user picked, and it is a hue,
+        // not a polarity - the same rule `adopt_theme_palette` follows.
+        SystemColors {
+            accent: self.colors.accent,
+            ..SystemColors::default()
+        }
     }
 
     /// Returns a platform-appropriate default system style.
@@ -1810,9 +2226,9 @@ impl SystemStyle {
             .as_option()
             .copied()
             .unwrap_or(ColorU::new_rgb(0, 120, 215));
-        let border_color = match self.theme {
-            Theme::Dark => ColorU::new_rgb(60, 60, 60),
-            Theme::Light => ColorU::new_rgb(200, 200, 200),
+        let border_color = match self.mode {
+            DarkLightMode::Dark => ColorU::new_rgb(60, 60, 60),
+            DarkLightMode::Light => ColorU::new_rgb(200, 200, 200),
         };
 
         // Get system metrics with fallbacks
@@ -1828,41 +2244,109 @@ impl SystemStyle {
             })
             .unwrap_or_else(|| "4px".to_string());
 
+        // The titlebar's own metrics, from the desktop rather than from here.
+        // A CSD titlebar that is 32px tall with 13px text next to a Breeze
+        // frame that is not reads as a foreign toolkit, which is exactly what
+        // it is until it asks. The constants stay as the fallback for a
+        // platform that reports nothing.
+        use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
+        let tb = &self.metrics.titlebar;
+        let px_of = |v: &OptionPixelValue, fallback: f32| -> f32 {
+            v.as_option().map_or(fallback, |p| {
+                p.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+            })
+        };
+        let titlebar_height = px_of(&tb.height, 32.0);
+        let titlebar_padding = px_of(&tb.padding_horizontal, 8.0);
+        let title_font_size = tb.title_font_size.as_option().copied().unwrap_or(13.0);
+        let title_font_weight = tb.title_font_weight.as_option().copied().unwrap_or(400);
+        let title_font_family = tb
+            .title_font
+            .as_option()
+            .map(|f| format!("font-family: \"{f}\"; "))
+            .unwrap_or_default();
+
         // Titlebar container
         let _ = write!(
             css,
-            ".csd-titlebar {{ width: 100%; height: 32px; background: rgb({}, {}, {}); \
+            ".csd-titlebar {{ width: 100%; height: {}px; background: rgb({}, {}, {}); \
              border-bottom: 1px solid rgb({}, {}, {}); display: flex; flex-direction: row; \
-             align-items: center; justify-content: space-between; padding: 0 8px; cursor: grab; \
+             align-items: center; justify-content: space-between; padding: 0 {}px; cursor: grab; \
              user-select: none; }} ",
-            bg_color.r, bg_color.g, bg_color.b, border_color.r, border_color.g, border_color.b,
+            titlebar_height,
+            bg_color.r,
+            bg_color.g,
+            bg_color.b,
+            border_color.r,
+            border_color.g,
+            border_color.b,
+            titlebar_padding,
         );
 
-        // Title text
+        // The controls-only overlay (`WindowDecorations::NoTitle` on a frame
+        // that cannot show controls without a title). It sits ON the app's
+        // chrome rather than above it - `NoTitle` promised the app the whole
+        // client area - so it is taken out of flow, pinned to the corner the
+        // platform puts its buttons in, and sized to its buttons instead of
+        // the window's width.
         let _ = write!(
             css,
-            ".csd-title {{ color: rgb({}, {}, {}); font-size: 13px; flex-grow: 1; text-align: \
-             center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: \
-             none; }} ",
-            text_color.r, text_color.g, text_color.b,
+            ".csd-controls-only {{ position: absolute; top: 0; right: 0; width: auto;              background: transparent; border-bottom: none; padding: 0 4px; }} ",
         );
 
-        // Button container
+        // Title text.
+        //
+        // It does NOT grow. A title that eats whatever the buttons left over
+        // is centred in THAT, which put it half a button block off the
+        // window's middle. The bar centres it by giving the blocks either
+        // side of it the same share - see `.csd-title-spacer` below, and the
+        // matching claim the widget puts on the button block.
+        let _ = write!(
+            css,
+            ".csd-title {{ color: rgb({}, {}, {}); font-size: {}px; font-weight: {}; {}min-width: \
+             0px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: \
+             nowrap; user-select: none; }} ",
+            text_color.r,
+            text_color.g,
+            text_color.b,
+            title_font_size,
+            title_font_weight,
+            title_font_family,
+        );
+
+        // The empty block opposite the window controls. Same claim as the
+        // button block, so the two come out the same width whatever the
+        // controls are, and the title between them is on the bar's midpoint.
+        css.push_str(
+            ".csd-title-spacer { flex-grow: 1; flex-basis: 0px; min-width: 0px; } ",
+        );
+
+        // Button container. In a BAR it is the other end the title is centred
+        // between, and claims the same share as the spacer — but that claim is
+        // declared by the widget, not here, because the same class also
+        // carries the `NoTitle` controls overlay, which is sized to its
+        // buttons rather than to a bar.
         css.push_str(".csd-buttons { display: flex; flex-direction: row; gap: 4px; } ");
 
-        // Buttons
+        // Buttons. The glyph inside is CENTRED BY THE BOX, not by the line
+        // box: a control's glyph is an `<svg>` (an inline-block) as often as
+        // it is a character, and an inline-block sits on the BASELINE, which
+        // put a 16px icon roughly 3px above the middle of a 24px button while
+        // a text glyph landed correctly. `text-align` and `line-height` stay
+        // for the text case and cost nothing for the other.
         let _ = write!(
             css,
             ".csd-button {{ width: 32px; height: 24px; border-radius: {}; background: \
              transparent; color: rgb({}, {}, {}); font-size: 16px; line-height: 24px; text-align: \
-             center; cursor: pointer; user-select: none; }} ",
+             center; cursor: pointer; user-select: none; display: flex; flex-direction: row; \
+             align-items: center; justify-content: center; }} ",
             corner_radius, text_color.r, text_color.g, text_color.b,
         );
 
         // Button hover state
-        let hover_color = match self.theme {
-            Theme::Dark => ColorU::new_rgb(60, 60, 60),
-            Theme::Light => ColorU::new_rgb(220, 220, 220),
+        let hover_color = match self.mode {
+            DarkLightMode::Dark => ColorU::new_rgb(60, 60, 60),
+            DarkLightMode::Light => ColorU::new_rgb(220, 220, 220),
         };
         let _ = write!(
             css,
@@ -1878,8 +2362,12 @@ impl SystemStyle {
         // Platform-specific button styling
         match self.platform {
             Platform::MacOs => {
-                // macOS traffic light buttons (left side)
-                css.push_str(".csd-buttons { position: absolute; left: 8px; } ");
+                // macOS traffic lights. They stay IN FLOW: taking them out of
+                // it left the title with one block beside it instead of two,
+                // and the bar could no longer centre it. The block they live
+                // in is pinned to the leading edge by `justify-content`
+                // above, and inset by the bar's own horizontal padding, which
+                // is what `left: 8px` was approximating.
                 css.push_str(
                     ".csd-close { background: rgb(255, 95, 86); width: 12px; height: 12px; \
                      border-radius: 50%; } ",
@@ -1893,12 +2381,13 @@ impl SystemStyle {
                      border-radius: 50%; } ",
                 );
             }
-            Platform::Linux(_) => {
-                // Linux - title on left, buttons on right
-                css.push_str(".csd-title { text-align: left; } ");
-            }
             _ => {
-                // Windows and others - standard layout
+                // Windows, Linux and the rest: the bar centres its title, the
+                // controls take the side the desktop puts them on. (Linux used
+                // to left-align the title here. It was dead - the widget's own
+                // inline `text-align: center` outranks a class rule - and it
+                // said the opposite of what a GNOME, KDE or Xfwm4 caption
+                // actually does, which is centre it.)
             }
         }
 
@@ -2039,7 +2528,7 @@ pub mod defaults {
     //! fallback when the "io" feature is disabled, ensuring deterministic styles
     //! for testing and environments where system calls are not desired.
 
-    use super::{
+    use super::{SystemLanguage, 
         AccessibilitySettings, AnimationMetrics, AudioMetrics, FocusVisuals, Handedness,
         InputMetrics, LinuxCustomization, ScrollbarPreferences, TextRenderingHints, VisualHints,
     };
@@ -2068,7 +2557,7 @@ pub mod defaults {
         },
         system::{
             DesktopEnvironment, IconStyleOptions, Platform, SystemColors, SystemFonts,
-            SystemMetrics, SystemStyle, Theme, TitlebarMetrics,
+            SystemMetrics, SystemStyle, DarkLightMode, TitlebarMetrics,
         },
     };
 
@@ -2212,7 +2701,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_11_light() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -2242,7 +2731,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2264,7 +2753,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_11_dark() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Dark,
+            mode: DarkLightMode::Dark,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
@@ -2294,7 +2783,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2316,7 +2805,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_7_aero() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -2346,7 +2835,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_7,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2368,7 +2857,7 @@ pub mod defaults {
     #[must_use]
     pub fn windows_xp_luna() -> SystemStyle {
         SystemStyle {
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             platform: Platform::Windows,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -2398,7 +2887,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::WIN_XP,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2423,7 +2912,7 @@ pub mod defaults {
     pub fn macos_modern_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new(0, 0, 0, 221)),
                 background: OptionColorU::Some(ColorU::new_rgb(242, 242, 247)),
@@ -2445,13 +2934,17 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
-                titlebar: TitlebarMetrics::macos(),
+                titlebar: TitlebarMetrics {
+                    // The line under a standard titlebar, measured through AppKit.
+                    separator_color: OptionColorU::Some(ColorU::new_rgb(0xD0, 0xD0, 0xD0)),
+                    ..TitlebarMetrics::macos()
+                },
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2474,7 +2967,7 @@ pub mod defaults {
     pub fn macos_modern_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
-            theme: Theme::Dark,
+            mode: DarkLightMode::Dark,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new(255, 255, 255, 221)),
                 background: OptionColorU::Some(ColorU::new_rgb(28, 28, 30)),
@@ -2503,13 +2996,17 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
-                titlebar: TitlebarMetrics::macos(),
+                titlebar: TitlebarMetrics {
+                    // The line under a standard titlebar, measured through AppKit.
+                    separator_color: OptionColorU::Some(ColorU::new_rgb(0x00, 0x00, 0x00)),
+                    ..TitlebarMetrics::macos()
+                },
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2532,7 +3029,7 @@ pub mod defaults {
     pub fn macos_aqua() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(229, 229, 229)),
@@ -2558,7 +3055,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::MACOS_TIGER,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2583,7 +3080,7 @@ pub mod defaults {
     pub fn gnome_adwaita_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(46, 52, 54)),
                 background: OptionColorU::Some(ColorU::new_rgb(249, 249, 249)),
@@ -2610,7 +3107,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2633,7 +3130,7 @@ pub mod defaults {
     pub fn gnome_adwaita_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
-            theme: Theme::Dark,
+            mode: DarkLightMode::Dark,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(238, 238, 236)),
                 background: OptionColorU::Some(ColorU::new_rgb(36, 36, 36)),
@@ -2660,7 +3157,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2683,7 +3180,7 @@ pub mod defaults {
     pub fn gtk2_clearlooks() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(239, 239, 239)),
@@ -2709,7 +3206,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_2_6,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2740,7 +3237,7 @@ pub mod defaults {
     pub fn kde_breeze_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Kde),
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             colors: SystemColors {
                 // Colors:View — content surfaces (the text edit, the list).
                 text: OptionColorU::Some(ColorU::new_rgb(35, 38, 41)),
@@ -2787,7 +3284,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2816,7 +3313,7 @@ pub mod defaults {
     pub fn kde_breeze_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Kde),
-            theme: Theme::Dark,
+            mode: DarkLightMode::Dark,
             colors: SystemColors {
                 // Colors:View.
                 text: OptionColorU::Some(ColorU::new_rgb(252, 252, 252)),
@@ -2865,7 +3362,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2890,7 +3387,7 @@ pub mod defaults {
     pub fn android_material_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
@@ -2916,7 +3413,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::ANDROID_14,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2939,7 +3436,7 @@ pub mod defaults {
     pub fn android_holo_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
-            theme: Theme::Dark,
+            mode: DarkLightMode::Dark,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 background: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
@@ -2965,7 +3462,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::ANDROID_ICE_CREAM_SANDWICH,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -2988,7 +3485,7 @@ pub mod defaults {
     pub fn ios_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Ios,
-            theme: Theme::Light,
+            mode: DarkLightMode::Light,
             colors: SystemColors {
                 text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 background: OptionColorU::Some(ColorU::new_rgb(242, 242, 247)),
@@ -3012,7 +3509,7 @@ pub mod defaults {
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
-            language: AzString::from_const_str("en-US"),
+            language: SystemLanguage::new("en-US", false),
             os_version: OsVersion::IOS_17,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
@@ -3424,6 +3921,31 @@ mod autotest_generated {
         }
     }
 
+    /// A bold system face on macOS is the SYSTEM font, drawn bold.
+    ///
+    /// `SFNS.ttf` ("System Font") is one variable font: a `wght` axis from 1
+    /// to 1000 with a named Bold instance at 700. It is what AppKit's
+    /// `titleBarFont` and `boldSystemFontOfSize:` draw with. The bold chain
+    /// skipped it for Helvetica Neue ("System Font has no Bold variant in
+    /// fontconfig"), so every bold title and label on macOS came out in a
+    /// different typeface from the regular text beside it. Helvetica Neue,
+    /// which has static bold faces, stays behind it for a system without SFNS.
+    #[test]
+    fn a_bold_system_font_on_macos_is_the_system_font_first() {
+        for ty in [SystemFontType::UiBold, SystemFontType::TitleBold] {
+            let chain = ty.get_fallback_chain(&Platform::MacOs);
+            assert_eq!(
+                chain.first().copied(),
+                Some(apple_fonts::SYSTEM_FONT),
+                "{ty:?}: {chain:?}"
+            );
+            assert!(
+                chain.contains(&apple_fonts::HELVETICA_NEUE),
+                "{ty:?} keeps Helvetica Neue behind the system font: {chain:?}"
+            );
+        }
+    }
+
     // ── Platform::current ────────────────────────────────────────────────
 
     #[test]
@@ -3556,6 +4078,18 @@ mod autotest_generated {
         );
     }
 
+    /// The macOS title is `NSFont.titleBarFont`: SF at 13pt with the weight
+    /// trait 0.4, which is `NSFontWeightBold` = 700 (measured through AppKit
+    /// on macOS 15.5). 600 is the semibold of a TOOLBAR-style bar's 15pt
+    /// title, not of the plain 28pt titlebar.
+    #[test]
+    fn the_macos_title_is_bold_like_the_titlebarfont() {
+        assert_eq!(
+            TitlebarMetrics::macos().title_font_weight.into_option(),
+            Some(700)
+        );
+    }
+
     // ── SystemStyle::new / detect / default_for_platform ─────────────────
 
     #[test]
@@ -3590,10 +4124,11 @@ mod autotest_generated {
     fn system_style_default_is_empty_but_valid() {
         let d = SystemStyle::default();
         assert_eq!(d.platform, Platform::Unknown);
-        assert_eq!(d.theme, Theme::Light);
+        assert_eq!(d.mode, DarkLightMode::Light);
         assert!(d.app_specific_stylesheet.is_none());
         assert!(d.scrollbar.is_none());
-        assert!(d.language.as_str().is_empty());
+        // The language is the one field with a real default: en-US, left to right.
+        assert_eq!(d.language, SystemLanguage::new("en-US", false));
         assert!(d.colors.text.is_none());
     }
 
@@ -3614,7 +4149,7 @@ mod autotest_generated {
                 "{name}: no monospace font"
             );
             assert!(
-                !style.language.as_str().is_empty(),
+                !style.language.id.as_str().is_empty(),
                 "{name}: empty language"
             );
             assert_ne!(
@@ -3677,10 +4212,10 @@ mod autotest_generated {
             defaults::android_holo_dark()
         );
 
-        assert_eq!(defaults::windows_11_dark().theme, Theme::Dark);
-        assert_eq!(defaults::macos_modern_dark().theme, Theme::Dark);
-        assert_eq!(defaults::gnome_adwaita_dark().theme, Theme::Dark);
-        assert_eq!(defaults::android_holo_dark().theme, Theme::Dark);
+        assert_eq!(defaults::windows_11_dark().mode, DarkLightMode::Dark);
+        assert_eq!(defaults::macos_modern_dark().mode, DarkLightMode::Dark);
+        assert_eq!(defaults::gnome_adwaita_dark().mode, DarkLightMode::Dark);
+        assert_eq!(defaults::android_holo_dark().mode, DarkLightMode::Dark);
 
         assert_eq!(
             defaults::kde_breeze_light().platform,
@@ -3796,11 +4331,46 @@ mod autotest_generated {
     }
 
     #[test]
+    fn the_csd_titlebar_is_the_desktops_own_size_and_type() {
+        use crate::props::basic::pixel::PixelValue;
+
+        let mut style = SystemStyle::default();
+        style.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(26.0));
+        style.metrics.titlebar.padding_horizontal = OptionPixelValue::Some(PixelValue::px(4.0));
+        style.metrics.titlebar.title_font_size = OptionF32::Some(11.0);
+        style.metrics.titlebar.title_font_weight = OptionU16::Some(700);
+        style.metrics.titlebar.title_font = OptionString::Some("Noto Sans".into());
+
+        let css = style.create_csd_stylesheet();
+        let text = format!("{css:?}");
+        for needle in ["26", "11", "Noto Sans"] {
+            assert!(
+                text.contains(needle),
+                "the titlebar ignored the desktop's {needle}"
+            );
+        }
+        // The parser resolves a numeric weight to its keyword, so 700 is Bold
+        // by the time it reaches the stylesheet.
+        assert!(
+            text.contains("Bold") || text.contains("700"),
+            "the titlebar ignored the desktop's bold title"
+        );
+    }
+
+    #[test]
+    fn a_desktop_that_reports_no_titlebar_metrics_keeps_the_fallbacks() {
+        let style = SystemStyle::default();
+        let text = format!("{:?}", style.create_csd_stylesheet());
+        assert!(text.contains("32"), "the 32px fallback height is gone");
+        assert!(text.contains("13"), "the 13px fallback font size is gone");
+    }
+
+    #[test]
     fn to_json_string_survives_hostile_strings() {
         // Quote / backslash / newline / unicode in an OS-reported string must
         // not panic the formatter.
         let mut style = SystemStyle::default();
-        style.language = AzString::from("\"\\\n\t\u{1F600}");
+        style.language.id = AzString::from("\"\\\n\t\u{1F600}");
         style.fonts.ui_font = OptionString::Some(AzString::from("a\"b\\c"));
         style.linux.gtk_theme = OptionString::Some(AzString::from("\u{202E}evil"));
 
@@ -3906,7 +4476,7 @@ mod autotest_generated {
         assert!(
             matches!(
                 mode,
-                RicingMode::Off | RicingMode::Default | RicingMode::Force
+                RicingMode::Off | RicingMode::Default | RicingMode::Force | RicingMode::Watch
             ),
             "{mode:?}"
         );
@@ -3968,3 +4538,32 @@ pub enum Handedness {
 // `isLeftHanded()` predicate for every enum variant, and a hand-written one
 // collides with it (PHP refuses the duplicate, other bindings get ambiguous
 // dispatch). Match on the variant instead.
+
+#[cfg(test)]
+mod system_language_tests {
+    use super::SystemLanguage;
+
+    #[test]
+    fn a_regional_variant_of_a_known_rtl_language_is_rtl() {
+        // `LocalizationConfig::known_languages` lists ONE region per RTL
+        // language (ar-SA, he-IL, ...). The platforms looked the OS locale up
+        // by exact id, so an Arabic user in Algeria (`ar-DZ`), a bare `he`,
+        // or an OS name with an encoding/modifier suffix came out
+        // left-to-right.
+        let known = [
+            SystemLanguage::new("en-US", false),
+            SystemLanguage::new("ar-SA", true),
+            SystemLanguage::new("he-IL", true),
+        ];
+        let resolve = |os_locale: &str| SystemLanguage::resolve(os_locale, &known);
+
+        assert_eq!(resolve("ar-SA"), SystemLanguage::new("ar-SA", true));
+        assert_eq!(resolve("ar-DZ"), SystemLanguage::new("ar-DZ", true));
+        assert_eq!(resolve("he"), SystemLanguage::new("he", true));
+        assert_eq!(resolve("ar_EG@calendar=islamic"), SystemLanguage::new("ar-EG", true));
+        assert_eq!(resolve("de_DE.UTF-8"), SystemLanguage::new("de-DE", false));
+        assert_eq!(resolve("en-us"), SystemLanguage::new("en-US", false));
+        // Nothing known about the language: left-to-right, id kept.
+        assert_eq!(SystemLanguage::resolve("fr-FR", &[]), SystemLanguage::new("fr-FR", false));
+    }
+}

@@ -1,5 +1,6 @@
 #[allow(unused_imports)]
 pub use super::*;
+use azul_css::system::DarkLightMode;
 #[cfg(test)]
 #[allow(clippy::float_cmp, clippy::too_many_lines)]
 mod autotest_generated {
@@ -461,27 +462,115 @@ mod autotest_generated {
         assert!(data.downcast_ref::<u64>().is_none());
     }
 
+    /// The id of the icon a spec resolves to.
+    fn resolved_id(h: &IconProviderHandle, spec: &str) -> Option<u32> {
+        let mut data = h.lookup(spec)?;
+        let id = data.downcast_ref::<TestIconData>().map(|d| d.id);
+        id
+    }
+
     #[test]
-    fn lookup_with_pack_first_match_is_the_lexicographically_first_pack() {
+    fn lookup_with_pack_first_match_is_the_first_registered_pack() {
         let mut h = IconProviderHandle::new();
-        // Register in reverse-alphabetical order: insertion order must NOT decide.
+        // Registered in reverse-alphabetical order: the pack NAME must not decide.
         h.register_icon("zzz", "home", RefAny::new(TestIconData { id: 26 }));
         h.register_icon("mmm", "home", RefAny::new(TestIconData { id: 13 }));
         h.register_icon("aaa", "home", RefAny::new(TestIconData { id: 1 }));
 
         let (pack, _) = h.lookup_with_pack("HOME").expect("must be found");
-        assert_eq!(
-            pack, "aaa",
-            "BTreeMap order => first match is the first pack by name"
-        );
-
-        let mut data = h.lookup("home").unwrap();
-        assert_eq!(data.downcast_ref::<TestIconData>().unwrap().id, 1);
+        assert_eq!(pack, "zzz", "first registered, first searched");
+        assert_eq!(resolved_id(&h, "home"), Some(26));
 
         // Removing the winner promotes the next pack in order.
-        h.unregister_pack("aaa");
+        h.unregister_pack("zzz");
         let (pack, _) = h.lookup_with_pack("home").unwrap();
         assert_eq!(pack, "mmm");
+    }
+
+    // pack rank (design 8: chain rank first, then registration order)
+
+    #[test]
+    fn a_lower_rank_is_searched_before_an_earlier_registration() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("user", "home", RefAny::new(TestIconData { id: 2 }));
+        assert_eq!(resolved_id(&h, "home"), Some(1), "unranked: registration order");
+
+        // The user's pack is registered AFTER the app's (the app registers at
+        // startup) and must still win: that is what a rank is for.
+        h.set_pack_rank("user", 0);
+        assert_eq!(resolved_id(&h, "home"), Some(2));
+        let (pack, _) = h.lookup_with_pack("home").unwrap();
+        assert_eq!(pack, "user", "debug_lookup reports the pack that won");
+    }
+
+    #[test]
+    fn packs_without_a_rank_are_searched_after_every_ranked_pack() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("theme", "home", RefAny::new(TestIconData { id: 2 }));
+        h.register_icon("global", "home", RefAny::new(TestIconData { id: 3 }));
+        h.set_pack_rank("global", 7);
+        assert_eq!(
+            resolved_id(&h, "home"),
+            Some(3),
+            "any rank beats no rank, however late it was registered"
+        );
+        h.set_pack_rank("theme", 2);
+        assert_eq!(resolved_id(&h, "home"), Some(2), "the lower rank wins");
+    }
+
+    #[test]
+    fn packs_of_equal_rank_keep_registration_order() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("b", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("a", "home", RefAny::new(TestIconData { id: 2 }));
+        h.set_pack_rank("a", 3);
+        h.set_pack_rank("b", 3);
+        assert_eq!(resolved_id(&h, "home"), Some(1));
+    }
+
+    #[test]
+    fn a_rank_orders_every_bare_entry_of_a_spec_but_not_a_pack_qualified_one() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "menu", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("user", "menu", RefAny::new(TestIconData { id: 2 }));
+        h.set_pack_rank("user", 0);
+        assert_eq!(resolved_id(&h, "missing,menu"), Some(2));
+        assert_eq!(
+            resolved_id(&h, "app:menu"),
+            Some(1),
+            "a pack-qualified entry names its pack"
+        );
+    }
+
+    #[test]
+    fn re_registering_an_icon_does_not_move_its_pack() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("second", "home", RefAny::new(TestIconData { id: 2 }));
+        h.register_icon("first", "other", RefAny::new(TestIconData { id: 3 }));
+        assert_eq!(resolved_id(&h, "home"), Some(1));
+    }
+
+    #[test]
+    fn a_pack_registered_again_after_removal_goes_to_the_back() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 1 }));
+        h.register_icon("second", "home", RefAny::new(TestIconData { id: 2 }));
+        h.unregister_pack("first");
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 3 }));
+        assert_eq!(resolved_id(&h, "home"), Some(2));
+    }
+
+    #[test]
+    fn a_pack_registered_on_the_shared_provider_joins_the_order_at_the_back() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("first", "home", RefAny::new(TestIconData { id: 1 }));
+        let shared = SharedIconProvider::from_handle(h);
+        shared.register_icon("late", "home", RefAny::new(TestIconData { id: 2 }));
+        let mut data = shared.lookup("home").unwrap();
+        assert_eq!(data.downcast_ref::<TestIconData>().unwrap().id, 1);
     }
 
     // has_icon
@@ -1030,7 +1119,7 @@ mod icon_cache_tests {
             SharedIconProvider::from_handle(IconProviderHandle::with_resolver(sys_style_resolver));
         let style_a = SystemStyle::default();
         let mut style_b = SystemStyle::default();
-        style_b.language = azul_css::AzString::from("xx-ZZ");
+        style_b.language.id = azul_css::AzString::from("xx-ZZ");
         assert_ne!(style_a, style_b);
 
         let mut sd = dom_with_icons(&["home"]);
@@ -1300,5 +1389,322 @@ mod icon_view_tests {
             overflow_decls >= 1,
             "the view has to state its own overflow, got {overflow_decls} declarations"
         );
+    }
+}
+
+/// Icon remap rules (design 8): per-name rules whose `apply-if` speaks the
+/// dynamic-selector vocabulary and is evaluated at LOOKUP against the live
+/// context, remap before the spec's own fallback list, theme-directory rules
+/// ranked by the theme chain.
+#[cfg(test)]
+mod remap_rules_tests {
+    use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering as AtomicOrdering};
+
+    use azul_css::dynamic_selector::{
+        parse_os_at_rule_content, BoolCondition, DynamicSelector, DynamicSelectorContext,
+        ThemeCondition,
+    };
+
+    use super::*;
+    use crate::refany::RefAny;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct RuleIcon {
+        id: u32,
+    }
+
+    fn icon(id: u32) -> RefAny {
+        RefAny::new(RuleIcon { id })
+    }
+
+    fn id_in(inner: &IconProviderInner, spec: &str, ctx: &DynamicSelectorContext) -> Option<u32> {
+        let mut data = inner.lookup_spec_in_context(spec, ctx)?;
+        let id = data.downcast_ref::<RuleIcon>().map(|d| d.id);
+        id
+    }
+
+    fn ctx_with(dark: bool, chain: &[&str]) -> DynamicSelectorContext {
+        let mut ctx = DynamicSelectorContext::default();
+        ctx.mode = if dark {
+            azul_css::system::DarkLightMode::Dark
+        } else {
+            azul_css::system::DarkLightMode::Light
+        };
+        ctx.theme_chain = azul_css::StringVec::from_vec(
+            chain
+                .iter()
+                .map(|t| azul_css::AzString::from((*t).to_string()))
+                .collect(),
+        );
+        ctx
+    }
+
+    // apply-if: the dynamic-selector vocabulary
+
+    #[test]
+    fn apply_if_speaks_the_dynamic_selector_vocabulary() {
+        let parsed = parse_icon_apply_if("theme=monokai, mode=dark,contrast=high,app=azwriter");
+        assert_eq!(
+            parsed,
+            vec![
+                IconRuleCondition::Selector(DynamicSelector::Theme(ThemeCondition::Custom(
+                    "monokai".into()
+                ))),
+                IconRuleCondition::Selector(DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)),
+                IconRuleCondition::Selector(DynamicSelector::PrefersHighContrast(
+                    BoolCondition::True
+                )),
+                IconRuleCondition::App("azwriter".into()),
+            ]
+        );
+        // `os=` is exactly `@os(...)`.
+        let os = parse_icon_apply_if("os=linux:kde");
+        let expected: Vec<_> = parse_os_at_rule_content("linux:kde")
+            .expect("valid @os content")
+            .into_iter()
+            .map(IconRuleCondition::Selector)
+            .collect();
+        assert_eq!(os, expected);
+        // `theme=light|dark` is the mode, like `@theme(dark)`.
+        assert_eq!(
+            parse_icon_apply_if("theme=dark"),
+            vec![IconRuleCondition::Selector(DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark))]
+        );
+    }
+
+    #[test]
+    fn an_apply_if_term_nobody_understands_never_matches() {
+        let ctx = ctx_with(false, &["flat"]);
+        for bad in ["colour=red", "mode=sepia", "os=plan9", "contrast=loud", "justaword"] {
+            let parsed = parse_icon_apply_if(bad);
+            assert!(!parsed.is_empty(), "{bad}: must not vanish into always-true");
+            assert!(
+                !parsed.iter().all(|c| c.matches(&ctx, "")),
+                "{bad}: an unknown condition must not match"
+            );
+        }
+        assert!(
+            parse_icon_apply_if("").is_empty(),
+            "no apply-if at all is unconditional"
+        );
+    }
+
+    // lookup
+
+    #[test]
+    fn a_rule_rewrites_a_name_only_while_its_condition_holds() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "home", icon(1));
+        h.register_icon("user", "home-dark", icon(2));
+        h.add_icon_remap_rule("home", "mode=dark", "user:home-dark");
+
+        assert_eq!(id_in(&h.inner, "home", &ctx_with(false, &["flat"])), Some(1));
+        assert_eq!(id_in(&h.inner, "home", &ctx_with(true, &["flat"])), Some(2));
+        assert_eq!(id_in(&h.inner, "HOME", &ctx_with(true, &["flat"])), Some(2));
+    }
+
+    #[test]
+    fn rules_for_a_name_are_tried_in_order_and_the_first_match_wins() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("user", "a", icon(1));
+        h.register_icon("user", "b", icon(2));
+        h.add_icon_remap_rule("home", "theme=monokai,mode=dark", "user:a");
+        h.add_icon_remap_rule("home", "theme=monokai", "user:b");
+
+        assert_eq!(id_in(&h.inner, "home", &ctx_with(true, &["monokai"])), Some(1));
+        assert_eq!(id_in(&h.inner, "home", &ctx_with(false, &["monokai"])), Some(2));
+        assert_eq!(
+            id_in(&h.inner, "home", &ctx_with(false, &["flat"])),
+            None,
+            "no rule matches and nothing is registered under the name itself"
+        );
+    }
+
+    #[test]
+    fn a_rule_whose_target_does_not_resolve_falls_through_to_the_next() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("user", "b", icon(2));
+        h.add_icon_remap_rule("home", "", "user:missing");
+        h.add_icon_remap_rule("home", "", "user:b");
+        assert_eq!(id_in(&h.inner, "home", &ctx_with(false, &["flat"])), Some(2));
+    }
+
+    #[test]
+    fn a_theme_directorys_rules_apply_while_its_theme_is_live_and_rank_by_the_chain() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("user", "global", icon(1));
+        h.register_icon("user", "xyz", icon(2));
+        h.register_icon("user", "pink", icon(3));
+        // Added global first and the most specific theme last: the order the
+        // files were read must not decide, the chain must.
+        h.add_icon_remap_rule("home", "", "user:global");
+        h.add_theme_icon_remap_rule("xyz", "home", "", "user:xyz");
+        h.add_theme_icon_remap_rule("xyz:pink", "home", "", "user:pink");
+
+        let pink = ctx_with(false, &["xyz:pink", "xyz"]);
+        assert_eq!(id_in(&h.inner, "home", &pink), Some(3));
+        assert_eq!(id_in(&h.inner, "home", &ctx_with(false, &["xyz"])), Some(2));
+        assert_eq!(
+            id_in(&h.inner, "home", &ctx_with(false, &["flat"])),
+            Some(1),
+            "a theme that is not live contributes nothing; the global table remains"
+        );
+    }
+
+    #[test]
+    fn remap_first_then_the_specs_own_fallback_list() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("app", "home", icon(1));
+        h.register_icon("app", "menu", icon(2));
+        h.register_icon("user", "three-lines", icon(3));
+        h.add_icon_remap_rule("kde:three-lines", "", "user:three-lines");
+        let ctx = ctx_with(false, &["flat"]);
+
+        // The app's own chain: `ios:open_menu` and `kde:three-lines` resolve
+        // nowhere natively, the remap rewrites the second entry.
+        assert_eq!(
+            id_in(&h.inner, "ios:open_menu,kde:three-lines,menu", &ctx),
+            Some(3)
+        );
+        // An entry the user remapped wins even behind one that resolves natively.
+        h.add_icon_remap_rule("menu", "", "user:three-lines");
+        assert_eq!(id_in(&h.inner, "home,menu", &ctx), Some(3));
+        // An unmapped spec still falls through its own chain.
+        assert_eq!(id_in(&h.inner, "missing,home", &ctx), Some(1));
+    }
+
+    #[test]
+    fn an_app_rule_matches_the_providers_app_name() {
+        let mut h = IconProviderHandle::new();
+        h.register_icon("user", "mono", icon(7));
+        h.add_icon_remap_rule("app-icon", "app=azwriter", "user:mono");
+        let ctx = ctx_with(false, &["flat"]);
+        assert_eq!(id_in(&h.inner, "app-icon", &ctx), None, "no app name set");
+        h.set_app_name("azwriter");
+        assert_eq!(id_in(&h.inner, "app-icon", &ctx), Some(7));
+    }
+
+    // evaluated at LOOKUP, against the live context
+
+    static SEEN_ID: AtomicU32 = AtomicU32::new(0);
+    static SEEN_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn id_recording_resolver(
+        icon_data: OptionRefAny,
+        _original: &NodeData,
+        _style: &SystemStyle,
+    ) -> Dom {
+        SEEN_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        if let Some(mut data) = icon_data.into_option() {
+            if let Some(d) = data.downcast_ref::<RuleIcon>() {
+                SEEN_ID.store(d.id, AtomicOrdering::SeqCst);
+            }
+        }
+        Dom::create_div()
+    }
+
+    /// Discovery loads the rules once, but the mode flips at runtime: a rule
+    /// evaluated only at startup would leave the light artwork on a dark
+    /// window. The context alone changes here - same `SystemStyle` - so this
+    /// also proves the resolution cache is keyed on it.
+    #[test]
+    fn apply_if_is_evaluated_at_lookup_after_a_light_to_dark_switch() {
+        let mut h = IconProviderHandle::with_resolver(id_recording_resolver);
+        h.register_icon("app", "home", icon(1));
+        h.register_icon("user", "home-dark", icon(2));
+        h.add_icon_remap_rule("home", "theme=dark", "user:home-dark");
+        let shared = SharedIconProvider::from_handle(h);
+        let style = SystemStyle::default();
+
+        let mut dom = Dom::create_icon("home");
+        resolve_icons_in_dom_with_context(
+            &mut dom,
+            &shared,
+            &style,
+            Some(&ctx_with(false, &["flat"])),
+        );
+        assert_eq!(SEEN_ID.load(AtomicOrdering::SeqCst), 1, "light: the app's icon");
+
+        let mut dom = Dom::create_icon("home");
+        resolve_icons_in_dom_with_context(
+            &mut dom,
+            &shared,
+            &style,
+            Some(&ctx_with(true, &["flat"])),
+        );
+        assert_eq!(
+            SEEN_ID.load(AtomicOrdering::SeqCst),
+            2,
+            "dark: the rule matches now, on the very next lookup"
+        );
+
+        // Flipping back flushes again (flush-on-change) and re-evaluates.
+        let calls = SEEN_CALLS.load(AtomicOrdering::SeqCst);
+        let mut dom = Dom::create_icon("home");
+        resolve_icons_in_dom_with_context(
+            &mut dom,
+            &shared,
+            &style,
+            Some(&ctx_with(false, &["flat"])),
+        );
+        assert_eq!(SEEN_ID.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(SEEN_CALLS.load(AtomicOrdering::SeqCst), calls + 1);
+    }
+
+    static RESIZE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn resize_counting_resolver(
+        _icon_data: OptionRefAny,
+        _original: &NodeData,
+        _style: &SystemStyle,
+    ) -> Dom {
+        RESIZE_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        Dom::create_div()
+    }
+
+    /// Only what a rule can read keys the cache: a drag-resize changes the
+    /// viewport every frame and must not re-resolve every icon.
+    #[test]
+    fn a_viewport_change_does_not_flush_the_icon_cache() {
+        let mut h = IconProviderHandle::with_resolver(resize_counting_resolver);
+        h.register_icon("app", "home", icon(1));
+        let shared = SharedIconProvider::from_handle(h);
+        let style = SystemStyle::default();
+        for width in [800.0_f32, 801.0, 802.0] {
+            let mut ctx = ctx_with(false, &["flat"]);
+            ctx.viewport_width = width;
+            let mut dom = Dom::create_icon("home");
+            resolve_icons_in_dom_with_context(&mut dom, &shared, &style, Some(&ctx));
+        }
+        assert_eq!(RESIZE_CALLS.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    static SEEN_DARK: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn mode_recording_resolver(
+        _icon_data: OptionRefAny,
+        _original: &NodeData,
+        style: &SystemStyle,
+    ) -> Dom {
+        if style.mode == DarkLightMode::Dark {
+            SEEN_DARK.fetch_add(1, AtomicOrdering::SeqCst);
+        }
+        Dom::create_div()
+    }
+
+    /// The resolver reads the mode off the `SystemStyle` it is handed; that
+    /// has to be the WINDOW's mode (an app pinned dark on a light desktop),
+    /// not the desktop's.
+    #[test]
+    fn the_resolver_is_handed_the_windows_mode() {
+        let mut h = IconProviderHandle::with_resolver(mode_recording_resolver);
+        h.register_icon("app", "home", icon(1));
+        let shared = SharedIconProvider::from_handle(h);
+        let light_desktop = SystemStyle::default();
+        let mut dom = Dom::create_icon("home");
+        resolve_icons_in_dom_with_context(
+            &mut dom,
+            &shared,
+            &light_desktop,
+            Some(&ctx_with(true, &["flat"])),
+        );
+        assert_eq!(SEEN_DARK.load(AtomicOrdering::SeqCst), 1);
     }
 }

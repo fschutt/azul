@@ -1,0 +1,1114 @@
+//! The lenient loader (`azul_core::xml::html`): every row is markup a
+//! browser reads and the tree it builds from it, as an outline of the
+//! `<body>`'s children (the whole document for one with `<html>`). The trees
+//! are Chrome's (`DOMParser`, text/html), except where a row's note says how
+//! the simplified tree construction differs.
+
+use super::*;
+
+/// The node named `tag`, depth first.
+fn find_element<'a>(nodes: &'a [XmlNodeChild], tag: &str) -> Option<&'a XmlNode> {
+    for node in nodes {
+        if let XmlNodeChild::Element(element) = node {
+            if element.node_type.as_str() == tag {
+                return Some(element);
+            }
+            if let Some(found) = find_element(element.children.as_ref(), tag) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// The outline of what `html` puts in the `<body>` (a fragment's roots).
+fn body_of(html: &str, with_attributes: bool) -> String {
+    let nodes = parse_html_nodes(html);
+    match find_element(&nodes, "body") {
+        Some(body) => outline(body.children.as_ref(), with_attributes),
+        None => outline(&nodes, with_attributes),
+    }
+}
+
+/// The outline of the whole document.
+fn document_of(html: &str, with_attributes: bool) -> String {
+    outline(&parse_html_nodes(html), with_attributes)
+}
+
+fn check(rows: &[(&str, &str)], with_attributes: bool, of: fn(&str, bool) -> String) {
+    let mut failures = Vec::new();
+    for (input, expected) in rows {
+        let got = of(input, with_attributes);
+        if got != *expected {
+            failures.push(alloc::format!(
+                "{input:?}\n  expected {expected}\n  got      {got}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Mail writes `width=150`, `BGCOLOR=#FFFFFF`, `noshade`, `nowrap`: an XML
+/// tokenizer stops at the first one (`InvalidQuote`, the exploration's samples 03 and 08).
+#[test]
+fn unquoted_and_bare_attributes_are_read_like_a_browser_reads_them() {
+    check(
+        &[
+            (
+                "<table><tr><td width=150 valign=top>x</td></tr></table>",
+                "table{tbody{tr{td[width=150 valign=top]{\"x\"}}}}",
+            ),
+            // a fragment is a document: the `<meta>` goes into its head
+            (
+                "<meta http-equiv=Content-Type content=\"text/html; charset=us-ascii\"><font color=#FF0000 size=+1>a</font>",
+                "font[color=#FF0000 size=+1]{\"a\"}",
+            ),
+            (
+                "<hr noshade size=1><input disabled checked>",
+                "hr[noshade= size=1] input[disabled= checked=]",
+            ),
+            (
+                "<a href=foo/bar.html title='it''s'>l</a>",
+                "a[href=foo/bar.html title=it 's'=]{\"l\"}",
+            ),
+            // a repeated attribute keeps its first value
+            (
+                "<div id=a id=b class=c CLASS=d>x</div>",
+                "div[id=a class=c]{\"x\"}",
+            ),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// `<TABLE>`, `<BR>`, `ALIGN=RIGHT` (sample 08): HTML names are case-insensitive.
+#[test]
+fn upper_case_names_are_the_lower_case_elements() {
+    check(
+        &[
+            (
+                "<TABLE BORDER=1><TR><TD ALIGN=RIGHT>a</TD></TR></TABLE><P CLASS=X>b",
+                "table[border=1]{tbody{tr{td[align=RIGHT]{\"a\"}}}} p[class=X]{\"b\"}",
+            ),
+            ("<Div><SPAN>a</span></DIV>", "div{span{\"a\"}}"),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// Every HTML void element ends where it starts: `<br>` does not swallow what follows.
+#[test]
+fn void_elements_take_no_content_with_or_without_a_slash() {
+    check(
+        &[
+            (
+                "a<BR>b<br>c<br/>d<img src=x.png>e<hr>f<wbr>g<input>h<embed src=e>i<keygen>j<col>k",
+                "\"a\" br \"b\" br \"c\" br \"d\" img \"e\" hr \"f\" wbr \"g\" input \"h\" embed \"i\" keygen \"jk\"",
+            ),
+            // `</br>` is a line break, `</img>` nothing
+            (
+                "a</br>b<img src=x></img>c",
+                "\"a\" br \"b\" img \"c\"",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// `<!-- ---- -->` (`InvalidCommentData` in XML), `--!>`, `<!-->`.
+#[test]
+fn comments_end_at_their_marker_whatever_they_hold() {
+    check(
+        &[
+            // Chrome keeps the comments as nodes between the texts; azul drops them and the text is one run
+            (
+                "a<!-- ---- -->b<!-- x -- y -->c<!---->d<!-->e<!--->f<!-- z --!>g",
+                "\"abcdefg\"",
+            ),
+            ("a<!-- never closed", "\"a\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// A `<` that starts no tag and an `&` that starts no reference are text.
+#[test]
+fn lt_and_amp_in_text_and_attribute_values_are_characters() {
+    check(
+        &[
+            (
+                "<a title=\"a<b & c\" href=\"?x=1&copy=2&amp;y=3\">AT&T a < b & c &foo bar 1<2</a>",
+                "a[title=a<b & c href=?x=1&copy=2&y=3]{\"AT&T a < b & c &foo bar 1<2\"}",
+            ),
+            ("a < b <3 <> <= </ c", "\"a < b <3 <> <= \""),
+            // Chrome: `"a" "cd"` (the bogus comment is a node there)
+            ("a</ b>c</>d", "\"acd\""),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// C0 controls are not XML characters (`NonXmlChar`); a browser keeps them in the DOM
+/// where they paint as nothing or a box. CR LF and a lone CR are a line feed.
+#[test]
+fn stray_control_characters_are_dropped() {
+    check(
+        &[
+            // Chrome keeps the controls; azul drops them
+            ("a\u{1}b\u{8}c\u{B}d\u{1F}e\r\nf\rg", "\"abcde f g\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+#[test]
+fn elements_left_open_at_the_end_are_closed() {
+    check(
+        &[
+            ("<div><b>text<i>more", "div{b{\"text\" i{\"more\"}}}"),
+            // a tag cut off by the end is dropped
+            ("a<div class=\"x", "\"a\""),
+            ("a<div class=x", "\"a\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// `p`, `li`, `dt` / `dd`, `option`, `tr` / `td` / `th` and the row groups end where the
+/// next one (or a block) starts.
+#[test]
+fn implied_end_tags_close_paragraphs_items_and_cells() {
+    check(
+        &[
+            (
+                "<p>a<p>b<div>c</div><p>d<ul><li>e</ul><p>f<h1>g</h1>",
+                "p{\"a\"} p{\"b\"} div{\"c\"} p{\"d\"} ul{li{\"e\"}} p{\"f\"} h1{\"g\"}",
+            ),
+            (
+                "<ul><li>a<li>b<ul><li>c<li>d</ul><li>e</ul><ol><li>x<li>y</ol>",
+                "ul{li{\"a\"} li{\"b\" ul{li{\"c\"} li{\"d\"}}} li{\"e\"}} ol{li{\"x\"} li{\"y\"}}",
+            ),
+            (
+                "<dl><dt>a<dd>b<dt>c<dd>d</dl>",
+                "dl{dt{\"a\"} dd{\"b\"} dt{\"c\"} dd{\"d\"}}",
+            ),
+            (
+                "<table><thead><tr><th>h1<th>h2<tbody><tr><td>a<td>b<tr><td>c<td>d<tfoot><tr><td>f</table>",
+                "table{thead{tr{th{\"h1\"} th{\"h2\"}}} tbody{tr{td{\"a\"} td{\"b\"}} tr{td{\"c\"} td{\"d\"}}} tfoot{tr{td{\"f\"}}}}",
+            ),
+            (
+                "<select><option>a<option>b<optgroup label=g><option>c<optgroup label=h><option>d</select>",
+                "select{option{\"a\"} option{\"b\"} optgroup{option{\"c\"}} optgroup{option{\"d\"}}}",
+            ),
+            // the implied tbody and tr
+            (
+                "<table><tr><td>a</td></tr></table><table><td>b</td></table>",
+                "table{tbody{tr{td{\"a\"}}}} table{tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<h1>a<h2>b</h2>c",
+                "h1{\"a\"} h2{\"b\"} \"c\"",
+            ),
+            (
+                "<ul><li><div>a<li>b</div></ul>",
+                "ul{li{div{\"a\"}} li{\"b\"}}",
+            ),
+            (
+                "<table><tr><td><b>a<td>b</table>c",
+                "table{tbody{tr{td{b{\"a\"}} td{\"b\"}}}} \"c\"",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// A stray end tag (sanitizers and editors leave them) is ignored; one that matches an
+/// open element closes up to it - but never across a table cell.
+#[test]
+fn an_end_tag_closes_only_within_its_scope() {
+    check(
+        &[
+            ("<div>a<span>b</div>c", "div{\"a\" span{\"b\"}} \"c\""),
+            ("<div>a</font>b</span>c</div>d", "div{\"abc\"} \"d\""),
+            (
+                "<div><table><tr><td>a</div>b</td></tr></table>c</div>e",
+                "div{table{tbody{tr{td{\"ab\"}}}} \"c\"} \"e\"",
+            ),
+            (
+                "<table><tr><td><table><tr><td>a</td></tr></table></td></tr></table>",
+                "table{tbody{tr{td{table{tbody{tr{td{\"a\"}}}}}}}}",
+            ),
+            // `</p>` without a `<p>` is an empty paragraph
+            ("a</p>b", "\"a\" p \"b\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// The HTML Standard's adoption agency algorithm (13.2.6.4.7, "in body", an end tag of a
+/// formatting element): `</b>` with a block open inside the `<b>` ends the `<b>` where it
+/// stands, moves the block out of it and clones the `<b>` into the block - Outlook's
+/// `<font><div>a</font>b</div>` keeps "b" out of the font, as every browser does.
+#[test]
+fn a_misnested_formatting_element_is_adopted_as_a_browser_adopts_it() {
+    check(
+        &[
+            ("<b>x<p>y</b>z</p>w", "b{\"x\"} p{b{\"y\"} \"z\"} \"w\""),
+            ("<b><i>x</b>y</i>", "b{i{\"x\"}} i{\"y\"}"),
+            ("<a>1<p>2</a>3</p>", "a{\"1\"} p{a{\"2\"} \"3\"}"),
+            ("<a>1<button>2</a>3</button>", "a{\"1\"} button{a{\"2\"} \"3\"}"),
+            ("<a>1<b>2</a>3</b>", "a{\"1\" b{\"2\"}} b{\"3\"}"),
+            (
+                "<a>1<div>2<div>3</a>4</div>5</div>",
+                "a{\"1\"} div{a{\"2\"} div{a{\"3\"} \"4\"} \"5\"}",
+            ),
+            (
+                "<p><b><i>a<div>b</b>c</div>",
+                "p{b{i{\"a\"}}} div{b{i{\"b\"}} i{\"c\"}}",
+            ),
+            (
+                "<div><b>1<div>2<div>3</b>4</div></div></div>",
+                "div{b{\"1\"} div{b{\"2\"} div{b{\"3\"} \"4\"}}}",
+            ),
+            // the inner loop gives up after three elements that are not formatting ones
+            (
+                "<b><em><foo><foo><foo><foo><foo><aside></b></em>",
+                "b{em{foo{foo{foo{foo{foo}}}}}} aside{b}",
+            ),
+            (
+                "<b>1<i>2<p>3</b>4</i>5</p>",
+                "b{\"1\" i{\"2\"}} i p{i{b{\"3\"} \"4\"} \"5\"}",
+            ),
+            (
+                "<em>a<strong>b</em>c</strong>d",
+                "em{\"a\" strong{\"b\"}} strong{\"c\"} \"d\"",
+            ),
+            (
+                "<u>a<s>b<p>c</u>d</s>e",
+                "u{\"a\" s{\"b\"}} s p{s{u{\"c\"} \"d\"} \"e\"}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+    // the clone keeps the original's attributes
+    check(
+        &[
+            (
+                "<font face=Arial><div>a</font>b</div>c",
+                "font[face=Arial] div{font[face=Arial]{\"a\"} \"b\"} \"c\"",
+            ),
+            (
+                "<font face=Arial><p>a<p>b</font>c",
+                "font[face=Arial]{p{\"a\"}} p{font[face=Arial]{\"b\"} \"c\"}",
+            ),
+            (
+                "<a href=1>a<div>b<a href=2>c</a></div>",
+                "a[href=1]{\"a\"} div{a[href=1]{\"b\"} a[href=2]{\"c\"}}",
+            ),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// `<p><b>x<p>y`: the bold goes on in the next paragraph (the HTML Standard's
+/// "reconstruct the active formatting elements"); a cell starts without it.
+#[test]
+fn formatting_elements_continue_in_the_next_block() {
+    check(
+        &[
+            ("<p>a<b>b<p>c</b>d", "p{\"a\" b{\"b\"}} p{b{\"c\"} \"d\"}"),
+            // at most three equal ones are reopened
+            (
+                "<font>a<font>b<font>c<font>d<p>e",
+                "font{\"a\" font{\"b\" font{\"c\" font{\"d\" p{\"e\"}}}}}",
+            ),
+            // a link does not nest in a link
+            ("<a href=1>a<a href=2>b</a>c", "a{\"a\"} a{\"b\"} \"c\""),
+            (
+                "<b><table><tr><td>x</td></tr></table>y",
+                "b{table{tbody{tr{td{\"x\"}}}} \"y\"}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+#[test]
+fn doctype_raw_text_and_rcdata_are_read_as_html() {
+    check(
+        &[
+            (
+                "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\"><html><head><title>t</title></head><body>x</body></html>",
+                "\"x\"",
+            ),
+            // one line feed after `<pre>` is dropped
+            (
+                "<pre>\nline1\nline2</pre><pre>\n\nx</pre>",
+                "pre{\"line1 line2\"} pre{\" x\"}",
+            ),
+            (
+                "<textarea>\n<b>x</b> &lt;</textarea>",
+                "textarea{\"<b>x</b> <\"}",
+            ),
+            // Chrome: `"a" "b"` (a comment node between)
+            (
+                "a<![CDATA[x<y]]>b",
+                "\"ab\"",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// Word's `<![if !supportLists]>`, Outlook's conditional comments and `<o:p>`.
+#[test]
+fn word_and_outlook_markup_parses() {
+    check(
+        &[
+            (
+                "<p class=MsoListParagraph><![if !supportLists]><span>1.<span>&nbsp;&nbsp;</span></span><![endif]>Item<o:p></o:p></p><!--[if gte mso 9]><xml><o:shapedefaults v:ext=\"edit\" spidmax=\"1026\" /></xml><![endif]-->",
+                "p{span{\"1.\" span{\"\u{A0}\u{A0}\"}} \"Item\" o:p}",
+            ),
+            (
+                "<p class=MsoNormal><span lang=DE>Hi<o:p></o:p></span></p><p class=MsoNormal><o:p>&nbsp;</o:p></p>",
+                "p{span{\"Hi\" o:p}} p{o:p{\"\u{A0}\"}}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+#[test]
+fn svg_elements_close_themselves() {
+    check(
+        &[
+            // `<div/>` is an open div in HTML
+            (
+                "<svg width=10><path d=\"M0 0\"/><rect/></svg><div/>after",
+                "svg{path rect} div{\"after\"}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// The implied `<head>` / `<body>` (13.2.6.4.1 - 13.2.6.4.6): every document has both; the
+/// head's elements before the body go into the head (also after `</head>`), content into the
+/// body, white space before the document is nothing, a second `<body>` / `<html>` only adds the
+/// attributes the first one lacks, and `</body>` / `</html>` change nothing.
+#[test]
+fn a_document_gets_its_head_and_body_where_a_browser_puts_them() {
+    check(
+        &[
+            (
+                "<html><style>p{}</style><p>x</p></html>",
+                "html{head{style{\"p{}\"}} body{p{\"x\"}}}",
+            ),
+            (
+                "<html><head><title>t</title><div>body?</div></head><body class=b>x</body></html>",
+                "html{head{title{\"t\"}} body[class=b]{div{\"body?\"} \"x\"}}",
+            ),
+            (
+                "<html><body>a</body></html>b<p>c",
+                "html{head body{\"ab\" p{\"c\"}}}",
+            ),
+            (
+                "<body class=a>x<body class=b id=c>y",
+                "html{head body[class=a id=c]{\"xy\"}}",
+            ),
+            ("x", "html{head body{\"x\"}}"),
+            ("  \n x", "html{head body{\"x\"}}"),
+            ("<p>x<html lang=en>", "html[lang=en]{head body{p{\"x\"}}}"),
+            (
+                "<html><head><style>a{}</style> x</head>",
+                "html{head{style{\"a{}\"}} body{\"x\"}}",
+            ),
+            (
+                "<html><head></head><style>p{}</style><body>x",
+                "html{head{style{\"p{}\"}} body{\"x\"}}",
+            ),
+            (
+                "<head></head><meta charset=utf-8><p>x",
+                "html{head{meta[charset=utf-8]} body{p{\"x\"}}}",
+            ),
+            // `<noscript>` with scripting off: in the head, what does not belong there ends it
+            (
+                "<head><noscript><style>a{}</style></noscript></head><p>x",
+                "html{head{noscript{style{\"a{}\"}}} body{p{\"x\"}}}",
+            ),
+            (
+                "<head><noscript><p>x</p></noscript>",
+                "html{head{noscript} body{p{\"x\"}}}",
+            ),
+            (
+                "<noscript><b>x</b></noscript>y",
+                "html{head{noscript} body{b{\"x\"} \"y\"}}",
+            ),
+            (
+                "<noframes><b>x</b></noframes>y",
+                "html{head{noframes{\"<b>x</b>\"}} body{\"y\"}}",
+            ),
+            ("<title>a<b>&amp;</title>", "html{head{title{\"a<b>&\"}} body}"),
+            ("<style>a</style b>c", "html{head{style{\"a\"}} body{\"c\"}}"),
+            ("<div>a</body>b</html>c", "html{head body{div{\"abc\"}}}"),
+            (
+                "<html><head><style>a > b { color: red } p:before { content: \"</p>\" }</style><script>if (a < b && c) { x = \"<b>\"; }</script></head><body>y</body></html>",
+                "html{head{style{\"a > b { color: red } p:before { content: \\\"</p>\\\" }\"} script{\"if (a < b && c) { x = \\\"<b>\\\"; }\"}} body{\"y\"}}",
+            ),
+        ],
+        true,
+        document_of,
+    );
+}
+
+/// Foster parenting (13.2.6.1 "the appropriate place for inserting a node", 13.2.6.4.9 "in
+/// table": anything else; 13.2.6.4.10 "in table text"): text and elements that cannot be in a
+/// table, a row group or a row go in front of the table - a Postmark template's
+/// `{{#each}}` between rows, a stray `<div>`. White space, a hidden input, a form, a
+/// stylesheet stay in the table.
+#[test]
+fn text_and_elements_misplaced_in_a_table_go_in_front_of_it() {
+    check(
+        &[
+            (
+                "<table>x<tr><td>a</td></tr></table>",
+                "\"x\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><tr>{{#each items}}<td>a</td>{{/each}}</tr></table>",
+                "\"{{#each items}}{{/each}}\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><div>a</div><tr><td>b</td></tr></table>",
+                "div{\"a\"} table{tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><b>x<tr><td>y</td></tr></table>z",
+                "b{\"x\"} table{tbody{tr{td{\"y\"}}}} b{\"z\"}",
+            ),
+            (
+                "<div><table><tr>x<td>a</table></div>",
+                "div{\"x\" table{tbody{tr{td{\"a\"}}}}}",
+            ),
+            (
+                "<table><tr><td>a</td>b</tr></table>",
+                "\"b\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><tbody>t<tr><td>a</table>",
+                "\"t\" table{tbody{tr{td{\"a\"}}}}",
+            ),
+            (
+                "<table><span>s<td>a</table>",
+                "span{\"s\"} table{tbody{tr{td{\"a\"}}}}",
+            ),
+            ("<table><p>p</table>", "p{\"p\"} table"),
+            (
+                "<table><tr><td>a</td></tr> <tr><td>b</td></tr></table>",
+                "table{tbody{tr{td{\"a\"}} tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><form><tr><td><input></td></tr></form></table>",
+                "table{form tbody{tr{td{input}}}}",
+            ),
+            (
+                "<table><style>s{}</style><tr><td>a</table>",
+                "table{style{\"s{}\"} tbody{tr{td{\"a\"}}}}",
+            ),
+            // foster parenting and the adoption agency together
+            ("<table><a>1<p>2</a>3</p>", "a{\"1\"} p{a{\"2\"} \"3\"} table"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[(
+            "<table><input type=hidden><input type=text></table>",
+            "input[type=text] table{input[type=hidden]}",
+        )],
+        true,
+        body_of,
+    );
+}
+
+/// 13.2.6.4.1 "initial": a document without a doctype (most mails) - or with a legacy one -
+/// is in quirks mode, where a `<table>` does not close an open `<p>` (13.2.6.4.7, "table").
+#[test]
+fn a_document_in_quirks_mode_keeps_a_table_in_its_paragraph() {
+    let nested = "p{\"a\" table{tbody{tr{td{\"x\"}}}}}";
+    let closed = "p{\"a\"} table{tbody{tr{td{\"x\"}}}}";
+    let table = "<p>a<table><tr><td>x</table>";
+    let rows: Vec<(String, &str)> = [
+        ("", nested),
+        ("<!DOCTYPE html>", closed),
+        (
+            "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">",
+            nested,
+        ),
+        (
+            "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">",
+            closed,
+        ),
+        (
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">",
+            closed,
+        ),
+        ("<!DOCTYPE html SYSTEM \"about:legacy-compat\">", closed),
+        ("<!doctype foo>", nested),
+        ("<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">", nested),
+    ]
+    .iter()
+    .map(|(doctype, expected)| (alloc::format!("{doctype}{table}"), *expected))
+    .collect();
+    let rows: Vec<(&str, &str)> = rows.iter().map(|(i, e)| (i.as_str(), *e)).collect();
+    check(&rows, false, body_of);
+}
+
+/// The table insertion modes (13.2.6.4.9 - 13.2.6.4.13): a `<col>` implies its
+/// `<colgroup>`, a cell its row and row group, a `<table>` in a table closes the open one, a
+/// row closes the caption, a stray `</tbody>` ends the row group.
+#[test]
+fn the_table_insertion_modes_imply_and_close_what_a_browser_does() {
+    check(
+        &[
+            (
+                "<table><tr><td>a</td></tr><table><tr><td>b</table>",
+                "table{tbody{tr{td{\"a\"}}}} table{tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><caption>c<tr><td>x</table>",
+                "table{caption{\"c\"} tbody{tr{td{\"x\"}}}}",
+            ),
+            (
+                "<table><colgroup><col><tr><td>x</table>",
+                "table{colgroup{col} tbody{tr{td{\"x\"}}}}",
+            ),
+            (
+                "<table><td>a<tr><td>b</table>",
+                "table{tbody{tr{td{\"a\"}} tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><tr><td>a</td></tr></tbody><tr><td>b</td></tr></table>",
+                "table{tbody{tr{td{\"a\"}}} tbody{tr{td{\"b\"}}}}",
+            ),
+            (
+                "<table><tr><td><table><tr><td>a</td></tr></table>b</td></tr></table>",
+                "table{tbody{tr{td{table{tbody{tr{td{\"a\"}}}} \"b\"}}}}",
+            ),
+            ("<td>a</td><tr>b", "\"ab\""),
+            (
+                "<table><tr><th>h<td>d</tr></table>",
+                "table{tbody{tr{th{\"h\"} td{\"d\"}}}}",
+            ),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[(
+            "<table><col width=10><tr><td>x</table>",
+            "table{colgroup{col[width=10]} tbody{tr{td{\"x\"}}}}",
+        )],
+        true,
+        body_of,
+    );
+}
+
+/// 13.2.6.4.7, "any other end tag": an end tag whose element is open only below a block
+/// (a "special" element) is ignored - `</span>` does not close the `<div>` inside the span.
+#[test]
+fn an_end_tag_does_not_reach_past_an_open_block() {
+    check(
+        &[
+            ("<span>a<div>b</span>c</div>d", "span{\"a\" div{\"bc\"} \"d\"}"),
+            ("<div>a<span>b</div>c", "div{\"a\" span{\"b\"}} \"c\""),
+        ],
+        false,
+        body_of,
+    );
+}
+
+/// The tokenizer's states (13.2.5): PLAINTEXT never ends, an end tag's attributes are read
+/// (and dropped) so a quoted `>` does not end it, RCDATA / RAWTEXT end only at their own end
+/// tag, CDATA is a section only in SVG / MathML (else a bogus comment up to the first `>`),
+/// a doctype after the start is nothing, `<p/>` is an open `<p>`.
+#[test]
+fn markup_is_tokenized_in_the_states_of_the_html_standard() {
+    check(
+        &[
+            ("<plaintext>a</plaintext><b>c", "plaintext{\"a</plaintext><b>c\"}"),
+            // Chrome: `"a" "y]]>b"` (the bogus comment is a node there)
+            ("a<![CDATA[x>y]]>b", "\"ay]]>b\""),
+            ("<svg><![CDATA[a<b]]></svg>", "svg{\"a<b\"}"),
+            ("<div>a</div title=\">\">b", "div{\"a\"} \"b\""),
+            (
+                "<textarea>a</textareax>b</textarea>c",
+                "textarea{\"a</textareax>b\"} \"c\"",
+            ),
+            ("<p/>x", "p{\"x\"}"),
+            ("<div<div>x", "div<div{\"x\"}"),
+            // Chrome: `"a" "b"` (the processing instruction is a bogus comment node there)
+            ("a<?php echo 1 ?>b", "\"ab\""),
+            ("<!DOCTYPE html>a<!DOCTYPE html>b", "\"ab\""),
+            ("<iframe><b>x</b></iframe>y", "iframe{\"<b>x</b>\"} \"y\""),
+            ("<noembed><b>x</b></noembed>y", "noembed{\"<b>x</b>\"} \"y\""),
+            ("<p>a<xmp><b>x</b></xmp>", "p{\"a\"} xmp{\"<b>x</b>\"}"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[
+            ("<p a=1 a=2 b c=\"d\"e=f>x", "p[a=1 b= c=d e=f]{\"x\"}"),
+            ("<p =a>x", "p[=a=]{\"x\"}"),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// The start tags of 13.2.6.4.7 that close or adopt what is open: a `<nobr>` / `<button>`
+/// the open one, a nested `<form>` is ignored, ruby annotations end each other, `<image>` is
+/// an `<img>`, `<dd>` ends a `<dt>` across a `<div>`, `<listing>` drops its first line feed,
+/// `</p>` alone is an empty paragraph, `<applet>` / `<marquee>` keep their formatting inside.
+#[test]
+fn the_body_start_tags_close_and_adopt_what_a_browser_does() {
+    check(
+        &[
+            ("<nobr>a<nobr>b", "nobr{\"a\"} nobr{\"b\"}"),
+            ("<button>a<button>b", "button{\"a\"} button{\"b\"}"),
+            ("<ruby>a<rt>b<rt>c</ruby>", "ruby{\"a\" rt{\"b\"} rt{\"c\"}}"),
+            (
+                "<ruby>a<rb>b<rt>c<rp>d</ruby>",
+                "ruby{\"a\" rb{\"b\"} rt{\"c\"} rp{\"d\"}}",
+            ),
+            ("<dl><dt>a<div><dd>b</div></dl>", "dl{dt{\"a\" div} dd{\"b\"}}"),
+            ("<ul><li>a<p>b<li>c</ul>", "ul{li{\"a\" p{\"b\"}} li{\"c\"}}"),
+            ("<listing>\nx</listing>", "listing{\"x\"}"),
+            ("<p>a</p></p>b", "p{\"a\"} p \"b\""),
+            ("<applet>a<b>b</applet>c", "applet{\"a\" b{\"b\"}} \"c\""),
+            ("<marquee>a<b>b</marquee>c", "marquee{\"a\" b{\"b\"}} \"c\""),
+            ("<select><div>x</div></select>", "select{div{\"x\"}}"),
+            ("<p>x</br>y", "p{\"x\" br \"y\"}"),
+            ("<p>a<hr>b", "p{\"a\"} hr \"b\""),
+            ("<li>a<li>b", "li{\"a\"} li{\"b\"}"),
+            ("<dd>a<dt>b", "dd{\"a\"} dt{\"b\"}"),
+            ("<option>a<option>b", "option{\"a\"} option{\"b\"}"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[
+            ("<form id=a><form id=b>x</form>y", "form[id=a]{\"x\"} \"y\""),
+            ("<image src=x>", "img[src=x]"),
+        ],
+        true,
+        body_of,
+    );
+}
+
+/// 13.2.6.4.18 "in template": a `<template>`'s content stays in it (also in the head), and a
+/// table part in it needs no table (no implied `<tbody>` / `<tr>`).
+#[test]
+fn a_template_keeps_its_content_and_its_table_parts() {
+    check(
+        &[
+            (
+                "<template><td>x</td></template>",
+                "html{head{template{td{\"x\"}}} body}",
+            ),
+            (
+                "<template><div>x</div></template><p>y",
+                "html{head{template{div{\"x\"}}} body{p{\"y\"}}}",
+            ),
+            (
+                "<head></head><template><p>x</template>",
+                "html{head{template{p{\"x\"}}} body}",
+            ),
+            (
+                "<body><template><tr><td>a</td></tr></template>b",
+                "html{head body{template{tr{td{\"a\"}}} \"b\"}}",
+            ),
+            ("<template><col><col></template>", "html{head{template{col col}} body}"),
+            (
+                "<template>a<b>b</b></template>",
+                "html{head{template{\"a\" b{\"b\"}}} body}",
+            ),
+            (
+                "<template><caption>c</caption><tbody><tr><td>x</td></tr></tbody></template>",
+                "html{head{template{caption{\"c\"} tbody{tr{td{\"x\"}}}}} body}",
+            ),
+        ],
+        false,
+        document_of,
+    );
+}
+
+/// Foreign content (13.2.6.5): inside `<svg>` / `<math>` an HTML block (or a `<font>` with
+/// `color`, `face` or `size`) ends the SVG and goes after it; a MathML text element (`<mi>`)
+/// holds HTML.
+#[test]
+fn svg_and_mathml_end_where_html_content_starts() {
+    check(
+        &[
+            ("<svg><p>x</svg>", "svg p{\"x\"}"),
+            ("<svg><g><b>x</b></g></svg>", "svg{g} b{\"x\"}"),
+            ("<svg><font>x</font></svg>", "svg{font{\"x\"}}"),
+            ("<math><mi>x<b>y</b></mi></math>", "math{mi{\"x\" b{\"y\"}}}"),
+        ],
+        false,
+        body_of,
+    );
+    check(
+        &[(
+            "<svg><font color=red>x</font></svg>",
+            "svg font[color=red]{\"x\"}",
+        )],
+        true,
+        body_of,
+    );
+}
+
+/// `markup` (tags without attributes, `<x/>`, `</x>`, `<!--x-->`, text) fed as the strict
+/// loaders feed their tokens into the tree construction under `rules`: the outline and
+/// how many elements were left open.
+fn strict(rules: TreeRules, markup: &str) -> (String, usize) {
+    let mut builder = TreeBuilder::new(rules);
+    let mut sink = XmlTreeSink::new();
+    let mut rest = markup;
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix("<!--") {
+            let end = after.find("-->").unwrap();
+            builder.comment(&mut sink, &after[..end]);
+            rest = &after[end + 3..];
+        } else if let Some(after) = rest.strip_prefix("</") {
+            let end = after.find('>').unwrap();
+            builder.end_tag(&mut sink, &after[..end]);
+            rest = &after[end + 1..];
+        } else if let Some(after) = rest.strip_prefix('<') {
+            let end = after.find('>').unwrap();
+            let tag = &after[..end];
+            match tag.strip_suffix('/') {
+                Some(name) => builder.start_tag(&mut sink, name, Vec::new(), true),
+                None => builder.start_tag(&mut sink, tag, Vec::new(), false),
+            }
+            rest = &after[end + 1..];
+        } else {
+            let end = rest.find('<').unwrap_or(rest.len());
+            builder.text(&mut sink, &rest[..end]);
+            rest = &rest[end..];
+        }
+    }
+    let open = builder.finish(&mut sink);
+    (outline(&sink.finish(), false), open)
+}
+
+/// The strict loaders (`TreeRules::Xml` / `XmlFolded`) keep the XML conveniences they had
+/// before the tree construction became HTML's (XML8): void elements, implied end tags (also
+/// a cell's and a row's within their table), end tags matched within their scope, `<x/>` an
+/// empty element, a misnested formatting element closed with its block - and none of HTML's
+/// document repairs (no implied html / head / body / tbody, no quirks, no foster parenting,
+/// no adoption agency, no `<image>` alias, a line feed after `<pre>` kept).
+#[test]
+fn the_strict_loaders_keep_their_xml_conveniences() {
+    let rows: &[(&str, &str, usize)] = &[
+        ("<p>a<div>b</div></p>", "p{\"a\"} div{\"b\"}", 0),
+        ("<ul><li>a<li>b</ul>", "ul{li{\"a\"} li{\"b\"}}", 0),
+        (
+            "<table><tr><td>a<td>b</tr></table>",
+            "table{tr{td{\"a\"} td{\"b\"}}}",
+            0,
+        ),
+        ("<table><td>x</td></table>", "table{td{\"x\"}}", 0),
+        ("<td>x</td>", "td{\"x\"}", 0),
+        ("<b><p>x</b>y</p>", "b{p{\"xy\"}}", 0),
+        ("<div/>x<br>y", "div \"x\" br \"y\"", 0),
+        ("<div>a</span>b</div>", "div{\"ab\"}", 0),
+        (
+            "<select><option>a<option>b</select>",
+            "select{option{\"a\"} option{\"b\"}}",
+            0,
+        ),
+        ("<h1>a<h2>b</h2>", "h1{\"a\"} h2{\"b\"}", 0),
+        (
+            "<svg><image/><linearGradient/></svg>",
+            "svg{image linearGradient}",
+            0,
+        ),
+        ("a<p>b</p>c", "\"a\" p{\"b\"} \"c\"", 0),
+        ("<style><!--p{}--></style>", "style{\"<!--p{}-->\"}", 0),
+        ("<div><span>x", "div{span{\"x\"}}", 2),
+        ("<pre>\nx</pre>", "pre{\" x\"}", 0),
+        (
+            "<p>a<table><tr><td>x</td></tr></table>",
+            "p{\"a\"} table{tr{td{\"x\"}}}",
+            0,
+        ),
+        ("<a>1<a>2</a></a>", "a{\"1\" a{\"2\"}}", 0),
+        ("<p>a</p></p>", "p{\"a\"}", 0),
+        ("a</br>b", "\"ab\"", 0),
+        ("<DIV><Span>x</Span></DIV>", "DIV{Span{\"x\"}}", 0),
+    ];
+    let mut failures = Vec::new();
+    for (markup, expected, open) in rows {
+        let got = strict(TreeRules::Xml, markup);
+        if got != ((*expected).into(), *open) {
+            failures.push(alloc::format!(
+                "{markup:?}\n  expected {expected} ({open} open)\n  got      {} ({} open)",
+                got.0,
+                got.1
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // The document loader's rules: the same, the names lower-cased.
+    assert_eq!(
+        strict(TreeRules::XmlFolded, "<DIV><Span>x</Span></DIV>"),
+        ("div{span{\"x\"}}".into(), 0)
+    );
+}
+
+/// The element table is sorted (it is binary-searched) and names every element once.
+#[test]
+fn the_element_table_is_sorted() {
+    for pair in rules::ELEMENTS.windows(2) {
+        assert!(
+            pair[0].name < pair[1].name,
+            "{} before {}",
+            pair[0].name,
+            pair[1].name
+        );
+    }
+}
+
+/// A doctype decides quirks mode by the HTML Standard's table (13.2.6.4.1).
+#[test]
+fn a_doctype_decides_quirks_mode_as_the_standard_lists_it() {
+    let quirky = |doctype: &str| {
+        let token = HtmlTokenizer::new(doctype).next();
+        let Some(HtmlToken::Doctype(d)) = &token else {
+            panic!("{doctype:?} is no doctype: {token:?}");
+        };
+        rules::doctype_is_quirky(
+            &d.name,
+            d.public_id.as_deref(),
+            d.system_id.as_deref(),
+            d.force_quirks,
+        )
+    };
+    assert!(!quirky("<!DOCTYPE html>"));
+    assert!(!quirky("<!doctype HTML>"));
+    assert!(!quirky("<!DOCTYPE html SYSTEM \"about:legacy-compat\">"));
+    assert!(quirky("<!DOCTYPE>"));
+    assert!(quirky("<!DOCTYPE foo>"));
+    assert!(quirky(
+        "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">"
+    ));
+    assert!(!quirky(
+        "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\" \"http://www.w3.org/TR/html4/loose.dtd\">"
+    ));
+    assert!(!quirky(
+        "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">"
+    ));
+    assert!(quirky("<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">"));
+    assert!(quirky("<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">"));
+    assert!(quirky("<!DOCTYPE html PUBLIC \"html\">"));
+    // a missing quote, an unclosed identifier, a bogus keyword: quirks
+    assert!(quirky("<!DOCTYPE html PUBLIC -//W3C//DTD>"));
+    assert!(quirky("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0>"));
+    assert!(quirky("<!DOCTYPE html bogus>"));
+    // the input ends in it
+    assert!(quirky("<!DOCTYPE html"));
+}
+
+/// The HTML Standard's named references (all 2231), the legacy ones without
+/// their `;`, and the numeric ones through the Windows-1252 repair.
+#[test]
+fn character_references_decode_as_in_a_browser() {
+    let text = |s: &str| decode_character_references(s, CharRefMode::HtmlText).into_owned();
+    assert_eq!(text("&check; &starf;"), "\u{2713} \u{2605}");
+    assert_eq!(text("&NotEqualTilde;"), "\u{2242}\u{338}", "two characters");
+    assert_eq!(
+        text("&copy 2026"),
+        "\u{A9} 2026",
+        "a legacy name without its ;"
+    );
+    assert_eq!(text("&notin; &notit;"), "\u{2209} \u{AC}it;");
+    assert_eq!(
+        text("&#150; &#x80; &#0; &#xD800; &#1114112;"),
+        "\u{2013} \u{20AC} \u{FFFD} \u{FFFD} \u{FFFD}"
+    );
+    assert_eq!(
+        text("&amp &lt; &Eacute; &eacute &nbsp;"),
+        "& < \u{C9} \u{E9} \u{A0}"
+    );
+    assert_eq!(text("&foo; &amp;lt; & &; &#;"), "&foo; &lt; & &; &#;");
+    let attribute =
+        |s: &str| decode_character_references(s, CharRefMode::HtmlAttribute).into_owned();
+    assert_eq!(attribute("?a=1&copy=2&notit;x&amp"), "?a=1&copy=2&notit;x&");
+    assert_eq!(attribute("&copy &copy; &copyx"), "\u{A9} \u{A9} &copyx");
+    // XML's rules (the strict loaders): a `;` is required, a number that is not
+    // a scalar value stays as written, the names are HTML's.
+    let xml = |s: &str| decode_character_references(s, CharRefMode::Xml).into_owned();
+    assert_eq!(
+        xml("&copy 2026 &copy; &#0; &#xD800; &check;"),
+        "&copy 2026 \u{A9} \u{0} &#xD800; \u{2713}"
+    );
+    assert!(matches!(
+        decode_character_references("plain", CharRefMode::Xml),
+        Cow::Borrowed(_)
+    ));
+    assert_eq!(named_character_reference("copy", true), Some("\u{A9}"));
+    assert_eq!(named_character_reference("copy", false), Some("\u{A9}"));
+    assert_eq!(
+        named_character_reference("check", false),
+        None,
+        "not a legacy name"
+    );
+    assert_eq!(
+        named_character_reference("CounterClockwiseContourIntegral", true),
+        Some("\u{2233}")
+    );
+}
+
+/// A browser stops nesting at 512 elements; deeper ones become siblings
+/// (and a thousand unclosed `<div>`s do not overflow the stack of the
+/// recursive `XmlNode` drop).
+#[test]
+fn elements_deeper_than_the_limit_become_siblings() {
+    let html = "<div>".repeat(2000) + "x";
+    let nodes = parse_html_nodes(&html);
+    // From the body (the document's first child is its head).
+    let body = find_element(&nodes, "body").expect("a document has a body");
+    let mut depth = 0;
+    let mut cursor: &[XmlNodeChild] = body.children.as_ref();
+    while let Some(XmlNodeChild::Element(e)) = cursor.first() {
+        depth += 1;
+        cursor = e.children.as_ref();
+    }
+    assert!(depth <= MAX_XML_NESTING_DEPTH, "nested {depth} deep");
+    assert!(depth > 500, "the divs nest up to the limit: {depth}");
+    drop(nodes);
+}
+
+// ============================================================================
+// The one encoder (DEDUP_WIDGETS_API F5): the inverse of
+// `decode_character_references`, for every writer of HTML / XML text.
+// ============================================================================
+
+/// Text content needs `&`, `<` and `>` escaped - nothing else: quotes are
+/// plain characters between tags.
+#[test]
+fn text_encoding_escapes_ampersand_and_angle_brackets_and_keeps_quotes() {
+    assert_eq!(
+        encode_text("a < b & c > d \"e\" 'f'"),
+        "a &lt; b &amp; c &gt; d \"e\" 'f'"
+    );
+    assert_eq!(
+        encode_text("&amp;"),
+        "&amp;amp;",
+        "an existing reference is text too"
+    );
+    assert_eq!(
+        encode_text("<script>a && b</script>"),
+        "&lt;script&gt;a &amp;&amp; b&lt;/script&gt;"
+    );
+}
+
+/// An attribute value also needs both quotes escaped, so it is safe inside
+/// `"..."` and `'...'` alike (and `<` / `>` for the XML loaders' sake).
+#[test]
+fn attribute_encoding_also_escapes_both_quotes() {
+    assert_eq!(
+        encode_attribute("x=\"1\" & y='2' <z>"),
+        "x=&quot;1&quot; &amp; y=&apos;2&apos; &lt;z&gt;"
+    );
+    assert_eq!(
+        encode_attribute("https://example.org/?a=1&b=2"),
+        "https://example.org/?a=1&amp;b=2"
+    );
+}
+
+/// XML 1.0 has no way to write the C0 controls other than tab, line feed
+/// and carriage return, nor U+FFFE / U+FFFF - not even as a reference - so
+/// the encoder leaves them out instead of writing a document a strict
+/// loader (or Windows' toast XML) rejects. DEL and the C1 controls are
+/// legal XML and stay.
+#[test]
+fn encoding_drops_the_characters_xml_cannot_carry_and_keeps_tab_and_line_breaks() {
+    let s = "a\u{0}b\u{8}c\td\ne\rf\u{b}g\u{c}h\u{1f}i\u{fffe}j\u{ffff}k\u{7f}l\u{85}m";
+    let kept = "abc\td\ne\rfghijk\u{7f}l\u{85}m";
+    assert_eq!(encode_text(s), kept);
+    assert_eq!(encode_attribute(s), kept);
+}
+
+/// Plain text comes back unchanged.
+#[test]
+fn encoding_plain_text_changes_nothing() {
+    for s in [
+        "",
+        "plain",
+        "\u{1F642} caf\u{e9} \u{65e5}\u{672c}",
+        "tab\tand\nlines",
+    ] {
+        assert_eq!(encode_text(s), s);
+        assert_eq!(encode_attribute(s), s);
+    }
+}
+
+/// What the encoder writes, the decoder reads back as the original - in
+/// every mode, so a writer never has to know which loader reads its output.
+#[test]
+fn an_encoded_string_decodes_back_to_itself_in_every_mode() {
+    for s in [
+        "",
+        "plain",
+        "a<b>&c\"d'e",
+        "&amp;lt;",
+        "&copy 2026 &copy; &#169; &#xA9;",
+        "\u{1F642}&\u{1F642}",
+        "?a=1&copy=2&lt=3",
+        "&",
+        "&;",
+        "&#",
+    ] {
+        let text = encode_text(s);
+        let attribute = encode_attribute(s);
+        assert_eq!(
+            decode_character_references(&text, CharRefMode::Xml),
+            s,
+            "{s:?} as XML text"
+        );
+        assert_eq!(
+            decode_character_references(&text, CharRefMode::HtmlText),
+            s,
+            "{s:?} as HTML text"
+        );
+        assert_eq!(
+            decode_character_references(&attribute, CharRefMode::HtmlAttribute),
+            s,
+            "{s:?} as an HTML attribute"
+        );
+        assert_eq!(
+            decode_character_references(&attribute, CharRefMode::Xml),
+            s,
+            "{s:?} as an XML attribute"
+        );
+    }
+}

@@ -199,9 +199,158 @@ pub(crate) fn warn_about_inert_env_knobs() {
     }
 }
 
-/// Set up E2E test runner: read the JSON file, push a `RunE2eTests`
-/// event onto the queue, and spawn a background thread that waits for
-/// results, prints cargo-test-style output, and calls `exit()`.
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+fn run_e2e_dispatcher(dir: &str) {
+    let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+            .collect(),
+        Err(e) => {
+            eprintln!("error: cannot read E2E directory '{}': {}", dir, e);
+            exit_dumping_profile(1);
+        }
+    };
+    files.sort();
+    if files.is_empty() {
+        eprintln!("error: no *.json E2E files found in directory '{}'", dir);
+        exit_dumping_profile(1);
+    }
+
+    let total = files.len();
+    eprintln!("\n[E2E] Dispatching {} test{} in parallel processes...", total, if total == 1 { "" } else { "s" });
+
+    // Number of concurrent jobs: max(1, CPU cores - 1)
+    let max_jobs = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).saturating_sub(1).max(1);
+    
+    let files = std::sync::Arc::new(std::sync::Mutex::new(files.into_iter()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    
+    let current_exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            eprintln!("error: cannot get current executable path for dispatcher: {}", e);
+            exit_dumping_profile(1);
+        }
+    };
+
+    for _ in 0..max_jobs {
+        let files = files.clone();
+        let tx = tx.clone();
+        let current_exe = current_exe.clone();
+        
+        std::thread::spawn(move || {
+            loop {
+                let file = {
+                    let mut lock = files.lock().unwrap();
+                    match lock.next() {
+                        Some(f) => f,
+                        None => break,
+                    }
+                };
+                
+                let output = std::process::Command::new(&current_exe)
+                    .env("AZ_E2E", &file)
+                    .output();
+                    
+                let res = match output {
+                    Ok(out) => {
+                        let success = out.status.success();
+                        (file, success, out.stdout, out.stderr)
+                    },
+                    Err(e) => {
+                        (file, false, Vec::new(), format!("Failed to spawn child: {}", e).into_bytes())
+                    }
+                };
+                let _ = tx.send(res);
+            }
+        });
+    }
+    
+    drop(tx); // Close the master sender so the receiver terminates when all workers finish
+    
+    // The children's own tallies, read back from the summary line each
+    // printed (`render_report`), summed per TEST. The exit code alone said
+    // "ok" for a file whose tests were all skipped by their `only_on` gate.
+    let mut tally = debug_server::E2eVerdict::default();
+    let mut failures = Vec::new();
+
+    let target_dir = std::path::Path::new("target/e2e/logs");
+    let _ = std::fs::create_dir_all(target_dir);
+
+    for (file, success, stdout, stderr) in rx {
+        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        let child_log = String::from_utf8_lossy(&stderr);
+        let verdict = child_log
+            .lines()
+            .rev()
+            .find_map(debug_server::E2eVerdict::parse_summary);
+        match verdict {
+            Some(v) => {
+                tally.passed += v.passed;
+                tally.failed += v.failed;
+                tally.xfail += v.xfail;
+                tally.xpass += v.xpass;
+                tally.skipped += v.skipped;
+            }
+            // A child that died before its report is one failure at least.
+            None if !success => tally.failed += 1,
+            None => {}
+        }
+        let ran_any = verdict.map_or(true, |v| v.passed + v.failed + v.xfail + v.xpass > 0);
+        if success && !ran_any {
+            // Nothing in the file runs on this host: SKIP, with the reasons.
+            eprintln!("test {} ... SKIP", name);
+            for line in child_log
+                .lines()
+                .filter(|l| l.starts_with("test ") && l.contains("SKIP"))
+            {
+                eprintln!("    {line}");
+            }
+        } else if success {
+            match verdict.map_or(0, |v| v.skipped) {
+                0 => eprintln!("test {} ... ok", name),
+                skipped => eprintln!("test {} ... ok ({} skipped)", name, skipped),
+            }
+        } else {
+            eprintln!("test {} ... FAILED", name);
+
+            let log_path = target_dir.join(format!("{}.log", name));
+            let mut log_content = String::new();
+            log_content.push_str("--- STDOUT ---\n");
+            log_content.push_str(&String::from_utf8_lossy(&stdout));
+            log_content.push_str("\n--- STDERR ---\n");
+            log_content.push_str(&child_log);
+            let _ = std::fs::write(&log_path, log_content);
+
+            failures.push((name.into_owned(), log_path));
+        }
+    }
+
+    eprintln!(
+        "\ntest result: {}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped",
+        if failures.is_empty() { "ok" } else { "FAILED" },
+        tally.passed,
+        tally.failed,
+        tally.xfail,
+        tally.xpass,
+        tally.skipped
+    );
+    
+    if !failures.is_empty() {
+        eprintln!("\nfailures:");
+        for (name, log_path) in failures {
+            eprintln!("    {} (logs saved to {})", name, log_path.display());
+        }
+        exit_dumping_profile(1);
+    }
+    exit_dumping_profile(0);
+}
+
+/// Set up E2E test runner: read the JSON file (one test or an array, through
+/// the shared `load_e2e_tests`), push a `RunE2eTests` event onto the queue,
+/// and spawn a background thread that waits for results, prints the shared
+/// cargo-test-style report (`render_report`), and calls `exit()`.
 ///
 /// This does **not** replace the normal `run()` flow.  The app continues
 /// to start its window (real or headless) and the debug timer processes
@@ -210,98 +359,24 @@ pub(crate) fn warn_about_inert_env_knobs() {
 /// - **Headless mode** (`AZ_BACKEND=headless`) → StubWindow instead of real window
 /// - **Debug server** (`AZ_DEBUG=<port>`) → HTTP API on that port
 /// - **E2E runner** (`AZ_E2E=<file>`) → one event on the queue
-/// Parse one E2E JSON file's contents — accept either a single test object
-/// or an array of them — appending into `out`. Exits the process on a parse
-/// error (a broken test file must be loud, never silently skipped).
-#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
-fn load_e2e_json(path: &str, contents: &str, out: &mut Vec<debug_server::E2eTest>) {
-    match serde_json::from_str::<Vec<debug_server::E2eTest>>(contents) {
-        Ok(v) => out.extend(v),
-        Err(_) => match serde_json::from_str::<debug_server::E2eTest>(contents) {
-            Ok(t) => out.push(t),
-            Err(e) => {
-                eprintln!("error: invalid E2E JSON in '{}': {}", path, e);
-                std::process::exit(1);
-            }
-        },
-    }
-}
-
-/// Load all tests referenced by `AZ_E2E`. If it points at a DIRECTORY, every
-/// `*.json` inside it is loaded in sorted (deterministic) order and run as one
-/// batch in the single process/warmup; a single FILE keeps its old behavior.
-#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
-fn load_e2e_tests(path: &str) -> Vec<debug_server::E2eTest> {
-    let meta = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("error: cannot stat E2E path '{}': {}", path, e);
-            std::process::exit(1);
-        }
-    };
-
-    let mut tests = Vec::new();
-
-    if meta.is_dir() {
-        // Glob *.json, sorted by path for a deterministic run order.
-        let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(path) {
-            Ok(rd) => rd
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
-                .collect(),
-            Err(e) => {
-                eprintln!("error: cannot read E2E directory '{}': {}", path, e);
-                std::process::exit(1);
-            }
-        };
-        files.sort();
-        if files.is_empty() {
-            eprintln!("error: no *.json E2E files found in directory '{}'", path);
-            std::process::exit(1);
-        }
-        for file in &files {
-            let contents = match std::fs::read_to_string(file) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!(
-                        "error: cannot read E2E test file '{}': {}",
-                        file.display(),
-                        e
-                    );
-                    std::process::exit(1);
-                }
-            };
-            load_e2e_json(&file.display().to_string(), &contents, &mut tests);
-        }
-    } else {
-        let contents = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("error: cannot read E2E test file '{}': {}", path, e);
-                std::process::exit(1);
-            }
-        };
-        load_e2e_json(path, &contents, &mut tests);
-    }
-
-    tests
-}
-
 #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn setup_e2e_runner(test_file: &str) {
-    let tests = load_e2e_tests(test_file);
+    // A broken test file must be loud, never silently skipped.
+    let tests = match debug_server::load_e2e_tests(std::path::Path::new(test_file)) {
+        Ok(tests) => tests,
+        Err(e) => {
+            eprintln!("error: {e}");
+            exit_dumping_profile(1);
+        }
+    };
     if tests.is_empty() {
         eprintln!("error: no E2E tests to run from '{}'", test_file);
-        std::process::exit(1);
+        exit_dumping_profile(1);
     }
 
-    // Capture (name → expect) BEFORE the tests are moved into the queue, so the
-    // result-printer thread can apply the XFAIL/XPASS verdict logic. Names are
-    // expected to be unique; a duplicate simply overwrites (last wins).
-    let expect_map: std::collections::HashMap<String, Option<String>> = tests
-        .iter()
-        .map(|t| (t.name.clone(), t.expect.clone()))
-        .collect();
+    // Kept BEFORE the tests are moved into the queue: the report pairs each
+    // result with its test (the `expect` marker) by name.
+    let report_tests = tests.clone();
 
     let total = tests.len();
     eprintln!(
@@ -331,7 +406,7 @@ fn setup_e2e_runner(test_file: &str) {
                 Ok(r) => r,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     eprintln!("\nerror: E2E test timeout (600 s)");
-                    std::process::exit(1);
+                    end_process_from_worker(1);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     eprintln!(
@@ -339,7 +414,7 @@ fn setup_e2e_runner(test_file: &str) {
                          (lost display connection, protocol error, or a panic in the event loop). \
                          This is NOT a timeout; nothing waited."
                     );
-                    std::process::exit(1);
+                    end_process_from_worker(1);
                 }
             };
 
@@ -350,111 +425,25 @@ fn setup_e2e_runner(test_file: &str) {
                 } => r.results,
                 DebugResponseData::Ok { .. } => {
                     eprintln!("\nerror: unexpected response (no E2eResults)");
-                    std::process::exit(1);
+                    end_process_from_worker(1);
                 }
                 DebugResponseData::Err(msg) => {
                     eprintln!("\nerror: {}", msg);
-                    std::process::exit(1);
+                    end_process_from_worker(1);
+                }
+                DebugResponseData::PendingScreenshot(_) => {
+                    eprintln!("\nerror: unexpected response (a screenshot, no E2eResults)");
+                    end_process_from_worker(1);
                 }
             };
 
-            // Per-test verdict tally with xfail support. A test marked
-            // `"expect": "fail"` inverts the meaning of its raw pass/fail:
-            //   raw FAIL + expect fail → XFAIL (expected; does NOT fail the gate)
-            //   raw PASS + expect fail → XPASS (bug fixed — remove the marker;
-            //                                   this DOES fail the gate)
-            // Only PASS and XFAIL are "green"; FAIL and XPASS are "red".
-            eprintln!();
-            let mut passed = 0usize; // clean PASS (expect None)
-            let mut failed = 0usize; // real FAIL (expect None)
-            let mut xfail = 0usize; // expected failure
-            let mut xpass = 0usize; // unexpected pass = a failure
-            let mut gate_failures = Vec::new(); // things that fail the gate (FAIL + XPASS)
-
-            for result in &results {
-                let expects_fail =
-                    expect_map.get(&result.name).and_then(|e| e.as_deref()) == Some("fail");
-                let raw_pass = result.status == "pass";
-
-                match (raw_pass, expects_fail) {
-                    (true, false) => {
-                        eprintln!(
-                            "test {} ... \x1b[32mPASS\x1b[0m ({} ms)",
-                            result.name, result.duration_ms
-                        );
-                        passed += 1;
-                    }
-                    (false, false) => {
-                        eprintln!(
-                            "test {} ... \x1b[31mFAIL\x1b[0m ({} ms)",
-                            result.name, result.duration_ms
-                        );
-                        failed += 1;
-                        gate_failures.push((result, "FAIL"));
-                    }
-                    (false, true) => {
-                        eprintln!(
-                            "test {} ... \x1b[33mXFAIL\x1b[0m ({} ms) (expected failure)",
-                            result.name, result.duration_ms
-                        );
-                        xfail += 1;
-                    }
-                    (true, true) => {
-                        eprintln!(
-                            "test {} ... \x1b[31mXPASS\x1b[0m ({} ms) (unexpectedly passed — \
-                             remove the \"expect\":\"fail\" marker)",
-                            result.name, result.duration_ms
-                        );
-                        xpass += 1;
-                        gate_failures.push((result, "XPASS"));
-                    }
-                }
-            }
-
-            eprintln!();
-
-            if !gate_failures.is_empty() {
-                eprintln!("failures:\n");
-                for (f, verdict) in &gate_failures {
-                    eprintln!("---- {} ({}) ----", f.name, verdict);
-                    if *verdict == "XPASS" {
-                        eprintln!(
-                            "  test passed but is marked \"expect\":\"fail\" — the bug it guards \
-                             is fixed; remove the marker"
-                        );
-                    }
-                    for step in &f.steps {
-                        if step.status == "fail" {
-                            eprintln!(
-                                "  step {}: {} → FAILED: {}",
-                                step.step_index,
-                                step.op,
-                                step.error.as_deref().unwrap_or("unknown error")
-                            );
-                        }
-                    }
-                    eprintln!();
-                }
-                eprintln!("failures:");
-                for (f, verdict) in &gate_failures {
-                    eprintln!("    {} ({})", f.name, verdict);
-                }
-                eprintln!();
-            }
-
-            let gate_failed = failed + xpass > 0;
-            let word = if gate_failed {
-                "\x1b[31mFAILED\x1b[0m"
-            } else {
-                "\x1b[32mok\x1b[0m"
-            };
-            eprintln!(
-                "test result: {}. {} passed; {} failed; {} xfailed; {} xpassed; 0 ignored; 0 \
-                 measured; 0 filtered out\n",
-                word, passed, failed, xfail, xpass
-            );
-
-            std::process::exit(if gate_failed { 1 } else { 0 });
+            // The verdict tally (PASS / FAIL / XFAIL / XPASS / SKIP) is the
+            // shared `render_report`, the one `azul-doc e2e` and the in-crate
+            // fixture test print: the gate's notion of "green" must not depend
+            // on which entry point ran it.
+            let (report, verdict) = debug_server::render_report(&report_tests, &results);
+            eprintln!("{report}");
+            end_process_from_worker(verdict.exit_code());
         })
         .expect("failed to spawn e2e-result-printer thread");
 }
@@ -506,6 +495,18 @@ fn run_headless(
         "[Headless] Creating StubWindow + entering blocking event loop"
     );
 
+    // No notification server in a headless run: posts are RECORDED (for
+    // tests and the `assert_notification` E2E assertion) instead of shown.
+    // Before the window exists, so before anything can post.
+    crate::desktop::notifications::use_headless_backend();
+
+    // Global hotkeys: a headless run must not grab real keys at the OS. The
+    // simulation is installed BEFORE the first window lays out, so the
+    // platform backend `App::run` chose is never built (nothing is grabbed,
+    // no portal handshake starts), and `simulate` / the AZ_E2E
+    // `global_hotkey` op press.
+    crate::desktop::global_hotkey::install_simulated_backend();
+
     // Extract icon_provider from config (same as real platforms do)
     let icon_provider_handle = core::mem::take(&mut config.icon_provider);
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
@@ -556,9 +557,24 @@ fn setup_debug_and_e2e(
         // those before the first request can be dispatched.
         debug_server::install_e2e_host_hooks();
 
-        let debug_port = debug_server::get_debug_port();
+        let mut debug_port = config.remote_control.debug_port.into_option();
+        if debug_port.is_none() {
+            debug_port = debug_server::get_debug_port();
+        }
         let e2e_file = e2e_test_file();
-        let needs_debug = debug_port.is_some() || e2e_file.is_some();
+        
+        let mut needs_debug = false;
+        if debug_port.is_some() && config.remote_control.allow_remote_control {
+            needs_debug = true;
+        }
+        if e2e_file.is_some() {
+            if !config.remote_control.allow_e2e_tests {
+                eprintln!("error: AZ_E2E is disabled in AppConfig::remote_control.allow_e2e_tests");
+                exit_dumping_profile(1);
+            }
+            needs_debug = true;
+            debug_port = None; // AZ_E2E overrides starting a localhost server
+        }
 
         let (debug_request_rx, component_map) = if needs_debug {
             let cm = Arc::new(Mutex::new(azul_core::xml::ComponentMap::from_libraries(
@@ -588,7 +604,15 @@ fn setup_debug_and_e2e(
         };
 
         if let Some(ref test_file) = e2e_file {
-            setup_e2e_runner(test_file);
+            let meta = std::fs::metadata(test_file).unwrap_or_else(|e| {
+                eprintln!("error: cannot stat E2E path '{}': {}", test_file, e);
+                exit_dumping_profile(1);
+            });
+            if meta.is_dir() {
+                run_e2e_dispatcher(test_file);
+            } else {
+                setup_e2e_runner(test_file);
+            }
         }
 
         (debug_request_rx, component_map)
@@ -615,7 +639,7 @@ fn setup_debug_and_e2e(
 /// The behavior when all windows are closed is controlled by `config.termination_behavior`:
 /// - `ReturnToMain`: Returns control to main() (if platform supports it)
 /// - `RunForever`: Keeps app running until explicitly quit (macOS standard behavior)
-/// - `EndProcess`: Calls std::process::exit(0) when last window closes (default)
+/// - `EndProcess`: Calls exit_dumping_profile(0) when last window closes (default)
 #[cfg(target_os = "macos")]
 pub fn run(
     app_data: RefAny,
@@ -702,6 +726,54 @@ pub fn run(
         );
     }
 
+    // X11 on this Mac. `AZ_BACKEND=x11` / `AZ_WINDOW=x11` in a build with the
+    // `x11-macos` feature runs the SAME window loop Linux runs, against
+    // XQuartz - NSApplication, the menu bar and the Dock below are never
+    // touched. Any other windowing request opens AppKit windows, and says so
+    // when it asked for something this build or this host cannot do.
+    match super::common::x11_host::host_windowing_from_env() {
+        super::common::x11_host::HostWindowing::Native => {}
+        super::common::x11_host::HostWindowing::X11 => {
+            #[cfg(az_x11)]
+            {
+                crate::plog_info!(
+                    "[macOS] X11 requested - running the X11 backend against DISPLAY={:?}",
+                    std::env::var("DISPLAY").ok()
+                );
+                super::common::x11_host::activate();
+                // Anything memoised before this line is AppKit's monitor list;
+                // from here on the X11 windows read the X server's.
+                crate::desktop::display::invalidate_display_cache();
+                return run_linux_windows(
+                    app_data,
+                    undo_manager,
+                    config,
+                    fc_cache,
+                    font_registry,
+                    root_window,
+                    extra_windows,
+                    tray,
+                    font_manager,
+                    app_icon,
+                    debug_request_rx,
+                    component_map,
+                );
+            }
+            #[cfg(not(az_x11))]
+            eprintln!(
+                "[azul] AZ_BACKEND=x11 / AZ_WINDOW=x11 asks for the X11 backend, but this build \
+                 has no `x11-macos` feature, so it does NOTHING (opening an AppKit window). \
+                 build-dll includes it; a link-static app adds `--features x11-macos`."
+            );
+        }
+        super::common::x11_host::HostWindowing::Unsupported(value) => {
+            eprintln!(
+                "[azul] AZ_WINDOW / AZ_BACKEND asks for the {value:?} windowing backend, which \
+                 macOS does not have - opening an AppKit window"
+            );
+        }
+    }
+
     use azul_core::{icon::SharedIconProvider, resources::AppTerminationBehavior};
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
@@ -759,6 +831,13 @@ pub fn run(
             app.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*delegate)));
             core::mem::forget(delegate);
         }
+        // The UNUserNotificationCenter delegate, NOW: a click on a
+        // notification of an app that was not running launches it, and UN
+        // delivers that response only to a delegate set before launching
+        // finishes (`finishLaunching` below). Installing it at the first post
+        // - where it used to happen - lost exactly that click. A no-op for an
+        // unbundled binary, which UN would abort.
+        crate::desktop::notifications::install_launch_hooks();
 
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
@@ -926,14 +1005,16 @@ pub fn run(
                 // frame-ready presents, callback-created windows) never runs —
                 // menu items silently did nothing and create_window() from a
                 // callback queued forever in RunForever mode. Drive that work
-                // from a repeating NSTimer instead, registered in COMMON run
-                // loop modes so it keeps firing during menu tracking and live
-                // resize.
+                // from the run loop itself: once per loop turn, just before it
+                // sleeps, in the COMMON modes so it also runs during menu
+                // tracking and live resize. It used to be a repeating 33 ms
+                // NSTimer - 30 wake-ups a second for an app with nothing to do
+                // (USER ruling 2026-09-30: no internal timer may stay
+                // registered without work). Every source of this work wakes
+                // the loop by itself: input and menu actions are events, the
+                // tray and notifications post the loop waker's event, and so
+                // does a WebRender frame (`Notifier::wake`).
                 {
-                    use block2::RcBlock;
-                    use objc2::{msg_send, msg_send_id, rc::Retained};
-                    use objc2_foundation::{NSObject, NSTimer};
-
                     let app_data = app_data.clone();
                     let undo_manager = undo_manager.clone();
                     let config_c = config.clone();
@@ -941,13 +1022,16 @@ pub fn run(
                     let fc_cache = fc_cache.clone();
                     let font_registry = font_registry.clone();
                     let font_manager_c = font_manager.clone();
-                    let drain = RcBlock::new(move || {
-                        // Tray menu clicks land in the process-wide menu-action
-                        // queue; drain the ones this tray owns. Items carrying a
-                        // callback come back here to be invoked, the rest go to
-                        // the tray event mailbox. Self-gating when there is no
-                        // tray.
-                        pump_tray_into_windows();
+                    let drain = move || {
+                        // The app-level sources - tray menu clicks and
+                        // notification events - in one collection, run against
+                        // the most recently focused window (else the oldest).
+                        // Self-gating when there is nothing to deliver.
+                        crate::desktop::app_events::deliver_to_macos_windows();
+                        // Global hotkeys the Carbon handler parked, run
+                        // against the window that owns each (its declarer,
+                        // or for an app-level one the last focused window).
+                        crate::desktop::global_hotkey::pump_macos_windows();
 
                         let window_ptrs = super::macos::registry::get_all_window_ptrs();
 
@@ -984,6 +1068,10 @@ pub fn run(
                                             new_ns_window,
                                             new_window_ptr,
                                         );
+                                        // The debug server reaches it like the first window.
+                                        debug_server::register_debug_timer_on_new_window(
+                                            &mut *new_window_ptr,
+                                        );
                                         (*new_window_ptr).request_redraw();
                                     },
                                     Err(e) => {
@@ -997,24 +1085,13 @@ pub fn run(
                             }
                         }
                         super::macos::drain_closed_windows();
-                    });
-                    let timer: Retained<NSTimer> = unsafe {
-                        msg_send_id![
-                            objc2::class!(NSTimer),
-                            scheduledTimerWithTimeInterval: 0.033f64,
-                            repeats: true,
-                            block: &*drain
-                        ]
+                        // Frames owed and not asked for: the display link
+                        // runs only while frames are wanted (`FramePacer`).
+                        for wptr in super::macos::registry::get_all_window_ptrs() {
+                            unsafe { (*wptr).request_frame_if_pending() };
+                        }
                     };
-                    unsafe {
-                        let run_loop: *mut NSObject =
-                            msg_send![objc2::class!(NSRunLoop), currentRunLoop];
-                        let mode = objc2_foundation::ns_string!("kCFRunLoopCommonModes");
-                        let _: () = msg_send![&*run_loop, addTimer: &*timer, forMode: mode];
-                    }
-                    // Intentionally leak the Retained<NSTimer>: it must live for
-                    // the whole app.run() (forever).
-                    std::mem::forget(timer);
+                    run_before_main_loop_waits(Box::new(drain));
                 }
 
                 unsafe {
@@ -1045,10 +1122,12 @@ pub fn run(
 
                 loop {
                     autoreleasepool(|_| {
-                        // Tray menu clicks, before native events: this loop is
-                        // what runs for the DEFAULT termination behaviour, so
-                        // skipping it here is what made the tray menu inert.
-                        pump_tray_into_windows();
+                        // App-level events handled in the LAST iteration's
+                        // post-wake drain (a tray pick, a Carbon hotkey, a
+                        // notification click), before native events: this loop
+                        // is what runs for the DEFAULT termination behaviour,
+                        // so skipping it here is what made the tray menu inert.
+                        crate::desktop::app_events::deliver_to_macos_windows();
 
                         // --- Drain pending native events (non-blocking) ---
                         // We need to dispatch events BOTH to the system (sendEvent) and to our
@@ -1111,7 +1190,7 @@ pub fn run(
                                         LogCategory::EventLoop,
                                         "[macOS] All windows closed, terminating process"
                                     );
-                                    std::process::exit(0);
+                                    exit_dumping_profile(0);
                                 }
                                 AppTerminationBehavior::RunForever => unreachable!(),
                             }
@@ -1176,6 +1255,10 @@ pub fn run(
                                                 new_ns_window,
                                                 new_window_ptr,
                                             );
+                                            // The debug server reaches it like the first window.
+                                            debug_server::register_debug_timer_on_new_window(
+                                                &mut *new_window_ptr,
+                                            );
 
                                             // Request initial redraw
                                             (*new_window_ptr).request_redraw();
@@ -1196,6 +1279,27 @@ pub fn run(
                                     }
                                 }
                             }
+                        }
+
+                        // --- App-level events, BEFORE parking ---
+                        // A Carbon hotkey, a status-item click and a tray menu
+                        // pick are all handled inside a `sendEvent:` of the
+                        // drain above, and a callback may have posted a
+                        // notification while the windows were processed. All of
+                        // it goes out NOW: parked, it would wait for the next
+                        // unrelated event (the tray used to be pumped only at
+                        // the top of the loop).
+                        crate::desktop::app_events::deliver_to_macos_windows();
+                        crate::desktop::global_hotkey::pump_macos_windows();
+
+                        // --- Frames owed, BEFORE parking ---
+                        // The display link runs only while frames are wanted
+                        // (`FramePacer`); it no longer polls the frame flags
+                        // every vsync. A pass that raised one without asking
+                        // for the frame gets it asked here, the last point
+                        // before the loop sleeps.
+                        for wptr in super::macos::registry::get_all_window_ptrs() {
+                            unsafe { (*wptr).request_frame_if_pending() };
                         }
 
                         // --- Wait for next event (blocking) ---
@@ -1274,6 +1378,86 @@ pub fn run(
 
         Ok(())
     })
+}
+
+/// Run `work` every time the main run loop is about to sleep: a
+/// `kCFRunLoopBeforeWaiting` observer in the common modes, so it also runs
+/// inside menu tracking and live resize. Once per loop turn that did
+/// something, never while the app is idle - where a repeating timer woke the
+/// app at its interval forever.
+///
+/// The observer and `work` live for the rest of the process. A nested run
+/// loop started from inside `work` (a modal dialog opened by a menu action)
+/// fires the observer again; that re-entry is skipped, since `work` holds
+/// `&mut` borrows of the windows it drains.
+#[cfg(target_os = "macos")]
+fn run_before_main_loop_waits(work: Box<dyn FnMut()>) {
+    use core::ffi::c_void;
+
+    #[repr(C)]
+    struct CFRunLoopObserverContext {
+        version: isize,
+        info: *mut c_void,
+        retain: *const c_void,
+        release: *const c_void,
+        copy_description: *const c_void,
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRunLoopGetMain() -> *mut c_void;
+        fn CFRunLoopObserverCreate(
+            allocator: *const c_void,
+            activities: usize,
+            repeats: u8,
+            order: isize,
+            callout: extern "C" fn(*mut c_void, usize, *mut c_void),
+            context: *mut CFRunLoopObserverContext,
+        ) -> *mut c_void;
+        fn CFRunLoopAddObserver(run_loop: *mut c_void, observer: *mut c_void, mode: *const c_void);
+        static kCFRunLoopCommonModes: *const c_void;
+    }
+
+    /// `kCFRunLoopBeforeWaiting`.
+    const BEFORE_WAITING: usize = 1 << 5;
+
+    thread_local! {
+        static RUNNING: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    }
+
+    extern "C" fn callout(_observer: *mut c_void, _activity: usize, info: *mut c_void) {
+        if info.is_null() || RUNNING.with(core::cell::Cell::get) {
+            return;
+        }
+        RUNNING.with(|r| r.set(true));
+        // SAFETY: `info` is the leaked `Box<Box<dyn FnMut()>>` below, only
+        // ever touched here, on the main thread, never re-entrantly.
+        let work = unsafe { &mut *info.cast::<Box<dyn FnMut()>>() };
+        work();
+        RUNNING.with(|r| r.set(false));
+    }
+
+    let info: *mut Box<dyn FnMut()> = Box::into_raw(Box::new(work));
+    let mut context = CFRunLoopObserverContext {
+        version: 0,
+        info: info.cast(),
+        retain: core::ptr::null(),
+        release: core::ptr::null(),
+        copy_description: core::ptr::null(),
+    };
+    unsafe {
+        let observer = CFRunLoopObserverCreate(
+            core::ptr::null(),
+            BEFORE_WAITING,
+            1,
+            0,
+            callout,
+            &mut context,
+        );
+        if !observer.is_null() {
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+        }
+    }
 }
 
 // Store initial options globally for the AppDelegate to retrieve.
@@ -1528,6 +1712,10 @@ pub fn run(
          AZ_LOG=trace for everything)",
         std::env::var("AZ_BACKEND").ok()
     );
+    // Before the first window: when COM started this process for a click on
+    // one of its toasts (`-ToastActivated`), the toast activator must be
+    // registered at once to receive that click (notifications/windows.rs).
+    crate::desktop::notifications::install_launch_hooks();
     use std::cell::RefCell;
 
     use azul_core::resources::AppTerminationBehavior;
@@ -1761,6 +1949,22 @@ pub fn run(
         // `super::macos::drain_closed_windows()` in the macOS loop.
         registry::drain_closed_windows();
 
+        // --- App-level events: notifications and the tray ---
+        // The notify window's `NIN_BALLOON*` woke `WaitMessage`, and the
+        // thread-queue drain above ran its window procedure, which parked
+        // what happened. Queued notification posts go out as a balloon here
+        // too. Everything runs in THIS iteration against the most recently
+        // focused window (else the oldest); a rebuild it asks for is picked
+        // up by the render pass below.
+        crate::desktop::app_events::deliver_to_win32_windows();
+
+        // --- Global hotkeys ---
+        // `WM_HOTKEY` woke `WaitMessage` and the thread-queue drain above ran
+        // the message-only window's procedure, which parked the press. Run
+        // each against the window that owns it; a rebuild they ask for is
+        // picked up by the render pass below.
+        crate::desktop::global_hotkey::pump_win32_windows();
+
         // --- State diffing and callback dispatch ---
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
         // NOTE: window_proc already calls process_window_events() for mouse/keyboard
@@ -1818,6 +2022,10 @@ pub fn run(
 
                                 // Register in global registry
                                 registry::register_window(new_hwnd, new_window_ptr);
+                                // The debug server reaches it like the first window.
+                                debug_server::register_debug_timer_on_new_window(
+                                    &mut *new_window_ptr,
+                                );
 
                                 // Register the OLE drop target (after registry).
                                 (*new_window_ptr).register_drag_drop();
@@ -1943,10 +2151,14 @@ pub fn run(
     // that could catch it.
     crate::desktop::extra::gamepad::stop_all_rumble();
 
+    // The notification balloon's notify icon, likewise: the shell keeps a dead
+    // process's icon in the notification area until the mouse passes over it.
+    crate::desktop::notifications::shutdown();
+
     // Handle termination behavior
     match config.termination_behavior {
         AppTerminationBehavior::EndProcess => {
-            std::process::exit(0);
+            exit_dumping_profile(0);
         }
         AppTerminationBehavior::ReturnToMain => {
             // Return normally to allow cleanup
@@ -2042,11 +2254,65 @@ pub fn run(
             component_map,
         );
     }
+    run_linux_windows(
+        app_data,
+        undo_manager,
+        config,
+        fc_cache,
+        font_registry,
+        root_window,
+        extra_windows,
+        tray,
+        font_manager,
+        app_icon,
+        debug_request_rx,
+        component_map,
+    )
+}
+
+/// The X11 / Wayland window loop: create the root window, then pump every
+/// window's events, open the windows callbacks queued, drop the ones that
+/// closed, and park until something is owed - until the last window is gone.
+///
+/// Linux's `run()` ends here. So does the macOS `run()` when a build with the
+/// `x11-macos` feature is asked for X11 (`AZ_BACKEND=x11`): it is the SAME
+/// loop, not a port of it, so what reproduces against XQuartz is what ships on
+/// Linux. Off Linux the loop has X11 windows only; Wayland, the D-Bus tray and
+/// the `_NET_WM_ICON` app icon are the Linux desktop's, not the X protocol's.
+#[cfg(az_x11)]
+// With the one `LinuxWindow` variant a non-Linux host has, the loop's
+// `if let LinuxWindow::X11(..)` are irrefutable there.
+#[cfg_attr(not(target_os = "linux"), allow(irrefutable_let_patterns))]
+fn run_linux_windows(
+    app_data: RefAny,
+    undo_manager: SharedUndoManager,
+    config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
+    root_window: WindowCreateOptions,
+    extra_windows: Vec<WindowCreateOptions>,
+    tray: Option<azul_core::tray::TrayIconData>,
+    font_manager: Option<
+        Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
+    app_icon: Option<azul_css::AzString>,
+    debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
+    component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
+) -> Result<(), WindowError> {
     use std::cell::RefCell;
 
     use azul_core::resources::AppTerminationBehavior;
 
     use super::linux::{registry, AppResources, LinuxWindow};
+
+    // Global hotkeys: the portal's listener wakes this loop through the
+    // shared waker, and the X11 grab connection's fd is in every park's wait
+    // set (`loop_waker::wait_fds`, re-read before each park), so a grabbed
+    // hotkey never caps the park.
+    crate::desktop::global_hotkey::attach_loop_waker(
+        Arc::new(crate::desktop::loop_waker::wake),
+        true,
+    );
 
     // Initialize shared resources once at startup
     let resources = Arc::new(AppResources::new_with_font_manager(
@@ -2089,6 +2355,7 @@ pub fn run(
     };
     match &mut window {
         LinuxWindow::X11(w) => queue_extra_windows(w, extra_windows),
+        #[cfg(target_os = "linux")]
         LinuxWindow::Wayland(w) => queue_extra_windows(w, extra_windows),
     }
 
@@ -2096,6 +2363,7 @@ pub fn run(
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
         match &mut window {
             LinuxWindow::X11(w) => debug_server::register_debug_timer(w, rx, cm),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(w) => debug_server::register_debug_timer(w, rx, cm),
         }
     }
@@ -2107,6 +2375,7 @@ pub fn run(
     let (window_id, _display_ptr) = unsafe {
         match &*window_ptr {
             LinuxWindow::X11(x11_window) => (x11_window.window as u64, x11_window.display),
+            #[cfg(target_os = "linux")]
             LinuxWindow::Wayland(wayland_window) => {
                 // Use wl_surface pointer as window ID (unique per window).
                 // wl_display is a process-global singleton and would collide.
@@ -2136,6 +2405,7 @@ pub fn run(
     // threads; blocking on `request_fonts` here is the same wait the first
     // layout does). This block existed only in the macOS run() before — on
     // Linux, set_tray / set_app_icon were accepted and silently dropped.
+    #[cfg(target_os = "linux")]
     if tray.is_some() || app_icon.is_some() {
         let own = resources.font_manager.as_ref().map(|fm| {
             let mut fm = fm.clone_shared();
@@ -2174,6 +2444,17 @@ pub fn run(
         }
     }
 
+    // X11 on a macOS host: the tray is an NSStatusItem and the app icon the
+    // Dock tile, both of which need the NSApplication this process never runs
+    // while X11 draws its windows - and neither is X11 behaviour to reproduce.
+    #[cfg(not(target_os = "linux"))]
+    if tray.is_some() || app_icon.is_some() {
+        crate::plog_warn!(
+            "[X11] App::set_tray / App::set_app_icon are not applied while the X11 backend \
+             draws this macOS process's windows"
+        );
+    }
+
     // Main event loop with multi-window support
     loop {
         // Get all active window IDs
@@ -2187,63 +2468,22 @@ pub fn run(
             break;
         }
 
-        // Tray: dispatch D-Bus traffic. This is what ANSWERS the panel — SNI
-        // is ~90% property reads, and a host whose GetAll times out shows no
-        // icon at all. The returned callbacks are the panel-drawn dbusmenu's
-        // clicks (tray/linux.rs serves com.canonical.dbusmenu); run them
-        // against the first window, the same shape as macOS's
-        // pump_tray_into_windows — a CallbackInfo needs a window to exist.
-        {
-            let tray_callbacks = crate::desktop::tray::pump_tray();
-            if !tray_callbacks.is_empty() {
-                use azul_core::events::ProcessEventResult;
+        // App-level events: the tray (the panel's property reads are answered
+        // by the D-Bus drain in here - SNI is ~90% property reads, and a host
+        // whose GetAll times out shows no icon at all - and the panel-drawn
+        // dbusmenu's clicks come back as callbacks) and the freedesktop
+        // notification server's ActionInvoked / NotificationClosed (same
+        // shared D-Bus connection). One collection, run against the most
+        // recently focused window (else the oldest). The loops park on these
+        // sources' fds (`loop_waker::wait_fds`), so this runs as soon as one
+        // has something.
+        crate::desktop::app_events::deliver_to_linux_windows();
 
-                use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
-                if let Some(win_ptr) = window_ids
-                    .first()
-                    .and_then(|wid| unsafe { registry::get_window(*wid) })
-                {
-                    match unsafe { &mut *win_ptr } {
-                        LinuxWindow::X11(w) => {
-                            for cb in tray_callbacks {
-                                if !matches!(
-                                    w.invoke_menu_callback(
-                                        cb,
-                                        MenuInvocation::Native {
-                                            site: "linux.tray_menu"
-                                        }
-                                    ),
-                                    ProcessEventResult::DoNothing
-                                ) {
-                                    w.request_redraw();
-                                }
-                            }
-                        }
-                        LinuxWindow::Wayland(w) => {
-                            for cb in tray_callbacks {
-                                if !matches!(
-                                    w.invoke_menu_callback(
-                                        cb,
-                                        MenuInvocation::Native {
-                                            site: "linux.tray_menu"
-                                        }
-                                    ),
-                                    ProcessEventResult::DoNothing
-                                ) {
-                                    w.request_redraw();
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    log_debug!(
-                        debug_server::LogCategory::Callbacks,
-                        "[tray] {} menu callback(s) had no window to run against",
-                        tray_callbacks.len()
-                    );
-                }
-            }
-        }
+        // Global hotkeys: read the X grab connection (its fd is in the wait
+        // set; the portal's listener wakes the loop through the waker
+        // attached to the App's sink), then run each press against the
+        // window that owns it.
+        crate::desktop::global_hotkey::pump_linux_windows();
 
         // Process events for all windows
         for wid in &window_ids {
@@ -2259,7 +2499,14 @@ pub fn run(
                 // click closing the menu, or a CSD close button). Honor it here so the
                 // pass below unregisters + drops the window (destroying it and ungrabbing
                 // a menu's pointer grab). X11/Wayland have no native close-flag path.
+                // An app-raised close is a REQUEST: the close protocol runs first, and
+                // a CloseRequested callback that vetoes ("Save changes?") lowers the flag.
+                window.confirm_app_close();
                 if window.close_requested() {
+                    // A menu item's click closes the window the ITEM is in.
+                    // Its parent menu is just as finished - the user has
+                    // chosen - so the chain goes first.
+                    window.dismiss_chain_if_menu();
                     window.close();
                 }
 
@@ -2327,6 +2574,16 @@ pub fn run(
                                     // Register in global registry
                                     unsafe {
                                         registry::register_window(new_window_id, new_window_ptr);
+                                        // The debug server reaches it like the first window.
+                                        match &mut *new_window_ptr {
+                                            LinuxWindow::X11(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                            #[cfg(target_os = "linux")]
+                                            LinuxWindow::Wayland(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                        }
                                     }
 
                                     log_debug!(
@@ -2353,6 +2610,7 @@ pub fn run(
                             }
                         }
                     }
+                    #[cfg(target_os = "linux")]
                     LinuxWindow::Wayland(wayland_window) => {
                         while let Some(pending_create) = wayland_window.pending_window_creates.pop()
                         {
@@ -2415,6 +2673,16 @@ pub fn run(
                                     // Register in global registry
                                     unsafe {
                                         registry::register_window(new_window_id, new_window_ptr);
+                                        // The debug server reaches it like the first window.
+                                        match &mut *new_window_ptr {
+                                            LinuxWindow::X11(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                            #[cfg(target_os = "linux")]
+                                            LinuxWindow::Wayland(w) => {
+                                                debug_server::register_debug_timer_on_new_window(w)
+                                            }
+                                        }
                                     }
 
                                     log_debug!(
@@ -2497,7 +2765,7 @@ pub fn run(
                 debug_server::LogCategory::EventLoop,
                 "[Linux] Terminating process"
             );
-            std::process::exit(0);
+            exit_dumping_profile(0);
         }
         AppTerminationBehavior::ReturnToMain => {
             log_info!(
@@ -2522,7 +2790,7 @@ pub fn run(
 ///
 /// This is more efficient than sleeping as it wakes immediately when events arrive.
 /// Uses a 16ms timeout to ensure timers fire even without window events.
-#[cfg(target_os = "linux")]
+#[cfg(az_x11)]
 fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     use super::linux::{registry, LinuxWindow};
 
@@ -2531,14 +2799,22 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     // Each window may own its own connection, so all of them must be polled —
     // otherwise events on a second window's connection don't wake the loop.
     let mut pollfds: Vec<libc::pollfd> = Vec::new();
+    // The poll cap below: the shortest frame of any window (each paces at
+    // its own monitor's refresh rate).
+    let mut frame_ms: Option<u128> = None;
     for wid in registry::get_all_window_ids() {
         let Some(wptr) = (unsafe { registry::get_window(wid) }) else {
             continue;
         };
-        let fd = match unsafe { &*wptr } {
-            LinuxWindow::X11(w) => unsafe { (w.xlib.XConnectionNumber)(w.display) },
-            LinuxWindow::Wayland(w) => w.display_fd(),
+        let (fd, frame) = match unsafe { &*wptr } {
+            LinuxWindow::X11(w) => (
+                unsafe { (w.xlib.XConnectionNumber)(w.display) },
+                w.common.frame_interval(),
+            ),
+            #[cfg(target_os = "linux")]
+            LinuxWindow::Wayland(w) => (w.display_fd(), w.common.frame_interval()),
         };
+        frame_ms = Some(frame_ms.map_or(frame.as_millis(), |m| m.min(frame.as_millis())));
         if fd >= 0 {
             pollfds.push(libc::pollfd {
                 fd,
@@ -2551,10 +2827,27 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
         return Ok(());
     }
 
+    // The app-level sources (D-Bus, the hotkey grab connection, the loop
+    // waker) wake this wait too, and work they already buffered - which no
+    // descriptor announces any more - is served before parking.
+    if crate::desktop::loop_waker::must_not_park() {
+        return Ok(());
+    }
+    for fd in crate::desktop::loop_waker::wait_fds() {
+        pollfds.push(libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        });
+    }
+
+    // STILL A PERIODIC WAKE: the windows' timer fds are not in this poll set
+    // (the single-window loops poll them and park indefinitely), so a cap
+    // keeps timers firing - one frame of the fastest window, not a fixed
+    // 16 ms.
+    let cap_ms = i32::try_from(frame_ms.unwrap_or(16)).unwrap_or(16).max(1);
     unsafe {
-        // 16ms cap so timers keep firing even without window events (~60 Hz),
-        // matching the previous select() behaviour.
-        let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, 16);
+        let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, cap_ms);
 
         if result < 0 {
             let err = std::io::Error::last_os_error();
@@ -2574,91 +2867,18 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     Ok(())
 }
 
-/// Drain tray menu clicks and run the callbacks they carry.
-///
-/// This lives in ONE place and is called from EVERY macOS event-loop branch on
-/// purpose. It was originally inlined into the `RunForever` timer, which meant
-/// it never ran for the DEFAULT termination behaviour (`EndProcess`) - the tray
-/// appeared, its menu opened, `menuItemAction:` fired and pushed the tag, and
-/// then nothing consumed it. The menu looked dead for the most common config
-/// while working in the one that is rarely used.
-///
-/// A tray menu item is invoked through the SAME path as a window menu item:
-/// `invoke_menu_callback` builds the `CallbackInfo`, hands over the caller's
-/// `RefAny`, applies whatever the callback changed and asks for a rebuild.
-/// It needs a window because a `CallbackInfo` does, and the tray has none of
-/// its own, so the first window stands in.
-#[cfg(target_os = "macos")]
-fn pump_tray_into_windows() {
-    let tray_callbacks = crate::desktop::tray::pump_tray();
-    if tray_callbacks.is_empty() {
-        return;
-    }
-
-    use azul_core::events::ProcessEventResult;
-
-    use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
-
-    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
-    match window_ptrs.first() {
-        Some(&wptr) => {
-            let window = unsafe { &mut *wptr };
-            if invoke_tray_callbacks(window, tray_callbacks) {
-                window.request_redraw();
-            }
-        }
-        None => {
-            // A tray-first app has no OS window to run against. Say so rather
-            // than dropping a user's callback in silence; `run_tray_only` uses
-            // a HeadlessWindow instead and never reaches this branch.
-            log_debug!(
-                LogCategory::Callbacks,
-                "[tray] {} menu callback(s) had no window to run against",
-                tray_callbacks.len()
-            );
-        }
-    }
-}
-
-/// Run tray menu callbacks against SOME window - a real one, or the headless
-/// stub a tray-only app uses.
-///
-/// A `CallbackInfo` is built from a window (its `LayoutWindow`, raw handle, GL
-/// context, window state), so a callback needs one to exist even when the click
-/// came from a menu bar item that belongs to no window. `HeadlessWindow`
-/// satisfies that without any OS window being created, which is what makes a
-/// genuinely windowless tray app possible.
-#[cfg(target_os = "macos")]
-///
-/// Returns whether anything asked for a repaint; `request_redraw` is not on the
-/// `PlatformWindow` trait, and a windowless app has nothing to repaint anyway,
-/// so the decision belongs to the caller.
-#[cfg(target_os = "macos")]
-#[must_use]
-fn invoke_tray_callbacks<W: PlatformWindow>(
-    window: &mut W,
-    callbacks: Vec<azul_core::menu::CoreMenuCallback>,
-) -> bool {
-    use azul_core::events::ProcessEventResult;
-
-    use crate::desktop::shell2::common::event::MenuInvocation;
-
-    let mut needs_redraw = false;
-    for cb in callbacks {
-        if !matches!(
-            window.invoke_menu_callback(
-                cb,
-                MenuInvocation::Native {
-                    site: "macos.tray_menu"
-                }
-            ),
-            ProcessEventResult::DoNothing
-        ) {
-            needs_redraw = true;
-        }
-    }
-    needs_redraw
-}
+// The app-level sources (tray menu clicks, notification events, global
+// hotkeys) are delivered by `desktop::app_events`: ONE collection, called
+// from EVERY macOS event-loop branch on purpose. The tray pump was
+// originally inlined into the `RunForever` timer, which meant it never ran
+// for the DEFAULT termination behaviour (`EndProcess`) - the tray appeared,
+// its menu opened, `menuItemAction:` fired and pushed the tag, and then
+// nothing consumed it. Each source is invoked through the SAME path as a
+// window menu item: `invoke_menu_callback` builds the `CallbackInfo`, hands
+// over the caller's `RefAny`, applies whatever the callback changed and asks
+// for a rebuild. It needs a window because a `CallbackInfo` does; the
+// collector picks the most recently focused one, else the oldest
+// (`azul_layout::managers::app_target`).
 
 /// Run an app that has a tray and NO window at all.
 ///
@@ -2711,6 +2931,9 @@ pub fn run_tray_only(
         // Accessory, NOT Regular: see the note above.
         app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     }
+    // Before `app.run()` finishes launching: see `run()` - the response of a
+    // notification click that launched the app needs the delegate by then.
+    crate::desktop::notifications::install_launch_hooks();
 
     // The callback context. `WindowCreateOptions::default()` is never shown -
     // HeadlessWindow creates no OS window - it only shapes the stub's state.
@@ -2753,19 +2976,20 @@ pub fn run_tray_only(
         }
     }
 
-    // Drain tray clicks into the headless window. 33ms matches the windowed
-    // path's timer.
+    // Drain the app-level sources into the headless window: tray clicks, the
+    // notifications a tray utility posts, its summon hotkey. The stub is the
+    // only window such an app has, so no target has to be picked. 33ms
+    // matches the windowed path's timer.
     let headless_ptr: *mut HeadlessWindow = &mut headless;
     let drain = block2::RcBlock::new(
         move |_timer: core::ptr::NonNull<objc2_foundation::NSTimer>| {
-            let callbacks = crate::desktop::tray::pump_tray();
-            if !callbacks.is_empty() {
-                // Safe: single-threaded main-loop timer, and `headless` outlives the
-                // run loop below (it is dropped only after `app.run()` returns).
-                let window = unsafe { &mut *headless_ptr };
-                // Nothing to repaint: there is no window on screen.
-                let _ = invoke_tray_callbacks(window, callbacks);
-            }
+            // Safe: single-threaded main-loop timer, and `headless` outlives the
+            // run loop below (it is dropped only after `app.run()` returns).
+            let window = unsafe { &mut *headless_ptr };
+            // Nothing to repaint: there is no window on screen.
+            let _ = crate::desktop::app_events::deliver_to(window);
+            // A tray utility's summon hotkey: same stub window, same reason.
+            let _ = crate::desktop::global_hotkey::pump_headless(window);
         },
     );
     let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {
@@ -2783,4 +3007,73 @@ pub fn run_tray_only(
     );
     unsafe { app.run() };
     Ok(())
+}
+
+/// `std::process::exit`, with an instrumented build's PGO counters written
+/// first (`azul_layout::pgo`): written by the exit handler they race the
+/// threads still running, and came out truncated.
+pub(crate) fn exit_dumping_profile(code: i32) -> ! {
+    let _ = azul_layout::pgo::dump_profile();
+    std::process::exit(code)
+}
+
+/// How long the debug server's thread gets to see its shutdown signal (it
+/// polls every 10 ms) before the process exits without it - it may be blocked
+/// on a client that never reads.
+#[cfg(feature = "debug-server")]
+const DEBUG_SERVER_STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How long a worker that asked a run loop to end the process waits for it
+/// before ending it itself (a loop that died, or one stuck in a callback).
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+const EXIT_REQUEST_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// End the process FROM THE UI THREAD with nothing else running: the caller
+/// has joined its windows' worker threads; this stops the debug server's
+/// thread, then dumps the profile and exits. libc `exit()` runs the atexit
+/// handlers (the profile writer, the system frameworks' teardown), and a
+/// thread still running under them touches torn-down state.
+pub(crate) fn exit_from_ui_thread(code: i32) -> ! {
+    #[cfg(feature = "debug-server")]
+    if let Some(server) = debug_server::get_debug_server() {
+        let _ = server.shutdown_tx.send(());
+        let handle = server
+            .thread_handle
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take());
+        if let Some(handle) = handle {
+            let deadline = std::time::Instant::now() + DEBUG_SERVER_STOP_GRACE;
+            while !handle.is_finished() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            if handle.is_finished() {
+                let _ = handle.join();
+            }
+        }
+    }
+    exit_dumping_profile(code)
+}
+
+/// End the process from a WORKER thread (the AZ_E2E verdict printer): hand
+/// the code to the run loop, which exits on the UI thread with its threads
+/// joined (`common::process_exit`). Only when no loop takes requests - or the
+/// one that does has not ended the process after a grace period - does this
+/// thread exit itself.
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+fn end_process_from_worker(code: i32) -> ! {
+    use super::common::process_exit::EXIT_REQUEST;
+    if EXIT_REQUEST.worker_must_exit_itself() {
+        exit_dumping_profile(code);
+    }
+    EXIT_REQUEST.request(code);
+    // Wake the loop now instead of at its next poll.
+    azul_layout::e2e::announce_debug_request();
+    std::thread::sleep(EXIT_REQUEST_GRACE);
+    eprintln!(
+        "[azul] the run loop did not end the process within {} s of the exit request - \
+         exiting from the worker thread",
+        EXIT_REQUEST_GRACE.as_secs()
+    );
+    exit_dumping_profile(code)
 }

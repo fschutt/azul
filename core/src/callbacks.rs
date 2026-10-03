@@ -63,7 +63,7 @@ use crate::{
     },
     window::{
         AzStringPair, KeyboardState, MouseState, OptionChar, RawWindowHandle, UpdateFocusWarning,
-        WindowFlags, WindowFrame, WindowSize, WindowTheme,
+        WindowFlags, WindowFrame, WindowSize, DarkLightMode,
     },
     FastBTreeSet, OrderedMap,
 };
@@ -473,7 +473,7 @@ pub struct VirtualViewCallbackInfo {
     pub reason: VirtualViewCallbackReason,
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
-    pub window_theme: WindowTheme,
+    pub window_mode: DarkLightMode,
     /// The window's CURRENT frame: normal, minimized, maximized, fullscreen.
     ///
     /// Here for the same reason `window_theme` is: a view whose content
@@ -557,7 +557,11 @@ impl VirtualViewCallbackInfo {
             crate::resources::AppLogLevel::Trace => "trace",
         };
         if level != crate::resources::AppLogLevel::Off {
-            crate::diagnostics::emit(alloc::format!("[azul][{}] {}", level_str, message.into().as_str()));
+            crate::diagnostics::emit(alloc::format!(
+                "[azul][{}] {}",
+                level_str,
+                message.into().as_str()
+            ));
         }
     }
 
@@ -566,7 +570,7 @@ impl VirtualViewCallbackInfo {
         reason: VirtualViewCallbackReason,
         system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
-        window_theme: WindowTheme,
+        window_theme: DarkLightMode,
         window_frame: WindowFrame,
         bounds: HidpiAdjustedBounds,
         materialized: LogicalRect,
@@ -577,7 +581,7 @@ impl VirtualViewCallbackInfo {
             reason,
             system_fonts: core::ptr::from_ref::<FcFontCache>(system_fonts),
             image_cache: core::ptr::from_ref::<ImageCache>(image_cache),
-            window_theme,
+            window_mode: window_theme,
             window_frame,
             bounds,
             materialized,
@@ -846,6 +850,15 @@ impl Default for TimerCallbackReturn {
     }
 }
 
+/// The writing direction of the active locale, as
+/// [`LayoutCallbackInfo::is_rtl`] reports it.
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TextDirection {
+    LeftToRight,
+    RightToLeft,
+}
+
 /// Reference data container for `LayoutCallbackInfo` (all read-only fields).
 ///
 /// Gives the `layout()` function access to the `RendererResources` and the
@@ -860,6 +873,11 @@ impl Default for TimerCallbackReturn {
 #[derive(Debug)]
 #[repr(C)]
 pub struct LayoutCallbackInfoRefData<'a> {
+    pub locale: &'a AzString,
+    pub accessed_locale: core::cell::Cell<bool>,
+    pub accessed_text_direction: core::cell::Cell<bool>,
+    pub text_direction: TextDirection,
+
     /// Allows the `layout()` function to reference image IDs
     pub image_cache: &'a ImageCache,
     /// OpenGL context so that the `layout()` function can render textures
@@ -890,13 +908,23 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// place it matters. A mobile app that must not draw under the status bar
     /// had no way to ask how tall it is.
     pub safe_area: azul_css::system::SafeAreaInsets,
+    /// SNAPSHOT of the app's global hotkeys (status, trigger, owner relative
+    /// to THIS window), taken right before the layout call - a snapshot for
+    /// the same `no_std` reason as `monitors`. What
+    /// `LayoutCallbackInfo::get_global_hotkey_status` answers from.
+    pub global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec,
+    /// The id of the window this `layout()` builds (`FullWindowState::window_id`,
+    /// the app's name for the window): what `LayoutCallbackInfo::get_window_id`
+    /// answers.
+    pub window_id: &'a AzString,
 }
 
 /// What triggered the current `layout()` invocation.
 ///
 /// The framework re-invokes the layout callback for any change that may
 /// produce a structurally different DOM (resize across a CSS breakpoint,
-/// theme toggle, route switch, callback returning `Update::RefreshDom`).
+/// light / dark mode switch, app theme switch, route switch, callback
+/// returning `Update::RefreshDom`).
 /// `LayoutCallbackInfo::relayout_reason()` exposes which trigger this
 /// particular call corresponds to so the callback can branch - for
 /// example, skip expensive analytics on `Resize` calls.
@@ -906,21 +934,47 @@ pub struct LayoutCallbackInfoRefData<'a> {
 pub enum RelayoutReason {
     /// First layout call for this window.
     #[default]
-    Initial,
+    Initial = 0,
     /// A user callback returned `Update::RefreshDom`.
-    RefreshDom,
+    RefreshDom = 1,
     /// Window size changed across a CSS breakpoint or DPI scale change.
     /// The callback can branch on `info.window_width_*` to emit a
     /// different tree (e.g. hamburger menu vs sidebar).
-    Resize,
-    /// System theme changed (light/dark).
-    ThemeChange,
+    Resize = 2,
+    /// The MODE changed (light / dark) and this `layout()` read it
+    /// (`LayoutCallbackInfo::get_mode`) - otherwise a mode switch only
+    /// restyles. Value 3: the light / dark `ThemeChange` before the
+    /// theme / mode rename.
+    ModeChange = 3,
     /// `CallbackInfo::switch_route` or `set_route_param` produced a new
     /// route match. The callback should branch on
     /// `info.get_active_route()`.
-    RouteChange,
+    RouteChange = 4,
     /// Catch-all for relayouts that don't fit one of the above categories.
-    Other,
+    Other = 5,
+    /// The APP THEME changed (`CallbackInfo::set_theme`): every window's DOM
+    /// is recreated, because a theme may change a widget's structure. The
+    /// callback builds for `info.get_theme()`. Appended after `Other` so the
+    /// existing discriminants keep their values (6: `AppThemeChange` before
+    /// the theme / mode rename; a binding's `ThemeChange` now means THIS).
+    ThemeChange = 6,
+}
+
+impl RelayoutReason {
+    /// Whether the rebuild SLIDES the nodes it moved (FLIP) or reflows them
+    /// in place. A change the user made inside the UI animates; a change of
+    /// the ENVIRONMENT the whole window is rebuilt into - its size, its
+    /// mode, the app theme - reflows in place: sliding every node
+    /// from where the old environment put it would animate the whole window
+    /// (a ribbon compressing at a breakpoint dragged behind the window edge;
+    /// a theme switch slid every control between the two themes' metrics).
+    #[must_use]
+    pub const fn animates_moves(self) -> bool {
+        match self {
+            Self::Initial | Self::RefreshDom | Self::RouteChange | Self::Other => true,
+            Self::Resize | Self::ModeChange | Self::ThemeChange => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -933,8 +987,9 @@ pub struct LayoutCallbackInfo {
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
     pub window_size: WindowSize,
-    /// Registers whether the UI is dependent on the window theme
-    pub theme: WindowTheme,
+    /// The window's dark / light mode; reading it registers the UI as
+    /// depending on it
+    pub mode: DarkLightMode,
     /// What triggered this `layout()` call. Read via `relayout_reason()`.
     pub relayout_reason: RelayoutReason,
     /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
@@ -1116,7 +1171,7 @@ pub fn take_recorded_size_queries() -> (alloc::vec::Vec<SizeQuery>, bool) {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SystemStyleDependency {
-    /// The light/dark polarity alone — [`LayoutCallbackInfo::get_theme`].
+    /// The light/dark mode alone — [`LayoutCallbackInfo::get_mode`].
     Theme,
     /// The colour palette: text, background, accent, button, selection.
     Colors,
@@ -1218,7 +1273,7 @@ impl SystemStyleDependencies {
         if self.is_empty() {
             return old != new;
         }
-        if self.contains(SystemStyleDependency::Theme) && old.theme != new.theme {
+        if self.contains(SystemStyleDependency::Theme) && old.mode != new.mode {
             return true;
         }
         if self.contains(SystemStyleDependency::Colors) && old.colors != new.colors {
@@ -1317,13 +1372,38 @@ impl core::fmt::Debug for LayoutCallbackInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("LayoutCallbackInfo")
             .field("window_size", &self.window_size)
-            .field("theme", &self.theme)
+            .field("theme", &self.mode)
             .field("relayout_reason", &self.relayout_reason)
             .finish_non_exhaustive()
     }
 }
 
 impl LayoutCallbackInfo {
+    /// The window's active locale (BCP 47): the one the app chose with
+    /// `CallbackInfo::set_locale`, else the system language.
+    ///
+    /// Reading it declares that the returned DOM depends on the locale, so a
+    /// locale change re-runs this callback instead of only re-translating the
+    /// DOM's `AzString::tr` strings in place.
+    pub fn get_locale(&self) -> &AzString {
+        unsafe {
+            (*self.ref_data).accessed_locale.set(true);
+            (*self.ref_data).locale
+        }
+    }
+
+    /// Is the active locale written right-to-left?
+    ///
+    /// Reading it declares that the returned DOM depends on the text
+    /// direction (a mirrored layout, say), so a locale change that flips the
+    /// direction re-runs this callback.
+    pub fn is_rtl(&self) -> bool {
+        unsafe {
+            (*self.ref_data).accessed_text_direction.set(true);
+            (*self.ref_data).text_direction == TextDirection::RightToLeft
+        }
+    }
+
     /// Report a diagnostic from inside this callback.
     ///
     /// The same sink `CallbackInfo::log` writes to, so a binding's callback
@@ -1340,7 +1420,11 @@ impl LayoutCallbackInfo {
             crate::resources::AppLogLevel::Trace => "trace",
         };
         if level != crate::resources::AppLogLevel::Off {
-            crate::diagnostics::emit(alloc::format!("[azul][{}] {}", level_str, message.into().as_str()));
+            crate::diagnostics::emit(alloc::format!(
+                "[azul][{}] {}",
+                level_str,
+                message.into().as_str()
+            ));
         }
     }
 
@@ -1348,7 +1432,7 @@ impl LayoutCallbackInfo {
     pub const fn new<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,
-        theme: WindowTheme,
+        theme: DarkLightMode,
     ) -> Self {
         Self::new_with_reason(ref_data, window_size, theme, RelayoutReason::Initial)
     }
@@ -1360,7 +1444,7 @@ impl LayoutCallbackInfo {
     pub const fn new_with_reason<'a>(
         ref_data: &'a LayoutCallbackInfoRefData<'a>,
         window_size: WindowSize,
-        theme: WindowTheme,
+        theme: DarkLightMode,
         relayout_reason: RelayoutReason,
     ) -> Self {
         Self {
@@ -1369,7 +1453,7 @@ impl LayoutCallbackInfo {
             ref_data: core::ptr::from_ref::<LayoutCallbackInfoRefData<'a>>(ref_data)
                 as *const LayoutCallbackInfoRefData<'static>,
             window_size,
-            theme,
+            mode: theme,
             relayout_reason,
             callable_ptr: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
@@ -1380,6 +1464,18 @@ impl LayoutCallbackInfo {
     #[must_use]
     pub const fn relayout_reason(&self) -> RelayoutReason {
         self.relayout_reason
+    }
+
+    /// The id of the window this `layout()` builds: its
+    /// `FullWindowState::window_id`, the name the app gave it in its
+    /// `WindowCreateOptions` (empty when it gave none).
+    ///
+    /// One layout callback can serve several windows of one kind - two event
+    /// editors, each opened with its own id (`"editor-<event id>"`) - and
+    /// tells them apart here, where it decides which document to build.
+    #[must_use]
+    pub fn get_window_id(&self) -> AzString {
+        unsafe { (*self.ref_data).window_id.clone() }
     }
 
     /// Is the window's LOGICAL viewport wider than `width_px`?
@@ -1436,10 +1532,85 @@ impl LayoutCallbackInfo {
         }
     }
 
+    /// Declare that, in the state this layout is built from, `hotkey` is a
+    /// SYSTEM-WIDE hotkey - pressed while any app has the keyboard focus -
+    /// running `callback` with `data`. The shape of `Dom::with_callback`,
+    /// with the accelerator in the event filter's place.
+    ///
+    /// Declarations are the WHOLE wanted set: an accelerator this call does
+    /// not declare (and no other window and no `AppConfig` declares) is
+    /// released after the pass. Re-declaring an accelerator with a new
+    /// callback or data swaps them without touching the OS, so declaring on
+    /// every `layout()` costs nothing. Declaring the same accelerator twice
+    /// in one pass: the last declaration wins.
+    ///
+    /// ```ignore
+    /// if state.summon_enabled {
+    ///     info.add_global_hotkey(summon_key(), data.clone(), on_summon);
+    /// }
+    /// ```
+    pub fn add_global_hotkey<C: Into<CoreCallback>>(
+        &self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+        data: RefAny,
+        callback: C,
+    ) {
+        crate::global_hotkey::record_declaration(
+            crate::global_hotkey::GlobalHotkeyCallbackData::create(hotkey, data, callback.into()),
+        );
+    }
+
+    /// [`Self::add_global_hotkey`] with the text the desktop shows for it:
+    /// the Wayland portal asks the user with it and lists it in the
+    /// desktop's shortcut settings.
+    pub fn add_global_hotkey_with_description<C: Into<CoreCallback>>(
+        &self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+        description: AzString,
+        data: RefAny,
+        callback: C,
+    ) {
+        crate::global_hotkey::record_declaration(crate::global_hotkey::GlobalHotkeyCallbackData {
+            hotkey,
+            description,
+            callback: callback.into(),
+            refany: data,
+        });
+    }
+
+    /// Where `hotkey` stood when this pass began: `Active`, `Pending` (the
+    /// desktop has not answered yet - Wayland), `Failed` with the reason, or
+    /// `NotRegistered`.
+    ///
+    /// RECORDED: when a status changes later (the grab answered, the user
+    /// approved or declined, another app took it), this window's `layout()`
+    /// runs once more so it can show it.
+    #[must_use]
+    pub fn get_global_hotkey_status(
+        &self,
+        hotkey: crate::global_hotkey::GlobalHotkey,
+    ) -> crate::global_hotkey::GlobalHotkeyStatus {
+        crate::global_hotkey::record_status_read();
+        // SAFETY: `ref_data` is set for the duration of the layout call.
+        let snapshot = unsafe { &(*self.ref_data).global_hotkeys };
+        crate::global_hotkey::status_in(snapshot.as_ref(), &hotkey)
+    }
+
+    /// Every accelerator the app currently wants, holds or failed to get,
+    /// with its status, the trigger the desktop shows and its owner (this
+    /// window, another window, the app, or nobody). RECORDED like
+    /// [`Self::get_global_hotkey_status`].
+    #[must_use]
+    pub fn get_global_hotkeys(&self) -> crate::global_hotkey::GlobalHotkeyInfoVec {
+        crate::global_hotkey::record_status_read();
+        // SAFETY: `ref_data` is set for the duration of the layout call.
+        unsafe { (*self.ref_data).global_hotkeys.clone() }
+    }
+
     /// Declare that the DOM this callback returns depends on `dep`.
     ///
     /// THE seam between "the OS appearance changed" and "this app's DOM is
-    /// now wrong". A theme switch, an accent-colour change, a UI-font resize
+    /// now wrong". A light / dark switch, an accent-colour change, a UI-font resize
     /// all arrive as the same kind of event, and the engine has no way to see
     /// which of them can change what `layout()` builds — only the callback
     /// knows.
@@ -1452,9 +1623,9 @@ impl LayoutCallbackInfo {
     ///
     /// ```ignore
     /// // "I mirror light/dark and nothing else": switching between two
-    /// // light colour schemes cannot change my DOM.
+    /// // light palettes cannot change my DOM.
     /// info.depends_on_system_style(SystemStyleDependency::Theme);
-    /// let dark = info.get_theme() == WindowTheme::DarkMode;
+    /// let dark = info.get_mode() == DarkLightMode::Dark;
     ///
     /// // "I paint my own buttons from the OS palette": ANY palette move
     /// // invalidates my DOM, light-to-light included.
@@ -1476,16 +1647,37 @@ impl LayoutCallbackInfo {
         record_style_dependency(dep);
     }
 
-    /// The window's light/dark polarity, declaring
+    /// The window's light / dark MODE, declaring
     /// [`SystemStyleDependency::Theme`].
     ///
     /// The tracked way to read what the `theme` field also holds. Use this
-    /// and a change that leaves the polarity alone — a new accent colour, a
-    /// different light scheme — will not rebuild the DOM.
+    /// and a change that leaves the mode alone - a new accent colour, a
+    /// different light palette - will not rebuild the DOM.
+    ///
+    /// It is what the window SHOWS: the desktop's mode, or the app's mode
+    /// pin (`AppConfig::mode`, `CallbackInfo::set_mode`). Reading it is also
+    /// what makes a mode switch re-run this callback
+    /// (`RelayoutReason::ModeChange`); a callback that never reads it is
+    /// only re-styled. Not the app theme ([`Self::get_theme`]).
     #[must_use]
-    pub fn get_theme(&self) -> WindowTheme {
+    pub fn get_mode(&self) -> DarkLightMode {
         self.depends_on_system_style(SystemStyleDependency::Theme);
-        self.theme
+        self.mode
+    }
+
+    /// The APP THEME this `layout()` builds for (`"flat"`, `"flora"`, ...;
+    /// `AppConfig::with_theme`, `CallbackInfo::set_theme`) - separate from
+    /// the light / dark mode [`Self::get_mode`] returns.
+    ///
+    /// Branch the DOM's STRUCTURE on it; its CSS needs no branch, because
+    /// `@theme(<name>)` blocks select themselves. Declares nothing: a theme
+    /// switch always re-runs `layout()` (`RelayoutReason::ThemeChange`).
+    /// A widget's `dom()`, which has no info, reads the same value through
+    /// `azul_core::app_theme::current_theme`.
+    #[allow(clippy::unused_self)] // C-ABI-shaped method: receiver kept for API symmetry
+    #[must_use]
+    pub fn get_theme(&self) -> AzString {
+        crate::app_theme::current_theme()
     }
 
     /// Get a clone of the system style Arc.
@@ -1836,6 +2028,40 @@ pub enum FocusDirection {
     Right,
 }
 
+/// Which focusable areas a css-nav-1 query returns - the `mode` of
+/// `element.focusableAreas({ mode })` (CSS Spatial Navigation Level 1 §5.2).
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum FocusableAreaSearchMode {
+    /// Only the areas at least partly ON SCREEN: inside the scrollport of
+    /// every scroll container above them (and the window's viewport). The
+    /// spec's default.
+    #[default]
+    Visible,
+    /// Every focusable area, scrolled out of view or not.
+    All,
+}
+
+/// The options of `element.spatialNavigationSearch(dir, options)` (CSS
+/// Spatial Navigation Level 1 §5.2), for
+/// `CallbackInfo::spatial_navigation_search`.
+///
+/// Both default to "not given": the search then runs over the VISIBLE
+/// focusable areas of the element's nearest spatial navigation container and,
+/// as the spec notes, does not climb further up when that container has
+/// nothing in the direction.
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SpatialNavigationSearchOptions {
+    /// Search among exactly these nodes. `None`: the focusable areas of the
+    /// container. `Some` of an empty list finds nothing, as in the spec.
+    pub candidates: crate::dom::OptionDomNodeIdVec,
+    /// The container to search in: itself if it is a spatial navigation
+    /// container, else its nearest container ancestor. `None`: the element's
+    /// nearest container ancestor.
+    pub container: crate::dom::OptionDomNodeId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct FocusTargetPath {
@@ -1910,6 +2136,25 @@ pub struct CoreCallbackData {
     pub event: EventFilter,
     pub callback: CoreCallback,
     pub refany: RefAny,
+}
+
+impl CoreCallbackData {
+    /// `event` calls `callback` with `refany`: the entry `Dom::add_callback`
+    /// pushes, as a value for a `CoreCallbackDataVec` built up front. The
+    /// arguments come in `add_callback`'s order. `callback` is an
+    /// `extern "C" fn` address (`on_click as usize`, no foreign `ctx` - the
+    /// native case) or a whole `CoreCallback` (keeping its `ctx`). The one
+    /// builder the widgets share instead of a private `hook()` each
+    /// (`DEDUP_WIDGETS_API` F3).
+    #[inline]
+    #[must_use]
+    pub fn create<C: Into<CoreCallback>>(event: EventFilter, refany: RefAny, callback: C) -> Self {
+        Self {
+            event,
+            callback: callback.into(),
+            refany,
+        }
+    }
 }
 
 impl_option!(

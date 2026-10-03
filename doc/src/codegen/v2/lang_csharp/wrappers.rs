@@ -539,7 +539,7 @@ fn should_emit_union_hierarchy(e: &EnumDef, config: &CodegenConfig) -> bool {
 /// Phase I.1.5 (C#): Vec-shape detector. Same as Haskell H.3 / Java
 /// I.1.2 / Kotlin I.1.3.
 fn detect_vec_elem_type_cs(s: &StructDef) -> Option<String> {
-    if s.fields.len() != 4 {
+    if !crate::codegen::v2::ir::is_vec_field_count(s.fields.iter().map(|f| f.name.as_str())) {
         return None;
     }
     if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {

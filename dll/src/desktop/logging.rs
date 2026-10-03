@@ -319,8 +319,9 @@ pub(super) fn az_log_level() -> Option<LevelFilter> {
         "warn" | "warning" => Some(LevelFilter::Warn),
         "info" => Some(LevelFilter::Info),
         "trace" | "all" => Some(LevelFilter::Trace),
-        // "", "1", "true", "on", "yes", "debug", or anything unknown -> Debug.
-        _ => Some(LevelFilter::Debug),
+        "debug" => Some(LevelFilter::Debug),
+        // "", "1", "true", "on", "yes", or anything unknown -> Error.
+        _ => Some(LevelFilter::Error),
     }
 }
 

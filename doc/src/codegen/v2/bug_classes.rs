@@ -48,7 +48,7 @@ fn version() -> &'static VersionData {
         .expect("latest version")
 }
 
-fn ir() -> &'static CodegenIR {
+pub(super) fn ir() -> &'static CodegenIR {
     static IR: OnceLock<CodegenIR> = OnceLock::new();
     IR.get_or_init(|| super::build_ir_from_api(api()).expect("IR builds"))
 }
@@ -156,7 +156,7 @@ fn vec_category_is_exactly_the_vec_layout() {
         .filter(|(_, c)| {
             let f = fields(c);
             let has = |n: &str| f.iter().any(|(k, _, _)| *k == n);
-            f.len() == 4
+            is_vec_field_count(f.iter().map(|(k, _, _)| *k))
                 && f.iter().any(|(k, _, r)| *k == "ptr" && is_ptr(*r))
                 && has("len")
                 && has("cap")
@@ -185,6 +185,46 @@ fn vec_category_is_exactly_the_vec_layout() {
 
 /// S3: `TypeCategory::VecRef` is exactly the set of borrowed slices: a
 /// `*VecRef` / `*VecRefMut` struct of a `ptr` pointer and a `len`.
+/// The FFI Vec layout grew a fifth field, `flags: u8` (bit 0 marks an
+/// `AzString` as a Fluent translation key; `impl_vec!` gives the byte to
+/// every Vec type). Nine emitters recognised a Vec by `fields.len() != 4`,
+/// while the IR builder, the C++ emitter, Lua and the conformance planner
+/// were switched to `== 5` - so in every one of those places either the old
+/// layout or the new one is no Vec, and a binding that does not recognise a
+/// Vec silently loses its iterator, array and length helpers. Every emitter
+/// asks ONE rule instead: `ir::is_vec_field_count`.
+#[test]
+fn emitters_recognise_a_vec_through_the_shared_field_count_rule() {
+    let v2 = repo_root().join("doc/src/codegen/v2");
+    let mut offenders = Vec::new();
+    for entry in walkdir::WalkDir::new(&v2).into_iter().filter_map(Result::ok) {
+        let path = entry.path();
+        if !path.extension().is_some_and(|x| x == "rs") || path.ends_with("bug_classes.rs") {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for (i, line) in src.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            let counts_fields = ["len() != 4", "len() == 4", "len() != 5", "len() == 5"]
+                .iter()
+                .any(|pattern| code.contains(pattern));
+            if counts_fields && code.contains("fields") {
+                let file = path.strip_prefix(&v2).unwrap_or(path).display();
+                offenders.push(format!("{file}:{}: {code}", i + 1));
+            }
+        }
+    }
+    assert_none(
+        "emitter counting Vec fields itself instead of `ir::is_vec_field_count`",
+        offenders,
+    );
+}
+
 #[test]
 fn vecref_category_is_exactly_the_borrowed_slice_layout() {
     let layout: BTreeSet<&str> = classes()
@@ -744,6 +784,596 @@ fn callback_return_sizes_are_the_c_layout() {
         }
     }
     assert_none("callback return sizes", offenders);
+}
+
+// ============================================================================
+// Tagged-union layout
+// ============================================================================
+
+/// One tagged union of the IR as the layout tests see it: its api name,
+/// whether its tag is a `uint8_t` (`repr(C, u8)`) or the int-sized C tag
+/// enum (`repr(C)`), and per variant its name and payload members
+/// `(C member name, api type, ref kind)` - empty for a unit variant.
+struct TaggedUnion {
+    name: String,
+    u8_tag: bool,
+    variants: Vec<(String, Vec<(String, String, FieldRefKind)>)>,
+}
+
+fn is_u8_repr(repr: Option<&str>) -> bool {
+    repr.is_some_and(|r| r.contains("u8"))
+}
+
+/// Every tagged union the IR declares: each data-carrying enum and each
+/// monomorphized generic alias (`CaretColorValue = CssPropertyValue<..>`).
+/// Not a sample - the layout tests run over all of them.
+fn every_tagged_union() -> Vec<TaggedUnion> {
+    let mut out = Vec::new();
+    for e in &ir().enums {
+        if !e.is_union || !e.generic_params.is_empty() {
+            continue;
+        }
+        let variants = e
+            .variants
+            .iter()
+            .map(|v| {
+                let members = match &v.kind {
+                    EnumVariantKind::Unit => Vec::new(),
+                    EnumVariantKind::Tuple(ts) if ts.len() == 1 => {
+                        vec![("payload".to_string(), ts[0].0.clone(), ts[0].1)]
+                    }
+                    EnumVariantKind::Tuple(ts) => ts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (t, rk))| (format!("payload_{i}"), t.clone(), *rk))
+                        .collect(),
+                    EnumVariantKind::Struct(fs) => fs
+                        .iter()
+                        .map(|f| {
+                            (
+                                super::lang_c::escape_cpp_keyword_for_c(&f.name),
+                                f.type_name.clone(),
+                                f.ref_kind,
+                            )
+                        })
+                        .collect(),
+                };
+                (v.name.clone(), members)
+            })
+            .collect();
+        out.push(TaggedUnion {
+            name: e.name.clone(),
+            u8_tag: is_u8_repr(e.repr.as_deref()),
+            variants,
+        });
+    }
+    for ta in &ir().type_aliases {
+        let Some(MonomorphizedKind::TaggedUnion { repr, variants }) =
+            ta.monomorphized_def.as_ref().map(|m| &m.kind)
+        else {
+            continue;
+        };
+        let variants = variants
+            .iter()
+            .map(|v| {
+                let members = v
+                    .payload_type
+                    .iter()
+                    .map(|t| ("payload".to_string(), t.clone(), v.payload_ref_kind))
+                    .collect();
+                (v.name.clone(), members)
+            })
+            .collect();
+        out.push(TaggedUnion {
+            name: ta.name.clone(),
+            u8_tag: is_u8_repr(repr.as_deref()),
+            variants,
+        });
+    }
+    out
+}
+
+/// The C layout of one payload member: its type by value, or a pointer.
+fn member_abi(ty: &str, rk: FieldRefKind) -> Option<super::c_layout::AbiLayout> {
+    match rk {
+        FieldRefKind::Owned => super::c_layout::type_layout(ty, ir()),
+        _ => Some(super::c_layout::AbiLayout { size: 8, align: 8 }),
+    }
+}
+
+fn round_up(off: usize, align: usize) -> usize {
+    off.div_ceil(align.max(1)) * align.max(1)
+}
+
+/// Rust's layout of a `#[repr(C, u8)]` / `#[repr(C)]` enum (the Rust
+/// reference, "Primitive representation of enums with fields" and
+/// "`repr(C)`"): a `struct { tag; union { one repr(C) struct per variant } }`.
+/// Returns `(payload offset, size, align)`: EVERY variant's payload starts
+/// at the tag's size rounded up to the largest alignment of ANY variant -
+/// not at its own alignment. Pinned against the real Rust layout by
+/// `css/tests/a_union_payload_sits_after_the_largest_alignment.rs`.
+fn rust_union_layout(u: &TaggedUnion) -> Option<(usize, usize, usize)> {
+    let tag = if u.u8_tag { 1 } else { 4 };
+    let mut union_align = 1;
+    let mut union_size = 0;
+    for (_, members) in &u.variants {
+        let (mut off, mut align) = (0, 1);
+        for (_, ty, rk) in members {
+            let l = member_abi(ty, *rk)?;
+            off = round_up(off, l.align) + l.size;
+            align = align.max(l.align);
+        }
+        union_size = union_size.max(round_up(off, align));
+        union_align = union_align.max(align);
+    }
+    let payload = round_up(tag, union_align);
+    let align = union_align.max(tag);
+    Some((payload, round_up(payload + union_size, align), align))
+}
+
+/// Every `struct Name { ... };` of a C header: name -> trimmed member lines.
+fn c_struct_members(header: &str) -> BTreeMap<String, Vec<String>> {
+    let mut out = BTreeMap::new();
+    let mut current: Option<(String, Vec<String>)> = None;
+    for line in header.lines() {
+        let t = line.trim();
+        if current.is_some() {
+            if t.starts_with("};") {
+                if let Some((name, members)) = current.take() {
+                    out.insert(name, members);
+                }
+            } else if !t.is_empty() {
+                if let Some((_, members)) = current.as_mut() {
+                    members.push(t.to_string());
+                }
+            }
+            continue;
+        }
+        if let Some(name) = t.strip_prefix("struct ").and_then(|r| r.strip_suffix(" {")) {
+            current = Some((name.trim().to_string(), Vec::new()));
+        }
+    }
+    out
+}
+
+/// Where a C compiler puts the member `first` of a variant struct the header
+/// declares: every member before it must be the tag (`uint8_t` or the
+/// int-sized `_Tag` enum) or `uint8_t` padding, laid out by C's rules, and
+/// `first` is aligned to its own C alignment `first_align`.
+fn header_member_offset(members: &[String], first: &str, first_align: usize) -> Result<usize, String> {
+    let mut off = 0usize;
+    for m in members {
+        let decl = m.trim_end_matches(';').trim();
+        let (decl, count) = match decl.strip_suffix(']').and_then(|d| d.rsplit_once('[')) {
+            Some((d, n)) => (
+                d.trim(),
+                n.trim()
+                    .parse::<usize>()
+                    .map_err(|_| format!("unreadable array length in `{m}`"))?,
+            ),
+            None => (decl, 1),
+        };
+        let Some((ty, name)) = decl.rsplit_once(' ') else {
+            return Err(format!("unreadable member `{m}`"));
+        };
+        if name == first {
+            return Ok(round_up(off, first_align));
+        }
+        let (size, align) = match ty.trim() {
+            "uint8_t" => (1, 1),
+            t if t.ends_with("_Tag") => (4, 4),
+            _ => return Err(format!("`{m}` before the payload is neither the tag nor padding")),
+        };
+        off = round_up(off, align) + size * count;
+    }
+    Err(format!("declares no member `{first}`"))
+}
+
+/// The C header, generated in memory from the same IR.
+fn azul_h() -> &'static str {
+    static H: OnceLock<String> = OnceLock::new();
+    H.get_or_init(|| {
+        super::CodeGenerator::generate(ir(), &super::CodegenConfig::c_header())
+            .expect("azul.h generates")
+    })
+}
+
+/// X3 (B2, 2026-09-29): every variant payload of every tagged union in
+/// azul.h sits where Rust's `repr(C, u8)` / `repr(C)` puts it - after the
+/// tag, aligned to the largest alignment of ANY variant. azul.h declared
+/// each variant as `{ tag; payload; }`, which aligns the payload to its OWN
+/// alignment: `StyleBackgroundContent::Color` (ColorU, align 1) sat at
+/// offset 1 in C and at 8 in Rust, so every C reader, the `matchRef` /
+/// `matchMut` helpers and every binding mirroring the header read the wrong
+/// bytes. The union sizes agreed, so nothing crashed.
+#[test]
+fn a_union_variant_payload_starts_where_rust_puts_it() {
+    let structs = c_struct_members(azul_h());
+    let mut offenders = Vec::new();
+    let mut unions = BTreeSet::new();
+    for u in every_tagged_union() {
+        let Some((want, _, _)) = rust_union_layout(&u) else {
+            offenders.push(format!("Az{}: a payload type has no C layout", u.name));
+            continue;
+        };
+        for (variant, members) in &u.variants {
+            let Some((first, ty, rk)) = members.first() else {
+                continue;
+            };
+            let s = format!("Az{}Variant_{}", u.name, variant);
+            let Some(lines) = structs.get(&s) else {
+                offenders.push(format!("{s}: not declared in azul.h"));
+                continue;
+            };
+            let align = member_abi(ty, *rk).map_or(1, |l| l.align);
+            match header_member_offset(lines, first, align) {
+                Ok(got) if got == want => {}
+                Ok(got) => {
+                    unions.insert(format!("Az{}", u.name));
+                    offenders.push(format!("{s}: azul.h puts `{first}` at {got}, Rust at {want}"));
+                }
+                Err(e) => offenders.push(format!("{s}: {e}")),
+            }
+        }
+    }
+    if !offenders.is_empty() {
+        panic!(
+            "{} tagged union(s) place a variant payload unlike Rust:\n  {}\n\n{} offender(s):\n  {}",
+            unions.len(),
+            unions.into_iter().collect::<Vec<_>>().join("\n  "),
+            offenders.len(),
+            offenders.join("\n  ")
+        );
+    }
+}
+
+/// Every variant whose payload a C compiler would NOT put where Rust does
+/// on its own (the payload's alignment is smaller than the union's) is
+/// pinned in azul.h by a compile-time `offsetof` check, so every C and C++
+/// build that includes the header verifies the layout it declares.
+#[test]
+fn azul_h_checks_every_padded_variant_payload_at_compile_time() {
+    let header = azul_h();
+    let mut offenders = Vec::new();
+    for u in every_tagged_union() {
+        let Some((want, _, _)) = rust_union_layout(&u) else {
+            continue; // reported by a_union_variant_payload_starts_where_rust_puts_it
+        };
+        let tag = if u.u8_tag { 1 } else { 4 };
+        for (variant, members) in &u.variants {
+            let Some((first, ty, rk)) = members.first() else {
+                continue;
+            };
+            let Some(l) = member_abi(ty, *rk) else {
+                continue;
+            };
+            if round_up(tag, l.align) == want {
+                continue; // C's own alignment already puts it there
+            }
+            let check = format!("offsetof(Az{}Variant_{}, {}) == {}", u.name, variant, first, want);
+            if !header.contains(&check) {
+                offenders.push(format!("Az{}Variant_{variant}: no `{check}` check", u.name));
+            }
+        }
+    }
+    assert_none("padded union variants without a compile-time offset check", offenders);
+}
+
+/// The leading identifier of `s` (`AzFoo_bar(...` -> `AzFoo_bar`).
+fn leading_ident(s: &str) -> &str {
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
+/// The name a C function declaration or definition line declares: the last
+/// identifier before its first `(`. `None` for a variable whose initializer
+/// calls something (`static AzString x = AzString_fromConstStr(..)`).
+fn declared_fn_name(decl: &str) -> Option<&str> {
+    let head = decl.split_once('(')?.0.trim_end();
+    if head.contains('=') {
+        return None;
+    }
+    let start = head
+        .rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .map_or(0, |i| i + 1);
+    Some(&head[start..]).filter(|n| !n.is_empty())
+}
+
+/// azul.h compiles as C on its own: no name is both a macro and a function,
+/// and no function is declared both `static` (a header-only helper) and
+/// `extern` (a libazul export). The header defined `AzString_fromConstStr`
+/// as a macro AND as a `static inline` function, and `AzString_tr` as a
+/// `static inline` helper while api.json exports `AzString_tr` - four errors
+/// in every C translation unit that included it (B3, 2026-09-29).
+#[test]
+fn azul_h_never_emits_one_name_as_macro_and_function_or_with_two_linkages() {
+    let mut macros = BTreeMap::new();
+    let mut statics = BTreeMap::new();
+    let mut externs = BTreeMap::new();
+    for (i, line) in azul_h().lines().enumerate() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix('#') {
+            if let Some(def) = rest.trim_start().strip_prefix("define") {
+                let name = leading_ident(def.trim_start());
+                if !name.is_empty() {
+                    macros.entry(name.to_string()).or_insert(i + 1);
+                }
+            }
+        } else if t.starts_with("static ") {
+            if let Some(name) = declared_fn_name(t) {
+                statics.entry(name.to_string()).or_insert(i + 1);
+            }
+        } else if t.starts_with("extern ") && !t.starts_with("extern \"C\"") {
+            if let Some(name) = declared_fn_name(t) {
+                externs.entry(name.to_string()).or_insert(i + 1);
+            }
+        }
+    }
+    let mut offenders = Vec::new();
+    for (name, line) in &macros {
+        for (what, fns) in [("static", &statics), ("extern", &externs)] {
+            if let Some(fn_line) = fns.get(name) {
+                offenders.push(format!(
+                    "{name}: a macro (line {line}) and a {what} function (line {fn_line})"
+                ));
+            }
+        }
+    }
+    for (name, line) in &statics {
+        if let Some(extern_line) = externs.get(name) {
+            offenders.push(format!(
+                "{name}: static (line {line}) and extern (line {extern_line})"
+            ));
+        }
+    }
+    assert_none("azul.h names with two meanings", offenders);
+}
+
+/// Ada (GNAT): an `in` parameter of a Convention-C record type is passed BY
+/// REFERENCE (RM B.3(69)), while libazul's C functions take records by
+/// value - every by-value record argument of the Ada binding was a pointer
+/// on the C side (B2, 2026-09-29). Every record type it declares, structs
+/// and tagged unions alike, has Convention `C_Pass_By_Copy` (RM B.3(60.13)).
+/// And a `repr(C, u8)` union's tag enumeration is one byte (`'Size use 8`),
+/// not the int a Convention-C enumeration gets: with an int tag, every union
+/// whose payloads are less than 4-aligned had them 3 bytes late.
+#[test]
+fn ada_records_cross_by_copy_and_u8_union_tags_are_one_byte() {
+    let ada = super::lang_ada::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the Ada binding generates");
+    let mut offenders = Vec::new();
+    let mut record: Option<String> = None;
+    for line in ada.lines() {
+        let t = line.trim();
+        // `type Az_Foo is record` / `type Az_Foo (Tag : ..) is record`
+        if let Some(rest) = t.strip_prefix("type ") {
+            if t.ends_with("is record") {
+                record = Some(leading_ident(rest).to_string());
+            }
+        }
+        if let Some(rest) = t.strip_prefix("pragma Convention (C, ") {
+            let name = rest.trim_end_matches(");");
+            if record.as_deref() == Some(name) {
+                offenders.push(format!("{name}: a Convention-C record crosses by reference"));
+            }
+        }
+    }
+    for u in every_tagged_union().iter().filter(|u| u.u8_tag) {
+        let tag = format!("{}_Tag", super::lang_ada::ada_ffi_type_name(&u.name));
+        if ada.contains(&format!("type {tag} is")) && !ada.contains(&format!("for {tag}'Size use 8;")) {
+            offenders.push(format!("{tag}: a u8 union tag with no `'Size use 8`"));
+        }
+    }
+    assert_none("Ada records and union tags unlike the C ABI", offenders);
+}
+
+/// FreeBASIC (B2: "azul.bi likely does not compile"). Its declarations must
+/// be ones fbc accepts and lays out like C:
+///
+/// * only FreeBASIC integer types: `Long`/`ULong` are 32-bit and
+///   `LongInt`/`ULongInt` 64-bit - the binding said `LongInt` for `i32`
+///   (twice the C size) and `LongLong`/`ULongLong` (no such type) for 64-bit;
+/// * a `Type` holds another `Az*` type by value only once that type is
+///   declared - the binding emitted every union before every struct and the
+///   monomorphized aliases (`LayoutWidthValue`, ...) and plain aliases never;
+/// * a `repr(C, u8)` union's `tag` is one byte (`UByte`), not an `Enum`.
+#[test]
+fn freebasic_declares_every_type_before_use_with_c_sized_fields() {
+    let bi = super::lang_freebasic::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the FreeBASIC binding generates");
+    let mut offenders = Vec::new();
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    let mut in_type: Option<String> = None;
+    for (i, line) in bi.lines().enumerate() {
+        let t = line.trim();
+        if t.starts_with('\'') {
+            continue;
+        }
+        for bad in ["LongLong", "ULongLong"] {
+            if t.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w == bad) {
+                offenders.push(format!("line {}: `{bad}` is not a FreeBASIC type: {t}", i + 1));
+            }
+        }
+        if t.starts_with("Declare ") {
+            continue; // a method or an import, not a field
+        }
+        if let Some(name) = t.strip_prefix("Enum ") {
+            declared.insert(leading_ident(name).to_string());
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("Type ") {
+            let name = leading_ident(rest).to_string();
+            if rest[name.len()..].trim_start().starts_with("As ") {
+                declared.insert(name); // an alias or a procedure pointer type
+            } else {
+                in_type = Some(name);
+            }
+            continue;
+        }
+        if t == "End Type" {
+            if let Some(name) = in_type.take() {
+                declared.insert(name);
+            }
+            continue;
+        }
+        let Some(owner) = &in_type else { continue };
+        // A field: `name As T` or `name(0 To N) As T`; a pointer may name a
+        // type declared later.
+        let Some((_, ty)) = t.split_once(" As ") else { continue };
+        let ty = ty.trim();
+        if ty.ends_with(" Ptr") || !ty.starts_with("Az") {
+            continue;
+        }
+        if !declared.contains(ty) {
+            offenders.push(format!("line {}: {owner} holds {ty} by value before it is declared", i + 1));
+        }
+    }
+    for u in every_tagged_union().iter().filter(|u| u.u8_tag) {
+        let head = format!("Type Az{}\n", u.name);
+        if let Some(start) = bi.find(&head) {
+            let body = &bi[start + head.len()..];
+            let first = body.lines().next().unwrap_or("").trim();
+            if first != "tag As UByte" {
+                offenders.push(format!("Az{}: a u8 union's tag is `{first}`, not `tag As UByte`", u.name));
+            }
+        }
+    }
+    let shown: Vec<String> = offenders.iter().take(40).cloned().collect();
+    assert!(
+        offenders.is_empty(),
+        "{} FreeBASIC declaration(s) fbc rejects or lays out unlike C (first {}):\n  {}",
+        offenders.len(),
+        shown.len(),
+        shown.join("\n  ")
+    );
+}
+
+/// Red/System (B2: "every tagged union is an 8-byte opaque placeholder, so
+/// no CSS property can cross the FFI"): every tagged union alias - regular
+/// or monomorphized - is a blob of exactly its C size (`c_layout`), and every
+/// `AzX! value` field names an alias declared before it (the monomorphized
+/// aliases were never declared, and all unions followed all structs).
+#[test]
+fn red_declares_every_alias_before_use_and_sizes_unions_like_c() {
+    let reds = super::lang_red::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the Red/System binding generates");
+    let mut offenders = Vec::new();
+    let mut declared: BTreeSet<String> = BTreeSet::new();
+    let mut current: Option<(String, usize)> = None; // (alias, blob bytes so far)
+    let mut blob_bytes: BTreeMap<String, usize> = BTreeMap::new();
+    for (i, line) in reds.lines().enumerate() {
+        let t = line.trim();
+        if let Some((name, _)) = t.split_once("!: alias struct! [") {
+            current = Some((name.to_string(), 0));
+            continue;
+        }
+        let Some((alias, bytes)) = current.as_mut() else { continue };
+        if t == "]" {
+            blob_bytes.insert(alias.clone(), *bytes);
+            declared.insert(alias.clone());
+            current = None;
+            continue;
+        }
+        // `name [type]` - a blob cell or a field.
+        let Some(ty) = t.split_once('[').map(|(_, r)| r.trim_end_matches(']').trim()) else {
+            continue;
+        };
+        *bytes += match ty {
+            "byte-ptr!" => 8,
+            "integer!" | "float32!" => 4,
+            "byte!" | "logic!" => 1,
+            "float!" => 8,
+            _ => 0,
+        };
+        if let Some(by_value) = ty.strip_suffix("! value") {
+            if !declared.contains(by_value) {
+                offenders.push(format!("line {}: {alias} holds {by_value}! before it is declared", i + 1));
+            }
+        }
+    }
+    for u in every_tagged_union() {
+        let alias = format!("Az{}", u.name);
+        let Some(bytes) = blob_bytes.get(&alias) else { continue };
+        let want = super::c_layout::type_layout(&u.name, ir()).map(|l| l.size);
+        if want != Some(*bytes) {
+            offenders.push(format!("{alias}!: {bytes} bytes, C has {want:?}"));
+        }
+    }
+    let shown: Vec<String> = offenders.iter().take(40).cloned().collect();
+    assert!(
+        offenders.is_empty(),
+        "{} Red/System alias problem(s) (first {}):\n  {}",
+        offenders.len(),
+        shown.len(),
+        shown.join("\n  ")
+    );
+}
+
+/// VB6 (B2: "a `Declare` cannot pass or return a UDT by value; the binding
+/// skips every CSS constructor and does not declare the `..Byref` twins").
+/// A function that passes or returns an aggregate by value is declared and
+/// called through the `<symbol>Byref` twin libazul exports for exactly this
+/// (aggregates by pointer, the result through an out-pointer) - never as
+/// its by-value symbol with the record silently passed ByRef, and never
+/// left as a `SKIPPED` note.
+#[test]
+fn vb6_calls_every_aggregate_function_through_its_byref_twin() {
+    let vb6 = super::lang_vb6::generate(ir(), &super::CodegenConfig::c_header())
+        .expect("the VB6 binding generates");
+    let aliases: BTreeSet<&str> = vb6
+        .lines()
+        .filter(|l| l.trim_start().starts_with("Public Declare "))
+        .filter_map(|l| l.split("Alias \"").nth(1)?.split('"').next())
+        .collect();
+    let mut offenders: Vec<String> = vb6
+        .lines()
+        .filter(|l| l.contains("UDT ByVal") || l.contains("AzXxx ByVal"))
+        .map(|l| format!("still a SKIPPED note: {}", l.trim()))
+        .collect();
+    let mut twins = 0usize;
+    for f in &ir().functions {
+        let aggregate = f
+            .args
+            .iter()
+            .any(|a| a.ref_kind == ArgRefKind::Owned && ir().is_value_aggregate(&a.type_name))
+            || f.return_type.as_deref().is_some_and(|r| ir().is_value_aggregate(r));
+        if !aggregate {
+            continue;
+        }
+        let symbol = super::managed_host_invoker::managed_c_symbol(f);
+        if aliases.contains(symbol.as_str()) {
+            offenders.push(format!("{symbol}: declared by value, VB6 cannot call it"));
+        }
+        if aliases.contains(format!("{symbol}Byref").as_str()) {
+            twins += 1;
+        }
+    }
+    assert!(twins > 1000, "only {twins} Byref twins declared");
+    let shown: Vec<String> = offenders.iter().take(40).cloned().collect();
+    assert!(
+        offenders.is_empty(),
+        "{} VB6 declaration(s) of an aggregate function (first {}):\n  {}",
+        offenders.len(),
+        shown.len(),
+        shown.join("\n  ")
+    );
+}
+
+/// c_layout (the Fortran union blobs, `return_c_size`) sizes and aligns
+/// every tagged union exactly as Rust does.
+#[test]
+fn c_layout_sizes_every_tagged_union_like_rust() {
+    let mut offenders = Vec::new();
+    for u in every_tagged_union() {
+        let want = rust_union_layout(&u).map(|(_, size, align)| (size, align));
+        let got = super::c_layout::type_layout(&u.name, ir()).map(|l| (l.size, l.align));
+        if want != got {
+            offenders.push(format!("{}: Rust (size, align) {want:?}, c_layout {got:?}", u.name));
+        }
+    }
+    assert_none("tagged unions c_layout sizes unlike Rust", offenders);
 }
 
 // ============================================================================
@@ -2100,6 +2730,7 @@ fn copies_of_owning_values_are_never_freed_twice() {
         // copies the handle and the flag, and both are finalized.
         let mut bad = Vec::new();
         let mut total = 0;
+        let mut bound_destructors = 0;
         for (path, text) in files {
             let lower = text.to_ascii_lowercase();
             for chunk in lower.split("\n  type ::").skip(1) {
@@ -2112,14 +2743,29 @@ fn copies_of_owning_values_are_never_freed_twice() {
                 }
             }
             // `delete` must clear the flag, or deleting a variable twice frees twice.
+            // The destructors are the subroutines bound as `procedure :: delete
+            // => <name>` - not every name ending in `_delete`
+            // (`message_list_with_on_delete` sets an on-delete callback).
+            let destructors: Vec<&str> = lower
+                .lines()
+                .filter_map(|l| l.trim().strip_prefix("procedure :: delete =>"))
+                .map(str::trim)
+                .collect();
+            bound_destructors += destructors.len();
             for chunk in lower.split("\n  subroutine ").skip(1) {
                 let body = chunk.split("end subroutine").next().unwrap_or("");
                 let name = body.split('(').next().unwrap_or("").trim();
-                if name.ends_with("_delete") && body.contains("%owned") && !body.contains("%owned = .false.") {
+                if destructors.contains(&name) && body.contains("%owned") && !body.contains("%owned = .false.") {
                     bad.push(format!("{path}: {name} leaves `owned` set"));
                 }
             }
         }
+        // Not vacuous: the owning wrappers bind their destructors.
+        assert!(
+            total == 0 || bound_destructors > 0,
+            "{total} owning Fortran wrappers but no `procedure :: delete =>` binding found - the \
+             destructor check would prove nothing"
+        );
         if !bad.is_empty() {
             offenders.push(summarize("fortran", "owning wrappers freed twice", &bad, total));
         }
@@ -2277,4 +2923,245 @@ fn every_wrapped_vec_field_has_a_python_accessor() {
         missing.len(),
         missing.join("\n  ")
     );
+}
+
+// ============================================================================
+// Union payload padding in the bindings
+// ============================================================================
+
+/// A binding that declares azul.h's per-variant union records itself
+/// (`{ tag; payload }` per variant, laid out by its host's C-alignment
+/// rules): where its output is, and how it spells (a) the start of the
+/// record of variant `v` of union `u` and (b) a padding member of `n` bytes
+/// right after the tag.
+struct VariantRecords {
+    lang: &'static str,
+    files: fn() -> Vec<(String, String)>,
+    record: fn(&str, &str) -> String,
+    padding: fn(usize) -> String,
+}
+
+/// Every binding with its own per-variant records. The ones not listed do
+/// not need the padding: Pascal (variant records), FreeBASIC, Ruby and Ada
+/// (tag + union of tag-less payloads) already put the payload at the
+/// largest alignment; C++, Swift, Lua, PHP and Haskell read azul.h's
+/// layout; Fortran, COBOL, Perl, Red, VB6, ALGOL 68 and Python never read a
+/// payload at an offset; OCaml's one payload read takes `payload_offset`
+/// itself (lang_ocaml/types.rs).
+fn variant_record_bindings() -> Vec<VariantRecords> {
+    fn one(rel: &str) -> Vec<(String, String)> {
+        vec![(rel.to_string(), generated(rel))]
+    }
+    vec![
+        VariantRecords {
+            lang: "go",
+            files: || generated_tree("go", &["go"]),
+            record: |u, v| format!("type Az{u}_Variant_{v} struct {{"),
+            padding: |n| format!("_ [{n}]byte"),
+        },
+        VariantRecords {
+            lang: "node",
+            files: || one("node/azul.js"),
+            record: |u, v| format!("azulFFI.struct('Az{u}Variant_{v}', {{"),
+            padding: |n| format!("_pad0_{}: 'uint8_t',", n - 1),
+        },
+        VariantRecords {
+            lang: "crystal",
+            files: || one("azul.cr"),
+            record: |u, v| format!("struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("_pad0 : UInt8[{n}]"),
+        },
+        VariantRecords {
+            lang: "odin",
+            files: || one("azul.odin"),
+            record: |u, v| format!("Az{u}Variant_{v} :: struct {{"),
+            padding: |n| format!("_pad0: [{n}]u8,"),
+        },
+        VariantRecords {
+            lang: "v",
+            files: || one("azul.v"),
+            record: |u, v| format!("pub struct Az{u}Variant_{v} {{"),
+            padding: |n| format!("pad0 [{n}]u8"),
+        },
+        VariantRecords {
+            lang: "racket",
+            files: || one("azul.rkt"),
+            record: |u, v| format!("(define-cstruct _Az{u}_Variant_{v}\n"),
+            padding: |n| format!("[pad0 (_array _uint8 {n})]"),
+        },
+        VariantRecords {
+            lang: "java",
+            files: || generated_tree("java", &["java"]),
+            record: |u, v| format!("class Az{u}Variant_{v} extends Structure {{"),
+            padding: |n| format!("public byte[] _pad0 = new byte[{n}];"),
+        },
+        VariantRecords {
+            lang: "kotlin",
+            files: || one("kotlin/Azul.kt"),
+            record: |u, v| format!("open class Az{u}Variant_{v} : Structure() {{"),
+            padding: |n| format!("@JvmField var _pad0: ByteArray = ByteArray({n})"),
+        },
+        VariantRecords {
+            lang: "csharp",
+            files: || one("Azul.cs"),
+            record: |u, v| format!("public struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("public byte _pad0_{};", n - 1),
+        },
+        VariantRecords {
+            lang: "d",
+            files: || one("azul.d"),
+            record: |u, v| format!("struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("ubyte[{n}] _pad0;"),
+        },
+        VariantRecords {
+            lang: "zig",
+            files: || one("azul.zig"),
+            record: |u, v| format!("pub const Az{u}Variant_{v} = extern struct {{"),
+            padding: |n| format!("_pad0: [{n}]u8"),
+        },
+        VariantRecords {
+            lang: "nim",
+            files: || one("azul.nim"),
+            record: |u, v| format!("Az{u}Variant_{v}* {{.bycopy.}} = object"),
+            padding: |n| format!("pad0*: array[{n}, uint8]"),
+        },
+        VariantRecords {
+            lang: "julia",
+            files: || one("azul.jl"),
+            record: |u, v| format!("struct Az{u}Variant_{v}\n"),
+            padding: |n| format!("_pad0::NTuple{{{n},UInt8}}"),
+        },
+        VariantRecords {
+            lang: "smalltalk",
+            files: || one("Azul.st"),
+            record: |u, v| format!("Az{u}Variant_{v} class >> fields ["),
+            padding: |n| format!("(uint8 _pad0[{n}])"),
+        },
+        VariantRecords {
+            lang: "lisp",
+            files: || one("azul.lisp"),
+            record: |u, v| {
+                format!(
+                    "(defcstruct {}-variant-{}\n",
+                    super::lang_lisp::to_kebab_case(u),
+                    super::lang_lisp::ident_to_kebab(v)
+                )
+            },
+            padding: |n| format!("(pad0 :uint8 :count {n})"),
+        },
+    ]
+}
+
+/// X3, the bindings half: every binding that declares azul.h's per-variant
+/// union records itself carries the padding azul.h has - from the same
+/// `c_layout::union_payload_layout` - so a payload sits where Rust puts it
+/// (`a_union_variant_payload_starts_where_rust_puts_it` pins azul.h). B2
+/// found Go's builders, koffi unions, Crystal variant classes and Odin/V
+/// raw unions reading the wrong bytes; every other binding of this shape
+/// had the same records. Checked for every padded variant of every union.
+#[test]
+fn every_binding_pads_a_union_variant_payload_like_azul_h() {
+    let mut padded: Vec<(String, String, usize)> = Vec::new();
+    for u in every_tagged_union() {
+        if let Some(l) = super::c_layout::union_payload_layout(&u.name, ir()) {
+            for (v, n) in l.padded_variants() {
+                padded.push((u.name.clone(), v.to_string(), n));
+            }
+        }
+    }
+    assert!(!padded.is_empty(), "no union variant needs padding: the rule or the IR changed");
+    let mut offenders = Vec::new();
+    for b in variant_record_bindings() {
+        let text: String = (b.files)()
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut declared = 0usize;
+        let mut missing = Vec::new();
+        for (u, v, n) in &padded {
+            let Some(start) = text.find(&(b.record)(u, v)) else {
+                continue; // this binding does not declare that union
+            };
+            declared += 1;
+            let rest = &text[start..];
+            // Everything between the record's start and its first payload
+            // member (`payload`, `Payload`) is the tag and its padding.
+            let head = &rest[..rest.find("ayload").unwrap_or(rest.len())];
+            if !head.contains(&(b.padding)(*n)) {
+                missing.push(format!("{u}::{v} ({n} bytes)"));
+            }
+        }
+        if declared == 0 {
+            offenders.push(format!(
+                "[{}] declares none of the {} padded variant records this test looks for: \
+                 update its spelling in variant_record_bindings",
+                b.lang,
+                padded.len()
+            ));
+        } else if !missing.is_empty() {
+            offenders.push(summarize(
+                b.lang,
+                "variant records without azul.h's payload padding",
+                &missing,
+                declared,
+            ));
+        }
+    }
+    assert_none("union variant records laid out unlike Rust", offenders);
+}
+
+/// Every Vec of the Rust bindings that converts from a `Vec<T>` also has the
+/// inherent `from_vec` that azul's own crates have (`impl_vec!`): app code is
+/// written against both sides, and on 2026-10-01 six apps written against the
+/// internal API called `StringVec::from_vec` / `DomVec::from_vec`, which the
+/// bindings lacked.
+#[test]
+fn every_rust_binding_vec_has_from_vec() {
+    let outputs = shipped_outputs();
+    let mut offenders = Vec::new();
+    let mut checked = 0;
+    for (path, text) in outputs.get("rust").map(|v| v.as_slice()).unwrap_or(&[]) {
+        for line in text.lines() {
+            let Some(rest) = line.strip_prefix("impl From<alloc::vec::Vec<") else { continue };
+            let Some((_, ty)) = rest.split_once(">> for ") else { continue };
+            let ty = ty.trim_end_matches(" {").trim();
+            checked += 1;
+            let wanted = format!("impl {ty} {{\n    pub fn from_vec(");
+            if !text.contains(&wanted) {
+                offenders.push(format!("{path}: {ty}"));
+            }
+        }
+    }
+    assert!(checked > 50, "found only {checked} Vec conversions - the pattern broke");
+    assert!(offenders.is_empty(), "Vecs without from_vec: {offenders:?}");
+}
+
+/// The Rust bindings' `String` has the `const fn from_const_str` that azul's
+/// own `AzString` has (`css/src/corety.rs`): the apps define every CSS class /
+/// id name ONCE as `const X: AzString = AzString::from_const_str("__azmail_x")`
+/// (user ruling 2026-10-02), and a link-dynamic app is written against the
+/// bindings, which had only the runtime `From<&str>` copy. The string is
+/// `'static`, so the vec it wraps must never be freed (`NoDestructor`).
+#[test]
+fn the_rust_bindings_string_has_a_const_constructor_for_static_names() {
+    let outputs = shipped_outputs();
+    let mut defining = 0;
+    let mut offenders = Vec::new();
+    for (path, text) in outputs.get("rust").map(|v| v.as_slice()).unwrap_or(&[]) {
+        if !text.contains("pub struct AzString {") {
+            continue;
+        }
+        defining += 1;
+        let Some(at) = text.find("pub const fn from_const_str(s: &'static str) -> Self {") else {
+            offenders.push(format!("{path}: no `pub const fn from_const_str(s: &'static str)`"));
+            continue;
+        };
+        let body: String = text[at..].lines().take(14).collect::<Vec<_>>().join("\n");
+        if !body.contains("NoDestructor") {
+            offenders.push(format!("{path}: from_const_str does not wrap a NoDestructor vec:\n{body}"));
+        }
+    }
+    assert!(defining > 0, "no Rust binding defines `pub struct AzString {{` - the pattern broke");
+    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
 }

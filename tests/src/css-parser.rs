@@ -361,6 +361,7 @@ fn test_parse_linear_gradient_1() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -370,6 +371,7 @@ fn test_parse_linear_gradient_1() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 255,
@@ -396,6 +398,7 @@ fn test_parse_linear_gradient_2() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -405,6 +408,7 @@ fn test_parse_linear_gradient_2() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(33.333332),
                     color: ColorU {
                         r: 0,
@@ -414,6 +418,7 @@ fn test_parse_linear_gradient_2() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(66.666664),
                     color: ColorU {
                         r: 0,
@@ -423,6 +428,7 @@ fn test_parse_linear_gradient_2() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 255,
@@ -446,6 +452,7 @@ fn test_parse_linear_gradient_3() {
             extend_mode: ExtendMode::Repeat,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 0,
@@ -455,6 +462,7 @@ fn test_parse_linear_gradient_3() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(50.0),
                     color: ColorU {
                         r: 255,
@@ -464,6 +472,7 @@ fn test_parse_linear_gradient_3() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 0,
@@ -490,6 +499,7 @@ fn test_parse_linear_gradient_4() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -499,6 +509,7 @@ fn test_parse_linear_gradient_4() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 255,
@@ -522,6 +533,7 @@ fn test_parse_linear_gradient_5() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -531,6 +543,7 @@ fn test_parse_linear_gradient_5() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 255,
@@ -554,6 +567,7 @@ fn test_parse_linear_gradient_6() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -563,6 +577,7 @@ fn test_parse_linear_gradient_6() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 255,
@@ -591,6 +606,7 @@ fn test_parse_linear_gradient_7() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -600,6 +616,7 @@ fn test_parse_linear_gradient_7() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 0,
@@ -626,6 +643,7 @@ fn test_parse_linear_gradient_8() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -635,6 +653,7 @@ fn test_parse_linear_gradient_8() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 0,
@@ -658,6 +677,7 @@ fn test_parse_linear_gradient_9() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 10,
@@ -667,6 +687,7 @@ fn test_parse_linear_gradient_9() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 255,
@@ -692,6 +713,7 @@ fn test_parse_linear_gradient_10() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 10,
@@ -701,6 +723,7 @@ fn test_parse_linear_gradient_10() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 138,
@@ -730,6 +753,7 @@ fn test_parse_linear_gradient_11() {
             extend_mode: ExtendMode::Clamp,
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 255,
@@ -739,6 +763,7 @@ fn test_parse_linear_gradient_11() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(10.0),
                     color: ColorU {
                         r: 0,
@@ -748,6 +773,7 @@ fn test_parse_linear_gradient_11() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 0,
@@ -776,6 +802,7 @@ fn test_parse_radial_gradient_1() {
             },
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(0.0),
                     color: ColorU {
                         r: 0,
@@ -785,6 +812,7 @@ fn test_parse_radial_gradient_1() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(50.0),
                     color: ColorU {
                         r: 0,
@@ -794,6 +822,7 @@ fn test_parse_radial_gradient_1() {
                     },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU {
                         r: 255,
@@ -868,18 +897,22 @@ fn test_parse_radial_gradient_2() {
             },
             stops: vec![
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(10.0),
                     color: ColorU { r: 255, g: 0, b: 0, a: 255 },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(50.0),
                     color: ColorU { r: 0, g: 0, b: 255, a: 255 },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(75.0),
                     color: ColorU { r: 0, g: 255, b: 0, a: 255 },
                 },
                 NormalizedLinearColorStop {
+                    offset_px: azul_css::props::basic::FloatValue::const_new(0),
                     offset: PercentageValue::new(100.0),
                     color: ColorU { r: 255, g: 255, b: 0, a: 255 },
                 }

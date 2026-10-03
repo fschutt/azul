@@ -1,14 +1,14 @@
 /**
  * Focus & Scroll-Into-View E2E Test
- * 
+ *
  * Tests that tabbing to off-screen elements triggers automatic scrolling:
  * 1. Scroll container with many focusable items
  * 2. Tab to element that's below visible area → should scroll down
  * 3. Shift+Tab to element above visible area → should scroll up
  * 4. Focus set programmatically should also scroll into view
- * 
+ *
  * This is preparation for cursor movement and text selection.
- * 
+ *
  * DOM Structure:
  * ┌────────────────────────────────────────┐
  * │ scroll-container (overflow: auto)      │
@@ -24,8 +24,8 @@
  * │ │ item-20 (off-screen)               │ │
  * │ └────────────────────────────────────┘ │
  * └────────────────────────────────────────┘
- * 
- * Run with: AZUL_DEBUG=8765 ./focus_scroll
+ *
+ * Run with: AZ_DEBUG=8765 ./focus_scroll
  * Test with: ./test_scroll_into_view.sh
  */
 
@@ -55,15 +55,15 @@ AzJson ScrollTestData_toJson(AzRefAny refany) {
     if (!ScrollTestData_downcastRef(&refany, &ref)) {
         return AzJson_null();
     }
-    
+
     AzJsonKeyValue entries[3] = {
         AzJsonKeyValue_create(AZ_STR("last_focused_item"), AzJson_int(ref.ptr->last_focused_item)),
         AzJsonKeyValue_create(AZ_STR("focus_count"), AzJson_int(ref.ptr->focus_count)),
         AzJsonKeyValue_create(AZ_STR("scroll_position"), AzJson_float((double)ref.ptr->scroll_position))
     };
-    
+
     ScrollTestDataRef_delete(&ref);
-    
+
     AzJsonKeyValueVec vec = AzJsonKeyValueVec_copyFromArray(entries, 3);
     return AzJson_object(vec);
 }
@@ -110,27 +110,27 @@ FocusCallback focus_callbacks[NUM_ITEMS] = {
 // Create a focusable list item
 AzDom create_item(int item_num, AzRefAny data) {
     AzDom item = AzDom_createDiv();
-    
+
     // Add focus callback
     AzEventFilter event = AzEventFilter_focus(AzFocusEventFilter_focusReceived());
     AzDom_addCallback(&item, event, AzRefAny_clone(&data), focus_callbacks[item_num - 1]);
-    
+
     // Make focusable
     AzDom_setTabIndex(&item, AzTabIndex_auto());
-    
+
     // Add classes
     AzDom_addClass(&item, AZ_STR("item"));
-    
+
     char class_name[32];
     snprintf(class_name, sizeof(class_name), "item-%d", item_num);
     AzDom_addClass(&item, AZ_STR(class_name));
-    
+
     // Add text label
     char label[64];
     snprintf(label, sizeof(label), "Item %d - Focusable Element", item_num);
     AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(label));
     AzDom_addChild(&item, text);
-    
+
     return item;
 }
 
@@ -140,23 +140,23 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         return AzDom_createBody();
     }
     ScrollTestDataRef_delete(&d);
-    
+
     // Create scroll container
     AzDom scroll_container = AzDom_createDiv();
     AzDom_addClass(&scroll_container, AZ_STR("scroll-container"));
-    
+
     // Create 20 focusable items
     for (int i = 1; i <= NUM_ITEMS; i++) {
         AzDom item = create_item(i, data);
         AzDom_addChild(&scroll_container, item);
     }
-    
+
     // Build body
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, scroll_container);
-    
+
     // CSS with scroll container
-    const char* css_str = 
+    const char* css_str =
         "body { "
         "  background-color: #2c3e50; "
         "  display: flex; "
@@ -203,7 +203,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         ".item-11:focus, .item-13:focus, .item-15:focus, .item-17:focus, .item-19:focus { "
         "  background-color: #1e8449; "
         "} ";
-    
+
     // The layout callback returns AzDom now: the Css rides along as a field
     // and the framework builds the StyledDom itself, because constructing it
     // here got in the way of cascading and re-cascading.
@@ -216,19 +216,19 @@ int main() {
         .focus_count = 0,
         .scroll_position = 0.0f
     };
-    
+
     AzRefAny app_data = ScrollTestData_upcast(initial_data);
-    
+
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AZ_STR("Scroll Into View Test - Tab through items");
     window.window_state.size.dimensions.width = 600.0;
     window.window_state.size.dimensions.height = 400.0;
-    
+
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(app_data, config);
-    
+
     AzApp_run(&app, window);
     AzApp_delete(&app);
-    
+
     return 0;
 }

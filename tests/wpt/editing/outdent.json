@@ -1,0 +1,1197 @@
+{
+ "source": "editing/data/outdent.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 176,
+ "eligible_cases": 98,
+ "left_out": {
+  "attribute data-abc": 4,
+  "attribute id": 12,
+  "attribute start": 4,
+  "attribute value": 4,
+  "markup outside the mail subset": 37,
+  "over the cap of 60": 38,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 16,
+  "tag <xmp>": 1
+ },
+ "cases": [
+  {
+   "id": "outdent-c8f3f4fd",
+   "initial": "<blockquote><p>foo[bar]</p><p>baz</p></blockquote><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar]</p><p>baz</p></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo[bar]</p><blockquote><p>baz</p></blockquote><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo[bar]</p><blockquote><p>baz</p></blockquote><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-bebbaadb",
+   "initial": "<blockquote><p>foo[bar</p><p>b]az</p></blockquote><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar</p><p>b]az</p></blockquote><p>extra</p>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo[bar</p><p>b]az</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo[bar</p><p>b]az</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-6ddddbe9",
+   "initial": "<blockquote><p>foo[bar]</p></blockquote><p>baz</p><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar]</p></blockquote><p>baz</p><p>extra</p>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo[bar]</p><p>baz</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo[bar]</p><p>baz</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-29cb6b06",
+   "initial": "<blockquote><p>foo[bar</p></blockquote><p>b]az</p><p>extra",
+   "initial_xhtml": "<blockquote><p>foo[bar</p></blockquote><p>b]az</p><p>extra</p>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo[bar</p><p>b]az</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo[bar</p><p>b]az</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-1473545d",
+   "initial": "<blockquote><blockquote>foo[bar]baz</blockquote></blockquote>",
+   "initial_xhtml": "<blockquote><blockquote>foo[bar]baz</blockquote></blockquote>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote>foo[bar]baz</blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote>foo[bar]baz</blockquote>"
+   ]
+  },
+  {
+   "id": "outdent-16d905f7",
+   "initial": "<blockquote><div>foo[bar]baz</div></blockquote>",
+   "initial_xhtml": "<blockquote><div>foo[bar]baz</div></blockquote>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo[bar]baz</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo[bar]baz</div>"
+   ]
+  },
+  {
+   "id": "outdent-5be628d8",
+   "initial": "<blockquote><blockquote><p>foo[bar]<p>baz</blockquote></blockquote>",
+   "initial_xhtml": "<blockquote><blockquote><p>foo[bar]</p><p>baz</p></blockquote></blockquote>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<blockquote><p>foo[bar]</p><blockquote><p>baz</p></blockquote></blockquote>"
+   ],
+   "expected_canonical": [
+    "<blockquote><p>foo[bar]</p><blockquote><p>baz</p></blockquote></blockquote>"
+   ]
+  },
+  {
+   "id": "outdent-0a2e29dd",
+   "initial": "<blockquote><div><p>foo[bar]<p>baz</div></blockquote>",
+   "initial_xhtml": "<blockquote><div><p>foo[bar]</p><p>baz</p></div></blockquote>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><p>foo[bar]</p><blockquote><p>baz</p></blockquote></div>"
+   ],
+   "expected_canonical": [
+    "<div><p>foo[bar]</p><blockquote><p>baz</p></blockquote></div>"
+   ]
+  },
+  {
+   "id": "outdent-f06b140d",
+   "initial": "<blockquote><p><b>foo[bar]</b><p>baz</blockquote>",
+   "initial_xhtml": "<blockquote><p><b>foo[bar]</b></p><p>baz</p></blockquote>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><b>foo[bar]</b></p><blockquote><p>baz</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<p><b>foo[bar]</b></p><blockquote><p>baz</p></blockquote>"
+   ]
+  },
+  {
+   "id": "outdent-05709359",
+   "initial": "<blockquote><p><strong>foo[bar]</strong><p>baz</blockquote>",
+   "initial_xhtml": "<blockquote><p><strong>foo[bar]</strong></p><p>baz</p></blockquote>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><strong>foo[bar]</strong></p><blockquote><p>baz</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<p><strong>foo[bar]</strong></p><blockquote><p>baz</p></blockquote>"
+   ]
+  },
+  {
+   "id": "outdent-5616541a",
+   "initial": "<blockquote><p><span>foo[bar]</span><p>baz</blockquote>",
+   "initial_xhtml": "<blockquote><p><span>foo[bar]</span></p><p>baz</p></blockquote>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><span>foo[bar]</span></p><blockquote><p>baz</p></blockquote>"
+   ],
+   "expected_canonical": [
+    "<p><span>foo[bar]</span></p><blockquote><p>baz</p></blockquote>"
+   ]
+  },
+  {
+   "id": "outdent-7e873f21",
+   "initial": "<ol><li>foo<li>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><div>[bar]</div><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><div>[bar]</div><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-5f8688ef",
+   "initial": "<ol><li>foo<li>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><p>[bar]</p><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><p>[bar]</p><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-a9916af3",
+   "initial": "<ol><li>foo</ol>[bar]",
+   "initial_xhtml": "<ol><li>foo</li></ol>[bar]",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol>[bar]"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol>[bar]"
+   ]
+  },
+  {
+   "id": "outdent-eb148bf6",
+   "initial": "<ol><li>[foo]<br>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<br/>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]<br>bar</div><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]<br/>bar</div><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-94f773ab",
+   "initial": "<ol><li>[foo]<br>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<br/>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo]<br>bar</p><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>[foo]<br/>bar</p><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-310aa70d",
+   "initial": "<ol><li>foo<br>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<br/>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo<br>[bar]</div><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>foo<br/>[bar]</div><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-6b4a4a89",
+   "initial": "<ol><li>foo<br>[bar]<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<br/>[bar]</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo<br>[bar]</p><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>foo<br/>[bar]</p><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-9efdce29",
+   "initial": "<ol><li><div>[foo]</div>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li><div>[foo]</div>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]</div><div>bar</div><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]</div><div>bar</div><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-e91a9718",
+   "initial": "<ol><li><div>[foo]</div>bar<li>baz</ol>",
+   "initial_xhtml": "<ol><li><div>[foo]</div>bar</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]</div><p>bar</p><ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]</div><p>bar</p><ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-7bebcde1",
+   "initial": "<ol><li>foo<ol><li>[bar]<li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>[bar]</li><li>baz</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>[bar]</li><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>[bar]</li><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-2488db40",
+   "initial": "<ol><li>foo<ol><li>bar<li>[baz]</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li><li>[baz]</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><li>[baz]</li><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><li>[baz]</li><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-81c4ce89",
+   "initial": "<ol><li>foo</li><ol><li>[bar]<li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>[bar]</li><li>baz</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>[bar]</li><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>[bar]</li><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-4d02101b",
+   "initial": "<ol><li>foo</li><ol><li>bar<li>[baz]</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>bar</li><li>[baz]</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><li>[baz]</li><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li></ol><li>[baz]</li><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-99779032",
+   "initial": "<ol><li>foo<ol><li>b[a]r</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>b[a]r</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>b[a]r</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>b[a]r</li><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-3ae794c8",
+   "initial": "<ol><li>foo</li><ol><li>b[a]r</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>b[a]r</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>b[a]r</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>b[a]r</li><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-26fd6c87",
+   "initial": "<ol><li>foo{<ol><li>bar</ol>}<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo{<ol><li>bar</li></ol>}</li><li>baz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li>{<li>bar</li>}<li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li>{<li>bar</li>}<li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-650e4a8f",
+   "initial": "<ol><li>foo</li>{<ol><li>bar</ol>}<li>baz</ol>",
+   "initial_xhtml": "<ol><li>foo</li>{<ol><li>bar</li></ol>}<li>baz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li>{<li>bar</li>}<li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li>{<li>bar</li>}<li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-12e941c9",
+   "initial": "<ol><li>[foo]<ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<ol><li>bar</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]</div><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]</div><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-efacf8ea",
+   "initial": "<ol><li>[foo]<ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<ol><li>bar</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo]</p><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>[foo]</p><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-2810a1a2",
+   "initial": "<ol><li>[foo]</li><ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]</li><ol><li>bar</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]</div><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]</div><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-96f1ca5a",
+   "initial": "<ol><li>[foo]</li><ol><li>bar</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]</li><ol><li>bar</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo]</p><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>[foo]</p><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-b330cbb4",
+   "initial": "<ol><li>foo<li>[bar]<ol><li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]<ol><li>baz</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><div>[bar]</div><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><div>[bar]</div><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-3999f99a",
+   "initial": "<ol><li>foo<li>[bar]<ol><li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]<ol><li>baz</li></ol></li><li>quz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><p>[bar]</p><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><p>[bar]</p><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-0d6dee9b",
+   "initial": "<ol><li>foo<li>[bar]</li><ol><li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]</li><ol><li>baz</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><div>[bar]</div><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><div>[bar]</div><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-1403a67e",
+   "initial": "<ol><li>foo<li>[bar]</li><ol><li>baz</ol><li>quz</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>[bar]</li><ol><li>baz</li></ol><li>quz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><p>[bar]</p><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><p>[bar]</p><ol><ol><li>baz</li></ol><li>quz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-5a92804f",
+   "initial": "<ol><li>foo<ol><li>bar<li>baz</ol><li>[quz]</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li><li>[quz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li></ol><div>[quz]</div>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li></ol><div>[quz]</div>"
+   ]
+  },
+  {
+   "id": "outdent-ca8aa780",
+   "initial": "<ol><li>foo<ol><li>bar<li>baz</ol><li>[quz]</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li><li>[quz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li></ol><p>[quz]</p>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo<ol><li>bar</li><li>baz</li></ol></li></ol><p>[quz]</p>"
+   ]
+  },
+  {
+   "id": "outdent-f9992893",
+   "initial": "<ol><li>foo</li><ol><li>bar<li>baz</ol><li>[quz]</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol><li>[quz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol></ol><div>[quz]</div>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol></ol><div>[quz]</div>"
+   ]
+  },
+  {
+   "id": "outdent-339f4251",
+   "initial": "<ol><li>foo</li><ol><li>bar<li>baz</ol><li>[quz]</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol><li>[quz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol></ol><p>[quz]</p>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li><li>baz</li></ol></ol><p>[quz]</p>"
+   ]
+  },
+  {
+   "id": "outdent-8ba3afec",
+   "initial": "<ol><li>foo<li>b[ar<li>baz]</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>b[ar</li><li>baz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><div>b[ar</div><div>baz]</div>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><div>b[ar</div><div>baz]</div>"
+   ]
+  },
+  {
+   "id": "outdent-54780c8b",
+   "initial": "<ol><li>foo<li>b[ar<li>baz]</ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>b[ar</li><li>baz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><p>b[ar</p><p>baz]</p>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><p>b[ar</p><p>baz]</p>"
+   ]
+  },
+  {
+   "id": "outdent-06e2fa41",
+   "initial": "<ol><li>[foo<ol><li>bar]</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar]</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo</div><ol><li>bar]</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo</div><ol><li>bar]</li><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-c30dd273",
+   "initial": "<ol><li>[foo<ol><li>bar]</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar]</li></ol></li><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo</p><ol><li>bar]</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>[foo</p><ol><li>bar]</li><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-a8e48bfc",
+   "initial": "<ol><li>[foo</li><ol><li>bar]</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo</li><ol><li>bar]</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo</div><ol><li>bar]</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo</div><ol><li>bar]</li><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-dff6bf02",
+   "initial": "<ol><li>[foo</li><ol><li>bar]</ol><li>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo</li><ol><li>bar]</li></ol><li>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo</p><ol><li>bar]</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>[foo</p><ol><li>bar]</li><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-9e834e69",
+   "initial": "<ol><li>foo<ol><li>b[ar</ol><li>b]az</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>b[ar</li></ol></li><li>b]az</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>b[ar</li></ol><div>b]az</div>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>b[ar</li></ol><div>b]az</div>"
+   ]
+  },
+  {
+   "id": "outdent-cc27ed41",
+   "initial": "<ol><li>foo<ol><li>b[ar</ol><li>b]az</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>b[ar</li></ol></li><li>b]az</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>b[ar</li></ol><p>b]az</p>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>b[ar</li></ol><p>b]az</p>"
+   ]
+  },
+  {
+   "id": "outdent-0f114321",
+   "initial": "<ol><li>foo</li><ol><li>b[ar</ol><li>b]az</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>b[ar</li></ol><li>b]az</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>b[ar</li></ol><div>b]az</div>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>b[ar</li></ol><div>b]az</div>"
+   ]
+  },
+  {
+   "id": "outdent-7cd13e40",
+   "initial": "<ol><li>foo</li><ol><li>b[ar</ol><li>b]az</ol>",
+   "initial_xhtml": "<ol><li>foo</li><ol><li>b[ar</li></ol><li>b]az</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>b[ar</li></ol><p>b]az</p>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>b[ar</li></ol><p>b]az</p>"
+   ]
+  },
+  {
+   "id": "outdent-7e1dbd4f",
+   "initial": "<ol><li>[foo<ol><li>bar</ol><li>baz]</ol><p>extra",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar</li></ol></li><li>baz]</li></ol><p>extra</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo</div><ol><li>bar</li></ol><div>baz]</div><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<div>[foo</div><ol><li>bar</li></ol><div>baz]</div><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-2282de3f",
+   "initial": "<ol><li>[foo<ol><li>bar</ol><li>baz]</ol><p>extra",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar</li></ol></li><li>baz]</li></ol><p>extra</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo</p><ol><li>bar</li></ol><p>baz]</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>[foo</p><ol><li>bar</li></ol><p>baz]</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-2a42e37d",
+   "initial": "<ol><li>[foo</li><ol><li>bar</ol><li>baz]</ol><p>extra",
+   "initial_xhtml": "<ol><li>[foo</li><ol><li>bar</li></ol><li>baz]</li></ol><p>extra</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo</div><ol><li>bar</li></ol><div>baz]</div><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<div>[foo</div><ol><li>bar</li></ol><div>baz]</div><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-ae3fa5ec",
+   "initial": "<ol><li>[foo</li><ol><li>bar</ol><li>baz]</ol><p>extra",
+   "initial_xhtml": "<ol><li>[foo</li><ol><li>bar</li></ol><li>baz]</li></ol><p>extra</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo</p><ol><li>bar</li></ol><p>baz]</p><p>extra</p>"
+   ],
+   "expected_canonical": [
+    "<p>[foo</p><ol><li>bar</li></ol><p>baz]</p><p>extra</p>"
+   ]
+  },
+  {
+   "id": "outdent-bb87cd69",
+   "initial": "<ol><li>[foo]<ol><li>bar</ol>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<ol><li>bar</li></ol>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo]</div><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo]</div><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-c81c066c",
+   "initial": "<ol><li>[foo]<ol><li>bar</ol>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo]<ol><li>bar</li></ol>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>[foo]</p><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>[foo]</p><ol><ol><li>bar</li></ol><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-797c63ce",
+   "initial": "<ol><li>foo<ol><li>[bar]</ol>baz</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>[bar]</li></ol>baz</li></ol>",
+   "commands": [
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>[bar]</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>[bar]</li><li>baz</li></ol>"
+   ]
+  },
+  {
+   "id": "outdent-bfd534eb",
+   "initial": "<ol><li>foo<ol><li>bar</ol>[baz]</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li></ol>[baz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li></ol></ol><div>[baz]</div>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li></ol></ol><div>[baz]</div>"
+   ]
+  },
+  {
+   "id": "outdent-81995bf7",
+   "initial": "<ol><li>foo<ol><li>bar</ol>[baz]</ol>",
+   "initial_xhtml": "<ol><li>foo<ol><li>bar</li></ol>[baz]</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><ol><li>bar</li></ol></ol><p>[baz]</p>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><ol><li>bar</li></ol></ol><p>[baz]</p>"
+   ]
+  },
+  {
+   "id": "outdent-b2798c2c",
+   "initial": "<ol><li>[foo<ol><li>bar]</ol>baz</ol>",
+   "initial_xhtml": "<ol><li>[foo<ol><li>bar]</li></ol>baz</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "outdent",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>[foo</div><ol><li>bar]</li><li>baz</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>[foo</div><ol><li>bar]</li><li>baz</li></ol>"
+   ]
+  }
+ ]
+}

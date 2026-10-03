@@ -134,7 +134,10 @@ fn icon_name_aliases(name: &str) -> &'static [&'static str] {
     }
 }
 
-fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32)> {
+/// The file's bytes, the directory's nominal pixel size, and whether it came
+/// out of a SYMBOLIC tree - which decides whether its placeholder foreground
+/// is substituted (see [`recolour_symbolic_palette`]).
+fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32, bool)> {
     // The WHOLE inheritance chain, not one level. Mint-Y-Sand inherits
     // `Mint-Y,Adwaita,gnome,hicolor` and ships no `actions` icons of its own,
     // so stopping at the first parent stopped exactly one theme short of the
@@ -175,7 +178,13 @@ fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32)> {
                     alloc::format!("{dir}/{candidate}-symbolic.svg"),
                 ] {
                     if let Ok(bytes) = std::fs::read(&file) {
-                        return Some((bytes, nominal));
+                        // Either marker counts: freedesktop themes spell it
+                        // both ways - Mint-Y keeps the window controls in
+                        // `actions/symbolic/` AND names them `-symbolic.svg`,
+                        // while some themes only do one.
+                        let symbolic =
+                            file.ends_with("-symbolic.svg") || dir.contains("/symbolic");
+                        return Some((bytes, nominal, symbolic));
                     }
                 }
             }
@@ -314,6 +323,46 @@ fn rewrite_color_scheme_rules(text: &str, classes: &[(String, String)]) -> Strin
         out.replace_range(decl_start..decl_end, &alloc::format!("fill:{value}"));
     }
     out
+}
+
+/// The GTK SYMBOLIC PALETTE: the placeholder colours a `*-symbolic.svg`
+/// paints with, so that whoever draws it can substitute its own.
+///
+/// `gtk-encode-symbolic-svg` fixes four: `#bebebe` is the FOREGROUND, and
+/// `#4e9a06` / `#f57900` / `#cc0000` are success / warning / error. Only the
+/// foreground is substituted here - azul has no palette entry for the other
+/// three, and the values the icon's author chose are already the right ones,
+/// so rewriting them would be inventing a colour rather than resolving a
+/// reference.
+///
+/// `read_icon_svg` has always PREFERRED `<name>-symbolic.svg` for exactly
+/// this reason ("a small, single-colour UI indicator that takes the desktop's
+/// foreground") and nothing ever took it: the glyph kept the placeholder. On
+/// Mint-Y that is `#bebebe` on an `#ececec` titlebar - the maximize square
+/// washed out, and the minimize bar (8 units by 1) invisible.
+///
+/// Applied ONLY to a file that came out of a symbolic tree. A full-colour
+/// icon's grey is a grey its artist meant.
+const SYMBOLIC_FOREGROUND: &str = "#bebebe";
+
+fn recolour_symbolic_palette(svg: &[u8], tint: ColorU) -> Vec<u8> {
+    let Ok(text) = core::str::from_utf8(svg) else {
+        return svg.to_vec();
+    };
+    let hex = hex_of(tint);
+    // Case-insensitively, because `#BEBEBE` is the same placeholder.
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest
+        .to_ascii_lowercase()
+        .find(SYMBOLIC_FOREGROUND)
+    {
+        out.push_str(&rest[..at]);
+        out.push_str(&hex);
+        rest = &rest[at + SYMBOLIC_FOREGROUND.len()..];
+    }
+    out.push_str(rest);
+    out.into_bytes()
 }
 
 fn hex_of(c: ColorU) -> String {
@@ -639,8 +688,17 @@ fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<PreparedIcon>, bool) {
     .unwrap_or_else(|_| titlebar_close_glyph(tint));
     let mut out: Vec<PreparedIcon> = vec![("titlebar-close".to_string(), close_glyph)];
     for name in WANTED {
-        let Some((svg, _nominal_px)) = read_icon_svg(theme, name) else {
+        let Some((svg, _nominal_px, symbolic)) = read_icon_svg(theme, name) else {
             continue;
+        };
+        // A symbolic icon's `#bebebe` is a PLACEHOLDER, not a colour, so it is
+        // substituted before the `.ColorScheme-*` / `currentColor` references
+        // are resolved - those are the KDE spelling of the same idea, and an
+        // icon may carry either.
+        let svg = if symbolic {
+            recolour_symbolic_palette(&svg, tint)
+        } else {
+            svg
         };
         let resolved = resolve_svg_references(&svg, tint);
         let Ok(markup) = String::from_utf8(resolved) else {
@@ -698,7 +756,47 @@ fn titlebar_close_glyph(tint: ColorU) -> String {
 ///   * there is nothing to cache, invalidate or garbage-collect on the GPU.
 fn icon_dom(markup: &str) -> Option<azul_core::dom::Dom> {
     let parsed = azul_layout::xml::parse_xml(markup).ok()?;
-    Some(azul_layout::xml::dom_from_parsed_xml(parsed))
+    Some(unwrap_icon_document(azul_layout::xml::dom_from_parsed_xml(parsed)))
+}
+
+/// An icon is a SUBTREE, not a document.
+///
+/// `str_to_dom_unstyled` wraps whatever it parses in `<html><body>`, because
+/// its job is to turn a string into a page. An icon's `<svg>` is then spliced
+/// into a button WITH that wrapper - and `<body>` carries the UA margin of
+/// 8px on every side, so a 16x16 glyph inside a 32x24 window control was
+/// pushed to (8, 8) of a box whose centre is (8, 4): measured on the widgets
+/// demo, the maximize square sat 4px below the middle of its button and the
+/// close glyph, which is azul's own markup and not a themed file, sat
+/// somewhere else again.
+///
+/// The wrapper is peeled off while it is a single-child `<html>` or `<body>`,
+/// and the document's stylesheet travels with what is left - an icon that
+/// declared its colours in a `<style>` block must keep them.
+fn unwrap_icon_document(dom: azul_core::dom::Dom) -> azul_core::dom::Dom {
+    use azul_core::dom::NodeType;
+
+    let mut cur = dom;
+    let mut css = core::mem::take(&mut cur.css);
+    loop {
+        let wrapper = matches!(cur.root.get_node_type(), NodeType::Html | NodeType::Body);
+        if !wrapper || cur.children.len() != 1 {
+            break;
+        }
+        let mut inner = cur.children.as_ref()[0].clone();
+        // The stylesheets accumulate outermost-first, which is cascade order:
+        // a rule the document declared is overridden by one the subtree
+        // declares, exactly as it was before the wrapper came off.
+        if !inner.css.is_empty() {
+            let mut merged = css.as_ref().to_vec();
+            merged.extend(inner.css.as_ref().iter().cloned());
+            css = merged.into();
+        }
+        inner.css = azul_css::css::CssVec::from_vec(Vec::new());
+        cur = inner;
+    }
+    cur.css = css;
+    cur
 }
 
 #[cfg(test)]
@@ -1028,4 +1126,74 @@ mod tests {
         assert!(has("/Mint-Y/scalable/actions"), "Adwaita-style scalable");
         assert!(has("/Mint-Y/16x16/actions"), "Adwaita-style size dir");
     }
+    /// GTK's symbolic icons carry a PLACEHOLDER foreground, not a colour:
+    /// `#bebebe` is the documented stand-in that the consumer replaces with
+    /// its own foreground (the same contract `gtk-encode-symbolic-svg`
+    /// enforces, alongside `#4e9a06`/`#f57900`/`#cc0000` for
+    /// success/warning/error). `read_icon_svg` already prefers
+    /// `<name>-symbolic.svg` and says so - "a small, single-colour UI
+    /// indicator that takes the desktop's foreground" - but nothing ever
+    /// took it.
+    ///
+    /// MEASURED on Mint-Y (2026-09-22): the titlebar's maximize glyph drew
+    /// in `#bebebe` on an `#ececec` bar, and the minimize glyph - an 8x1 bar
+    /// - was invisible outright. Both files are exactly this shape.
+    #[test]
+    fn a_symbolic_icons_placeholder_foreground_becomes_the_desktops_colour() {
+        // Mint-Y's window-minimize-symbolic.svg, cut down to the one path.
+        let svg = r##"<svg height="16" width="16"><path d="M4 10v1h8v-1z"                       style="text-indent:0;fill:#bebebe;fill-opacity:1"                       fill="gray"/></svg>"##;
+        let out =
+            String::from_utf8(recolour_symbolic_palette(svg.as_bytes(), TINT)).unwrap();
+        assert!(
+            !out.contains("#bebebe"),
+            "the placeholder must not survive: {out}"
+        );
+        assert!(
+            out.contains(&hex_of(TINT)),
+            "the desktop's foreground must be what the glyph paints with: {out}"
+        );
+    }
+
+    /// The other three placeholders name SEMANTIC colours a desktop assigns
+    /// on its own; azul has no palette entry for them, and the values the
+    /// author chose are already the right ones. Leaving them alone is the
+    /// decision, so it is pinned.
+    #[test]
+    fn the_semantic_placeholders_keep_the_colours_their_author_chose() {
+        let svg = r##"<svg><path style="fill:#cc0000"/><path style="fill:#4e9a06"/></svg>"##;
+        let out =
+            String::from_utf8(recolour_symbolic_palette(svg.as_bytes(), TINT)).unwrap();
+        assert!(out.contains("#cc0000") && out.contains("#4e9a06"), "{out}");
+    }
+
+    /// A NON-symbolic icon is full-colour artwork; a grey in it is a grey the
+    /// artist meant. The recolouring is reached only through the symbolic
+    /// flag `read_icon_svg` returns, and this pins that the function itself
+    /// is the only thing that ever rewrites a placeholder.
+    #[test]
+    fn the_recolouring_is_not_part_of_reference_resolution() {
+        let out = resolved(r##"<svg><path style="fill:#bebebe"/></svg>"##);
+        assert!(out.contains("#bebebe"), "{out}");
+    }
+
+    /// An icon is a SUBTREE, not a document. `str_to_dom_unstyled` wraps what
+    /// it parses in `<html><body>` because its job is to make a page, and
+    /// `<body>` carries the UA 8px margin - which, inside a 32x24 window
+    /// control, pushed a 16x16 glyph to (8, 8) of a box whose centre is
+    /// (8, 4). MEASURED on the widgets demo, 2026-09-22: the icon's `<body>`
+    /// box came out at (548, 13.5) in a button at (540, 5.5).
+    ///
+    /// NEGATIVE CONTROL: return `dom_from_parsed_xml(parsed)` unchanged and
+    /// the root here is `Html`.
+    #[test]
+    fn an_icon_is_its_own_root_not_a_document_body() {
+        use azul_core::dom::NodeType;
+        let dom = icon_dom(&titlebar_close_glyph(TINT)).expect("the close glyph parses");
+        assert!(
+            !matches!(dom.root.get_node_type(), NodeType::Html | NodeType::Body),
+            "the icon kept a document wrapper: {:?}",
+            dom.root.get_node_type()
+        );
+    }
+
 }

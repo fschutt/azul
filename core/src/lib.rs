@@ -272,6 +272,9 @@ pub mod hash {
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
+/// The app theme (`@theme(<name>)`): the app's choice, and the theme a DOM
+/// is being built for.
+pub mod app_theme;
 /// Host-language callback invoker registry.
 ///
 /// The C-ABI surface managed-FFI bindings (Lua, Ruby, …) use to register one
@@ -332,6 +335,14 @@ pub mod gamepad;
 pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
+/// System-wide ("global") hotkey POD types — `GlobalHotkey`, `HotkeyModifiers`,
+/// `GlobalHotkeyError`, the declaration vocabulary (`GlobalHotkeyCallbackData`,
+/// `GlobalHotkeyInfo`) — and the accelerator parser.
+///
+/// The App-owned manager that reconciles the declared set against the OS
+/// lives in `azul_layout::managers::global_hotkey`, the OS backends in
+/// `azul-dll` (`desktop/global_hotkey`).
+pub mod global_hotkey;
 // clippy reports `too_long_first_doc_paragraph` here with a span that starts
 // in the crate-level `//!` doc far above and ends on this one-line `///`,
 // measuring the two as a single paragraph. The doc below is one short line;
@@ -398,10 +409,15 @@ pub mod path_parser;
 pub mod physical_key;
 /// Per-node resolved CSS property cache, the layout engine's read path.
 pub mod prop_cache;
+/// Cascade-level custom properties: every node's `--name` variables and its
+/// `var()` / `env()` references, resolved under the live context.
+pub mod custom_property_cascade;
 /// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
+/// Scaling of raw images and video frames (thumbnails, consumer cuts).
+pub mod image_scale;
 /// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
 ///
 /// Symmetric to the camera surface (a "dumb widget" in
@@ -435,6 +451,12 @@ pub mod transient;
 /// Icon bitmaps, category/status and the tray event kinds. The OS plumbing
 /// lives in `azul-dll` (`desktop/tray`).
 pub mod tray;
+/// Native desktop notification POD types.
+///
+/// The notification, its buttons and sound, and the events it reports back.
+/// The queues live in `azul-layout` (`managers::notification`), the OS
+/// plumbing in `azul-dll` (`desktop/notifications`) - the tray's split.
+pub mod notification;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.
@@ -450,6 +472,11 @@ pub mod video;
 pub mod window;
 /// XML and XHTML parsing for declarative UI definitions.
 pub mod xml;
+/// Markup, a DOM and component libraries → source code in every binding
+/// language (the DOM half of the code generator; azul-css has the CSS half).
+/// Only with the `codegen` feature.
+#[cfg(feature = "codegen")]
+pub mod codegen;
 
 /// Ordered map alias used throughout `azul-core`.
 ///

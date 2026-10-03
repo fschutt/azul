@@ -23,7 +23,7 @@
 //! published, because it also emits the matching RTF and the `CF_HTML`
 //! wrapper Windows needs. This stays as public FFI API.
 
-use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
+use azul_css::{impl_option, AzString, OptionString};
 
 // Clipboard Content Extraction
 
@@ -71,6 +71,14 @@ pub struct ClipboardContent {
     pub plain_text: AzString,
     /// Rich text runs with styling information
     pub styled_runs: StyledTextRunVec,
+    /// The HTML flavour, as markup (`text/html`, `public.html`, the fragment
+    /// of Windows' `CF_HTML`): what the source put on the clipboard for a
+    /// reader that keeps structure - paragraphs, lists, quotes, links - which
+    /// the styled runs have nowhere to put. A paste gets it next to the plain
+    /// text (an app's `Paste` callback reads both, `get_clipboard_content`);
+    /// a copy that sets it publishes it as the HTML flavour. `None` when the
+    /// source offered no HTML.
+    pub html: OptionString,
 }
 
 impl_option!(
@@ -149,18 +157,12 @@ impl ClipboardExtract {
             font_size_px: style.font_size_px,
             color: style.color,
             // CSS `font-weight: bold` is 700; everything at or above it reads
-            // as bold to a format that only has a boolean. `FcWeight` is
-            // ordered by its CSS numeric value, so this is that comparison.
-            is_bold: selector.is_some_and(|s| s.weight >= rust_fontconfig::FcWeight::Bold),
+            // as bold to a format that only has a boolean - the one rule an
+            // editor's typing style reads too (`StyleProperties::is_bold`).
+            is_bold: style.is_bold(),
             // Oblique is a slanted rendering of an upright face; every
             // clipboard format this feeds collapses it into italic.
-            is_italic: selector.is_some_and(|s| {
-                matches!(
-                    s.style,
-                    crate::text3::cache::FontStyle::Italic
-                        | crate::text3::cache::FontStyle::Oblique
-                )
-            }),
+            is_italic: style.is_italic(),
         };
 
         match self.runs.last_mut() {
@@ -227,6 +229,7 @@ impl ClipboardExtract {
         Some(ClipboardContent {
             plain_text: self.plain.into(),
             styled_runs: runs.into(),
+            html: OptionString::None,
         })
     }
 }
@@ -248,7 +251,11 @@ impl ClipboardContent {
             html.push_str("<span style=\"");
 
             if let Some(font_family) = run.font_family.as_ref() {
-                let _ = write!(html, "font-family: {}; ", font_family.as_str());
+                let _ = write!(
+                    html,
+                    "font-family: {}; ",
+                    azul_core::xml::html::encode_attribute(font_family.as_str())
+                );
             }
             let _ = write!(html, "font-size: {}px; ", run.font_size_px);
             let _ = write!(
@@ -267,14 +274,7 @@ impl ClipboardContent {
             }
 
             html.push_str("\">");
-            // Escape HTML entities
-            let escaped = run
-                .text
-                .as_str()
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;");
-            html.push_str(&escaped);
+            html.push_str(&azul_core::xml::html::encode_text(run.text.as_str()));
             html.push_str("</span>");
         }
 
@@ -325,15 +325,17 @@ mod autotest_generated {
         ClipboardContent {
             plain_text: AzString::from(""),
             styled_runs: runs.into(),
+            html: OptionString::None,
         }
     }
 
-    /// Inverse of the escaping pass in `to_html` (entities undone in reverse
-    /// order, so `&amp;` is restored last).
+    /// Inverse of the escaping pass in `to_html`: the one decoder.
     fn unescape(s: &str) -> String {
-        s.replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&")
+        azul_core::xml::html::decode_character_references(
+            s,
+            azul_core::xml::html::CharRefMode::Xml,
+        )
+        .into_owned()
     }
 
     // ---------------------------------------------------------------------
@@ -407,6 +409,7 @@ mod autotest_generated {
         let c = ClipboardContent {
             plain_text: AzString::from("SHOULD-NOT-APPEAR"),
             styled_runs: Vec::<StyledTextRun>::new().into(),
+            html: OptionString::None,
         };
         assert_eq!(c.to_html(), "<div></div>");
     }
@@ -555,7 +558,6 @@ mod autotest_generated {
             "😀👨‍👩‍👧‍👦",              // emoji + ZWJ sequence
             "مرحبا بالعالم",     // RTL
             "e\u{0301}\u{0327}", // combining marks
-            "a\u{0}b",           // interior NUL
             "line\nbreak\ttab",
             "\u{200B}\u{FEFF}", // zero-width space + BOM
             "\u{202E}reversed", // RTL override
@@ -564,6 +566,28 @@ mod autotest_generated {
             assert!(html.contains(text), "lost {text:?} in {html:?}");
             assert!(html.ends_with("</span></div>"), "{html:?}");
         }
+    }
+
+    /// A NUL (and every C0 control but tab / LF / CR) cannot be written in
+    /// XML and an HTML reader drops it (azul's own lenient loader too): the
+    /// one encoder leaves it out of the markup instead of handing a reader a
+    /// character it rejects.
+    #[test]
+    fn to_html_leaves_out_a_nul_and_the_other_c0_controls() {
+        let html = content(vec![run("a\u{0}b\u{1}c\u{1f}d", 10.0, None)]).to_html();
+        assert!(html.contains("\">abcd</span>"), "{html:?}");
+    }
+
+    /// The font family is written into the `style="..."` attribute: a quote
+    /// in it must not end the attribute (and start a new one).
+    #[test]
+    fn to_html_a_font_family_with_a_quote_cannot_end_the_style_attribute() {
+        let html = content(vec![run("x", 10.0, Some("A\" onclick=\"b"))]).to_html();
+        assert!(!html.contains("onclick=\""), "{html}");
+        assert!(
+            html.contains("font-family: A&quot; onclick=&quot;b; "),
+            "{html}"
+        );
     }
 
     #[test]

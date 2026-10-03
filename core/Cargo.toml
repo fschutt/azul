@@ -18,8 +18,11 @@ resolver = "2"
 autoexamples = false
 
 [dependencies]
+# `azul_css::codegen` (the IR and the per-language printers) only with this
+# crate's own `codegen` feature below; `GetHash` comes from the ungated
+# `azul_css::hash` everywhere.
 azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
-libm                    = { version = "0.2.2",   default-features = false                   }
+libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
 rust-fontconfig = { version = ">=5.0, <5.1", default-features = false, features = ["std"] }
 serde                   = { version = "1.0", features = ["derive"], optional = true }
@@ -57,5 +60,40 @@ serde-json = ["dep:serde", "dep:serde_json"]
 # type + accessors are always available; this only adds the parser. Requires std.
 url = ["dep:url", "std"]
 
+# Markup / a DOM / component libraries -> source code in every binding language
+# (`azul_core::codegen`): the DOM half of the code generator, the twin of
+# azul-css's `codegen` feature (the CSS half, whose IR and printers it uses).
+# Off by default; enabled by azul-layout's `codegen` feature (AzBuilder's code
+# export, the debug server). Its tests: `cargo test -p azul-core --features codegen`.
+codegen = ["azul-css/codegen"]
+
 [dev-dependencies]
 proptest = "1.11.0"
+
+# The code generator's tests need the `codegen` feature. With
+# `required-features`, a plain `cargo test -p azul-core` SKIPS them instead of
+# failing to build them.
+[[test]]
+name = "dom_fragment_codegen"
+path = "tests/dom_fragment_codegen.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "export_page_codegen"
+path = "tests/export_page_codegen.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "codegen_components"
+path = "tests/codegen_components.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "codegen_attributes"
+path = "tests/codegen_attributes.rs"
+required-features = ["codegen"]
+
+[[test]]
+name = "codegen_project"
+path = "tests/codegen_project.rs"
+required-features = ["codegen"]

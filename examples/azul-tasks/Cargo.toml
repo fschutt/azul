@@ -1,0 +1,44 @@
+[package]
+name = "AzTasks"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzTasks - to-dos and reminders on the public azul API, laid out like
+    Outlook 2010's Tasks (the three-pane PIM shell): smart lists (Today,
+    Upcoming, Scheduled, Flagged, All, Completed), lists in groups and tags
+    on the left, the tasks in sections in the middle with a quick-add line
+    that reads "Pay rent tomorrow 9am #home !high", the selected task's
+    details on the right, the To-Do bar. One JSON file per task
+    (tasks/<list>/<task>.json, the layout of the user's S3 bucket), written
+    through azul-storage's LocalDrive from an azul Thread; repeating tasks
+    spawn their next occurrence; reminders show in the window and as an OS
+    notification.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+azul-storage = { path = "../azul-storage" }
+# The PIM logic the Azlin apps share: dates, repeats, the task files (plain Rust, no new crates).
+azul-pim = { path = "../azul-pim" }
+# The appearance settings file every Azlin app keeps (theme, mode): the plain modules.
+azul-appkit = { path = "../azul-appkit" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same features azul-layout and AzCalendar build chrono with (dates, the local time).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
+
+[lib]
+name = "aztasks"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzTasks"
+path = "src/main.rs"

@@ -391,11 +391,19 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                 ));
                 builder.line(&"| u |".to_string());
                 builder.line(&format!("u := {} new.", ffi_name));
+                // A `repr(C, u8)` tag field is a `uint8` (types.rs), so it
+                // takes the enumeration's integer value.
+                let value = if e.repr.as_deref().is_some_and(|r| r.contains("u8")) {
+                    " value"
+                } else {
+                    ""
+                };
                 builder.line(&format!(
-                    "(u {}) tag: ({} {}).",
+                    "(u {}) tag: ({} {}){}.",
                     sanitize_identifier(&v.name),
                     tag_name,
-                    sanitize_identifier(&v.name)
+                    sanitize_identifier(&v.name),
+                    value
                 ));
                 builder.line("^ u");
                 builder.dedent();

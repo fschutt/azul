@@ -30,6 +30,17 @@
 //! documented limitation). Computing the initial grid from calendar math is NOT
 //! faked behaviour — only the live month rebuild is the limitation.
 //!
+//! KEYBOARD (WAI-ARIA APG date grid): the day cells are ONE Tab stop - the
+//! selected day. Left/Right move focus by a day, Up/Down by a week, Home/End
+//! to the ends of the week row; Enter/Space (a click) picks the focused day;
+//! PageUp/PageDown act as ‹ / ›. An arrow past the displayed month crosses
+//! into the neighbouring one: like ‹ / › it turns the calendar (the host's
+//! rebuild, the TODO2 above), to the day the arrow aimed at - which is the
+//! rebuilt grid's Tab stop and asks for focus (`autofocus`); every day cell
+//! is keyed by its date, so the rebuild drops the old focused day instead of
+//! handing its focus to whatever day sits in its slot, and the popup then
+//! focuses the day that asks for it.
+//!
 //! Key types: [`DatePicker`], [`DatePickerState`], [`DatePickerOnChange`].
 
 use std::vec::Vec;
@@ -37,8 +48,8 @@ use std::vec::Vec;
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        ComponentEventFilter, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
-        IdOrClassVec, NodeData, NodeType, TabIndex,
+        AttributeType, ComponentEventFilter, Dom, EventFilter, HoverEventFilter, IdOrClass,
+        IdOrClass::Class, IdOrClassVec, NodeData, NodeType, TabIndex,
     },
     refany::{OptionRefAny, RefAny},
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
@@ -47,7 +58,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{
             color::ColorU,
@@ -55,9 +65,9 @@ use azul_css::{
             StyleFontSize,
         },
         layout::{
-            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
-            LayoutHeight, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
-            LayoutPaddingTop, LayoutPosition, LayoutWidth,
+            LayoutAlignItems, LayoutAlignSelf, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection,
+            LayoutFlexGrow, LayoutHeight, LayoutMaxWidth, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutWidth,
         },
         property::{CssProperty, *},
         style::{
@@ -73,7 +83,10 @@ use azul_css::{
     AzString, OptionString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette as sys,
+};
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -115,6 +128,26 @@ static WEEK_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static DAY_CELL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-date-picker-day",
 ))];
+/// Tags a day cell's reconciliation key, `(DAY_CELL_KEY, year, month, day)`:
+/// a date is its own identity across rebuilds.
+/// Today's cell, whichever face it wears.
+static DAY_TODAY_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-today",
+))];
+/// The class string of [`DAY_TODAY_CLASS`], for a repaint to find today.
+const DAY_TODAY_CLASS_NAME: &str = "__azul-native-date-picker-today";
+/// A day of the lit range (`DatePicker::range_start`), whichever face it
+/// wears.
+static DAY_IN_RANGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-in-range",
+))];
+/// The class string of [`DAY_IN_RANGE_CLASS`], for a repaint to find the range.
+const DAY_IN_RANGE_CLASS_NAME: &str = "__azul-native-date-picker-in-range";
+/// An inline picker's root: the calendar itself.
+static DATE_PICKER_INLINE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-inline",
+))];
+const DAY_CELL_KEY: &str = "__azul-native-date-picker-day";
 
 const PREV_ARROW: AzString = AzString::from_const_str("\u{2039}"); // ‹
 const NEXT_ARROW: AzString = AzString::from_const_str("\u{203A}"); // ›
@@ -171,6 +204,173 @@ pub struct DatePicker {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The HTML `name` the value is submitted under in a
+    /// [`crate::widgets::form::Form`]; `None` keeps it out of the form data.
+    pub name: OptionString,
+    /// Today's date, marked in the grid with a ring when its month is the
+    /// one displayed (a to-do bar's mini calendar, a booking calendar); `None`
+    /// marks nothing. The picker cannot ask the clock itself: the app knows
+    /// the time zone.
+    pub today: OptionDatePickerState,
+    /// The first day of a range the grid lights - the days an app shows (a
+    /// calendar's week, work week or month) - with [`Self::range_end`] its
+    /// last: each day of it the displayed month has wears a wash under its
+    /// face's ring (and the in-range class, so a repaint keeps it). `None`
+    /// lights nothing.
+    pub range_start: OptionDatePickerState,
+    /// The last day of the lit range (see [`Self::range_start`]).
+    pub range_end: OptionDatePickerState,
+    /// What the picker picks: a day, a month or an ISO week.
+    pub mode: DatePickerMode,
+    /// The weekday the date grid's rows start on (Sunday by default); the
+    /// week picker's grid is always Monday-first (ISO 8601).
+    pub week_start: DatePickerWeekStart,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
+    /// Show the calendar itself, always open, instead of a field with a
+    /// popup: the mini calendar of a to-do bar. The calendar is then the
+    /// widget's root (a group named by its accessibility name), a pick
+    /// repaints it and reports through `on_change` and there is no field to
+    /// fill and nothing to close.
+    pub inline: bool,
+}
+
+/// What a theme decides about a date picker: the style of every part, the two
+/// faces of a grid cell, and the fills a click repaints the grid with.
+/// [`build`] keeps the structure (the handlers walk it by position) and the
+/// behaviour; built by `themes::flat::date_picker` and
+/// `themes::flora::date_picker` (the flat one from [`Self::established`]).
+///
+/// One look serves every mode: the day grid (`date`), the Monday-first day
+/// grid whose whole selected row is lit (`week`), and the year over its
+/// twelve months (`month`) - a month cell is a day cell's face, three day
+/// cells wide.
+pub(crate) struct DatePickerLook {
+    /// The closed field (a keyboard stop).
+    pub field: Vec<CssPropertyWithConditions>,
+    /// The value text inside the field.
+    pub field_value: Vec<CssPropertyWithConditions>,
+    /// The calendar glyph inside the field.
+    pub field_icon: Vec<CssPropertyWithConditions>,
+    /// The calendar panel, when the caller set no `container_style`.
+    pub panel: Vec<CssPropertyWithConditions>,
+    /// The header row (month or year header).
+    pub header: Vec<CssPropertyWithConditions>,
+    /// The previous / next buttons (keyboard stops).
+    pub nav: Vec<CssPropertyWithConditions>,
+    /// The `Month YYYY` (or `YYYY`) label.
+    pub header_label: Vec<CssPropertyWithConditions>,
+    /// The weekday row, each week row and each row of months.
+    pub row: Vec<CssPropertyWithConditions>,
+    /// A weekday name.
+    pub weekday: Vec<CssPropertyWithConditions>,
+    /// The grid of rows.
+    pub grid: Vec<CssPropertyWithConditions>,
+    /// A blank (offset) cell.
+    pub blank: Vec<CssPropertyWithConditions>,
+    /// The face of a selected cell: the picked day, every day of the picked
+    /// week, the picked month.
+    pub day_selected: Vec<CssPropertyWithConditions>,
+    /// The face of every other cell.
+    pub day_other: Vec<CssPropertyWithConditions>,
+    /// Added to today's cell, whichever face it wears: the ring that marks
+    /// today (a spread shadow inside the cell, so it moves nothing).
+    pub day_today: Vec<CssPropertyWithConditions>,
+    /// Added to a day of the lit range that is not the picked one, after
+    /// its face and under today's ring: a wash of the accent.
+    pub day_in_range: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the field, if it has one.
+    pub marker: Option<&'static str>,
+}
+
+/// The two faces the cells of one grid are built in - the pick and every
+/// other cell - exactly as built (dark twins and states included). Every
+/// cell's payload carries them, so a pick repaints the grid with the faces a
+/// build of it in the new state would give it
+/// (`CallbackInfo::set_node_style`): the cascade, not the handler,
+/// picks the mode's colours.
+#[derive(Debug, Clone)]
+pub(crate) struct CellFaces {
+    /// A picked cell (the day, every day of the week, the month).
+    pub selected: CssPropertyWithConditionsVec,
+    /// Every other cell.
+    pub other: CssPropertyWithConditionsVec,
+    /// Added to today's cell after its face: the ring.
+    pub today: CssPropertyWithConditionsVec,
+    /// Added to a lit day's face (not the picked one's): the wash.
+    pub in_range: CssPropertyWithConditionsVec,
+}
+
+impl DatePickerLook {
+    /// The widget's established styles, part by part (what flat builds on).
+    pub(crate) fn established() -> Self {
+        Self {
+            field: FIELD_STYLE.to_vec(),
+            field_value: FIELD_VALUE_STYLE.to_vec(),
+            field_icon: FIELD_ICON_STYLE.to_vec(),
+            panel: CONTAINER_STYLE.to_vec(),
+            header: HEADER_STYLE.to_vec(),
+            nav: NAV_BTN_STYLE.to_vec(),
+            header_label: HEADER_LABEL_STYLE.to_vec(),
+            row: ROW_STYLE.to_vec(),
+            weekday: WEEKDAY_CELL_STYLE.to_vec(),
+            grid: GRID_STYLE.to_vec(),
+            blank: BLANK_CELL_STYLE.to_vec(),
+            day_selected: day_cell_style(true).into_library_owned_vec(),
+            day_other: day_cell_style(false).into_library_owned_vec(),
+            day_today: day_today_style(),
+            day_in_range: day_in_range_style(),
+            marker: None,
+        }
+    }
+
+    /// The faces a grid cell of this look is built in, with `extra`
+    /// declarations after each (a month cell's width): what the day and month
+    /// builders render AND what their payloads repaint with - one source.
+    fn cell_faces(&self, extra: &[CssPropertyWithConditions]) -> CellFaces {
+        let face = |base: &[CssPropertyWithConditions]| {
+            let mut v = base.to_vec();
+            v.extend_from_slice(extra);
+            CssPropertyWithConditionsVec::from_vec(v)
+        };
+        CellFaces {
+            selected: face(&self.day_selected),
+            other: face(&self.day_other),
+            today: CssPropertyWithConditionsVec::from_vec(self.day_today.clone()),
+            in_range: CssPropertyWithConditionsVec::from_vec(self.day_in_range.clone()),
+        }
+    }
+}
+
+/// What a [`DatePicker`] picks - one calendar, the three HTML date inputs.
+///
+/// The state is the same `(year, month, day)` in every mode, so every mode
+/// shares the calendar math and the popup: `Month` ignores the day (it is kept
+/// at 1), `Week` holds the MONDAY of the picked ISO week.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum DatePickerMode {
+    /// `<input type=date>`: a day, value `YYYY-MM-DD`.
+    #[default]
+    Date,
+    /// `<input type=month>`: a year and a month, value `YYYY-MM`.
+    Month,
+    /// `<input type=week>`: an ISO 8601 week, value `YYYY-Www`.
+    Week,
+}
+
+impl DatePickerMode {
+    /// The HTML `type` attribute value this mode stands for.
+    #[must_use]
+    pub const fn html_type(self) -> &'static str {
+        match self {
+            Self::Date => "date",
+            Self::Month => "month",
+            Self::Week => "week",
+        }
+    }
 }
 
 /// Wraps [`DatePickerState`] together with its change callback.
@@ -203,6 +403,12 @@ impl Default for DatePickerState {
     }
 }
 
+azul_css::impl_option!(
+    DatePickerState,
+    OptionDatePickerState,
+    [Debug, Copy, Clone, PartialEq, Eq]
+);
+
 // ---------------------------------------------------------------------------
 // Pure calendar math (standard, well-known formulas — not faked behaviour).
 // ---------------------------------------------------------------------------
@@ -215,7 +421,7 @@ const fn is_leap(year: u32) -> bool {
 /// Number of days in the given (1-based) month of the given year.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
-const fn days_in_month(year: u32, month: u32) -> u32 {
+pub(crate) const fn days_in_month(year: u32, month: u32) -> u32 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -233,7 +439,7 @@ const fn days_in_month(year: u32, month: u32) -> u32 {
 /// Sakamoto's algorithm: weekday of `(year, month, day)`, returned as
 /// `0 = Sunday .. 6 = Saturday`. Verified: 2000-01-01 -> 6 (Saturday).
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
-fn weekday(year: u32, month: u32, day: u32) -> u32 {
+pub(crate) fn weekday(year: u32, month: u32, day: u32) -> u32 {
     const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     let mut y = year as i32;
     if month < 3 {
@@ -271,6 +477,154 @@ const fn month_name(month: u32) -> &'static str {
         ""
     }
 }
+
+/// English weekday name for `weekday()`'s `0 = Sunday .. 6 = Saturday`.
+const fn weekday_name(weekday: u32) -> &'static str {
+    const NAMES: [&str; 7] = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ];
+    let idx = weekday as usize;
+    if idx < 7 {
+        NAMES[idx]
+    } else {
+        ""
+    }
+}
+
+/// What a screen reader announces for one day of the grid: the full date
+/// ("Tuesday, 23 June 2026"), because the grid is ONE Tab stop and the arrow
+/// keys move within it, so a bare "23" would not say where focus landed.
+fn day_accessibility_name(year: u32, month: u32, day: u32) -> AzString {
+    AzString::from(format!(
+        "{}, {} {} {}",
+        weekday_name(weekday(year, month, day)),
+        day,
+        month_name(month),
+        year
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// ISO 8601 weeks (type=week) and month names (type=month). Built on the same
+// `weekday` / `days_in_month` math as the day grid.
+// ---------------------------------------------------------------------------
+
+/// Days in `year`.
+const fn days_in_year(year: u32) -> u32 {
+    if is_leap(year) {
+        366
+    } else {
+        365
+    }
+}
+
+/// 1-based day of the year.
+fn day_of_year(year: u32, month: u32, day: u32) -> u32 {
+    (1..month.clamp(1, 12))
+        .map(|m| days_in_month(year, m))
+        .sum::<u32>()
+        + day
+}
+
+/// ISO weekday: `1 = Monday .. 7 = Sunday`.
+fn iso_weekday(year: u32, month: u32, day: u32) -> u32 {
+    match weekday(year, month, day) {
+        0 => 7,
+        w => w,
+    }
+}
+
+/// Number of ISO weeks in ISO year `year`: 53 when it begins on a Thursday,
+/// or on a Wednesday in a leap year; 52 otherwise.
+pub(crate) fn iso_weeks_in_year(year: u32) -> u32 {
+    let jan1 = iso_weekday(year, 1, 1);
+    if jan1 == 4 || (jan1 == 3 && is_leap(year)) {
+        53
+    } else {
+        52
+    }
+}
+
+/// The ISO 8601 `(week-numbering year, week)` a date falls in. The year can
+/// differ from the calendar year in the first and last days of January and
+/// December: 2021-01-01 is in week 53 of 2020.
+pub(crate) fn iso_week_of(year: u32, month: u32, day: u32) -> (u32, u32) {
+    let ordinal = day_of_year(year, month, day);
+    let wd = iso_weekday(year, month, day);
+    let week = (ordinal + 10).saturating_sub(wd) / 7;
+    if week < 1 {
+        let prev = year.saturating_sub(1);
+        (prev, iso_weeks_in_year(prev))
+    } else if week > iso_weeks_in_year(year) {
+        (year + 1, 1)
+    } else {
+        (year, week)
+    }
+}
+
+/// The calendar date `ordinal` days into `year` (1 = January 1st), where the
+/// ordinal may run past either end of the year.
+fn date_from_ordinal(year: u32, ordinal: i64) -> (u32, u32, u32) {
+    let mut year = year;
+    let mut ordinal = ordinal;
+    while ordinal < 1 && year > 1 {
+        year -= 1;
+        ordinal += i64::from(days_in_year(year));
+    }
+    while ordinal > i64::from(days_in_year(year)) {
+        ordinal -= i64::from(days_in_year(year));
+        year += 1;
+    }
+    let mut remaining = u32::try_from(ordinal.max(1)).unwrap_or(1);
+    let mut month = 1;
+    while month < 12 && remaining > days_in_month(year, month) {
+        remaining -= days_in_month(year, month);
+        month += 1;
+    }
+    (year, month, remaining)
+}
+
+/// The Monday that starts ISO week `week` of ISO year `year` (clamped to the
+/// weeks that year has). January 4th is always in week 1.
+pub(crate) fn iso_week_monday(year: u32, week: u32) -> (u32, u32, u32) {
+    let week = week.clamp(1, iso_weeks_in_year(year));
+    let week1_monday = 4 - i64::from(iso_weekday(year, 1, 4)) + 1;
+    date_from_ordinal(year, week1_monday + 7 * (i64::from(week) - 1))
+}
+
+impl DatePickerState {
+    /// The ISO 8601 `(week-numbering year, week)` of the selected day - what a
+    /// `type=week` picker reports.
+    #[must_use]
+    pub fn iso_week(&self) -> (u32, u32) {
+        iso_week_of(self.year, self.month, self.day)
+    }
+}
+
+/// The HTML value of `state` in `mode`: `YYYY-MM-DD`, `YYYY-MM` or `YYYY-Www`
+/// (the ISO week-numbering year and week), zero-padded so the field never
+/// changes width as the user moves through the calendar.
+pub(crate) fn format_value(state: &DatePickerState, mode: DatePickerMode) -> String {
+    match mode {
+        DatePickerMode::Date => format_date(state),
+        DatePickerMode::Month => alloc::format!("{:04}-{:02}", state.year, state.month),
+        DatePickerMode::Week => {
+            let (year, week) = state.iso_week();
+            alloc::format!("{year:04}-W{week:02}")
+        }
+    }
+}
+
+/// Short English month names for the month grid.
+const MONTH_ABBREVIATIONS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 // ---- colours ----
 const BORDER_COLOR: ColorU = ColorU {
@@ -350,6 +704,8 @@ static FIELD_STYLE: &[CssPropertyWithConditions] = &[
         LayoutPaddingRight::const_px(8),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    // A field surface: the desktop's field colour in the dark theme.
+    sys::DARK_CONTROL_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
@@ -394,6 +750,10 @@ static FIELD_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    sys::DARK_SEPARATOR_BORDER_TOP,
+    sys::DARK_SEPARATOR_BORDER_BOTTOM,
+    sys::DARK_SEPARATOR_BORDER_LEFT,
+    sys::DARK_SEPARATOR_BORDER_RIGHT,
 ];
 
 /// The date text inside the field.
@@ -421,6 +781,14 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     )),
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // Never wider than its pane: the calendar hugs its 32 px columns where
+    // there is room and, in a narrower pane (a date navigator, a To-Do bar),
+    // takes the pane's width - border box, so padding and border count - and
+    // its columns give way (a cell's width is a flex basis that shrinks).
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_max_width(
+        LayoutMaxWidth::const_percent(100),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         8,
     ))),
@@ -434,6 +802,8 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
         LayoutPaddingRight::const_px(8),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    // A field surface: the desktop's field colour in the dark theme.
+    sys::DARK_CONTROL_BACKGROUND,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
@@ -478,6 +848,10 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    sys::DARK_SEPARATOR_BORDER_TOP,
+    sys::DARK_SEPARATOR_BORDER_BOTTOM,
+    sys::DARK_SEPARATOR_BORDER_LEFT,
+    sys::DARK_SEPARATOR_BORDER_RIGHT,
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
     )),
@@ -512,6 +886,7 @@ static NAV_BTN_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
@@ -524,6 +899,7 @@ static HEADER_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    sys::DARK_TEXT,
 ];
 
 /// Weekday header row + cells.
@@ -541,6 +917,7 @@ static WEEKDAY_CELL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: MUTED_COLOR,
     })),
+    sys::DARK_SECONDARY_TEXT,
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(4),
     )),
@@ -564,7 +941,7 @@ static BLANK_CELL_STYLE: &[CssPropertyWithConditions] = &[
 /// Builds the per-day-cell style. Only the background + text colour depend on
 /// the selected flag (the rest is shared), so the style is built at runtime
 /// (mirrors `segmented::build_segment_style`).
-fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
+pub(crate) fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
     let (bg, text) = if selected {
         (DAY_SELECTED_BG_VEC, WHITE)
     } else {
@@ -603,11 +980,95 @@ fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
     ])
 }
 
+/// One day cell's style as the grid renders it: [`build_day_cell_style`]'s
+/// light face, then the dark twins of its colours (a day cell has no
+/// state-conditional rules, so the twins simply go last). An unselected
+/// cell's fill is transparent in both themes and needs no twin.
+fn day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
+    let mut v = build_day_cell_style(selected).into_library_owned_vec();
+    if selected {
+        v.push(sys::DARK_ACCENT_BACKGROUND);
+        v.push(sys::DARK_ACCENT_TEXT);
+    } else {
+        v.push(sys::DARK_TEXT);
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// The ring around today's cell in the established look: a 1px accent ring
+/// inside the cell (a spread shadow, so it moves nothing and follows the
+/// cell's corners), the same accent by night.
+fn day_today_style() -> Vec<CssPropertyWithConditions> {
+    alloc::vec![CssPropertyWithConditions::simple(
+        crate::widgets::themes::decl::shadow(0, 0, 1, ACCENT_BG, true),
+    )]
+}
+
+/// The wash of a lit day (a day of `DatePicker::range_start`'s range): the
+/// accent at a seventh in light mode, the night accent at a fifth in dark
+/// mode - a wash both themes' faces keep their ink readable on.
+fn day_in_range_style() -> Vec<CssPropertyWithConditions> {
+    crate::widgets::themes::decl::themed_fill(
+        ColorU {
+            r: 47,
+            g: 109,
+            b: 176,
+            a: 36,
+        },
+        ColorU {
+            r: 110,
+            g: 168,
+            b: 255,
+            a: 52,
+        },
+    )
+    .to_vec()
+}
+
+/// The days of the range `start` - `end` (either way round) that the month
+/// `year`-`month` has, as `(first, last)` day numbers; `None` when it has
+/// none or there is no range.
+fn range_in_month(
+    start: OptionDatePickerState,
+    end: OptionDatePickerState,
+    year: u32,
+    month: u32,
+) -> Option<(u32, u32)> {
+    let (Some(a), Some(b)) = (start.into_option(), end.into_option()) else {
+        return None;
+    };
+    let key = |d: DatePickerState| (d.year, d.month, d.day);
+    let (first, last) = if key(a) <= key(b) { (a, b) } else { (b, a) };
+    let dim = days_in_month(year, month);
+    let from = match (first.year, first.month).cmp(&(year, month)) {
+        core::cmp::Ordering::Less => 1,
+        core::cmp::Ordering::Equal => first.day.max(1),
+        core::cmp::Ordering::Greater => return None,
+    };
+    let to = match (last.year, last.month).cmp(&(year, month)) {
+        core::cmp::Ordering::Greater => dim,
+        core::cmp::Ordering::Equal => last.day.min(dim),
+        core::cmp::Ordering::Less => return None,
+    };
+    (from <= to).then_some((from, to))
+}
+
+/// What a day grid marks besides the pick: today's day number, and the lit
+/// range's first and last day numbers, when the displayed month has them.
+#[derive(Debug, Clone, Copy, Default)]
+struct DayMarks {
+    today: Option<u32>,
+    lit: Option<(u32, u32)>,
+}
+
 /// Per-day-cell callback payload: the cell's day number + a clone of the shared
 /// state handle (so the handler can update `state.day` + fire `on_change`).
 struct DayCellData {
     day: u32,
     state: RefAny,
+    /// The faces the grid was built in: the handler has no other way to
+    /// know which look the grid it restyles was built in.
+    faces: CellFaces,
 }
 
 /// What every date-picker callback shares.
@@ -618,9 +1079,22 @@ struct DayCellData {
 /// The ENGINE owns the authoritative open state (keyed by the transient node's
 /// id, and it survives a `RefreshDom`); this flag only decides which way the
 /// next field click toggles, which is why `Dismissed` resyncs it.
-struct DatePickerData {
-    state: DatePickerStateWrapper,
-    open: bool,
+pub(crate) struct DatePickerData {
+    pub(crate) state: DatePickerStateWrapper,
+    pub(crate) open: bool,
+    /// What the picker picks - decides the field's value format and which
+    /// grid the popup shows.
+    pub(crate) mode: DatePickerMode,
+    /// An always-open calendar with no field: a pick has nothing to close
+    /// and no field to fill.
+    pub(crate) inline: bool,
+}
+
+impl DatePickerData {
+    /// The HTML value the picker submits (see [`format_value`]).
+    pub(crate) fn form_value(&self) -> String {
+        format_value(&self.state.inner, self.mode)
+    }
 }
 
 impl DatePicker {
@@ -645,13 +1119,130 @@ impl DatePicker {
             },
             container_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            name: OptionString::None,
+            today: OptionDatePickerState::None,
+            range_start: OptionDatePickerState::None,
+            range_end: OptionDatePickerState::None,
+            mode: DatePickerMode::Date,
+            week_start: DatePickerWeekStart::Sunday,
+            theme: crate::widgets::themes::OptionUiTheme::None,
+            inline: false,
         }
     }
 
-    /// The container CSS this date picker renders with.
+    /// The weekday the date grid's rows start on (see [`Self::week_start`]).
+    pub const fn set_week_start(&mut self, week_start: DatePickerWeekStart) {
+        self.week_start = week_start;
+    }
+
+    /// [`Self::set_week_start`] for the builder chain.
+    #[must_use]
+    pub const fn with_week_start(mut self, week_start: DatePickerWeekStart) -> Self {
+        self.set_week_start(week_start);
+        self
+    }
+
+    /// Pin the widget theme: the picker keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
+    }
+
+    /// `<input type=month>`: picks a year and a month (value `YYYY-MM`). The
+    /// calendar is the year over a grid of its twelve months.
+    #[must_use]
+    pub fn create_month(year: u32, month: u32) -> Self {
+        Self::create(year, month, 1).with_mode(DatePickerMode::Month)
+    }
+
+    /// `<input type=week>`: picks an ISO 8601 week (value `YYYY-Www`) of the
+    /// week-numbering year `year`; `week` is clamped to the weeks that year
+    /// has. The state holds the week's Monday; the calendar is the day grid,
+    /// Monday-first, and a click anywhere in a week picks the whole week.
+    #[must_use]
+    pub fn create_week(year: u32, week: u32) -> Self {
+        let (y, m, d) = iso_week_monday(year, week);
+        Self::create(y, m, d).with_mode(DatePickerMode::Week)
+    }
+
+    /// Switch what the picker picks (see [`DatePickerMode`]).
+    pub const fn set_mode(&mut self, mode: DatePickerMode) {
+        self.mode = mode;
+    }
+
+    /// [`Self::set_mode`] for the builder chain.
+    #[must_use]
+    pub const fn with_mode(mut self, mode: DatePickerMode) -> Self {
+        self.set_mode(mode);
+        self
+    }
+
+    /// The name the value is submitted under in a
+    /// [`crate::widgets::form::Form`].
+    pub fn set_name(&mut self, name: AzString) {
+        self.name = Some(name).into();
+    }
+
+    /// [`Self::set_name`] for the builder chain.
+    #[must_use]
+    pub fn with_name(mut self, name: AzString) -> Self {
+        self.set_name(name);
+        self
+    }
+
+    /// Show the calendar itself, always open, in place of the field and its
+    /// popup (see [`Self::inline`]).
+    pub const fn set_inline(&mut self, inline: bool) {
+        self.inline = inline;
+    }
+
+    /// [`Self::set_inline`] for the builder chain.
+    #[must_use]
+    pub const fn with_inline(mut self, inline: bool) -> Self {
+        self.set_inline(inline);
+        self
+    }
+
+    /// Today's date, ringed in the grid when its month is displayed (see
+    /// [`Self::today`]).
+    pub const fn set_today(&mut self, year: u32, month: u32, day: u32) {
+        self.today = OptionDatePickerState::Some(DatePickerState { year, month, day });
+    }
+
+    /// [`Self::set_today`] for the builder chain.
+    #[must_use]
+    pub const fn with_today(mut self, year: u32, month: u32, day: u32) -> Self {
+        self.set_today(year, month, day);
+        self
+    }
+
+    /// Light the days from `start` to `end`, both included, where the
+    /// displayed month has them (see [`Self::range_start`]): a calendar's
+    /// date navigator showing which days the calendar shows.
+    pub fn set_range(&mut self, start: DatePickerState, end: DatePickerState) {
+        self.range_start = OptionDatePickerState::Some(start);
+        self.range_end = OptionDatePickerState::Some(end);
+    }
+
+    /// [`Self::set_range`] for the builder chain.
+    #[must_use]
+    pub fn with_range(mut self, start: DatePickerState, end: DatePickerState) -> Self {
+        self.set_range(start, end);
+        self
+    }
+
+    /// The container CSS this date picker renders with in the flat look.
     ///
-    /// `None` means no opinion, so the widget's default applies — the same
-    /// answer both themes give, asked in one place so they cannot drift.
+    /// `None` means no opinion, so the widget's default applies (the flora
+    /// look draws its own calendar leaf instead); a caller's style is used
+    /// as it is in every look.
     #[must_use]
     pub fn resolved_container_style(&self) -> CssPropertyWithConditionsVec {
         self.container_style
@@ -692,23 +1283,133 @@ impl DatePicker {
         s
     }
 
+    /// Converts this picker into its DOM: the field, with the calendar as its
+    /// (closed) popup. The look comes from the theme module
+    /// (`themes::flat::date_picker` / `themes::flora::date_picker`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let inner = self.state.inner;
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::date_picker(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::date_picker(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::date_picker,
+                crate::widgets::themes::flora::date_picker,
+            ),
+        }
+    }
+}
+
+/// The date picker's DOM in `look`: the field (value, glyph, popup) and the
+/// calendar in the popup, structured as the handlers walk it.
+pub(crate) fn build(picker: DatePicker, look: &DatePickerLook) -> Dom {
+    {
+        let inner = picker.state.inner;
         let year = inner.year;
         let month = inner.month.clamp(1, 12);
         let sel_day = inner.day;
-        let container_style = self.resolved_container_style();
-        let a11y_name = self.accessibility_name.clone();
+        // A caller's `container_style` owns the panel; otherwise the theme's.
+        let container_style = match picker.container_style.clone().into_option() {
+            Some(own) => own,
+            None => CssPropertyWithConditionsVec::from_vec(look.panel.clone()),
+        };
+        let a11y_name = picker.accessibility_name.clone();
+        let name = picker.name.clone();
+        let mode = picker.mode;
+        let value = format_value(&inner, mode);
 
+        let inline = picker.inline;
+        let week_start = picker.week_start;
         let shared = RefAny::new(DatePickerData {
-            state: self.state,
+            state: picker.state,
             open: false,
+            mode,
+            inline,
         });
+        // Today's day number when today falls in the displayed month, and the
+        // days of the lit range the month has.
+        let marks = DayMarks {
+            today: picker
+                .today
+                .into_option()
+                .filter(|t| t.year == year && t.month == month)
+                .map(|t| t.day),
+            lit: range_in_month(picker.range_start, picker.range_end, year, month),
+        };
 
-        let header = build_header(year, month, shared.clone());
-        let weekday_row = build_weekday_row();
-        let grid = build_grid(year, month, sel_day, shared.clone());
+        // One popup, the calendar each mode needs: the twelve months of the
+        // year for `month`, the day grid (Monday-first, whole week lit) for
+        // `week`, the day grid for `date`.
+        let sections = match mode {
+            DatePickerMode::Month => alloc::vec![
+                build_year_header(year, shared.clone(), look),
+                build_month_grid(year, month, shared.clone(), look),
+            ],
+            DatePickerMode::Week => alloc::vec![
+                build_header_in(year, month, shared.clone(), look),
+                build_weekday_row_from(DatePickerWeekStart::Monday, look),
+                build_grid_with(
+                    year,
+                    month,
+                    sel_day,
+                    marks,
+                    shared.clone(),
+                    DatePickerWeekStart::Monday,
+                    true,
+                    look
+                ),
+            ],
+            DatePickerMode::Date => alloc::vec![
+                build_header_in(year, month, shared.clone(), look),
+                build_weekday_row_from(week_start, look),
+                build_grid_with(
+                    year,
+                    month,
+                    sel_day,
+                    marks,
+                    shared.clone(),
+                    week_start,
+                    false,
+                    look
+                ),
+            ],
+        };
+
+        if inline {
+            // The calendar IS the widget: no field, no popup, nothing to
+            // open or close. A group named by the caller; it carries the
+            // shared state as its dataset (how a `Form` reads the value) and
+            // the mode's HTML `type`, like the field would.
+            let mut classes: Vec<IdOrClass> = DATE_PICKER_PANEL_CLASS.to_vec();
+            classes.push(DATE_PICKER_INLINE_CLASS[0].clone());
+            if let Some(marker) = look.marker {
+                classes.push(Class(AzString::from_const_str(marker)));
+            }
+            let mut calendar = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+                .with_css_props(container_style)
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::Grouping,
+                    accessibility_name: a11y_name,
+                    accessibility_value: Some(AzString::from(value)).into(),
+                    ..Default::default()
+                })
+                .with_dataset(Some(shared).into())
+                .with_children(sections.into());
+            if mode != DatePickerMode::Date {
+                calendar = calendar.with_attribute(azul_core::dom::AttributeType::InputType(
+                    AzString::from_const_str(mode.html_type()),
+                ));
+            }
+            if let Some(name) = name.into_option() {
+                calendar = calendar.with_attribute(azul_core::dom::AttributeType::Name(name));
+            }
+            return calendar;
+        }
 
         // The calendar is the body of a REAL OS popup anchored under the field,
         // the same shape `color_input.rs` uses for its colour panel. As an
@@ -718,7 +1419,7 @@ impl DatePicker {
         let panel = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(DATE_PICKER_PANEL_CLASS))
             .with_css_props(container_style)
-            .with_children(alloc::vec![header, weekday_row, grid].into());
+            .with_children(sections.into());
 
         let mut transient = NodeData::create_node(NodeType::TransientWindow(
             TransientWindowConfig::closed()
@@ -732,17 +1433,25 @@ impl DatePicker {
         );
         let popup = Dom::create_from_data(transient).with_child(panel);
 
-        // The field: what the user sees when the calendar is shut.
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(DATE_PICKER_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(FIELD_STYLE))
+        let mut classes: Vec<IdOrClass> = DATE_PICKER_CLASS.to_vec();
+        if let Some(marker) = look.marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+
+        // The field: what the user sees when the calendar is shut. It carries
+        // the shared state as its dataset - how a `Form` reads the picked value
+        // - and, for the modes that are not a plain date, the HTML `type`.
+        let mut field = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(look.field.clone()))
             .with_tab_index(TabIndex::Auto)
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                 role: azul_core::a11y::AccessibilityRole::ComboBox,
                 accessibility_name: a11y_name,
-                accessibility_value: Some(AzString::from(format_date(&inner))).into(),
+                accessibility_value: Some(AzString::from(value.clone())).into(),
                 ..Default::default()
             })
+            .with_dataset(Some(shared.clone()).into())
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Click),
@@ -756,20 +1465,55 @@ impl DatePicker {
             )
             .with_children(
                 alloc::vec![
-                    crate::widgets::widget_p_with_text(AzString::from(format_date(&inner)))
+                    crate::widgets::widget_p_with_text(AzString::from(value))
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             DATE_PICKER_VALUE_CLASS
                         ))
-                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                            FIELD_VALUE_STYLE
+                        .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                            look.field_value.clone()
                         )),
                     Dom::create_icon(AzString::from_const_str("calendar_today")).with_css_props(
-                        CssPropertyWithConditionsVec::from_const_slice(FIELD_ICON_STYLE)
+                        CssPropertyWithConditionsVec::from_vec(look.field_icon.clone())
                     ),
                     popup,
                 ]
                 .into(),
-            )
+            );
+        if mode != DatePickerMode::Date {
+            field = field.with_attribute(azul_core::dom::AttributeType::InputType(
+                AzString::from_const_str(mode.html_type()),
+            ));
+        }
+        if let Some(name) = name.into_option() {
+            field = field.with_attribute(azul_core::dom::AttributeType::Name(name));
+        }
+        field
+    }
+}
+
+/// Which weekday a calendar row starts on. The date grid starts on the
+/// picker's [`DatePicker::week_start`] (Sunday unless the app says Monday -
+/// a calendar whose weeks run Monday to Sunday); the ISO week grid is always
+/// Monday-first, so one row IS one week.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum DatePickerWeekStart {
+    /// Rows run Sunday to Saturday (the US convention; the default).
+    #[default]
+    Sunday,
+    /// Rows run Monday to Sunday (ISO 8601, most of Europe).
+    Monday,
+}
+
+impl DatePickerWeekStart {
+    /// Blank cells before the 1st of `year`/`month` in a row starting on this
+    /// day.
+    fn leading_blanks(self, year: u32, month: u32) -> u32 {
+        let sunday_based = weekday(year, month, 1);
+        match self {
+            Self::Sunday => sunday_based,
+            Self::Monday => (sunday_based + 6) % 7,
+        }
     }
 }
 
@@ -779,75 +1523,118 @@ impl Default for DatePicker {
     }
 }
 
+/// [`build_header_in`] in the established look (what the tests build).
+#[cfg(test)]
 fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
-    use azul_core::dom::{EventFilter, HoverEventFilter};
+    build_header_in(year, month, shared, &DatePickerLook::established())
+}
 
-    let nav = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
-        crate::widgets::widget_p_with_text(arrow)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_BTN_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(NAV_BTN_STYLE))
-            .with_callbacks(
-                alloc::vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::Click),
-                    callback: CoreCallback {
-                        cb,
-                        ctx: OptionRefAny::None,
-                    },
-                    refany,
-                }]
-                .into(),
-            )
-            .with_tab_index(TabIndex::Auto)
-            // Calendar navigation / day cells act as buttons.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::PushButton,
-                ..Default::default()
-            })
-    };
-
+/// The day grid's header: previous arrow / `Month YYYY` / next arrow,
+/// turning the MONTH.
+fn build_header_in(year: u32, month: u32, shared: RefAny, look: &DatePickerLook) -> Dom {
     let label = AzString::from(format!("{} {}", month_name(month), year));
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(HEADER_STYLE))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.header.clone()))
         .with_children(
             alloc::vec![
-                nav(PREV_ARROW, on_prev_month as usize, shared.clone()),
+                header_nav_button(
+                    PREV_ARROW,
+                    "Previous month",
+                    on_prev_month as usize,
+                    shared.clone(),
+                    look
+                ),
                 crate::widgets::widget_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_LABEL_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                        HEADER_LABEL_STYLE,
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                        look.header_label.clone(),
                     )),
-                nav(NEXT_ARROW, on_next_month as usize, shared),
+                header_nav_button(NEXT_ARROW, "Next month", on_next_month as usize, shared, look),
             ]
             .into(),
         )
 }
 
+/// The Sunday-first weekday header of the date grid, in the established look.
+#[cfg(test)]
 fn build_weekday_row() -> Dom {
+    build_weekday_row_from(DatePickerWeekStart::Sunday, &DatePickerLook::established())
+}
+
+/// The weekday header, starting on `start`.
+fn build_weekday_row_from(start: DatePickerWeekStart, look: &DatePickerLook) -> Dom {
+    let offset = match start {
+        DatePickerWeekStart::Sunday => 0,
+        DatePickerWeekStart::Monday => 1,
+    };
     let cells: Vec<Dom> = WEEKDAY_NAMES
         .iter()
+        .cycle()
+        .skip(offset)
+        .take(7)
         .map(|n| {
             crate::widgets::widget_p_with_text(n.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEKDAY_CELL_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    WEEKDAY_CELL_STYLE,
-                ))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.weekday.clone()))
         })
         .collect();
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEKDAY_ROW_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ROW_STYLE))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.row.clone()))
         .with_children(cells.into())
 }
 
-#[allow(clippy::needless_pass_by_value)] // shared RefAny handle cloned per day cell
+/// The Sunday-first day grid of a date picker, in the established look.
+#[cfg(test)]
 fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
-    let leading = weekday(year, month, 1);
+    build_grid_with(
+        year,
+        month,
+        sel_day,
+        DayMarks::default(),
+        shared,
+        DatePickerWeekStart::Sunday,
+        false,
+        &DatePickerLook::established(),
+    )
+}
+
+/// The day grid, rows starting on `start`. With `whole_week`, every day in
+/// the selected day's ROW is highlighted - the week picker's selection.
+#[allow(clippy::needless_pass_by_value)] // shared RefAny handle cloned per day cell
+fn build_grid_with(
+    year: u32,
+    month: u32,
+    sel_day: u32,
+    marks: DayMarks,
+    shared: RefAny,
+    start: DatePickerWeekStart,
+    whole_week: bool,
+    look: &DatePickerLook,
+) -> Dom {
+    let leading = start.leading_blanks(year, month);
     let dim = days_in_month(year, month);
+    let row_of = |day: u32| (leading + day - 1) / 7;
+    let is_selected = |day: u32| {
+        if whole_week {
+            (1..=dim).contains(&sel_day) && row_of(day) == row_of(sel_day)
+        } else {
+            day == sel_day
+        }
+    };
     let total = leading + dim;
     let rows = total.div_ceil(7);
+    // WAI-ARIA APG date grid: the days are ONE Tab stop - the selected day,
+    // or the 1st when the selected day is not in this month. The arrow keys
+    // move focus within the grid (`on_day_key`).
+    let stop_day = if (1..=dim).contains(&sel_day) {
+        sel_day
+    } else {
+        1
+    };
 
     let mut week_rows: Vec<Dom> = Vec::with_capacity(rows as usize);
     for r in 0..rows {
@@ -855,55 +1642,528 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
         for c in 0..7 {
             let i = r * 7 + c;
             if i < leading || i >= leading + dim {
-                cells.push(build_blank_cell());
+                cells.push(build_blank_cell_in(look));
             } else {
                 let day = i - leading + 1;
-                cells.push(build_day_cell(day, day == sel_day, shared.clone()));
+                let tab_index = if day == stop_day {
+                    TabIndex::Auto
+                } else {
+                    TabIndex::NoKeyboardFocus
+                };
+                let is_today = marks.today == Some(day);
+                let in_range = marks.lit.is_some_and(|(from, to)| (from..=to).contains(&day));
+                // Today says so in its name: the ring is not a name.
+                let name = if is_today {
+                    AzString::from(format!(
+                        "{}, today",
+                        day_accessibility_name(year, month, day).as_str()
+                    ))
+                } else {
+                    day_accessibility_name(year, month, day)
+                };
+                // A date is its own identity: rebuilt onto another month
+                // (an arrow past the edge, ‹ / ›), the focused day unmounts
+                // instead of handing its focus to whatever day now sits in
+                // its slot.
+                let mut cell =
+                    build_day_cell_in(
+                        day,
+                        is_selected(day),
+                        DayMarks {
+                            today: is_today.then_some(day),
+                            lit: in_range.then_some((day, day)),
+                        },
+                        shared.clone(),
+                        look,
+                    )
+                        .with_accessibility_name(name)
+                        .with_tab_index(tab_index)
+                        .with_key((DAY_CELL_KEY, year, month, day));
+                if day == stop_day {
+                    // The day the calendar asks focus for: when its popup
+                    // opens, and when a rebuild took the focused day away.
+                    cell = cell.with_attribute(AttributeType::Autofocus);
+                }
+                cells.push(cell);
             }
         }
         week_rows.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEK_ROW_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ROW_STYLE))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.row.clone()))
                 .with_children(cells.into()),
         );
     }
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(GRID_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(GRID_STYLE))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.grid.clone()))
         .with_children(week_rows.into())
 }
 
-fn build_blank_cell() -> Dom {
-    Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-            BLANK_CELL_STYLE,
-        ))
+// ---------------------------------------------------------------------------
+// type=month: the year over a 4 x 3 grid of its months
+// ---------------------------------------------------------------------------
+
+/// Columns of the month grid; four rows of three fill the day grid's width.
+const MONTH_GRID_COLUMNS: usize = 3;
+/// A month cell is a third of the seven-day grid's width.
+const MONTH_CELL_W: isize = CELL_W * 7 / 3;
+/// The class string of [`HEADER_CLASS`], for finding the header from a handler.
+const HEADER_CLASS_NAME: &str = "__azul-native-date-picker-header";
+
+/// Per-month-cell payload, the month twin of `DayCellData`.
+struct MonthCellData {
+    month: u32,
+    state: RefAny,
+    /// The faces the month grid was built in (see `DayCellData::faces`).
+    faces: CellFaces,
 }
 
-fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
-    use azul_core::dom::{EventFilter, HoverEventFilter};
-
-    crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
-        .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
-        .with_css_props(build_day_cell_style(selected))
+/// A header button (the previous / next arrow) that says what it does - its
+/// glyph is not a name.
+fn header_nav_button(
+    arrow: AzString,
+    name: &'static str,
+    cb: usize,
+    refany: RefAny,
+    look: &DatePickerLook,
+) -> Dom {
+    crate::widgets::widget_p_with_text(arrow)
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_BTN_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.nav.clone()))
         .with_callbacks(
             alloc::vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::Click),
                 callback: CoreCallback {
-                    cb: on_day_click as usize,
+                    cb,
                     ctx: OptionRefAny::None,
                 },
-                refany: RefAny::new(DayCellData { day, state: shared }),
+                refany,
             }]
             .into(),
         )
         .with_tab_index(TabIndex::Auto)
-        // The date field opens a chooser.
         .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::ComboBox,
+            role: azul_core::a11y::AccessibilityRole::PushButton,
+            accessibility_name: Some(AzString::from_const_str(name)).into(),
+            ..Default::default()
+        })
+}
+
+/// The month calendar's header: previous arrow / `YYYY` / next arrow, turning
+/// the YEAR.
+fn build_year_header(year: u32, shared: RefAny, look: &DatePickerLook) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.header.clone()))
+        .with_children(
+            alloc::vec![
+                header_nav_button(
+                    PREV_ARROW,
+                    "Previous year",
+                    on_prev_year as usize,
+                    shared.clone(),
+                    look
+                ),
+                crate::widgets::widget_p_with_text(AzString::from(alloc::format!("{year}")))
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_LABEL_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                        look.header_label.clone(),
+                    )),
+                header_nav_button(NEXT_ARROW, "Next year", on_next_year as usize, shared, look),
+            ]
+            .into(),
+        )
+}
+
+/// The twelve months, four rows of three. Unlike the day grid it is the same
+/// for every year, so turning the year needs no rebuild - only a new header.
+/// The selected month is highlighted and is the grid's one Tab stop.
+#[allow(clippy::needless_pass_by_value)] // shared RefAny handle cloned per month cell
+fn build_month_grid(year: u32, sel_month: u32, shared: RefAny, look: &DatePickerLook) -> Dom {
+    let rows: Vec<Dom> = MONTH_ABBREVIATIONS
+        .chunks(MONTH_GRID_COLUMNS)
+        .enumerate()
+        .map(|(r, names)| {
+            let cells: Vec<Dom> = names
+                .iter()
+                .enumerate()
+                .map(|(c, abbreviation)| {
+                    let month = u32::try_from(r * MONTH_GRID_COLUMNS + c + 1).unwrap_or(1);
+                    let selected = month == sel_month;
+                    build_month_cell(year, month, abbreviation, selected, shared.clone(), look)
+                        .with_tab_index(if selected {
+                            TabIndex::Auto
+                        } else {
+                            TabIndex::NoKeyboardFocus
+                        })
+                })
+                .collect();
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEK_ROW_CLASS))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(look.row.clone()))
+                .with_children(cells.into())
+        })
+        .collect();
+
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(GRID_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.grid.clone()))
+        .with_children(rows.into())
+}
+
+/// One month of the grid: the look's day-cell face, three day-cells wide.
+fn build_month_cell(
+    year: u32,
+    month: u32,
+    abbreviation: &str,
+    selected: bool,
+    shared: RefAny,
+    look: &DatePickerLook,
+) -> Dom {
+    use azul_core::events::FocusEventFilter;
+
+    // A month is the look's day face, three day cells wide.
+    let faces = look.cell_faces(&[CssPropertyWithConditions::simple(
+        CssProperty::const_width(LayoutWidth::const_px(MONTH_CELL_W)),
+    )]);
+    let style = if selected {
+        faces.selected.clone()
+    } else {
+        faces.other.clone()
+    };
+    let data = RefAny::new(MonthCellData {
+        month,
+        state: shared,
+        faces,
+    });
+    crate::widgets::widget_p_with_text(AzString::from(abbreviation))
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
+        .with_css_props(style)
+        .with_callbacks(
+            alloc::vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Click),
+                    callback: CoreCallback {
+                        cb: on_month_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data.clone(),
+                },
+                CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: on_month_key as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data,
+                },
+            ]
+            .into(),
+        )
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::PushButton,
+            accessibility_name: Some(AzString::from(alloc::format!(
+                "{} {year}",
+                month_name(month)
+            )))
+            .into(),
+            ..Default::default()
+        })
+}
+
+/// Month-cell click: pick that month (day 1), report it, show `YYYY-MM` in
+/// the field and close the calendar - the day click's steps, for a month.
+extern "C" fn on_month_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let clicked = info.get_hit_node();
+    let (month, mut shared, faces) = {
+        let Some(cell) = data.downcast_ref::<MonthCellData>() else {
+            return Update::DoNothing;
+        };
+        (cell.month, cell.state.clone(), cell.faces.clone())
+    };
+
+    let (update, label, inline) = {
+        let Some(mut w) = shared.downcast_mut::<DatePickerData>() else {
+            return Update::DoNothing;
+        };
+        w.state.inner.month = month.clamp(1, 12);
+        w.state.inner.day = 1;
+        w.open = false;
+        let inner = w.state.inner;
+        let label = format_value(&inner, w.mode);
+        let inline = w.inline;
+        let w = &mut w.state;
+        let update = match w.on_change.as_mut() {
+            Some(DatePickerOnChange { callback, refany }) => {
+                callback.invoke(refany.clone(), info, inner)
+            }
+            None => Update::DoNothing,
+        };
+        (update, label, inline)
+    };
+
+    restyle_days(&mut info, clicked, &faces);
+    if !inline {
+        close_calendar_showing(&mut info, clicked, label);
+    }
+    update
+}
+
+/// Arrow keys in the month grid - the day grid's keyboard model (one Tab
+/// stop, arrows move it, Enter/Space pick, PageUp/PageDown turn the year)
+/// over three columns instead of seven.
+extern "C" fn on_month_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving;
+
+    let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
+        return Update::DoNothing;
+    };
+    if !matches!(
+        key,
+        K::Left | K::Right | K::Up | K::Down | K::Home | K::End | K::PageUp | K::PageDown
+    ) {
+        return Update::DoNothing;
+    }
+    let shared = {
+        let Some(cell) = data.downcast_ref::<MonthCellData>() else {
+            return Update::DoNothing;
+        };
+        cell.state.clone()
+    };
+    match key {
+        K::PageUp => {
+            info.prevent_default();
+            return year_nav(shared, info, -1);
+        }
+        K::PageDown => {
+            info.prevent_default();
+            return year_nav(shared, info, 1);
+        }
+        _ => {}
+    }
+
+    let focused = info.get_hit_node();
+    let Some(grid) = info.get_parent(focused).and_then(|row| info.get_parent(row)) else {
+        return Update::DoNothing;
+    };
+    let mut cells: Vec<azul_core::dom::DomNodeId> = Vec::new();
+    let mut row = info.get_first_child(grid);
+    while let Some(r) = row {
+        let mut cell = info.get_first_child(r);
+        while let Some(c) = cell {
+            cells.push(c);
+            cell = info.get_next_sibling(c);
+        }
+        row = info.get_next_sibling(r);
+    }
+    let Some(current) = cells.iter().position(|n| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let row_start = current - current % MONTH_GRID_COLUMNS;
+    let target = match key {
+        K::Left => current.checked_sub(1),
+        K::Right => Some(current + 1).filter(|t| *t < cells.len()),
+        K::Up => current.checked_sub(MONTH_GRID_COLUMNS),
+        K::Down => Some(current + MONTH_GRID_COLUMNS).filter(|t| *t < cells.len()),
+        K::Home => Some(row_start),
+        K::End => Some(row_start + MONTH_GRID_COLUMNS - 1).filter(|t| *t < cells.len()),
+        _ => None,
+    };
+
+    // The key is the grid's either way: spatial navigation must not walk out
+    // of the calendar from its edge.
+    info.prevent_default();
+    let Some(target) = target.filter(|t| *t != current) else {
+        return Update::DoNothing;
+    };
+    roving::move_stop(&mut info, &cells, target);
+    Update::DoNothing
+}
+
+extern "C" fn on_prev_year(data: RefAny, info: CallbackInfo) -> Update {
+    year_nav(data, info, -1)
+}
+
+extern "C" fn on_next_year(data: RefAny, info: CallbackInfo) -> Update {
+    year_nav(data, info, 1)
+}
+
+/// Turn the month picker's year by `delta`, report it and re-title the
+/// header. The month grid is the same in every year, so - unlike the day
+/// grid's month navigation - nothing else needs rebuilding.
+fn year_nav(mut data: RefAny, mut info: CallbackInfo, delta: i32) -> Update {
+    let (update, year) = {
+        let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
+            return Update::DoNothing;
+        };
+        let year = (i64::from(w.state.inner.year) + i64::from(delta)).max(1);
+        w.state.inner.year = u32::try_from(year).unwrap_or(1);
+        let inner = w.state.inner;
+        let w = &mut w.state;
+        let update = match w.on_change.as_mut() {
+            Some(DatePickerOnChange { callback, refany }) => {
+                callback.invoke(refany.clone(), info, inner)
+            }
+            None => Update::DoNothing,
+        };
+        (update, inner.year)
+    };
+
+    // header = [prev, label <p>, next]; the label's text leaf takes the year.
+    let hit = info.get_hit_node();
+    let prev = year_header_of(&info, hit).and_then(|header| info.get_first_child(header));
+    let label = prev.and_then(|prev| info.get_next_sibling(prev));
+    let text = label.and_then(|label| info.get_first_child(label));
+    if let Some(text) = text {
+        info.change_node_text(text, AzString::from(alloc::format!("{year}")));
+    }
+    update
+}
+
+/// The calendar header above `hit` - a header button's own parent, or the
+/// first child of the panel a grid cell sits in.
+fn year_header_of(
+    info: &CallbackInfo,
+    hit: azul_core::dom::DomNodeId,
+) -> Option<azul_core::dom::DomNodeId> {
+    let is_header = |n: azul_core::dom::DomNodeId| {
+        info.get_node_classes(n)
+            .as_ref()
+            .iter()
+            .any(|c| c.as_str() == HEADER_CLASS_NAME)
+    };
+    let mut node = hit;
+    for _ in 0..5 {
+        if is_header(node) {
+            return Some(node);
+        }
+        if let Some(first) = info.get_first_child(node) {
+            if is_header(first) {
+                return Some(first);
+            }
+        }
+        node = info.get_parent(node)?;
+    }
+    None
+}
+
+/// [`build_blank_cell_in`] in the established look.
+#[cfg(test)]
+fn build_blank_cell() -> Dom {
+    build_blank_cell_in(&DatePickerLook::established())
+}
+
+fn build_blank_cell_in(look: &DatePickerLook) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(look.blank.clone()))
+}
+
+/// [`build_day_cell_in`] in the established look.
+#[cfg(test)]
+fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
+    build_day_cell_in(
+        day,
+        selected,
+        DayMarks::default(),
+        shared,
+        &DatePickerLook::established(),
+    )
+}
+
+/// `face` with the ring of today after it.
+fn ringed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
+    let mut v = face.as_ref().to_vec();
+    v.extend_from_slice(faces.today.as_ref());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// `face` with the wash of the lit range after it.
+fn washed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
+    let mut v = face.as_ref().to_vec();
+    v.extend_from_slice(faces.in_range.as_ref());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// One day of the grid: the click picks it, the arrow keys move focus from it
+/// (both share the cell's payload). The Tab index is `build_grid_with`'s to
+/// set - only the grid knows which day holds its one Tab stop. Today wears
+/// the look's ring over its face and carries the today class, so a repaint
+/// can find it again; a day of the lit range (`marks.lit` holds it) wears the
+/// wash under the ring, unless it is the picked one, and carries the
+/// in-range class.
+fn build_day_cell_in(
+    day: u32,
+    selected: bool,
+    marks: DayMarks,
+    shared: RefAny,
+    look: &DatePickerLook,
+) -> Dom {
+    use azul_core::{
+        dom::{EventFilter, HoverEventFilter},
+        events::FocusEventFilter,
+    };
+
+    let faces = look.cell_faces(&[]);
+    let face = if selected {
+        faces.selected.clone()
+    } else {
+        faces.other.clone()
+    };
+    let is_today = marks.today == Some(day);
+    let in_range = marks.lit.is_some_and(|(from, to)| (from..=to).contains(&day));
+    let face = if in_range && !selected {
+        washed(&face, &faces)
+    } else {
+        face
+    };
+    let face = if is_today { ringed(&face, &faces) } else { face };
+    let mut classes: Vec<IdOrClass> = DAY_CELL_CLASS.to_vec();
+    if is_today {
+        classes.push(DAY_TODAY_CLASS[0].clone());
+    }
+    if in_range {
+        classes.push(DAY_IN_RANGE_CLASS[0].clone());
+    }
+    let classes = IdOrClassVec::from_vec(classes);
+    let data = RefAny::new(DayCellData {
+        day,
+        state: shared,
+        faces,
+    });
+    crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
+        .with_ids_and_classes(classes)
+        .with_css_props(face)
+        .with_callbacks(
+            alloc::vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Click),
+                    callback: CoreCallback {
+                        cb: on_day_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data.clone(),
+                },
+                CoreCallbackData {
+                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: on_day_key as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data,
+                },
+            ]
+            .into(),
+        )
+        // A day of the date grid is a button (Enter / Space / a click picks
+        // it). `build_grid` adds its full-date name: only the grid knows the
+        // month and year the day belongs to.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::PushButton,
             ..Default::default()
         })
 }
@@ -913,22 +2173,24 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
 extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let clicked = info.get_hit_node();
 
-    // Read the baked day + clone the shared-state handle.
-    let (day, mut shared) = {
+    // Read the baked day + clone the shared-state handle and the faces.
+    let (day, mut shared, faces) = {
         let Some(cell) = data.downcast_ref::<DayCellData>() else {
             return Update::DoNothing;
         };
-        (cell.day, cell.state.clone())
+        (cell.day, cell.state.clone(), cell.faces.clone())
     };
 
-    let (update, new_label) = {
+    let (update, new_label, mode, inline) = {
         let Some(mut w) = shared.downcast_mut::<DatePickerData>() else {
             return Update::DoNothing;
         };
         w.state.inner.day = day;
         w.open = false;
         let inner = w.state.inner;
-        let label = format_date(&inner);
+        let mode = w.mode;
+        let inline = w.inline;
+        let label = format_value(&inner, mode);
         let w = &mut w.state;
         let update = match w.on_change.as_mut() {
             Some(DatePickerOnChange { callback, refany }) => {
@@ -936,11 +2198,26 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
             None => Update::DoNothing,
         };
-        (update, label)
+        (update, label, mode, inline)
     };
 
-    restyle_days(&mut info, clicked);
+    if mode == DatePickerMode::Week {
+        restyle_week(&mut info, clicked, &faces);
+    } else {
+        restyle_days(&mut info, clicked, &faces);
+    }
+    // An inline calendar has no popup to shut and no field to fill.
+    if !inline {
+        close_calendar_showing(&mut info, clicked, new_label);
+    }
+    update
+}
 
+/// Shut the calendar a pick was made in and show `label` in the FIELD.
+///
+/// `clicked` is the picked cell: cell -> row -> grid -> panel -> popup, the
+/// same depth for the day grid and the month grid.
+fn close_calendar_showing(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId, label: String) {
     // Shut the calendar and reflect the pick in the FIELD — the popup is a real
     // window now, so it does not go away by itself on a click inside it.
     // clicked -> week row -> grid -> panel -> popup. All five exist in BOTH
@@ -961,7 +2238,7 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
                     if let Some(field) = info.get_parent(popup) {
                         if let Some(value_p) = info.get_first_child(field) {
                             if let Some(text) = info.get_first_child(value_p) {
-                                info.change_node_text(text, AzString::from(new_label));
+                                info.change_node_text(text, AzString::from(label));
                             }
                         }
                     }
@@ -969,13 +2246,148 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
         }
     }
-
-    update
 }
 
-/// Accents the clicked cell and neutralises every other grid cell (blanks
-/// included — for them transparent bg + a colour on empty text is a no-op).
-fn restyle_days(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId) {
+/// Arrow keys on the focused day (WAI-ARIA APG date grid): Left/Right move
+/// focus by a day, Up/Down by a week, Home/End to the first / last DAY of the
+/// week row; the target becomes the grid's one Tab stop. Moving is not
+/// choosing - Enter or Space (the activation default, i.e. a click) picks the
+/// focused day and closes the calendar. PageUp/PageDown turn the month exactly
+/// like the header's ‹ / › (see the module's TODO2: the host rebuilds the
+/// grid). Every handled key is `prevent_default`-ed; an arrow past the
+/// displayed month turns the calendar to the day it aimed at in the
+/// neighbouring month (`move_to_date`, the ‹ / › path), where the rebuilt
+/// grid gives it focus. Any key held with Alt, Ctrl, Cmd or Shift, and every
+/// other key, keeps its default.
+extern "C" fn on_day_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving;
+
+    let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
+        return Update::DoNothing;
+    };
+    if !matches!(
+        key,
+        K::Left | K::Right | K::Up | K::Down | K::Home | K::End | K::PageUp | K::PageDown
+    ) {
+        return Update::DoNothing;
+    }
+    let shared = {
+        let Some(cell) = data.downcast_ref::<DayCellData>() else {
+            return Update::DoNothing;
+        };
+        cell.state.clone()
+    };
+
+    match key {
+        K::PageUp => {
+            info.prevent_default();
+            return month_nav(shared, info, -1);
+        }
+        K::PageDown => {
+            info.prevent_default();
+            return month_nav(shared, info, 1);
+        }
+        _ => {}
+    }
+
+    // The day cells in reading order, with the week row each sits in. A blank
+    // cell has no children; a day cell is a `<p>` around its number.
+    let focused = info.get_hit_node();
+    let Some(grid) = info.get_parent(focused).and_then(|week| info.get_parent(week)) else {
+        return Update::DoNothing;
+    };
+    let mut days: Vec<(azul_core::dom::DomNodeId, usize)> = Vec::new();
+    let mut row = 0usize;
+    let mut week = info.get_first_child(grid);
+    while let Some(w) = week {
+        let mut cell = info.get_first_child(w);
+        while let Some(c) = cell {
+            if info.get_first_child(c).is_some() {
+                days.push((c, row));
+            }
+            cell = info.get_next_sibling(c);
+        }
+        row += 1;
+        week = info.get_next_sibling(w);
+    }
+    let Some(current) = days.iter().position(|(n, _)| *n == focused) else {
+        return Update::DoNothing;
+    };
+    let week_of_current = days[current].1;
+    let target = match key {
+        K::Left => current.checked_sub(1),
+        K::Right => Some(current + 1).filter(|t| *t < days.len()),
+        K::Up => current.checked_sub(7),
+        K::Down => Some(current + 7).filter(|t| *t < days.len()),
+        K::Home => days.iter().position(|(_, r)| *r == week_of_current),
+        K::End => days.iter().rposition(|(_, r)| *r == week_of_current),
+        _ => None,
+    };
+
+    // The key is the grid's either way: spatial navigation must not walk out
+    // of the calendar from its edge.
+    info.prevent_default();
+
+    // An ARROW past the displayed month crosses into the neighbouring one
+    // (WAI-ARIA APG date grid): the calendar turns to the day the arrow aimed
+    // at, like ‹ / › - the host rebuilds the grid on that month with that
+    // day as its Tab stop, and the popup focuses it (the day cells are keyed
+    // by their date, and the Tab-stop day asks for focus).
+    let crossing_by = match key {
+        K::Left => Some(-1),
+        K::Right => Some(1),
+        K::Up => Some(-7),
+        K::Down => Some(7),
+        _ => None,
+    };
+    if let (None, Some(by)) = (target, crossing_by) {
+        // The cells are the days in order: the focused one is day `current + 1`.
+        let focused_day = u32::try_from(current + 1).unwrap_or(1);
+        let (year, month) = {
+            let mut probe = shared.clone();
+            let Some(w) = probe.downcast_ref::<DatePickerData>() else {
+                return Update::DoNothing;
+            };
+            (w.state.inner.year, w.state.inner.month)
+        };
+        let (year, month, day) = shifted_date(year, month, focused_day, by);
+        return move_to_date(shared, info, year, month, day);
+    }
+
+    let Some(target) = target.filter(|t| *t != current) else {
+        return Update::DoNothing;
+    };
+    let items: Vec<azul_core::dom::DomNodeId> = days.iter().map(|(n, _)| *n).collect();
+    roving::move_stop(&mut info, &items, target);
+    Update::DoNothing
+}
+
+/// Gives the clicked cell the picked face and every other cell of the grid
+/// the other one.
+fn restyle_days(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId, faces: &CellFaces) {
+    restyle_grid(info, clicked, false, faces);
+}
+
+/// [`restyle_days`] for the week picker: every DAY in the clicked cell's row
+/// (one row is one ISO week in the Monday-first grid) takes the picked face.
+fn restyle_week(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId, faces: &CellFaces) {
+    restyle_grid(info, clicked, true, faces);
+}
+
+/// The picked cell - or, with `whole_row`, every day cell of its row - takes
+/// the picked face, every other cell of the grid the other one: the faces the
+/// look BUILT the grid in (`faces`), dark twins and states included, so the
+/// cascade keeps picking the mode's colours - now and after a light / dark
+/// switch. Works for the day grid and the month grid alike: both are
+/// `grid > rows > cells`. A blank cell (no text child) keeps its own style.
+fn restyle_grid(
+    info: &mut CallbackInfo,
+    clicked: azul_core::dom::DomNodeId,
+    whole_row: bool,
+    faces: &CellFaces,
+) {
     let Some(row) = info.get_parent(clicked) else {
         return;
     };
@@ -987,24 +2399,28 @@ fn restyle_days(info: &mut CallbackInfo, clicked: azul_core::dom::DomNodeId) {
     while let Some(w) = week {
         let mut cellopt = info.get_first_child(w);
         while let Some(cell) = cellopt {
-            if cell == clicked {
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_background_content(DAY_SELECTED_BG_VEC),
-                );
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_text_color(StyleTextColor { inner: WHITE }),
-                );
-            } else {
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_background_content(TRANSPARENT_BG_VEC),
-                );
-                info.set_css_property(
-                    cell,
-                    CssProperty::const_text_color(StyleTextColor { inner: TEXT_COLOR }),
-                );
+            if info.get_first_child(cell).is_some() {
+                let selected = if whole_row { w == row } else { cell == clicked };
+                let face = if selected {
+                    faces.selected.clone()
+                } else {
+                    faces.other.clone()
+                };
+                // A lit day keeps its wash unless it is the pick.
+                let face = if !selected
+                    && crate::widgets::roving::has_class(info, cell, DAY_IN_RANGE_CLASS_NAME)
+                {
+                    washed(&face, faces)
+                } else {
+                    face
+                };
+                // Today keeps its ring, whichever face it now wears.
+                let face = if crate::widgets::roving::has_class(info, cell, DAY_TODAY_CLASS_NAME) {
+                    ringed(&face, faces)
+                } else {
+                    face
+                };
+                info.set_node_style(cell, face.into());
             }
             cellopt = info.get_next_sibling(cell);
         }
@@ -1057,7 +2473,7 @@ extern "C" fn on_date_picker_dismissed(mut data: RefAny, mut info: CallbackInfo)
             return Update::DoNothing;
         };
         w.open = false;
-        format_date(&w.state.inner)
+        format_value(&w.state.inner, w.mode)
     };
     // Runs in the PARENT window (the `Dismissed` event targets the
     // `<transient-window>` node there): the one place a day picked INSIDE the
@@ -1083,32 +2499,79 @@ extern "C" fn on_date_picker_dismissed(mut data: RefAny, mut info: CallbackInfo)
 /// module docs) — only the reported state changes.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn month_nav(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
+    let (year, month, day) = {
+        let Some(w) = data.downcast_ref::<DatePickerData>() else {
+            return Update::DoNothing;
+        };
+        let inner = w.state.inner;
+        let mut month = inner.month as i32 + delta;
+        let mut year = inner.year as i32;
+        if month < 1 {
+            month = 12;
+            year -= 1;
+        } else if month > 12 {
+            month = 1;
+            year += 1;
+        }
+        let year = year.max(1) as u32;
+        let month = month as u32;
+        (year, month, inner.day.min(days_in_month(year, month)))
+    };
+    move_to_date(data, info, year, month, day)
+}
+
+/// Turns the calendar to `year`-`month`-`day` and tells the app
+/// (`on_change`), so the host rebuilds the grid on that month with that day
+/// as its one Tab stop (module TODO2: the grid cannot rebuild itself). What
+/// ‹ / ›, PageUp / PageDown and an arrow past the displayed month all come
+/// down to.
+fn move_to_date(mut data: RefAny, info: CallbackInfo, year: u32, month: u32, day: u32) -> Update {
     let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
         return Update::DoNothing;
     };
     let w = &mut w.state;
-
-    let mut month = w.inner.month as i32 + delta;
-    let mut year = w.inner.year as i32;
-    if month < 1 {
-        month = 12;
-        year -= 1;
-    } else if month > 12 {
-        month = 1;
-        year += 1;
-    }
-    w.inner.year = year.max(1) as u32;
-    w.inner.month = month as u32;
-    let dim = days_in_month(w.inner.year, w.inner.month);
-    if w.inner.day > dim {
-        w.inner.day = dim;
-    }
-
+    w.inner.year = year;
+    w.inner.month = month;
+    w.inner.day = day;
     let inner = w.inner;
     let w = &mut *w;
     match w.on_change.as_mut() {
         Some(DatePickerOnChange { callback, refany }) => callback.invoke(refany.clone(), info, inner),
         None => Update::DoNothing,
+    }
+}
+
+/// The date `by` days away from `year`-`month`-`day` (negative: back),
+/// across month and year boundaries - where an arrow past the displayed
+/// month lands. The year floors at 1, like `month_nav`'s.
+fn shifted_date(year: u32, month: u32, day: u32, by: i32) -> (u32, u32, u32) {
+    let (mut year, mut month) = (year.max(1), month.clamp(1, 12));
+    let mut d = i64::from(day) + i64::from(by);
+    loop {
+        if d < 1 {
+            if month == 1 {
+                if year == 1 {
+                    return (1, 1, 1);
+                }
+                year -= 1;
+                month = 12;
+            } else {
+                month -= 1;
+            }
+            d += i64::from(days_in_month(year, month));
+        } else {
+            let dim = i64::from(days_in_month(year, month));
+            if d <= dim {
+                return (year, month, u32::try_from(d).unwrap_or(1));
+            }
+            d -= dim;
+            if month == 12 {
+                year = year.saturating_add(1);
+                month = 1;
+            } else {
+                month += 1;
+            }
+        }
     }
 }
 
@@ -1163,7 +2626,7 @@ mod autotest_generated {
         hit_test::ScrollPosition,
         resources::RendererResources,
         styled_dom::{NodeHierarchyItemId, StyledDom},
-        window::{MonitorVec, RawWindowHandle},
+        window::{MonitorVec, RawWindowHandle, VirtualKeyCode},
     };
     use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
     use rust_fontconfig::FcFontCache;
@@ -1174,6 +2637,7 @@ mod autotest_generated {
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
         solver3::{display_list::DisplayList, layout_tree::LayoutTree},
+        widgets::roving::test_support as rv,
         window::{DomLayoutResult, LayoutWindow},
         window_state::FullWindowState,
     };
@@ -1488,6 +2952,8 @@ mod autotest_generated {
                 on_change: None.into(),
             },
             open: false,
+            mode: DatePickerMode::Date,
+            inline: false,
         });
         let (update, changes) = with_info(StyledDom::default(), node(0), |info| {
             let mut last = Update::DoNothing;
@@ -1574,9 +3040,7 @@ mod autotest_generated {
 
     /// The declared background colour of a *rendered* node's inline style.
     fn rendered_background(dom: &Dom) -> Option<ColorU> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&dom).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::BackgroundContent(b) => {
                     b.get_property().and_then(|v| match v.as_ref().first() {
@@ -1588,49 +3052,70 @@ mod autotest_generated {
             })
     }
 
-    /// The background colours pushed onto nodes by `restyle_days`, in push order.
-    fn pushed_backgrounds(changes: &[CallbackChange]) -> Vec<(NodeId, ColorU)> {
+    /// The cell faces `restyle_days` wrote (`set_node_style`), in push
+    /// order. No restyle may pin a value: a `ChangeNodeCssProperties` colour
+    /// would outlive a light / dark switch.
+    fn pushed_faces(changes: &[CallbackChange]) -> Vec<(NodeId, azul_css::css::Css)> {
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::ChangeNodeCssProperties { .. })),
+            "a restyle pinned a value: {changes:?}"
+        );
         changes
             .iter()
             .filter_map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties {
-                    node_id,
-                    properties,
-                    ..
-                } => {
-                    let col = properties.as_ref().iter().find_map(|p| match p {
-                        CssProperty::BackgroundContent(b) => {
-                            b.get_property().and_then(|v| match v.as_ref().first() {
-                                Some(StyleBackgroundContent::Color(c)) => Some(*c),
-                                _ => None,
-                            })
-                        }
-                        _ => None,
-                    })?;
-                    Some((*node_id, col))
+                CallbackChange::SetNodeStyle { node_id, style, .. } => {
+                    Some((*node_id, style.clone()))
                 }
                 _ => None,
             })
             .collect()
     }
 
-    /// The text colours pushed onto nodes by `restyle_days`, in push order.
+    /// The last UNCONDITIONAL declaration `pick` finds in a face - what the
+    /// face shows by day at rest.
+    fn resting<T>(
+        face: &azul_css::css::Css,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> Option<T> {
+        face.iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| pick(p))
+            .last()
+    }
+
+    /// The background colours `restyle_days` gave the cells (by day, at
+    /// rest), in push order.
+    fn pushed_backgrounds(changes: &[CallbackChange]) -> Vec<(NodeId, ColorU)> {
+        pushed_faces(changes)
+            .into_iter()
+            .filter_map(|(node, face)| {
+                let col = resting(&face, |p| match p {
+                    CssProperty::BackgroundContent(b) => {
+                        b.get_property().and_then(|v| match v.as_ref().first() {
+                            Some(StyleBackgroundContent::Color(c)) => Some(*c),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                })?;
+                Some((node, col))
+            })
+            .collect()
+    }
+
+    /// The text colours `restyle_days` gave the cells (by day, at rest), in
+    /// push order.
     fn pushed_text_colours(changes: &[CallbackChange]) -> Vec<(NodeId, ColorU)> {
-        changes
-            .iter()
-            .filter_map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties {
-                    node_id,
-                    properties,
-                    ..
-                } => {
-                    let col = properties.as_ref().iter().find_map(|p| match p {
-                        CssProperty::TextColor(t) => t.get_property().map(|t| t.inner),
-                        _ => None,
-                    })?;
-                    Some((*node_id, col))
-                }
-                _ => None,
+        pushed_faces(changes)
+            .into_iter()
+            .filter_map(|(node, face)| {
+                let col = resting(&face, |p| match p {
+                    CssProperty::TextColor(t) => t.get_property().map(|t| t.inner),
+                    _ => None,
+                })?;
+                Some((node, col))
             })
             .collect()
     }
@@ -2492,6 +3977,37 @@ mod autotest_generated {
         );
     }
 
+    /// AzCalendar's weeks start on Monday, the picker's always started on
+    /// Sunday, so the navigator's rows split the calendar's weeks in two
+    /// (DEDUP_EDITORS D10 / B25). `with_week_start(Monday)` lays the date
+    /// grid Monday first: the header reads Mo .. Su, and the 1st of October
+    /// 2026, a Thursday, has three blanks before it, not four.
+    #[test]
+    fn a_monday_week_start_lays_the_day_grid_monday_first() {
+        let sunday = DatePicker::create(2026, 10, 2).dom();
+        let monday = DatePicker::create(2026, 10, 2)
+            .with_week_start(DatePickerWeekStart::Monday)
+            .dom();
+        let names = |dom: &Dom| -> Vec<String> {
+            sections(dom).1.children.as_ref().iter().filter_map(text_of).collect()
+        };
+        assert_eq!(names(&sunday).first().map(String::as_str), Some("Su"));
+        assert_eq!(names(&monday), vec!["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]);
+        let leading = |dom: &Dom| {
+            day_numbers(sections(dom).2)
+                .iter()
+                .take_while(|d| d.is_none())
+                .count()
+        };
+        assert_eq!(leading(&sunday), 4, "Sunday first: Su Mo Tu We blank");
+        assert_eq!(leading(&monday), 3, "Monday first: Mo Tu We blank");
+        assert_eq!(
+            DatePicker::create(2026, 10, 2).week_start,
+            DatePickerWeekStart::Sunday,
+            "Sunday stays the default"
+        );
+    }
+
     #[test]
     fn dom_labels_the_header_with_the_month_name_and_the_year() {
         for (y, m, want) in [
@@ -2702,14 +4218,25 @@ mod autotest_generated {
                 "a grid cell lost the day class",
             );
             let cbs = cell.root.callbacks.as_ref();
-            if text_of(cell).is_some() {
-                assert_eq!(cbs.len(), 1, "a day cell must register exactly one handler");
+            if let Some(day) = text_of(cell) {
+                assert_eq!(cbs.len(), 2, "a day cell registers the click and the arrow keys");
                 assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
                 assert_eq!(cbs[0].callback.cb, on_day_click as usize);
                 assert_eq!(
+                    cbs[1].event,
+                    EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown)
+                );
+                assert_eq!(cbs[1].callback.cb, on_day_key as usize);
+                // ONE Tab stop per grid: the selected day (the 10th here); the
+                // other days are reached with the arrow keys.
+                assert_eq!(
                     cell.root.flags.get_tab_index(),
-                    Some(TabIndex::Auto),
-                    "a day cell is not keyboard-focusable",
+                    Some(if day == "10" {
+                        TabIndex::Auto
+                    } else {
+                        TabIndex::NoKeyboardFocus
+                    }),
+                    "day {day} has the wrong tab index",
                 );
                 with_handler += 1;
             } else {
@@ -2731,11 +4258,15 @@ mod autotest_generated {
         let styled = StyledDom::create_from_dom(DatePicker::create(2024, 2, 1).dom());
         let mut seen: Vec<u32> = Vec::new();
         for nd in styled.node_data.as_ref() {
+            // One payload per cell: the click and the arrow-key handler share
+            // it, so a cell is counted once.
             for cb in nd.callbacks.as_ref() {
                 let mut r = cb.refany.clone();
-                if let Some(cell) = r.downcast_ref::<DayCellData>() {
-                    seen.push(cell.day);
-                };
+                let day = r.downcast_ref::<DayCellData>().map(|cell| cell.day);
+                if let Some(day) = day {
+                    seen.push(day);
+                    break;
+                }
             }
         }
         seen.sort_unstable();
@@ -2950,7 +4481,12 @@ mod autotest_generated {
                 );
 
                 let cbs = cell.root.callbacks.as_ref();
-                assert_eq!(cbs.len(), 1);
+                assert_eq!(cbs.len(), 2, "the click and the arrow-key handler");
+                assert_eq!(
+                    cbs[0].refany.get_data_ptr(),
+                    cbs[1].refany.get_data_ptr(),
+                    "both handlers read the same cell payload",
+                );
                 let mut r = cbs[0].refany.clone();
                 let baked = r
                     .downcast_ref::<DayCellData>()
@@ -2969,7 +4505,9 @@ mod autotest_generated {
     fn clicking_a_day_selects_it_and_restyles_the_whole_grid() {
         let (styled, shared) = laid_out(DatePicker::create(2024, 2, 1));
         let (cell, payload) = day_cell(&styled, 17);
-        let rows = 5; // February 2024: 4 leading blanks + 29 days = 33 -> 5 rows
+        // February 2024: 29 days (the blank cells around them keep their own
+        // style - they have no face to change).
+        let days = 29;
 
         let (update, changes) = click(styled, &payload, cell);
 
@@ -2991,8 +4529,8 @@ mod autotest_generated {
         let bgs = pushed_backgrounds(&changes);
         assert_eq!(
             bgs.len(),
-            rows * 7,
-            "restyle_days must repaint every cell of every week row",
+            days,
+            "restyle_days must repaint every day of the grid",
         );
         let accented: Vec<NodeId> = bgs
             .iter()
@@ -3014,8 +4552,8 @@ mod autotest_generated {
         let texts = pushed_text_colours(&changes);
         assert_eq!(
             texts.len(),
-            rows * 7,
-            "every cell needs its text colour resynced too"
+            days,
+            "every day needs its text colour resynced too"
         );
         assert_eq!(
             texts
@@ -3577,6 +5115,8 @@ mod autotest_generated {
                 .into(),
             },
             open: false,
+            mode: DatePickerMode::Date,
+            inline: false,
         });
 
         let (update, _) = with_info(StyledDom::default(), node(0), |info| {
@@ -3701,5 +5241,1558 @@ mod autotest_generated {
             "a click on the stale grid did not write the displayed day into the state",
         );
         assert!(!changes.is_empty(), "the stale grid was not restyled");
+    }
+
+    // ==================================================================
+    // Roving tabindex in the day grid (WAI-ARIA APG date grid, P2-12)
+    // ==================================================================
+
+    /// The calendar exactly as its popup WINDOW holds it: the panel is that
+    /// window's root DOM (in the parent the whole subtree sits under the
+    /// `<transient-window>` node and is out of the parent's Tab order). Hands
+    /// back the shared state too.
+    ///
+    /// February 2024 opens on a Thursday, so its week rows are
+    /// `[_ _ _ _ 1 2 3] [4..10] [11..17] [18..24] [25..29 _ _]`.
+    fn calendar(year: u32, month: u32, day: u32) -> (StyledDom, RefAny) {
+        let dom = DatePicker::create(year, month, day).dom();
+        let styled = StyledDom::create_from_dom(panel_of(&dom).clone());
+        let shared = shared_state(&styled);
+        (styled, shared)
+    }
+
+    fn cell_of(styled: &StyledDom, day: u32) -> DomNodeId {
+        day_cell(styled, day).0
+    }
+
+    /// Presses `key` on the cell of `day`; panics when the cell has no key
+    /// handler - the state of every day cell before P2-12.
+    fn press_day(
+        styled: &StyledDom,
+        day: u32,
+        key: VirtualKeyCode,
+        held: &[VirtualKeyCode],
+    ) -> (Update, Vec<CallbackChange>) {
+        rv::press(styled, cell_of(styled, day), key, held)
+            .expect("every day cell must carry a key handler for the arrow keys")
+    }
+
+    #[test]
+    fn tab_into_the_day_grid_lands_on_the_selected_day_and_the_next_tab_leaves_it() {
+        let (styled, _) = calendar(2024, 2, 14);
+        let (prev, _) = nav_button(&styled, on_prev_month as usize);
+        let (next, _) = nav_button(&styled, on_next_month as usize);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(next), true, 2),
+            vec![cell_of(&styled, 14), prev],
+            "the grid is ONE tab stop: the selected day, then round to the header",
+        );
+        assert_eq!(
+            rv::tab_walk(&styled, Some(prev), false, 2),
+            vec![cell_of(&styled, 14), next],
+        );
+    }
+
+    #[test]
+    fn with_the_selected_day_out_of_range_the_first_day_is_the_tab_stop() {
+        let mut picker = DatePicker::create(2024, 2, 14);
+        picker.state.inner.day = 40;
+        let dom = picker.dom();
+        let styled = StyledDom::create_from_dom(panel_of(&dom).clone());
+        let (prev, _) = nav_button(&styled, on_prev_month as usize);
+        let (next, _) = nav_button(&styled, on_next_month as usize);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(next), true, 2),
+            vec![cell_of(&styled, 1), prev],
+        );
+    }
+
+    #[test]
+    fn arrows_move_focus_by_a_day_and_by_a_week_without_picking_the_day() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, to) in [(K::Right, 15), (K::Left, 13), (K::Down, 21), (K::Up, 7)] {
+            let (styled, shared) = calendar(2024, 2, 14);
+            let (update, changes) = press_day(&styled, 14, key, &[]);
+            assert_eq!(
+                rv::focus_request(&changes),
+                Some(cell_of(&styled, to)),
+                "{key:?} from the 14th must focus the {to}th",
+            );
+            assert!(rv::prevented(&changes), "{key:?} must cancel spatial navigation");
+            assert_eq!(update, Update::DoNothing);
+            assert_eq!(
+                read_state(&shared).day,
+                14,
+                "moving focus is not choosing: Enter / a click picks the day",
+            );
+            assert!(transient_writes(&changes).is_empty(), "{key:?} closed the calendar");
+        }
+    }
+
+    #[test]
+    fn home_and_end_jump_to_the_start_and_end_of_the_week() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        // (focused day, key, focused day after) - the first and the last row
+        // are partial weeks, so the ends are the first / last DAY of the row.
+        for (from, key, to) in [
+            (14, K::Home, 11),
+            (14, K::End, 17),
+            (2, K::Home, 1),
+            (2, K::End, 3),
+            (27, K::Home, 25),
+            (27, K::End, 29),
+        ] {
+            let (styled, _) = calendar(2024, 2, 14);
+            let (_, changes) = press_day(&styled, from, key, &[]);
+            assert_eq!(
+                rv::focus_request(&changes),
+                Some(cell_of(&styled, to)),
+                "{key:?} from the {from}th",
+            );
+            assert!(rv::prevented(&changes));
+        }
+    }
+
+    /// WAI-ARIA APG date grid: an arrow past the displayed month CROSSES into
+    /// the neighbouring month - the calendar turns to it, like ‹ / ›, with
+    /// the day the arrow aimed at as its day, so the rebuilt grid's one Tab
+    /// stop is that day. It used to be swallowed and go nowhere. February
+    /// 2024 (`[_ _ _ _ 1 2 3] .. [25..29 _ _]`): Left from the 1st is January
+    /// 31st, Up from the 3rd January 27th, Right from the 29th March 1st,
+    /// Down from the 27th March 5th.
+    #[test]
+    fn an_arrow_past_the_displayed_month_crosses_into_the_neighbouring_month() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (from, key, (year, month, day)) in [
+            (1, K::Left, (2024, 1, 31)),
+            (3, K::Up, (2024, 1, 27)),
+            (29, K::Right, (2024, 3, 1)),
+            (27, K::Down, (2024, 3, 5)),
+        ] {
+            let (styled, shared) = calendar(2024, 2, 14);
+            let (_, changes) = press_day(&styled, from, key, &[]);
+            assert!(
+                rv::prevented(&changes),
+                "{key:?} on the {from}th must not let spatial navigation leave the grid",
+            );
+            assert_eq!(
+                read_state(&shared),
+                DatePickerState { year, month, day },
+                "{key:?} on the {from}th turns the calendar to the day it aimed at",
+            );
+            assert!(
+                transient_writes(&changes).is_empty(),
+                "{key:?} on the {from}th: turning the month does not close the calendar",
+            );
+        }
+
+        // Across a year, both ways.
+        let (styled, shared) = calendar(2024, 1, 1);
+        let _ = press_day(&styled, 1, K::Left, &[]);
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2023,
+                month: 12,
+                day: 31
+            }
+        );
+        let (styled, shared) = calendar(2023, 12, 31);
+        let _ = press_day(&styled, 31, K::Right, &[]);
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2024,
+                month: 1,
+                day: 1
+            }
+        );
+    }
+
+    /// What makes the crossing LAND: every day is keyed by its date, so the
+    /// rebuild onto another month unmounts the focused day instead of handing
+    /// its focus to whatever day sits in the same slot; and the grid's Tab-stop
+    /// day asks for focus (`autofocus`), which the popup gives it when it
+    /// opens and when a rebuild took its focused node away.
+    #[test]
+    fn every_day_is_keyed_by_its_date_and_the_tab_stop_day_asks_for_focus() {
+        let key_of = |styled: &StyledDom, day: u32| {
+            let cell = cell_of(styled, day).node.into_crate_internal().unwrap();
+            styled.node_data.as_container()[cell].get_key()
+        };
+        let (feb, _) = calendar(2024, 2, 14);
+        for day in 1..=29 {
+            let cell = cell_of(&feb, day).node.into_crate_internal().unwrap();
+            let nd = &feb.node_data.as_container()[cell];
+            assert!(key_of(&feb, day).is_some(), "the {day}th carries its date as a key");
+            assert_eq!(
+                nd.has_autofocus(),
+                day == 14,
+                "only the Tab-stop day asks for focus (the {day}th)"
+            );
+        }
+        assert_ne!(key_of(&feb, 14), key_of(&feb, 15), "two days, two keys");
+        let (again, _) = calendar(2024, 2, 20);
+        assert_eq!(
+            key_of(&feb, 14),
+            key_of(&again, 14),
+            "a date keeps its key across rebuilds"
+        );
+        let (march, _) = calendar(2024, 3, 14);
+        assert_ne!(
+            key_of(&feb, 14),
+            key_of(&march, 14),
+            "the same day number in another month is another day"
+        );
+    }
+
+    #[test]
+    fn page_up_and_page_down_turn_the_month_like_the_header_buttons() {
+        let (styled, shared) = calendar(2024, 2, 14);
+        let (_, changes) = press_day(&styled, 14, VirtualKeyCode::PageDown, &[]);
+        assert!(rv::prevented(&changes), "PageDown must not scroll the page");
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2024,
+                month: 3,
+                day: 14
+            },
+        );
+
+        let (styled, shared) = calendar(2024, 1, 31);
+        let (_, changes) = press_day(&styled, 31, VirtualKeyCode::PageUp, &[]);
+        assert!(rv::prevented(&changes));
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2023,
+                month: 12,
+                day: 31
+            },
+        );
+    }
+
+    #[test]
+    fn after_an_arrow_the_focused_day_is_the_grids_only_tab_stop() {
+        let (mut styled, _) = calendar(2024, 2, 14);
+        let (_, changes) = press_day(&styled, 14, VirtualKeyCode::Down, &[]);
+        rv::apply_tab_index_writes(&mut styled, &changes);
+        let (prev, _) = nav_button(&styled, on_prev_month as usize);
+        let (next, _) = nav_button(&styled, on_next_month as usize);
+        assert_eq!(
+            rv::tab_walk(&styled, Some(next), true, 2),
+            vec![cell_of(&styled, 21), prev],
+        );
+    }
+
+    #[test]
+    fn modified_and_unused_keys_on_a_day_are_not_consumed() {
+        use azul_core::window::VirtualKeyCode as K;
+
+        for (key, held) in [
+            (K::Right, Some(K::LAlt)),
+            (K::Down, Some(K::LShift)),
+            (K::PageDown, Some(K::LControl)),
+            (K::Home, Some(K::RWin)),
+            (K::Tab, None),
+            (K::Escape, None),
+            (K::Return, None),
+        ] {
+            let (styled, shared) = calendar(2024, 2, 14);
+            let held: Vec<K> = held.into_iter().collect();
+            let (update, changes) = press_day(&styled, 14, key, &held);
+            assert_eq!(update, Update::DoNothing);
+            assert!(
+                changes.is_empty(),
+                "{held:?}+{key:?} must not be consumed: {changes:?}"
+            );
+            assert_eq!(read_state(&shared).month, 2, "{held:?}+{key:?} turned the month");
+        }
+    }
+
+    // ==================================================================
+    // Accessibility: what a screen reader hears on the calendar
+    // ==================================================================
+
+    /// The accessibility name a node declares, if any.
+    fn a11y_name(dom: &Dom) -> Option<String> {
+        dom.root
+            .accessibility
+            .as_ref()
+            .and_then(|info| info.accessibility_name.as_ref().map(|s| s.as_str().to_string()))
+    }
+
+    /// Every day of the roving date grid is a button named by its FULL date.
+    /// "23" alone does not say which month or weekday it is, and the grid is
+    /// one Tab stop, so the name is all a screen-reader user gets per arrow key.
+    #[test]
+    fn every_day_cell_is_a_button_named_by_its_full_date() {
+        let dom = DatePicker::create(2026, 6, 23).dom();
+        let (_, _, grid) = sections(&dom);
+        let days: Vec<&Dom> = grid_cells(grid)
+            .into_iter()
+            .filter(|cell| text_of(cell).is_some())
+            .collect();
+        assert_eq!(days.len(), 30, "June 2026 has 30 days");
+        for cell in &days {
+            let info = cell
+                .root
+                .accessibility
+                .as_ref()
+                .expect("a day cell declares accessibility");
+            assert_eq!(
+                info.role,
+                azul_core::a11y::AccessibilityRole::PushButton,
+                "a day cell is a button of the date grid, not a combo box"
+            );
+            assert!(
+                a11y_name(cell).is_some(),
+                "day {:?} has no accessible name",
+                text_of(cell)
+            );
+        }
+        let day_23 = days
+            .iter()
+            .find(|cell| text_of(cell).as_deref() == Some("23"))
+            .expect("the 23rd is in the grid");
+        assert_eq!(a11y_name(day_23).as_deref(), Some("Tuesday, 23 June 2026"));
+        let day_1 = days
+            .iter()
+            .find(|cell| text_of(cell).as_deref() == Some("1"))
+            .expect("the 1st is in the grid");
+        assert_eq!(a11y_name(day_1).as_deref(), Some("Monday, 1 June 2026"));
+    }
+
+    /// The header's ‹ / › glyphs are not names; the buttons say what they do.
+    #[test]
+    fn the_month_navigation_buttons_are_named() {
+        let dom = DatePicker::create(2026, 6, 23).dom();
+        let (header, _, _) = sections(&dom);
+        let kids = header.children.as_ref();
+        assert_eq!(kids.len(), 3, "header is [prev, label, next]");
+        assert_eq!(a11y_name(&kids[0]).as_deref(), Some("Previous month"));
+        assert_eq!(a11y_name(&kids[2]).as_deref(), Some("Next month"));
+    }
+
+    // ==================================================================
+    // <input type=month> / <input type=week>: modes of the same calendar
+    // ==================================================================
+
+    mod month_and_week {
+        use super::*;
+
+        /// The text the FIELD shows (its first child, the value `<p>`).
+        fn field_text(dom: &Dom) -> String {
+            text_of(&dom.children.as_ref()[0]).expect("the field shows its value")
+        }
+
+        /// `(flattened node id, payload)` of the month cell for `month`.
+        fn month_cell(sd: &StyledDom, month: u32) -> (DomNodeId, RefAny) {
+            for (i, nd) in sd.node_data.as_ref().iter().enumerate() {
+                for cb in nd.callbacks.as_ref() {
+                    let matches = {
+                        let mut r = cb.refany.clone();
+                        r.downcast_ref::<MonthCellData>()
+                            .is_some_and(|c| c.month == month)
+                    };
+                    if matches {
+                        return (node(i), cb.refany.clone());
+                    }
+                }
+            }
+            panic!("the month grid has no cell for month {month}");
+        }
+
+        fn seen(log: &RefAny) -> Vec<DatePickerState> {
+            let mut log = log.clone();
+            let entries = log
+                .downcast_ref::<ChangeLog>()
+                .expect("the log changed type")
+                .seen
+                .clone();
+            entries
+        }
+
+        fn texts_written(changes: &[CallbackChange]) -> Vec<String> {
+            changes
+                .iter()
+                .filter_map(|c| match c {
+                    CallbackChange::ChangeNodeText { text, .. } => {
+                        Some(text.as_str().to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn iso_weeks_follow_iso_8601() {
+            // 2026-01-01 is a Thursday: week 1 of 2026.
+            assert_eq!(iso_week_of(2026, 1, 1), (2026, 1));
+            // 2026-09-29 is the Tuesday of week 40.
+            assert_eq!(iso_week_of(2026, 9, 29), (2026, 40));
+            // 2021-01-01 is a Friday: still week 53 of 2020 (a leap year that
+            // began on a Wednesday).
+            assert_eq!(iso_week_of(2021, 1, 1), (2020, 53));
+            // 2024-12-30 is a Monday: already week 1 of 2025.
+            assert_eq!(iso_week_of(2024, 12, 30), (2025, 1));
+            assert_eq!(iso_weeks_in_year(2020), 53);
+            assert_eq!(iso_weeks_in_year(2026), 53);
+            assert_eq!(iso_weeks_in_year(2025), 52);
+        }
+
+        #[test]
+        fn the_monday_of_an_iso_week_is_found_across_year_boundaries() {
+            assert_eq!(iso_week_monday(2026, 1), (2025, 12, 29));
+            assert_eq!(iso_week_monday(2026, 40), (2026, 9, 28));
+            assert_eq!(iso_week_monday(2020, 53), (2020, 12, 28));
+            assert_eq!(iso_week_monday(2025, 1), (2024, 12, 30));
+            for year in 2018..=2030 {
+                for week in 1..=iso_weeks_in_year(year) {
+                    let (y, m, d) = iso_week_monday(year, week);
+                    assert_eq!(weekday(y, m, d), 1, "{year}-W{week} does not start on a Monday");
+                    assert_eq!(iso_week_of(y, m, d), (year, week), "{year}-W{week} round trip");
+                }
+            }
+        }
+
+        #[test]
+        fn each_mode_formats_its_value_the_html_way() {
+            let s = |year, month, day| DatePickerState { year, month, day };
+            assert_eq!(format_value(&s(2026, 9, 29), DatePickerMode::Date), "2026-09-29");
+            assert_eq!(format_value(&s(2026, 9, 29), DatePickerMode::Month), "2026-09");
+            assert_eq!(format_value(&s(2026, 9, 29), DatePickerMode::Week), "2026-W40");
+            // The ISO year, not the calendar year, names a week.
+            assert_eq!(format_value(&s(2021, 1, 1), DatePickerMode::Week), "2020-W53");
+        }
+
+        #[test]
+        fn a_date_state_knows_its_iso_week() {
+            let s = DatePickerState {
+                year: 2024,
+                month: 12,
+                day: 30,
+            };
+            assert_eq!(s.iso_week(), (2025, 1));
+        }
+
+        #[test]
+        fn a_month_picker_shows_year_and_month() {
+            let dom = DatePicker::create_month(2026, 9).dom();
+            assert_eq!(field_text(&dom), "2026-09");
+        }
+
+        #[test]
+        fn a_month_pickers_calendar_is_the_twelve_months_of_its_year() {
+            let dom = DatePicker::create_month(2026, 9).dom();
+            let panel = panel_of(&dom);
+            let [header, grid] = panel.children.as_ref() else {
+                panic!("a month calendar is header + month grid");
+            };
+            assert_eq!(
+                text_of(&header.children.as_ref()[1]).as_deref(),
+                Some("2026"),
+                "the header names the YEAR the months belong to"
+            );
+            let labels: Vec<String> = grid_cells(grid).iter().filter_map(|c| text_of(c)).collect();
+            assert_eq!(
+                labels,
+                [
+                    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+                    "Dec"
+                ]
+            );
+            // The selected month is highlighted and is the grid's ONE Tab stop.
+            let cells = grid_cells(grid);
+            let highlighted: Vec<usize> = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| rendered_background(c) == Some(ACCENT_BG))
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(highlighted, vec![8]);
+            let stops: Vec<usize> = cells
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.root.get_tab_index() == Some(TabIndex::Auto))
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(stops, vec![8]);
+        }
+
+        #[test]
+        fn clicking_a_month_selects_it_reports_it_and_closes_the_calendar() {
+            let log = log_refany();
+            let (sd, shared) = laid_out(
+                DatePicker::create_month(2026, 9)
+                    .with_on_change(log.clone(), record_change as DatePickerOnChangeCallbackType),
+            );
+            let (cell, payload) = month_cell(&sd, 3);
+            let (update, changes) =
+                with_info(sd, cell, |info| on_month_click(payload.clone(), *info));
+
+            assert_eq!(update, Update::RefreshDom, "the change callback's verdict");
+            let s = read_state(&shared);
+            assert_eq!((s.year, s.month), (2026, 3));
+            assert_eq!(seen(&log).last().map(|s| s.month), Some(3));
+            assert!(
+                texts_written(&changes).iter().any(|t| t == "2026-03"),
+                "the field must show the picked month: {changes:?}"
+            );
+            assert!(
+                transient_writes(&changes).iter().any(|(_, open)| !open),
+                "the calendar must close on a pick"
+            );
+        }
+
+        #[test]
+        fn the_year_arrows_of_a_month_picker_turn_the_year_and_retitle_the_header() {
+            let (sd, shared) = laid_out(DatePicker::create_month(2026, 9));
+            let (btn, payload) = nav_button(&sd, on_next_year as usize);
+            let (_, changes) = with_info(sd, btn, |info| on_next_year(payload.clone(), *info));
+            assert_eq!(read_state(&shared).year, 2027);
+            assert!(
+                texts_written(&changes).iter().any(|t| t == "2027"),
+                "the header must name the new year: {changes:?}"
+            );
+
+            let (sd, shared) = laid_out(DatePicker::create_month(2026, 1));
+            let (btn, payload) = nav_button(&sd, on_prev_year as usize);
+            let _ = with_info(sd, btn, |info| on_prev_year(payload.clone(), *info));
+            assert_eq!(read_state(&shared).year, 2025);
+        }
+
+        #[test]
+        fn a_week_picker_shows_the_iso_week() {
+            let dom = DatePicker::create_week(2026, 40).dom();
+            assert_eq!(field_text(&dom), "2026-W40");
+            let (y, m, d) = (
+                read_dom_state(&dom).year,
+                read_dom_state(&dom).month,
+                read_dom_state(&dom).day,
+            );
+            assert_eq!((y, m, d), (2026, 9, 28), "a week is held as its Monday");
+        }
+
+        #[test]
+        fn a_week_pickers_weeks_start_on_monday() {
+            let dom = DatePicker::create_week(2026, 40).dom();
+            let (_, weekdays, grid) = sections(&dom);
+            assert_eq!(text_of(&weekdays.children.as_ref()[0]).as_deref(), Some("Mo"));
+            assert_eq!(text_of(&weekdays.children.as_ref()[6]).as_deref(), Some("Su"));
+            // September 2026 begins on a Tuesday: ONE blank before the 1st
+            // in a Monday-first grid (two in the Sunday-first date grid).
+            let days = day_numbers(grid);
+            assert_eq!(days[0], None);
+            assert_eq!(days[1], Some(1));
+
+            // The plain date picker keeps its Sunday-first grid.
+            let dom = DatePicker::create(2026, 9, 29).dom();
+            let (_, weekdays, _) = sections(&dom);
+            assert_eq!(text_of(&weekdays.children.as_ref()[0]).as_deref(), Some("Su"));
+        }
+
+        #[test]
+        fn a_week_picker_highlights_the_whole_selected_week() {
+            // Week 40 of 2026 is Mon 28 Sep .. Sun 4 Oct; the September grid
+            // holds its first three days.
+            let dom = DatePicker::create_week(2026, 40).dom();
+            let (_, _, grid) = sections(&dom);
+            let highlighted: Vec<u32> = grid_cells(grid)
+                .iter()
+                .filter(|c| rendered_background(c) == Some(ACCENT_BG))
+                .filter_map(|c| text_of(c)?.parse().ok())
+                .collect();
+            assert_eq!(highlighted, vec![28, 29, 30]);
+        }
+
+        #[test]
+        fn clicking_a_day_in_a_week_picker_selects_its_week() {
+            let log = log_refany();
+            let (sd, shared) = laid_out(
+                DatePicker::create_week(2026, 40)
+                    .with_on_change(log.clone(), record_change as DatePickerOnChangeCallbackType),
+            );
+            let (cell, payload) = day_cell(&sd, 16);
+            let (_, changes) = with_info(sd, cell, |info| on_day_click(payload.clone(), *info));
+            assert_eq!(read_state(&shared).iso_week(), (2026, 38));
+            assert!(
+                texts_written(&changes).iter().any(|t| t == "2026-W38"),
+                "the field must show the picked WEEK: {changes:?}"
+            );
+            // The whole row of the 16th (Mon 14 .. Sun 20) is accented.
+            let accented = pushed_backgrounds(&changes)
+                .into_iter()
+                .filter(|(_, c)| *c == ACCENT_BG)
+                .count();
+            assert_eq!(accented, 7, "a week pick must light up all seven days");
+        }
+
+        #[test]
+        fn a_picker_carries_its_state_for_a_form() {
+            let dom = DatePicker::create_month(2026, 9)
+                .with_name("period".into())
+                .dom();
+            assert!(dom.root.get_dataset().is_some(), "a form reads the picker's state");
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, azul_core::dom::AttributeType::Name(n) if n.as_str() == "period")
+            ));
+            assert!(dom.root.attributes().as_ref().iter().any(
+                |a| matches!(a, azul_core::dom::AttributeType::InputType(t) if t.as_str() == "month")
+            ));
+        }
+
+        /// The state the rendered widget holds, read through its dataset.
+        fn read_dom_state(dom: &Dom) -> DatePickerState {
+            let mut data = dom
+                .root
+                .get_dataset()
+                .cloned()
+                .expect("the picker carries its state as the field's dataset");
+            let d = data
+                .downcast_ref::<DatePickerData>()
+                .expect("the dataset is the picker's shared state");
+            d.state.inner
+        }
+    }
+}
+
+/// The theme option: which look a date picker renders in, and what each look
+/// is - in every mode (`date`, `month`, `week`).
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::dynamic_selector::PseudoStateType;
+
+    use super::*;
+    use crate::widgets::themes::{flora, OptionUiTheme, UiTheme};
+
+    fn picker(theme: UiTheme) -> Dom {
+        DatePicker::create(2024, 2, 15).with_theme(theme).dom()
+    }
+
+    /// September 2026, month 9 picked.
+    fn month_picker(theme: UiTheme) -> Dom {
+        DatePicker::create_month(2026, 9).with_theme(theme).dom()
+    }
+
+    /// 2026-W40: Mon 28 Sep .. Sun 4 Oct; the September grid holds 28-30.
+    fn week_picker(theme: UiTheme) -> Dom {
+        DatePicker::create_week(2026, 40).with_theme(theme).dom()
+    }
+
+    fn panel(field: &Dom) -> &Dom {
+        let popup = field.children.as_ref().last().expect("the popup");
+        &popup.children.as_ref()[0]
+    }
+
+    /// The month header (date / week) or the year header (month).
+    fn header(field: &Dom) -> &Dom {
+        &panel(field).children.as_ref()[0]
+    }
+
+    /// The previous / next buttons of the header.
+    fn navs(field: &Dom) -> [&Dom; 2] {
+        let kids = header(field).children.as_ref();
+        [&kids[0], &kids[2]]
+    }
+
+    fn header_label(field: &Dom) -> &Dom {
+        &header(field).children.as_ref()[1]
+    }
+
+    fn weekday_cells(field: &Dom) -> &[Dom] {
+        panel(field).children.as_ref()[1].children.as_ref()
+    }
+
+    /// Every cell with a text child - the days of a day grid, the months of
+    /// the month grid (a blank has none).
+    fn cells(field: &Dom) -> Vec<&Dom> {
+        panel(field)
+            .children
+            .as_ref()
+            .last()
+            .expect("the grid")
+            .children
+            .as_ref()
+            .iter()
+            .flat_map(|row| row.children.as_ref().iter())
+            .filter(|cell| !cell.children.as_ref().is_empty())
+            .collect()
+    }
+
+    /// Day `n` of a day grid, or month `n` of the month grid.
+    fn cell(field: &Dom, n: usize) -> &Dom {
+        cells(field)[n - 1]
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    /// The `(light, dark)` value `pick` finds among the declarations whose
+    /// pseudo-states are exactly `states` (`&[]`: at rest), last one wins.
+    fn pair<T>(
+        node: &Dom,
+        states: &[PseudoStateType],
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != states {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    /// What the node shows when nothing happens to it, by day and night.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        pair(node, &[], pick)
+    }
+
+    fn on_focus<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        pair(node, &[PseudoStateType::Focus], pick)
+    }
+
+    fn on_hover<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        pair(node, &[PseudoStateType::Hover], pick)
+    }
+
+    fn shadow(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn width(p: &CssProperty) -> Option<LayoutWidth> {
+        match p {
+            CssProperty::Width(v) => v.get_property().cloned(),
+            _ => None,
+        }
+    }
+
+    fn color(c: ColorU) -> Vec<StyleBackgroundContent> {
+        alloc::vec![StyleBackgroundContent::Color(c)]
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    /// The faces a grid cell's payload repaints the grid with (day or month
+    /// cell).
+    fn faces_of(cell: &Dom) -> CellFaces {
+        let mut payload = cell.root.get_callbacks().as_ref()[0].refany.clone();
+        if let Some(day) = payload.downcast_ref::<DayCellData>() {
+            return day.faces.clone();
+        }
+        let month = payload
+            .downcast_ref::<MonthCellData>()
+            .expect("a grid cell carries a day or a month payload");
+        month.faces.clone()
+    }
+
+    /// A pick repaints each cell with the face the look BUILT it in: the
+    /// payload's faces are the rendered picked face (cell `picked`) and the
+    /// rendered other face (cell 3), declaration for declaration - dark twins
+    /// and states included.
+    fn assert_faces_are_the_built_ones(what: &str, dom: &Dom, picked: usize) {
+        let faces = faces_of(cell(dom, 3));
+        assert_eq!(
+            faces.selected.as_ref().to_vec(),
+            declarations(cell(dom, picked)),
+            "{what}: the picked face"
+        );
+        assert_eq!(
+            faces.other.as_ref().to_vec(),
+            declarations(cell(dom, 3)),
+            "{what}: every other face"
+        );
+    }
+
+    /// Asserts a flora stone face: the accent's own colour under its rig, the
+    /// same by day and night (no dark twin), in --fl-on-acc ink.
+    fn assert_flora_stone(node: &Dom, what: &str) {
+        let (face, night_face) = at_rest(node, bg);
+        let face = face.unwrap_or_else(|| panic!("{what}: no face"));
+        assert_eq!(
+            face.first(),
+            Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+            "{what}: the accent stone"
+        );
+        assert!(face.len() > 1, "{what}: the stone's rig lies over it");
+        assert!(night_face.is_none(), "{what}: a stone is its own colour at night");
+        assert_eq!(at_rest(node, ink), (Some(flora::LIGHT_ON_ACC), None), "{what}");
+    }
+
+    /// Asserts a flora cell that is not picked: ink by day and night, the
+    /// hover face under the pointer.
+    fn assert_flora_ink_cell(node: &Dom, what: &str) {
+        assert_eq!(
+            at_rest(node, ink),
+            (Some(flora::LIGHT_INK), Some(flora::DARK_INK)),
+            "{what}"
+        );
+        assert_eq!(
+            on_hover(node, bg),
+            (
+                Some(alloc::vec![flora::HOVER_FACE_LIGHT]),
+                Some(alloc::vec![flora::HOVER_FACE_DARK])
+            ),
+            "{what}: lifts under the pointer"
+        );
+    }
+
+    fn assert_flora_ring(node: &Dom, what: &str) {
+        assert_eq!(
+            on_focus(node, shadow),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+            "{what}: flora's focus colour"
+        );
+    }
+
+    fn assert_flat_ring(node: &Dom, what: &str) {
+        let (l, d) = on_focus(node, shadow);
+        assert!(l.is_some() && d.is_some(), "{what}: a focus halo by day and night: {l:?} {d:?}");
+    }
+
+    // ------------------------------------------------------------------
+    // The option
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_date_picker_without_a_theme_renders_flat() {
+        for plain in [
+            DatePicker::create(2024, 2, 15),
+            DatePicker::create_month(2026, 9),
+            DatePicker::create_week(2026, 40),
+        ] {
+            assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+            let unset = plain.clone().dom();
+            let flat = plain.with_theme(UiTheme::Flat).dom();
+            assert_eq!(declarations(&unset), declarations(&flat));
+            assert_eq!(declarations(panel(&unset)), declarations(panel(&flat)));
+        }
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = DatePicker::create(2024, 2, 15);
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(DatePicker::create(2024, 2, 15).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn the_theme_survives_the_mode_builders() {
+        let week = DatePicker::create_week(2026, 40).with_theme(UiTheme::Flora);
+        assert_eq!(week.mode, DatePickerMode::Week);
+        assert_eq!(week.theme, OptionUiTheme::Some(UiTheme::Flora));
+        let month = DatePicker::create_month(2026, 9)
+            .with_theme(UiTheme::Flora)
+            .with_mode(DatePickerMode::Month);
+        assert_eq!(month.theme, OptionUiTheme::Some(UiTheme::Flora));
+    }
+
+    // ------------------------------------------------------------------
+    // Flat: the established look, a ring on every keyboard stop
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn every_flat_keyboard_stop_shows_a_focus_ring_by_day_and_night() {
+        let dom = picker(UiTheme::Flat);
+        let (l, d) = on_focus(&dom, top_edge);
+        assert!(l.is_some() && d.is_some(), "the field rings on its border: {l:?} {d:?}");
+        for nav in navs(&dom) {
+            assert_flat_ring(nav, "a month button");
+        }
+        for n in [1, 15] {
+            assert_flat_ring(cell(&dom, n), &format!("day {n}"));
+        }
+    }
+
+    #[test]
+    fn the_flat_month_grid_rings_every_stop_and_keeps_its_night_faces() {
+        let dom = month_picker(UiTheme::Flat);
+        for nav in navs(&dom) {
+            assert_flat_ring(nav, "a year button");
+        }
+        let months = cells(&dom);
+        assert_eq!(months.len(), 12);
+        for (i, m) in months.iter().enumerate() {
+            assert_flat_ring(m, &format!("month {}", i + 1));
+            assert_eq!(
+                at_rest(m, width).0,
+                Some(LayoutWidth::const_px(MONTH_CELL_W)),
+                "month {}: three day cells wide",
+                i + 1
+            );
+        }
+        let (by_day, at_night) = at_rest(cell(&dom, 9), bg);
+        assert_eq!(by_day, Some(color(ACCENT_BG)), "the picked month, by day");
+        assert!(at_night.is_some(), "the picked month has a night face");
+    }
+
+    #[test]
+    fn the_flat_week_grid_rings_every_day_and_lights_the_whole_week() {
+        let dom = week_picker(UiTheme::Flat);
+        for nav in navs(&dom) {
+            assert_flat_ring(nav, "a month button");
+        }
+        for d in cells(&dom) {
+            assert_flat_ring(d, "a day of the week grid");
+        }
+        for n in [28, 29, 30] {
+            let (by_day, at_night) = at_rest(cell(&dom, n), bg);
+            assert_eq!(by_day, Some(color(ACCENT_BG)), "day {n} of the picked week");
+            assert!(at_night.is_some(), "day {n}: a night face");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Flora: a paper field over a paper calendar, in every mode
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_flora_field_is_a_sunken_paper_field_that_rings_in_the_accent() {
+        for dom in [
+            picker(UiTheme::Flora),
+            month_picker(UiTheme::Flora),
+            week_picker(UiTheme::Flora),
+        ] {
+            assert_eq!(
+                at_rest(&dom, bg),
+                (Some(color(flora::LIGHT_FLD)), Some(color(flora::DARK_FLD))),
+                "--fl-fld: a field"
+            );
+            assert_eq!(
+                at_rest(&dom, top_edge),
+                (Some(flora::LIGHT_BD2), Some(flora::DARK_BD2)),
+                "a --fl-bd2 hairline"
+            );
+            assert_eq!(
+                on_hover(&dom, top_edge),
+                (Some(flora::LIGHT_BD3), Some(flora::DARK_BD3)),
+                "the rule darkens under the pointer"
+            );
+            assert_eq!(
+                on_focus(&dom, top_edge),
+                (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+                "flora's focus colour on the field's rule"
+            );
+            assert!(has_class(&dom, "__azul-theme-flora"));
+        }
+    }
+
+    #[test]
+    fn a_flora_calendar_is_a_leaf_with_brass_buttons_in_every_mode() {
+        for dom in [
+            picker(UiTheme::Flora),
+            month_picker(UiTheme::Flora),
+            week_picker(UiTheme::Flora),
+        ] {
+            assert_eq!(
+                at_rest(panel(&dom), bg),
+                (Some(color(flora::LIGHT_SUR)), Some(color(flora::DARK_SUR))),
+                "--fl-sur: a leaf"
+            );
+            assert_eq!(
+                at_rest(panel(&dom), top_edge),
+                (Some(flora::LIGHT_BD), Some(flora::DARK_BD))
+            );
+            assert_eq!(
+                at_rest(header_label(&dom), ink),
+                (Some(flora::LIGHT_INK), Some(flora::DARK_INK)),
+                "the month / year in ink"
+            );
+            for nav in navs(&dom) {
+                assert_eq!(
+                    at_rest(nav, ink),
+                    (Some(flora::LIGHT_QT), Some(flora::DARK_QT)),
+                    "brass ink, --fl-qt"
+                );
+                assert_eq!(
+                    on_hover(nav, ink),
+                    (Some(flora::LIGHT_QT2), Some(flora::DARK_QT2)),
+                    "deeper brass under the pointer"
+                );
+                assert_flora_ring(nav, "a header button");
+            }
+        }
+        for dom in [picker(UiTheme::Flora), week_picker(UiTheme::Flora)] {
+            for w in weekday_cells(&dom) {
+                assert_eq!(
+                    at_rest(w, ink),
+                    (Some(flora::LIGHT_SOFT2), Some(flora::DARK_SOFT2)),
+                    "the weekday names are quiet"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_flora_selected_day_is_the_accent_stone_and_the_rest_are_ink() {
+        let dom = picker(UiTheme::Flora);
+        assert_flora_stone(cell(&dom, 15), "the picked day");
+        assert_flora_ink_cell(cell(&dom, 3), "day 3");
+        for n in [3, 15] {
+            assert_flora_ring(cell(&dom, n), &format!("day {n}"));
+        }
+    }
+
+    #[test]
+    fn a_flora_month_grid_cuts_the_picked_month_as_the_stone() {
+        let dom = month_picker(UiTheme::Flora);
+        let months = cells(&dom);
+        assert_eq!(months.len(), 12);
+        for (i, m) in months.iter().enumerate() {
+            let what = format!("month {}", i + 1);
+            if i + 1 == 9 {
+                assert_flora_stone(m, &what);
+            } else {
+                assert_flora_ink_cell(m, &what);
+            }
+            assert_flora_ring(m, &what);
+            assert_eq!(
+                at_rest(m, width).0,
+                Some(LayoutWidth::const_px(MONTH_CELL_W)),
+                "{what}: three day cells wide"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_week_grid_cuts_every_day_of_the_picked_week_as_the_stone() {
+        let dom = week_picker(UiTheme::Flora);
+        for (i, d) in cells(&dom).iter().enumerate() {
+            let n = i + 1;
+            let what = format!("day {n}");
+            if (28..=30).contains(&n) {
+                assert_flora_stone(d, &what);
+            } else {
+                assert_flora_ink_cell(d, &what);
+            }
+            assert_flora_ring(d, &what);
+        }
+    }
+
+    #[test]
+    fn a_flora_pick_repaints_with_flora_s_stone_in_every_mode() {
+        for (mode, dom, picked) in [
+            ("date", picker(UiTheme::Flora), 15),
+            ("month", month_picker(UiTheme::Flora), 9),
+            ("week", week_picker(UiTheme::Flora), 28),
+        ] {
+            assert_faces_are_the_built_ones(mode, &dom, picked);
+            let faces = faces_of(cell(&dom, 3));
+            // The pick is the stone by day and by night; every other cell is
+            // flora ink, lifted at night.
+            assert_flora_stone(
+                &Dom::create_div().with_css_props(faces.selected),
+                &format!("{mode}: the repainted pick"),
+            );
+            assert_eq!(
+                at_rest(&Dom::create_div().with_css_props(faces.other), ink),
+                (Some(flora::LIGHT_INK), Some(flora::DARK_INK)),
+                "{mode}: every other cell"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flat_pick_repaints_with_the_established_faces_in_every_mode() {
+        for (mode, dom, picked) in [
+            ("date", picker(UiTheme::Flat), 15),
+            ("month", month_picker(UiTheme::Flat), 9),
+            ("week", week_picker(UiTheme::Flat), 28),
+        ] {
+            assert_faces_are_the_built_ones(mode, &dom, picked);
+        }
+    }
+
+    #[test]
+    fn a_flora_date_picker_keeps_the_field_and_the_grid_in_every_mode() {
+        for (mode, flora_dom, flat_dom, count) in [
+            ("date", picker(UiTheme::Flora), picker(UiTheme::Flat), 29),
+            ("month", month_picker(UiTheme::Flora), month_picker(UiTheme::Flat), 12),
+            ("week", week_picker(UiTheme::Flora), week_picker(UiTheme::Flat), 30),
+        ] {
+            assert!(flora_dom.root.get_tab_index().is_some(), "{mode}: a keyboard stop");
+            assert_eq!(
+                flora_dom.root.get_accessibility_info().map(|a| a.role),
+                flat_dom.root.get_accessibility_info().map(|a| a.role),
+                "{mode}"
+            );
+            assert_eq!(cells(&flora_dom).len(), count, "{mode}");
+            let stops = |dom: &Dom| -> Vec<usize> {
+                cells(dom)
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| c.root.get_tab_index() == Some(TabIndex::Auto))
+                    .map(|(i, _)| i)
+                    .collect()
+            };
+            assert_eq!(stops(&flora_dom), stops(&flat_dom), "{mode}: one roving stop");
+            // The FORM attributes (name, value, type...) - not the ids and
+            // classes, where a theme adds its own marker class.
+            let form_attributes = |dom: &Dom| {
+                dom.root
+                    .attributes()
+                    .as_ref()
+                    .iter()
+                    .filter(|a| {
+                        !matches!(
+                            a,
+                            azul_core::dom::AttributeType::Id(_)
+                                | azul_core::dom::AttributeType::Class(_)
+                        )
+                    })
+                    .count()
+            };
+            assert_eq!(
+                form_attributes(&flora_dom),
+                form_attributes(&flat_dom),
+                "{mode}: the form attributes"
+            );
+        }
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_date_picker_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "date_picker date",
+            || DatePicker::create(2024, 2, 15).dom(),
+            |t: UiTheme| DatePicker::create(2024, 2, 15).with_theme(t).dom(),
+        );
+        checks::assert_follows_the_app_theme(
+            "date_picker month",
+            || DatePicker::create_month(2024, 2).dom(),
+            |t: UiTheme| DatePicker::create_month(2024, 2).with_theme(t).dom(),
+        );
+        checks::assert_follows_the_app_theme(
+            "date_picker week",
+            || DatePicker::create_week(2024, 7).dom(),
+            |t: UiTheme| DatePicker::create_week(2024, 7).with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_date_picker_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let pickers: [(&str, fn() -> DatePicker); 3] = [
+            ("date", || DatePicker::create(2024, 2, 15)),
+            ("month", || DatePicker::create_month(2024, 2)),
+            ("week", || DatePicker::create_week(2024, 7)),
+        ];
+        for theme in checks::BOTH {
+            for (mode, picker) in pickers {
+                let dom = checks::under(theme, || picker().dom());
+                assert_structure_is_shared(
+                    &format!("date_picker {mode} built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod inline_and_today_tests {
+    //! The inline calendar (a to-do bar's mini calendar) and the ring
+    //! around today.
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            themes::{theme_blocks::checks, theme_checks, UiTheme},
+        },
+    };
+
+    const INLINE: &str = "__azul-native-date-picker-inline";
+    const TODAY: &str = "__azul-native-date-picker-today";
+
+    /// September 2026 with the 12th picked, the 30th being today.
+    fn september() -> DatePicker {
+        DatePicker::create(2026, 9, 12)
+            .with_inline(true)
+            .with_today(2026, 9, 30)
+            .with_accessibility_name("Calendar")
+    }
+
+    fn has_transient(node: &Dom) -> bool {
+        matches!(node.root.get_node_type(), NodeType::TransientWindow(_))
+            || node.children.as_ref().iter().any(has_transient)
+    }
+
+    /// The text of a `p > text` cell.
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.children.as_ref() {
+            [only] => match only.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_ref().as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The cell whose number reads `label`.
+    fn cell_labelled(styled: &StyledDom, label: &str) -> DomNodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (i, nd) in styled.node_data.as_ref().iter().enumerate() {
+            if let NodeType::Text(s) = nd.get_node_type() {
+                if s.as_ref().as_str() == label {
+                    let p = hierarchy[i].parent_id().expect("a number sits in its cell");
+                    return DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(p)),
+                    };
+                }
+            }
+        }
+        panic!("no cell reads {label:?}");
+    }
+
+    #[test]
+    fn an_inline_picker_is_the_calendar_itself_with_no_field_and_no_popup() {
+        for theme in checks::BOTH {
+            let dom = september().with_theme(theme).dom();
+            assert!(theme_checks::has_class(&dom, INLINE), "{}", theme.name());
+            assert!(!has_transient(&dom), "{}: no popup", theme.name());
+            assert_eq!(
+                dom.children.as_ref().len(),
+                3,
+                "{}: header, weekday row, grid",
+                theme.name()
+            );
+            let info = dom.root.get_accessibility_info().expect("a role");
+            assert_eq!(info.role, azul_core::a11y::AccessibilityRole::Grouping);
+            assert_eq!(
+                info.accessibility_name.as_ref().map(|n| n.as_str()),
+                Some("Calendar")
+            );
+            assert!(
+                dom.root.get_callbacks().as_ref().is_empty(),
+                "{}: no field click to open anything",
+                theme.name()
+            );
+        }
+        let field = DatePicker::create(2026, 9, 12)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(!theme_checks::has_class(&field, INLINE));
+        assert!(has_transient(&field), "a field picker keeps its popup");
+    }
+
+    #[test]
+    fn today_is_ringed_in_its_month_and_named_as_today() {
+        let dom = september().with_theme(UiTheme::Flat).dom();
+        let today = theme_checks::find_all(&dom, TODAY);
+        assert_eq!(today.len(), 1, "one cell is today");
+        assert_eq!(text_of(today[0]), Some("30"));
+        let name = today[0]
+            .root
+            .get_accessibility_info()
+            .and_then(|i| i.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+            .unwrap_or_default();
+        assert!(name.ends_with("today"), "{name}");
+        let plain = theme_checks::nodes(&dom)
+            .into_iter()
+            .map(|(_, n)| n)
+            .find(|n| text_of(n) == Some("29"))
+            .expect("the 29th");
+        assert_ne!(
+            today[0].root.get_style(),
+            plain.root.get_style(),
+            "today wears a ring the other days do not"
+        );
+
+        let october = DatePicker::create(2026, 10, 3)
+            .with_inline(true)
+            .with_today(2026, 9, 30)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(
+            theme_checks::find_all(&october, TODAY).is_empty(),
+            "today is not in October"
+        );
+        let unset = DatePicker::create(2026, 9, 3).with_theme(UiTheme::Flat).dom();
+        assert!(
+            theme_checks::find_all(&unset, TODAY).is_empty(),
+            "no today, no ring"
+        );
+    }
+
+    type Log = Arc<Mutex<Vec<u32>>>;
+
+    extern "C" fn record(mut data: RefAny, _: CallbackInfo, state: DatePickerState) -> Update {
+        if let Some(log) = data.downcast_ref::<Log>() {
+            log.lock().expect("log").push(state.day);
+        }
+        Update::DoNothing
+    }
+
+    #[test]
+    fn a_pick_in_an_inline_calendar_reports_the_day_and_keeps_todays_ring() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let picker = september()
+            .with_on_change(
+                RefAny::new(log.clone()),
+                record as DatePickerOnChangeCallbackType,
+            )
+            .with_theme(UiTheme::Flat);
+        let styled = StyledDom::create_from_dom(picker.dom());
+        let seven = cell_labelled(&styled, "7");
+        let (_, changes) = rv::fire(&styled, seven, EventFilter::Hover(HoverEventFilter::Click))
+            .expect("a day takes the click");
+        assert_eq!(*log.lock().expect("log"), vec![7]);
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::SetTransientWindowOpen { .. })),
+            "an inline calendar has nothing to close"
+        );
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::ChangeNodeText { .. })),
+            "an inline calendar has no field to fill"
+        );
+        // The repaint gives today its ring back: its new face is not a plain
+        // day's.
+        let style_of = |node: DomNodeId| {
+            let wanted = node.node.into_crate_internal();
+            changes.iter().find_map(|c| match c {
+                CallbackChange::SetNodeStyle { node_id, style, .. } if Some(*node_id) == wanted => {
+                    Some(format!("{style:?}"))
+                }
+                _ => None,
+            })
+        };
+        let today = style_of(cell_labelled(&styled, "30")).expect("today repainted");
+        let plain = style_of(cell_labelled(&styled, "29")).expect("a plain day repainted");
+        assert_ne!(today, plain, "the ring survives the repaint");
+    }
+
+    #[test]
+    fn an_inline_picker_follows_the_app_theme_and_declares_its_structure_once() {
+        checks::assert_follows_the_app_theme(
+            "date_picker (inline)",
+            || september().dom(),
+            |t: UiTheme| september().with_theme(t).dom(),
+        );
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || september().dom());
+            theme_checks::assert_structure_is_shared(
+                &format!("date_picker (inline) built for {}", theme.name()),
+                &dom,
+                &[],
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    //! The lit range: a calendar's date navigator shows which days the
+    //! calendar shows (Outlook's week, work week or month in its navigator).
+    use azul_core::{
+        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType},
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackChange,
+        widgets::{
+            roving::test_support as rv,
+            themes::{theme_blocks::checks, theme_checks, UiTheme},
+        },
+    };
+
+    const IN_RANGE: &str = "__azul-native-date-picker-in-range";
+
+    fn day(year: u32, month: u32, day: u32) -> DatePickerState {
+        DatePickerState { year, month, day }
+    }
+
+    /// September 2026 with the 12th picked; the week of 28 September to
+    /// 4 October lit.
+    fn september_with_the_last_week() -> DatePicker {
+        DatePicker::create(2026, 9, 12)
+            .with_inline(true)
+            .with_today(2026, 9, 30)
+            .with_range(day(2026, 9, 28), day(2026, 10, 4))
+    }
+
+    /// The text of a `p > text` cell.
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.children.as_ref() {
+            [only] => match only.root.get_node_type() {
+                NodeType::Text(s) => Some(s.as_ref().as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn lit(dom: &Dom) -> Vec<String> {
+        theme_checks::find_all(dom, IN_RANGE)
+            .into_iter()
+            .filter_map(|n| text_of(n).map(str::to_string))
+            .collect()
+    }
+
+    /// The cell whose number reads `label`.
+    fn cell_labelled(styled: &StyledDom, label: &str) -> DomNodeId {
+        let hierarchy = styled.node_hierarchy.as_ref();
+        for (i, nd) in styled.node_data.as_ref().iter().enumerate() {
+            if let NodeType::Text(s) = nd.get_node_type() {
+                if s.as_ref().as_str() == label {
+                    let p = hierarchy[i].parent_id().expect("a number sits in its cell");
+                    return DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(p)),
+                    };
+                }
+            }
+        }
+        panic!("no cell reads {label:?}");
+    }
+
+    #[test]
+    fn the_days_of_the_range_the_month_has_are_lit_in_both_themes() {
+        for theme in checks::BOTH {
+            let dom = september_with_the_last_week().with_theme(theme).dom();
+            assert_eq!(lit(&dom), vec!["28", "29", "30"], "{}", theme.name());
+            let plain = theme_checks::nodes(&dom)
+                .into_iter()
+                .map(|(_, n)| n)
+                .find(|n| text_of(n) == Some("27"))
+                .expect("the 27th");
+            let washed = theme_checks::find_all(&dom, IN_RANGE)
+                .into_iter()
+                .find(|n| text_of(n) == Some("29"))
+                .expect("the 29th");
+            assert_ne!(
+                washed.root.get_style(),
+                plain.root.get_style(),
+                "{}: a lit day looks unlike a plain one",
+                theme.name()
+            );
+        }
+        // October shows the range's other end.
+        let october = DatePicker::create(2026, 10, 1)
+            .with_inline(true)
+            .with_range(day(2026, 9, 28), day(2026, 10, 4))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(lit(&october), vec!["1", "2", "3", "4"]);
+        // A month the range is not in lights nothing; nor does no range.
+        let november = DatePicker::create(2026, 11, 1)
+            .with_inline(true)
+            .with_range(day(2026, 9, 28), day(2026, 10, 4))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(lit(&november).is_empty());
+        let none = DatePicker::create(2026, 9, 1).with_inline(true).dom();
+        assert!(lit(&none).is_empty());
+        // A whole month lit (a calendar's month view).
+        let month = DatePicker::create(2026, 2, 1)
+            .with_inline(true)
+            .with_range(day(2026, 2, 1), day(2026, 2, 28))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert_eq!(lit(&month).len(), 28);
+    }
+
+    #[test]
+    fn a_pick_repaints_the_grid_and_the_range_stays_lit() {
+        let picker = september_with_the_last_week().with_theme(UiTheme::Flat);
+        let styled = StyledDom::create_from_dom(picker.dom());
+        let picked = cell_labelled(&styled, "7");
+        let (_, changes) = rv::fire(&styled, picked, EventFilter::Hover(HoverEventFilter::Click))
+            .expect("a day takes the click");
+        let style_of = |node: DomNodeId| {
+            let wanted = node.node.into_crate_internal();
+            changes.iter().find_map(|c| match c {
+                CallbackChange::SetNodeStyle { node_id, style, .. } if Some(*node_id) == wanted => {
+                    Some(format!("{style:?}"))
+                }
+                _ => None,
+            })
+        };
+        let lit = style_of(cell_labelled(&styled, "29")).expect("a lit day repainted");
+        let plain = style_of(cell_labelled(&styled, "27")).expect("a plain day repainted");
+        assert_ne!(lit, plain, "the wash survives the repaint");
     }
 }

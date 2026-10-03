@@ -1,0 +1,37 @@
+[package]
+name = "azul-appkit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The app skeleton the Azlin apps share (build ledger F2 / F6 / F7): the
+    command-line switches (--screen, --size, --theme, --mode, --shot,
+    --sample, --data-dir), the per-user data layout (one folder per app under
+    the data root, the same keys the user's S3 bucket will have), the app
+    settings file, the keyboard-shortcut table and the About facts. With the
+    `azul` feature also the shared UI: the settings page on azul's
+    ShellSettingsLayout (Appearance, Data, Shortcuts, About), the window's
+    title row, the `--shot` screenshot timer and file jobs that run on an
+    azul Thread through azul-storage's Drive (a LocalDrive today, an S3Drive
+    later). AzCalculator is its first user, AzContacts the second.
+"""
+publish = false
+
+[dependencies]
+# serde / serde_json and azul-storage are already in the tree (azul-storage,
+# AzCalendar, AzDrive); no new crates.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+azul-storage = { path = "../azul-storage" }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
+
+[features]
+default = []
+# The shared UI (settings page, title row, --shot, file jobs on a Thread).
+# The apps turn it on; the unit tests of the plain modules need no libazul.
+azul = ["dep:azul"]
+
+[lib]
+name = "azul_appkit"
+path = "src/lib.rs"

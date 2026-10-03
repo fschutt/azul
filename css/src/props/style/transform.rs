@@ -14,7 +14,7 @@ use crate::props::basic::{
     parse::{parse_parentheses, ParenthesisParseError, ParenthesisParseErrorOwned},
 };
 use crate::{
-    codegen::format::GetHash,
+    hash::GetHash,
     corety::AzString,
     props::{
         basic::{
@@ -93,6 +93,7 @@ impl PrintAsCssValue for StyleTransformOrigin {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StylePerspectiveOrigin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -104,6 +105,7 @@ impl crate::codegen::format::FormatAsRustCode for StylePerspectiveOrigin {
 }
 
 // Formatting to Rust code for StyleTransformOrigin
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleTransformOrigin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -236,6 +238,7 @@ impl PrintAsCssValue for StyleTransformVec {
 }
 
 // Formatting to Rust code for StyleTransformVec
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleTransformVec {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -1022,33 +1025,68 @@ pub fn parse_style_transform(
 pub fn parse_style_transform_origin(
     input: &str,
 ) -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'_>> {
-    // Helper to parse position keywords or pixel values
-    fn parse_position_component(
-        s: &str,
-        is_horizontal: bool,
-    ) -> Result<PixelValue, CssPixelValueParseError<'_>> {
-        match s.trim() {
-            "left" if is_horizontal => Ok(PixelValue::percent(0.0)),
-            "center" => Ok(PixelValue::percent(50.0)),
-            "right" if is_horizontal => Ok(PixelValue::percent(100.0)),
-            "top" if !is_horizontal => Ok(PixelValue::percent(0.0)),
-            "bottom" if !is_horizontal => Ok(PixelValue::percent(100.0)),
-            _ => parse_pixel_value(s),
+    let (x, y) = parse_origin_position(input).map_err(|e| match origin_error(e) {
+        OriginError::Components { got, input } => {
+            CssStyleTransformOriginParseError::WrongNumberOfComponents {
+                expected: 2,
+                got,
+                input,
+            }
         }
-    }
-
-    let components: Vec<_> = input.split_whitespace().collect();
-    if components.len() != 2 {
-        return Err(CssStyleTransformOriginParseError::WrongNumberOfComponents {
-            expected: 2,
-            got: components.len(),
-            input,
-        });
-    }
-
-    let x = parse_position_component(components[0], true)?;
-    let y = parse_position_component(components[1], false)?;
+        OriginError::Value(e) => CssStyleTransformOriginParseError::PixelValueParseError(e),
+    })?;
     Ok(StyleTransformOrigin { x, y })
+}
+
+#[cfg(feature = "parser")]
+/// The `<position>` of `transform-origin` / `perspective-origin` as an (x, y)
+/// pair. It is the grammar `background-position` parses - one or two values,
+/// keywords in either order, a missing value is `center` - so both origins
+/// use that parser; the keywords become percentages of the box.
+fn parse_origin_position(
+    input: &str,
+) -> Result<(PixelValue, PixelValue), crate::props::style::background::CssBackgroundPositionParseError<'_>>
+{
+    use crate::props::style::background::{
+        parser::parse_style_background_position, BackgroundPositionHorizontal as H,
+        BackgroundPositionVertical as V,
+    };
+    let position = parse_style_background_position(input)?;
+    let x = match position.horizontal {
+        H::Left => PixelValue::percent(0.0),
+        H::Center => PixelValue::percent(50.0),
+        H::Right => PixelValue::percent(100.0),
+        H::Exact(v) => v,
+    };
+    let y = match position.vertical {
+        V::Top => PixelValue::percent(0.0),
+        V::Center => PixelValue::percent(50.0),
+        V::Bottom => PixelValue::percent(100.0),
+        V::Exact(v) => v,
+    };
+    Ok((x, y))
+}
+
+#[cfg(feature = "parser")]
+/// What went wrong in an origin, for both origins' error types.
+enum OriginError<'a> {
+    Components { got: usize, input: &'a str },
+    Value(CssPixelValueParseError<'a>),
+}
+
+#[cfg(feature = "parser")]
+fn origin_error(
+    e: crate::props::style::background::CssBackgroundPositionParseError<'_>,
+) -> OriginError<'_> {
+    use crate::props::style::background::CssBackgroundPositionParseError as E;
+    match e {
+        E::NoPosition(input) => OriginError::Components { got: 0, input },
+        E::TooManyComponents(input) => OriginError::Components {
+            got: input.split_whitespace().count(),
+            input,
+        },
+        E::FirstComponentWrong(e) | E::SecondComponentWrong(e) => OriginError::Value(e),
+    }
 }
 
 #[cfg(feature = "parser")]
@@ -1058,18 +1096,16 @@ pub fn parse_style_transform_origin(
 pub fn parse_style_perspective_origin(
     input: &str,
 ) -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'_>> {
-    let components: Vec<_> = input.split_whitespace().collect();
-    if components.len() != 2 {
-        return Err(
+    let (x, y) = parse_origin_position(input).map_err(|e| match origin_error(e) {
+        OriginError::Components { got, input } => {
             CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
                 expected: 2,
-                got: components.len(),
+                got,
                 input,
-            },
-        );
-    }
-    let x = parse_pixel_value(components[0])?;
-    let y = parse_pixel_value(components[1])?;
+            }
+        }
+        OriginError::Value(e) => CssStylePerspectiveOriginParseError::PixelValueParseError(e),
+    })?;
     Ok(StylePerspectiveOrigin { x, y })
 }
 
@@ -1100,6 +1136,133 @@ pub fn parse_style_backface_visibility(
         "hidden" => Ok(StyleBackfaceVisibility::Hidden),
         _ => Err(CssBackfaceVisibilityParseError::InvalidValue(input)),
     }
+}
+
+// -- Interpolation
+
+/// `from` -> `to` at `t` (0..=1, already eased), function by function - the
+/// CSS Transforms 1 (section 9) rule for two lists of the same functions:
+/// each pair tweens its own arguments, so `rotate(0) -> rotate(180deg)`
+/// TURNS through 90deg rather than decomposing a matrix (where half a turn
+/// is ambiguous). An empty list (`none`, or no value) stands for the
+/// identity of the other side's functions.
+///
+/// `None` when the lists do not pair up (different lengths or different
+/// functions, a matrix, a 3D rotation about an axis): the caller keeps its
+/// discrete switch for those.
+#[must_use]
+pub fn interpolate_transform_lists(
+    from: &[StyleTransform],
+    to: &[StyleTransform],
+    t: f32,
+) -> Option<Vec<StyleTransform>> {
+    let identities = |list: &[StyleTransform]| -> Option<Vec<StyleTransform>> {
+        list.iter().map(transform_identity).collect()
+    };
+    let (from, to): (Vec<StyleTransform>, Vec<StyleTransform>) = match (from.len(), to.len()) {
+        (0, 0) => return Some(Vec::new()),
+        (0, _) => (identities(to)?, to.to_vec()),
+        (_, 0) => (from.to_vec(), identities(from)?),
+        (a, b) if a == b => (from.to_vec(), to.to_vec()),
+        _ => return None,
+    };
+    from.iter()
+        .zip(to.iter())
+        .map(|(a, b)| interpolate_transform(a, b, t))
+        .collect()
+}
+
+/// The function that leaves a box where it is, of `f`'s kind: no turn, no
+/// shift, no skew, a scale of 1. `None` for the kinds without a simple one.
+fn transform_identity(f: &StyleTransform) -> Option<StyleTransform> {
+    use StyleTransform as T;
+    let no_turn = AngleValue::const_deg(0);
+    let no_shift = PixelValue::const_px(0);
+    let one = FloatValue::const_new(1);
+    Some(match f {
+        T::Rotate(_) => T::Rotate(no_turn),
+        T::RotateX(_) => T::RotateX(no_turn),
+        T::RotateY(_) => T::RotateY(no_turn),
+        T::RotateZ(_) => T::RotateZ(no_turn),
+        T::SkewX(_) => T::SkewX(no_turn),
+        T::SkewY(_) => T::SkewY(no_turn),
+        T::Skew(_) => T::Skew(StyleTransformSkew2D {
+            x: no_turn,
+            y: no_turn,
+        }),
+        T::TranslateX(_) => T::TranslateX(no_shift),
+        T::TranslateY(_) => T::TranslateY(no_shift),
+        T::TranslateZ(_) => T::TranslateZ(no_shift),
+        T::Translate(_) => T::Translate(StyleTransformTranslate2D {
+            x: no_shift,
+            y: no_shift,
+        }),
+        T::Translate3D(_) => T::Translate3D(StyleTransformTranslate3D {
+            x: no_shift,
+            y: no_shift,
+            z: no_shift,
+        }),
+        T::Scale(_) => T::Scale(StyleTransformScale2D { x: one, y: one }),
+        T::Scale3D(_) => T::Scale3D(StyleTransformScale3D {
+            x: one,
+            y: one,
+            z: one,
+        }),
+        T::ScaleX(_) => T::ScaleX(PercentageValue::const_new(100)),
+        T::ScaleY(_) => T::ScaleY(PercentageValue::const_new(100)),
+        T::ScaleZ(_) => T::ScaleZ(PercentageValue::const_new(100)),
+        T::Matrix(_) | T::Matrix3D(_) | T::Rotate3D(_) | T::Perspective(_) => return None,
+    })
+}
+
+/// One pair of functions of the same kind at `t`; `None` for a pair of
+/// different kinds (or a kind without a per-argument tween).
+fn interpolate_transform(a: &StyleTransform, b: &StyleTransform, t: f32) -> Option<StyleTransform> {
+    use StyleTransform as T;
+    // Degrees, UNFOLDED: `rotate(720deg)` is two turns, not none.
+    let angle = |x: &AngleValue, y: &AngleValue| {
+        let (x, y) = (x.to_degrees_raw(), y.to_degrees_raw());
+        AngleValue::deg(x + (y - x) * t)
+    };
+    Some(match (a, b) {
+        (T::Rotate(x), T::Rotate(y)) => T::Rotate(angle(x, y)),
+        (T::RotateX(x), T::RotateX(y)) => T::RotateX(angle(x, y)),
+        (T::RotateY(x), T::RotateY(y)) => T::RotateY(angle(x, y)),
+        (T::RotateZ(x), T::RotateZ(y)) => T::RotateZ(angle(x, y)),
+        (T::SkewX(x), T::SkewX(y)) => T::SkewX(angle(x, y)),
+        (T::SkewY(x), T::SkewY(y)) => T::SkewY(angle(x, y)),
+        (T::Skew(x), T::Skew(y)) => T::Skew(StyleTransformSkew2D {
+            x: angle(&x.x, &y.x),
+            y: angle(&x.y, &y.y),
+        }),
+        (T::TranslateX(x), T::TranslateX(y)) => T::TranslateX(x.interpolate(y, t)),
+        (T::TranslateY(x), T::TranslateY(y)) => T::TranslateY(x.interpolate(y, t)),
+        (T::TranslateZ(x), T::TranslateZ(y)) => T::TranslateZ(x.interpolate(y, t)),
+        (T::Translate(x), T::Translate(y)) => T::Translate(StyleTransformTranslate2D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+        }),
+        (T::Translate3D(x), T::Translate3D(y)) => T::Translate3D(StyleTransformTranslate3D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+            z: x.z.interpolate(&y.z, t),
+        }),
+        (T::Scale(x), T::Scale(y)) => T::Scale(StyleTransformScale2D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+        }),
+        (T::Scale3D(x), T::Scale3D(y)) => T::Scale3D(StyleTransformScale3D {
+            x: x.x.interpolate(&y.x, t),
+            y: x.y.interpolate(&y.y, t),
+            z: x.z.interpolate(&y.z, t),
+        }),
+        (T::ScaleX(x), T::ScaleX(y)) => T::ScaleX(x.interpolate(y, t)),
+        (T::ScaleY(x), T::ScaleY(y)) => T::ScaleY(x.interpolate(y, t)),
+        (T::ScaleZ(x), T::ScaleZ(y)) => T::ScaleZ(x.interpolate(y, t)),
+        (T::Perspective(x), T::Perspective(y)) => T::Perspective(x.interpolate(y, t)),
+        _ if a == b => *a,
+        _ => return None,
+    })
 }
 
 #[cfg(all(test, feature = "parser"))]
@@ -1790,8 +1953,8 @@ mod autotest_generated {
 
     #[test]
     fn transform_vec_unbalanced_parens_do_not_underflow_the_depth_counter() {
-        // split_string_respect_whitespace does `depth -= 1` on every ')' with no
-        // floor; a run of closers drives it negative. Must not panic in debug.
+        // A ')' with no '(' open ends the splitter's search (the depth counter
+        // never goes below zero), so the rest is one token. Must not panic in debug.
         let closers = ")".repeat(10_000);
         assert!(parse_style_transform_vec(&closers).is_err());
         let mixed = alloc::format!("{} {}", ")".repeat(5_000), "(".repeat(5_000));
@@ -1803,8 +1966,20 @@ mod autotest_generated {
     // =====================================================================
 
     #[test]
-    fn transform_origin_requires_exactly_two_components() {
-        for (input, got) in [("", 0), ("50%", 1), ("left", 1), ("50% 50% 50%", 3)] {
+    fn transform_origin_takes_one_or_two_components() {
+        // A `<position>`: one or two values (a missing one is `center`).
+        assert_eq!(
+            parse_style_transform_origin("50%").unwrap(),
+            StyleTransformOrigin::default()
+        );
+        assert_eq!(
+            parse_style_transform_origin("left").unwrap(),
+            StyleTransformOrigin {
+                x: PixelValue::percent(0.0),
+                y: PixelValue::percent(50.0),
+            }
+        );
+        for (input, got) in [("", 0), ("50% 50% 50%", 3)] {
             let err = parse_style_transform_origin(input).unwrap_err();
             assert!(
                 matches!(
@@ -1826,7 +2001,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn transform_origin_keywords_are_position_sensitive() {
+    fn transform_origin_keywords_may_come_in_either_order() {
         assert_eq!(
             parse_style_transform_origin("left top").unwrap(),
             StyleTransformOrigin {
@@ -1845,12 +2020,16 @@ mod autotest_generated {
             parse_style_transform_origin("center center").unwrap(),
             StyleTransformOrigin::default()
         );
-        // BUG (spec deviation): CSS allows the keywords in either order
-        // ("top left" == "left top"). Here the horizontal slot rejects
-        // "top"/"bottom" and the vertical slot rejects "left"/"right", so the
-        // swapped form is an error. Pinned as current behaviour.
-        assert!(parse_style_transform_origin("top left").is_err());
-        assert!(parse_style_transform_origin("bottom right").is_err());
+        // CSS allows the keywords in either order ("top left" == "left top");
+        // two keywords of the same axis are an error.
+        assert_eq!(
+            parse_style_transform_origin("top left").unwrap(),
+            parse_style_transform_origin("left top").unwrap()
+        );
+        assert_eq!(
+            parse_style_transform_origin("bottom right").unwrap(),
+            parse_style_transform_origin("right bottom").unwrap()
+        );
         assert!(parse_style_transform_origin("left left").is_err());
         assert!(parse_style_transform_origin("top top").is_err());
     }
@@ -1940,8 +2119,15 @@ mod autotest_generated {
     // =====================================================================
 
     #[test]
-    fn perspective_origin_requires_exactly_two_components() {
-        for (input, got) in [("", 0), ("50%", 1), ("1px 2px 3px", 3)] {
+    fn perspective_origin_takes_one_or_two_components() {
+        assert_eq!(
+            parse_style_perspective_origin("50%").unwrap(),
+            StylePerspectiveOrigin {
+                x: PixelValue::percent(50.0),
+                y: PixelValue::percent(50.0),
+            }
+        );
+        for (input, got) in [("", 0), ("1px 2px 3px", 3)] {
             let err = parse_style_perspective_origin(input).unwrap_err();
             assert!(
                 matches!(
@@ -1958,14 +2144,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn perspective_origin_does_not_accept_position_keywords() {
-        // BUG (spec deviation): CSS `perspective-origin` accepts the same
-        // left/center/right/top/bottom keywords as `transform-origin`, but this
-        // parser only takes pixel values. Pinned as current behaviour.
-        assert!(parse_style_perspective_origin("left top").is_err());
-        assert!(parse_style_perspective_origin("center center").is_err());
+    fn perspective_origin_accepts_position_keywords() {
+        // The same `<position>` keywords as `transform-origin`.
+        assert_eq!(
+            parse_style_perspective_origin("left top").unwrap(),
+            StylePerspectiveOrigin {
+                x: PixelValue::percent(0.0),
+                y: PixelValue::percent(0.0),
+            }
+        );
+        assert_eq!(
+            parse_style_perspective_origin("center center").unwrap(),
+            StylePerspectiveOrigin {
+                x: PixelValue::percent(50.0),
+                y: PixelValue::percent(50.0),
+            }
+        );
         assert!(matches!(
-            parse_style_perspective_origin("center center").unwrap_err(),
+            parse_style_perspective_origin("sideways up").unwrap_err(),
             CssStylePerspectiveOriginParseError::PixelValueParseError(_)
         ));
     }
@@ -2428,7 +2624,7 @@ mod autotest_generated {
             assert!(!alloc::format!("{err}").is_empty());
         }
         // ...and one straight out of the parser.
-        let err = parse_style_transform_origin("top left").unwrap_err();
+        let err = parse_style_transform_origin("left left").unwrap_err();
         assert_eq!(err.to_contained().to_shared(), err);
     }
 
@@ -2454,7 +2650,7 @@ mod autotest_generated {
             assert_eq!(owned.to_shared(), err, "round-trip failed for {err}");
             assert!(!alloc::format!("{err}").is_empty());
         }
-        let err = parse_style_perspective_origin("center center").unwrap_err();
+        let err = parse_style_perspective_origin("sideways up").unwrap_err();
         assert_eq!(err.to_contained().to_shared(), err);
     }
 

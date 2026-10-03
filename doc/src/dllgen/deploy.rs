@@ -2332,7 +2332,15 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "AzWriter",
             "a document editor - a full application",
         ),
+        // The visual GUI builder. Desktop only: it drives its window from a
+        // browser tab on the same machine (and ships no Dockerfile).
+        (
+            "AzBuilder",
+            "AzBuilder",
+            "the drag-and-drop GUI builder - opens its editor in your browser",
+        ),
     ];
+    const DESKTOP_ONLY: &[&str] = &["AzBuilder"];
     // OS suffix → label + filename extension, matching the build_demos staging
     // names (AzMaps-linux, AzMaps-macos, AzMaps-windows.exe).
     const DEMO_OSES: &[(&str, &str, &str)] = &[
@@ -2353,13 +2361,17 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         (
             "iOS device (.ipa, signed)",
             "mobile-apps/{c}-ios.ipa",
-            |_| true,
+            |c| !DESKTOP_ONLY.contains(&c),
         ),
-        ("iOS device (.app)", "mobile-apps/{c}-ios.app.zip", |_| true),
+        (
+            "iOS device (.app)",
+            "mobile-apps/{c}-ios.app.zip",
+            |c| !DESKTOP_ONLY.contains(&c),
+        ),
         (
             "iOS Simulator (.app)",
             "mobile-apps/{c}-ios-sim.app.zip",
-            |_| true,
+            |c| !DESKTOP_ONLY.contains(&c),
         ),
         (
             "Android (.apk, sideload)",
@@ -2397,6 +2409,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // separate web build, no recompile. The label is the ready-to-run command.
     let web_items: String = DEMO_APPS
         .iter()
+        .filter(|(crate_name, _, _)| !DESKTOP_ONLY.contains(crate_name))
         .map(|(crate_name, friendly, _desc)| {
             let url = asset_url(version, &format!("{crate_name}.Dockerfile"));
             // The image tag is the app's own name, lowercased - so the command
@@ -2460,6 +2473,14 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </nav>
 
               <h2 id='demos'>Demos</h2>
+              <div class='release-builder'>
+                <img src='{HTML_ROOT}/guide/images/debugger-initial.png' alt='AzBuilder in the browser: the DOM explorer with the component palette, the inspector and the terminal' loading='lazy'>
+                <div>
+                  <h3>AzBuilder - the visual GUI builder</h3>
+                  <p>Download AzBuilder for your OS below and run it: it opens a native window and, in your browser, a drag-and-drop editor for it - a palette of components with live native previews, a document tree with undo, convert-to-component, a project folder with a file tree and an editor, and export to code.</p>
+                  <p><a href='{HTML_ROOT}/guide/architecture/gui-builder'>GUI builder guide</a></p>
+                </div>
+              </div>
               <ul class='release-demos' id='demo-list'>
                 {demo_links}
               </ul>

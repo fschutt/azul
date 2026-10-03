@@ -15,6 +15,13 @@ pub const MODULES: &[&str] = &[
     "menu",
     "css",
     "widgets",
+    // The app shells (`azul_layout::widgets::shells`): the eleven window
+    // layouts and the pieces they share (OfficeShell, ShellNavigationPane,
+    // ShellCommandPalette, ...). Their own module, so a binding reads
+    // `from azul.shells import ShellNavigationPane`; the smaller items stay
+    // in `widgets`. Every class name carries "Shell", and the source path
+    // routes them too (`module_from_external_path`).
+    "shells",
     "gl",
     "image",
     "font",
@@ -44,6 +51,7 @@ pub const MODULES: &[&str] = &[
     "gamepad",
     "gesture",
     "tray",
+    "notification",
     "webtransport",
     "iroh",
     "db",
@@ -472,6 +480,39 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
         ],
     );
 
+    // App shells. Every class name carries "shell" (or "scaffold"), and the
+    // longer stems are spelled out so a shell type whose name also holds a
+    // dom or css word ("ShellNavigationPaneEvent" has "event",
+    // "ShellThemeAccentColors" has "color") still resolves here by length.
+    map.insert(
+        "shells",
+        vec![
+            "shell",
+            "scaffold",
+            "shellpane",           // ShellPane, ShellPaneKind
+            "shellon",             // ShellOnPaneFocus, ShellOnPaneResize
+            "shellnavigation",     // ShellNavigationPane, ShellNavigationGroup, ShellNavigationModule
+            "shellcommandpalette", // ShellCommandPalette
+            "shellpalette",        // ShellPaletteCommand
+            "shellsettings",       // ShellSettingsLayout, ShellSettingsSection
+            "shellemptystate",     // ShellEmptyState
+            "shelltheme",          // ShellThemeScope, ShellThemeAccent, ShellThemeAccentColors
+            "shellbottomtab",      // ShellBottomTab
+            "officeshell",
+            "documentshell",
+            "canvasshell",
+            "timelineshell",
+            "pimshell",
+            "browsershell",
+            "recordsshell",
+            "mediashell",
+            "developershell",
+            "utilityshell",
+            "callshell",
+            "mobileshell",
+        ],
+    );
+
     map
 }
 
@@ -568,6 +609,29 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // `AppConfig::natural_scroll` (9b-ii-b-i-a) belongs beside AppConfig, not
     // in `image` where the keyword pass filed it.
     ("NaturalScroll", "app"),
+    // The system-style tween durations sit beside `SystemStyle` and
+    // `ScrollPhysics` in css; by path (`azul_core::resources::`) the tool
+    // would file it under `image`, and no word of the name is a keyword.
+    ("SystemAnimations", "css"),
+    // One family, one module: the Svg* geometry/style/options types were
+    // scattered over css, gl, option and svg by whichever word of the name
+    // won (`SvgParseOptions` -> option, `SvgFillStyle` -> css). `SvgParseError`
+    // stays in error (structural names are settled before this table).
+    ("Svg", "svg"),
+    // A recolor IS a color mapping: these two sit beside `IconColorMapping`
+    // in css, not with the icon provider handles in window.
+    ("IconModeColors", "css"),
+    ("IconRecolor", "css"),
+    // System-wide hotkeys are grabbed for the APP (one App-owned manager,
+    // whatever window declares them), so they sit beside `App` and
+    // `AppConfig`. Without the entry "GLobalHotkey" contains the
+    // OpenGL module's own name and every one of them was filed under `gl`.
+    // Spelled "GlobalHotkey", NOT "Global" - fifth word-boundary trap (see
+    // Tablet/Table, Dial/Dialog, Hid/Hidpi, Media/MediaType below); nothing
+    // else in the API starts with it today. `GlobalHotkeyError` and the
+    // Result/Option wrappers are routed by the structural rules first.
+    ("GlobalHotkey", "app"),
+    ("HotkeyModifiers", "app"),
     // "Tablet*" collides with the css keyword "table".
     ("Tablet", "gesture"),
     // "Haptic*" has no keyword in any module, so it fell through to "misc".
@@ -614,6 +678,16 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // "event" is a dom keyword, so the transport events sorted into dom next to the DOM events.
     ("Wt", "webtransport"),
     ("Iroh", "iroh"),
+    // The CPU rasterizer's text style (`RawImage::from_text` / `draw_text`,
+    // `CallbackInfo::text_image`): "Style" filed it under css; it belongs
+    // beside `RawImage` in image (MEDIA6). Spelled in full - "Text" alone
+    // would capture every text type.
+    ("TextRasterStyle", "image"),
+    // The voice echo canceller (VIDEO8): no keyword matched, so it landed in
+    // "misc" and AzMeet's `azul::audio::EchoCanceller` did not resolve; it
+    // belongs beside `AudioEncoder` / `AudioDecoder` in audio. In full - "Echo"
+    // alone is too broad.
+    ("EchoCanceller", "audio"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -624,6 +698,77 @@ fn difficult_type_module(type_name: &str) -> Option<&'static str> {
         .map(|(_, module)| *module)
 }
 
+/// Byte offsets where a CamelCase (or snake_case) word starts in `name`:
+/// `AccordionVariant` -> {0, 9}, `CSSProperty` -> {0, 3}, `node_id` -> {0, 5}.
+fn word_starts(name: &str) -> Vec<usize> {
+    let b = name.as_bytes();
+    let mut starts = Vec::new();
+    for i in 0..b.len() {
+        let c = b[i];
+        if c == b'_' {
+            continue;
+        }
+        let prev = if i == 0 { None } else { Some(b[i - 1]) };
+        let next = b.get(i + 1).copied();
+        let is_start = match prev {
+            None => true,
+            Some(b'_') => true,
+            Some(p) => {
+                // lower->Upper (`nI`), digit boundaries, or the last capital of
+                // an acronym run (`SSP` in `CSSProperty`: `P` precedes a lower)
+                (c.is_ascii_uppercase() && !p.is_ascii_uppercase())
+                    || (c.is_ascii_uppercase()
+                        && p.is_ascii_uppercase()
+                        && next.is_some_and(|n| n.is_ascii_lowercase()))
+            }
+        };
+        if is_start {
+            starts.push(i);
+        }
+    }
+    starts
+}
+
+/// `keyword` occurs in `type_name` as whole words: it starts on a word
+/// boundary and ends on one. `aria` is INSIDE `AccordionVariant` but is not
+/// a word of it; `node` is a word of `NodeId`, `tabindex` of `TabIndex`.
+fn keyword_is_whole_word(type_name: &str, keyword: &str) -> bool {
+    let lower = type_name.to_lowercase();
+    let starts = word_starts(type_name);
+    let mut from = 0;
+    while let Some(off) = lower[from..].find(keyword) {
+        let i = from + off;
+        let end = i + keyword.len();
+        let ends_on_boundary =
+            end == lower.len() || starts.contains(&end) || lower.as_bytes()[end] == b'_';
+        if starts.contains(&i) && ends_on_boundary {
+            return true;
+        }
+        from = i + 1;
+    }
+    false
+}
+
+/// THE "is a Vec type" rule: the generated `*Vec` and its destructor / ref
+/// helpers, all of which live in the `vec` module. One function for the
+/// name-only classifier (`determine_module`), the widget rule
+/// (`widget_module_for`) and the move check (`get_correct_module_with_path`):
+/// three hand-written copies of this list drifted apart (only one counted
+/// `vecslice`) and misfiled 14 widget slices. A `*VecSlice` is not one of
+/// them - it is a borrowed view of its element and lives with the element.
+/// `Option*Vec` is an Option: every caller tests the `Option` prefix first.
+pub fn is_vec_family(type_name: &str) -> bool {
+    let lower = type_name.to_lowercase();
+    ["vec", "vecdestructor", "vecdestructortype", "vecref", "vecrefmut"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+}
+
+/// (module, is_guess). `is_guess` is true when no keyword matched (`misc`)
+/// AND when the winning keyword is only a substring of the name, not one of
+/// its words - `aria` inside `AccordionVariant` chose `dom` for a widget
+/// enum (2026-10-01). A guess still names a module; the caller that has
+/// the source path lets the path decide instead.
 pub fn determine_module(type_name: &str) -> (String, bool) {
     let lower_name = type_name.to_lowercase();
 
@@ -634,12 +779,7 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     }
 
     // Priority 2: Vec types go to vec module
-    if lower_name.ends_with("vec")
-        || lower_name.ends_with("vecdestructor")
-        || lower_name.ends_with("vecdestructortype")
-        || lower_name.ends_with("vecref")
-        || lower_name.ends_with("vecrefmut")
-    {
+    if is_vec_family(type_name) {
         return ("vec".to_string(), false);
     }
 
@@ -694,15 +834,96 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     // stronger evidence than a shared word — "FilePath" contains the module
     // name "file" AND svg's generic keyword "path", both length 4: `file`
     // must win); remaining ties fall to module order (first in MODULES wins).
-    matches.sort_by(|a, b| match b.2.cmp(&a.2) {
-        std::cmp::Ordering::Equal => match b.4.cmp(&a.4) {
-            std::cmp::Ordering::Equal => a.3.cmp(&b.3),
+    // A keyword that is a WORD of the name outranks every substring match,
+    // whatever their lengths: `component` (a word of `ComponentDefaultValue`)
+    // beats the longer `defaultvalue`-style accidents, `font` in `FontMetrics`
+    // beats `metrics`. Among equals the old order holds.
+    let whole = |m: &(&str, &str, usize, usize, bool)| keyword_is_whole_word(type_name, m.1);
+    matches.sort_by(|a, b| match whole(b).cmp(&whole(a)) {
+        std::cmp::Ordering::Equal => match b.2.cmp(&a.2) {
+            std::cmp::Ordering::Equal => match b.4.cmp(&a.4) {
+                std::cmp::Ordering::Equal => a.3.cmp(&b.3),
+                other => other,
+            },
             other => other,
         },
         other => other,
     });
 
-    (matches[0].0.to_string(), false)
+    let (module, keyword, ..) = matches[0];
+    (module.to_string(), !keyword_is_whole_word(type_name, keyword))
+}
+
+/// THE module of a type whose source is a widget (`azul_layout::widgets::`),
+/// used by every path that places or checks a widget type (the add command,
+/// the scan's additions, the scan's move check) - two rules used to disagree,
+/// so the scan moved callback wrappers the add had put in `dom` out to
+/// `shells` and the next modify landed in an empty stub (2026-10-01).
+/// Widget types live in `widgets` (the app shells in `shells`) EXCEPT the
+/// by-concern types, which match the established placement: `*CallbackType`
+/// -> callbacks, `*Callback` -> dom, `Option*` -> option, the `*Vec` family
+/// -> vec (a `*VecSlice` stays with its widget). `None` for a non-widget
+/// path: the caller falls back to `determine_module`.
+pub fn widget_module_for(type_name: &str, full_path: &str) -> Option<String> {
+    if !full_path.starts_with("azul_layout::widgets::") {
+        return None;
+    }
+    let module = if type_name.ends_with("CallbackType") {
+        "callbacks"
+    } else if type_name.ends_with("Callback") {
+        "dom"
+    } else if type_name.starts_with("Option") {
+        "option"
+    } else if is_vec_family(type_name) {
+        "vec"
+    } else if full_path.starts_with("azul_layout::widgets::shells::") {
+        // The app shells (OfficeShell, ShellNavigationPane, the S1..S11
+        // shells) have a module of their own, apart from the smaller
+        // widgets: `from azul.shells import ShellNavigationPane`.
+        "shells"
+    } else {
+        "widgets"
+    };
+    Some(module.to_string())
+}
+
+/// Whether the name alone settles the module: `Option*`, the `*Vec` family,
+/// `*Error`, `Result*` (the scan never lets a path or a table move these).
+fn is_structural(type_name: &str) -> bool {
+    let lower = type_name.to_lowercase();
+    lower.starts_with("option")
+        || is_vec_family(type_name)
+        || lower.ends_with("error")
+        || lower.starts_with("result")
+}
+
+/// THE module of a type api.json does not have yet, `(module, is_guess)`,
+/// for every path that adds one (`autofix add`, its dependency types, the
+/// scan's additions, an Add patch without a module): the placement the
+/// scan's move check ([`get_correct_module_with_path`]) keeps, decided in
+/// its order - a structural name, the exceptions table, the widget rule, a
+/// confident keyword, then the module of the source path, else the
+/// keyword's guess (`misc`). The add used a rule of its own (widget rule,
+/// else keywords), so the next scan moved a keyword-less name out of
+/// `misc` and a widget's `*Error` out of `widgets`.
+pub fn new_type_module(type_name: &str, full_path: &str) -> (String, bool) {
+    let (by_name, is_guess) = determine_module(type_name);
+    if is_structural(type_name) && !is_guess {
+        return (by_name, false);
+    }
+    if let Some(forced) = difficult_type_module(type_name) {
+        return (forced.to_string(), false);
+    }
+    if let Some(module) = widget_module_for(type_name, full_path) {
+        return (module, false);
+    }
+    if !is_guess {
+        return (by_name, false);
+    }
+    match module_from_external_path(full_path) {
+        Some(module) => (module, false),
+        None => (by_name, true),
+    }
 }
 
 /// Check if a type is in the correct module and return the correct module if not.
@@ -722,19 +943,12 @@ pub fn get_correct_module_with_path(
 ) -> Option<String> {
     let (name_module, is_warning) = determine_module(type_name);
 
-    // Hard-coded module assignments (Vec/Option/Error) always win — they're structural
-    let lower_name = type_name.to_lowercase();
-    let is_structural = lower_name.starts_with("option")
-        || lower_name.ends_with("vec")
-        || lower_name.ends_with("vecdestructor")
-        || lower_name.ends_with("vecdestructortype")
-        || lower_name.ends_with("vecref")
-        || lower_name.ends_with("vecrefmut")
-        || lower_name.ends_with("vecslice")
-        || lower_name.ends_with("error")
-        || lower_name.starts_with("result");
-
-    if is_structural && !is_warning {
+    // Hard-coded module assignments (Vec/Option/Error) always win — they're
+    // structural. A `*VecSlice` is NOT structural: it lives with its element
+    // (a widget's slice with its widget, below). Counting it here answered
+    // with the name's keyword before the widget rule was asked, so
+    // `CellGridRangeVecSlice` was "correct" in css (DEDUP_WIDGETS_API F17).
+    if is_structural(type_name) && !is_warning {
         if name_module != current_module {
             return Some(name_module);
         } else {
@@ -752,6 +966,11 @@ pub fn get_correct_module_with_path(
     // `HidDeviceVec` from `vec`.
     if let Some(forced) = difficult_type_module(type_name) {
         return (forced != current_module).then(|| forced.to_string());
+    }
+
+    // A widget type is placed by the one widget rule, never by keywords.
+    if let Some(module) = external_path.and_then(|p| widget_module_for(type_name, p)) {
+        return (module != current_module).then_some(module);
     }
 
     // If the external path CONFIRMS the current module, the type is correctly
@@ -853,6 +1072,12 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_layout::xml::") {
         return Some("dom".to_string());
     }
+    // The app shells have a module of their own (`shells`), apart from the
+    // smaller widgets: checked BEFORE the widgets arm, which would otherwise
+    // claim the path.
+    if path.starts_with("azul_layout::widgets::shells::") {
+        return Some("shells".to_string());
+    }
     // Widget types (Button, TextInput, MapWidget, …) live in the `widgets`
     // module regardless of their Rust submodule (e.g. `widgets::map::MapWidget`).
     // Without this arm, types in a nested widget submodule fell through to the
@@ -898,6 +1123,11 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_core::tray::") {
         return Some("tray".to_string());
     }
+    // Native notifications: the tray's sibling, routed the same way - by path,
+    // so no name keyword of another module claims one of its types.
+    if path.starts_with("azul_core::notification::") {
+        return Some("notification".to_string());
+    }
     if path.starts_with("azul_core::url::") {
         return Some("url".to_string());
     }
@@ -919,6 +1149,10 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     // Same for the image-decode result struct (`ImageDecodeResult`).
     if path.starts_with("azul_layout::image::") {
+        return Some("image".to_string());
+    }
+    // The CPU rasterizer draws into a `RawImage` (text to pixels too).
+    if path.starts_with("azul_layout::cpurender::") {
         return Some("image".to_string());
     }
     if path.starts_with("azul_layout::fmt::") {
@@ -945,7 +1179,9 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_dll::unified::pdf::") {
         return Some("pdf".to_string());
     }
-    if path.starts_with("azul_dll::unified::video_codec::") {
+    if path.starts_with("azul_dll::unified::video_codec::")
+        || path.starts_with("azul_dll::desktop::extra::video_codec::")
+    {
         return Some("video".to_string());
     }
     if path.starts_with("azul_dll::unified::webtransport::") {
@@ -1048,6 +1284,143 @@ pub fn analyze_ffi_difficulty(type_str: &str) -> FfiDifficulty {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_keyword_counts_only_as_a_whole_word_of_the_name() {
+        assert!(keyword_is_whole_word("NodeId", "node"));
+        assert!(keyword_is_whole_word("TabIndex", "tabindex"));
+        assert!(keyword_is_whole_word("StyledDom", "dom"));
+        assert!(keyword_is_whole_word("CSSProperty", "property"));
+        assert!(keyword_is_whole_word("css_property", "css"));
+        assert!(!keyword_is_whole_word("AccordionVariant", "aria"));
+        assert!(!keyword_is_whole_word("Random", "dom"));
+        assert_eq!(word_starts("AccordionVariant"), vec![0, 9]);
+        assert_eq!(word_starts("CSSProperty"), vec![0, 3]);
+    }
+
+    /// A plain widget struct/enum that the keyword matcher files elsewhere by a
+    /// coincidental word in its name is still a widget: the scan moves it to
+    /// `widgets`. `AccordionVariant` sat in `dom` for one round (2026-10-01).
+    #[test]
+    fn a_widget_enum_misfiled_by_its_name_is_moved_to_widgets() {
+        assert_eq!(
+            get_correct_module_with_path(
+                "AccordionVariant",
+                "dom",
+                Some("azul_layout::widgets::accordion::AccordionVariant"),
+            ),
+            Some("widgets".to_string())
+        );
+        assert_eq!(
+            get_correct_module_with_path(
+                "AccordionVariant",
+                "widgets",
+                Some("azul_layout::widgets::accordion::AccordionVariant"),
+            ),
+            None
+        );
+    }
+
+    /// The scan's move check and the add command place widget types by the
+    /// same rule: a shell's callback wrapper stays in dom, its typedef in
+    /// callbacks, its Vec in vec, the shell itself in shells.
+    #[test]
+    fn the_move_check_uses_the_widget_rule_of_the_add_command() {
+        let path = |t: &str| format!("azul_layout::widgets::shells::command_palette::{t}");
+        for (name, module) in [
+            ("ShellCommandPaletteOnRunCallback", "dom"),
+            ("ShellCommandPaletteOnRunCallbackType", "callbacks"),
+            ("OptionShellCommandPaletteOnRun", "option"),
+            ("ShellPaletteCommandVec", "vec"),
+            ("ShellPaletteCommandVecSlice", "shells"),
+            ("ShellCommandPalette", "shells"),
+        ] {
+            assert_eq!(widget_module_for(name, &path(name)).as_deref(), Some(module), "{name}");
+            assert_eq!(get_correct_module_with_path(name, module, Some(&path(name))), None, "{name}");
+        }
+        assert_eq!(
+            get_correct_module_with_path(
+                "ShellCommandPaletteOnRunCallback",
+                "shells",
+                Some(&path("ShellCommandPaletteOnRunCallback"))
+            )
+            .as_deref(),
+            Some("dom")
+        );
+    }
+
+    /// The by-concern widget placements stay: callback wrappers in dom,
+    /// callback typedefs in callbacks, options in option, vecs in vec.
+    #[test]
+    fn the_by_concern_widget_placements_are_not_moved() {
+        for (name, module) in [
+            ("ButtonOnClickCallback", "dom"),
+            ("ButtonOnClickCallbackType", "callbacks"),
+            ("OptionButtonOnClick", "option"),
+            ("RibbonTabVec", "vec"),
+        ] {
+            assert_eq!(
+                get_correct_module_with_path(name, module, Some("azul_layout::widgets::button::X")),
+                None,
+                "{name} in {module}"
+            );
+        }
+    }
+
+    /// `autofix add` placed a new type by a rule of its own (the widget rule,
+    /// else the name's keywords) and the scan's move check by another: a name
+    /// no keyword knows went to `misc` and the next scan moved it to its
+    /// path's module; a widget's `*Error` went to `widgets` and the scan moved
+    /// it to `error`. One rule for a new type: the placement the scan keeps.
+    /// And `TextRasterStyle` (the CPU rasterizer's text style, beside
+    /// `RawImage`) went to `css` by the word "Style"; MEDIA6 wanted `image` -
+    /// the exceptions table names it, so the scan moves the one api.json has.
+    #[test]
+    fn a_new_type_goes_where_the_scan_keeps_it() {
+        let raster = "azul_layout::cpurender::text_raster::TextRasterStyle";
+        assert_eq!(new_type_module("TextRasterStyle", raster), ("image".to_string(), false));
+        assert_eq!(
+            get_correct_module_with_path("TextRasterStyle", "css", Some(raster)).as_deref(),
+            Some("image"),
+            "the one api.json already has moves to image"
+        );
+        assert_eq!(
+            new_type_module("Quux", "azul_layout::cpurender::quux::Quux").0,
+            "image",
+            "a name no keyword knows goes where it lives"
+        );
+        assert_eq!(
+            new_type_module("ListViewError", "azul_layout::widgets::list_view::ListViewError").0,
+            "error"
+        );
+        // DEDUP_WIDGETS_API F17: a `*VecSlice` lives with its element - a
+        // widget's slice in widgets, even when a word of its name is a
+        // keyword of another module ("grid", "range")
+        let slice = "azul_layout::widgets::cell_grid::CellGridRangeVecSlice";
+        assert_eq!(new_type_module("CellGridRangeVecSlice", slice).0, "widgets");
+        assert_eq!(get_correct_module_with_path("CellGridRangeVecSlice", "css", Some(slice)).as_deref(), Some("widgets"));
+        for (name, path) in [
+            ("TextRasterStyle", raster),
+            ("Quux", "azul_layout::cpurender::quux::Quux"),
+            ("OptionTextRasterStyle", "azul_layout::cpurender::text_raster::OptionTextRasterStyle"),
+            ("TextRasterError", "azul_layout::cpurender::text_raster::TextRasterError"),
+            ("ListViewError", "azul_layout::widgets::list_view::ListViewError"),
+            ("FocusTarget", "azul_core::dom::FocusTarget"),
+            ("ComponentFoo", "azul_core::xml::ComponentFoo"),
+            ("ButtonOnClickCallback", "azul_layout::widgets::button::ButtonOnClickCallback"),
+            ("ShellPaletteCommandVecSlice", "azul_layout::widgets::shells::p::ShellPaletteCommandVecSlice"),
+            ("WindowFlags", "azul_core::window::WindowFlags"),
+            ("SvgFillStyle", "azul_layout::svg::SvgFillStyle"),
+            ("Quux", "azul_layout::nowhere::Quux"),
+        ] {
+            let (module, _) = new_type_module(name, path);
+            assert_eq!(
+                get_correct_module_with_path(name, &module, Some(path)),
+                None,
+                "{name} added to {module} must stay there"
+            );
+        }
+    }
 
     #[test]
     fn test_vec_types() {
@@ -1282,6 +1655,62 @@ mod tests {
         stays("DbError", "error", "azul_core::db::DbError");
     }
 
+    /// The app shells resolve to their own module, `shells`, by name - the
+    /// S-shells by their "shell" stem, the shared pieces by the longer stems
+    /// that outrank the dom and css words inside their names - and by their
+    /// source path.
+    #[test]
+    fn shell_types_resolve_to_shells_by_name_and_by_path() {
+        for name in [
+            "OfficeShell",
+            "ShellPane",
+            "ShellPaneKind",
+            "ShellOnPaneFocus",
+            "ShellOnPaneResize",
+            "ShellNavigationPane",
+            "ShellNavigationPaneEvent",
+            "ShellNavigationPaneEventKind",
+            "ShellNavigationGroup",
+            "ShellNavigationModule",
+            "ShellCommandPalette",
+            "ShellPaletteCommand",
+            "ShellSettingsLayout",
+            "ShellSettingsSection",
+            "ShellEmptyState",
+            "ShellThemeScope",
+            "ShellThemeAccent",
+            "ShellThemeAccentColors",
+            "ShellBottomTab",
+            "DocumentShell",
+            "CanvasShell",
+            "TimelineShell",
+            "PimShell",
+            "BrowserShell",
+            "RecordsShell",
+            "MediaShell",
+            "DeveloperShell",
+            "UtilityShell",
+            "CallShell",
+            "MobileShell",
+        ] {
+            let (module, is_warning) = determine_module(name);
+            assert_eq!(module, "shells", "{name} must resolve to shells");
+            assert!(!is_warning, "{name} must resolve confidently");
+        }
+        assert_eq!(
+            module_from_external_path("azul_layout::widgets::shells::office_shell::OfficeShell"),
+            Some("shells".to_string())
+        );
+        assert_eq!(
+            module_from_external_path("azul_layout::widgets::button::Button"),
+            Some("widgets".to_string()),
+            "the smaller widgets stay in widgets"
+        );
+        // The by-concern types keep the established placement.
+        assert_eq!(determine_module("OptionShellPane").0, "option");
+        assert_eq!(determine_module("ShellPaneVec").0, "vec");
+    }
+
     #[test]
     fn test_exclude_paths() {
         use std::path::Path;
@@ -1356,6 +1785,7 @@ mod tests {
     fn the_media_session_entries_do_not_capture_the_css_media_type() {
         assert_eq!(difficult_type_module("MediaPlaybackState"), Some("audio"));
         assert_eq!(difficult_type_module("NowPlayingInfo"), Some("audio"));
+        assert_eq!(difficult_type_module("EchoCanceller"), Some("audio"));
         assert_eq!(difficult_type_module("MediaType"), None);
         assert_ne!(determine_module("MediaType").0, "audio");
     }
@@ -1369,6 +1799,46 @@ mod tests {
         // The Option wrapper is routed by the option rule, not by this table,
         // and must keep going to "option" rather than following the prefix.
         assert_eq!(determine_module("OptionInputSample").0, "option");
+    }
+
+    /// "GlobalHotkey" contains the OpenGL module's own name ("GLobal"), and a
+    /// module-name match outranks a keyword, so every global-hotkey type was
+    /// filed under `gl`. They are app-wide registrations and belong beside
+    /// `App`; the structural rules (error / Result / Option) must still win.
+    #[test]
+    fn global_hotkey_types_resolve_to_app_not_gl() {
+        for name in [
+            "GlobalHotkey",
+            "GlobalHotkeyId",
+            "GlobalHotkeyStatus",
+            "HotkeyModifiers",
+            // The declarative API (2026-09-28): the plural "GlobalHotkeys"
+            // of the AppConfig callback is still the same prefix.
+            "GlobalHotkeyCallbackData",
+            "GlobalHotkeyInfo",
+            "GlobalHotkeyOwner",
+            "GlobalHotkeyState",
+            "GlobalHotkeyEvent",
+            "GlobalHotkeysCallback",
+            "GlobalHotkeysCallbackInfo",
+            "GlobalHotkeysCallbackType",
+        ] {
+            let (module, is_warning) = determine_module(name);
+            assert_eq!(module, "app", "{name} must resolve to app");
+            assert!(!is_warning, "{name} must resolve confidently");
+        }
+        assert_eq!(determine_module("GlobalHotkeyError").0, "error");
+        assert_eq!(
+            determine_module("ResultGlobalHotkeyGlobalHotkeyError").0,
+            "error"
+        );
+        assert_eq!(determine_module("GlobalHotkeyInfoVec").0, "vec");
+        assert_eq!(determine_module("GlobalHotkeyCallbackDataVec").0, "vec");
+        assert_eq!(determine_module("OptionGlobalHotkeyEvent").0, "option");
+        assert_eq!(determine_module("OptionGlobalHotkeysCallback").0, "option");
+        // Spelled "GlobalHotkey", not "Global": the fifth word-boundary trap
+        // this table would otherwise have grown.
+        assert_eq!(difficult_type_module("GlobalCss"), None);
     }
 
     /// The override is a PREFIX match, so it must not capture the css `table`
@@ -1422,5 +1892,93 @@ mod tests {
         assert_eq!(difficult_type_module("FontMetrics"), None);
         // ...and still reach a module through the heuristic.
         assert!(!determine_module("FontMetrics").0.is_empty());
+    }
+
+    /// A widget's `*VecSlice` stays with its widget, whatever keyword its
+    /// name contains: `CellGridRangeVecSlice` holds "grid" (a css keyword),
+    /// `ToDoTaskVecSlice` "task", `WizardOptionVecSlice` "option",
+    /// `WizardComponentVecSlice` "component", the node graph's slices
+    /// "node" / "input" (dom). The move check treated `vecslice` as a
+    /// structural suffix and returned the keyword answer before it asked the
+    /// widget rule, so 14 widget slices sat in css / task / option /
+    /// component / dom (DEDUP_WIDGETS_API F17).
+    #[test]
+    fn a_widget_vec_slice_is_placed_by_the_widget_rule_not_by_its_name() {
+        for (name, file) in [
+            ("CellGridRangeVecSlice", "cell_grid"),
+            ("CellGridSizeVecSlice", "cell_grid"),
+            ("TimelineClipVecSlice", "timeline"),
+            ("ToDoTaskVecSlice", "todo_bar"),
+            ("WizardOptionVecSlice", "wizard_pages"),
+            ("WizardComponentVecSlice", "wizard_pages"),
+            ("InputConnectionVecSlice", "node_graph"),
+            ("NodeTypeFieldVecSlice", "node_graph"),
+            ("OutputNodeAndIndexVecSlice", "node_graph"),
+        ] {
+            let path = format!("azul_layout::widgets::{file}::{name}");
+            assert_eq!(
+                widget_module_for(name, &path).as_deref(),
+                Some("widgets"),
+                "{name}: the add command's rule"
+            );
+            assert_eq!(
+                get_correct_module_with_path(name, "widgets", Some(&path)),
+                None,
+                "{name} in widgets must stay there"
+            );
+            let (keyword_module, _) = determine_module(name);
+            assert_eq!(
+                get_correct_module_with_path(name, &keyword_module, Some(&path)).as_deref(),
+                Some("widgets"),
+                "{name} in {keyword_module} must move to widgets"
+            );
+        }
+    }
+
+    /// One "is a Vec type" rule: the name-only classifier, the widget rule
+    /// and the move check agree on every member of the Vec family, and none
+    /// of them counts a `*VecSlice` as one (a slice is a borrowed view of its
+    /// element and lives with it: `StringVecSlice` in `str`, `DomVecSlice` in
+    /// `dom`).
+    #[test]
+    fn the_three_vec_rules_agree_and_a_vec_slice_is_not_a_vec() {
+        let widget = |t: &str| format!("azul_layout::widgets::ribbon::{t}");
+        for name in [
+            "RibbonTabVec",
+            "RibbonTabVecDestructor",
+            "RibbonTabVecDestructorType",
+            "RibbonTabVecRef",
+            "RibbonTabVecRefMut",
+        ] {
+            assert_eq!(determine_module(name).0, "vec", "{name}");
+            assert_eq!(widget_module_for(name, &widget(name)).as_deref(), Some("vec"), "{name}");
+            assert_eq!(
+                get_correct_module_with_path(name, "widgets", Some(&widget(name))).as_deref(),
+                Some("vec"),
+                "{name}"
+            );
+        }
+        assert_ne!(determine_module("RibbonTabVecSlice").0, "vec");
+        assert_eq!(
+            widget_module_for("RibbonTabVecSlice", &widget("RibbonTabVecSlice")).as_deref(),
+            Some("widgets")
+        );
+        // Non-widget slices keep their established, element-based modules.
+        assert_eq!(
+            get_correct_module_with_path(
+                "StringVecSlice",
+                "str",
+                Some("azul_css::corety::StringVecSlice")
+            ),
+            None
+        );
+        assert_eq!(
+            get_correct_module_with_path(
+                "DomVecSlice",
+                "dom",
+                Some("azul_core::dom::DomVecSlice")
+            ),
+            None
+        );
     }
 }

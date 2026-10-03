@@ -54,6 +54,13 @@ pub enum TransientAnchor {
     /// At the pointer position rather than the anchor rect - what a context
     /// menu does.
     Cursor,
+    /// Covering the parent window's whole viewport, whatever the anchor
+    /// node's own rect: the window's origin is the parent's (0,0) and its
+    /// content is laid out at the viewport's size, following the parent as
+    /// it is resized. The TOP LAYER of a modal dialog - its `::backdrop`
+    /// fills the window and the dialog sits centred on it, so nothing in
+    /// the parent can be reached by the pointer while it is open.
+    Viewport,
 }
 
 /// What closes a transient window without the app asking.
@@ -69,6 +76,12 @@ pub enum TransientDismiss {
     Escape,
     /// Nothing closes it but the app. For palettes that stay up.
     None,
+    /// A press outside the window (or the window losing focus) closes it,
+    /// but Escape is left to the CONTENT. For a dialog: it answers Escape
+    /// itself, with a cancelable `cancel` step first (HTML `<dialog
+    /// closedby="any">`), which an engine-side Escape - decided before any
+    /// callback runs - would skip.
+    OutsideOnly,
 }
 
 /// Whether - and how - the user may drag a transient window away from its
@@ -348,6 +361,7 @@ impl TransientAnchor {
             Self::Left => "left",
             Self::Right => "right",
             Self::Cursor => "cursor",
+            Self::Viewport => "viewport",
         }
     }
 
@@ -361,6 +375,7 @@ impl TransientAnchor {
             "left" => Self::Left,
             "right" => Self::Right,
             "cursor" => Self::Cursor,
+            "viewport" => Self::Viewport,
             _ => Self::Bottom,
         }
     }
@@ -373,6 +388,7 @@ impl TransientDismiss {
             Self::Outside => "outside",
             Self::Escape => "escape",
             Self::None => "none",
+            Self::OutsideOnly => "outside-only",
         }
     }
 
@@ -381,6 +397,7 @@ impl TransientDismiss {
         match s.trim() {
             "escape" => Self::Escape,
             "none" => Self::None,
+            "outside-only" => Self::OutsideOnly,
             _ => Self::Outside,
         }
     }
@@ -415,6 +432,7 @@ mod tests {
             TransientAnchor::Left,
             TransientAnchor::Right,
             TransientAnchor::Cursor,
+            TransientAnchor::Viewport,
         ] {
             assert_eq!(TransientAnchor::parse(a.as_str()), a);
         }
@@ -422,6 +440,7 @@ mod tests {
             TransientDismiss::Outside,
             TransientDismiss::Escape,
             TransientDismiss::None,
+            TransientDismiss::OutsideOnly,
         ] {
             assert_eq!(TransientDismiss::parse(d.as_str()), d);
         }

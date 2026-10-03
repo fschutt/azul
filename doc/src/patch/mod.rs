@@ -162,6 +162,22 @@ impl ClassPatch {
             && self.constructors.is_none()
             && self.functions.is_none()
             && self.move_to_module.is_none()
+            && !self.has_removals()
+    }
+
+    /// Whether the patch removes entries of the class (functions,
+    /// constructors, derives, custom impls).
+    pub fn has_removals(&self) -> bool {
+        self.remove_functions.is_some()
+            || self.remove_constructors.is_some()
+            || self.remove_derive.is_some()
+            || self.remove_custom_impls.is_some()
+    }
+
+    /// Whether the patch only removes entries: applied to a class the module
+    /// does not have, it has nothing to do (it never creates the class).
+    pub fn removes_only(&self) -> bool {
+        self.has_removals() && self.carries_nothing_but_removals()
     }
 
     /// Check if this patch is a removal patch
@@ -174,8 +190,16 @@ impl ClassPatch {
         self.move_to_module.is_some()
     }
 
-    /// Check if this patch is completely empty (no fields set)
+    /// Check if this patch is completely empty (no fields set). The `remove_*`
+    /// lists count: a move patch that also removes functions was applied as
+    /// "empty" after the move and lost its removals (AUTOFIX6).
     pub fn is_empty(&self) -> bool {
+        !self.has_removals() && self.carries_nothing_but_removals()
+    }
+
+    /// No field set but the `remove_*` lists (and the merge flags, which only
+    /// say how a set field is applied).
+    fn carries_nothing_but_removals(&self) -> bool {
         self.remove.is_none()
             && self.move_to_module.is_none()
             && self.external.is_none()
@@ -269,6 +293,11 @@ impl ApiPatch {
                 }
             }
         }
+
+        // File-name order, not the file system's: the scan numbers its
+        // patches (`0001_...`) for it, and a pending `add_*` goes before a
+        // later `remove_*` of the same entry.
+        patches.sort_by(|a, b| a.0.cmp(&b.0));
 
         Ok(patches)
     }
@@ -373,7 +402,8 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
 
     println!("[FIX] Applying {} patch files...\n", patches.len());
 
-    for (filename, patch) in patches {
+    for (filename, patch) in &patches {
+        let filename = filename.clone();
         print!("  Applying {}... ", filename);
 
         match patch.apply(api_data) {
@@ -404,7 +434,107 @@ pub fn apply_patches_from_directory(api_data: &mut ApiData, dir_path: &Path) -> 
         }
     }
 
+    // A patch that reported "[OK]" but whose functions a later patch of the
+    // round dropped is an error too
+    for (filename, entry) in dropped_entries(&patches, api_data) {
+        println!("  [DROPPED] {}: {}", filename, entry);
+        stats.patch_errors.push((
+            filename,
+            format!("{entry} was written but is not in api.json after the round (a later patch dropped it)"),
+        ));
+    }
+
     Ok(stats)
+}
+
+/// The functions and constructors the patches of one round write that the
+/// final api.json does not have, as `(file name, "Class.name")`: dropped by a
+/// later patch of the round (a replace-mode map). A later removal of the
+/// entry or its whole class is not a drop.
+pub fn dropped_entries(patches: &[(String, ApiPatch)], api_data: &ApiData) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (i, (filename, patch)) in patches.iter().enumerate() {
+        for (version, version_patch) in &patch.versions {
+            for module_patch in version_patch.modules.values() {
+                for (class, cp) in &module_patch.classes {
+                    if cp.is_removal() {
+                        continue;
+                    }
+                    let written = [(&cp.functions, false), (&cp.constructors, true)];
+                    for (map, constructor) in written {
+                        for name in map.iter().flat_map(|entries| entries.keys()) {
+                            let entry = EntryRef {
+                                version: version.as_str(),
+                                class: class.as_str(),
+                                name: name.as_str(),
+                                constructor,
+                            };
+                            if !entry.removed_after(patches, i) && !entry.is_in(api_data) {
+                                out.push((filename.clone(), format!("{class}.{name}")));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A function (constructor) of a class, as a patch names it.
+struct EntryRef<'a> {
+    version: &'a str,
+    class: &'a str,
+    name: &'a str,
+    constructor: bool,
+}
+
+impl EntryRef<'_> {
+    /// Whether a patch after the `after`-th removes the entry or its class.
+    fn removed_after(&self, patches: &[(String, ApiPatch)], after: usize) -> bool {
+        patches.iter().skip(after + 1).any(|(_, patch)| {
+            let Some(version) = patch.versions.get(self.version) else {
+                return false;
+            };
+            version
+                .modules
+                .values()
+                .filter_map(|m| m.classes.get(self.class))
+                .any(|later| {
+                    let list = if self.constructor {
+                        &later.remove_constructors
+                    } else {
+                        &later.remove_functions
+                    };
+                    later.is_removal()
+                        || list
+                            .iter()
+                            .flatten()
+                            .any(|n| n.as_str() == self.name || n.as_str() == "*")
+                })
+        })
+    }
+
+    /// Whether api.json has the entry, in any module (a later patch may
+    /// have moved the class).
+    fn is_in(&self, api_data: &ApiData) -> bool {
+        let Some(version) = api_data.0.get(self.version) else {
+            return false;
+        };
+        version
+            .api
+            .values()
+            .filter_map(|m| m.classes.get(self.class))
+            .any(|c| {
+                let map = if self.constructor {
+                    &c.constructors
+                } else {
+                    &c.functions
+                };
+                map.as_ref()
+                    .is_some_and(|entries| entries.contains_key(self.name))
+            })
+    }
 }
 
 /// Explain what patches in a directory will do without applying them
@@ -1073,6 +1203,13 @@ fn apply_module_patch(
         if let Some(class_data) = module_data.classes.get_mut(class_name) {
             // Update existing class
             patches_applied += apply_class_patch(class_data, class_patch, module_name, class_name)?;
+        } else if class_patch.removes_only() {
+            // Nothing to remove from a class the module does not have; a
+            // removal never creates the class
+            eprintln!(
+                "Warning: Class '{}' not found in module '{}' - nothing to remove",
+                class_name, module_name
+            );
         } else {
             // Insert new class from patch
             if !class_patch.is_empty() {
@@ -1828,6 +1965,121 @@ mod tests {
             Some("new::path::TestClass".to_string()),
             "External path should be updated when in patch"
         );
+    }
+
+    /// The patches of a folder apply in file-name order: the scan numbers its
+    /// patches for that, and a pending `add_*` must go before a later
+    /// `remove_*` of the same entry. `read_dir` order is the file system's.
+    #[test]
+    fn patches_in_a_folder_apply_in_file_name_order() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let names = [
+            "remove_x_m.patch.json",
+            "0002_modify_b.patch.json",
+            "add_x_m.patch.json",
+            "0001_add_a.patch.json",
+            "0010_remove_c.patch.json",
+        ];
+        for name in names {
+            fs::write(dir.path().join(name), r#"{"versions": {}}"#).expect("patch written");
+        }
+        let loaded: Vec<String> = ApiPatch::from_directory(dir.path())
+            .expect("folder loads")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(
+            loaded,
+            vec![
+                "0001_add_a.patch.json",
+                "0002_modify_b.patch.json",
+                "0010_remove_c.patch.json",
+                "add_x_m.patch.json",
+                "remove_x_m.patch.json",
+            ]
+        );
+    }
+
+    /// AUTOFIX6 "seen broken": `ClassPatch::is_empty` ignored the `remove_*`
+    /// lists, so a move patch that also removes functions moved the class and
+    /// dropped the removals (the moved class is patched only when the patch
+    /// is not empty). A removal-only patch is not empty - and still never
+    /// creates a class it names but the module does not have.
+    #[test]
+    fn a_patch_that_only_removes_is_not_empty_and_creates_no_class() {
+        let removes = ClassPatch {
+            remove_functions: Some(vec!["a".to_string()]),
+            ..Default::default()
+        };
+        assert!(!removes.is_empty());
+        assert!(!ClassPatch { remove_constructors: Some(vec!["c".to_string()]), ..Default::default() }.is_empty());
+        assert!(!ClassPatch { remove_derive: Some(vec!["Hash".to_string()]), ..Default::default() }.is_empty());
+        assert!(!ClassPatch { remove_custom_impls: Some(vec!["Drop".to_string()]), ..Default::default() }.is_empty());
+        assert!(ClassPatch::default().is_empty());
+
+        let body = |name: &str| serde_json::json!({"fn_args": [{"self": "ref"}], "fn_body": format!("object.{name}()")});
+        let mut api: ApiData = serde_json::from_value(serde_json::json!({
+            "1.0.0": {"apiversion": 1, "git": "", "date": "", "api": {"widgets": {"classes": {
+                "T": {"external": "azul_layout::widgets::t::T", "functions": {"a": body("a"), "b": body("b")}}
+            }}}}
+        }))
+        .expect("test api parses");
+        let patch: ApiPatch = serde_json::from_value(serde_json::json!({"versions": {"1.0.0": {"modules": {
+            "widgets": {"classes": {
+                "T": {"move_to_module": "shells", "remove_functions": ["a"]},
+                "Missing": {"remove_functions": ["x"]}
+            }}
+        }}}}))
+        .expect("test patch parses");
+        patch.apply(&mut api).expect("applies");
+        let v = api.get_version("1.0.0").expect("version");
+        let functions: Vec<&String> = v.api["shells"].classes["T"].functions.iter().flat_map(|f| f.keys()).collect();
+        assert_eq!(functions, vec!["b"], "moved AND the removal applied");
+        assert!(!v.api["widgets"].classes.contains_key("Missing"), "no class from a removal");
+        assert!(!v.api["widgets"].classes.contains_key("T"));
+    }
+
+    /// Every patch of the wave-6 round said "Successfully applied", and one
+    /// method per new type was in api.json afterwards. A function a patch
+    /// writes and a later patch of the round drops (a replace-mode map) is
+    /// reported; one a later patch removes on purpose is not.
+    #[test]
+    fn the_apply_reports_a_function_a_later_patch_dropped() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let write = |name: &str, json: serde_json::Value| {
+            fs::write(dir.path().join(name), json.to_string()).expect("patch written");
+        };
+        let class_patch = |cp: serde_json::Value| {
+            serde_json::json!({"versions": {"1.0.0": {"modules": {"widgets": {"classes": {"T": cp}}}}}})
+        };
+        let body = |name: &str| serde_json::json!({"fn_args": [{"self": "ref"}], "fn_body": format!("object.{name}()")});
+        write(
+            "add_t_a.patch.json",
+            class_patch(serde_json::json!({"functions": {"a": body("a"), "gone_later": body("gone_later")}, "add_functions": true})),
+        );
+        // replace mode: drops `a`
+        write("add_t_b.patch.json", class_patch(serde_json::json!({"functions": {"b": body("b")}})));
+        write(
+            "remove_t_gone_later.patch.json",
+            class_patch(serde_json::json!({"remove_functions": ["gone_later"]})),
+        );
+
+        let mut api: ApiData = serde_json::from_value(serde_json::json!({
+            "1.0.0": {"apiversion": 1, "git": "", "date": "", "api": {"widgets": {"classes": {
+                "T": {"external": "azul_layout::widgets::t::T"}
+            }}}}
+        }))
+        .expect("test api parses");
+        let stats = apply_patches_from_directory(&mut api, dir.path()).expect("applies");
+        let dropped: Vec<&(String, String)> = stats
+            .patch_errors
+            .iter()
+            .filter(|(_, e)| e.contains("not in api.json after the round"))
+            .collect();
+        assert_eq!(dropped.len(), 1, "{:?}", stats.patch_errors);
+        assert_eq!(dropped[0].0, "add_t_a.patch.json");
+        assert!(dropped[0].1.starts_with("T.a "), "{:?}", dropped[0]);
+        assert!(stats.has_errors());
     }
 }
 

@@ -265,10 +265,7 @@ mod tests {
         handle.register_icon(
             "testpack",
             "gear",
-            RefAny::new(crate::icon::FontIconData {
-                font: face.clone(),
-                icon_char: "\u{e8b8}".into(),
-            }),
+            RefAny::new(crate::icon::FontIconData::new(face.clone(), "\u{e8b8}")),
         );
         let provider = SharedIconProvider::from_handle(handle);
 

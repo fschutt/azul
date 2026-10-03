@@ -1,0 +1,24 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS test: inherited percentage height</title>
+<meta name="assert" content="If the resulting height is smaller than 'min-height', the rules above are applied again, but this time using the value of 'min-height' as the computed value for 'height'. Note: These steps do not affect the real computed value of 'height'."/>
+<style>
+p {margin-right: 7em}
+      #container {height: 100%; background: red}
+      #container div {position: absolute; top: 0; right: 0;
+        background: aqua; height: inherit}
+</style>
+</head>
+<body>
+    <p>Test passes if the light blue box ("Block A") is the full height
+    of the viewport and there is no red.</p>
+
+    <div id="container">
+      <div>
+	Block A
+      </div>
+    </div>
+  
+
+</body>
+</html>

@@ -5,7 +5,10 @@ use alloc::string::{String, ToString};
 use crate::{
     corety::AzString,
     props::{
-        basic::color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+        basic::color::{
+            parse_color_or_system_token, parse_css_color, ColorU, CssColorParseError,
+            CssColorParseErrorOwned,
+        },
         formatter::PrintAsCssValue,
         layout::{
             dimensions::LayoutWidth,
@@ -410,7 +413,7 @@ impl PrintAsCssValue for StyleScrollbarColor {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::Auto => "auto".to_string(),
-            Self::Custom(c) => format!("{} {}", c.thumb.to_hash(), c.track.to_hash()),
+            Self::Custom(c) => format!("{} {}", c.thumb.to_css_value(), c.track.to_css_value()),
         }
     }
 }
@@ -504,6 +507,7 @@ impl PrintAsCssValue for ScrollbarStyle {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
@@ -519,6 +523,7 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarStyle {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for OverscrollBehavior {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -529,6 +534,7 @@ impl crate::codegen::format::FormatAsRustCode for OverscrollBehavior {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -539,6 +545,7 @@ impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for StyleScrollbarColor {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -552,6 +559,7 @@ impl crate::codegen::format::FormatAsRustCode for StyleScrollbarColor {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarVisibilityMode {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -562,12 +570,14 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarVisibilityMode {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDelay {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("ScrollbarFadeDelay::new({})", self.ms)
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDuration {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("ScrollbarFadeDuration::new({})", self.ms)
@@ -1080,6 +1090,10 @@ impl StyleScrollbarColorParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `scrollbar-color` value.
+///
+/// Both colours accept the `system:` colour keywords
+/// (`scrollbar-color: system:secondary-text system:control-background`);
+/// see [`parse_color_or_system_token`].
 pub fn parse_style_scrollbar_color(
     input: &str,
 ) -> Result<StyleScrollbarColor, StyleScrollbarColorParseError<'_>> {
@@ -1088,7 +1102,9 @@ pub fn parse_style_scrollbar_color(
         return Ok(StyleScrollbarColor::Auto);
     }
 
-    let mut parts = input.split_whitespace();
+    // Parenthesis-aware, so `rgb(255, 0, 0) blue` is two colours, not four tokens.
+    let mut parts =
+        crate::props::basic::parse::split_string_respect_whitespace(input).into_iter();
     let thumb_str = parts
         .next()
         .ok_or(StyleScrollbarColorParseError::InvalidValue(input))?;
@@ -1100,8 +1116,8 @@ pub fn parse_style_scrollbar_color(
         return Err(StyleScrollbarColorParseError::InvalidValue(input));
     }
 
-    let thumb = parse_css_color(thumb_str)?;
-    let track = parse_css_color(track_str)?;
+    let thumb = parse_color_or_system_token(thumb_str)?;
+    let track = parse_color_or_system_token(track_str)?;
 
     Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
         thumb,
@@ -1321,6 +1337,7 @@ mod tests {
 #[allow(clippy::unreadable_literal, clippy::float_cmp)]
 mod autotest_generated {
     use super::*;
+    #[cfg(feature = "codegen")]
     use crate::codegen::format::FormatAsRustCode;
 
     /// Largest integer an `f32` represents exactly (`2^24`). Every millisecond
@@ -1578,6 +1595,7 @@ mod autotest_generated {
     // FormatAsRustCode  (codegen encoders)
     // ======================================================================
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_constructible_expressions() {
         assert_eq!(
@@ -1613,6 +1631,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_of_aggregates_does_not_panic() {
         let custom = StyleScrollbarColor::Custom(ScrollbarColorCustom {
@@ -1907,24 +1926,18 @@ mod autotest_generated {
         ));
     }
 
-    /// Whitespace-splitting happens *before* the color parser runs, so a
-    /// functional color with spaces after its commas is torn into pieces.
-    /// `rgb(255, 0, 0) blue` is valid CSS but is rejected here; the space-free
-    /// spelling works. Pinned as a known limitation.
+    /// The component split is parenthesis-aware, so a functional color with
+    /// spaces after its commas stays ONE component (this pin used to record
+    /// `rgb(255, 0, 0) blue` being torn apart and rejected).
     #[cfg(feature = "parser")]
     #[test]
-    fn scrollbar_color_rejects_functional_colors_containing_spaces() {
-        assert_eq!(
-            parse_style_scrollbar_color("rgb(255,0,0) blue"),
-            Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
-                thumb: ColorU::RED,
-                track: ColorU::BLUE,
-            }))
-        );
-        assert!(matches!(
-            parse_style_scrollbar_color("rgb(255, 0, 0) blue"),
-            Err(StyleScrollbarColorParseError::InvalidValue(_))
-        ));
+    fn scrollbar_color_accepts_functional_colors_containing_spaces() {
+        let expected = Ok(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+            thumb: ColorU::RED,
+            track: ColorU::BLUE,
+        }));
+        assert_eq!(parse_style_scrollbar_color("rgb(255,0,0) blue"), expected);
+        assert_eq!(parse_style_scrollbar_color("rgb(255, 0, 0) blue"), expected);
     }
 
     #[cfg(feature = "parser")]

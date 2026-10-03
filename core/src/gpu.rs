@@ -110,6 +110,35 @@ impl GpuValueCache {
         Self::default()
     }
 
+    /// The reference frame the display list opens for `node`, as its key
+    /// and the matrix it is painted with now - or `None` when it opens none.
+    ///
+    /// THE rule, shared by the display-list builder (which emits a
+    /// `PushReferenceFrame` exactly when this is `Some`), the hit tester and
+    /// every "where is it on screen" question: the CSS `transform` channel
+    /// first, then the ANIMATION channel - an engine-driven transition (a
+    /// FLIP slide, a keyframe transform) moves a node that has no CSS
+    /// `transform` of its own. A key without a value opens nothing.
+    #[must_use]
+    pub fn reference_frame_of(&self, node: NodeId) -> Option<(TransformKey, ComputedTransform3D)> {
+        self.css_transform_keys
+            .get(&node)
+            .zip(self.css_current_transform_values.get(&node))
+            .or_else(|| {
+                self.anim_transform_keys
+                    .get(&node)
+                    .zip(self.anim_current_transform_values.get(&node))
+            })
+            .map(|(key, transform)| (*key, *transform))
+    }
+
+    /// The matrix `node` is painted with now ([`Self::reference_frame_of`]),
+    /// `None` when it is painted untransformed.
+    #[must_use]
+    pub fn painted_transform_of(&self, node: NodeId) -> Option<ComputedTransform3D> {
+        self.reference_frame_of(node).map(|(_, transform)| transform)
+    }
+
     /// Fingerprint of the KEY POPULATION the display-list builder consumes —
     /// which nodes carry which transform/opacity keys, and (for the channels
     /// the builder `zip`s with their value map) whether a value exists.
@@ -192,6 +221,72 @@ impl GpuValueCache {
         // An empty population must not collide with "no cache entry" sentinels
         // downstream; FNV_OFFSET is a fine non-zero value for it.
         h
+    }
+
+    /// Every value a display list can BIND, by key id: `on_transform` for
+    /// each transform key with a value (scrollbar thumbs, CSS `transform`,
+    /// the animation channel), `on_opacity` for each opacity key with a value
+    /// (scrollbar fades of `dom_id`, CSS `opacity`, the animation channel).
+    ///
+    /// THE one "current animated values by key" source. The CPU renderer
+    /// (`cpurender::extract_gpu_values`) and WebRender's dynamic properties
+    /// (`wr_translate2::synchronize_gpu_values`) both read it, so a value that
+    /// changes without a display-list rebuild - an animation tick - reaches
+    /// both backends the same way.
+    pub fn for_each_bound_value(
+        &self,
+        dom_id: DomId,
+        mut on_transform: impl FnMut(usize, &ComputedTransform3D),
+        mut on_opacity: impl FnMut(usize, f32),
+    ) {
+        for (node_id, key) in &self.transform_keys {
+            if let Some(value) = self.current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.h_transform_keys {
+            if let Some(value) = self.h_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        // The ANIMATION channel is separate from the CSS one because
+        // `synchronize` owns `css_transform_keys` and evicts anything not
+        // backed by a CSS `transform`; by key id the two are
+        // indistinguishable, which is the intent.
+        for (node_id, key) in &self.anim_transform_keys {
+            if let Some(value) = self.anim_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.css_transform_keys {
+            if let Some(value) = self.css_current_transform_values.get(node_id) {
+                on_transform(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.anim_opacity_keys {
+            if let Some(&value) = self.anim_current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for (node_id, key) in &self.opacity_keys {
+            if let Some(&value) = self.current_opacity_values.get(node_id) {
+                on_opacity(key.id, value);
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_v_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_v_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
+        for ((d, node_id), key) in &self.scrollbar_h_opacity_keys {
+            if *d == dom_id {
+                if let Some(&value) = self.scrollbar_h_opacity_values.get(&(*d, *node_id)) {
+                    on_opacity(key.id, value);
+                }
+            }
+        }
     }
 
     /// Synchronizes the cache with the current `StyledDom`, generating change events

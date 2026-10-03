@@ -6,15 +6,19 @@
 //! Sections toggle independently (any number may be open at once). Clicking a
 //! header flips that section's `is_open` flag in a per-header [`RefAny`] (the
 //! self-contained per-row data pattern of `tree_view`), invokes the optional
-//! user `on_toggle(section_index)`, and shows/hides the section body by setting
-//! `display: block | none` on it via `set_css_property` (mirroring tree_view /
-//! check_box live restyling).
+//! user `on_toggle(section_index)`, and opens or closes the section body with a
+//! height tween: a closed body is laid out at `height: 0` (clipped), and the
+//! click writes its new height and vertical padding through `set_css_property`,
+//! which the body's declared `animation` turns into a transition - the
+//! mechanism that slides the switch's knob. With reduced motion the body
+//! declares no animation and snaps.
 //!
-//! TODO2: the header is a plain styled clickable bar with no animated disclosure
-//! chevron — a glyph cannot be re-textured via `set_css_property` without a
-//! relayout, so an indicator that flips on toggle is deferred. The `display`
-//! toggle itself follows the proven live-restyle pattern but the `display:none`
-//! relayout is not GUI-verified in this build.
+//! Every header ends in the theme's disclosure indicator: flat's chevron
+//! (pointing down, up when open - the Windows 11 expander, the Bootstrap
+//! accordion), flora's `+` (a cross when open - flora.css's FAQ). The glyph
+//! never changes; the click TURNS it (`transform: rotate(..)`, written like
+//! the body's height, so the same declared tween walks it), which needs no
+//! relayout and follows the header's ink in every mode.
 //!
 //! Key types: [`Accordion`], [`AccordionSection`], [`AccordionOnToggle`].
 
@@ -23,24 +27,27 @@ use std::vec::Vec;
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-        TabIndex,
+        Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec, TabIndex,
     },
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::{
+    corety::OptionUsize,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
     impl_vec_partialeq,
     props::{
         basic::{
+            angle::AngleValue,
             color::ColorU,
             font::{StyleFontFamily, StyleFontFamilyVec},
             StyleFontSize,
         },
         layout::{
-            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutOverflow,
-            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutHeight,
+            LayoutMinHeight, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop,
         },
         property::{CssProperty, CssPropertyType},
         style::{
@@ -50,13 +57,16 @@ use azul_css::{
             StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
             StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
             StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
-            StyleTextAlign, StyleTextColor, StyleUserSelect,
+            StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformVec, StyleUserSelect,
         },
     },
     AzString,
 };
 
-use crate::callbacks::{Callback, CallbackInfo};
+use crate::{
+    callbacks::{Callback, CallbackInfo},
+    widgets::themes::system_palette,
+};
 
 static ACCORDION_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-accordion"))];
@@ -72,6 +82,10 @@ static ACCORDION_TITLE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static ACCORDION_BODY_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-accordion-body",
 ))];
+/// The disclosure indicator's class: the click handler finds it by it.
+const ACCORDION_CHEVRON_CLASS_NAME: &str = "__azul-native-accordion-chevron";
+static ACCORDION_CHEVRON_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str(ACCORDION_CHEVRON_CLASS_NAME))];
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -134,6 +148,9 @@ pub struct AccordionSection {
     pub title: AzString,
     /// The body content revealed when the section is open.
     pub content: Dom,
+    /// How many items the section holds, shown after the title in brackets
+    /// ("Hard Disk Drives (2)"), or `None` for no count.
+    pub count: OptionUsize,
     /// Whether this section starts open (body visible).
     pub is_open: bool,
 }
@@ -144,6 +161,7 @@ impl AccordionSection {
         Self {
             title: title.into(),
             content,
+            count: OptionUsize::None,
             is_open: false,
         }
     }
@@ -154,6 +172,44 @@ impl AccordionSection {
         self.is_open = open;
         self
     }
+
+    /// Show `count` after the title, in brackets: a group of items says how
+    /// many it holds ("Devices and drives (3)").
+    pub const fn set_count(&mut self, count: usize) {
+        self.count = OptionUsize::Some(count);
+    }
+
+    /// [`Self::set_count`] for the builder chain.
+    #[must_use]
+    pub const fn with_count(mut self, count: usize) -> Self {
+        self.set_count(count);
+        self
+    }
+
+    /// The header's text: the title, then the count in brackets when there
+    /// is one.
+    #[must_use]
+    pub fn header_text(&self) -> AzString {
+        match self.count {
+            OptionUsize::Some(n) => AzString::from(alloc::format!("{} ({n})", self.title.as_str())),
+            OptionUsize::None => self.title.clone(),
+        }
+    }
+}
+
+/// How an [`Accordion`] draws its sections.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum AccordionVariant {
+    /// Sections stacked in one bordered panel, each header a filled bar (the
+    /// Windows 11 expander, the Bootstrap accordion).
+    #[default]
+    Panel,
+    /// Borderless GROUPS on the page: each header is its title and count, a
+    /// hairline rule to the end of the row and the disclosure indicator - the
+    /// groups of a file manager ("Hard Disk Drives (2)", "Network Locations
+    /// (3)"), whose bodies hold tiles or rows.
+    Groups,
 }
 
 impl_option!(
@@ -187,21 +243,117 @@ pub struct Accordion {
     pub sections: AccordionSectionVec,
     /// Optional callback fired when any section header is toggled.
     pub on_toggle: OptionAccordionOnToggle,
+    /// How the sections are drawn: one bordered panel (the default) or
+    /// borderless groups with a rule after each title. Before `theme` (a
+    /// one-byte option): a `repr(C)` enum is int-sized, so this order pads
+    /// nothing.
+    pub variant: AccordionVariant,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
 
-// ---- styles ----
+/// What a theme decides about an accordion: the SKIN of each part (its paint
+/// and metrics). [`build`] lays each skin over the part's base - the
+/// accordion's structure, the same in every theme (`ACCORDION_*_BASE`) - and
+/// assembles them with the section bodies' own open / closed geometry; built
+/// by `themes::flat::accordion` and `themes::flora::accordion`.
+pub(crate) struct AccordionLook {
+    /// The panel around every section.
+    pub container: Vec<CssPropertyWithConditions>,
+    /// One section (its separator from the next).
+    pub section: Vec<CssPropertyWithConditions>,
+    /// A section's header bar - a keyboard stop: its focus ring included.
+    pub header: Vec<CssPropertyWithConditions>,
+    /// The title inside a header.
+    pub title: Vec<CssPropertyWithConditions>,
+    /// The disclosure indicator at the end of a header (its size and
+    /// spacing, [`chevron_box`]; its ink is the header's): [`chevron_style`]
+    /// adds the turn and the tween.
+    pub chevron: Vec<CssPropertyWithConditions>,
+    /// The icon the indicator shows (a `Dom::create_icon` name).
+    pub chevron_icon: &'static str,
+    /// How far the indicator turns, clockwise, when its section is open.
+    pub chevron_turn_deg: isize,
+    /// The theme's marker class on the panel, if it has one.
+    pub marker: Option<&'static str>,
+}
 
-static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+// ---- the base: the accordion's structure, in every theme ----
+//
+// What lays an accordion out is the same whichever theme paints it, so it is
+// the widget's own: [`build`] declares each part's base FIRST, then the
+// theme's skin (`AccordionLook`). No structure declaration then sits inside a
+// `@theme` block, and it holds under a theme no widget knows (R5).
+
+/// The panel: a column that hugs its sections and clips their rules at its
+/// rounded corners.
+pub(crate) static ACCORDION_CONTAINER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+];
+
+/// One section: its header over its body.
+pub(crate) static ACCORDION_SECTION_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
+
+/// A header: a row, title and indicator centred on it, a click target whose
+/// title the pointer never selects.
+pub(crate) static ACCORDION_HEADER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The title: the header's remaining width, set from the left.
+pub(crate) static ACCORDION_TITLE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+];
+
+/// The indicator's box: it centres its icon (so it turns about the icon's
+/// centre) and keeps its size against the title - never grows or shrinks.
+pub(crate) static ACCORDION_CHEVRON_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        azul_css::props::layout::LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(
+        azul_css::props::layout::LayoutFlexShrink {
+            inner: azul_css::props::basic::length::FloatValue::const_new(0),
+        },
+    )),
+];
+
+// ---- the flat skin ----
+
+/// The flat panel's skin: the established #DEE2E6 hairline at a 6px radius,
+/// the label ink, and their night twins.
+pub(crate) static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
+    // Dark theme: the titles and every section body inherit this, so the
+    // application content inside the accordion follows the theme too.
+    system_palette::DARK_TEXT,
     // border: 1px solid #dee2e6
     CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
@@ -247,6 +399,10 @@ static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    system_palette::DARK_SEPARATOR_BORDER_TOP,
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
+    system_palette::DARK_SEPARATOR_BORDER_LEFT,
+    system_palette::DARK_SEPARATOR_BORDER_RIGHT,
     // rounded corners, clipping the per-section separators
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
@@ -260,16 +416,10 @@ static ACCORDION_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
         StyleBorderBottomRightRadius::const_px(6),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
 ];
 
-static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-        LayoutFlexDirection::Column,
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+/// The flat section's skin: a thin separator from the next section.
+pub(crate) static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
     // a thin separator between stacked sections
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
@@ -284,13 +434,11 @@ static ACCORDION_SECTION_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_COLOR,
         },
     )),
+    system_palette::DARK_SEPARATOR_BORDER_BOTTOM,
 ];
 
-static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
-    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+/// The flat header's skin: the #F8F9FA bar (the window surface at night).
+pub(crate) static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         10,
     ))),
@@ -303,57 +451,155 @@ static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(12),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(HEADER_BG_VEC)),
+    // Dark theme: the header bar is part of the panel, not a light strip.
+    system_palette::DARK_WINDOW_BACKGROUND,
 ];
 
-static ACCORDION_TITLE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
-];
+/// An open body's padding, on every side; a closed body keeps it on the
+/// left and right only.
+const BODY_PADDING: isize = 12;
 
-/// Body style when the section is OPEN: a padded block with a top separator.
-static ACCORDION_BODY_STYLE_OPEN: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        12,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(12),
-    )),
-];
+/// How long a section takes to open or close.
+const BODY_TWEEN_MS: u32 = 220;
 
-/// Body style when the section is CLOSED: not laid out at all.
+/// What a body declares so opening and closing TWEEN instead of snapping: its
+/// `height` and its vertical padding, the properties the click handler
+/// writes - the same mechanism that slides the switch's knob (an imperative
+/// write honours a declared `animation`).
 ///
-/// This MUST declare everything the open style declares except `display`.
-/// The runtime toggle (`on_accordion_header_click`) writes ONLY `display`, so
-/// any property that exists solely in the open table is missing from a body
-/// that reached the open state by CLICK rather than by being built open. That
-/// is exactly what happened: the padding lived only in the open table, so a
-/// clicked-open section rendered its text flush against the container's
-/// rounded border while a born-open section was correctly inset by 12 px.
-static ACCORDION_BODY_STYLE_CLOSED: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::None)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        12,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(12),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(12),
-    )),
-];
+/// Declared only under `prefers-reduced-motion: no-preference`: with reduced
+/// motion the body has no animation, nothing is seeded, and a section opens
+/// and closes at once (the handler asks the same question,
+/// `body_animates`).
+fn body_animation() -> CssPropertyWithConditions {
+    tween(&["height", "padding-top", "padding-bottom"])
+}
+
+/// What the disclosure indicator declares so it TURNS on the body's beat:
+/// `transform`, the property the click handler writes. Gated like
+/// [`body_animation`].
+fn chevron_animation() -> CssPropertyWithConditions {
+    tween(&["transform"])
+}
+
+/// The indicator's turn: `rotate(turn_deg)` open, `rotate(0)` closed. Both
+/// states declare a rotation, so the seeded tween has two angles to walk
+/// between.
+fn chevron_turn(open: bool, turn_deg: isize) -> CssProperty {
+    CssProperty::const_transform(StyleTransformVec::from_vec(alloc::vec![
+        StyleTransform::Rotate(AngleValue::const_deg(if open { turn_deg } else { 0 }))
+    ]))
+}
+
+/// The indicator's box, `size` px square, at the end of a header, `8px` off
+/// the title - a theme's measure of it; its layout (a box that keeps its size
+/// and centres its icon, so it turns about the icon's centre) is
+/// [`ACCORDION_CHEVRON_BASE`]. The icon inside takes the box's font size and
+/// the header's ink.
+pub(crate) fn chevron_box(size: isize) -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::layout::{LayoutMarginLeft, LayoutWidth};
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(size))),
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(size))),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_left(
+            LayoutMarginLeft::const_px(8),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            size,
+        ))),
+    ]
+}
+
+/// The indicator of an open or closed section in `look`: its base, the
+/// theme's size and spacing, the turn, the tween.
+fn chevron_style(look: &AccordionLook, open: bool) -> CssPropertyWithConditionsVec {
+    let mut style = crate::widgets::themes::decl::on_base(ACCORDION_CHEVRON_BASE, &look.chevron);
+    style.push(CssPropertyWithConditions::simple(chevron_turn(
+        open,
+        look.chevron_turn_deg,
+    )));
+    style.push(chevron_animation());
+    CssPropertyWithConditionsVec::from_vec(style)
+}
+
+/// `properties` tweened over [`BODY_TWEEN_MS`], ease-in-out - one
+/// `animation` declaration, only under
+/// `prefers-reduced-motion: no-preference`.
+fn tween(properties: &[&'static str]) -> CssPropertyWithConditions {
+    use azul_css::{
+        dynamic_selector::{BoolCondition, DynamicSelector},
+        props::basic::{
+            animation::{AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec},
+            time::CssDuration,
+        },
+    };
+    let one = |property: &'static str| StyleAnimation {
+        name: AzString::from_const_str(property),
+        duration: CssDuration::from_millis(BODY_TWEEN_MS),
+        delay: CssDuration::from_millis(0),
+        iterations: AnimationIterationCount::Count(1),
+        timing: AnimationTiming::EaseInOut,
+        clip: true,
+    };
+    CssPropertyWithConditions::with_condition(
+        CssProperty::Animation(azul_css::props::property::StyleAnimationVecValue::Exact(
+            StyleAnimationVec::from_vec(
+                properties.iter().map(|p| one(*p)).collect::<Vec<StyleAnimation>>(),
+            ),
+        )),
+        DynamicSelector::PrefersReducedMotion(BoolCondition::False),
+    )
+}
+
+/// A section's body: a block formatting context that CLIPS its content,
+/// collapsed to zero height when closed.
+///
+/// A closed body is laid out - `height: 0` and no vertical padding, not
+/// `display: none` - so the height its content needs is known the moment
+/// its header is clicked, and the click can tween the body from 0 to it
+/// (`on_accordion_header_click`). `display: none` was a discrete switch with
+/// nothing between its two values: the section snapped open and shut.
+///
+/// `flow-root` keeps the content's margins inside the body in both states
+/// (a zero-padding block would let them collapse through its edges), and
+/// `overflow: clip` hides what does not fit yet without making the body a
+/// scroll container. `min-height: 0` lets a flex column shrink it below its
+/// content.
+///
+/// Both states declare the same properties apart from `height` and the
+/// vertical padding - the ones the click handler writes - so a body that
+/// reached a state by click looks like one built in it.
+fn body_style(open: bool) -> CssPropertyWithConditionsVec {
+    let vertical_padding = if open { BODY_PADDING } else { 0 };
+    let mut style = alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::FlowRoot)),
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Clip)),
+        CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Clip)),
+        CssPropertyWithConditions::simple(CssProperty::const_min_height(
+            LayoutMinHeight::const_px(0),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(vertical_padding),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+            LayoutPaddingBottom::const_px(vertical_padding),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+            LayoutPaddingLeft::const_px(BODY_PADDING),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+            LayoutPaddingRight::const_px(BODY_PADDING),
+        )),
+        body_animation(),
+    ];
+    if !open {
+        style.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+            LayoutHeight::const_px(0),
+        )));
+    }
+    CssPropertyWithConditionsVec::from_vec(style)
+}
 
 impl Accordion {
     /// Creates a new accordion from the given sections, with no toggle callback.
@@ -362,7 +608,35 @@ impl Accordion {
         Self {
             sections,
             on_toggle: None.into(),
+            theme: crate::widgets::themes::OptionUiTheme::None,
+            variant: AccordionVariant::Panel,
         }
+    }
+
+    /// How the sections are drawn: one bordered panel or borderless groups
+    /// (see [`AccordionVariant`]).
+    pub const fn set_variant(&mut self, variant: AccordionVariant) {
+        self.variant = variant;
+    }
+
+    /// [`Self::set_variant`] for the builder chain.
+    #[must_use]
+    pub const fn with_variant(mut self, variant: AccordionVariant) -> Self {
+        self.set_variant(variant);
+        self
+    }
+
+    /// Pin the widget theme: the accordion keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Creates an empty accordion.
@@ -399,20 +673,89 @@ impl Accordion {
         s
     }
 
-    /// Renders the accordion into a [`Dom`] subtree.
+    /// Renders the accordion into a [`Dom`] subtree. The look comes from the
+    /// theme module (`themes::flat::accordion` / `themes::flora::accordion`);
+    /// `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let on_toggle = self.on_toggle;
-        let sections = self.sections;
+        use crate::widgets::themes::UiTheme;
+        if self.variant == AccordionVariant::Groups {
+            return match self.theme.into_option() {
+                Some(UiTheme::Flora) => crate::widgets::themes::flora::accordion_groups(self),
+                Some(UiTheme::Flat) => crate::widgets::themes::flat::accordion_groups(self),
+                None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                    self,
+                    crate::widgets::themes::flat::accordion_groups,
+                    crate::widgets::themes::flora::accordion_groups,
+                ),
+            };
+        }
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::accordion(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::accordion(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::accordion,
+                crate::widgets::themes::flora::accordion,
+            ),
+        }
+    }
+}
+
+/// The accordion's DOM in `look`: per section a header (the keyboard stop and
+/// click target) over a body whose open / closed geometry is the widget's own
+/// (`body_style`), so the header's click handler can tween it in any theme.
+/// Every part is its base (the structure, `ACCORDION_*_BASE`), then the
+/// look's skin.
+pub(crate) fn build(accordion: Accordion, look: &AccordionLook) -> Dom {
+    build_parts(accordion, look, None)
+}
+
+/// The class of a group header's rule (the `Groups` variant).
+static ACCORDION_RULE_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-accordion-rule"))];
+
+/// A group header's rule: the rest of the row between the title and the
+/// indicator, a line with no height of its own (its skin draws the edge).
+pub(crate) static ACCORDION_RULE_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(0))),
+];
+
+/// A `Groups` accordion in `look`: [`build`], with `rule` - the skin of the
+/// line each header draws from its title to its indicator.
+pub(crate) fn build_groups(
+    accordion: Accordion,
+    look: &AccordionLook,
+    rule: &[CssPropertyWithConditions],
+) -> Dom {
+    build_parts(accordion, look, Some(rule))
+}
+
+/// [`build`] and [`build_groups`]: every header is its title, the rule when
+/// `rule` is given, then the indicator.
+fn build_parts(
+    accordion: Accordion,
+    look: &AccordionLook,
+    rule: Option<&[CssPropertyWithConditions]>,
+) -> Dom {
+    // A part's declarations: its base first, then the theme's skin.
+    let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
+        CssPropertyWithConditionsVec::from_vec(crate::widgets::themes::decl::on_base(base, skin))
+    };
+    {
+        let on_toggle = accordion.on_toggle;
+        let sections = accordion.sections;
 
         let mut section_doms: Vec<Dom> = Vec::with_capacity(sections.as_ref().len());
 
         for (index, section) in sections.as_ref().iter().enumerate() {
-            let title = crate::widgets::widget_p_with_text(section.title.clone())
+            let title = crate::widgets::widget_p_with_text(section.header_text())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_TITLE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    ACCORDION_TITLE_STYLE,
-                ));
+                .with_css_props(part(ACCORDION_TITLE_BASE, look.title.as_slice()));
 
             // Read the open state before it is moved into the click data.
             let section_is_open = section.is_open;
@@ -422,13 +765,22 @@ impl Accordion {
                 index,
                 is_open: section.is_open,
                 on_toggle: clone_option_on_toggle(&on_toggle),
+                chevron_turn_deg: look.chevron_turn_deg,
             };
+
+            // The disclosure indicator: decoration (no Tab stop, no
+            // callback) at the end of the header, in the header's ink. The
+            // box TURNS, the icon inside it only draws: icon resolution
+            // replaces the icon node (keeping its style, not its classes), and
+            // the click handler finds the indicator by its class.
+            let chevron = Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_CHEVRON_CLASS))
+                .with_css_props(chevron_style(look, section_is_open))
+                .with_child(Dom::create_icon(AzString::from_const_str(look.chevron_icon)));
 
             let header = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_HEADER_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                    ACCORDION_HEADER_STYLE,
-                ))
+                .with_css_props(part(ACCORDION_HEADER_BASE, look.header.as_slice()))
                 .with_tab_index(TabIndex::Auto)
                 // A section header must report whether it is open. Expanded /
                 // Collapsed is the difference between "Details" and "Details,
@@ -456,33 +808,43 @@ impl Accordion {
                     }]
                     .into(),
                 )
-                .with_children(DomVec::from_vec(alloc::vec![title]));
+                .with_children(DomVec::from_vec(match rule {
+                    // A group header: the rule runs from the title to the
+                    // indicator, which stays the header's LAST child (the
+                    // click handler finds it there, `chevron_of`).
+                    Some(rule) => alloc::vec![
+                        title,
+                        Dom::create_div()
+                            .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                                ACCORDION_RULE_CLASS
+                            ))
+                            .with_css_props(part(ACCORDION_RULE_BASE, rule)),
+                        chevron,
+                    ],
+                    None => alloc::vec![title, chevron],
+                }));
 
-            let body_style = if section.is_open {
-                ACCORDION_BODY_STYLE_OPEN
-            } else {
-                ACCORDION_BODY_STYLE_CLOSED
-            };
             let body = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_BODY_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(body_style))
+                .with_css_props(body_style(section.is_open))
                 .with_children(DomVec::from_vec(alloc::vec![section.content.clone()]));
 
             section_doms.push(
                 Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_SECTION_CLASS))
-                    .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                        ACCORDION_SECTION_STYLE,
-                    ))
+                    .with_css_props(part(ACCORDION_SECTION_BASE, look.section.as_slice()))
                     .with_children(DomVec::from_vec(alloc::vec![header, body])),
             );
         }
 
+        let mut classes: Vec<IdOrClass> = ACCORDION_CLASS.to_vec();
+        if let Some(marker) = look.marker {
+            classes.push(Class(AzString::from_const_str(marker)));
+        }
+
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                ACCORDION_CONTAINER_STYLE,
-            ))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+            .with_css_props(part(ACCORDION_CONTAINER_BASE, look.container.as_slice()))
             .with_children(DomVec::from_vec(section_doms))
     }
 }
@@ -510,6 +872,10 @@ struct HeaderClickData {
     index: usize,
     is_open: bool,
     on_toggle: OptionAccordionOnToggle,
+    /// The look's open turn of the disclosure indicator
+    /// ([`AccordionLook::chevron_turn_deg`]): what a click that opens the
+    /// section turns it to.
+    chevron_turn_deg: isize,
 }
 
 /// Header click handler. The hit node is the header (the callback-bearing node,
@@ -521,21 +887,27 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     let Some(body) = info.get_next_sibling(header) else {
         return Update::DoNothing;
     };
+    // Read off the layout on screen, before anything changes: how tall the
+    // body's content is (a closed body lays it out at zero height), and
+    // whether the body tweens at all.
+    let content_height = body_content_height(&info, body);
+    let animated = body_animates(&info, body);
 
-    let (now_open, result) = {
+    let (now_open, result, chevron_turn_deg) = {
         let Some(mut hd) = data.downcast_mut::<HeaderClickData>() else {
             return Update::DoNothing;
         };
         hd.is_open = !hd.is_open;
         let now_open = hd.is_open;
         let index = hd.index;
+        let chevron_turn_deg = hd.chevron_turn_deg;
         let result = match hd.on_toggle.as_mut() {
             Some(AccordionOnToggle { callback, refany }) => {
                 callback.invoke(refany.clone(), info, index)
             }
             None => Update::DoNothing,
         };
-        (now_open, result)
+        (now_open, result, chevron_turn_deg)
     };
 
     // WHO OWNS THE VISUAL STATE decides what we write here.
@@ -548,19 +920,83 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     // open could never close again, and vice versa. That latch, not the toggle
     // itself, is what made the accordion "not properly expand/collapse".
     //
-    // - Host rebuilds (`RefreshDom*`): it owns the flag. CLEAR the override (`initial` removes it)
-    //   and let the rebuilt DOM's own style decide.
-    // - Host does nothing: the widget owns the flag, so write the override — that is what makes a
-    //   self-contained accordion work with no host state.
-    if matches!(result, Update::RefreshDom | Update::RefreshDomAllWindows) {
-        info.set_css_property(body, CssProperty::initial(CssPropertyType::Display));
-    } else {
-        let display = if now_open {
-            LayoutDisplay::Block
-        } else {
-            LayoutDisplay::None
+    // - The body tweens (`animated`): write the target state. Each write seeds a transition
+    //   (the body declares an `animation` for exactly these properties), and a transition that
+    //   settles REMOVES its override: a host that rebuilds ends up with its rebuilt DOM's own
+    //   style, a widget that owns its flag with the written inline values. Opening writes
+    //   `height: auto` - the open state - and then, on the override channel only, the content
+    //   height the tween walks to: an `auto` target does not interpolate. Closing starts from
+    //   `auto`, which the engine resolves to the laid-out height.
+    // - No tween (reduced motion) and the host rebuilds: it owns the flag. CLEAR the overrides
+    //   (`initial` removes one) and let the rebuilt DOM's own style decide.
+    // - No tween and nobody rebuilds: the widget owns the flag, so write the new state - that is
+    //   what makes a self-contained accordion work with no host state.
+    let host_rebuilds = matches!(result, Update::RefreshDom | Update::RefreshDomAllWindows);
+    if let Some(body_node) = body.node.into_crate_internal() {
+        let vertical_padding = |px: isize| {
+            [
+                CssProperty::const_padding_top(LayoutPaddingTop::const_px(px)),
+                CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(px)),
+            ]
         };
-        info.set_css_property(body, CssProperty::const_display(display));
+        if !animated && host_rebuilds {
+            info.change_node_css_properties(
+                body.dom,
+                body_node,
+                vec![
+                    CssProperty::initial(CssPropertyType::Height),
+                    CssProperty::initial(CssPropertyType::PaddingTop),
+                    CssProperty::initial(CssPropertyType::PaddingBottom),
+                ]
+                .into(),
+            );
+        } else if now_open {
+            let [top, bottom] = vertical_padding(BODY_PADDING);
+            info.change_node_css_properties(
+                body.dom,
+                body_node,
+                vec![CssProperty::const_height(LayoutHeight::Auto), top, bottom].into(),
+            );
+            if let (true, Some(height)) = (animated, content_height) {
+                info.override_node_css_properties(
+                    body.dom,
+                    body_node,
+                    vec![CssProperty::height(LayoutHeight::px(height))].into(),
+                );
+            }
+        } else {
+            let [top, bottom] = vertical_padding(0);
+            // A body with nothing in it has no height to walk down from: no
+            // transition is seeded for it, so nothing would remove the
+            // written override, and a host's rebuild would inherit it for
+            // good. Clear it instead - the rebuilt DOM says 0 anyway.
+            let height = if host_rebuilds && content_height.is_none() {
+                CssProperty::initial(CssPropertyType::Height)
+            } else {
+                CssProperty::const_height(LayoutHeight::const_px(0))
+            };
+            info.change_node_css_properties(
+                body.dom,
+                body_node,
+                vec![height, top, bottom].into(),
+            );
+        }
+    }
+
+    // The disclosure indicator turns with its section, on the same terms as
+    // the body: its new turn through the full channel (the indicator declares
+    // a `transform` tween, so the write turns it instead of flipping it), or
+    // - no tween and a host that rebuilds - its override cleared so the
+    // rebuilt DOM's own turn shows.
+    if let Some(chevron) = chevron_of(&info, header) {
+        if let Some(chevron_node) = chevron.node.into_crate_internal() {
+            let turn = if !animated && host_rebuilds {
+                CssProperty::initial(CssPropertyType::Transform)
+            } else {
+                chevron_turn(now_open, chevron_turn_deg)
+            };
+            info.change_node_css_properties(chevron.dom, chevron_node, vec![turn].into());
+        }
     }
 
     // The header's ANNOUNCED state must follow the rendered one. This toggle
@@ -579,6 +1015,40 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
     );
 
     result
+}
+
+/// The disclosure indicator of `header`: its last child, when that carries
+/// the indicator's class (a header built without one has none to turn).
+fn chevron_of(info: &CallbackInfo, header: DomNodeId) -> Option<DomNodeId> {
+    let last = info.get_last_child(header)?;
+    info.get_node_classes(last)
+        .as_ref()
+        .iter()
+        .any(|c| c.as_str() == ACCORDION_CHEVRON_CLASS_NAME)
+        .then_some(last)
+}
+
+/// The height `body`'s content needs - what the body grows to when it opens -
+/// read off the layout on screen. A closed body is laid out at zero height
+/// with its content laid out inside it (`body_style`), so this is known before
+/// the section ever opened. `None` without a layout (or with nothing inside).
+fn body_content_height(info: &CallbackInfo, body: DomNodeId) -> Option<f32> {
+    let node = body.node.into_crate_internal()?;
+    let result = info.get_layout_window().get_layout_result(&body.dom)?;
+    let index = *result.layout_tree.dom_to_layout.get(&node)?.first()?;
+    let height = result.layout_tree.get_content_size(index).height;
+    (height.is_finite() && height > 0.0).then_some(height)
+}
+
+/// Does `body` tween its height? Only while it declares the animation - which
+/// it does unless the user asked for reduced motion (`body_animation`). Asked
+/// through the same cascade the engine seeds transitions from.
+fn body_animates(info: &CallbackInfo, body: DomNodeId) -> bool {
+    matches!(
+        info.get_computed_css_property(body, CssPropertyType::Animation),
+        Some(CssProperty::Animation(value))
+            if value.get_property().is_some_and(|anims| !anims.as_ref().is_empty())
+    )
 }
 
 impl From<Accordion> for Dom {
@@ -647,11 +1117,18 @@ mod autotest_generated {
 
     /// The `display` value in a node's *inline* style, if it sets one.
     fn inline_display(node: &Dom) -> Option<LayoutDisplay> {
-        node.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
             .find_map(|(p, _)| match p {
                 CssProperty::Display(v) => v.get_property().copied(),
+                _ => None,
+            })
+    }
+
+    /// The `height` value in a node's *inline* style, if it sets one.
+    fn inline_height(node: &Dom) -> Option<LayoutHeight> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+            .find_map(|(p, _)| match p {
+                CssProperty::Height(v) => v.get_property().cloned(),
                 _ => None,
             })
     }
@@ -778,6 +1255,29 @@ mod autotest_generated {
                     if let CssProperty::Display(v) = p {
                         if let Some(d) = v.get_property() {
                             out.push((node_id.index(), *d));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Every concrete `height` write recorded in the change log (the full
+    /// channel, not the override one), as `(node index, height)`.
+    fn height_writes(changes: &[CallbackChange]) -> Vec<(usize, LayoutHeight)> {
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } = change
+            {
+                for p in properties.as_ref() {
+                    if let CssProperty::Height(v) = p {
+                        if let Some(h) = v.get_property() {
+                            out.push((node_id.index(), h.clone()));
                         }
                     }
                 }
@@ -981,7 +1481,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_display_follows_is_open() {
+    fn dom_height_follows_is_open() {
         let acc = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
             AccordionSection::new(
                 "closed",
@@ -1002,9 +1502,13 @@ mod autotest_generated {
         assert!(has_class(h0, "__azul-native-accordion-header"));
         assert!(has_class(b0, "__azul-native-accordion-body"));
 
-        // a closed section is `display: none`, an open one `display: block`
-        assert_eq!(inline_display(b0), Some(LayoutDisplay::None));
-        assert_eq!(inline_display(b1), Some(LayoutDisplay::Block));
+        // Both bodies are laid out (a closed one must be measurable for its
+        // opening tween); a closed body is collapsed to zero height, an open
+        // one is as tall as its content.
+        assert_eq!(inline_display(b0), Some(LayoutDisplay::FlowRoot));
+        assert_eq!(inline_display(b1), Some(LayoutDisplay::FlowRoot));
+        assert_eq!(inline_height(b0), Some(LayoutHeight::const_px(0)));
+        assert_eq!(inline_height(b1), None);
 
         // the body wraps exactly the caller's content
         assert_eq!(text_of(&b0.children.as_ref()[0]), Some("c0"));
@@ -1049,12 +1553,47 @@ mod autotest_generated {
             assert_eq!(hd.is_open, i % 3 == 0);
             assert!(hd.on_toggle.is_none(), "no user callback was set");
             assert_eq!(
-                inline_display(body),
-                Some(if i % 3 == 0 {
-                    LayoutDisplay::Block
+                inline_height(body),
+                if i % 3 == 0 {
+                    None
                 } else {
-                    LayoutDisplay::None
-                })
+                    Some(LayoutHeight::const_px(0))
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn a_body_declares_its_tween_only_without_reduced_motion() {
+        use azul_css::dynamic_selector::{BoolCondition, DynamicSelector};
+
+        for open in [false, true] {
+            let style = body_style(open);
+            let animations: Vec<&CssPropertyWithConditions> = style
+                .as_ref()
+                .iter()
+                .filter(|p| matches!(p.property, CssProperty::Animation(_)))
+                .collect();
+            assert_eq!(animations.len(), 1, "open={open}: one animation declaration");
+            assert_eq!(
+                animations[0].apply_if.as_ref(),
+                &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)][..],
+                "open={open}: the tween must be conditional on no reduced motion"
+            );
+            let CssProperty::Animation(value) = &animations[0].property else {
+                unreachable!("filtered on Animation above");
+            };
+            let names: Vec<&str> = value
+                .get_property()
+                .expect("an exact animation list")
+                .as_ref()
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect();
+            assert_eq!(
+                names,
+                ["height", "padding-top", "padding-bottom"],
+                "open={open}: the tween covers what the click handler writes"
             );
         }
     }
@@ -1160,6 +1699,7 @@ mod autotest_generated {
             index: 0,
             is_open: false,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
         let (update, changes) = run_click(None, 0, data.clone());
@@ -1177,6 +1717,7 @@ mod autotest_generated {
             index: 3,
             is_open: true,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
         let (update, changes) = run_click(Some(header_body_dom()), 2, data.clone());
@@ -1192,6 +1733,7 @@ mod autotest_generated {
             index: 0,
             is_open: false,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
         // node 999 does not exist in the 3-node fixture
@@ -1217,19 +1759,28 @@ mod autotest_generated {
     }
 
     #[test]
-    fn header_click_toggles_body_display_and_flips_state() {
+    fn header_click_toggles_body_height_and_flips_state() {
+        // The fixture's body declares no animation (and has no layout to
+        // measure), so this is the reduced-motion path: the new state is
+        // written at once. The tween itself is pinned end to end in
+        // layout/tests/accordion_animation.rs.
         let mut data = RefAny::new(HeaderClickData {
             index: 0,
             is_open: false,
             on_toggle: None.into(),
+            chevron_turn_deg: 180,
         });
 
-        // closed -> open
+        // closed -> open: as tall as the content
         let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
         assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
         assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::Block)]
+            height_writes(&changes),
+            alloc::vec![(2usize, LayoutHeight::Auto)]
+        );
+        assert!(
+            display_writes(&changes).is_empty(),
+            "the body stays laid out"
         );
         assert!(payload_is_open(&mut data));
 
@@ -1237,8 +1788,8 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::None)]
+            height_writes(&changes),
+            alloc::vec![(2usize, LayoutHeight::const_px(0))]
         );
         assert!(!payload_is_open(&mut data));
     }
@@ -1254,18 +1805,21 @@ mod autotest_generated {
                 refany: log.clone(),
             })
             .into(),
+            chevron_turn_deg: 180,
         });
 
         let (update, changes) = run_click(Some(header_body_dom()), 1, data.clone());
 
         // the user's return value wins over the internal DoNothing
         assert_eq!(update, Update::RefreshDom);
-        // The host asked for a rebuild, so it owns the open flag: the widget
-        // must CLEAR its `display` override instead of writing one. A written
-        // override survives the rebuild (`migrate_user_overrides_from`) and
-        // outranks the freshly cascaded style, which latched the section open
-        // (or shut) forever — the "accordion doesn't properly expand/collapse"
-        // bug. `initial` is what removes an override (`restyle_user_property`).
+        // The host asked for a rebuild, so it owns the open flag. Without a
+        // tween to settle it (the fixture's body declares none, as under
+        // reduced motion) the widget must CLEAR its overrides instead of
+        // writing values. A written override survives the rebuild
+        // (`migrate_user_overrides_from`) and outranks the freshly cascaded
+        // style, which latched the section open (or shut) forever — the
+        // "accordion doesn't properly expand/collapse" bug. `initial` is what
+        // removes an override (`restyle_user_property`).
         let writes: Vec<_> = changes
             .iter()
             .filter_map(|c| match c {
@@ -1286,14 +1840,21 @@ mod autotest_generated {
             .collect();
         assert_eq!(
             writes,
-            alloc::vec![(2usize, alloc::vec![CssPropertyType::Display])],
-            "a rebuild-requesting toggle must still address the body's display",
+            alloc::vec![(
+                2usize,
+                alloc::vec![
+                    CssPropertyType::Height,
+                    CssPropertyType::PaddingTop,
+                    CssPropertyType::PaddingBottom,
+                ]
+            )],
+            "a rebuild-requesting toggle must still address what the click writes",
         );
         assert!(
-            display_writes(&changes).is_empty(),
+            height_writes(&changes).is_empty() && display_writes(&changes).is_empty(),
             "…but as `initial` (override cleared), never as a concrete value that would outrank \
              the rebuilt DOM: {:?}",
-            display_writes(&changes),
+            height_writes(&changes),
         );
         assert_eq!(
             log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
@@ -1306,6 +1867,706 @@ mod autotest_generated {
         assert_eq!(
             log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
             &[17, 17]
+        );
+    }
+
+    /// The flattened index of the first node of `styled` that carries
+    /// `class`.
+    fn styled_node_with_class(styled: &StyledDom, class: &str) -> usize {
+        let node_data = styled.node_data.as_container();
+        (0..node_data.len())
+            .find(|i| {
+                node_data[NodeId::new(*i)]
+                    .get_ids_and_classes()
+                    .iter()
+                    .any(|c| matches!(c.as_class(), Some(s) if s == class))
+            })
+            .unwrap_or_else(|| panic!("no node carries {class}"))
+    }
+
+    /// Every `transform: rotate(..)` write in the change log, as
+    /// `(node index, degrees)`.
+    fn turn_writes(changes: &[CallbackChange]) -> Vec<(usize, f32)> {
+        use azul_css::props::style::StyleTransform;
+        let mut out = Vec::new();
+        for change in changes {
+            if let CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } = change
+            {
+                for p in properties.as_ref() {
+                    if let CssProperty::Transform(v) = p {
+                        if let Some([StyleTransform::Rotate(a)]) =
+                            v.get_property().map(|l| l.as_ref())
+                        {
+                            out.push((node_id.index(), a.to_degrees_raw()));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// A header click turns the section's disclosure indicator with it: a
+    /// click on a closed section turns the chevron to point up, the next
+    /// click turns it back - written through the channel the body's tween
+    /// uses, so a declared `animation` turns it instead of flipping it.
+    #[test]
+    fn a_header_click_turns_its_disclosure_indicator() {
+        let styled = || {
+            StyledDom::create_from_dom(
+                Accordion::new(AccordionSectionVec::from_vec(alloc::vec![AccordionSection::new(
+                    "Section",
+                    Dom::create_div()
+                )]))
+                .with_theme(crate::widgets::themes::UiTheme::Flat)
+                .dom(),
+            )
+        };
+        let first = styled();
+        let header = styled_node_with_class(&first, "__azul-native-accordion-header");
+        let chevron = styled_node_with_class(&first, "__azul-native-accordion-chevron");
+        let data = first.node_data.as_container()[NodeId::new(header)]
+            .get_callbacks()
+            .as_ref()[0]
+            .refany
+            .clone();
+
+        let (_, changes) = run_click(Some(first), header, data.clone());
+        assert_eq!(
+            turn_writes(&changes),
+            alloc::vec![(chevron, 180.0)],
+            "opening a section turns its chevron to point up"
+        );
+        let (_, changes) = run_click(Some(styled()), header, data);
+        assert_eq!(
+            turn_writes(&changes),
+            alloc::vec![(chevron, 0.0)],
+            "closing it turns the chevron back"
+        );
+    }
+}
+
+/// The theme option: which look an accordion renders in, and what each look
+/// is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_css::{
+        dynamic_selector::PseudoStateType,
+        props::{basic::pixel::PixelValue, style::BoxShadowClipMode},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    fn accordion(theme: UiTheme) -> Dom {
+        Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Open section", Dom::create_p_with_text("Body text"))
+                .with_open(true),
+            AccordionSection::new("Closed section", Dom::create_p_with_text("Body text")),
+        ]))
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn sections(dom: &Dom) -> &[Dom] {
+        dom.children.as_ref()
+    }
+
+    fn header(section: &Dom) -> &Dom {
+        &section.children.as_ref()[0]
+    }
+
+    fn body(section: &Dom) -> &Dom {
+        &section.children.as_ref()[1]
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(&node).iter()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    /// The `(light, dark)` value `pick` finds among the declarations for
+    /// exactly `state`.
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if d.pseudo_state_conditions() != [state] {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    /// The `(light, dark)` value `pick` finds among the RESTING declarations
+    /// (no pseudo-state) - what the node shows when nothing happens to it.
+    /// `theme_probe::dark` would also return the `:hover` / `:active` /
+    /// `:focus` dark twins, declared after the resting pair.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if !d.pseudo_state_conditions().is_empty() {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    /// A shadow's colour, and whether it is drawn inside the box.
+    fn shadow(p: &CssProperty) -> Option<(ColorU, bool)> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| {
+                let s = s.as_ref();
+                (s.color, s.clip_mode == BoxShadowClipMode::Inset)
+            }),
+            _ => None,
+        }
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn ink(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::TextColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn radius(p: &CssProperty) -> Option<PixelValue> {
+        match p {
+            CssProperty::BorderTopLeftRadius(v) => v.get_property().map(|r| r.inner),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    #[test]
+    fn an_accordion_without_a_theme_renders_flat() {
+        let plain = Accordion::create();
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            theme_probe::unconditional(&plain.clone().dom()),
+            theme_probe::unconditional(&plain.with_theme(UiTheme::Flat).dom())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = Accordion::create();
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(Accordion::create().with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_header_rings_inside_its_panel_on_focus_and_lights_under_the_pointer() {
+        let dom = accordion(UiTheme::Flat);
+        for s in sections(&dom) {
+            let (light, dark) = in_state(header(s), PseudoStateType::Focus, shadow);
+            assert!(
+                light.is_some_and(|(_, inset)| inset) && dark.is_some_and(|(_, inset)| inset),
+                "a keyboard stop needs a ring, drawn inside: the panel clips its edges"
+            );
+            let (hl, hd) = in_state(header(s), PseudoStateType::Hover, bg);
+            assert!(hl.is_some() && hd.is_some(), "no hover face, or none at night");
+        }
+    }
+
+    #[test]
+    fn a_flora_accordion_is_a_leaf_ruled_in_flora_s_hairline() {
+        let dom = accordion(UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(alloc::vec![StyleBackgroundContent::Color(flora::LIGHT_SUR)])
+        );
+        assert_eq!(last(&rest, top_edge), Some(flora::LIGHT_BD));
+        assert_eq!(last(&rest, ink), Some(flora::LIGHT_INK));
+        assert_eq!(last(&rest, radius), Some(PixelValue::const_px(3)));
+        let dark = theme_probe::dark(&dom);
+        assert_eq!(
+            last(&dark, bg),
+            Some(alloc::vec![StyleBackgroundContent::Color(flora::DARK_SUR)])
+        );
+        assert_eq!(last(&dark, top_edge), Some(flora::DARK_BD));
+        assert_eq!(last(&dark, ink), Some(flora::DARK_INK));
+    }
+
+    #[test]
+    fn a_flora_header_is_raised_paper_that_lifts_under_the_pointer() {
+        let dom = accordion(UiTheme::Flora);
+        for s in sections(&dom) {
+            let h = header(s);
+            assert_eq!(
+                at_rest(h, bg),
+                (
+                    Some(alloc::vec![flora::RAISED_FACE_LIGHT]),
+                    Some(alloc::vec![flora::RAISED_FACE_DARK])
+                ),
+                "at rest: flora.css's raised face, --fl-rT over --fl-rB, by day and night"
+            );
+            assert_eq!(
+                in_state(h, PseudoStateType::Active, bg),
+                (
+                    Some(alloc::vec![flora::PRESSED_FACE_LIGHT]),
+                    Some(alloc::vec![flora::PRESSED_FACE_DARK])
+                ),
+                "held: the pressed face, --fl-pT over --fl-pB"
+            );
+            assert_eq!(
+                in_state(h, PseudoStateType::Hover, bg),
+                (
+                    Some(alloc::vec![flora::HOVER_FACE_LIGHT]),
+                    Some(alloc::vec![flora::HOVER_FACE_DARK])
+                )
+            );
+            assert_eq!(
+                in_state(h, PseudoStateType::Hover, ink),
+                (Some(flora::LIGHT_QT), Some(flora::DARK_QT)),
+                "flora.css `.faq-question:hover`: the brass accent"
+            );
+            assert_eq!(
+                in_state(h, PseudoStateType::Focus, shadow),
+                (
+                    Some((flora::LIGHT_ACC, true)),
+                    Some((flora::DARK_GLOW, true))
+                ),
+                "flora's focus colour, inside the panel"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_accordion_keeps_the_headers_behaviour_and_the_bodies_geometry() {
+        let flora = accordion(UiTheme::Flora);
+        let flat = accordion(UiTheme::Flat);
+        for (a, b) in sections(&flora).iter().zip(sections(&flat)) {
+            assert!(header(a).root.get_tab_index().is_some(), "a keyboard stop");
+            assert_eq!(header(a).root.get_callbacks().as_ref().len(), 1, "the toggle");
+            assert_eq!(
+                header(a).root.get_accessibility_info().map(|i| i.role),
+                header(b).root.get_accessibility_info().map(|i| i.role)
+            );
+            assert_eq!(
+                theme_probe::unconditional(body(a)),
+                theme_probe::unconditional(body(b)),
+                "the open / closed geometry the click handler tweens"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_accordion_carries_the_flora_theme_marker() {
+        let dom = accordion(UiTheme::Flora);
+        assert!(dom
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == "__azul-theme-flora")));
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn accordion() -> Accordion {
+        Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Open section", Dom::create_div()).with_open(true),
+            AccordionSection::new("Closed section", Dom::create_div()),
+        ]))
+    }
+
+    #[test]
+    fn an_accordion_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "accordion",
+            || accordion().dom(),
+            |t: UiTheme| accordion().with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the accordion's layout - the panel's clipped column, each
+    /// section's column, each header's row with its pointer and unselectable
+    /// title, the indicator's box, the body's clip - is its BASE: declared
+    /// once, outside every `@theme` block, so it also holds under a theme no
+    /// widget knows. An open and a closed section.
+    #[test]
+    fn an_accordion_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for t in checks::BOTH {
+            let dom = checks::under(t, || accordion().dom());
+            assert_structure_is_shared(
+                &format!("accordion built for {}", t.name()),
+                &dom,
+                &[],
+            );
+        }
+    }
+}
+
+/// The disclosure indicator (the old TODO2): every header ends in the
+/// theme's indicator, turned to show whether its section is open - flat's
+/// chevron points down, and up when open (the Windows 11 expander, the
+/// Bootstrap accordion); flora's `+` turns into a cross (flora.css's FAQ).
+#[cfg(test)]
+mod chevron_tests {
+    use azul_core::dom::NodeType;
+    use azul_css::{
+        dynamic_selector::{BoolCondition, DynamicSelector},
+        props::style::StyleTransform,
+    };
+
+    use super::*;
+    use crate::widgets::themes::UiTheme;
+
+    /// An open section, then a closed one.
+    fn accordion(theme: UiTheme) -> Dom {
+        Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Open section", Dom::create_div()).with_open(true),
+            AccordionSection::new("Closed section", Dom::create_div()),
+        ]))
+        .with_theme(theme)
+        .dom()
+    }
+
+    fn header(dom: &Dom, n: usize) -> &Dom {
+        &dom.children.as_ref()[n].children.as_ref()[0]
+    }
+
+    /// The last node of section `n`'s header.
+    fn indicator(dom: &Dom, n: usize) -> &Dom {
+        header(dom, n)
+            .children
+            .as_ref()
+            .last()
+            .expect("a header has children")
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    /// The icon the indicator shows: its only child. The indicator is a box
+    /// around the icon because icon resolution replaces the icon node - its
+    /// style survives, its classes do not - and the click handler finds the
+    /// indicator by its class.
+    fn icon_name(node: &Dom) -> Option<&str> {
+        match node.children.as_ref() {
+            [icon] => match icon.root.get_node_type() {
+                NodeType::Icon(name) => Some(name.as_ref().as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The resting turn: the last UNCONDITIONAL `transform: rotate(..)`.
+    fn turn(node: &Dom) -> Option<f32> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::Transform(v) => match v.get_property().map(|l| l.as_ref()) {
+                    Some([StyleTransform::Rotate(a)]) => Some(a.to_degrees_raw()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .last()
+    }
+
+    /// Every `animation` the node declares, with its conditions.
+    fn animations(
+        node: &Dom,
+    ) -> Vec<(
+        Vec<azul_css::props::basic::animation::StyleAnimation>,
+        Vec<DynamicSelector>,
+    )> {
+        node.root
+            .style
+            .iter_inline_properties()
+            .filter_map(|(p, c)| match p {
+                CssProperty::Animation(v) => Some((
+                    v.get_property()
+                        .map(|l| l.as_ref().to_vec())
+                        .unwrap_or_default(),
+                    c.as_ref().to_vec(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_flat_header_ends_in_a_chevron_that_points_up_when_its_section_is_open() {
+        let dom = accordion(UiTheme::Flat);
+        for (n, open_turn) in [(0, 180.0), (1, 0.0)] {
+            let chevron = indicator(&dom, n);
+            assert!(
+                has_class(chevron, "__azul-native-accordion-chevron"),
+                "section {n}: the header ends in the disclosure indicator"
+            );
+            assert_eq!(icon_name(chevron), Some("expand_more"), "section {n}");
+            assert_eq!(turn(chevron), Some(open_turn), "section {n}");
+        }
+    }
+
+    #[test]
+    fn a_flora_header_ends_in_a_plus_that_turns_into_a_cross_when_open() {
+        let dom = accordion(UiTheme::Flora);
+        for (n, open_turn) in [(0, 45.0), (1, 0.0)] {
+            let plus = indicator(&dom, n);
+            assert!(has_class(plus, "__azul-native-accordion-chevron"), "section {n}");
+            assert_eq!(icon_name(plus), Some("add"), "section {n}");
+            assert_eq!(turn(plus), Some(open_turn), "section {n}");
+        }
+    }
+
+    /// The indicator turns on the body's beat - `transform` tweened over the
+    /// same 220 ms - and only where the reader has not asked for less motion.
+    #[test]
+    fn the_indicator_turns_with_the_body_unless_motion_is_reduced() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = accordion(theme);
+            let declared = animations(indicator(&dom, 1));
+            assert_eq!(declared.len(), 1, "{theme:?}: one animation declaration");
+            let (list, conditions) = &declared[0];
+            assert_eq!(
+                conditions.as_slice(),
+                &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)],
+                "{theme:?}: gated on prefers-reduced-motion: no-preference"
+            );
+            assert_eq!(list.len(), 1, "{theme:?}");
+            assert_eq!(list[0].name.as_str(), "transform", "{theme:?}");
+            assert_eq!(list[0].duration.millis(), BODY_TWEEN_MS, "{theme:?}");
+        }
+    }
+
+    /// The indicator is decoration: no Tab stop, no callback, and the title
+    /// stays the header's first child (its name).
+    #[test]
+    fn the_indicator_is_decoration_and_the_title_still_names_the_header() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = accordion(theme);
+            let chevron = indicator(&dom, 0);
+            assert!(chevron.root.get_tab_index().is_none(), "{theme:?}");
+            assert!(chevron.root.get_callbacks().as_ref().is_empty(), "{theme:?}");
+            assert!(
+                has_class(
+                    &header(&dom, 0).children.as_ref()[0],
+                    "__azul-native-accordion-title"
+                ),
+                "{theme:?}: the title comes first"
+            );
+            assert_eq!(header(&dom, 0).children.as_ref().len(), 2, "{theme:?}");
+        }
+    }
+}
+
+/// The GROUPS variant: a file manager's groups ("Hard Disk Drives (2)") - a
+/// title with its count, a hairline rule to the end of the row, the
+/// disclosure indicator; no panel around them.
+#[cfg(test)]
+mod groups_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn groups() -> Accordion {
+        Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Local", Dom::create_div())
+                .with_count(1)
+                .with_open(true),
+            AccordionSection::new("Cloud / S3", Dom::create_div()).with_count(2),
+        ]))
+        .with_variant(AccordionVariant::Groups)
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    /// The text of a `p > text` label.
+    fn text_of(node: &Dom) -> Option<&str> {
+        match node.children.as_ref() {
+            [only] => match only.root.get_node_type() {
+                azul_core::dom::NodeType::Text(s) => Some(s.as_ref().as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Every section's header: panel > section > [header, body].
+    fn headers(dom: &Dom) -> Vec<&Dom> {
+        dom.children
+            .as_ref()
+            .iter()
+            .map(|section| &section.children.as_ref()[0])
+            .collect()
+    }
+
+    #[test]
+    fn a_section_count_follows_its_title_in_brackets() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            let titles: Vec<Option<&str>> = headers(&dom)
+                .iter()
+                .map(|h| text_of(&h.children.as_ref()[0]))
+                .collect();
+            assert_eq!(
+                titles,
+                vec![Some("Local (1)"), Some("Cloud / S3 (2)")],
+                "{}",
+                theme.name()
+            );
+        }
+        // A section without a count keeps its bare title, in either variant.
+        let bare = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
+            AccordionSection::new("Details", Dom::create_div())
+        ]))
+        .with_theme(UiTheme::Flat)
+        .dom();
+        assert_eq!(
+            text_of(&headers(&bare)[0].children.as_ref()[0]),
+            Some("Details")
+        );
+    }
+
+    #[test]
+    fn a_groups_header_is_its_title_a_rule_and_the_indicator() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            for header in headers(&dom) {
+                let parts = header.children.as_ref();
+                assert_eq!(parts.len(), 3, "{}: title, rule, indicator", theme.name());
+                assert!(
+                    has_class(&parts[0], "__azul-native-accordion-title"),
+                    "{}",
+                    theme.name()
+                );
+                assert!(
+                    has_class(&parts[1], "__azul-native-accordion-rule"),
+                    "{}: the rule sits between the title and the indicator",
+                    theme.name()
+                );
+                assert!(
+                    has_class(&parts[2], ACCORDION_CHEVRON_CLASS_NAME),
+                    "{}: the header still ends in the indicator the click turns",
+                    theme.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_panel_header_stays_its_title_and_the_indicator() {
+        let dom = groups()
+            .with_variant(AccordionVariant::Panel)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        for header in headers(&dom) {
+            assert_eq!(header.children.as_ref().len(), 2);
+        }
+    }
+
+    #[test]
+    fn the_rule_takes_the_rest_of_the_header_row() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            let rule = &headers(&dom)[0].children.as_ref()[1];
+            let grows = rule.root.style.iter_inline_properties().any(|(p, c)| {
+                c.as_ref().is_empty()
+                    && matches!(p, CssProperty::FlexGrow(v)
+                        if v.get_property().is_some_and(|g| g.inner.get() > 0.0))
+            });
+            assert!(grows, "{}: the rule grows to the indicator", theme.name());
+        }
+    }
+
+    #[test]
+    fn groups_draw_no_panel_border_around_the_sections() {
+        for theme in checks::BOTH {
+            let dom = groups().with_theme(theme).dom();
+            let bordered = dom.root.style.iter_inline_properties().any(|(p, _)| {
+                matches!(p, CssProperty::BorderTopWidth(v)
+                    if v.get_property().is_some_and(|w| w.inner.number.get() > 0.0))
+            });
+            assert!(!bordered, "{}: groups sit on the page", theme.name());
+        }
+    }
+
+    #[test]
+    fn a_groups_accordion_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "accordion (groups)",
+            || groups().dom(),
+            |t: UiTheme| groups().with_theme(t).dom(),
         );
     }
 }

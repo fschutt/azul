@@ -63,27 +63,33 @@ use windows::{
 
 use crate::{desktop::shell2::common::debug_server::LogCategory, log_debug};
 
-/// The last scale DirectManipulation reported, so `OnContentUpdated` can emit a
-/// DELTA. The transform is absolute-since-gesture-start, but `DetectedPinch`
-/// carries a per-event scale like every other backend, so the two have to be
-/// differenced.
+/// The absolute scale DirectManipulation last reported for the gesture in
+/// flight, or 0.0 between gestures. The transform is absolute since the gesture
+/// began - exactly what `DetectedPinch::scale` is (cumulative) - so it is
+/// forwarded as is; this only tells the gesture's first update (`began`) and
+/// the settling noise apart.
 ///
 /// Process-global rather than per-window: DirectManipulation drives one gesture
 /// at a time across the desktop, and the handler has no path back to its owner
 /// beyond the HWND it was built with.
-static LAST_SCALE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x3f80_0000); // 1.0f32 bits
+static LAST_SCALE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0); // 0.0f32 bits
 
-fn take_scale_delta(absolute: f32) -> f32 {
+/// `Some(began)` for an absolute scale worth reporting; `None` for a change
+/// under a per-mille against the last report (DirectManipulation settling, or
+/// a two-finger pan that does not zoom at all).
+fn note_scale(absolute: f32) -> Option<bool> {
     let prev = f32::from_bits(LAST_SCALE.load(core::sync::atomic::Ordering::Relaxed));
-    LAST_SCALE.store(absolute.to_bits(), core::sync::atomic::Ordering::Relaxed);
-    if prev.abs() < f32::EPSILON {
-        return 1.0;
+    let began = prev <= 0.0;
+    let base = if began { 1.0 } else { prev };
+    if (absolute / base - 1.0).abs() < 0.001 {
+        return None;
     }
-    absolute / prev
+    LAST_SCALE.store(absolute.to_bits(), core::sync::atomic::Ordering::Relaxed);
+    Some(began)
 }
 
 fn reset_scale() {
-    LAST_SCALE.store(1.0f32.to_bits(), core::sync::atomic::Ordering::Relaxed);
+    LAST_SCALE.store(0, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// The COM callback object. Holds only the HWND and resolves the owning window
@@ -102,8 +108,8 @@ impl IDirectManipulationViewportEventHandler_Impl for DmEventHandler_Impl {
         current: DIRECTMANIPULATION_STATUS,
         _previous: DIRECTMANIPULATION_STATUS,
     ) -> WinResult<()> {
-        // Any transition out of RUNNING ends the gesture, so the next one
-        // starts from 1.0 rather than inheriting the last scale.
+        // Any transition out of RUNNING ends the gesture, so the next update
+        // begins a new one.
         const RUNNING: i32 = 4;
         if current.0 != RUNNING {
             reset_scale();
@@ -130,14 +136,13 @@ impl IDirectManipulationViewportEventHandler_Impl for DmEventHandler_Impl {
         if absolute <= 0.0 {
             return Ok(());
         }
-        let delta = take_scale_delta(absolute);
         // Sub-per-mille changes are DirectManipulation settling, not the user
         // pinching; forwarding them would emit a pinch per frame while a
         // finger rests on the pad.
-        if (delta - 1.0).abs() < 0.001 {
+        let Some(began) = note_scale(absolute) else {
             return Ok(());
-        }
-        emit_pinch(self.hwnd, delta);
+        };
+        emit_pinch(self.hwnd, absolute, began);
         Ok(())
     }
 }
@@ -259,7 +264,7 @@ impl Drop for DirectManipulationOwner {
 /// Push one pinch into the engine, resolving the window from the HWND the same
 /// way `dnd.rs` does - a COM object outlives any borrow the shell could hand it,
 /// so the registry lookup happens per callback rather than being captured.
-fn emit_pinch(hwnd: isize, scale: f32) {
+fn emit_pinch(hwnd: isize, scale: f32, began: bool) {
     use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
 
     let hwnd_t = hwnd as super::dlopen::HWND;
@@ -293,6 +298,7 @@ fn emit_pinch(hwnd: isize, scale: f32) {
                 initial_distance: PINCH_NOMINAL_DISTANCE,
                 current_distance: PINCH_NOMINAL_DISTANCE * scale,
                 duration_ms: 0,
+                began,
             }));
     }
     let result = super::PlatformWindow::process_window_events(window, 0);

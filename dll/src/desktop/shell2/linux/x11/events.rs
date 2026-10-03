@@ -36,8 +36,8 @@ use super::{
 };
 use crate::{
     desktop::shell2::common::event::{
-        HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
-        BUTTON_STATE_RIGHT,
+        scrollbar_stops_the_button_event, PlatformWindow, BUTTON_STATE_LEFT,
+        BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
     },
     log_debug, log_error, log_info, log_trace, log_warn,
 };
@@ -515,7 +515,15 @@ impl X11Window {
                         return ProcessEventResult::DoNothing;
                     }
                 }
-                self.close();
+                // The CHAIN, not this one window: the grab belongs to
+                // whichever menu took it last, so the popup that received
+                // this press is not necessarily the one the user wants gone -
+                // and closing it alone left its parent mapped, unfocusable
+                // and un-grabbed, which is how menus piled up on the live
+                // run. `dismiss_menu_chain` closes `self` last and is
+                // idempotent, so a second press (a double click) finds
+                // nothing left to tear down.
+                self.dismiss_menu_chain(self.window as u64);
                 return ProcessEventResult::DoNothing;
             }
         }
@@ -578,8 +586,14 @@ impl X11Window {
             let ws = self.common.current_window_state();
             let size = ws.size.dimensions;
             let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
+            // A window has the WM's own resize handles exactly when we asked
+            // the WM for a frame. Read that from the SAME place the request is
+            // built, so the band can never disagree with what was asked for:
+            // no decoration bits, no server frame, and the band is the only
+            // way left to resize.
+            let frameless = super::motif_decor_bits(decorations) == 0;
             if let Some(edge) =
-                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+                csd_resize_edge_for_press(position, frameless, size, frame, CSD_RESIZE_BAND_PX)
             {
                 // _NET_WM_MOVERESIZE directions: TOPLEFT=0 TOP=1 TOPRIGHT=2
                 // RIGHT=3 BOTTOMRIGHT=4 BOTTOM=5 BOTTOMLEFT=6 LEFT=7.
@@ -602,17 +616,33 @@ impl X11Window {
             }
         }
 
-        // Check for scrollbar hit FIRST (before state changes)
+        // The press router FIRST (before state changes): scrollbar, then
+        // content. The shared helpers record what the scrollbar consumed (the
+        // button stays PHYSICALLY DOWN for the whole thumb drag) and swallow
+        // it. Whether the scrollbar's involvement STOPS the button event here
+        // is one shared rule — `scrollbar_stops_the_button_event`.
+        let mut ended_scrollbar_drag = false;
         if is_down {
-            if let Some(scrollbar_hit_id) =
-                PlatformWindow::perform_scrollbar_hit_test(self, position)
-            {
-                return PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+            if let Some(handled) = PlatformWindow::route_pointer_press(
+                self,
+                position,
+                button,
+                "x11.handle_mouse_button.scrollbar_click",
+            ) {
+                if scrollbar_stops_the_button_event(is_down, true) {
+                    return handled;
+                }
             }
-        } else {
-            // End scrollbar drag if active
-            if self.common.scrollbar_drag_state.is_some() {
-                self.common.scrollbar_drag_state = None;
+        } else if PlatformWindow::end_scrollbar_drag(
+            self,
+            position,
+            button,
+            "x11.handle_mouse_button.scrollbar_release",
+        )
+        .is_some()
+        {
+            ended_scrollbar_drag = true;
+            if scrollbar_stops_the_button_event(is_down, true) {
                 return ProcessEventResult::ShouldReRenderCurrentWindow;
             }
         }
@@ -654,9 +684,7 @@ impl X11Window {
         // RightMouseUp / Hover(RightMouseUp) never fired for that click and
         // the next handler's snapshot destroyed the transition.
         if !is_down && button == MouseButton::Right {
-            if let Some(hit_node) = self.get_first_hovered_node() {
-                self.try_show_context_menu(hit_node, position);
-            }
+            self.try_show_context_menu(position);
         }
 
         // X11 middle-click paste: the PRIMARY selection is inserted at the
@@ -692,6 +720,11 @@ impl X11Window {
         // the pass, which is what finalizes the selection).
         if !is_down && button == MouseButton::Left {
             self.publish_primary_selection();
+        }
+
+        if ended_scrollbar_drag {
+            // What the swallowed early return used to answer.
+            return result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
         result
@@ -735,9 +768,14 @@ impl X11Window {
         // Physical (X11 wire) → logical.
         let position = self.to_logical_pos(event.x as f32, event.y as f32);
 
-        // Handle active scrollbar drag (special case - not part of normal event system)
-        if self.common.scrollbar_drag_state.is_some() {
-            return PlatformWindow::handle_scrollbar_drag(self, position);
+        // A held scrollbar thumb takes the move (not part of the normal event
+        // system); the shared helper records the cursor and swallows the delta.
+        if let Some(result) = PlatformWindow::route_pointer_move(
+            self,
+            position,
+            "x11.handle_mouse_move.scrollbar_drag",
+        ) {
+            return result;
         }
 
         // Save previous state BEFORE making changes
@@ -964,32 +1002,12 @@ impl X11Window {
             // Start the scroll momentum timer if this is the first input
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::{
-                        refany::RefAny,
-                        task::{Duration, SCROLL_MOMENTUM_TIMER_ID},
-                    };
-                    use azul_layout::{
-                        scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                        timer::{Timer, TimerCallbackType},
-                    };
-
-                    let physics_state = ScrollPhysicsState::new(
+                    let timer = azul_layout::scroll_timer::create_scroll_physics_timer(
                         queue,
                         self.resources.system_style.scroll_physics.clone(),
+                        self.common.frame_interval_nanos(),
                     );
-                    let interval_ms = self.resources.system_style.scroll_physics.timer_interval_ms;
-                    let data = RefAny::new(physics_state);
-                    let timer = Timer::create(
-                        data,
-                        scroll_physics_timer_callback as TimerCallbackType,
-                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                            .get_system_time_fn,
-                    )
-                    .with_interval(Duration::System(
-                        azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
-                    ));
-
-                    self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                    self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
                 }
             }
         }
@@ -1092,11 +1110,26 @@ impl X11Window {
                     std::ptr::null_mut(),
                 )
             };
+            // This core lookup answers in the LOCALE's encoding: Latin-1
+            // bytes under a non-UTF-8 locale (U+FFFD once decoded), nothing
+            // at all for a character the locale cannot spell. The keysym names
+            // the character either way, so off Linux (XQuartz on macOS, where
+            // an app is often started without a UTF-8 LANG) or without
+            // libxkbcommon it is asked before the text is given up on. On
+            // Linux, where libxkbcommon is required, nothing changes.
+            let keysym_fallback = cfg!(not(target_os = "linux")) || self.xkb.is_none();
             let chars = if count > 0 {
                 // Use count to slice the buffer rather than CStr::from_ptr, which would
                 // read past the buffer if all 32 bytes are filled with no null terminator.
                 let bytes: Vec<u8> = buffer[..count as usize].iter().map(|b| *b as u8).collect();
-                String::from_utf8_lossy(&bytes).into_owned()
+                match String::from_utf8(bytes) {
+                    Ok(text) => text,
+                    Err(e) if keysym_fallback => keysym_to_text(keysym)
+                        .unwrap_or_else(|| String::from_utf8_lossy(e.as_bytes()).into_owned()),
+                    Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+                }
+            } else if keysym_fallback {
+                keysym_to_text(keysym).unwrap_or_default()
             } else {
                 String::new()
             };
@@ -1131,7 +1164,8 @@ impl X11Window {
         {
             // close() ungrabs + XDestroyWindow's the popup; setting is_open=false
             // directly would leak the X window (see the click-outside path).
-            self.close();
+            // Escape leaves the MENU, so it leaves the whole chain.
+            self.dismiss_menu_chain(self.window as u64);
             return ProcessEventResult::DoNothing;
         }
 
@@ -1452,68 +1486,30 @@ impl X11Window {
         result
     }
 
-    /// Get the first hovered node from current hit test
-    fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        self.common
-            .layout_window
-            .as_ref()?
-            .hover_manager
-            .get_current(&InputPointId::Mouse)?
-            .hovered_nodes
-            .iter()
-            .flat_map(|(dom_id, ht)| {
-                ht.regular_hit_test_nodes
-                    .keys()
-                    .next_back()
-                    .map(|node_id| HitTestNode {
-                        dom_id: dom_id.inner as u64,
-                        node_id: node_id.index() as u64,
-                    })
-            })
-            .next()
-    }
-
     // Scrollbar methods provided by PlatformWindow trait (see common/event.rs)
 
     // Context Menu Support
 
-    /// Try to show context menu for the given node at position
+    /// Try to show the context menu under the pointer at `position`.
+    ///
+    /// WHICH menu is the engine's one answer
+    /// (`LayoutWindow::context_menu_under_pointer`, shared with every other
+    /// shell): the front-most node under the pointer, walking up - out of a
+    /// `VirtualView` page into its host too - to the nearest node carrying a
+    /// menu. This used to start at the highest `NodeId` of the LOWEST dom,
+    /// so a page composited over its host was never asked.
     ///
     /// Uses the unified menu system (crate::desktop::menu::show_menu) which is identical
     /// to how menu bar menus work, but spawns at cursor position instead of below a trigger rect.
     /// Returns true if a menu was shown
-    fn try_show_context_menu(&mut self, node: HitTestNode, position: LogicalPosition) -> bool {
-        let layout_window = match self.common.layout_window.as_ref() {
-            Some(lw) => lw,
-            None => return false,
-        };
-
-        let dom_id = DomId {
-            inner: node.dom_id as usize,
-        };
-
-        // Get layout result for this DOM
-        let layout_result = match layout_window.layout_results.get(&dom_id) {
-            Some(lr) => lr,
-            None => return false,
-        };
-
-        // `node.node_id` is a 0-based index (as emitted by get_first_hovered_node).
-        // Walk UP the ancestor chain from the hit node to find the nearest node
-        // carrying a context menu — standard "inherit the nearest ancestor's menu"
-        // semantics, so a right-click on a child still finds a parent's menu.
-        let binding = layout_result.styled_dom.node_data.as_container();
-        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-        let mut cur = Some(azul_core::id::NodeId::new(node.node_id as usize));
-        let context_menu = loop {
-            let nid = match cur {
-                Some(n) => n,
-                None => return false,
-            };
-            if let Some(menu) = binding.get(nid).and_then(|nd| nd.get_context_menu()) {
-                break menu.clone();
-            }
-            cur = hierarchy.get(nid).and_then(|h| h.parent_id());
+    fn try_show_context_menu(&mut self, position: LogicalPosition) -> bool {
+        let Some((owner, context_menu)) = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.context_menu_under_pointer())
+        else {
+            return false;
         };
 
         log_debug!(
@@ -1521,7 +1517,7 @@ impl X11Window {
             "[X11 Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
-            node,
+            owner,
             context_menu.items.as_slice().len()
         );
 
@@ -1751,6 +1747,35 @@ pub(super) fn apply_key_state_change(
 }
 
 // Keycode Conversion
+
+/// The text a keysym stands for, read from the keysym itself: the fallback
+/// `handle_keyboard` uses when the core `XLookupString` could not spell the
+/// character in the current locale and there is no libxkbcommon to ask.
+///
+/// Covers the ranges whose encoding makes a keysym self-describing (X11
+/// protocol, appendix A): printable ASCII and Latin-1 ARE their code points,
+/// `0x0100_0000 | U` is Unicode `U`, and the keypad's printable keys (Num Lock
+/// on) name their characters. The pre-Unicode legacy blocks (Latin-2,
+/// Cyrillic, Greek, ...) need xkbcommon's tables and answer `None`, as do the
+/// function, modifier and dead keys, which type nothing.
+pub(super) fn keysym_to_text(keysym: KeySym) -> Option<String> {
+    let keysym = u32::try_from(keysym).ok()?;
+    let code_point = match keysym {
+        0x0020..=0x007E | 0x00A0..=0x00FF => keysym,
+        0x0100_0100..=0x0110_FFFF => keysym - 0x0100_0000,
+        0xFF80 => u32::from(b' '),                              // KP_Space
+        0xFFAA => u32::from(b'*'),                              // KP_Multiply
+        0xFFAB => u32::from(b'+'),                              // KP_Add
+        0xFFAC => u32::from(b','),                              // KP_Separator
+        0xFFAD => u32::from(b'-'),                              // KP_Subtract
+        0xFFAE => u32::from(b'.'),                              // KP_Decimal
+        0xFFAF => u32::from(b'/'),                              // KP_Divide
+        0xFFB0..=0xFFB9 => u32::from(b'0') + (keysym - 0xFFB0), // KP_0 ..= KP_9
+        0xFFBD => u32::from(b'='),                              // KP_Equal
+        _ => return None,
+    };
+    char::from_u32(code_point).map(String::from)
+}
 
 pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
     // This is a partial mapping based on X11/keysymdef.h
@@ -2411,6 +2436,71 @@ mod tests {
     fn an_unknown_keysym_is_none_not_escape() {
         assert_eq!(vk(0), None);
         assert_eq!(vk(0x0100_0000), None);
+    }
+
+    fn text(keysym: u32) -> Option<String> {
+        keysym_to_text(keysym as KeySym)
+    }
+
+    /// The keysym fallback for typed text without libxkbcommon (XQuartz):
+    /// under a Latin-1 locale `XLookupString` hands back the single byte 0xE4
+    /// for `ä`, which decodes to U+FFFD; the keysym is 0xE4, i.e. U+00E4.
+    /// ASCII and Latin-1 keysyms are their own code points.
+    #[test]
+    fn latin1_keysyms_are_their_own_characters() {
+        assert_eq!(text(0x61).as_deref(), Some("a")); // XK_a
+        assert_eq!(text(0x41).as_deref(), Some("A")); // XK_A
+        assert_eq!(text(0x20).as_deref(), Some(" ")); // XK_space
+        assert_eq!(text(0x7E).as_deref(), Some("~")); // XK_asciitilde
+        assert_eq!(text(0xE4).as_deref(), Some("ä")); // XK_adiaeresis
+        assert_eq!(text(0xDF).as_deref(), Some("ß")); // XK_ssharp
+        assert_eq!(text(0xA7).as_deref(), Some("§")); // XK_section
+    }
+
+    /// `0x0100_0000 | U` is Unicode `U` by definition - how a keymap spells
+    /// anything outside Latin-1 (the euro sign, Cyrillic, CJK) - and a
+    /// surrogate is not a character even there.
+    #[test]
+    fn unicode_keysyms_carry_their_code_point() {
+        assert_eq!(text(0x0100_20AC).as_deref(), Some("€"));
+        assert_eq!(text(0x0100_0429).as_deref(), Some("Щ"));
+        assert_eq!(text(0x0100_4E2D).as_deref(), Some("中"));
+        assert_eq!(text(0x0100_D800), None);
+    }
+
+    /// Num Lock on: the keypad types what is printed on it.
+    #[test]
+    fn the_keypad_types_its_characters() {
+        assert_eq!(text(0xFFB0).as_deref(), Some("0")); // XK_KP_0
+        assert_eq!(text(0xFFB7).as_deref(), Some("7")); // XK_KP_7
+        assert_eq!(text(0xFFAE).as_deref(), Some(".")); // XK_KP_Decimal
+        assert_eq!(text(0xFFAB).as_deref(), Some("+")); // XK_KP_Add
+        assert_eq!(text(0xFFAF).as_deref(), Some("/")); // XK_KP_Divide
+        assert_eq!(text(0xFFBD).as_deref(), Some("=")); // XK_KP_Equal
+    }
+
+    /// Keys that type nothing must not type something in the fallback:
+    /// editing and function keys (their action comes from the
+    /// VirtualKeyCode), modifiers, a dead key (a compose PREFIX, not text), a
+    /// Num-Lock-off keypad key, DEL, and a legacy block this table does not
+    /// carry.
+    #[test]
+    fn keys_that_type_nothing_stay_silent() {
+        for keysym in [
+            0xFF0D, // XK_Return
+            0xFF08, // XK_BackSpace
+            0xFF1B, // XK_Escape
+            0xFF09, // XK_Tab
+            0xFFBE, // XK_F1
+            0xFFE1, // XK_Shift_L
+            0xFE51, // XK_dead_acute
+            0xFF95, // XK_KP_Home
+            0x7F,   // DEL
+            0x06C1, // XK_Cyrillic_a (legacy block)
+            0,      // NoSymbol
+        ] {
+            assert_eq!(text(keysym), None, "keysym {keysym:#x}");
+        }
     }
 
     fn masks(

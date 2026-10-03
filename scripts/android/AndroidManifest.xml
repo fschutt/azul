@@ -25,6 +25,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Notifications (Android 13+). Declaring it prompts nothing: the app
+         asks through CallbackInfo::request_notification_permission (or its
+         first post). Undeclared, targetSdk 33+ refuses that request without
+         ever showing the dialog, so an app could not obtain it at all. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- DANGEROUS permissions are opt-in, injected here by build-android.sh
          from AZ_ANDROID_PERMISSIONS. Declaring CAMERA / RECORD_AUDIO /
@@ -42,9 +47,13 @@
         android:label="@LABEL@"
         android:hasCode="false">
 
+        <!-- singleTop: a notification tap on the running app arrives in
+             onNewIntent instead of creating a second NativeActivity (and a
+             second android_main). -->
         <activity
             android:name="com.azul.app.AzulActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode"
+            android:launchMode="singleTop"
             android:exported="true">
 
             <meta-data
@@ -56,5 +65,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- A notification cleared by the user (its delete intent). A
+             MANIFEST receiver, because it must also run when the app is not
+             running; not exported, only this app's PendingIntents reach it. -->
+        <receiver
+            android:name="com.azul.notify.AzulNotifications$Receiver"
+            android:exported="false" />
     </application>
 </manifest>

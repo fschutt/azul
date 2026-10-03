@@ -1,0 +1,37 @@
+[package]
+name = "AzDrive"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzDrive - an Explorer-like file browser on the public azul API. A sidebar
+    of drives (Home, a folder on this computer, and S3 drives the user adds:
+    AWS S3, Cloudflare R2, MinIO), a breadcrumb and a sortable, paged list of
+    folders and files. Browsing a bucket fetches only listings; "Download" and
+    "Open" fetch ONE object. The drives list lives in the per-user config
+    folder without secrets; the keys live in the OS keyring. Storage is the
+    shared `azul-storage` crate, which AzMail uses too.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
+# Data, Shortcuts, About), the --shot timer.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The same features azul-layout and AzCalendar build chrono with (the local time of a date).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# The settings file (already in the tree through azul-storage and azul-layout).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azdrive"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzDrive"
+path = "src/main.rs"

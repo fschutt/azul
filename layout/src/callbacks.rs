@@ -46,7 +46,7 @@ use azul_core::{
 use azul_css::{
     corety::{OptionString, OptionUsize},
     css::CssPath,
-    impl_option, impl_option_inner,
+    impl_option,
     props::{
         basic::FontRef,
         property::{CssProperty, CssPropertyType, CssPropertyVec},
@@ -75,7 +75,7 @@ use crate::{
         undo_redo::{UndoRedoManager, UndoableOperation},
         virtual_view::VirtualViewManager,
     },
-    text3::cache::{TextShapingCache as TextLayoutCache, UnifiedLayout},
+    text3::cache::TextShapingCache as TextLayoutCache,
     thread::{CreateThreadCallback, Thread},
     timer::Timer,
     window::{DomLayoutResult, LayoutWindow},
@@ -230,6 +230,10 @@ impl Default for E2eScriptHandle {
 /// - Future extensibility for new change types
 #[derive(Debug, Clone)]
 pub enum CallbackChange {
+    /// Start the remote-control HTTP debug server on the specified port.
+    StartHttpServer { port: u16 },
+    /// Stop the remote-control HTTP debug server (has no effect if not running).
+    StopHttpServer,
     /// Run an E2E script in this session, as JSON.
     ///
     /// The plugin / macro path: a user opens an `.json` scenario and it drives
@@ -301,6 +305,23 @@ pub enum CallbackChange {
     },
     /// Close the current window (via `Update::CloseWindow` return value, tracked here for logging)
     CloseWindow,
+    
+    /// Change the active locale for localization
+    SetLocale {
+        locale: AzString,
+    },
+    /// Switch the APP's light / dark MODE - every window, and every window
+    /// opened later: `None` follows the desktop, `Some` pins light / dark
+    /// (`CallbackInfo::set_mode`).
+    SetMode {
+        mode: azul_core::window::OptionDarkLightMode,
+    },
+    /// Switch the APP THEME (`"flat"`, `"flora"`, ...) - every window's DOM
+    /// is RECREATED under it, and every window opened later starts in it
+    /// (`CallbackInfo::set_theme`).
+    SetTheme {
+        theme: AzString,
+    },
 
     // Focus Management
     /// Change keyboard focus to a specific node or clear focus
@@ -364,6 +385,11 @@ pub enum CallbackChange {
     AddThread {
         thread_id: ThreadId,
         thread: Thread,
+        /// The node the thread belongs to: set by the dispatcher when one of
+        /// that node's lifecycle callbacks added it
+        /// (`managers::thread_owner::binds_threads_to_node`), `None` for an
+        /// app thread. The callback itself never knows.
+        owner: Option<DomNodeId>,
     },
     /// Remove an existing thread
     RemoveThread {
@@ -402,6 +428,9 @@ pub enum CallbackChange {
         node_id: NodeId,
         image: ImageRef,
         update_type: UpdateImageType,
+        /// The rect (image pixels) in which `image` differs from the node's
+        /// previous image (`change_node_image_rect`); `None` = all of it.
+        dirty_rect: Option<azul_css::props::basic::LayoutRect>,
     },
     /// Record a STRUCTURAL document edit (Enter split / merge / wrap…) for
     /// the app to apply to ITS model - azul never mutates the `StyledDom`.
@@ -493,6 +522,18 @@ pub enum CallbackChange {
         dom_id: DomId,
         node_id: NodeId,
         properties: CssPropertyVec,
+    },
+    /// Replace a node's inline style - the stylesheet the node stores
+    /// (`NodeData::set_style`), every rule and its conditions
+    /// (`@theme(dark)`, `:hover`, `@theme(flora)`, ...) - as if the node had
+    /// been built with it. Unlike `ChangeNodeCssProperties` nothing is
+    /// pinned: no user override is written, so the cascade resolves the new
+    /// rules like any built style and re-resolves them on a light / dark
+    /// switch or a pseudo-state change.
+    SetNodeStyle {
+        dom_id: DomId,
+        node_id: NodeId,
+        style: azul_css::css::Css,
     },
 
     // Scroll Management
@@ -657,6 +698,20 @@ pub enum CallbackChange {
     /// This allows callbacks to modify what text will be inserted during text input events
     SetTextChangeset {
         changeset: PendingTextEdit,
+    },
+    /// Toggle a character format for the editing session in `host`
+    /// (`LayoutWindow::toggle_text_format`): an editor's B / I / U button.
+    ToggleTextFormat {
+        host: DomNodeId,
+        format: azul_core::events::TextFormat,
+    },
+    /// The app replaces the content of editing host `host` from code and
+    /// re-renders (`LayoutWindow::reset_editor_content`): the typing the app
+    /// never synced, the host's undo history and a pending structural edit
+    /// go, and the caret lands at the end (or the start) of the new content.
+    ResetEditorContent {
+        host: DomNodeId,
+        caret_at_end: bool,
     },
 
     // Cursor Movement Operations
@@ -847,6 +902,20 @@ pub enum CallbackChange {
         active: bool,
     },
 
+    // Window activation
+    /// Bring this window - and the app - to the front
+    /// (`CallbackInfo::raise_window`), e.g. from a global hotkey's callback.
+    /// Each platform decides whether it may (see
+    /// `desktop::extra::window_activation` in the dll).
+    RaiseWindow,
+
+    // Global hotkeys
+    /// Forget the remembered failure of `hotkey` so the next sync asks the
+    /// OS again (`CallbackInfo::retry_global_hotkey`).
+    RetryGlobalHotkey {
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
+    },
+
     // Drag-and-Drop Data Transfer
     /// Set drag data for a MIME type (W3C: dataTransfer.setData)
     /// Should be called in a `DragStart` callback to populate the drag data.
@@ -891,6 +960,20 @@ pub enum CallbackChange {
         dom_id: DomId,
         node_id: NodeId,
         ids_and_classes: azul_core::dom::IdOrClassVec,
+    },
+    /// Move an existing node into or out of the Tab order: `Auto` makes it a
+    /// tab stop, `NoKeyboardFocus` keeps it focusable from code and by click
+    /// but takes it out of sequential navigation.
+    ///
+    /// This is the roving tabindex of a composite widget (a radio group, a
+    /// tab list, a listbox, a tree, a date grid): the group is ONE tab stop,
+    /// and when an arrow key moves the active item the stop moves with it.
+    /// The Tab order is read from the node data on every Tab press, so the
+    /// write takes effect on the very next one without a relayout.
+    SetNodeTabIndex {
+        dom_id: DomId,
+        node_id: NodeId,
+        tab_index: azul_core::dom::TabIndex,
     },
     /// Replace the window's whole DOM with the debug `mount` op's inline
     /// XML+CSS document (`Some`), or drop the override again (`None`, the
@@ -1519,6 +1602,14 @@ impl CallbackInfo {
 
     // Modern Api (using CallbackChange transactions)
 
+    pub fn start_http_server(&mut self, port: u16) {
+        self.push_change(CallbackChange::StartHttpServer { port });
+    }
+
+    pub fn stop_http_server(&mut self) {
+        self.push_change(CallbackChange::StopHttpServer);
+    }
+
     /// Add a timer to this window (applied after callback returns)
     pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
         self.push_change(CallbackChange::AddTimer { timer_id, timer });
@@ -1531,7 +1622,11 @@ impl CallbackInfo {
 
     /// Add a thread to this window (applied after callback returns)
     pub fn add_thread(&mut self, thread_id: ThreadId, thread: Thread) {
-        self.push_change(CallbackChange::AddThread { thread_id, thread });
+        self.push_change(CallbackChange::AddThread {
+            thread_id,
+            thread,
+            owner: None,
+        });
     }
 
     /// Checks for updates ASYNCHRONOUSLY: spawns a background thread that
@@ -1727,6 +1822,67 @@ impl CallbackInfo {
         self.set_focus_for_seat(seat_id, FocusTarget::NoFocus);
     }
 
+    /// Change the active locale for UI translations
+    pub fn set_locale(&mut self, locale: AzString) {
+        self.push_change(CallbackChange::SetLocale { locale });
+    }
+
+    /// Switch the app's light / dark MODE: `Some(mode)` pins EVERY window of
+    /// the app to light or dark, whatever the desktop says; `None` ("system")
+    /// follows the desktop again, at once and through every later change of
+    /// it. Not the app theme ([`Self::set_theme`]).
+    ///
+    /// Applied after the callback returns, to every open window and to every
+    /// window opened afterwards. It is a restyle - colours only, the DOM is
+    /// kept, `layout()` does not run - unless a window's `layout()` read the
+    /// mode (`LayoutCallbackInfo::get_mode`), in which case that window's
+    /// `layout()` runs again (`RelayoutReason::ModeChange`). The `AZ_THEME`
+    /// environment pin still wins. The startup value is `AppConfig::mode`.
+    pub fn set_mode(&mut self, mode: azul_core::window::OptionDarkLightMode) {
+        self.push_change(CallbackChange::SetMode { mode });
+    }
+
+    /// The app's mode CHOICE: `None` = follows the desktop ("system"),
+    /// `Some(mode)` = pinned light or dark. Not what the window shows - that
+    /// is [`Self::get_resolved_mode`]; an app showing "System (dark)" needs
+    /// both. A `set_mode` in the same callback is not visible here yet (it
+    /// applies when the callback returns).
+    #[must_use]
+    pub const fn get_mode(&self) -> azul_core::window::OptionDarkLightMode {
+        self.get_layout_window().mode
+    }
+
+    /// The light / dark mode this window shows: the app's choice resolved
+    /// against the window's own (desktop-following) mode and the `AZ_THEME`
+    /// pin.
+    #[must_use]
+    pub fn get_resolved_mode(&self) -> azul_core::window::DarkLightMode {
+        self.get_layout_window()
+            .window_mode_for(self.get_current_window_state().mode)
+    }
+
+    /// Switch the app's THEME to `name` (`"flat"`, `"flora"`, ...): the
+    /// `@theme(<name>)` blocks every widget carries apply, the other themes'
+    /// go inert. Not the light / dark mode ([`Self::set_mode`]).
+    ///
+    /// Applied after the callback returns, to EVERY window, as a DOM
+    /// RECREATION - each window's `layout()` runs again with
+    /// `RelayoutReason::ThemeChange` - never a restyle: a theme may change
+    /// a widget's structure (flora wraps nodes flat does not). Windows opened
+    /// afterwards start in it. Switching to the theme already shown does
+    /// nothing. The startup value is `AppConfig::theme`.
+    pub fn set_theme(&mut self, name: AzString) {
+        self.push_change(CallbackChange::SetTheme { theme: name });
+    }
+
+    /// The app theme this window's DOM is built under. A `set_theme` in the
+    /// same callback is not visible here yet (it applies when the callback
+    /// returns). In `layout()`: `LayoutCallbackInfo::get_theme`.
+    #[must_use]
+    pub fn get_theme(&self) -> AzString {
+        self.get_layout_window().app_theme.clone()
+    }
+
     /// The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for
     /// seat 0. `None` when that seat focuses nothing.
     #[must_use]
@@ -1738,6 +1894,57 @@ impl CallbackInfo {
     #[must_use]
     pub fn is_node_focused_for_seat(&self, seat_id: u64, node_id: DomNodeId) -> bool {
         self.get_focus_manager().has_focus_for(seat_id, &node_id)
+    }
+
+    // Spatial navigation queries (CSS Spatial Navigation Level 1 §5.2)
+    //
+    // The JS API of css-nav-1, answered by the SAME engine the arrow keys
+    // run (`focus_cursor::spatial_navigation_steps`), over the geometry as it
+    // is painted right now. To move the focus to an answer, pass it to
+    // `set_focus(FocusTarget::Id(..))`.
+
+    /// css-nav-1 `element.getSpatialNavigationContainer()`: the nearest
+    /// ANCESTOR of `node_id` that is a spatial navigation container (a scroll
+    /// container, or `spatial-navigation-contain: contain`) - never the node
+    /// itself - or its DOM's root node (the document) when there is none.
+    /// `None` only for a node that does not exist.
+    #[must_use]
+    pub fn get_spatial_navigation_container(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        self.get_layout_window()
+            .get_spatial_navigation_container(node_id)
+    }
+
+    /// css-nav-1 `element.focusableAreas({ mode })`: the focusable
+    /// descendants of `node_id` in document order (the Tab pool: tabindex -1
+    /// excluded). `FocusableAreaSearchMode::Visible` keeps only the ones at
+    /// least partly on screen - inside every scrollport above them.
+    #[must_use]
+    pub fn get_focusable_areas(
+        &self,
+        node_id: DomNodeId,
+        mode: azul_core::callbacks::FocusableAreaSearchMode,
+    ) -> azul_core::dom::DomNodeIdVec {
+        self.get_layout_window()
+            .get_focusable_areas(node_id, mode)
+            .into()
+    }
+
+    /// css-nav-1 `element.spatialNavigationSearch(dir, options)`: the node an
+    /// arrow in `direction` would pick from `node_id`, among
+    /// `options.candidates` (or the visible focusable areas of the container)
+    /// inside `options.container` (or the node's nearest container), by that
+    /// container's `spatial-navigation-function`. It does not climb out of the
+    /// container and never scrolls; `None` when nothing lies that way.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // by value: the C API passes the options struct
+    pub fn spatial_navigation_search(
+        &self,
+        node_id: DomNodeId,
+        direction: azul_core::callbacks::FocusDirection,
+        options: azul_core::callbacks::SpatialNavigationSearchOptions,
+    ) -> Option<DomNodeId> {
+        self.get_layout_window()
+            .spatial_navigation_search(node_id, direction, &options)
     }
 
     /// Create a new window (applied after callback returns)
@@ -1841,6 +2048,46 @@ impl CallbackInfo {
         self.push_change(CallbackChange::ModifyWindowState { state });
     }
 
+    /// Vetoes the window close this pass is processing: called from a
+    /// `WindowEventFilter::CloseRequested` callback, the window stays open
+    /// (unsaved work, a "Save changes?" question - see
+    /// `widgets::close_guard::CloseGuard`). Every backend reads a cleared
+    /// `flags.close_requested` after the pass as "stay open"; this clears it
+    /// on the window state the callback queued last (or the current one), so
+    /// what the callback changed before it is kept. Call it last.
+    pub fn prevent_window_close(&mut self) {
+        let mut state = self
+            .last_queued_window_state()
+            .unwrap_or_else(|| self.get_current_window_state().clone());
+        state.flags.close_requested = false;
+        self.modify_window_state(state);
+    }
+
+    /// The window state the last `modify_window_state` of this callback
+    /// queued, if any.
+    #[cfg(feature = "std")]
+    fn last_queued_window_state(&self) -> Option<FullWindowState> {
+        // SAFETY: The pointer is valid for the lifetime of the callback
+        let changes = unsafe { (*self.changes).lock() }.ok()?;
+        let state = changes.iter().rev().find_map(|c| match c {
+            CallbackChange::ModifyWindowState { state } => Some(state.clone()),
+            _ => None,
+        });
+        state
+    }
+
+    /// The window state the last `modify_window_state` of this callback
+    /// queued, if any.
+    #[cfg(not(feature = "std"))]
+    fn last_queued_window_state(&self) -> Option<FullWindowState> {
+        // SAFETY: The pointer is valid for the lifetime of the callback
+        let changes = unsafe { &*self.changes };
+        changes.iter().rev().find_map(|c| match c {
+            CallbackChange::ModifyWindowState { state } => Some(state.clone()),
+            _ => None,
+        })
+    }
+
     /// Request the compositor to begin an interactive window move.
     ///
     /// On Wayland: calls `xdg_toplevel_move(toplevel, seat, serial)` which lets
@@ -1883,6 +2130,66 @@ impl CallbackInfo {
     /// and stays readable through `get_system_audio_change`.
     pub fn set_system_audio_takeover(&mut self, active: bool) {
         self.push_change(CallbackChange::SetSystemAudioTakeover { active });
+    }
+
+    /// Bring this window - and the app - to the front, taking the keyboard
+    /// focus. The natural answer to a global hotkey that summons the app.
+    ///
+    /// A REQUEST, which each platform answers by its own focus-stealing
+    /// policy: macOS activates the app and orders the window front; Windows
+    /// allows it only while this process may take the foreground, which it
+    /// may right after one of its global hotkeys fired (the press counts as
+    /// input to this process); X11 asks the window manager
+    /// (`_NET_ACTIVE_WINDOW`); Wayland refuses by design (`xdg_activation`
+    /// needs an input serial this request cannot have). A refusal is logged.
+    pub fn raise_window(&mut self) {
+        self.push_change(CallbackChange::RaiseWindow);
+    }
+
+    /// Where `hotkey` stands NOW, app-wide: `Active`, `Pending` (the desktop
+    /// has not answered yet - Wayland), `Failed` with the reason, or
+    /// `NotRegistered`. Live, unlike `LayoutCallbackInfo::
+    /// get_global_hotkey_status`, which reads the snapshot its pass began
+    /// with.
+    ///
+    /// Global hotkeys are declared from state in `layout()`
+    /// (`LayoutCallbackInfo::add_global_hotkey`); an event callback changes
+    /// the state and returns `Update::RefreshDom`.
+    #[must_use]
+    pub fn get_global_hotkey_status(
+        &self,
+        hotkey: azul_core::global_hotkey::GlobalHotkey,
+    ) -> azul_core::global_hotkey::GlobalHotkeyStatus {
+        self.get_layout_window()
+            .global_hotkeys
+            .shared()
+            .status(&hotkey)
+    }
+
+    /// Every accelerator the app currently wants, holds or failed to get,
+    /// with its status, the trigger the desktop shows, and its owner
+    /// relative to this callback's window. Live.
+    #[must_use]
+    pub fn get_global_hotkeys(&self) -> azul_core::global_hotkey::GlobalHotkeyInfoVec {
+        let window = &self.get_layout_window().global_hotkeys;
+        window.shared().snapshot_for(window.source())
+    }
+
+    /// The press being delivered - which accelerator, pressed or released,
+    /// when - while a global hotkey's own callback runs, so one callback can
+    /// serve several accelerators. `None` in every other callback.
+    #[must_use]
+    pub fn get_global_hotkey_event(&self) -> azul_core::global_hotkey::OptionGlobalHotkeyEvent {
+        crate::managers::global_hotkey::delivered_event().into()
+    }
+
+    /// Ask the OS for `hotkey` again although it failed (another app held
+    /// it, the Wayland dialog was declined): failures are sticky - never
+    /// re-asked by an ordinary relayout - until this. Applied after the
+    /// callback returns; a `layout()` that reads the status runs again when
+    /// the answer arrives.
+    pub fn retry_global_hotkey(&mut self, hotkey: azul_core::global_hotkey::GlobalHotkey) {
+        self.push_change(CallbackChange::RetryGlobalHotkey { hotkey });
     }
 
     /// Queue multiple window state changes to be applied in sequence.
@@ -1987,6 +2294,31 @@ impl CallbackInfo {
             node_id,
             image,
             update_type,
+            dirty_rect: None,
+        });
+    }
+
+    /// Change the image of a node that differs from its previous image only
+    /// inside `dirty_rect` (in image pixels: origin + size).
+    ///
+    /// A canvas that repaints a brush dab keeps one image node and replaces
+    /// its image per pointer move; with the rect, the GPU renderer uploads
+    /// only those pixels instead of the whole image (a 2000x1500 canvas is
+    /// 12 MB per upload). Rects of several changes before a frame add up. An
+    /// image of another size or format is uploaded whole, whatever the rect.
+    pub fn change_node_image_rect(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        image: ImageRef,
+        dirty_rect: azul_css::props::basic::LayoutRect,
+    ) {
+        self.push_change(CallbackChange::ChangeNodeImage {
+            dom_id,
+            node_id,
+            image,
+            update_type: UpdateImageType::Content,
+            dirty_rect: Some(dirty_rect),
         });
     }
 
@@ -2013,7 +2345,9 @@ impl CallbackInfo {
     /// - Display list resubmission (`WebRender` reuses existing scene)
     /// - Relayout
     ///
-    /// Ideal for timer callbacks that animate OpenGL content at 60fps.
+    /// Ideal for timer callbacks that animate OpenGL content once per frame
+    /// (`LayoutWindow::frame_interval`: the refresh rate of the window's
+    /// monitor).
     pub fn update_all_image_callbacks(&mut self) {
         self.push_change(CallbackChange::UpdateAllImageCallbacks);
     }
@@ -2457,6 +2791,45 @@ impl CallbackInfo {
         self.change_node_css_properties(dom_id, internal_node_id, vec![property].into());
     }
 
+    /// Replace `node_id`'s inline style - the stylesheet the node stores,
+    /// as `NodeData::set_style` sets it at build time - with `style`
+    /// (applied after the callback returns). A `node_id` without a node is
+    /// ignored.
+    ///
+    /// Every rule of `style` applies to the node itself, under its
+    /// conditions (dark / light mode, `:hover`, `:focus`, `@os`, ...): the
+    /// node resolves like a node BUILT with `style`. As at build time, rule
+    /// selectors are not matched: `:hover` and the other pseudo-states are
+    /// rule conditions, as `CssPropertyWithConditions::on_hover` and its
+    /// siblings build them. A declaration list becomes a stylesheet with
+    /// `Css::from(CssPropertyWithConditionsVec)`.
+    ///
+    /// The live restyle for a state a widget owns (the selected segment, the
+    /// current page, a picked day): write the node's style for the new state
+    /// exactly as a rebuild would build it, dark twins and `:hover` / `:focus`
+    /// rules included.
+    ///
+    /// Why not a DOM refresh: a self-contained widget keeps that state in its
+    /// own dataset, not in the app's model. `Update::RefreshDom` re-runs the
+    /// APP's layout callback, which rebuilds the widget from the app's data
+    /// and loses the state.
+    ///
+    /// Why not [`Self::set_css_property`]: it pins one VALUE as a user
+    /// override, which outranks every declaration - a colour baked for light
+    /// mode stays light after a switch to dark, and outranks the node's hover
+    /// and focus rules. This pins nothing: the cascade re-resolves the new
+    /// rules on every mode switch and state change, like any built style.
+    pub fn set_node_style(&mut self, node_id: DomNodeId, style: azul_css::css::Css) {
+        let Some(internal_node_id) = node_id.node.into_crate_internal() else {
+            return;
+        };
+        self.push_change(CallbackChange::SetNodeStyle {
+            dom_id: node_id.dom,
+            node_id: internal_node_id,
+            style,
+        });
+    }
+
     /// Quickly override CSS properties on a node for animation or other
     /// transient visual changes. Writes go through
     /// `CssPropertyCache::user_overridden_properties`, which is consulted at
@@ -2620,27 +2993,28 @@ impl CallbackInfo {
     }
 
     /// Every character-level edit the app has NOT yet folded into its own
-    /// model: `(node, effective text, revision)` — the node's text content
-    /// as the user now sees it (typing, IME commits, deletions). Fold them
-    /// in, then ack the highest revision with
+    /// model: the block element, its text content as the user now sees it
+    /// (typing, IME commits, deletions, pastes), the revision, and `runs` -
+    /// the inline formats of that text over the element's own style (bold
+    /// typed after Ctrl+B at a caret, a pasted bold, typing into formatted
+    /// text). Fold them in - replacing the block's runs from `runs` keeps
+    /// every format - then ack the highest revision with
     /// [`Self::mark_text_revision_synced`]; the engine drops converged
     /// overlay entries at the next layout tail. The character-path
     /// counterpart of `get_document_edit_clone`.
     #[must_use]
     pub fn get_unsynced_text_edits(&self) -> azul_core::selection::DocumentTextEditVec {
-        let edits: Vec<azul_core::selection::DocumentTextEdit> = self
-            .get_layout_window()
-            .unsynced_text_edits()
-            .into_iter()
-            .map(
-                |(node, text, revision)| azul_core::selection::DocumentTextEdit {
-                    node,
-                    text: text.into(),
-                    revision,
-                },
-            )
-            .collect();
-        edits.into()
+        self.get_layout_window().unsynced_text_edits().into()
+    }
+
+    /// The formats the text typed next at the caret in `node`'s editing
+    /// host takes, over the block's own style - the caret's PENDING format:
+    /// the run under the caret's, with a format toggled at the caret
+    /// (Ctrl/Cmd+B / I / U, [`Self::toggle_text_format`]) on top. What a
+    /// toolbar shows as pressed. `None` without one caret in the host.
+    #[must_use]
+    pub fn get_typing_formats(&self, node: DomNodeId) -> azul_core::events::OptionTextFormatSet {
+        self.get_layout_window().typing_formats(node).into()
     }
 
     /// Ack the character-path sync: the app's model holds every text edit
@@ -2833,12 +3207,66 @@ impl CallbackInfo {
         });
     }
 
+    /// Move a node into or out of the Tab order (applied after the callback
+    /// returns).
+    ///
+    /// `TabIndex::Auto` makes `node_id` a tab stop; `TabIndex::NoKeyboardFocus`
+    /// takes it out of sequential navigation while it stays focusable by click
+    /// and through [`Self::set_focus`]. A composite widget uses the pair to keep
+    /// its ROVING tab stop on the active item: the whole group is one stop, and
+    /// the arrow key that moves the active item moves the stop with it.
+    ///
+    /// A `DomNodeId` that names no node is ignored.
+    pub fn set_tab_index(&mut self, node_id: DomNodeId, tab_index: azul_core::dom::TabIndex) {
+        let Some(internal) = node_id.node.into_crate_internal() else {
+            return;
+        };
+        self.push_change(CallbackChange::SetNodeTabIndex {
+            dom_id: node_id.dom,
+            node_id: internal,
+            tab_index,
+        });
+    }
+
     /// Prevent the default text input from being applied
     ///
     /// When called in a `TextInput` callback, prevents the typed text from being inserted.
     /// Useful for custom validation, filtering, or text transformation.
     pub fn prevent_default(&mut self) {
         self.push_change(CallbackChange::PreventDefault);
+    }
+
+    /// Whether THIS callback has called [`Self::prevent_default`] so far.
+    ///
+    /// A widget that runs an application callback on its own `CallbackInfo`
+    /// reads this afterwards to learn whether the application cancelled the
+    /// widget's default: the dialog's `cancel` event is the case it exists
+    /// for (HTML: `event.preventDefault()` in a `cancel` handler keeps the
+    /// dialog open). Only this callback's own changes are visible; an
+    /// earlier handler on the propagation path has its own change set.
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn is_default_prevented(&self) -> bool {
+        // SAFETY: the pointer is valid for the lifetime of the callback.
+        unsafe {
+            (*self.changes).lock().is_ok_and(|changes| {
+                changes
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::PreventDefault))
+            })
+        }
+    }
+
+    /// See the `std` variant.
+    #[cfg(not(feature = "std"))]
+    #[must_use]
+    pub fn is_default_prevented(&self) -> bool {
+        // SAFETY: the pointer is valid for the lifetime of the callback.
+        unsafe {
+            (*self.changes)
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault))
+        }
     }
 
     // Cursor Blinking Api (for system timer control)
@@ -2910,6 +3338,35 @@ impl CallbackInfo {
     /// is the dismiss path.
     pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
         self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
+    }
+
+    /// Whether the `<transient-window>` at `node` is open in THIS window:
+    /// shown (as a popup, a torn-off toplevel or docked inline), or held
+    /// open by a `set_transient_window_open(node, true)` the next layout
+    /// pass will show - and not held closed by a dismissal.
+    ///
+    /// A widget that toggles its popup asks this instead of keeping an
+    /// "open" flag of its own: such a flag lives in a callback payload the
+    /// app's rebuild re-mints, and misses the closes it did not cause (an
+    /// outside press, Escape), which is how the demo's popover could no
+    /// longer be closed (2026-09-28).
+    ///
+    /// `false` for a node of another dom: a popup's own callbacks cannot see
+    /// the parent's popups.
+    #[must_use]
+    pub fn is_transient_window_open(&self, node: DomNodeId) -> bool {
+        if node.dom != DomId::ROOT_ID {
+            return false;
+        }
+        let Some(n) = node.node.into_crate_internal() else {
+            return false;
+        };
+        let manager = &self.get_layout_window().transient_windows;
+        if manager.dismissed_nodes().contains(&n) {
+            return false;
+        }
+        manager.forced_open_nodes().contains(&n)
+            || manager.open_windows().iter().any(|w| w.source_node == n)
     }
 
     /// Tear the open `<transient-window>` at `node` off into a free toplevel
@@ -3091,6 +3548,33 @@ impl CallbackInfo {
         });
     }
 
+    /// Toggle `format` at the caret of the editing session in the editor
+    /// `host` - what Ctrl/Cmd+B, I and U do, for an editor's toolbar button.
+    ///
+    /// On a collapsed caret the next typed text takes the format (the
+    /// editor's typing style); moving the caret drops it. A selection is the
+    /// app's to format in its own model (`get_document_selection` names its
+    /// spans). Applied after the callback returns.
+    pub fn toggle_text_format(&mut self, host: DomNodeId, format: azul_core::events::TextFormat) {
+        self.push_change(CallbackChange::ToggleTextFormat { host, format });
+    }
+
+    /// Replace the content of the editing host `host` from code: call this,
+    /// then return `Update::RefreshDom` with the host's new content (a mail
+    /// app quoting the original into the reply, inserting a signature,
+    /// switching between plain and rich, clearing the body after Send).
+    ///
+    /// The DOM rendered next is the truth: typing the app never synced
+    /// (`get_unsynced_text_edits`) is dropped instead of painting over it,
+    /// the host's undo history and a pending structural edit
+    /// (`get_document_edit_clone`) go with the old content, and the caret
+    /// lands at the end of the new content (`caret_at_end`) or at its start.
+    /// HTML's `innerHTML = ..` on a contenteditable. Applied after the
+    /// callback returns.
+    pub fn reset_editor_content(&mut self, host: DomNodeId, caret_at_end: bool) {
+        self.push_change(CallbackChange::ResetEditorContent { host, caret_at_end });
+    }
+
     // === Multi-Cursor Operations ===
 
     /// Add an additional cursor at the specified position (for multi-cursor editing).
@@ -3269,40 +3753,6 @@ impl CallbackInfo {
             .into()
     }
 
-    /// Internal helper: Get the inline text layout for a given node
-    ///
-    /// This efficiently looks up the text layout by following the chain:
-    /// `LayoutWindow` -> `layout_results` -> `LayoutTree` -> `dom_to_layout` -> `LayoutNode` ->
-    /// `inline_layout_result`
-    ///
-    /// Returns None if:
-    /// - The DOM doesn't exist in `layout_results`
-    /// - The node doesn't have a layout node mapping
-    /// - The layout node doesn't have inline text layout
-    fn get_inline_layout_for_node(&self, node_id: &DomNodeId) -> Option<&Arc<UnifiedLayout>> {
-        let layout_window = self.get_layout_window();
-
-        // Get the layout result for this DOM
-        let layout_result = layout_window.layout_results.get(&node_id.dom)?;
-
-        // Convert NodeHierarchyItemId to NodeId
-        let dom_node_id = node_id.node.into_crate_internal()?;
-
-        // Look up the layout node index(es) for this DOM node
-        let layout_indices = layout_result.layout_tree.dom_to_layout.get(&dom_node_id)?;
-
-        // Get the first layout node (a DOM node can generate multiple layout nodes,
-        // but for text we typically only care about the first one)
-        let layout_index = *layout_indices.first()?;
-
-        // Get the layout node's inline layout result (warm data)
-        let warm_node = layout_result.layout_tree.warm(layout_index)?;
-        warm_node
-            .inline_layout_result
-            .as_ref()
-            .map(|b| b.get_layout())
-    }
-
     // Public query Api
     // All methods below delegate to LayoutWindow for read-only access
 
@@ -3316,6 +3766,21 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.get_layout_window().get_node_position(node_id)
+    }
+
+    /// Whether some of the node shows in the window right now: the window
+    /// is not minimized, and the node's box meets the window and every box
+    /// that clips or scrolls it. What an app culls by - a video tile nobody
+    /// can see needs no stream.
+    #[must_use]
+    pub fn is_node_visible(&self, node_id: DomNodeId) -> bool {
+        match node_id.node.into_crate_internal() {
+            Some(node) => self
+                .get_layout_window()
+                .node_is_visible_in_window(node_id.dom, node),
+            // No node: nothing of it shows.
+            None => false,
+        }
     }
 
     /// Current animation MOMENTUM of a node: the velocity (logical px/s) of
@@ -3672,90 +4137,14 @@ impl CallbackInfo {
     ///
     /// Returns the attribute value if found, None otherwise.
     /// This searches the strongly-typed `AttributeVec` on the node.
-    // Cross-type AttributeType payload dispatch: each `(attr_name, AttributeType::X(v))`
-    // arm binds a differently-typed `v`, so the same-bodied arms can't be merged into
-    // one or-pattern (won't type-check) — they are intentionally one-per-attribute.
-    #[allow(clippy::match_same_arms)]
     #[must_use]
     pub fn get_node_attribute(&self, node_id: DomNodeId, attr_name: &str) -> Option<AzString> {
-        use azul_core::dom::AttributeType;
-
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
-        let node_data = node_data_cont.get(node_id_internal)?;
-
-        // Check the strongly-typed attributes vec
-        for attr in node_data.attributes().as_ref() {
-            match (attr_name, attr) {
-                ("id", AttributeType::Id(v)) => return Some(v.clone()),
-                ("class", AttributeType::Class(v)) => return Some(v.clone()),
-                ("aria-label", AttributeType::AriaLabel(v)) => return Some(v.clone()),
-                ("aria-labelledby", AttributeType::AriaLabelledBy(v)) => return Some(v.clone()),
-                ("aria-describedby", AttributeType::AriaDescribedBy(v)) => return Some(v.clone()),
-                ("role", AttributeType::AriaRole(v)) => return Some(v.clone()),
-                ("href", AttributeType::Href(v)) => return Some(v.clone()),
-                ("rel", AttributeType::Rel(v)) => return Some(v.clone()),
-                ("target", AttributeType::Target(v)) => return Some(v.clone()),
-                ("src", AttributeType::Src(v)) => return Some(v.clone()),
-                ("alt", AttributeType::Alt(v)) => return Some(v.clone()),
-                ("title", AttributeType::Title(v)) => return Some(v.clone()),
-                ("name", AttributeType::Name(v)) => return Some(v.clone()),
-                ("value", AttributeType::Value(v)) => return Some(v.clone()),
-                ("type", AttributeType::InputType(v)) => return Some(v.clone()),
-                ("placeholder", AttributeType::Placeholder(v)) => return Some(v.clone()),
-                ("max", AttributeType::Max(v)) => return Some(v.clone()),
-                ("min", AttributeType::Min(v)) => return Some(v.clone()),
-                ("step", AttributeType::Step(v)) => return Some(v.clone()),
-                ("pattern", AttributeType::Pattern(v)) => return Some(v.clone()),
-                ("autocomplete", AttributeType::Autocomplete(v)) => return Some(v.clone()),
-                ("scope", AttributeType::Scope(v)) => return Some(v.clone()),
-                ("lang", AttributeType::Lang(v)) => return Some(v.clone()),
-                ("dir", AttributeType::Dir(v)) => return Some(v.clone()),
-                ("required", AttributeType::Required) => return Some("true".into()),
-                ("disabled", AttributeType::Disabled) => return Some("true".into()),
-                ("readonly", AttributeType::Readonly) => return Some("true".into()),
-                ("checked", AttributeType::CheckedTrue) => return Some("true".into()),
-                ("checked", AttributeType::CheckedFalse) => return Some("false".into()),
-                ("selected", AttributeType::Selected) => return Some("true".into()),
-                ("hidden", AttributeType::Hidden) => return Some("true".into()),
-                ("focusable", AttributeType::Focusable) => return Some("true".into()),
-                ("minlength", AttributeType::MinLength(v)) => return Some(v.to_string().into()),
-                ("maxlength", AttributeType::MaxLength(v)) => return Some(v.to_string().into()),
-                ("colspan", AttributeType::ColSpan(v)) => return Some(v.to_string().into()),
-                ("rowspan", AttributeType::RowSpan(v)) => return Some(v.to_string().into()),
-                ("tabindex", AttributeType::TabIndex(v)) => return Some(v.to_string().into()),
-                ("contenteditable", AttributeType::ContentEditable(v)) => {
-                    return Some(v.to_string().into())
-                }
-                ("draggable", AttributeType::Draggable(v)) => return Some(v.to_string().into()),
-                // Handle data-* attributes
-                (name, AttributeType::Data(nv))
-                    if name.starts_with("data-") && nv.attr_name.as_str() == &name[5..] =>
-                {
-                    return Some(nv.value.clone());
-                }
-                // Handle aria-* state/property attributes
-                (name, AttributeType::AriaState(nv))
-                    if name == format!("aria-{}", nv.attr_name.as_str()) =>
-                {
-                    return Some(nv.value.clone());
-                }
-                (name, AttributeType::AriaProperty(nv))
-                    if name == format!("aria-{}", nv.attr_name.as_str()) =>
-                {
-                    return Some(nv.value.clone());
-                }
-                // Handle custom attributes
-                (name, AttributeType::Custom(nv)) if nv.attr_name.as_str() == name => {
-                    return Some(nv.value.clone());
-                }
-                _ => {}
-            }
-        }
-
-        None
+        // The one lookup, by HTML name: `NodeData::get_attribute`.
+        node_data_cont.get(node_id_internal)?.get_attribute(attr_name)
     }
 
     /// Get all classes of a node as a vector of strings
@@ -4627,6 +5016,25 @@ impl CallbackInfo {
         )
     }
 
+    // Text into pixels
+
+    /// `text` set in `style` as a straight-alpha RGBA8 image as big as its
+    /// lines' boxes ([`crate::cpurender::text_image_with`]), with the fonts
+    /// THIS window already found: no second scan of the system fonts, as
+    /// `RawImage::from_text` makes on its first call on a thread (a photo
+    /// editor's text tool calls this from its key handler). `None`: no text,
+    /// no usable size, no font.
+    #[cfg(all(feature = "cpurender", feature = "std", feature = "text_layout", feature = "font_loading"))]
+    #[must_use]
+    pub fn text_image(
+        &self,
+        text: AzString,
+        style: crate::cpurender::TextRasterStyle,
+    ) -> azul_core::resources::OptionRawImage {
+        let fonts = &self.get_layout_window().font_manager.fc_cache;
+        crate::cpurender::text_image_with(fonts, text.as_str(), &style).into()
+    }
+
     // Screenshot API
 
     /// Take a CPU-rendered screenshot of the current window content
@@ -4660,6 +5068,23 @@ impl CallbackInfo {
     ///
     /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<Vec<u8>, AzString> {
+        self.render_screenshot(dom_id)?
+            .encode_png()
+            .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {e}")))
+    }
+
+    /// The pixels of [`Self::take_screenshot`], before the PNG encode: the
+    /// part that needs the window. The debug server renders here (UI thread)
+    /// and leaves the encode to the thread that answers the request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error message if the screenshot cannot be rendered.
+    #[cfg(feature = "cpurender")]
+    pub fn render_screenshot(
+        &self,
+        dom_id: DomId,
+    ) -> Result<crate::cpurender::AzulPixmap, AzString> {
         use crate::cpurender::CpuRenderState;
 
         let layout_window = self.get_layout_window();
@@ -4775,12 +5200,7 @@ impl CallbackInfo {
             &mut glyph_cache,
         );
 
-        // Encode to PNG
-        let png_data = pixmap
-            .encode_png()
-            .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {e}")))?;
-
-        Ok(png_data)
+        Ok(pixmap)
     }
 
     /// Renders ONE NODE to a PNG, using the same fonts, images and layout
@@ -5229,6 +5649,77 @@ impl CallbackInfo {
             .keyring_manager
             .last_result()
             .cloned()
+    }
+
+    /// Show a native desktop notification: a banner in macOS's Notification
+    /// Center, a freedesktop notification on Linux, a balloon/toast from the
+    /// notification area on Windows.
+    ///
+    /// Returns immediately. Posting a notification whose id is still showing
+    /// replaces it. What the user then does with it - a click, a button, a
+    /// dismissal - or why it could not be shown arrives at the notification's
+    /// own callback (`Notification::with_callback`), which reads it with
+    /// [`CallbackInfo::get_notification_event`]. Whether this platform can
+    /// show one at all: `PlatformCapability::notifications()`.
+    ///
+    /// A post that cannot even be queued (hundreds outstanding) is not
+    /// dropped: it reports `Failed`, like any other failure.
+    pub fn post_notification(&mut self, notification: azul_core::notification::Notification) {
+        use crate::managers::notification::{
+            reject_notification, try_push_notification_request, NotificationRequest,
+            MAX_QUEUED_REQUESTS,
+        };
+        if let Err(NotificationRequest::Post(notification)) =
+            try_push_notification_request(NotificationRequest::Post(notification))
+        {
+            let _ = reject_notification(
+                notification,
+                AzString::from(format!(
+                    "not shown: {MAX_QUEUED_REQUESTS} notification requests are already waiting \
+                     for the platform"
+                )),
+            );
+        }
+    }
+
+    /// Ask the user for permission to show notifications - in context, from
+    /// the button that makes notifications worth having, rather than at the
+    /// first post (which asks implicitly where the platform prompts at all).
+    ///
+    /// Returns immediately. The answer arrives as a `PermissionChanged` event
+    /// and is read with `get_permission_status(Capability::Notifications)`.
+    /// macOS and iOS show their prompt once and answer from the stored choice
+    /// afterwards; Android 13+ asks for `POST_NOTIFICATIONS` (older Android
+    /// answers from the app's notification setting); Windows and Linux have no
+    /// prompt and answer whether notifications can be shown at all.
+    pub fn request_notification_permission(&mut self) {
+        crate::managers::notification::request_notification_permission();
+    }
+
+    /// Take the notification posted under `id` off the screen. Its callback
+    /// is forgotten: a withdrawn notification reports nothing more. A
+    /// withdraw still fits when posts filled the request queue (it has room
+    /// they cannot take).
+    pub fn withdraw_notification(&mut self, id: AzString) {
+        crate::managers::notification::push_notification_request(
+            crate::managers::notification::NotificationRequest::Withdraw(id),
+        );
+    }
+
+    /// Inside a notification's callback: what happened to it (clicked, a
+    /// button, dismissed, failed to show). `None` in any other callback.
+    #[must_use]
+    pub fn get_notification_event(&self) -> Option<azul_core::notification::NotificationEvent> {
+        crate::managers::notification::current_notification_event()
+    }
+
+    /// Inside the tray's callback (`TrayIconData::with_callback`): which tray
+    /// event it runs for - a click on the icon (`Activate`), a middle click, a
+    /// scroll, a context-menu request, or a menu item that has no callback of
+    /// its own (with its command id). `None` in any other callback.
+    #[must_use]
+    pub fn get_tray_event(&self) -> Option<azul_core::tray::TrayEvent> {
+        crate::managers::tray_event::current_tray_event()
     }
 
     /// Read the most recently observed permission state for `capability`
@@ -6339,19 +6830,17 @@ impl CallbackInfo {
             .into()
     }
 
+    /// By containing block, the rule the display list paints by
+    /// (`LayoutWindow::scroll_box_of_node`): a fixed box answers no
+    /// container, not the page under it.
     fn find_scroll_container(
         &self,
         dom_id: DomId,
         node_id: NodeId,
         inclusivity: Inclusivity,
     ) -> Option<NodeId> {
-        let layout_window = self.get_layout_window();
-        let layout_results = &layout_window.layout_results;
-        let lr = layout_results.get(&dom_id)?;
-        let node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
-            lr.styled_dom.node_hierarchy.as_ref();
-        self.get_scroll_manager()
-            .find_scroll_parent(dom_id, node_id, node_hierarchy, inclusivity)
+        self.get_layout_window()
+            .scroll_box_of_node(dom_id, node_id, inclusivity)
     }
 
     /// Get a clone of the scroll input queue for consuming pending inputs.
@@ -6427,50 +6916,22 @@ impl CallbackInfo {
 
     /// Inspect what text would be selected by Select All operation
     ///
-    /// Returns the full text content and the range that would be selected.
+    /// Returns the text Ctrl+A on `target` selects (its blocks' texts, one
+    /// line between two) and the range from its first caret to its last -
+    /// what `LayoutWindow::select_all_text` selects, read without selecting
+    /// (`LayoutWindow::select_all_preview`).
     #[must_use]
     pub fn inspect_select_all_changeset(&self, target: DomNodeId) -> Option<SelectAllResult> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-
-        let layout_window = self.get_layout_window();
-        let node_id = target.node.into_crate_internal()?;
-
-        // Get text content
-        let content = layout_window.get_text_before_textinput(target.dom, node_id);
-        let text = layout_window.extract_text_from_inline_content(&content);
-
-        // Create selection range from start to end
-        let start_cursor = TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        };
-
-        let end_cursor = TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: u32::try_from(text.len()).unwrap_or(u32::MAX),
-            },
-            affinity: CursorAffinity::Leading,
-        };
-
-        let range = SelectionRange {
-            start: start_cursor,
-            end: end_cursor,
-        };
-
-        Some(SelectAllResult {
-            full_text: text.into(),
-            selection_range: range,
-        })
+        self.get_layout_window()
+            .select_all_preview(target)
+            .map(SelectAllResult::from)
     }
 
     /// Inspect what would be deleted by a backspace/delete operation
     ///
     /// Uses the pure functions from `text3::edit::inspect_delete()` to determine
-    /// what would be deleted without actually performing the deletion.
+    /// what would be deleted without actually performing the deletion, in the
+    /// session's text block inside `target`.
     ///
     /// Returns (`range_to_delete`, `deleted_text`).
     /// - forward=true: Delete key (delete character after cursor)
@@ -6481,36 +6942,12 @@ impl CallbackInfo {
         target: DomNodeId,
         forward: bool,
     ) -> Option<DeleteResult> {
-        let layout_window = self.get_layout_window();
-        let dom_id = &target.dom;
-        let node_id = target.node.into_crate_internal()?;
-
-        // Get the inline content for this node
-        let content = layout_window.get_text_before_textinput(target.dom, node_id);
-
-        // Get current selection state from multi_cursor
-        let selection = if let Some(mc) = layout_window.text_edit_manager.multi_cursor.as_ref() {
-            if let Some(range) = mc.local_selections().find_map(|s| match &s.selection {
-                Selection::Range(r) => Some(*r),
-                Selection::Cursor(_) => None,
-            }) {
-                Selection::Range(range)
-            } else if let Some(cursor) = mc.get_primary_cursor() {
-                Selection::Cursor(cursor)
-            } else {
-                return None;
-            }
-        } else {
-            return None; // No multi_cursor active
-        };
-
-        // Use text3::edit::inspect_delete to determine what would be deleted
-        crate::text3::edit::inspect_delete(&content, &selection, forward).map(|(range, text)| {
-            DeleteResult {
-                range_to_delete: range,
-                deleted_text: text.into(),
-            }
-        })
+        // The delete the key makes, previewed where it makes it: the
+        // session's block inside `target`, in the carets' own numbering
+        // (`LayoutWindow::delete_preview`).
+        self.get_layout_window()
+            .delete_preview(target, forward)
+            .map(DeleteResult::from)
     }
 
     /// Inspect a pending undo operation
@@ -6736,6 +7173,35 @@ impl CallbackInfo {
 
     // Cursor Movement Inspection/Override Methods
 
+    /// The caret the key for (`direction`, `step`) going to `target` would
+    /// leave: [`LayoutWindow::caret_after_step`], the keyboard path's own
+    /// resolution - the block the key acts in (the session's, inside
+    /// `target`), its materialized layout. Each preview below is one key.
+    fn caret_after_key(
+        &self,
+        target: DomNodeId,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> Option<TextCursor> {
+        self.get_layout_window()
+            .caret_after_step(target, direction, step)
+    }
+
+    /// [`Self::caret_after_key`], `None` when the caret would not move.
+    fn caret_after_moving_key(
+        &self,
+        target: DomNodeId,
+        direction: azul_core::events::SelectionDirection,
+        step: azul_core::events::SelectionStep,
+    ) -> Option<TextCursor> {
+        let cursor = self
+            .get_layout_window()
+            .text_edit_manager
+            .get_primary_cursor()?;
+        self.caret_after_key(target, direction, step)
+            .filter(|moved| *moved != cursor)
+    }
+
     /// Inspect where the cursor would move when pressing left arrow
     ///
     /// Returns the new cursor position that would result from moving left.
@@ -6743,149 +7209,90 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `target` - The node containing the cursor
+    #[must_use]
     pub fn inspect_move_cursor_left(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_left(cursor, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::Character,
+        )
     }
 
     /// Inspect where the cursor would move when pressing right arrow
     ///
     /// Returns the new cursor position that would result from moving right.
     /// Returns None if the cursor is already at the end of the document.
+    #[must_use]
     pub fn inspect_move_cursor_right(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_right(cursor, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::Character,
+        )
     }
 
     /// Inspect where the cursor would move when pressing up arrow
     ///
     /// Returns the new cursor position that would result from moving up one line.
     /// Returns None if the cursor is already on the first line.
+    #[must_use]
     pub fn inspect_move_cursor_up(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        // goal_x maintains horizontal position when moving vertically
-        let new_cursor = layout.move_cursor_up(cursor, &mut None, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::VisualLine,
+        )
     }
 
     /// Inspect where the cursor would move when pressing down arrow
     ///
     /// Returns the new cursor position that would result from moving down one line.
     /// Returns None if the cursor is already on the last line.
+    #[must_use]
     pub fn inspect_move_cursor_down(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        // goal_x maintains horizontal position when moving vertically
-        let new_cursor = layout.move_cursor_down(cursor, &mut None, &mut None);
-
-        // Only return if cursor actually moved
-        if new_cursor == cursor {
-            None
-        } else {
-            Some(new_cursor)
-        }
+        self.caret_after_moving_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::VisualLine,
+        )
     }
 
     /// Inspect where the cursor would move when pressing Home key
     ///
     /// Returns the cursor position at the start of the current line.
+    #[must_use]
     pub fn inspect_move_cursor_to_line_start(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_to_line_start(cursor, &mut None);
-
-        // Always return the result (might be same as input if already at line start)
-        Some(new_cursor)
+        // Always the result (the caret itself when already at the line start).
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::Line,
+        )
     }
 
     /// Inspect where the cursor would move when pressing End key
     ///
     /// Returns the cursor position at the end of the current line.
+    #[must_use]
     pub fn inspect_move_cursor_to_line_end(&self, target: DomNodeId) -> Option<TextCursor> {
-        let layout_window = self.get_layout_window();
-        let cursor = layout_window.text_edit_manager.get_primary_cursor()?;
-
-        // Get the text layout directly via layout_results -> LayoutTree -> LayoutNode ->
-        // inline_layout_result
-        let layout = self.get_inline_layout_for_node(&target)?;
-
-        // Use the text3::cache cursor movement logic
-        let new_cursor = layout.move_cursor_to_line_end(cursor, &mut None);
-
-        // Always return the result (might be same as input if already at line end)
-        Some(new_cursor)
+        // Always the result (the caret itself when already at the line end).
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::Line,
+        )
     }
 
     /// Inspect where the cursor would move when pressing Ctrl+Home
     ///
     /// Returns the cursor position at the start of the document.
     #[must_use]
-    pub const fn inspect_move_cursor_to_document_start(
-        &self,
-        target: DomNodeId,
-    ) -> Option<TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId};
-
-        Some(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: 0,
-            },
-            affinity: CursorAffinity::Leading,
-        })
+    pub fn inspect_move_cursor_to_document_start(&self, target: DomNodeId) -> Option<TextCursor> {
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Backward,
+            azul_core::events::SelectionStep::Document,
+        )
     }
 
     /// Inspect where the cursor would move when pressing Ctrl+End
@@ -6893,17 +7300,11 @@ impl CallbackInfo {
     /// Returns the cursor position at the end of the document.
     #[must_use]
     pub fn inspect_move_cursor_to_document_end(&self, target: DomNodeId) -> Option<TextCursor> {
-        use azul_core::selection::{CursorAffinity, GraphemeClusterId};
-
-        let text_len = self.get_node_text_length(target)?;
-
-        Some(TextCursor {
-            cluster_id: GraphemeClusterId {
-                source_run: 0,
-                start_byte_in_run: u32::try_from(text_len).unwrap_or(u32::MAX),
-            },
-            affinity: CursorAffinity::Leading,
-        })
+        self.caret_after_key(
+            target,
+            azul_core::events::SelectionDirection::Forward,
+            azul_core::events::SelectionStep::Document,
+        )
     }
 
     /// Inspect what text would be deleted by backspace (including Shift+Backspace)
@@ -7585,6 +7986,82 @@ mod autotest_generated {
         // And nothing hovered is None, as before.
         let lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         assert!(with_info_on(lw, node0(), |info| info.get_deepest_hovered_node()).is_none());
+    }
+
+    /// `set_mode` queues ONE app-wide change (applied after the callback
+    /// returns). `get_mode` reads the CHOICE the window holds,
+    /// `get_resolved_mode` the light/dark that choice gives this window - the
+    /// pair an app needs to show "System (dark)".
+    #[test]
+    fn set_mode_queues_the_choice_and_the_getters_tell_choice_from_result() {
+        use azul_core::window::{OptionDarkLightMode, DarkLightMode};
+
+        let queued = with_info(node_none(), |info| {
+            info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Dark));
+            info.take_changes()
+        });
+        assert_eq!(queued.len(), 1, "expected exactly one queued change");
+        assert!(
+            matches!(
+                queued[0],
+                CallbackChange::SetMode {
+                    mode: OptionDarkLightMode::Some(DarkLightMode::Dark)
+                }
+            ),
+            "queued the wrong CallbackChange: {:?}",
+            queued[0]
+        );
+
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return; // AZ_MODE outranks the choice; nothing to tell apart
+        }
+        // A dark pin on a window whose own state is light (the desktop's).
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.mode = OptionDarkLightMode::Some(DarkLightMode::Dark);
+        let (choice, resolved) = with_info_on(lw, node0(), |info| {
+            (info.get_mode(), info.get_resolved_mode())
+        });
+        assert_eq!(choice, OptionDarkLightMode::Some(DarkLightMode::Dark));
+        assert_eq!(resolved, DarkLightMode::Dark, "the pin outranks the window's light");
+
+        // Following the system: the choice says so, the result is the
+        // window's own mode (`FullWindowState::default()` is light).
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.mode = OptionDarkLightMode::None;
+        let (choice, resolved) = with_info_on(lw, node0(), |info| {
+            (info.get_mode(), info.get_resolved_mode())
+        });
+        assert_eq!(choice, OptionDarkLightMode::None);
+        assert_eq!(resolved, DarkLightMode::Light);
+    }
+
+    /// `set_theme` queues ONE app-wide change (every window's DOM is rebuilt
+    /// after the callback returns); `get_theme` reads the theme the window's
+    /// DOM was built under - the switch is not visible in the same callback.
+    #[test]
+    fn set_theme_queues_the_name_and_get_theme_reads_the_windows() {
+        let queued = with_info(node_none(), |info| {
+            info.set_theme(AzString::from_const_str("flora"));
+            info.take_changes()
+        });
+        assert_eq!(queued.len(), 1, "expected exactly one queued change");
+        assert!(
+            matches!(
+                &queued[0],
+                CallbackChange::SetTheme { theme } if theme.as_str() == "flora"
+            ),
+            "queued the wrong CallbackChange: {:?}",
+            queued[0]
+        );
+
+        let lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let theme = with_info_on(lw, node0(), |info| info.get_theme());
+        assert_eq!(theme.as_str(), "flat", "a new window is in the default theme");
+
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.app_theme = AzString::from_const_str("flora");
+        let theme = with_info_on(lw, node0(), |info| info.get_theme());
+        assert_eq!(theme.as_str(), "flora");
     }
 
     /// `DomNodeId` pointing at node 0 of the root DOM.
@@ -8298,6 +8775,161 @@ mod autotest_generated {
         });
     }
 
+    /// The dialog's `cancel` event: a widget reads back whether the app's
+    /// handler, run on the widget's own `CallbackInfo`, prevented the default.
+    #[test]
+    fn is_default_prevented_sees_this_callbacks_prevent_default() {
+        with_info(node_none(), |info| {
+            assert!(!info.is_default_prevented(), "nothing prevented yet");
+            info.stop_propagation();
+            assert!(
+                !info.is_default_prevented(),
+                "stopping propagation is not preventing the default"
+            );
+            info.prevent_default();
+            assert!(info.is_default_prevented());
+            // Querying must not consume the log.
+            assert!(info.is_default_prevented());
+            assert_eq!(info.take_changes().len(), 2);
+        });
+    }
+
+    /// A widget toggles its popup by asking the engine whether it is open:
+    /// a node a callback holds open and a window the manager shows both read
+    /// as open; a window a callback closed again, a node of another dom and
+    /// a node with no popup read as closed.
+    #[test]
+    fn is_transient_window_open_reads_the_engines_popup_set() {
+        let node = |n: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        };
+        let fresh = || LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let shown = |lw: &mut LayoutWindow| {
+            let placement = crate::transient::placement_for(
+                NodeId::new(4),
+                LogicalRect::zero(),
+                &azul_core::transient::TransientWindowConfig::opened(),
+            );
+            let _ = lw
+                .transient_windows
+                .reconcile(&[placement], |_, _| Some(LogicalSize::new(10.0, 10.0)));
+        };
+
+        // No popup at all.
+        assert!(!with_info_on(fresh(), node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // Held open by a callback, before the next pass shows it.
+        let mut lw = fresh();
+        let _ = lw.transient_windows.set_forced_open(NodeId::new(4), true);
+        assert!(with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // Shown by the manager.
+        let mut lw = fresh();
+        shown(&mut lw);
+        assert!(with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // Shown, then closed by a callback: held closed until the next pass.
+        let mut lw = fresh();
+        shown(&mut lw);
+        let _ = lw.transient_windows.set_forced_open(NodeId::new(4), false);
+        assert!(!with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(node(4))
+        }));
+
+        // The same node id in another dom is not this window's popup.
+        let mut lw = fresh();
+        shown(&mut lw);
+        assert!(!with_info_on(lw, node0(), |info| {
+            info.is_transient_window_open(DomNodeId {
+                dom: DomId { inner: 1 },
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(4))),
+            })
+        }));
+    }
+
+    fn summon_key() -> azul_core::global_hotkey::GlobalHotkey {
+        azul_core::global_hotkey::GlobalHotkey {
+            modifiers: azul_core::global_hotkey::HotkeyModifiers {
+                ctrl: true,
+                alt: true,
+                shift: false,
+                meta: false,
+            },
+            key: azul_core::window::VirtualKeyCode::K,
+        }
+    }
+
+    /// An EVENT callback reads the LIVE manager (not a layout snapshot):
+    /// what this window declared is `Active` and owned by this window, what
+    /// nobody declared is `NotRegistered`.
+    #[test]
+    fn callback_info_reads_the_live_global_hotkey_status_by_accelerator() {
+        use azul_core::global_hotkey::{GlobalHotkeyCallbackData, GlobalHotkeyOwner, GlobalHotkeyStatus};
+        with_info(node_none(), |info| {
+            let window = &info.get_layout_window().global_hotkeys;
+            window.shared().install_simulated_backend();
+            window.shared().declare(
+                window.source(),
+                vec![GlobalHotkeyCallbackData::create(
+                    summon_key(),
+                    RefAny::new(()),
+                    CoreCallback {
+                        cb: 1,
+                        ctx: OptionRefAny::None,
+                    },
+                )],
+                false,
+            );
+            let _ = window.shared().sync();
+
+            assert_eq!(
+                info.get_global_hotkey_status(summon_key()),
+                GlobalHotkeyStatus::Active
+            );
+            let mut other = summon_key();
+            other.key = azul_core::window::VirtualKeyCode::J;
+            assert_eq!(
+                info.get_global_hotkey_status(other),
+                GlobalHotkeyStatus::NotRegistered
+            );
+            let infos = info.get_global_hotkeys();
+            assert_eq!(infos.len(), 1);
+            assert_eq!(infos.as_ref()[0].owner, GlobalHotkeyOwner::ThisWindow);
+        });
+    }
+
+    /// `get_global_hotkey_event()` is `Some` exactly while a global hotkey's
+    /// own callback runs - how one callback serving several accelerators
+    /// tells them apart - and `None` in any other callback.
+    #[test]
+    fn the_global_hotkey_event_is_only_readable_inside_the_fired_callback() {
+        use azul_core::global_hotkey::{GlobalHotkeyEvent, GlobalHotkeyState, OptionGlobalHotkeyEvent};
+        let event = GlobalHotkeyEvent {
+            hotkey: summon_key(),
+            state: GlobalHotkeyState::Pressed,
+            timestamp_ms: 42,
+        };
+        with_info(node_none(), |info| {
+            assert_eq!(info.get_global_hotkey_event(), OptionGlobalHotkeyEvent::None);
+            let inside = crate::managers::global_hotkey::with_delivered_event(event, || {
+                info.get_global_hotkey_event()
+            });
+            assert_eq!(inside, OptionGlobalHotkeyEvent::Some(event));
+            assert_eq!(
+                info.get_global_hotkey_event(),
+                OptionGlobalHotkeyEvent::None,
+                "the event does not outlive its callback"
+            );
+        });
+    }
+
     #[test]
     fn callback_info_flag_mutators_queue_exactly_one_matching_change() {
         macro_rules! assert_queues {
@@ -8346,6 +8978,25 @@ mod autotest_generated {
         assert_queues!(
             |i: &mut CallbackInfo| i.begin_interactive_move(),
             CallbackChange::BeginInteractiveMove
+        );
+        // The global-hotkey summon: without it an app whose hotkey fired had
+        // no way to come to the front.
+        assert_queues!(
+            |i: &mut CallbackInfo| i.raise_window(),
+            CallbackChange::RaiseWindow
+        );
+        // "Ctrl+Alt+K is taken - Retry": the only way past a sticky failure.
+        assert_queues!(
+            |i: &mut CallbackInfo| i.retry_global_hotkey(azul_core::global_hotkey::GlobalHotkey {
+                modifiers: azul_core::global_hotkey::HotkeyModifiers {
+                    ctrl: true,
+                    alt: true,
+                    shift: false,
+                    meta: false,
+                },
+                key: azul_core::window::VirtualKeyCode::K,
+            }),
+            CallbackChange::RetryGlobalHotkey { .. }
         );
         assert_queues!(
             |i: &mut CallbackInfo| i.commit_undo_snapshot(),
@@ -9032,6 +9683,275 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
+    // The caret-move previews answer what the key would do
+    // ------------------------------------------------------------------
+    //
+    // `inspect_move_cursor_*` read the node's OWN stored inline layout: under
+    // the default dense text path that is the empty retirement sentinel, and a
+    // field's host has none at all - and Ctrl+End was a hard-coded
+    // `(run 0, byte = text length)`, whatever the runs were.
+
+    fn caret_test_node(n: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        }
+    }
+
+    fn caret_test_text(s: &str) -> azul_core::dom::Dom {
+        azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(s)
+    }
+
+    /// `dom` laid out, with an editing session opened at the start of the
+    /// block `session_node` names.
+    fn laid_out_with_a_session(mut dom: azul_core::dom::Dom, session_node: usize) -> LayoutWindow {
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 14px; width: 600px; } \
+             .p { display: block; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new failed");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = Some(Vec::new());
+        lw.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+        let start = TextCursor {
+            cluster_id: azul_core::selection::GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: azul_core::selection::CursorAffinity::Leading,
+        };
+        assert!(
+            lw.start_editing_at(start, DomId::ROOT_ID, NodeId::new(session_node), 0),
+            "premise: a session opens in node {session_node}'s block"
+        );
+        lw
+    }
+
+    /// `body(0) > div[contenteditable](1) > "hello"(2)`, caret at the start.
+    fn a_field_with_a_caret() -> LayoutWindow {
+        laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(caret_test_text("hello")),
+            ),
+            1,
+        )
+    }
+
+    #[test]
+    fn inspect_move_cursor_right_previews_the_arrow_key() {
+        let lw = a_field_with_a_caret();
+        let target = lw.session_text_target().expect("the session's block is laid out");
+        let caret = lw.text_edit_manager.get_primary_cursor().expect("a caret");
+        let expected = target.layout.move_cursor_right(caret, &mut None);
+        assert_ne!(expected, caret, "premise: the arrow key moves the caret");
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_move_cursor_right(caret_test_node(1))
+        });
+
+        assert_eq!(previewed, Some(expected));
+    }
+
+    #[test]
+    fn inspect_move_cursor_to_document_end_is_the_last_caret() {
+        // `body(0) > div[contenteditable](1) > ["Hello "(2), b(3) > "world"(4)]`
+        let lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(caret_test_text("Hello "))
+                    .with_child(azul_core::dom::Dom::create_b().with_child(caret_test_text("world"))),
+            ),
+            1,
+        );
+        let expected = lw
+            .session_text_target()
+            .and_then(|t| t.last_cluster_caret())
+            .expect("premise: the paragraph has a last cluster");
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_move_cursor_to_document_end(caret_test_node(1))
+        });
+
+        assert_eq!(
+            previewed,
+            Some(expected),
+            "Ctrl+End lands after \"world\", in ITS run, not at byte 11 of the first"
+        );
+    }
+
+    #[test]
+    fn inspect_naming_a_fields_host_previews_the_caret_inside_it() {
+        // `body(0) > div[contenteditable](1) > div.p(2) > "hello"(3)`
+        let lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(
+                        azul_core::dom::Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                            .with_child(caret_test_text("hello")),
+                    ),
+            ),
+            2,
+        );
+        let target = lw.session_text_target().expect("the session's block is laid out");
+        let caret = lw.text_edit_manager.get_primary_cursor().expect("a caret");
+        let expected = target.layout.move_cursor_to_line_end(caret, &mut None);
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_move_cursor_to_line_end(caret_test_node(1))
+        });
+
+        assert_eq!(previewed, Some(expected));
+    }
+
+    #[test]
+    fn inspect_naming_another_paragraph_previews_nothing() {
+        // `body(0) > [div.p(1) > "one"(2), div.p(3) > "two"(4)]`
+        let p = |s: &str| {
+            azul_core::dom::Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(caret_test_text(s))
+        };
+        let lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body()
+                .with_child(p("one"))
+                .with_child(p("two")),
+            1,
+        );
+
+        let previewed = with_info_on(lw, caret_test_node(3), |info| {
+            info.inspect_move_cursor_right(caret_test_node(3))
+        });
+
+        assert_eq!(previewed, None, "there is no caret in \"two\" to move");
+    }
+
+    // ------------------------------------------------------------------
+    // inspect_delete_changeset / inspect_select_all_changeset read the
+    // caret's own block, as the delete and Ctrl+A they preview do.
+    //
+    // Both read the NAMED node's flattened text - the host's, every
+    // paragraph one run after the other and no list marker - and indexed it
+    // with the session's carets, which number the runs of their own block.
+    // ------------------------------------------------------------------
+
+    /// `body(0) > div[contenteditable](1) > [div.p(2) > "one"(3),
+    /// div.p(4) > "two"(5)]`, the session in the block of `session_node`.
+    fn two_paragraphs_with_a_session(session_node: usize) -> LayoutWindow {
+        let p = |s: &str| {
+            azul_core::dom::Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(caret_test_text(s))
+        };
+        laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(p("one"))
+                    .with_child(p("two")),
+            ),
+            session_node,
+        )
+    }
+
+    fn put_caret(lw: &mut LayoutWindow, run: u32, byte: u32) {
+        lw.text_edit_manager
+            .multi_cursor
+            .as_mut()
+            .expect("a session is open")
+            .set_single_cursor(TextCursor {
+                cluster_id: azul_core::selection::GraphemeClusterId {
+                    source_run: run,
+                    start_byte_in_run: byte,
+                },
+                affinity: azul_core::selection::CursorAffinity::Leading,
+            });
+    }
+
+    #[test]
+    fn inspect_backspace_in_the_second_paragraph_previews_its_own_character() {
+        let mut lw = two_paragraphs_with_a_session(4);
+        // "tw|o"
+        put_caret(&mut lw, 0, 2);
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_backspace(caret_test_node(1))
+                .map(|d| d.deleted_text.as_str().to_string())
+        });
+
+        assert_eq!(
+            previewed.as_deref(),
+            Some("w"),
+            "Backspace at \"tw|o\" deletes the 'w' - not byte 2 of the host's \"onetwo\""
+        );
+    }
+
+    #[test]
+    fn inspect_backspace_in_a_list_item_previews_the_character_before_the_caret() {
+        // `body(0) > div[contenteditable](1) > div(2, list-item) > "alpha"(3)`
+        let mut lw = laid_out_with_a_session(
+            azul_core::dom::Dom::create_body().with_child(
+                azul_core::dom::Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(
+                        azul_core::dom::Dom::create_div()
+                            .with_css("display: list-item;")
+                            .with_child(caret_test_text("alpha")),
+                    ),
+            ),
+            2,
+        );
+        // "al|pha": the item's text is run 1, behind its `::marker`.
+        put_caret(&mut lw, 1, 2);
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_backspace(caret_test_node(1))
+                .map(|d| d.deleted_text.as_str().to_string())
+        });
+
+        assert_eq!(previewed.as_deref(), Some("l"));
+    }
+
+    #[test]
+    fn inspect_select_all_previews_every_paragraph_of_the_host() {
+        let lw = two_paragraphs_with_a_session(2);
+        let block = |n: usize| {
+            lw.text_block_of(caret_test_node(n))
+                .and_then(|b| lw.text_target(b))
+                .expect("premise: the paragraph is laid out")
+        };
+        let first = block(2).first_caret().expect("premise: \"one\" has a first caret");
+        let last = block(4).last_caret().expect("premise: \"two\" has a last caret");
+
+        let previewed = with_info_on(lw, caret_test_node(1), |info| {
+            info.inspect_select_all_changeset(caret_test_node(1))
+                .map(|r| (r.full_text.as_str().to_string(), r.selection_range))
+        });
+
+        assert_eq!(
+            previewed,
+            Some((
+                "one\ntwo".to_string(),
+                SelectionRange {
+                    start: first,
+                    end: last
+                }
+            )),
+            "Ctrl+A selects from the first paragraph's first caret to the last one's last"
+        );
+    }
+
+    // ------------------------------------------------------------------
     // CallbackChange payload smoke test
     // ------------------------------------------------------------------
 
@@ -9052,5 +9972,145 @@ mod autotest_generated {
             }
         ));
         assert!(!format!("{change:?}").is_empty());
+    }
+
+    /// What an app culls by: a node is visible while some of it shows in
+    /// the window - not below the window's bottom edge, not scrolled out of
+    /// the box that clips it. AzMeet asks no stream for a video tile nobody
+    /// can see (iroh-routes: "cull what nobody displays"); the engine knew
+    /// (the frame gate of a content update), but the app could not ask.
+    #[test]
+    fn a_node_below_the_window_or_scrolled_out_of_its_box_is_not_visible() {
+        use azul_core::dom::Dom;
+
+        // body(0) > [scroller(1) > [top(2), filler(3), far(4)], spacer(5), below(6)]
+        let mut dom = Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("width: 200px; height: 100px; overflow: auto;")
+                    .with_child(Dom::create_div().with_css("width: 100px; height: 50px;"))
+                    .with_child(Dom::create_div().with_css("width: 100px; height: 400px;"))
+                    .with_child(Dom::create_div().with_css("width: 100px; height: 50px;")),
+            )
+            .with_child(Dom::create_div().with_css("width: 100px; height: 1000px;"))
+            .with_child(Dom::create_div().with_css("width: 100px; height: 100px;"));
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("layout");
+        let node = |n: usize| DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        };
+        let seen = with_info_on(lw, node(0), |info| {
+            [1, 2, 4, 6].map(|n| (n, info.is_node_visible(node(n))))
+        });
+        assert_eq!(
+            seen,
+            [(1, true), (2, true), (4, false), (6, false)],
+            "(node, visible): the scroller and its first child show; the child scrolled out of \
+             it and the box below the window do not"
+        );
+    }
+}
+
+/// `get_node_attribute` answers for the attributes a node keeps as FLAGS too
+/// (`Dom::with_contenteditable`, `Dom::with_tab_index`), as HTML spells them:
+/// an app's single-key shortcuts ask whether the focus is in a text field.
+#[cfg(all(test, feature = "std", feature = "widgets"))]
+mod node_attribute_flag_tests {
+    use std::sync::{Arc, Mutex};
+
+    use azul_core::{
+        callbacks::Update,
+        dom::{Dom, DomId, DomNodeId, EventFilter, HoverEventFilter, TabIndex},
+        id::NodeId,
+        refany::RefAny,
+        styled_dom::{NodeHierarchyItemId, StyledDom},
+    };
+
+    use super::CallbackInfo;
+    use crate::widgets::roving::test_support as rv;
+
+    /// What the probe read: `(attribute, value)`.
+    type Seen = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
+    extern "C" fn probe(mut data: RefAny, info: CallbackInfo) -> Update {
+        let node = info.get_hit_node();
+        if let Some(seen) = data.downcast_ref::<Seen>() {
+            let mut seen = seen.lock().expect("probe log");
+            for name in ["contenteditable", "tabindex"] {
+                let value = info
+                    .get_node_attribute(node, name)
+                    .map(|v| v.as_str().to_string());
+                seen.push((name.to_string(), value));
+            }
+        }
+        Update::DoNothing
+    }
+
+    /// The node's `contenteditable` and `tabindex` as a callback on it reads them.
+    fn ask(dom: Dom) -> Vec<(String, Option<String>)> {
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        let dom = dom.with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(seen.clone()),
+            probe as usize,
+        );
+        let styled = StyledDom::create_from_dom(dom);
+        let root = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+        };
+        rv::fire(&styled, root, EventFilter::Hover(HoverEventFilter::Click))
+            .expect("the probe runs on its node");
+        let out = seen.lock().expect("probe log").clone();
+        out
+    }
+
+    #[test]
+    fn a_contenteditable_node_reports_its_contenteditable_attribute() {
+        let seen = ask(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_tab_index(TabIndex::Auto),
+        );
+        assert_eq!(
+            seen,
+            vec![
+                ("contenteditable".to_string(), Some("true".to_string())),
+                ("tabindex".to_string(), Some("0".to_string())),
+            ]
+        );
+    }
+
+    #[test]
+    fn tab_indices_read_as_html_spells_them() {
+        let seen = ask(Dom::create_div().with_tab_index(TabIndex::NoKeyboardFocus));
+        assert_eq!(seen[1], ("tabindex".to_string(), Some("-1".to_string())));
+        let seen = ask(Dom::create_div().with_tab_index(TabIndex::OverrideInParent(3)));
+        assert_eq!(seen[1], ("tabindex".to_string(), Some("3".to_string())));
+    }
+
+    #[test]
+    fn a_plain_node_reports_neither() {
+        let seen = ask(Dom::create_div());
+        assert_eq!(
+            seen,
+            vec![
+                ("contenteditable".to_string(), None),
+                ("tabindex".to_string(), None),
+            ]
+        );
     }
 }

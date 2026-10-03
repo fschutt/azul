@@ -73,6 +73,10 @@ azul_core::impl_managed_callback! {
 pub struct DropDown {
     /// The list of choices presented in the popup menu.
     pub choices: StringVec,
+    /// HTML `<optgroup>`s: labelled, NON-selectable headings over runs of
+    /// `choices`. A heading is never a choice, so every index the widget
+    /// reports still counts options only. Empty for an ungrouped list.
+    pub groups: DropDownOptGroupVec,
     /// Zero-based index of the currently selected choice.
     pub selected: usize,
     /// Optional callback invoked when the user picks a different choice.
@@ -88,22 +92,62 @@ pub struct DropDown {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme this drop-down is PINNED to (`with_theme`), or
+    /// `None` to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
     pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// One `<optgroup>` of a [`DropDown`]: a heading over the options
+/// `choices[first_choice .. first_choice + len]`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct DropDownOptGroup {
+    /// The heading - shown in the menu, never selectable.
+    pub label: AzString,
+    /// Index into [`DropDown::choices`] of the group's first option.
+    pub first_choice: usize,
+    /// How many options the group holds (0 shows the heading alone).
+    pub len: usize,
+}
+
+azul_css::impl_option!(
+    DropDownOptGroup,
+    OptionDropDownOptGroup,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+azul_css::impl_vec!(
+    DropDownOptGroup,
+    DropDownOptGroupVec,
+    DropDownOptGroupVecDestructor,
+    DropDownOptGroupVecDestructorType,
+    DropDownOptGroupVecSlice,
+    OptionDropDownOptGroup
+);
+azul_css::impl_vec_clone!(
+    DropDownOptGroup,
+    DropDownOptGroupVec,
+    DropDownOptGroupVecDestructor
+);
+azul_css::impl_vec_debug!(DropDownOptGroup, DropDownOptGroupVec);
+azul_css::impl_vec_partialeq!(DropDownOptGroup, DropDownOptGroupVec);
+azul_css::impl_vec_eq!(DropDownOptGroup, DropDownOptGroupVec);
+azul_css::impl_vec_mut!(DropDownOptGroup, DropDownOptGroupVec);
 
 impl Default for DropDown {
     fn default() -> Self {
         Self {
             choices: StringVec::from_const_slice(&[]),
+            groups: DropDownOptGroupVec::from_const_slice(&[]),
             selected: 0,
             on_choice_change: None.into(),
             wrapper_style: OptionCssPropertyWithConditionsVec::None,
             label_style: OptionCssPropertyWithConditionsVec::None,
             arrow_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No theme of its own: the drop-down follows the app theme.
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
     }
 }
@@ -144,8 +188,39 @@ impl DropDown {
         self
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Appends an `<optgroup>`: the heading `label` over `options`, which are
+    /// appended to [`Self::choices`]. The heading is shown in the menu but is
+    /// never a choice - it cannot be picked, keyboard navigation passes over
+    /// it, and every index the widget reports keeps counting options only.
+    pub fn add_optgroup(&mut self, label: AzString, options: StringVec) {
+        let first_choice = self.choices.len();
+        let len = options.len();
+
+        let mut choices = core::mem::replace(&mut self.choices, StringVec::from_const_slice(&[]))
+            .into_library_owned_vec();
+        choices.extend(options.as_ref().iter().cloned());
+        self.choices = choices.into();
+
+        let mut groups =
+            core::mem::replace(&mut self.groups, DropDownOptGroupVec::from_const_slice(&[]))
+                .into_library_owned_vec();
+        groups.push(DropDownOptGroup {
+            label,
+            first_choice,
+            len,
+        });
+        self.groups = groups.into();
+    }
+
+    /// [`Self::add_optgroup`] for the builder chain.
+    #[must_use]
+    pub fn with_optgroup(mut self, label: AzString, options: StringVec) -> Self {
+        self.add_optgroup(label, options);
+        self
+    }
+
+    /// Pin the widget theme: the widget keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -192,17 +267,46 @@ impl DropDown {
     /// Builds the DOM tree for this drop-down widget.
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme {
-            crate::widgets::themes::OptionUiTheme::None => Dom::create_div(),
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
-                crate::widgets::themes::flat::drop_down(self)
-            }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
-                crate::widgets::themes::flora::drop_down(self)
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::drop_down(self),
+            Some(UiTheme::Flora) => flora::drop_down(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => {
+                theme_blocks::follow_app_theme(self, flat::drop_down, flora::drop_down)
             }
         }
     }
 }
+
+// ============================================================================
+// The structure: the same in every theme (R5)
+// ============================================================================
+//
+// A part's layout is the widget's, not a theme's: `themes::flat::drop_down`
+// and `themes::flora::drop_down` put their skin AFTER these, so the merge
+// (`themes::theme_blocks`) declares them once, outside every `@theme` block.
+
+/// The trigger's structure: an inline row that centres its label and arrow,
+/// never grows, and is a pointer target.
+pub(crate) static DROPDOWN_WRAPPER_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+];
+
+/// The selected label's structure: it takes the trigger's free width.
+pub(crate) static DROPDOWN_LABEL_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+];
+
+/// The arrow's structure: it keeps its own width.
+pub(crate) static DROPDOWN_ARROW_BASE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+];
 
 // ============================================================================
 // Internal callback data types
@@ -223,20 +327,7 @@ pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) 
         return Update::DoNothing;
     };
 
-    let menu_items: Vec<MenuItem> = refany
-        .choices
-        .iter()
-        .enumerate()
-        .map(|(idx, choice)| {
-            MenuItem::String(StringMenuItem::create(choice.clone()).with_callback(
-                RefAny::new(ChoiceCallbackData {
-                    choice_id: idx,
-                    on_choice_change: refany.on_choice_change.clone(),
-                }),
-                on_choice_selected as usize,
-            ))
-        })
-        .collect();
+    let menu_items = build_menu_items(&refany);
 
     let menu = Menu {
         items: menu_items.into(),
@@ -246,6 +337,49 @@ pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) 
 
     info.open_menu_for_hit_node(menu);
     Update::DoNothing
+}
+
+/// What an option inside an `<optgroup>` is indented by in the menu, so it
+/// reads as belonging to the heading above it (a menu item has no indentation
+/// of its own on every backend).
+const OPTGROUP_INDENT: &str = "\u{2003}";
+
+/// The popup menu of `dd`: one item per choice, each reporting its index; each
+/// `<optgroup>` heading right before its options as a DISABLED item without a
+/// callback (so nothing can pick it and the menu's keyboard navigation passes
+/// over it), its options indented. Without groups this is the plain list.
+pub(crate) fn build_menu_items(dd: &DropDown) -> Vec<MenuItem> {
+    let heading = |group: &DropDownOptGroup| {
+        let mut item = StringMenuItem::create(group.label.clone());
+        item.menu_item_state = azul_core::menu::MenuItemState::Disabled;
+        MenuItem::String(item)
+    };
+    let groups = dd.groups.as_ref();
+    let mut items: Vec<MenuItem> = Vec::with_capacity(dd.choices.len() + groups.len());
+
+    for (idx, choice) in dd.choices.as_ref().iter().enumerate() {
+        items.extend(groups.iter().filter(|g| g.first_choice == idx).map(heading));
+        let grouped = groups
+            .iter()
+            .any(|g| idx >= g.first_choice && idx < g.first_choice + g.len);
+        let label = if grouped {
+            AzString::from(alloc::format!("{OPTGROUP_INDENT}{}", choice.as_str()))
+        } else {
+            choice.clone()
+        };
+        items.push(MenuItem::String(StringMenuItem::create(label).with_callback(
+            RefAny::new(ChoiceCallbackData {
+                choice_id: idx,
+                on_choice_change: dd.on_choice_change.clone(),
+            }),
+            on_choice_selected as usize,
+        )));
+    }
+    // A group that starts at (or past) the end holds no options; its heading
+    // still shows, as HTML's does.
+    let end = dd.choices.len();
+    items.extend(groups.iter().filter(|g| g.first_choice >= end).map(heading));
+    items
 }
 
 extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Update {
@@ -1545,5 +1679,180 @@ mod autotest_generated {
             0,
             "the widget's own `selected` stays where the caller put it",
         );
+    }
+
+    // ==================================================================
+    // <optgroup>: labelled, non-selectable group headings
+    // ==================================================================
+
+    mod optgroups {
+        use azul_core::menu::MenuItemState;
+
+        use super::*;
+
+        const INDENT: &str = "\u{2003}";
+
+        fn grouped() -> DropDown {
+            DropDown::new(choices(&["None"]))
+                .with_optgroup("Fruit".into(), choices(&["Apple", "Pear"]))
+                .with_optgroup("Veg".into(), choices(&["Leek"]))
+        }
+
+        /// `(label, state, choice index its callback reports)` per menu item.
+        fn items(dd: &DropDown) -> Vec<(String, MenuItemState, Option<usize>)> {
+            build_menu_items(dd)
+                .iter()
+                .map(|i| match i {
+                    MenuItem::String(s) => {
+                        let choice = s.callback.as_ref().and_then(|cb| {
+                            let mut data = cb.refany.clone();
+                            data.downcast_ref::<ChoiceCallbackData>().map(|d| d.choice_id)
+                        });
+                        (s.label.as_str().to_string(), s.menu_item_state, choice)
+                    }
+                    other => panic!("the dropdown emits string items only, got {other:?}"),
+                })
+                .collect()
+        }
+
+        #[test]
+        fn an_optgroup_appends_its_options_and_remembers_its_range() {
+            let dd = grouped();
+            let all: Vec<&str> = dd.choices.as_slice().iter().map(AzString::as_str).collect();
+            assert_eq!(all, vec!["None", "Apple", "Pear", "Leek"], "headings are never choices");
+            let groups: Vec<(String, usize, usize)> = dd
+                .groups
+                .as_ref()
+                .iter()
+                .map(|g| (g.label.as_str().to_string(), g.first_choice, g.len))
+                .collect();
+            assert_eq!(
+                groups,
+                vec![("Fruit".to_string(), 1, 2), ("Veg".to_string(), 3, 1)]
+            );
+        }
+
+        #[test]
+        fn the_menu_shows_each_heading_before_its_options_and_never_as_a_choice() {
+            assert_eq!(
+                items(&grouped()),
+                vec![
+                    ("None".to_string(), MenuItemState::Normal, Some(0)),
+                    ("Fruit".to_string(), MenuItemState::Disabled, None),
+                    (format!("{INDENT}Apple"), MenuItemState::Normal, Some(1)),
+                    (format!("{INDENT}Pear"), MenuItemState::Normal, Some(2)),
+                    ("Veg".to_string(), MenuItemState::Disabled, None),
+                    (format!("{INDENT}Leek"), MenuItemState::Normal, Some(3)),
+                ],
+                "a heading is a disabled item with no callback - the menu's keyboard \
+                 navigation passes over it and nothing can pick it"
+            );
+        }
+
+        #[test]
+        fn a_dropdown_without_groups_builds_the_menu_it_always_did() {
+            let dd = DropDown::new(choices(&["a", "b"]));
+            assert_eq!(
+                items(&dd),
+                vec![
+                    ("a".to_string(), MenuItemState::Normal, Some(0)),
+                    ("b".to_string(), MenuItemState::Normal, Some(1)),
+                ]
+            );
+        }
+
+        #[test]
+        fn an_empty_group_still_shows_its_heading() {
+            let dd = DropDown::new(choices(&["a"])).with_optgroup("Empty".into(), choices(&[]));
+            assert_eq!(
+                items(&dd),
+                vec![
+                    ("a".to_string(), MenuItemState::Normal, Some(0)),
+                    ("Empty".to_string(), MenuItemState::Disabled, None),
+                ]
+            );
+        }
+
+        #[test]
+        fn choosing_a_grouped_option_reports_its_index_among_the_options() {
+            let log = log();
+            let dd = grouped()
+                .with_on_choice_change(RefAny::new(log.clone()), cb(record_choice));
+            let pear = build_menu_items(&dd)
+                .into_iter()
+                .find_map(|i| match i {
+                    MenuItem::String(s) if s.label.as_str().ends_with("Pear") => s.callback.into_option(),
+                    _ => None,
+                })
+                .expect("Pear has a callback");
+            with_env(|env| {
+                let _ = on_choice_selected(pear.refany.clone(), env.info());
+            });
+            assert_eq!(entries(&log), vec![2]);
+        }
+
+        #[test]
+        fn the_trigger_shows_the_selected_option_without_its_heading() {
+            let dom = grouped().with_selected(2).dom();
+            assert_eq!(label_of(&dom), "Pear");
+        }
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    fn choices() -> azul_css::StringVec {
+        azul_css::StringVec::from_vec(alloc::vec![
+            azul_css::AzString::from("one"),
+            azul_css::AzString::from("two"),
+        ])
+    }
+
+    #[test]
+    fn a_new_drop_down_has_no_theme_of_its_own() {
+        assert_eq!(
+            DropDown::new(choices()).theme,
+            crate::widgets::themes::OptionUiTheme::None,
+            "a new drop-down follows the app theme"
+        );
+    }
+
+    #[test]
+    fn a_drop_down_without_a_theme_follows_the_app_theme() {
+        checks::assert_follows_the_app_theme(
+            "drop_down",
+            || DropDown::new(choices()).dom(),
+            |t: UiTheme| DropDown::new(choices()).with_theme(t).dom(),
+        );
+    }
+
+    /// R5: the widget's structure (display, flex, alignment, cursor, ...) is
+    /// the same in every theme, so it is declared ONCE, outside every
+    /// `@theme` block - it holds under flat, flora and any theme to come. A
+    /// theme's block carries only its skin.
+    #[test]
+    fn a_drop_down_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        for theme in checks::BOTH {
+            for selected in [0_usize, 1, 7] {
+                let dom = checks::under(theme, || {
+                    let mut d = DropDown::new(choices());
+                    d.selected = selected;
+                    d.dom()
+                });
+                assert_structure_is_shared(
+                    &format!("drop_down (selected {selected}) built for {}", theme.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

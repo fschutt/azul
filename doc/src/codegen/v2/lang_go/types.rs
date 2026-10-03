@@ -38,6 +38,7 @@ use super::super::ir::{
     CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
     MonomorphizedKind, StructDef, TypeAliasDef,
 };
+use super::super::c_layout::union_payload_layout;
 use super::super::lang_fortran::layout::{type_layout, AbiLayout};
 use super::{ffi_type_name, primitive_to_go, snake_to_pascal};
 
@@ -308,6 +309,7 @@ fn emit_type_alias(b: &mut CodeBuilder, t: &TypeAliasDef, ir: &CodegenIR) {
                 emit_struct_body(b, &go_name, &t.doc, fields, layout, ir);
             }
             MonomorphizedKind::TaggedUnion { repr, variants } => {
+                let payload = union_payload_layout(&t.name, ir);
                 let vs: Vec<UnionVariant> = variants
                     .iter()
                     .map(|v| UnionVariant {
@@ -323,9 +325,11 @@ fn emit_type_alias(b: &mut CodeBuilder, t: &TypeAliasDef, ir: &CodegenIR) {
                             })
                             .unwrap_or_default(),
                         single_payload: v.payload_type.is_some(),
+                        padding: payload.as_ref().map_or(0, |p| p.padding(&v.name)),
                     })
                     .collect();
-                emit_union_body(b, &go_name, &t.doc, repr.as_deref(), &vs, layout);
+                let offset = payload.as_ref().map(|p| p.payload_offset);
+                emit_union_body(b, &go_name, &t.doc, repr.as_deref(), &vs, layout, offset);
             }
         }
         return;
@@ -359,6 +363,8 @@ fn emit_enum(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         b.blank();
         return;
     };
+    let payload = union_payload_layout(&e.name, ir);
+    let padding = |variant: &str| payload.as_ref().map_or(0, |p| p.padding(variant));
     let vs: Vec<UnionVariant> = e
         .variants
         .iter()
@@ -367,6 +373,7 @@ fn emit_enum(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                 name: v.name.clone(),
                 members: vec![],
                 single_payload: false,
+                padding: 0,
             },
             EnumVariantKind::Tuple(payloads) => UnionVariant {
                 name: v.name.clone(),
@@ -380,6 +387,7 @@ fn emit_enum(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                         .collect()
                 },
                 single_payload: payloads.len() == 1,
+                padding: padding(&v.name),
             },
             EnumVariantKind::Struct(fields) => UnionVariant {
                 name: v.name.clone(),
@@ -388,10 +396,12 @@ fn emit_enum(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
                     .map(|f| (go_field_name(&f.name), go_field_type(&f.type_name, f.ref_kind, ir)))
                     .collect(),
                 single_payload: false,
+                padding: padding(&v.name),
             },
         })
         .collect();
-    emit_union_body(b, &go_name, &e.doc, e.repr.as_deref(), &vs, layout);
+    let offset = payload.as_ref().map(|p| p.payload_offset);
+    emit_union_body(b, &go_name, &e.doc, e.repr.as_deref(), &vs, layout, offset);
 }
 
 fn emit_unit_enum_body(b: &mut CodeBuilder, go_name: &str, doc: &[String], variants: &[String]) {
@@ -417,8 +427,15 @@ struct UnionVariant {
     members: Vec<(String, String)>,
     /// One tuple payload named `Payload` -> `AsX()` returns `*Payload` directly.
     single_payload: bool,
+    /// Bytes between `Tag` and the first payload member, from
+    /// `c_layout::union_payload_layout` (the same `_pad0` azul.h has): Rust
+    /// puts every payload at the largest alignment of any variant.
+    padding: usize,
 }
 
+/// `payload_offset`: where Rust puts every variant's payload
+/// (`c_layout::union_payload_layout`), checked at compile time for each
+/// padded variant.
 fn emit_union_body(
     b: &mut CodeBuilder,
     go_name: &str,
@@ -426,6 +443,7 @@ fn emit_union_body(
     repr: Option<&str>,
     variants: &[UnionVariant],
     layout: AbiLayout,
+    payload_offset: Option<usize>,
 ) {
     let tag_ty = format!("{}_Tag", go_name);
     let tag_under = tag_go_type(repr);
@@ -479,11 +497,25 @@ fn emit_union_body(
             b.line(&format!("type {} struct {{", variant_struct));
             b.indent();
             b.line(&format!("Tag {}", tag_ty));
+            if v.padding > 0 {
+                b.line(&format!("_ [{}]byte", v.padding));
+            }
             for (n, t) in &v.members {
                 b.line(&format!("{} {}", n, t));
             }
             b.dedent();
             b.line("}");
+            if let (true, Some(off), Some((first, _))) =
+                (v.padding > 0, payload_offset, v.members.first())
+            {
+                // Same constant-overflow trick as `emit_layout_check`.
+                b.line(&format!(
+                    "const _ = uint({o}-unsafe.Offsetof({s}{{}}.{f})) + uint(unsafe.Offsetof({s}{{}}.{f})-{o}) // ABI: payload at {o}",
+                    o = off,
+                    s = variant_struct,
+                    f = first
+                ));
+            }
             b.blank();
         }
 

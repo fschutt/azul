@@ -65,6 +65,12 @@ fn node(index: usize) -> DomNodeId {
     }
 }
 
+/// The text block the text of node `index` is in, through the resolver.
+fn seat_block(lw: &LayoutWindow, index: usize) -> azul_core::selection::TextBlock {
+    lw.text_block_of(node(index))
+        .unwrap_or_else(|| panic!("node {index} is in a text block"))
+}
+
 fn at(byte: u32) -> TextCursor {
     TextCursor {
         cluster_id: GraphemeClusterId {
@@ -78,8 +84,7 @@ fn at(byte: u32) -> TextCursor {
 /// The primary focuses `index` with its caret at byte `byte`.
 fn primary_edits(lw: &mut LayoutWindow, index: usize, byte: u32) {
     lw.focus_manager.set_focused_node(Some(node(index)));
-    lw.text_edit_manager
-        .initialize_editing(at(byte), DomId::ROOT_ID, NodeId::new(index), 0);
+    lw.start_editing_at(at(byte), DomId::ROOT_ID, NodeId::new(index), 0);
 }
 
 fn text_of(lw: &LayoutWindow, index: usize) -> String {
@@ -425,8 +430,9 @@ fn a_seats_enter_splits_at_its_own_caret() {
     );
 
     // And a seat caret at the block's start makes Backspace a merge question.
+    let seat_b = seat_block(&lw, TEXT_B);
     lw.text_edit_manager
-        .set_seat_caret(SEAT, node(TEXT_B), at(0));
+        .set_seat_caret(SEAT, node(TEXT_B), seat_b, at(0));
     let q = lw
         .build_editing_query_state_for_seat(SEAT, Some(node(DIV_B)))
         .expect("the host is contenteditable");
@@ -492,7 +498,7 @@ fn a_seats_caret_and_selection_are_drawn_in_its_colour() {
     let locations = lw.text_edit_manager.build_cursor_locations();
     assert_eq!(locations.len(), 1);
     assert_eq!(locations[0].owner, owner);
-    assert_eq!(locations[0].node, NodeId::new(TEXT_B));
+    assert_eq!(locations[0].block, seat_block(&lw, TEXT_B));
 
     // Select-all: the selection is painted as the seat's tinted bands.
     assert!(lw.select_all_for_seat(SEAT, node(TEXT_B)));
@@ -506,7 +512,7 @@ fn a_seats_caret_and_selection_are_drawn_in_its_colour() {
         .expect("a selection entry for the seat's dom");
     let remote = sel
         .remote_ranges
-        .get(&NodeId::new(TEXT_B))
+        .get(&seat_block(&lw, TEXT_B))
         .expect("the seat's range");
     assert_eq!(remote.len(), 1);
     assert_eq!(remote[0].0, owner);
@@ -534,8 +540,9 @@ fn a_seats_composition_is_shaped_at_its_caret_and_underlined() {
     primary_edits(&mut lw, TEXT_A, 1);
     lw.focus_manager
         .set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    let seat_b = seat_block(&lw, TEXT_B);
     lw.text_edit_manager
-        .set_seat_caret(SEAT, node(TEXT_B), at(3));
+        .set_seat_caret(SEAT, node(TEXT_B), seat_b, at(3));
     assert_eq!(underlines(&lw), 0, "premise: nothing composes");
 
     // The seat composes "ni" at the end of B: stored per seat, shaped in, underlined.
@@ -584,8 +591,9 @@ fn a_seats_composition_is_shaped_at_its_caret_and_underlined() {
 fn a_seats_caret_rect_is_the_seats_not_the_primarys() {
     let mut lw = two_fields();
     primary_edits(&mut lw, TEXT_A, 0);
+    let seat_b = seat_block(&lw, TEXT_B);
     lw.text_edit_manager
-        .set_seat_caret(SEAT, node(TEXT_B), at(2));
+        .set_seat_caret(SEAT, node(TEXT_B), seat_b, at(2));
     let primary = lw
         .get_focused_cursor_rect_viewport()
         .expect("the primary's caret has a rectangle");
@@ -634,8 +642,9 @@ fn a_seats_composition_raises_its_own_events() {
 
     let mut lw = two_fields();
     primary_edits(&mut lw, TEXT_A, 0);
+    let seat_b = seat_block(&lw, TEXT_B);
     lw.text_edit_manager
-        .set_seat_caret(SEAT, node(TEXT_B), at(3));
+        .set_seat_caret(SEAT, node(TEXT_B), seat_b, at(3));
 
     lw.text_edit_manager
         .set_preedit_for_seat(SEAT, "n".to_string(), 0, 1);
@@ -723,8 +732,9 @@ fn two_seats_composing_in_one_node_are_both_shaped() {
     primary_edits(&mut lw, TEXT_B, 1);
     lw.focus_manager
         .set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    let seat_b = seat_block(&lw, TEXT_B);
     lw.text_edit_manager
-        .set_seat_caret(SEAT, node(TEXT_B), at(3));
+        .set_seat_caret(SEAT, node(TEXT_B), seat_b, at(3));
 
     lw.text_edit_manager.set_preedit("XY".to_string(), 0, 2);
     lw.apply_preedit_to_text_cache(DomId::ROOT_ID, NodeId::new(TEXT_B));
@@ -772,8 +782,9 @@ fn a_seats_edit_is_undone_only_by_that_seat_and_only_while_on_top() {
     primary_edits(&mut lw, TEXT_B, 3);
     lw.focus_manager
         .set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    let seat_b = seat_block(&lw, TEXT_B);
     lw.text_edit_manager
-        .set_seat_caret(SEAT, node(TEXT_B), at(0));
+        .set_seat_caret(SEAT, node(TEXT_B), seat_b, at(0));
 
     let _ = lw.record_text_input_for_seat(SEAT, "s");
     let _ = lw.apply_text_changeset();

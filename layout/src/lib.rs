@@ -250,7 +250,9 @@ pub mod image;
 /// Pure-functional image resampling (area downscale / bilinear upscale): the
 /// golden-reference scaler shared by the CPU rasterizer, the capture pipeline
 /// and any `RawImage` resize. No `image`-crate or platform dependency.
-pub mod image_scale;
+/// Image scaling lives in core (`RawImage::thumbnail` needs it); re-exported
+/// here so `azul_layout::image_scale::*` keeps working.
+pub use azul_core::image_scale;
 /// The ACTION JOURNAL: a bounded breadcrumb trail of dispatched callbacks,
 /// for problem reports and crash dumps. Off until enabled.
 #[cfg(feature = "std")]
@@ -262,6 +264,7 @@ pub mod journal;
 pub mod managers;
 /// Optional probe instrumentation. With the `probe` feature off this
 /// is a tiny module of no-op stubs and pays zero cost.
+pub mod pgo;
 pub mod probe;
 pub mod resource_handles;
 /// CSS layout solver: block, inline, flex, grid, and table formatting.
@@ -350,9 +353,10 @@ pub use azul_core::url::{ResultUrlUrlParseError, Url, UrlParseError};
 #[cfg(feature = "fluent")]
 pub use fluent::{
     check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
-    create_fluent_zip_from_strings, export_to_zip, FluentError, FluentLanguageInfo,
-    FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec, FluentLocalizerHandle,
-    FluentSyntaxCheckResult, FluentZipLoadResult,
+    create_fluent_zip_from_strings, export_to_zip, AppConfigFluentExt, FluentError,
+    FluentLanguageInfo, FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec,
+    FluentLocalizerHandle, FluentSyntaxCheckResult, FluentZipLoadResult,
+    TranslationCompletenessReport,
 };
 
 /// File system operations (C-compatible wrappers for `std::fs`).
@@ -409,24 +413,34 @@ pub use zip::{
 
 /// Icon provider: resolves icons from Material Icons font, images, or ZIP packs.
 pub mod icon;
+/// The user's icon rules on disk (`~/.azul/icons/remap.json`, one table per
+/// theme directory) and the walk of a `.azul` theme tree.
+#[cfg(feature = "std")]
+pub mod icon_remap;
 // Re-export core icon types
 pub use azul_core::icon::{
-    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle, IconResolverCallbackType,
-    IconViewState, OptionIconProviderHandle,
+    parse_icon_apply_if, resolve_icons_in_dom, resolve_icons_in_dom_with_context,
+    styled_dom_resolving_icons, IconColorMapping, IconColorMappingVec, IconDesignedFor, IconMeta,
+    IconModeColors, IconProviderHandle, IconRecolor, IconRemapRule, IconResolverCallbackType,
+    IconRuleCondition, IconVariants, IconViewState, OptionIconProviderHandle,
 };
 pub use icon::{
     create_default_icon_provider,
     // Resolver
     default_icon_resolver,
+    default_svg_icon_meta,
     register_embedded_material_icons,
     register_font_icon,
     register_icons_from_zip,
     // Helpers
     register_image_icon,
+    register_image_icon_with_meta,
     register_material_icons,
+    register_svg_icon,
     FontIconData,
     // Data types for RefAny
     ImageIconData,
+    SvgIconData,
 };
 
 /// Callback handling for layout events (invocation, result processing).
@@ -437,6 +451,10 @@ pub mod callbacks;
 // Scoped (was crate-wide): complex rasterizer signatures.
 #[allow(clippy::type_complexity)]
 pub mod cpurender;
+/// Which context menu a secondary click opens - the one pick every shell
+/// presents.
+#[cfg(feature = "text_layout")]
+pub mod context_menu;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
@@ -468,6 +486,11 @@ pub mod font;
 /// `regex-lite` declares `compile_error!` without its own `std` feature.
 #[cfg(all(feature = "text_layout", feature = "std"))]
 pub mod form;
+/// Raw `<input>` / `<select>` / `<textarea>` nodes become the matching widget
+/// (`<input type="range">` -> `Slider`), before the cascade - the way `<icon>`
+/// nodes are resolved. Run by `LayoutWindow::style_user_dom*`.
+#[cfg(feature = "widgets")]
+pub mod form_controls;
 /// Glyph path and cell cache for CPU text rendering.
 #[cfg(feature = "cpurender")]
 pub mod glyph_cache;
@@ -478,7 +501,7 @@ pub mod request;
 
 /// Headless backend for CPU-only rendering without a display server.
 ///
-/// Used with `AZUL_HEADLESS=1` for E2E testing, CI, and screenshot capture.
+/// Used with `AZ_BACKEND=headless` for E2E testing, CI, and screenshot capture.
 #[cfg(feature = "text_layout")]
 pub mod headless;
 // Re-export allsorts types needed by printpdf
@@ -505,6 +528,10 @@ pub use azul_core::paged;
 /// text/structural next).
 #[cfg(feature = "text_layout")]
 pub mod overlay;
+/// The pointer-press arbiter: scrollbar first, then content - the one
+/// decision the shells, the scripted path and the E2E runner share.
+#[cfg(feature = "text_layout")]
+pub mod press_router;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;
@@ -514,6 +541,22 @@ pub mod scroll_timer;
 // shaping loop, and complex shaping/cache signatures.
 #[allow(private_interfaces, unused_labels, clippy::type_complexity)]
 pub mod text3;
+/// What a caret indexes (a text block's content in the layout's run
+/// numbering) and the flat byte offsets into a block's text.
+#[cfg(feature = "text_layout")]
+pub mod block_content;
+/// Text blocks rebuilt as DOM subtrees from their styled runs - the payload
+/// of a structural edit that joins blocks or pastes a fragment.
+#[cfg(feature = "text_layout")]
+pub mod rich_blocks;
+/// The HTML flavour of a paste, sanitized into formatted text, links and
+/// blocks.
+#[cfg(feature = "text_layout")]
+pub mod paste_html;
+/// Text blocks: which inline formatting context a node, a caret or a
+/// selection end lives in - the one resolver.
+#[cfg(feature = "text_layout")]
+pub mod text_block;
 /// Thread callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
 pub mod thread;

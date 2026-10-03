@@ -129,7 +129,9 @@ impl LineHeight {
     /// Resolve to a pixel value, using font metrics when `Normal`.
     ///
     /// `ascent`, `descent` (negative in OpenType convention), `line_gap` are in font units.
-    /// `font_size_px` and `units_per_em` are used to scale.
+    /// `font_size_px` and `units_per_em` are used to scale. `normal` is the
+    /// browsers' rounded `A + D + G` ([`LayoutFontMetrics::line_metrics_px`],
+    /// for a face without the macOS ascent boost), 1.2em without units.
     #[must_use]
     pub fn resolve(
         &self,
@@ -139,28 +141,32 @@ impl LineHeight {
         line_gap: f32,
         units_per_em: u16,
     ) -> f32 {
-        match self {
-            Self::Px(px) => *px,
-            Self::Normal => {
-                if units_per_em == 0 {
-                    return font_size_px * 1.2; // fallback
-                }
-                let scale = font_size_px / f32::from(units_per_em);
-                (ascent - descent + line_gap) * scale
-            }
-        }
+        self.resolve_with_metrics(
+            font_size_px,
+            &LayoutFontMetrics {
+                ascent,
+                descent,
+                line_gap,
+                units_per_em,
+                x_height: None,
+                cap_height: None,
+                browser_ascent_boost: false,
+            },
+        )
     }
 
-    /// Resolve using a `LayoutFontMetrics` struct for convenience.
+    /// Resolve against a face's metrics: `normal` is the line height a
+    /// browser gives a line of that face, `A + D + G` each rounded to whole
+    /// pixels at the font size ([`LayoutFontMetrics::line_metrics_px`]),
+    /// 1.2em for a face without units.
     #[must_use]
     pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
-        self.resolve(
-            font_size_px,
-            metrics.ascent,
-            metrics.descent,
-            metrics.line_gap,
-            metrics.units_per_em,
-        )
+        match self {
+            Self::Px(px) => *px,
+            Self::Normal => metrics
+                .line_metrics_px(font_size_px)
+                .map_or(font_size_px * 1.2, |(a, d, g)| a + d + g),
+        }
     }
 }
 
@@ -183,6 +189,20 @@ impl Hash for LineHeight {
             v.to_bits().hash(state);
         }
     }
+}
+
+/// `(above, below)` the baseline of a box of `ascent` and `descent` (px) in a
+/// line `line_height` px tall: CSS 2.2 §10.8.1's leading `L = line-height -
+/// (A + D)` shared between the two sides, the share ABOVE floored to a whole
+/// pixel and the rest below, as LayoutNG does (`InlineBoxState::
+/// CalculateLeadingSpace`). The two always add up to `line_height`; with
+/// whole-pixel metrics a glyph's box and the strut of the same face split
+/// alike, so one line's boxes coincide.
+#[must_use]
+pub fn split_leading(line_height: f32, ascent: f32, descent: f32) -> (f32, f32) {
+    let leading = line_height - (ascent + descent);
+    let above = (leading / 2.0).floor();
+    (ascent + above, descent + (leading - above))
 }
 
 // Stub type when hyphenation is disabled
@@ -451,7 +471,7 @@ pub(crate) fn resolve_chain_on_miss(
     fc_cache: &FcFontCache,
 ) -> rust_fontconfig::FontFallbackChain {
     let mut trace = Vec::new();
-    fc_cache.resolve_font_chain_with_scripts(
+    let mut chain = fc_cache.resolve_font_chain_with_scripts(
         &key.font_families,
         key.weight,
         if key.italic {
@@ -466,7 +486,10 @@ pub(crate) fn resolve_chain_on_miss(
         },
         None,
         &mut trace,
-    )
+    );
+    // Same weight selection as the pre-pass, so a miss draws what a hit would.
+    crate::solver3::getters::select_variable_weight_instances(&mut chain, key.weight, fc_cache);
+    chain
 }
 
 /// Whether `ch` needs a glyph of its own. Whitespace, controls and the
@@ -1017,6 +1040,7 @@ impl FontContext {
     /// resolution can lazy-parse families the DOM needs.
     #[must_use]
     pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -1040,6 +1064,9 @@ impl FontContext {
     /// by the common-stack metadata size (~15 MiB on macOS).
     pub fn from_registry(registry: Arc<rust_fontconfig::registry::FcFontRegistry>) -> Self {
         let fc_cache = registry.shared_cache();
+        // The registry resolves with its cache's config: the shared handle
+        // carries the browser generic families into it.
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -1371,6 +1398,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// Returns a `LayoutError` if the font cache cannot be initialized.
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
+        // Generic families as Chrome resolves them (macOS `sans-serif` =
+        // Helvetica): every window's fonts go through a FontManager.
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         let mut fm = Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -1696,6 +1726,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         fc_cache: FcFontCache,
         parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
     ) -> Result<Self, LayoutError> {
+        crate::font::loading::use_browser_generic_families(&fc_cache);
         let mut fm = Self {
             fc_cache,
             parsed_fonts,
@@ -1911,6 +1942,28 @@ impl<T: ParsedFontTrait> FontManager<T> {
         drop(parsed);
         unsafe { crate::az_mark(0x6078C, 0xA2) };
         out
+    }
+
+    /// The metrics of `font_stack`'s FIRST AVAILABLE FONT (CSS Fonts 4 §5.5:
+    /// the first face of the family list that covers U+0020 SPACE), in font
+    /// units - the face the strut of a block container's line boxes takes
+    /// its ascent and descent from (CSS 2.2 §10.8.1), resolved through the
+    /// same chain the shaper resolves the container's text with. `None`
+    /// while the stack's chain is unresolved or the face is not loaded yet.
+    #[must_use]
+    pub fn first_available_font_metrics(&self, font_stack: &FontStack) -> Option<LayoutFontMetrics> {
+        match font_stack {
+            FontStack::Ref(font_ref) => Some(font_ref.get_font_metrics()),
+            FontStack::Stack(selectors) => {
+                let chain = self
+                    .font_chain_cache
+                    .get(&FontChainKey::from_selectors(selectors))?;
+                let id = covering_font(chain, ' ')
+                    .or_else(|| chain.resolve_codepoint(u32::from(' ')).map(|(id, _)| id))?;
+                let parsed = self.parsed_fonts.lock().ok()?;
+                parsed.get(&id).map(ParsedFontTrait::get_font_metrics)
+            }
+        }
     }
 
     /// Insert a loaded font into the cache
@@ -2339,6 +2392,54 @@ pub struct UnifiedConstraints {
     pub line_break: LineBreakStrictness,
     // CSS unicode-bidi property; Plaintext causes per-paragraph auto-detection
     pub unicode_bidi: UnicodeBidi,
+    /// This inline formatting context's share of a multi-column BLOCK
+    /// container's flow (`solver3::multicol`); `None` everywhere else.
+    /// Honoured only when `columns == 1` (a context with columns of its own
+    /// splits its lines itself).
+    pub column_flow: Option<ColumnFlow>,
+}
+
+/// One inline formatting context's share of a multi-column container's
+/// flow (CSS Multi-column Layout 1): its lines fill the rest of the column
+/// it starts in, and from each line index in `breaks` on they continue at
+/// the top of the next column.
+///
+/// The multi-column block layout (`solver3::multicol::plan_columns`)
+/// picks the breaks on the context's unsplit layout. Laying the context out
+/// again with them only MOVES lines - every column is as wide as the
+/// unsplit layout was, so the lines break exactly as before.
+#[derive(Debug, Clone, Default)]
+pub struct ColumnFlow {
+    /// The flow-wide index of the first line of every further column,
+    /// ascending: `[2, 7]` keeps lines 0-1 in the first column, 2-6 in
+    /// the second, the rest in the third.
+    pub breaks: Vec<usize>,
+    /// The inline distance from one column to the next: the column width
+    /// plus the gap, negative when the columns run right to left.
+    pub advance: f32,
+    /// Where the first line box of every further column starts on the block
+    /// axis, relative to this context's content-box top - minus how far
+    /// below the top of its first column the context starts.
+    pub column_top: f32,
+}
+
+impl PartialEq for ColumnFlow {
+    fn eq(&self, other: &Self) -> bool {
+        self.breaks == other.breaks
+            && round_eq(self.advance, other.advance)
+            && round_eq(self.column_top, other.column_top)
+    }
+}
+
+impl Eq for ColumnFlow {}
+
+impl Hash for ColumnFlow {
+    #[allow(clippy::cast_possible_truncation)] // the rounded-pixel key `round_eq` compares
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.breaks.hash(state);
+        (self.advance.round() as isize).hash(state);
+        (self.column_top.round() as isize).hash(state);
+    }
 }
 
 impl Default for UnifiedConstraints {
@@ -2375,6 +2476,7 @@ impl Default for UnifiedConstraints {
             hyphenation_language: None,
             columns: 1,
             column_gap: 0.0,
+            column_flow: None,
             hanging_punctuation: false,
             text_indent: 0.0,
             text_indent_each_line: false,
@@ -2426,6 +2528,7 @@ impl Hash for UnifiedConstraints {
         self.line_clamp.hash(state);
         self.columns.hash(state);
         (self.column_gap.round() as isize).hash(state);
+        self.column_flow.hash(state);
         self.hanging_punctuation.hash(state);
         self.overflow_wrap.hash(state);
         self.text_align_last.hash(state);
@@ -2470,6 +2573,7 @@ impl PartialEq for UnifiedConstraints {
             && self.line_clamp == other.line_clamp
             && self.columns == other.columns
             && round_eq(self.column_gap, other.column_gap)
+            && self.column_flow == other.column_flow
             && self.hanging_punctuation == other.hanging_punctuation
             && self.overflow_wrap == other.overflow_wrap
             && self.text_align_last == other.text_align_last
@@ -2757,9 +2861,57 @@ pub struct LayoutFontMetrics {
     /// OS/2 sCapHeight: height of capital letters from baseline (in font units).
     /// Used for drop cap / initial-letter alignment per CSS Inline 3 §7.1.1.
     pub cap_height: Option<f32>,
+    /// The face is Apple's Times, Helvetica or Courier on macOS: browsers
+    /// there grow its rounded ascent by 15% of ascent + descent
+    /// ([`Self::line_metrics_px`]). Set where the face is parsed
+    /// (`crate::font::parsed::browser_ascent_boost`).
+    pub browser_ascent_boost: bool,
 }
 
 impl LayoutFontMetrics {
+    /// The `(ascent, descent, line gap)` a browser lays a line of this face
+    /// out with at `font_size_px`, in px, `None` for a face without units.
+    ///
+    /// Each is rounded to a whole pixel AT THE FONT SIZE (Blink
+    /// `FontMetrics::AscentDescentWithHacks`: `SkScalarRoundToScalar` of the
+    /// ascent and descent; `SimpleFontData::PlatformInit`: `lroundf` of the
+    /// line gap), so `line-height: normal` is `A + D + G` in whole pixels: a
+    /// 16px Arial line is 14 + 3 + 1 = 18px, as in Chrome (the unrounded sum
+    /// is 18.4px, and every line of a mail drifted 0.4px against Chrome).
+    /// Then, for [`Self::browser_ascent_boost`] faces only, the rounded
+    /// ascent grows by `floor((A + D) * 0.15 + 0.5)` (Blink, macOS; WebKit
+    /// `SimpleFontData::platformInit`): 16px Helvetica is 14 + 4 + 0 = 18px.
+    /// The descent is the hhea descender's distance below the baseline
+    /// (stored negative), the line gap is floored at zero (CSS Inline 3
+    /// §3.2.2). Measured against Chrome 154 for 11 faces x 13 sizes
+    /// (layout/tests/a_normal_line_is_as_tall_as_chromes.rs).
+    #[must_use]
+    pub fn line_metrics_px(&self, font_size_px: f32) -> Option<(f32, f32, f32)> {
+        if self.units_per_em == 0 {
+            return None;
+        }
+        let scale = font_size_px / f32::from(self.units_per_em);
+        let round = |v: f32| (v + 0.5).floor();
+        let mut ascent = round(self.ascent * scale);
+        let descent = round((-self.descent * scale).max(0.0));
+        let line_gap = round((self.line_gap * scale).max(0.0));
+        if self.browser_ascent_boost {
+            ascent += round((ascent + descent) * 0.15);
+        }
+        Some((ascent, descent, line_gap))
+    }
+
+    /// `(above, below)` the baseline of a glyph of this face in a line of
+    /// `line_height`: the rounded ascent and descent
+    /// ([`Self::line_metrics_px`]) with the leading shared out by
+    /// [`split_leading`]. `None` for a face without units.
+    #[must_use]
+    pub fn inline_box_px(&self, font_size_px: f32, line_height: &LineHeight) -> Option<(f32, f32)> {
+        let (ascent, descent, _) = self.line_metrics_px(font_size_px)?;
+        let line_height = line_height.resolve_with_metrics(font_size_px, self);
+        Some(split_leading(line_height, ascent, descent))
+    }
+
     // +spec:font-metrics:006bd8 - baseline position from font design coordinates, scaled with font
     // size +spec:font-metrics:910c0a - dominant-baseline: auto resolves to alphabetic for
     // horizontal text +spec:writing-modes:098958 - baseline is along the inline axis, used to
@@ -2834,6 +2986,9 @@ impl LayoutFontMetrics {
             units_per_em: metrics.units_per_em,
             x_height,
             cap_height,
+            // No family name reaches this constructor (an embedder's face
+            // metrics): only `ParsedFont` sets the macOS ascent boost.
+            browser_ascent_boost: false,
         }
     }
 
@@ -3505,6 +3660,12 @@ pub struct InlineBorderInfo {
     /// LTR: first fragment gets left edge, last gets right edge.
     /// RTL: first fragment gets right edge, last gets left edge.
     pub is_rtl: bool,
+    /// The left / right margins in pixels (CSS 2.2 s10.3.1: an inline box's
+    /// horizontal margins apply; vertical ones do not). They move the pen
+    /// like the border and padding but are not painted - the background
+    /// covers the border box only ([`Self::left_inset`]).
+    pub margin_left: f32,
+    pub margin_right: f32,
 }
 
 impl Default for InlineBorderInfo {
@@ -3526,6 +3687,8 @@ impl Default for InlineBorderInfo {
             is_first_fragment: true,
             is_last_fragment: true,
             is_rtl: false,
+            margin_left: 0.0,
+            margin_right: 0.0,
         }
     }
 }
@@ -3594,6 +3757,77 @@ impl InlineBorderInfo {
     #[must_use]
     pub fn bottom_inset(&self) -> f32 {
         self.bottom + self.padding_bottom
+    }
+
+    /// How far the box moves the pen before its content: the left margin
+    /// plus [`Self::left_inset`], suppressed at a split like the inset
+    /// (CSS 2.2 s9.4.2: margins, borders and padding have no effect where
+    /// an inline box is split).
+    #[must_use]
+    pub fn left_advance(&self) -> f32 {
+        let inset = self.left_inset();
+        let show = if self.is_rtl {
+            self.is_last_fragment
+        } else {
+            self.is_first_fragment
+        };
+        if show {
+            self.margin_left + inset
+        } else {
+            inset
+        }
+    }
+
+    /// How far the box moves the pen after its content: [`Self::right_inset`]
+    /// plus the right margin, suppressed at a split like the inset.
+    #[must_use]
+    pub fn right_advance(&self) -> f32 {
+        let inset = self.right_inset();
+        let show = if self.is_rtl {
+            self.is_first_fragment
+        } else {
+            self.is_last_fragment
+        };
+        if show {
+            inset + self.margin_right
+        } else {
+            inset
+        }
+    }
+
+    /// Whether the box moves the pen at all: a border, a padding or a
+    /// horizontal margin (a negative margin moves it too).
+    #[must_use]
+    pub fn moves_the_pen(&self) -> bool {
+        self.has_chrome() || self.margin_left != 0.0 || self.margin_right != 0.0
+    }
+
+    /// Every field into `state`, the floats by their bits. `StyleProperties`'
+    /// `Hash` is a cache KEY (the text cache's first stage), so two
+    /// decorations must hash apart.
+    pub fn hash_bits<H: Hasher>(&self, state: &mut H) {
+        for v in [
+            self.top,
+            self.right,
+            self.bottom,
+            self.left,
+            self.padding_top,
+            self.padding_right,
+            self.padding_bottom,
+            self.padding_left,
+            self.margin_left,
+            self.margin_right,
+        ] {
+            v.to_bits().hash(state);
+        }
+        self.radius.map(f32::to_bits).hash(state);
+        self.top_color.hash(state);
+        self.right_color.hash(state);
+        self.bottom_color.hash(state);
+        self.left_color.hash(state);
+        self.is_first_fragment.hash(state);
+        self.is_last_fragment.hash(state);
+        self.is_rtl.hash(state);
     }
 }
 
@@ -4654,6 +4888,55 @@ impl Default for StyleProperties {
     }
 }
 
+impl StyleProperties {
+    /// Whether the text reads as bold to a format that has only a boolean for
+    /// it (a clipboard flavour, an editor's B button): its first font asks for
+    /// a weight of 700 or more. `FcWeight` is ordered by its CSS numeric
+    /// value, so this is that comparison.
+    #[must_use]
+    pub fn is_bold(&self) -> bool {
+        self.font_stack
+            .first_selector()
+            .is_some_and(|s| s.weight >= FcWeight::Bold)
+    }
+
+    /// Whether the text reads as italic: oblique is a slanted rendering of an
+    /// upright face, and every format this feeds collapses it into italic.
+    #[must_use]
+    pub fn is_italic(&self) -> bool {
+        self.font_stack
+            .first_selector()
+            .is_some_and(|s| matches!(s.style, FontStyle::Italic | FontStyle::Oblique))
+    }
+
+    /// This style with every font of its stack asking for `weight` - a
+    /// direct font reference (an embedded icon font) has no weight to ask for
+    /// and stays as it is.
+    #[must_use]
+    pub fn with_font_weight(&self, weight: FcWeight) -> Self {
+        let mut style = self.clone();
+        if let FontStack::Stack(selectors) = &mut style.font_stack {
+            for selector in selectors {
+                selector.weight = weight;
+            }
+        }
+        style
+    }
+
+    /// This style with every font of its stack asking for `font_style` (see
+    /// [`Self::with_font_weight`]).
+    #[must_use]
+    pub fn with_font_style(&self, font_style: FontStyle) -> Self {
+        let mut style = self.clone();
+        if let FontStack::Stack(selectors) = &mut style.font_stack {
+            for selector in selectors {
+                selector.style = font_style;
+            }
+        }
+        style
+    }
+}
+
 impl Hash for StyleProperties {
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -4672,6 +4955,23 @@ impl Hash for StyleProperties {
         // For f32 fields, round and cast to usize before hashing.
         (self.font_size_px.round() as isize).hash(state);
         self.line_height.hash(state);
+
+        // The inline box's decoration. This hash is a cache KEY - the text
+        // cache's first stage is `calculate_id(&content)` - so a span's text
+        // styled with the span's border / padding / background image must not
+        // hash like the same text styled with the text node's own style: the
+        // intrinsic-sizing pass collects it that way, and its border-less
+        // items were served to the final layout, so a span with a border
+        // but no background drew no border and moved nothing (WPT
+        // inline-formatting-context-004).
+        self.background_content.hash(state);
+        match &self.border {
+            None => 0_u8.hash(state),
+            Some(b) => {
+                1_u8.hash(state);
+                b.hash_bits(state);
+            }
+        }
     }
 }
 
@@ -4681,7 +4981,7 @@ impl StyleProperties {
     /// Properties that DON'T affect layout (only rendering):
     /// - color, `background_color`, `background_content`
     /// - `text_decoration` (underline, etc.)
-    /// - border (for inline elements)
+    /// - an inline box's border colours and its top / bottom border and padding
     ///
     /// Properties that DO affect layout:
     /// - `font_stack`, `font_size_px`, `font_features`, `font_variations`
@@ -4689,6 +4989,8 @@ impl StyleProperties {
     /// - `writing_mode`, `text_orientation`, `text_combine_upright`
     /// - `text_transform`
     /// - `font_variant`_* (affects glyph selection)
+    /// - an inline box's left / right border, padding and margin: they move
+    ///   the pen (`inline_offsets` in `position_one_line`)
     ///
     /// This allows the layout cache to reuse layouts when only rendering
     /// properties change (e.g., color changes on hover).
@@ -4732,6 +5034,16 @@ impl StyleProperties {
         self.font_variant_numeric.hash(&mut hasher);
         self.font_variant_ligatures.hash(&mut hasher);
         self.font_variant_east_asian.hash(&mut hasher);
+
+        // An inline box's horizontal margin + border + padding move the pen
+        // (`inline_offsets` in `position_one_line`): a span that gains one
+        // must not reuse the old positions. No box and a box of zeros hash
+        // alike.
+        let (start, end) = self.border.as_ref().map_or((0.0_f32, 0.0_f32), |b| {
+            (b.left_advance(), b.right_advance())
+        });
+        start.to_bits().hash(&mut hasher);
+        end.to_bits().hash(&mut hasher);
 
         hasher.finish()
     }
@@ -5639,19 +5951,75 @@ impl UnifiedLayout {
     pub const fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
+    /// Where the FIRST line's baseline lies, from the top of the layout (the
+    /// IFC's content box): see [`baseline_in_layout`].
     #[must_use]
     pub fn first_baseline(&self) -> Option<f32> {
-        self.items
-            .iter()
-            .find_map(|item| get_baseline_for_item(&item.item))
+        self.items.iter().find_map(baseline_in_layout)
     }
 
+    /// Where the LAST line's baseline lies, from the top of the layout (the
+    /// IFC's content box) - an inline-block's baseline (CSS 2.2 s10.8.1).
+    /// It used to be the last item's ascent alone, wherever that item sat:
+    /// the half-leading of a tall line and every line above went missing,
+    /// and an inline-block of `line-height: 5` text rose 40px above its line.
     #[must_use]
     pub fn last_baseline(&self) -> Option<f32> {
-        self.items
+        self.items.iter().rev().find_map(baseline_in_layout)
+    }
+
+    /// The baseline of this layout's LAST line box, in the layout's own space
+    /// (from the top of the content box that holds the lines): what an
+    /// inline-block holding these lines sits on (CSS 2.2 10.8.1, "the
+    /// baseline of its last line box"). `None` without a line that has a
+    /// baseline (only breaks, tabs or glyph-less clusters).
+    ///
+    /// It is the baseline of a baseline-aligned item of that line - an item
+    /// shifted by `vertical-align` (sub, super, a length) only when the line
+    /// has no other - placed where `position_one_line` put it: its top plus
+    /// its ascent (`get_item_vertical_metrics_approx` is exact for a cluster
+    /// with glyphs; an atomic inline's ascent is its height above its
+    /// `baseline_offset`). Not [`Self::last_baseline`], which is the raw
+    /// font ascent of the last item with no line position (the flex bridge
+    /// reads that one as an item's first baseline).
+    #[must_use]
+    pub fn last_line_baseline(&self) -> Option<f32> {
+        let ascent = |item: &ShapedItem| -> Option<f32> {
+            match item {
+                ShapedItem::Cluster(c) if !c.glyphs.is_empty() => {
+                    Some(get_item_vertical_metrics_approx(item).0)
+                }
+                ShapedItem::Object {
+                    bounds,
+                    baseline_offset,
+                    ..
+                }
+                | ShapedItem::CombinedBlock {
+                    bounds,
+                    baseline_offset,
+                    ..
+                } => Some((bounds.height - *baseline_offset).max(0.0)),
+                _ => None,
+            }
+        };
+        let last_line = self
+            .items
             .iter()
-            .rev()
-            .find_map(|item| get_baseline_for_item(&item.item))
+            .filter(|p| ascent(&p.item).is_some())
+            .map(|p| p.line_index)
+            .max()?;
+        let on_last_line = || self.items.iter().filter(move |p| p.line_index == last_line);
+        let on_baseline = |p: &&PositionedItem| {
+            matches!(
+                get_item_vertical_align(&p.item),
+                None | Some(VerticalAlign::Baseline)
+            )
+        };
+        let item = on_last_line()
+            .filter(|p| ascent(&p.item).is_some())
+            .find(on_baseline)
+            .or_else(|| on_last_line().find(|p| ascent(&p.item).is_some()))?;
+        Some(item.position.y + ascent(&item.item)?)
     }
 
     /// The closest logical cursor position to a point in this layout's OWN
@@ -6753,31 +7121,26 @@ impl UnifiedLayout {
     }
 }
 
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
-                                  // (or cross-type bindings that can't merge)
-fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
-    match item {
-        ShapedItem::CombinedBlock {
-            baseline_offset, ..
-        } => Some(*baseline_offset),
+/// Where `positioned`'s baseline lies in its layout (from the top of the
+/// IFC's content box): its top - the line put it at `baseline - ascent` - plus
+/// the ascent the line used (`get_item_vertical_metrics`: a glyph run's with
+/// its half-leading; an atomic inline's is its height above its
+/// `baseline_offset`, which counts from its bottom edge). `None` for what has
+/// no baseline: a break, a tab, a cluster without glyphs.
+fn baseline_in_layout(positioned: &PositionedItem) -> Option<f32> {
+    let ascent = match &positioned.item {
+        ShapedItem::Cluster(c) if c.glyphs.is_empty() => return None,
         ShapedItem::Object {
-            baseline_offset, ..
-        } => Some(*baseline_offset),
-        // We have to get the clusters font from the last glyph
-        ShapedItem::Cluster(ref cluster) => cluster.glyphs.last().map(|last_glyph| {
-            last_glyph
-                .font_metrics
-                .baseline_scaled(cluster.style.font_size_px)
-        }),
-        ShapedItem::Break { source, break_info } => {
-            // Breaks do not contribute to baseline
-            None
+            bounds,
+            baseline_offset,
+            ..
+        } => bounds.height - *baseline_offset,
+        ShapedItem::Cluster(_) | ShapedItem::CombinedBlock { .. } => {
+            get_item_vertical_metrics_approx(&positioned.item).0
         }
-        ShapedItem::Tab { source, bounds } => {
-            // Tabs do not contribute to baseline
-            None
-        }
-    }
+        ShapedItem::Break { .. } | ShapedItem::Tab { .. } => return None,
+    };
+    Some(positioned.position.y + ascent)
 }
 
 /// Stores information about content that exceeded the available layout space.
@@ -7077,6 +7440,7 @@ impl CompactShapedEntry {
                     ascent: 0.0,
                     descent: 0.0,
                     cap_height: None,
+                    browser_ascent_boost: false,
                     x_height: None,
                     line_gap: 0.0,
                     units_per_em: 0,
@@ -7326,6 +7690,48 @@ pub(crate) struct PerItemShapedEntry {
     pub(crate) compact: CompactShapedEntry,
     /// Sum of advance widths — for fast same-width detection during incremental relayout.
     pub(crate) total_advance: f32,
+    /// The group's text items as they were when it was shaped, in group
+    /// order: each one's `ContentIndex` and its byte offset in its logical
+    /// run (`VisualItem::run_byte_offset`). A hit re-stamps a cluster from the
+    /// hitting group's item at the SAME position - the key hashes the texts in
+    /// order, so both groups hold the same items, but not at the same run
+    /// indices.
+    pub(crate) items: Vec<(ContentIndex, usize)>,
+}
+
+/// One text item of a shaping group, as a cache hit re-stamps from it.
+struct GroupItem {
+    source: ContentIndex,
+    run_byte_offset: usize,
+    style: Arc<StyleProperties>,
+    source_node_id: Option<NodeId>,
+}
+
+/// The text items of a shaping group, in group order.
+fn group_items(group: &[VisualItem]) -> Vec<GroupItem> {
+    group
+        .iter()
+        .filter_map(|it| match &it.logical_source {
+            LogicalItem::Text {
+                source,
+                style,
+                source_node_id,
+                ..
+            } => Some(GroupItem {
+                source: *source,
+                run_byte_offset: it.run_byte_offset,
+                style: style.clone(),
+                source_node_id: *source_node_id,
+            }),
+            LogicalItem::CombinedText { source, style, .. } => Some(GroupItem {
+                source: *source,
+                run_byte_offset: it.run_byte_offset,
+                style: style.clone(),
+                source_node_id: None,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -8249,6 +8655,33 @@ impl TextShapingCache {
         let mut cur_word = 0.0f32;
         let mut max_line_height = 0.0f32;
 
+        // CSS Text 3 4.1.2 (white-space Phase II): in the collapsing modes the
+        // spaces at a line's start and end are removed - the line breaker
+        // strips them (`break_one_line`'s strip_leading / strip_trailing), so
+        // the max-content does not hold them either: a leading one is never
+        // folded, and a line measures to its last item that is not one
+        // (`line_content`). `<td> text </td>` was two spaces wider than its
+        // text, and centred content sat off-centre in it (MAILREF8 group F).
+        let collapsing = matches!(
+            constraints.white_space_mode,
+            WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
+        );
+        let mut line_has_content = false;
+        let mut line_content = 0.0f32;
+        let line_width =
+            |total: f32, line_content: f32| if collapsing { line_content } else { total };
+
+        // `text-indent` counts in the intrinsic sizes (CSS Text 3 8.1; the
+        // caller passes a percentage as 0): a line box is narrower by its indent
+        // (`text_indent_of_line`), so a box sized from these widths must hold
+        // indent + content. A line between forced breaks takes its own indent
+        // (max-content); the FIRST word of such a line takes it too, every later
+        // word may start a soft-wrapped line and takes that line's (min-content).
+        let soft_wrap_indent = text_indent_of_line(constraints, false, false);
+        let mut forced_lines = 0usize;
+        let mut line_indent = text_indent_of_line(constraints, true, false);
+        let mut word_indent = line_indent;
+
         for item in oriented_items.iter() {
             // A forced break (preserved LF, <br>) ends the current line. max-content
             // is the widest line BETWEEN forced breaks, not the running sum across
@@ -8256,14 +8689,20 @@ impl TextShapingCache {
             // content) over-measures its max-content as the concatenation of all
             // lines. Reset the line accumulators here.
             if let ShapedItem::Break { .. } = item {
-                if total > max_line {
-                    max_line = total;
+                let width = line_width(total, line_content);
+                if width + line_indent > max_line {
+                    max_line = width + line_indent;
                 }
-                if cur_word > max_word {
-                    max_word = cur_word;
+                if cur_word > 0.0 && cur_word + word_indent > max_word {
+                    max_word = cur_word + word_indent;
                 }
                 total = 0.0;
+                line_content = 0.0;
+                line_has_content = false;
                 cur_word = 0.0;
+                forced_lines += 1;
+                line_indent = text_indent_of_line(constraints, false, forced_lines > 0);
+                word_indent = line_indent;
                 continue;
             }
             // The scan MUST fold the same per-item measure, in the same order,
@@ -8272,7 +8711,14 @@ impl TextShapingCache {
             // letter-spacing, word-spacing included; see that function's doc
             // for why any other grouping re-introduces the one-word-wrap bug).
             let adv = get_item_measure_with_spacing(item, scan_is_vertical).max(0.0);
-            total = fold_line_width(total, item, scan_is_vertical);
+            let removable_space = collapsing && is_collapsible_whitespace(item);
+            if line_has_content || !removable_space {
+                total = fold_line_width(total, item, scan_is_vertical);
+            }
+            if !removable_space {
+                line_has_content = true;
+                line_content = total;
+            }
 
             let (asc, desc) = get_item_vertical_metrics_approx(item);
             let h = (asc + desc).max(item.bounds().height);
@@ -8281,8 +8727,11 @@ impl TextShapingCache {
             }
 
             if is_break_opportunity_with_word_break(item, word_break, hyphens) {
-                if cur_word > max_word {
-                    max_word = cur_word;
+                if cur_word > 0.0 {
+                    if cur_word + word_indent > max_word {
+                        max_word = cur_word + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
                 }
                 // A break opportunity that is itself a rendered unit (a CJK
                 // ideograph in normal mode, or any cluster under break-all /
@@ -8290,19 +8739,25 @@ impl TextShapingCache {
                 // of its own advance; only true separators (spaces) contribute 0.
                 // Without this, pure-CJK / break-all text measures min-content = 0
                 // and the box collapses to zero inline width.
-                if !is_word_separator(item) && adv > max_word {
-                    max_word = adv;
+                if !is_word_separator(item) {
+                    if adv + word_indent > max_word {
+                        max_word = adv + word_indent;
+                    }
+                    word_indent = soft_wrap_indent;
                 }
                 cur_word = 0.0;
             } else {
                 cur_word += adv;
             }
         }
-        if cur_word > max_word {
-            max_word = cur_word;
+        if cur_word > 0.0 && cur_word + word_indent > max_word {
+            max_word = cur_word + word_indent;
         }
-        if total > max_line {
-            max_line = total;
+        // The last line: an indent only counts on a line that holds something
+        // (an empty paragraph has no line box to indent).
+        let width = line_width(total, line_content);
+        if (width > 0.0 || forced_lines > 0) && width + line_indent > max_line {
+            max_line = width + line_indent;
         }
 
         // white-space:nowrap forbids soft-wrap opportunities entirely, so the
@@ -8993,7 +9448,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             // re-stamping the paint-and-identity fields from the CURRENT items
             // is sound and keeps the reuse. Clusters map back to their item
             // through `source_content_index`.
-            let group = &visual_items[idx..coalesce_end];
+            let group = group_items(&visual_items[idx..coalesce_end]);
             // NEGATIVE-CONTROL KNOB (T2, plan §2.3): AZ_T2_SKIP_RESTAMP=1
             // hands back the cached entry UNMODIFIED — the exact defect
             // 8ec9f387d fixed. The identity gate
@@ -9008,38 +9463,49 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 }
                 let mut c = c;
                 if let ShapedItem::Cluster(ref mut sc) = c {
-                    let current = group.iter().find_map(|it| match &it.logical_source {
-                        LogicalItem::Text {
-                            source,
-                            style,
-                            source_node_id,
-                            ..
-                        } if *source == sc.source_content_index => {
-                            Some((style.clone(), *source_node_id))
-                        }
-                        LogicalItem::CombinedText { source, style, .. }
-                            if *source == sc.source_content_index =>
+                    // The item that shaped this cluster, by POSITION in the
+                    // group: the cached group and the hitting one hold the same
+                    // texts in the same order (that is the key), but a text
+                    // shaped where it was run 0 is hit where it is run 1 - and
+                    // matched by content index it matched nothing, so the
+                    // cluster kept the run AND the node of the paragraph that
+                    // shaped it first.
+                    let position = cached
+                        .items
+                        .iter()
+                        .position(|(source, _)| *source == sc.source_content_index);
+                    if let Some(p) = position {
+                        if let (Some(current), Some(&(_, cached_offset))) =
+                            (group.get(p), cached.items.get(p))
                         {
-                            Some((style.clone(), None))
+                            // Cluster-level re-stamp: style no longer lives on
+                            // glyphs, so a cache hit is a few writes per
+                            // cluster instead of an Arc clone per glyph (T2
+                            // pins this). `source_text` is deliberately NOT
+                            // re-stamped: the cache key includes the text, so
+                            // the cached Arc is content-equal to the hitting
+                            // item's — keeping it SHARES one allocation across
+                            // all equal-text nodes.
+                            sc.source_content_index = current.source;
+                            sc.source_cluster_id.source_run = current.source.run_index;
+                            // The byte is relative to the item's LOGICAL run:
+                            // move it from the cached item's offset in its run
+                            // to the hitting item's.
+                            let byte = i64::from(sc.source_cluster_id.start_byte_in_run)
+                                - i64::try_from(cached_offset).unwrap_or(0)
+                                + i64::try_from(current.run_byte_offset).unwrap_or(0);
+                            sc.source_cluster_id.start_byte_in_run =
+                                u32::try_from(byte.max(0)).unwrap_or(u32::MAX);
+                            sc.source_node_id = current.source_node_id;
+                            sc.style = current.style.clone();
                         }
-                        _ => None,
-                    });
-                    if let Some((style, source_node_id)) = current {
-                        // Cluster-level re-stamp: style no longer lives on
-                        // glyphs, so a cache hit is TWO writes per cluster
-                        // instead of an Arc clone per glyph (T2 pins this).
-                        // `source_text` is deliberately NOT re-stamped: the
-                        // cache key includes the text, so the cached Arc is
-                        // content-equal to the hitting item's — keeping it
-                        // SHARES one allocation across all equal-text nodes.
-                        sc.source_node_id = source_node_id;
-                        sc.style = style;
                     }
                 }
                 c
             }));
         } else {
             // Cache miss — shape this group
+            let deficit_before = thread_font_shape_deficit();
             let group_items = shape_visual_items(
                 &visual_items[idx..coalesce_end],
                 font_chain_cache,
@@ -9047,20 +9513,31 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 loaded_fonts,
                 debug_messages,
             )?;
-            let total_advance: f32 = group_items
-                .iter()
-                .map(|item| match item {
-                    ShapedItem::Cluster(c) => c.advance,
-                    _ => 0.0,
-                })
-                .sum();
-            per_item_cache.insert(
-                group_key,
-                Arc::new(PerItemShapedEntry {
-                    compact: CompactShapedEntry::build(&group_items),
-                    total_advance,
-                }),
-            );
+            // A group shaped short of a font (its face not loaded YET) is not
+            // cached: the key is its text and layout style, not the loaded
+            // faces, so the empty / partial result would be served after the
+            // face arrives and the text would stay invisible. The next pass
+            // shapes it again.
+            if thread_font_shape_deficit() == deficit_before {
+                let total_advance: f32 = group_items
+                    .iter()
+                    .map(|item| match item {
+                        ShapedItem::Cluster(c) => c.advance,
+                        _ => 0.0,
+                    })
+                    .sum();
+                per_item_cache.insert(
+                    group_key,
+                    Arc::new(PerItemShapedEntry {
+                        compact: CompactShapedEntry::build(&group_items),
+                        total_advance,
+                        items: self::group_items(&visual_items[idx..coalesce_end])
+                            .into_iter()
+                            .map(|it| (it.source, it.run_byte_offset))
+                            .collect(),
+                    }),
+                );
+            }
             shaped.extend(group_items);
         }
 
@@ -9244,6 +9721,29 @@ pub fn take_font_shape_deficit() -> u32 {
     FONT_SHAPE_DEFICIT.swap(0, core::sync::atomic::Ordering::Relaxed)
 }
 
+std::thread_local! {
+    /// This thread's running count of font-shape deficits. The global
+    /// [`FONT_SHAPE_DEFICIT`] is shared by every thread and drained by the
+    /// frame report, so it cannot tell whether ONE shaping call came up short;
+    /// this one can (shaping is synchronous on its thread).
+    static THREAD_FONT_SHAPE_DEFICIT: core::cell::Cell<u32> =
+        const { core::cell::Cell::new(0) };
+}
+
+/// Count one shaping that came up short of a font (its face not loaded, or
+/// no face for any of its characters): the frame report's counter and this
+/// thread's.
+fn note_font_shape_deficit() {
+    FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    THREAD_FONT_SHAPE_DEFICIT.with(|count| count.set(count.get().wrapping_add(1)));
+}
+
+/// This thread's deficit count so far: unchanged across a shaping call means
+/// that call had every face it needed.
+fn thread_font_shape_deficit() -> u32 {
+    THREAD_FONT_SHAPE_DEFICIT.with(core::cell::Cell::get)
+}
+
 /// Shape text with per-character font fallback.
 ///
 /// Splits the text into segments by font coverage, shapes each segment with
@@ -9364,7 +9864,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            note_font_shape_deficit();
             return Ok(Vec::new());
         };
         let font = if let Some(f) = loaded_fonts.get(font_id) {
@@ -9383,7 +9883,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            note_font_shape_deficit();
             return Ok(Vec::new());
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
@@ -9430,6 +9930,9 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                      {seg_start}..{seg_end}"
                 );
             }
+            // The segment's glyphs are missing: as much a deficit as a whole
+            // run shaped to nothing (it was skipped silently).
+            note_font_shape_deficit();
             continue;
         };
         let segment_text = &text[*seg_start..*seg_end];
@@ -10465,23 +10968,15 @@ pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
                 c.glyphs
                     .iter()
                     .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                        let metrics = &glyph.font_metrics;
-                        if metrics.units_per_em == 0 {
-                            return (max_asc, max_desc);
+                        match glyph
+                            .font_metrics
+                            .inline_box_px(c.style.font_size_px, &c.style.line_height)
+                        {
+                            Some((item_asc, item_desc)) => {
+                                (max_asc.max(item_asc), max_desc.max(item_desc))
+                            }
+                            None => (max_asc, max_desc),
                         }
-                        let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
-                        let font_ascent = metrics.ascent * scale;
-                        let font_descent = (-metrics.descent * scale).max(0.0);
-                        let ad = font_ascent + font_descent;
-                        let resolved_lh = c
-                            .style
-                            .line_height
-                            .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
-                        let half_leading = (resolved_lh - ad) / 2.0;
-                        (
-                            max_asc.max(font_ascent + half_leading),
-                            max_desc.max(font_descent + half_leading),
-                        )
                     });
             return (asc, desc);
         }
@@ -10536,16 +11031,18 @@ pub fn get_item_vertical_metrics(
                 // zero-width inline box with element's font/line-height
                 // §10.8.1 strut: if inline box contains no glyphs, it is considered to
                 // contain a strut with A and D of the element's first available font.
-                // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
-                let ad = constraints.strut_ascent + constraints.strut_descent;
-                let resolved_lh =
-                    c.style
-                        .line_height
-                        .resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
-                let half_leading = (resolved_lh - ad) / 2.0;
-                return (
-                    constraints.strut_ascent + half_leading,
-                    constraints.strut_descent + half_leading,
+                // Half-leading: L = line-height - (A + D), shared by `split_leading`.
+                // `normal` is the strut's own (A + D + gap of the container's
+                // first available font, `UnifiedConstraints::resolved_line_height`),
+                // not a 1.2em guess.
+                let resolved_lh = match c.style.line_height {
+                    LineHeight::Px(px) => px,
+                    LineHeight::Normal => constraints.resolved_line_height(),
+                };
+                return split_leading(
+                    resolved_lh,
+                    constraints.strut_ascent,
+                    constraints.strut_descent,
                 );
             }
             // +spec:box-model:0b3e1f - inline non-replaced box height uses only line-height, not
@@ -10563,28 +11060,20 @@ pub fn get_item_vertical_metrics(
             // Note: L may be negative.
             // +spec:height-calculation:eb98b5 - multi-font normal line-height uses max across glyph
             // metrics
+            // A and D are the face's ROUNDED pixel metrics, as in Chrome
+            // (`LayoutFontMetrics::inline_box_px` / `line_metrics_px`).
             c.glyphs
                 .iter()
                 .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                    let metrics = &glyph.font_metrics;
-                    if metrics.units_per_em == 0 {
-                        return (max_asc, max_desc);
+                    match glyph
+                        .font_metrics
+                        .inline_box_px(c.style.font_size_px, &c.style.line_height)
+                    {
+                        Some((item_asc, item_desc)) => {
+                            (max_asc.max(item_asc), max_desc.max(item_desc))
+                        }
+                        None => (max_asc, max_desc),
                     }
-                    let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
-                    let a = metrics.ascent * scale;
-                    // Descent in OpenType is typically negative, so we negate it to get a positive
-                    // distance.
-                    let d = (-metrics.descent * scale).max(0.0);
-                    let ad = a + d;
-                    let resolved_lh = c
-                        .style
-                        .line_height
-                        .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
-                    let leading = resolved_lh - ad;
-                    let half_leading = leading / 2.0;
-                    let item_asc = a + half_leading;
-                    let item_desc = d + half_leading;
-                    (max_asc.max(item_asc), max_desc.max(item_desc))
                 })
         }
         ShapedItem::Object {
@@ -10612,6 +11101,44 @@ pub fn get_item_vertical_metrics(
     }
 }
 
+/// How far `vertical-align` moves a box's baseline DOWN from its line's
+/// baseline (negative = raised), for the alignments CSS 2.1 s10.8.1 measures
+/// from the parent's baseline; `None` for the line-relative `top` / `bottom`
+/// (aligned once the line box is known) and for `sub` / `super`, which
+/// `position_one_line` derives from the line's own ascent. `ascent` and
+/// `descent` are the box's own ([`get_item_vertical_metrics`]).
+///
+/// The ONE rule the line box (`calculate_line_metrics`) and the placement
+/// (`position_one_line`) share, so a box always sits inside the line box it
+/// was counted in. `middle` RAISES the box's midpoint to "the baseline of the
+/// parent box plus half the x-height of the parent": the shift used to add the
+/// half x-height, moving it down (a 24px `middle` icon in 16px text sat 16px
+/// low, below its own line).
+fn baseline_shift(
+    align: VerticalAlign,
+    ascent: f32,
+    descent: f32,
+    constraints: &UnifiedConstraints,
+) -> Option<f32> {
+    match align {
+        VerticalAlign::Baseline => Some(0.0),
+        // midpoint (baseline + shift - ascent + (ascent + descent) / 2) at
+        // baseline - x-height / 2
+        VerticalAlign::Middle => Some((ascent - descent) / 2.0 - constraints.strut_x_height / 2.0),
+        // top (baseline + shift - ascent) at the parent's content-area top,
+        // baseline - strut ascent (s10.6.1)
+        VerticalAlign::TextTop => Some(ascent - constraints.strut_ascent),
+        // bottom (baseline + shift + descent) at the content-area bottom,
+        // baseline + strut descent
+        VerticalAlign::TextBottom => Some(constraints.strut_descent - descent),
+        // <length> / <percentage>: raise (positive) or lower (negative)
+        VerticalAlign::Offset(offset) => Some(-offset),
+        VerticalAlign::Top | VerticalAlign::Bottom | VerticalAlign::Sub | VerticalAlign::Super => {
+            None
+        }
+    }
+}
+
 // +spec:block-formatting-context:861155 - vertical-align affects vertical positioning inside line
 // box for inline-level elements
 /// Calculates the maximum ascent and descent for an entire line of items.
@@ -10632,14 +11159,20 @@ fn calculate_line_metrics(
     items: &[ShapedItem],
     default_vertical_align: VerticalAlign,
     constraints: &UnifiedConstraints,
+    (strut_above, strut_below): (f32, f32),
 ) -> (f32, f32) {
     // +spec:font-metrics:95152b - baseline alignment: items with different font sizes aligned by
     // matching alphabetic baselines Pass 1: Compute ascent/descent from baseline-aligned items
-    // only (i.e., items that are NOT vertical-align: top or bottom).
+    // only (i.e., items that are NOT vertical-align: top or bottom) - the STRUT included (CSS 2.1
+    // s10.8: the line box holds it like any other baseline-aligned box, and the top / bottom pass
+    // below aligns against the line box it makes: a 24px `vertical-align: bottom` box in an 18px
+    // strut line makes a 24px line, not 24 + the strut's descent). Each box counts where its
+    // `vertical-align` PUTS it ([`baseline_shift`]): a `middle` icon taller than the strut
+    // reaches below the baseline, and the line box must hold it there.
     let (mut max_asc, mut max_desc) =
         items
             .iter()
-            .fold((0.0f32, 0.0f32), |(max_asc, max_desc), item| {
+            .fold((strut_above, strut_below), |(max_asc, max_desc), item| {
                 let effective_align =
                     get_item_vertical_align(item).unwrap_or(default_vertical_align);
                 match effective_align {
@@ -10649,7 +11182,13 @@ fn calculate_line_metrics(
                     }
                     _ => {
                         let (item_asc, item_desc) = get_item_vertical_metrics(item, constraints);
-                        (max_asc.max(item_asc), max_desc.max(item_desc))
+                        let shift =
+                            baseline_shift(effective_align, item_asc, item_desc, constraints)
+                                .unwrap_or(0.0);
+                        (
+                            max_asc.max(item_asc - shift),
+                            max_desc.max(item_desc + shift),
+                        )
                     }
                 }
             });
@@ -10696,18 +11235,38 @@ fn calculate_line_metrics(
 /// controls, which azul does not inject) two runs of the same direction are never
 /// visually adjacent — a higher even level nests inside its odd parent and a lower
 /// level separates two same-parity runs — so a "same-direction" group is always a
-/// single real level run. Non-cluster items (breaks/objects/tabs) act as run
-/// boundaries. Applied per line, so a wrapped RTL run reorders correctly per line.
-fn apply_l2_visual_reversal(line_items: &mut [ShapedItem]) {
-    let dir_of = |it: &ShapedItem| it.as_cluster().map(|c| c.direction);
+/// single real level run. An atomic inline (an `Object`, U+FFFC - a neutral)
+/// takes its direction from the clusters around it, rules N1 / N2: the
+/// direction of both neighbours where they agree, the paragraph's (`base`)
+/// otherwise and at the line's edges - so two inline-blocks of an RTL
+/// paragraph are reversed like its letters (Cerberus's `<td dir="rtl">`
+/// columns; they were run boundaries and stayed in logical order). Breaks and
+/// tabs act as run boundaries. Applied per line, so a wrapped RTL run reorders
+/// correctly per line.
+fn apply_l2_visual_reversal(line_items: &mut [ShapedItem], base: BidiDirection) {
+    let cluster_dir = |it: &ShapedItem| it.as_cluster().map(|c| c.direction);
+    let directions: Vec<Option<BidiDirection>> = (0..line_items.len())
+        .map(|k| match &line_items[k] {
+            ShapedItem::Cluster(c) => Some(c.direction),
+            ShapedItem::Object { .. } => {
+                let before = line_items[..k].iter().rev().find_map(cluster_dir);
+                let after = line_items[k + 1..].iter().find_map(cluster_dir);
+                match (before.unwrap_or(base), after.unwrap_or(base)) {
+                    (b, a) if b == a => Some(b),
+                    _ => Some(base),
+                }
+            }
+            _ => None,
+        })
+        .collect();
     let mut i = 0;
     while i < line_items.len() {
-        let Some(dir) = dir_of(&line_items[i]) else {
+        let Some(dir) = directions[i] else {
             i += 1;
             continue;
         };
         let mut j = i + 1;
-        while j < line_items.len() && dir_of(&line_items[j]) == Some(dir) {
+        while j < line_items.len() && directions[j] == Some(dir) {
             j += 1;
         }
         if dir == BidiDirection::Rtl {
@@ -10905,6 +11464,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // Gated on num_columns>1 with no shape boundaries and non-intrinsic sizing — exactly the
     // otherwise-broken case — so single-column and shaped/intrinsic layouts are untouched
     // (zero blast radius). column-fill:auto (fill-then-advance) is rare and not modelled here.
+    // The paragraph's first formatted line is the first line of the fragment
+    // whose cursor starts at the paragraph's start; a continuation fragment of
+    // a flow starts mid-paragraph and gets no first-line `text-indent`.
+    let mut is_first_formatted_line =
+        cursor.next_item_index == 0 && cursor.partial_remainder.is_empty();
+
     let balanced_lines_per_column: Option<usize> = if num_columns > 1
         && fragment_constraints.shape_boundaries.is_empty()
         && !is_min_content
@@ -10919,9 +11484,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut total_lines = 0usize;
         let mut probe_y = 0.0_f32;
         let mut probe_guard = 0usize;
+        let mut probe_first_line = is_first_formatted_line;
+        let mut probe_after_forced_break = false;
         while !probe.is_done() && probe_guard < iter_cap {
             probe_guard += 1;
-            let lc = get_line_constraints(
+            let mut lc = get_line_constraints(
                 probe_y,
                 probe_line_height,
                 &probe_col_constraints,
@@ -10930,6 +11497,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             if lc.segments.is_empty() {
                 break;
             }
+            indent_line_box(
+                &mut lc,
+                text_indent_of_line(
+                    fragment_constraints,
+                    probe_first_line,
+                    probe_after_forced_break,
+                ),
+                base_direction,
+            );
             let (probe_line, _) = break_one_line(
                 &mut probe,
                 &lc,
@@ -10943,6 +11519,10 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             if probe_line.is_empty() {
                 break;
             }
+            probe_first_line = false;
+            probe_after_forced_break = probe_line
+                .iter()
+                .any(|item| matches!(item, ShapedItem::Break { .. }));
             total_lines += 1;
             probe_y += probe_line_height;
         }
@@ -10951,18 +11531,59 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         None
     };
 
-    'column_loop: while current_column < num_columns {
+    // The bottom of the lowest line box that holds glyphs or NO item with a
+    // height (a line a lone `<br>` ends), in any column, horizontal modes:
+    // what the IFC's height is measured to, see below; and the top of the
+    // topmost line box that holds glyphs. A line of only atomic inlines keeps
+    // measuring by its items, as it always did.
+    let mut line_box_extent = 0.0_f32;
+    let mut glyph_line_box_top: Option<f32> = None;
+    // +spec:multi-column - this context's share of a multi-column BLOCK
+    // container's flow (`ColumnFlow`): a further column starts at each of
+    // the given line indices, `advance` further along the inline axis, its
+    // first line box at `column_top`. The lines are numbered across the whole
+    // flow (a line keeps the index it has in the unsplit layout), and one
+    // ending in a forced break still marks the next column's first line.
+    // Only for a context without columns of its own, and never while
+    // measuring intrinsic sizes.
+    let column_flow = fragment_constraints
+        .column_flow
+        .as_ref()
+        .filter(|_| num_columns == 1 && !is_min_content && !is_max_content);
+    let column_count = column_flow.map_or(num_columns, |flow| {
+        u32::try_from(flow.breaks.len())
+            .unwrap_or(u32::MAX)
+            .saturating_add(1)
+    });
+    let mut flow_line_index = 0usize;
+    let mut flow_after_forced_break = false;
+    // The top of the highest and the bottom of the lowest line box that holds
+    // only atomic inlines (no text cluster; an inline-block, an image), any
+    // column, horizontal modes: such a line box holds the strut too, see
+    // below.
+    let mut atomic_line_box_top = f32::MAX;
+    let mut atomic_line_box_bottom = f32::MIN;
+    'column_loop: while current_column < column_count {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "\n-- Starting Column {current_column} --"
             )));
         }
-        let column_start_x =
-            (column_width + fragment_constraints.column_gap) * current_column as f32;
-        let mut line_top_y = 0.0;
-        let mut line_index = 0;
+        let column_start_x = match column_flow {
+            Some(flow) => flow.advance * current_column as f32,
+            None => (column_width + fragment_constraints.column_gap) * current_column as f32,
+        };
+        let mut line_top_y = match column_flow {
+            Some(flow) if current_column > 0 => flow.column_top,
+            _ => 0.0,
+        };
+        let mut line_index = if column_flow.is_some() {
+            flow_line_index
+        } else {
+            0
+        };
         let mut empty_segment_count = 0; // Failsafe counter for infinite loops
-        let mut is_after_forced_break = false;
+        let mut is_after_forced_break = column_flow.is_some() && flow_after_forced_break;
         // +spec:writing-modes:6e22a7 - vertical-rl advances columns (lines) right-to-left.
         // The positioner lays every line out at an increasing block-axis (x) offset from 0,
         // i.e. left-to-right. For vertical-rl we record each line's block band here so we can
@@ -11020,6 +11641,17 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 }
             }
 
+            // A multi-column flow's next column starts at this line.
+            if let Some(flow) = column_flow {
+                if flow
+                    .breaks
+                    .get(current_column as usize)
+                    .is_some_and(|&first_of_next| line_index >= first_of_next)
+                {
+                    break;
+                }
+            }
+
             // Create constraints specific to the current column for the line breaker.
             let mut column_constraints = fragment_constraints.clone();
             // For MinContent/MaxContent, preserve the semantic type so the line breaker
@@ -11031,11 +11663,22 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             } else {
                 column_constraints.available_width = AvailableSpace::Definite(column_width);
             }
-            let line_constraints = get_line_constraints(
+            let mut line_constraints = get_line_constraints(
                 line_top_y,
                 fragment_constraints.resolved_line_height(),
                 &column_constraints,
                 debug_messages,
+            );
+            // CSS Text 3 8.1: the indent is a margin on the line box's start
+            // edge - the line is broken, justified and aligned in what is left.
+            indent_line_box(
+                &mut line_constraints,
+                text_indent_of_line(
+                    fragment_constraints,
+                    is_first_formatted_line,
+                    is_after_forced_break,
+                ),
+                base_direction,
             );
 
             if line_constraints.segments.is_empty() {
@@ -11177,7 +11820,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // already ordered the level RUNS visually; here we reverse the clusters
             // within each RTL run so an RTL run reads right-to-left. Applied per line
             // (after line breaking) so a wrapped RTL run reorders correctly per line.
-            apply_l2_visual_reversal(&mut line_items);
+            apply_l2_visual_reversal(&mut line_items, base_direction);
 
             if let Some(msgs) = debug_messages {
                 let after: String = line_items
@@ -11216,11 +11859,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 fragment_constraints,
                 debug_messages,
                 fonts,
-                is_after_forced_break,
             );
 
             // Track whether the next line follows a forced break
             is_after_forced_break = line_ends_with_forced_break;
+            is_first_formatted_line = false;
 
             for item in &mut line_pos_items {
                 item.position.x += column_start_x;
@@ -11230,7 +11873,32 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // line box height
             let band_height = line_height.max(fragment_constraints.resolved_line_height());
             line_bands.push((line_index, line_top_y, band_height));
+            let band_top = line_top_y;
             line_top_y += band_height;
+            let holds_glyphs = line_pos_items
+                .iter()
+                .any(|item| matches!(&item.item, ShapedItem::Cluster(c) if !c.glyphs.is_empty()));
+            if holds_glyphs {
+                glyph_line_box_top = Some(glyph_line_box_top.map_or(band_top, |t| t.min(band_top)));
+                line_box_extent = line_box_extent.max(line_top_y);
+            } else if !line_pos_items
+                .iter()
+                .any(|item| item.item.bounds().height > 0.0)
+            {
+                line_box_extent = line_box_extent.max(line_top_y);
+            }
+            // A line of only atomic inlines (a box with a height, no text
+            // cluster) is measured by its whole line box, strut included.
+            if line_pos_items
+                .iter()
+                .any(|item| item.item.bounds().height > 0.0)
+                && !line_pos_items
+                    .iter()
+                    .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
+            {
+                atomic_line_box_top = atomic_line_box_top.min(line_top_y - band_height);
+                atomic_line_box_bottom = atomic_line_box_bottom.max(line_top_y);
+            }
             line_index += 1;
             positioned_items.extend(line_pos_items);
         }
@@ -11253,6 +11921,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 }
             }
         }
+        flow_line_index = line_index;
+        flow_after_forced_break = is_after_forced_break;
         current_column += 1;
     }
 
@@ -11269,7 +11939,81 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     };
 
     // Calculate bounds on demand via the bounds() method
-    let calculated_bounds = layout.bounds();
+    let mut calculated_bounds = layout.bounds();
+
+    // +spec:display-property:a0d0ab - an IFC is as tall as its LINE BOXES (CSS 2.2
+    // 10.6.3: from the top of the topmost to the bottom of the bottommost). The
+    // items' bounds miss two kinds of line box:
+    // - one that holds no glyph: the line a lone `<br>` ends (`<div><br></div>`,
+    //   Gmail's blank line) is one line-height tall in every browser (a line
+    //   ending in a forced break is not a zero-height line box, 9.4.2), and
+    //   measured 0 here because a break has no geometry;
+    // - one of text smaller than its block: every line box holds the block's
+    //   strut (10.8.1), so `<td><span style="font-size: 13px">` in a 16px
+    //   document is one 16px line tall (Chrome 18px, the glyphs 15px - every
+    //   row of a receipt 3px short, MAILREF8 group E).
+    // Both reach down here (`line_box_extent`, from `glyph_line_box_top` for
+    // text). A line of only atomic inlines is still measured by its items - an
+    // `<svg>` alone on a line keeps its box's height (Chrome adds the strut's
+    // descent below it; that moves every icon button and is left for a look
+    // pass). The top is otherwise that of the items WITH a height; a break
+    // positioned inside a `<span>` has none and sits at the baseline, and
+    // measuring from it left `<div><span><br></span></div>` a quarter of a line
+    // tall. The vertical modes stack their line boxes along x and keep the item
+    // bounds.
+    let horizontal = !matches!(
+        fragment_constraints.writing_mode,
+        Some(
+            WritingMode::VerticalRl
+                | WritingMode::VerticalLr
+                | WritingMode::SidewaysRl
+                | WritingMode::SidewaysLr
+        )
+    );
+    if horizontal && line_box_extent > 0.0 {
+        let items_top = layout
+            .items
+            .iter()
+            .filter(|item| item.item.bounds().height > 0.0)
+            .map(|item| item.position.y)
+            .fold(None, |acc: Option<f32>, y| {
+                Some(acc.map_or(y, |a| a.min(y)))
+            });
+        let top = match (items_top, glyph_line_box_top) {
+            (Some(items), Some(lines)) => Some(items.min(lines)),
+            (items, lines) => items.or(lines),
+        };
+        match top {
+            Some(top) => {
+                // A first line box above its (smaller) glyphs starts the IFC.
+                if top < calculated_bounds.y {
+                    calculated_bounds.height += calculated_bounds.y - top;
+                    calculated_bounds.y = top;
+                }
+                calculated_bounds.height = calculated_bounds.height.max(line_box_extent - top);
+            }
+            None => {
+                calculated_bounds.y = 0.0;
+                calculated_bounds.height = calculated_bounds.height.max(line_box_extent);
+            }
+        }
+    }
+
+    // CSS 2.1 s10.8: every line box holds a STRUT, a zero-width inline box
+    // with the block's font and line-height - a line of only atomic inlines
+    // too. A 10px inline-block in a 16px Arial block makes an 18px line in
+    // Chrome, and that is what the IFC measures (user ruling 2026-10-03:
+    // Chrome is the reference). Its items alone measured 10: the box. An icon
+    // that wants its box's height alone says so in CSS, as on the web
+    // (`line-height: 0`, `display: block`, a flex container). This is the
+    // look pass the line-box note above defers: where it says a line of only
+    // atomic inlines keeps its items' height, this block supersedes it.
+    if horizontal && atomic_line_box_bottom > atomic_line_box_top {
+        let top = calculated_bounds.y.min(atomic_line_box_top);
+        let bottom = (calculated_bounds.y + calculated_bounds.height).max(atomic_line_box_bottom);
+        calculated_bounds.y = top;
+        calculated_bounds.height = bottom - top;
+    }
 
     // Record the unclipped content bounds. `overflow_items` stays empty by
     // design: this positioner places *every* item, so visual overflow is handled
@@ -11799,7 +12543,9 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// - \u274c MISSING: `distribute` (CJK justification)
 ///
 /// ### CSS Text \u00a7 8.1 Text Indentation (text-indent)
-/// \u2705 IMPLEMENTED: First line indentation
+/// \u2705 IMPLEMENTED by the caller: `indent_line_box` takes the indent off the
+/// start-side segment of `line_constraints` before the line is broken, so the
+/// segment's `start_x` / `width` already hold it here.
 ///
 /// ### CSS Text \u00a7 4.1 Word Spacing (word-spacing)
 /// \u2705 IMPLEMENTED: Additional space between words
@@ -11816,8 +12562,6 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 /// ## Known Issues:
 /// - \u26a0\ufe0f If segment.width is infinite (from intrinsic sizing), sets `alignment_offset=0`
 ///   to avoid infinite positioning. This is correct for measurement but documented for clarity.
-/// - The function assumes `line_index == 0` means first line for text-indent. A more robust system
-///   would track paragraph boundaries.
 ///
 /// # Missing Features:
 /// - \u274c \u00a7 6 Trimming Leading (text-box-trim, text-box-edge)
@@ -11847,7 +12591,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
-    is_after_forced_break: bool,
 ) -> (Vec<PositionedItem>, f32) {
     let line_text: String = line_items
         .iter()
@@ -11863,14 +12606,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // +spec:text-alignment-spacing:d497af - line box inline base direction affects text-align
     // resolution +spec:text-alignment-spacing:68332e - bidi direction determines start/end to
     // left/right mapping
-    let physical_align = match (text_align, base_direction) {
-        (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
-        (TextAlign::Start, BidiDirection::Rtl) => TextAlign::Right,
-        (TextAlign::End, BidiDirection::Ltr) => TextAlign::Right,
-        (TextAlign::End, BidiDirection::Rtl) => TextAlign::Left,
-        // Physical alignments are returned as-is, regardless of direction.
-        (other, _) => other,
-    };
+    let physical_align = physical_text_align(text_align, base_direction);
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[Pos1Line] Physical align: {physical_align:?}"
@@ -11893,9 +12629,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // regardless of segment. Per CSS 2.2 §10.8, top/bottom aligned items are handled in a
     // second pass to minimize line box height; baseline-aligned items determine the initial
     // height.
-    let (content_ascent, content_descent) =
-        calculate_line_metrics(line_items, constraints.vertical_align, constraints);
-
     // +spec:box-model:e99f7d - strut: each line box starts with zero-width inline box with block
     // container's font/line-height +spec:line-height:29c478 - strut: zero-width inline box with
     // block container's font/line-height inline box with the block container's font and
@@ -11903,12 +12636,16 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // available font. Half-leading L/2 is applied: L = line-height - (A + D), strut_above = A +
     // L/2, strut_below = D + L/2. +spec:height-calculation:8e91b2 - specified line-height used
     // in line box height calculation
-    let strut_ad = constraints.strut_ascent + constraints.strut_descent;
-    let strut_leading_half = (constraints.resolved_line_height() - strut_ad) / 2.0;
-    let strut_above = constraints.strut_ascent + strut_leading_half;
-    let strut_below = constraints.strut_descent + strut_leading_half;
-    let line_ascent = content_ascent.max(strut_above);
-    let line_descent = content_descent.max(strut_below);
+    // The leading is shared exactly as a glyph's (`split_leading`), so the
+    // strut and the text of the same face coincide. The strut is part of the
+    // baseline-aligned pass (`calculate_line_metrics`), before top / bottom.
+    let strut = split_leading(
+        constraints.resolved_line_height(),
+        constraints.strut_ascent,
+        constraints.strut_descent,
+    );
+    let (line_ascent, line_descent) =
+        calculate_line_metrics(line_items, constraints.vertical_align, constraints, strut);
     let line_box_height = line_ascent + line_descent;
 
     // The baseline for the entire line is determined by its tallest item.
@@ -11916,7 +12653,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
     // --- Segment-Aware Positioning ---
     let mut item_cursor = 0;
-    let is_first_line_of_para = line_index == 0; // Simplified assumption
 
     // white-space: nowrap / pre suppress soft wrapping, so break_one_line already
     // put the WHOLE line (overflowing content and all) into `line_items`. The
@@ -12092,20 +12828,20 @@ pub fn position_one_line<T: ParsedFontTrait>(
         let alignment_offset = if is_indefinite_width {
             0.0 // No alignment offset for indefinite width
         } else {
-            match physical_align {
-                TextAlign::Center => remaining_space / 2.0,
-                TextAlign::Right => remaining_space,
+            let align = match physical_align {
+                // CSS Text §6.4.3: If text cannot be stretched to full width
+                // and text-align-last is justify, align as center.
                 TextAlign::Justify | TextAlign::JustifyAll
                     if remaining_space > 0.0
                         && extra_word_spacing == 0.0
                         && extra_char_spacing == 0.0 =>
                 {
-                    // CSS Text §6.4.3: If text cannot be stretched to full width
-                    // and text-align-last is justify, align as center.
-                    remaining_space / 2.0
+                    TextAlign::Center
                 }
-                _ => 0.0, // Left, Justify (when justification succeeded)
-            }
+                other => other,
+            };
+            // An overflowing line is start-aligned (CSS Text 3 7.1).
+            line_alignment_offset(align, remaining_space, base_direction)
         };
 
         let mut main_axis_pen = segment.start_x + alignment_offset;
@@ -12117,26 +12853,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
             )));
         }
 
-        // Default: indent first line only. each-line: also indent after forced breaks.
-        // hanging: invert which lines get the indent.
-        if segment_idx == 0 {
-            let is_indent_target = if constraints.text_indent_each_line {
-                // each-line: first line AND each line after a forced break
-                is_first_line_of_para || is_after_forced_break
-            } else {
-                // Default: only the first line of the block
-                is_first_line_of_para
-            };
-            // hanging: inverts which lines are affected
-            let should_indent = if constraints.text_indent_hanging {
-                !is_indent_target
-            } else {
-                is_indent_target
-            };
-            if should_indent {
-                main_axis_pen += constraints.text_indent;
-            }
-        }
+        // `text-indent` is already in the segment: `indent_line_box` took it off
+        // the line box's start edge before the line was broken.
 
         // Calculate total marker width for proper outside marker positioning
         // We need to position all marker clusters together in the padding gutter
@@ -12185,10 +12903,10 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // dominant-baseline/vertical-align +spec:line-height:e2253a - vertical-align
         // positioning within line boxes
 
-        // Pre-compute inline border/padding offsets at span boundaries.
-        // Only the FIRST cluster of each inline span gets left_inset, and only
-        // the LAST cluster gets right_inset. We detect span boundaries by comparing
-        // Arc<StyleProperties> pointers between consecutive clusters.
+        // Pre-compute inline margin/border/padding offsets at span boundaries.
+        // Only the FIRST cluster of each inline span gets the left advance, and
+        // only the LAST cluster the right one. We detect span boundaries by
+        // comparing Arc<StyleProperties> pointers between consecutive clusters.
         let inline_offsets: Vec<(f32, f32)> = {
             let items_slice: &[ShapedItem] = &justified_segment_items;
             items_slice
@@ -12197,7 +12915,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 .map(|(idx, item)| {
                     if let ShapedItem::Cluster(c) = item {
                         if let Some(border) = c.style.border.as_ref() {
-                            if border.has_chrome() {
+                            if border.moves_the_pen() {
                                 let style_ptr = Arc::as_ptr(&c.style);
                                 let prev_same_span = idx > 0
                                     && items_slice[idx - 1]
@@ -12210,12 +12928,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
                                 let left = if prev_same_span {
                                     0.0
                                 } else {
-                                    border.left_inset()
+                                    border.left_advance()
                                 };
                                 let right = if next_same_span {
                                     0.0
                                 } else {
-                                    border.right_inset()
+                                    border.right_advance()
                                 };
                                 return (left, right);
                             }
@@ -12240,13 +12958,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // line-relative vertical-align (top/center/bottom) and aligned subtree positioning
                 // top: align top of aligned subtree with top of line box
                 VerticalAlign::Top => line_top_y + item_ascent,
-                // +spec:font-metrics:70000d - align vertical midpoint of box with baseline + half
-                // x-height of parent
-                VerticalAlign::Middle => {
-                    let half_x_height = constraints.strut_x_height / 2.0;
-                    line_baseline_y + half_x_height - f32::midpoint(item_ascent, item_descent)
-                        + item_ascent
-                }
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
                 // +spec:font-metrics:aa21f7 - sub: lower baseline to proper subscript position
@@ -12255,23 +12966,21 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // top/bottom align to line box edges super: raise baseline to
                 // proper superscript position (~0.4em)
                 VerticalAlign::Super => line_baseline_y - line_ascent * SUPERSCRIPT_OFFSET_RATIO,
-                // text-top: align top of box with top of parent's content area (§10.6.1)
-                // Parent's content area top = baseline - strut_ascent
-                VerticalAlign::TextTop => {
-                    (line_baseline_y - constraints.strut_ascent) + item_ascent
+                // +spec:font-metrics:70000d - middle: the box's midpoint at the parent's
+                // baseline raised by half its x-height; text-top / text-bottom: against the
+                // parent's content area (s10.6.1); <length> / <percentage>: raise or lower;
+                // +spec:display-property:8bf37e +spec:font-metrics:96bbd3 - baseline: the
+                // box's alphabetic baseline on the parent's. ONE rule with the line box
+                // (`baseline_shift`, also read by `calculate_line_metrics`).
+                VerticalAlign::Middle
+                | VerticalAlign::TextTop
+                | VerticalAlign::TextBottom
+                | VerticalAlign::Offset(_)
+                | VerticalAlign::Baseline => {
+                    line_baseline_y
+                        + baseline_shift(effective_align, item_ascent, item_descent, constraints)
+                            .unwrap_or(0.0)
                 }
-                // text-bottom: align bottom of box with bottom of parent's content area (§10.6.1)
-                // Parent's content area bottom = baseline + strut_descent
-                VerticalAlign::TextBottom => {
-                    (line_baseline_y + constraints.strut_descent) - item_descent
-                }
-                // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
-                VerticalAlign::Offset(offset) => line_baseline_y - offset,
-                // +spec:display-property:8bf37e - dominant-baseline defaults to alphabetic;
-                // baseline alignment matches parent baseline: align baseline of box
-                // with baseline of parent box +spec:font-metrics:96bbd3 - baseline:
-                // align alphabetic baseline of box with parent's alphabetic baseline
-                VerticalAlign::Baseline => line_baseline_y,
             };
 
             // Calculate item measure (needed for both positioning and pen advance)
@@ -12406,43 +13115,115 @@ pub fn position_one_line<T: ParsedFontTrait>(
     (positioned, line_box_height)
 }
 
-/// Calculates the starting pen offset to achieve the desired text alignment.
-fn calculate_alignment_offset(
-    items: &[ShapedItem],
-    line_constraints: &LineConstraints,
-    align: TextAlign,
-    is_vertical: bool,
-    constraints: &UnifiedConstraints,
-) -> f32 {
-    // Simplified to use the first segment for alignment.
-    if let Some(segment) = line_constraints.segments.first() {
-        // Include letter/word-spacing so center/right alignment matches the width the
-        // text is actually positioned at (position_one_line adds the spacing).
-        let total_width: f32 = items
-            .iter()
-            .map(|item| get_item_measure_with_spacing(item, is_vertical))
-            .sum();
-
-        let available_width = if constraints.segment_alignment == SegmentAlignment::Total {
-            line_constraints.total_available
-        } else {
-            segment.width
-        };
-
-        if total_width >= available_width {
-            return 0.0; // No alignment needed if line is full or overflows
+/// `text-align: start` / `end` as the physical side of a line whose inline
+/// base direction is `base_direction` (start = left in a left-to-right line,
+/// right in a right-to-left one); physical alignments are returned as they
+/// are. The one mapping of both line positioners.
+pub(crate) const fn physical_text_align(
+    text_align: TextAlign,
+    base_direction: BidiDirection,
+) -> TextAlign {
+    match (text_align, base_direction) {
+        (TextAlign::Start, BidiDirection::Ltr) | (TextAlign::End, BidiDirection::Rtl) => {
+            TextAlign::Left
         }
+        (TextAlign::Start, BidiDirection::Rtl) | (TextAlign::End, BidiDirection::Ltr) => {
+            TextAlign::Right
+        }
+        (other, _) => other,
+    }
+}
 
-        let remaining_space = available_width - total_width;
-
-        match align {
-            TextAlign::Center => remaining_space / 2.0,
-            TextAlign::Right => remaining_space,
-            _ => 0.0, // Left, Justify, Start, End
+/// Where a line's content starts in its line box: the offset from the box's
+/// left edge for the PHYSICAL alignment `physical_align` (start / end already
+/// resolved against `base_direction`), with `remaining_space` = the box's
+/// width - the content's.
+///
+/// CSS Text 3 section 7.1: "If ... the inline contents of a line box are too
+/// long to fit within it, then the contents are start-aligned: any content
+/// that doesn't fit overflows the line box's end edge" - whatever
+/// `text-align` says, as in Chrome ("wide lines spill out of the block based
+/// off direction"). In a left-to-right line that is offset 0 (overflow on the
+/// right); in a right-to-left one the content's right edge stays on the box's
+/// (offset = the negative `remaining_space`, overflow on the left). Applying a
+/// right / center alignment to the negative space cut off the line's START
+/// (AzCalculator's long results).
+///
+/// The ONE alignment rule of both line positioners: `position_one_line` and
+/// the Knuth-Plass path (`knuth_plass::position_lines_from_breaks`).
+pub(crate) fn line_alignment_offset(
+    physical_align: TextAlign,
+    remaining_space: f32,
+    base_direction: BidiDirection,
+) -> f32 {
+    let align = if remaining_space < 0.0 {
+        match base_direction {
+            BidiDirection::Ltr => TextAlign::Left,
+            BidiDirection::Rtl => TextAlign::Right,
         }
     } else {
-        0.0
+        physical_align
+    };
+    match align {
+        TextAlign::Center => remaining_space / 2.0,
+        TextAlign::Right => remaining_space,
+        _ => 0.0, // Left, and Justify (a justified line fills its box)
     }
+}
+
+/// The `text-indent` of one line box (CSS Text 3 section 8.1): the first
+/// formatted line of the block container is indented - with `each-line`
+/// every line after a forced line break too, never a line after a soft wrap -
+/// and `hanging` inverts which lines are. 0 for the others.
+///
+/// `is_first_formatted_line` is the paragraph's first line, not a fragment's:
+/// a continuation fragment of a flow starts mid-paragraph. The ONE choice of
+/// the greedy breaker, the Knuth-Plass path and the intrinsic-size scan.
+pub(crate) fn text_indent_of_line(
+    constraints: &UnifiedConstraints,
+    is_first_formatted_line: bool,
+    is_after_forced_break: bool,
+) -> f32 {
+    let picked =
+        is_first_formatted_line || (constraints.text_indent_each_line && is_after_forced_break);
+    if picked == constraints.text_indent_hanging {
+        0.0
+    } else {
+        constraints.text_indent
+    }
+}
+
+/// Takes a line's `text-indent` off the start edge of its line box. CSS Text 3
+/// section 8.1: the indent "is treated as a margin applied to the start edge of
+/// the line box" - the line box is that much narrower (a negative indent:
+/// wider), so the breaker fills, `justify` spreads over and the alignment
+/// places the line in what is left. The start-side segment is the leftmost one
+/// of a left-to-right line (and of a vertical one: its top) and the rightmost
+/// one of a right-to-left line, whose start edge is its right edge.
+///
+/// Shifting the finished line by the indent instead (as both positioners
+/// did) broke the first line against the full width: it ended `indent` past
+/// the paragraph (pdfocr, 2026-10-02).
+pub(crate) fn indent_line_box(
+    line_constraints: &mut LineConstraints,
+    indent: f32,
+    base_direction: BidiDirection,
+) {
+    if indent == 0.0 || !indent.is_finite() {
+        return;
+    }
+    let start_segment = match base_direction {
+        BidiDirection::Ltr => line_constraints.segments.first_mut(),
+        BidiDirection::Rtl => line_constraints.segments.last_mut(),
+    };
+    let Some(segment) = start_segment else {
+        return;
+    };
+    if base_direction == BidiDirection::Ltr {
+        segment.start_x += indent;
+    }
+    segment.width -= indent;
+    line_constraints.total_available -= indent;
 }
 
 /// Calculates the extra spacing needed for justification without modifying the items.
@@ -14291,6 +15072,7 @@ mod autotest_generated {
             units_per_em: upem,
             x_height: None,
             cap_height: None,
+            browser_ascent_boost: false,
         }
     }
 
@@ -14602,21 +15384,29 @@ mod autotest_generated {
             LineHeight::Normal.resolve(16.0, 800.0, -200.0, 250.0, 1000),
             20.0,
         );
-        // A descent given with the WRONG (positive) sign shrinks the line box —
-        // the formula subtracts it unconditionally.
+        // A descent given with the WRONG (positive) sign lies ABOVE the
+        // baseline: the line keeps no descent at all (floored at zero), and
+        // the ascent alone rounds to 13px (MAILENG6: rounded like Chrome).
         approx(
             LineHeight::Normal.resolve(16.0, 800.0, 200.0, 0.0, 1000),
-            9.6,
+            13.0,
+        );
+        // Each of A, D and G is rounded to whole pixels BEFORE the sum
+        // (Blink): Arial 16px is 14 + 3 + 1 = 18, not the 18.4 of the
+        // unrounded sum.
+        approx(
+            LineHeight::Normal.resolve(16.0, 1854.0, -434.0, 67.0, 2048),
+            18.0,
         );
     }
 
     #[test]
     fn line_height_normal_at_u16_max_upem_does_not_panic() {
         let v = LineHeight::Normal.resolve(16.0, 800.0, -200.0, 0.0, u16::MAX);
-        assert!(v.is_finite() && v > 0.0, "got {v}");
+        assert!(v.is_finite() && v >= 0.0, "got {v}");
         assert!(
             v < 1.0,
-            "a 65535-upem font must produce a tiny scale, got {v}"
+            "a 65535-upem font must produce a tiny scale (0.2px of ascent rounds to 0), got {v}"
         );
     }
 
@@ -14628,10 +15418,11 @@ mod autotest_generated {
         assert!(LineHeight::Normal
             .resolve(f32::INFINITY, 800.0, -200.0, 0.0, 1000)
             .is_infinite());
-        // ascent == descent == inf → inf - inf == NaN
+        // ascent == descent == +inf: the (positive) descent is floored at
+        // zero, the ascent stays infinite.
         assert!(LineHeight::Normal
             .resolve(16.0, f32::INFINITY, f32::INFINITY, 0.0, 1000)
-            .is_nan());
+            .is_infinite());
     }
 
     #[test]
@@ -16297,17 +17088,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn get_baseline_for_item_only_defined_for_clusters_and_boxes() {
-        assert_eq!(get_baseline_for_item(&brk()), None);
-        assert_eq!(get_baseline_for_item(&tab(8.0, 16.0)), None);
-        assert_eq!(get_baseline_for_item(&obj(10.0, 20.0, 3.0)), Some(3.0));
-        // Cluster: baseline of the LAST glyph, scaled to font size (800/1000*16).
+    fn baseline_in_layout_only_defined_for_clusters_and_boxes() {
+        assert_eq!(baseline_in_layout(&pos(brk(), 0.0, 0.0, 0)), None);
+        assert_eq!(baseline_in_layout(&pos(tab(8.0, 16.0), 0.0, 0.0, 0)), None);
+        // An atomic inline: its top plus its height above `baseline_offset`
+        // (which counts from its bottom).
+        assert_eq!(
+            baseline_in_layout(&pos(obj(10.0, 20.0, 3.0), 0.0, 4.0, 0)),
+            Some(4.0 + 17.0)
+        );
+        // Cluster: its top plus the ascent the line used (13px at 16px, see
+        // `get_item_vertical_metrics_approx_for_every_variant`).
         approx(
-            get_baseline_for_item(&cl("a", 8.0)).expect("a glyph-bearing cluster has a baseline"),
-            12.8,
+            baseline_in_layout(&pos(cl("a", 8.0), 0.0, 30.0, 0))
+                .expect("a glyph-bearing cluster has a baseline"),
+            43.0,
         );
         assert_eq!(
-            get_baseline_for_item(&cl_no_glyphs("", 0.0)),
+            baseline_in_layout(&pos(cl_no_glyphs("", 0.0), 0.0, 0.0, 0)),
             None,
             "a glyph-less cluster has no baseline"
         );
@@ -16315,10 +17113,12 @@ mod autotest_generated {
 
     #[test]
     fn get_item_vertical_metrics_approx_for_every_variant() {
-        // Cluster with real glyphs: ascent 12.8, descent 3.2, no leading (lh == a+d).
+        // Cluster with real glyphs: 800 / -200 at 1000 upem and 16px is 12.8 /
+        // 3.2, rounded to whole pixels as in Chrome (`line_metrics_px`): ascent
+        // 13, descent 3, no leading (`normal` == A + D + 0).
         let (a, d) = get_item_vertical_metrics_approx(&cl("a", 8.0));
-        approx(a, 12.8);
-        approx(d, 3.2);
+        approx(a, 13.0);
+        approx(d, 3.0);
 
         // Glyph-less cluster → 80/20 split of the fallback 1.2em line box.
         let (a, d) = get_item_vertical_metrics_approx(&cl_no_glyphs("", 0.0));
@@ -16354,9 +17154,11 @@ mod autotest_generated {
     fn get_item_vertical_metrics_uses_the_strut_for_glyphless_clusters() {
         let c = UnifiedConstraints::default();
         let (a, d) = get_item_vertical_metrics(&cl_no_glyphs("", 0.0), &c);
-        // resolved lh = 1.2 * 16 = 19.2; a+d = 16.0; half-leading = 1.6
-        approx(a, DEFAULT_STRUT_ASCENT + 1.6);
-        approx(d, DEFAULT_STRUT_DESCENT + 1.6);
+        // `normal` is the strut's own line height (A + D,
+        // `UnifiedConstraints::resolved_line_height`), not a 1.2em guess: no
+        // leading, the glyphless cluster IS the strut.
+        approx(a, DEFAULT_STRUT_ASCENT);
+        approx(d, DEFAULT_STRUT_DESCENT);
 
         assert_eq!(get_item_vertical_metrics(&brk(), &c), (0.0, 0.0));
         // Objects clamp negative ascent/descent at 0.
@@ -17258,6 +18060,7 @@ mod autotest_generated {
             Arc::new(PerItemShapedEntry {
                 compact: CompactShapedEntry::build(&[cl("a", 8.0)]),
                 total_advance: 8.0,
+                items: Vec::new(),
             }),
         );
         c.per_item_shaped.insert(
@@ -17265,6 +18068,7 @@ mod autotest_generated {
             Arc::new(PerItemShapedEntry {
                 compact: CompactShapedEntry::build(&[]),
                 total_advance: 0.0,
+                items: Vec::new(),
             }),
         );
         // Generation 0 → the eviction guard is skipped entirely.
@@ -17474,11 +18278,44 @@ mod autotest_generated {
             pos(obj(10.0, 20.0, 5.0), 10.0, 0.0, 0),
             pos(tab(8.0, 16.0), 20.0, 0.0, 0),
         ]);
+        // Where each baseline LIES (the item's top plus the ascent the line
+        // used): the cluster's 13px ascent, the 20px object's 15px above its
+        // `baseline_offset` of 5.
         approx(
             l.first_baseline().expect("the cluster, not the break"),
-            12.8,
+            13.0,
         );
-        assert_eq!(l.last_baseline(), Some(5.0), "the object, not the tab");
+        assert_eq!(l.last_baseline(), Some(15.0), "the object, not the tab");
+    }
+
+    #[test]
+    fn the_last_line_baseline_is_the_last_lines_item_top_plus_its_ascent() {
+        // Two lines: the baseline is the SECOND line's, where the line put it.
+        let text = layout_of(vec![
+            pos(cl("a", 8.0), 0.0, 0.0, 0),
+            pos(cl("b", 8.0), 0.0, 20.0, 1),
+            pos(brk(), 8.0, 20.0, 1),
+        ]);
+        // cl's ascent is 13 (see get_item_vertical_metrics_approx_for_every_variant).
+        approx(text.last_line_baseline().expect("a line with glyphs"), 33.0);
+        // An atomic inline: its height above its baseline offset (20 - 5).
+        let object = layout_of(vec![
+            pos(cl("a", 8.0), 0.0, 0.0, 0),
+            pos(obj(10.0, 20.0, 5.0), 0.0, 18.0, 1),
+        ]);
+        approx(
+            object.last_line_baseline().expect("the object's line"),
+            33.0,
+        );
+        // Breaks and tabs alone are no line with a baseline.
+        assert_eq!(
+            layout_of(vec![
+                pos(brk(), 0.0, 0.0, 0),
+                pos(tab(8.0, 16.0), 0.0, 0.0, 0)
+            ])
+            .last_line_baseline(),
+            None
+        );
     }
 
     #[test]
@@ -18551,6 +19388,106 @@ mod autotest_generated {
             m.get_font_by_hash(0xDEAD).is_none(),
             "an unreferenced face must eventually be dropped — the GC exists because font-cycling \
              apps leaked every font they ever touched"
+        );
+    }
+}
+
+/// TEXT7 (MAILENG6 "seen broken"): a run shaped while its face is not loaded
+/// shapes to nothing (the font-shape deficit), and the per-item shaping cache
+/// kept that nothing under the run's text and style - so the text stayed
+/// invisible after the face arrived, until something changed the text.
+#[cfg(test)]
+mod a_run_shaped_before_its_font_loads {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    fn glyph_count(flow: &FlowLayout) -> usize {
+        flow.fragment_layouts
+            .values()
+            .flat_map(|layout| layout.items.iter())
+            .map(|positioned| match &positioned.item {
+                ShapedItem::Cluster(c) => c.glyphs.len(),
+                _ => 0,
+            })
+            .sum()
+    }
+
+    #[test]
+    fn draws_once_its_font_is_loaded() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chain_cache = HashMap::new();
+        chain_cache.insert(key.clone(), chain.clone());
+        let style = Arc::new(StyleProperties {
+            font_stack: FontStack::Stack(selectors),
+            font_size_px: 20.0,
+            ..StyleProperties::default()
+        });
+        let content = vec![InlineContent::Text(StyledRun {
+            text: Arc::from("HELLO"),
+            style,
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let fragments = vec![LayoutFragment {
+            id: "main".to_string(),
+            constraints: UnifiedConstraints {
+                available_width: AvailableSpace::Definite(400.0),
+                ..UnifiedConstraints::default()
+            },
+        }];
+        let mut cache = TextShapingCache::new();
+
+        let before = cache
+            .layout_flow(
+                &content,
+                &[],
+                &fragments,
+                &chain_cache,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the run lays out");
+        assert_eq!(
+            glyph_count(&before),
+            0,
+            "premise: no face is loaded yet, nothing to draw with"
+        );
+
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(
+            failed.is_empty(),
+            "premise: the mock face loads: {failed:?}"
+        );
+
+        let after = cache
+            .layout_flow(
+                &content,
+                &[],
+                &fragments,
+                &chain_cache,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the run lays out");
+        assert_eq!(
+            glyph_count(&after),
+            5,
+            "the same run laid out again once its face is loaded draws its five glyphs"
         );
     }
 }

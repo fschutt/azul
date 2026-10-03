@@ -29,19 +29,9 @@ pub trait FormatAsRustCode {
     fn format_as_rust_code(&self, tabs: usize) -> String;
 }
 
-/// Returns a deterministic 64-bit hash for content-based deduplication.
-pub trait GetHash {
-    fn get_hash(&self) -> u64;
-}
-
-impl<T: Hash> GetHash for T {
-    fn get_hash(&self) -> u64 {
-        use core::hash::Hasher;
-        let mut hasher = std::hash::DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
-    }
-}
+/// Re-exported for the old import path `azul_css::codegen::format::GetHash`;
+/// the trait itself is always compiled in [`crate::hash`].
+pub use crate::hash::GetHash;
 
 // In order to generate the Rust code, all items that implement Drop
 // have to be declared before being used.
@@ -389,25 +379,47 @@ fn format_grid_line(line: &GridLine, _tabs: usize) -> String {
 }
 
 fn format_color_or_system(c: ColorOrSystem) -> String {
-    use crate::props::basic::color::{ColorOrSystem, SystemColorRef};
+    use crate::props::basic::color::ColorOrSystem;
     match c {
         ColorOrSystem::Color(color) => {
             format!("ColorOrSystem::Color({})", format_color_value(&color))
         }
         ColorOrSystem::System(system_ref) => {
-            let variant = match system_ref {
-                SystemColorRef::Text => "Text",
-                SystemColorRef::Background => "Background",
-                SystemColorRef::Accent => "Accent",
-                SystemColorRef::AccentText => "AccentText",
-                SystemColorRef::ButtonFace => "ButtonFace",
-                SystemColorRef::ButtonText => "ButtonText",
-                SystemColorRef::WindowBackground => "WindowBackground",
-                SystemColorRef::SelectionBackground => "SelectionBackground",
-                SystemColorRef::SelectionText => "SelectionText",
-            };
+            let variant = system_color_ref_variant(system_ref);
             format!("ColorOrSystem::System(SystemColorRef::{variant})")
         }
+    }
+}
+
+/// The Rust variant name of a `SystemColorRef` - the ONE table the
+/// gradient-stop and the background-layer formatters share.
+const fn system_color_ref_variant(r: crate::props::basic::color::SystemColorRef) -> &'static str {
+    use crate::props::basic::color::SystemColorRef;
+    match r {
+        SystemColorRef::Text => "Text",
+        SystemColorRef::Background => "Background",
+        SystemColorRef::Accent => "Accent",
+        SystemColorRef::AccentText => "AccentText",
+        SystemColorRef::ButtonFace => "ButtonFace",
+        SystemColorRef::ButtonText => "ButtonText",
+        SystemColorRef::WindowBackground => "WindowBackground",
+        SystemColorRef::SelectionBackground => "SelectionBackground",
+        SystemColorRef::SelectionText => "SelectionText",
+        SystemColorRef::SecondaryText => "SecondaryText",
+        SystemColorRef::TertiaryText => "TertiaryText",
+        SystemColorRef::DisabledText => "DisabledText",
+        SystemColorRef::UnderPageBackground => "UnderPageBackground",
+        SystemColorRef::SelectionBackgroundInactive => "SelectionBackgroundInactive",
+        SystemColorRef::SelectionTextInactive => "SelectionTextInactive",
+        SystemColorRef::Link => "Link",
+        SystemColorRef::Separator => "Separator",
+        SystemColorRef::Grid => "Grid",
+        SystemColorRef::FindHighlight => "FindHighlight",
+        SystemColorRef::SidebarBackground => "SidebarBackground",
+        SystemColorRef::SidebarSelection => "SidebarSelection",
+        SystemColorRef::ControlBackground => "ControlBackground",
+        SystemColorRef::PlaceholderText => "PlaceholderText",
+        SystemColorRef::TextSelectionBackground => "TextSelectionBackground",
     }
 }
 
@@ -444,8 +456,20 @@ macro_rules! impl_percentage_value_fmt {
     };
 }
 
-impl_percentage_value_fmt!(StyleLineHeight);
+impl FormatAsRustCode for StyleLineHeight {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::Normal => "StyleLineHeight::Normal".to_string(),
+            Self::Number(n) => format!("StyleLineHeight::Number({})", format_float_value(n)),
+            Self::Length(l) => format!("StyleLineHeight::Length({})", format_pixel_value(l)),
+            Self::Percentage(p) => {
+                format!("StyleLineHeight::Percentage({})", format_percentage_value(p))
+            }
+        }
+    }
+}
 impl_percentage_value_fmt!(StyleOpacity);
+impl_percentage_value_fmt!(StyleZoom);
 
 macro_rules! impl_pixel_value_fmt {
     ($struct_name:ident) => {
@@ -790,6 +814,7 @@ impl_enum_fmt!(StyleBackfaceVisibility, Visible, Hidden);
 impl_enum_fmt!(StyleAppRegion, NoDrag, Drag);
 impl_enum_fmt!(StyleSpatialNavigationAction, Auto, Focus, Scroll);
 impl_enum_fmt!(StyleSpatialNavigationContain, Auto, Contain);
+impl_enum_fmt!(StyleSpatialNavigationFunction, Normal, Grid);
 
 impl_enum_fmt!(
     StyleUnicodeBidi,
@@ -964,18 +989,7 @@ fn format_style_background_content(content: &StyleBackgroundContent, tabs: usize
             format!("StyleBackgroundContent::Color({})", format_color_value(c))
         }
         StyleBackgroundContent::SystemColor(s) => {
-            use crate::props::basic::color::SystemColorRef;
-            let variant = match s {
-                SystemColorRef::Text => "Text",
-                SystemColorRef::Background => "Background",
-                SystemColorRef::Accent => "Accent",
-                SystemColorRef::AccentText => "AccentText",
-                SystemColorRef::ButtonFace => "ButtonFace",
-                SystemColorRef::ButtonText => "ButtonText",
-                SystemColorRef::WindowBackground => "WindowBackground",
-                SystemColorRef::SelectionBackground => "SelectionBackground",
-                SystemColorRef::SelectionText => "SelectionText",
-            };
+            let variant = system_color_ref_variant(*s);
             format!("StyleBackgroundContent::SystemColor(SystemColorRef::{variant})")
         }
     }
@@ -1059,9 +1073,10 @@ fn format_linear_color_stops(stops: &[NormalizedLinearColorStop], tabs: usize) -
 
 fn format_linear_color_stop(g: &NormalizedLinearColorStop) -> String {
     format!(
-        "NormalizedLinearColorStop {{ offset: {}, color: {} }}",
+        "NormalizedLinearColorStop {{ offset: {}, color: {}, offset_px: {} }}",
         format_percentage_value(&g.offset),
         format_color_or_system(g.color),
+        format_float_value(&g.offset_px),
     )
 }
 

@@ -61,7 +61,14 @@ mod autotest_generated {
         }
 
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
                 image_cache: &self.images,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
@@ -69,6 +76,8 @@ mod autotest_generated {
                 active_route: self.route.as_ref(),
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -98,13 +107,13 @@ mod autotest_generated {
                 ..Monitor::default()
             },
         ]));
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
         let max: Option<LayoutSize> = info.get_max_monitor_size().into();
         assert_eq!(max, Some(LayoutSize::new(2560, 1440)));
         assert_eq!(info.get_monitors().len(), 3);
 
         let rd2 = fixture.ref_data(); // empty snapshot
-        let info2 = LayoutCallbackInfo::new(&rd2, WindowSize::default(), WindowTheme::LightMode);
+        let info2 = LayoutCallbackInfo::new(&rd2, WindowSize::default(), DarkLightMode::Light);
         let none: Option<LayoutSize> = info2.get_max_monitor_size().into();
         assert_eq!(none, None);
     }
@@ -135,7 +144,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::InitialRender,
             fonts,
             images,
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
             crate::window::WindowFrame::Normal,
             bounds,
             // materialized: a window at y=2 covering 100x200 of the document
@@ -238,7 +247,7 @@ mod autotest_generated {
     fn default_layout_callback_returns_body_and_does_not_panic() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(0.0, 0.0, 0), WindowTheme::DarkMode);
+        let info = LayoutCallbackInfo::new(&rd, win(0.0, 0.0, 0), DarkLightMode::Dark);
 
         // extreme arg: zero-sized window, zero DPI, empty caches
         let dom = default_layout_callback(RefAny::new(0u32), info);
@@ -267,7 +276,7 @@ mod autotest_generated {
         let fx = Fixture::new();
         let rd = fx.ref_data();
         let before = ALT_LAYOUT_CALLS.load(AtomicOrdering::SeqCst);
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
         let _ = (from_alt.cb)(RefAny::new(()), info);
         assert_eq!(ALT_LAYOUT_CALLS.load(AtomicOrdering::SeqCst), before + 1);
     }
@@ -309,7 +318,7 @@ mod autotest_generated {
         let info = vv_info(&fonts, &images, bounds);
 
         assert_eq!(info.reason, VirtualViewCallbackReason::InitialRender);
-        assert_eq!(info.window_theme, WindowTheme::LightMode);
+        assert_eq!(info.window_mode, DarkLightMode::Light);
         assert_eq!(
             info.get_bounds().get_logical_size(),
             LogicalSize::new(800.0, 600.0)
@@ -346,7 +355,7 @@ mod autotest_generated {
             VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
             &fonts,
             &images,
-            WindowTheme::DarkMode,
+            DarkLightMode::Dark,
             crate::window::WindowFrame::Normal,
             HidpiAdjustedBounds::from_bounds(
                 LayoutSize::new(isize::MAX, isize::MIN),
@@ -711,10 +720,10 @@ mod autotest_generated {
     fn layout_callback_info_new_defaults_to_initial_reason_and_holds_fields() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(1280.0, 720.0, 192), WindowTheme::DarkMode);
+        let info = LayoutCallbackInfo::new(&rd, win(1280.0, 720.0, 192), DarkLightMode::Dark);
 
         assert_eq!(info.relayout_reason(), RelayoutReason::Initial);
-        assert_eq!(info.theme, WindowTheme::DarkMode);
+        assert_eq!(info.mode, DarkLightMode::Dark);
         assert_eq!(info.get_window_width(), 1280.0);
         assert_eq!(info.get_window_height(), 720.0);
         assert_eq!(info.get_dpi_factor(), 2.0);
@@ -736,14 +745,15 @@ mod autotest_generated {
             RelayoutReason::Initial,
             RelayoutReason::RefreshDom,
             RelayoutReason::Resize,
-            RelayoutReason::ThemeChange,
+            RelayoutReason::ModeChange,
             RelayoutReason::RouteChange,
             RelayoutReason::Other,
+            RelayoutReason::ThemeChange,
         ] {
             let info = LayoutCallbackInfo::new_with_reason(
                 &rd,
                 WindowSize::default(),
-                WindowTheme::LightMode,
+                DarkLightMode::Light,
                 reason,
             );
             assert_eq!(info.relayout_reason(), reason);
@@ -758,7 +768,7 @@ mod autotest_generated {
     fn layout_callback_info_get_system_style_shares_the_arc() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         let a = info.get_system_style();
         let b = info.get_system_style();
@@ -778,7 +788,7 @@ mod autotest_generated {
     fn layout_callback_info_get_ctx_is_none_until_set_then_clones_safely() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let mut info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let mut info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_ctx().is_none(), "native path must have a null ctx");
 
@@ -805,7 +815,7 @@ mod autotest_generated {
     fn layout_callback_info_get_system_fonts_is_empty_for_an_empty_cache() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         // an empty FcFontCache must yield an empty list, not panic
         let fonts: Vec<AzStringPair> = info.get_system_fonts();
@@ -820,7 +830,7 @@ mod autotest_generated {
     fn get_image_returns_none_for_missing_empty_and_hostile_ids() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_image(&s("")).is_none());
         assert!(info.get_image(&s("   ")).is_none());
@@ -838,7 +848,7 @@ mod autotest_generated {
             ImageRef::null_image(2, 2, RawImageFormat::RGBA8, Vec::new()),
         );
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_image(&s("logo")).is_some(), "positive control");
 
@@ -856,7 +866,7 @@ mod autotest_generated {
     fn get_route_param_returns_none_when_no_route_is_active() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         assert!(info.get_active_route().is_none());
 
@@ -870,7 +880,7 @@ mod autotest_generated {
     fn get_route_param_valid_minimal_and_unicode_positive_controls() {
         let fx = Fixture::with_route(user_route());
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         let route = info.get_active_route().expect("route was configured");
         assert_eq!(route.pattern.as_str(), "/user/:id");
@@ -888,7 +898,7 @@ mod autotest_generated {
     fn get_route_param_rejects_malformed_keys_without_trimming_or_folding() {
         let fx = Fixture::with_route(user_route());
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         // empty / whitespace-only
         assert!(info.get_route_param("").is_none());
@@ -937,7 +947,7 @@ mod autotest_generated {
     fn get_route_param_handles_pathological_key_sizes_and_nesting() {
         let fx = Fixture::with_route(user_route());
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         // extremely long key: must return None quickly, not hang or overflow
         let huge = "x".repeat(1_000_000);
@@ -965,7 +975,7 @@ mod autotest_generated {
         };
         let fx = Fixture::with_route(route);
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
 
         let got = info.get_route_param("data").expect("param exists");
         assert_eq!(got.as_str().len(), 200_000);
@@ -992,7 +1002,7 @@ mod autotest_generated {
         ];
 
         for &dim in &probes {
-            let info = LayoutCallbackInfo::new(&rd, win(dim, dim, 96), WindowTheme::LightMode);
+            let info = LayoutCallbackInfo::new(&rd, win(dim, dim, 96), DarkLightMode::Light);
 
             for &px in &probes {
                 let lt = info.window_width_less_than(px);
@@ -1030,7 +1040,7 @@ mod autotest_generated {
     fn window_predicates_with_inverted_and_degenerate_ranges() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), DarkLightMode::Light);
 
         // inverted range is always empty
         assert!(!info.window_width_between(1000.0, 100.0));
@@ -1059,7 +1069,7 @@ mod autotest_generated {
     fn window_predicates_are_all_false_for_nan_probes() {
         let fx = Fixture::new();
         let rd = fx.ref_data();
-        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), WindowTheme::LightMode);
+        let info = LayoutCallbackInfo::new(&rd, win(640.0, 480.0, 96), DarkLightMode::Light);
 
         // every comparison against NaN is false - no panic, no accidental `true`
         assert!(!info.window_width_less_than(f32::NAN));
@@ -1080,7 +1090,7 @@ mod autotest_generated {
         let fx = Fixture::new();
         let rd = fx.ref_data();
         let info =
-            LayoutCallbackInfo::new(&rd, win(f32::NAN, f32::NAN, 96), WindowTheme::LightMode);
+            LayoutCallbackInfo::new(&rd, win(f32::NAN, f32::NAN, 96), DarkLightMode::Light);
 
         assert!(info.get_window_width().is_nan());
         assert!(info.get_window_height().is_nan());
@@ -1102,24 +1112,24 @@ mod autotest_generated {
         let rd = fx.ref_data();
 
         // 96 DPI is the 1.0 baseline
-        let base = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 96), WindowTheme::LightMode);
+        let base = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 96), DarkLightMode::Light);
         assert_eq!(base.get_dpi_factor(), 1.0);
 
-        let hidpi = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 192), WindowTheme::LightMode);
+        let hidpi = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 192), DarkLightMode::Light);
         assert_eq!(hidpi.get_dpi_factor(), 2.0);
 
         // dpi = 0 must not divide-by-zero-panic; it yields 0.0
-        let zero = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 0), WindowTheme::LightMode);
+        let zero = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 0), DarkLightMode::Light);
         assert_eq!(zero.get_dpi_factor(), 0.0);
 
         // u32::MAX must not overflow the f32 cast - it stays finite
-        let max = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, u32::MAX), WindowTheme::LightMode);
+        let max = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, u32::MAX), DarkLightMode::Light);
         let f = max.get_dpi_factor();
         assert!(f.is_finite() && f > 0.0, "dpi factor {f} is not finite");
         assert_eq!(f, (u32::MAX as f32) / 96.0);
 
         // dpi = 1 rounds to a tiny-but-positive factor rather than 0
-        let one = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 1), WindowTheme::LightMode);
+        let one = LayoutCallbackInfo::new(&rd, win(1.0, 1.0, 1), DarkLightMode::Light);
         assert!(one.get_dpi_factor() > 0.0);
     }
 
@@ -1339,7 +1349,7 @@ mod size_query_tests {
     }
 
     fn info_at(rd: &LayoutCallbackInfoRefData<'_>, w: f32, h: f32) -> LayoutCallbackInfo {
-        LayoutCallbackInfo::new(rd, win(w, h), WindowTheme::LightMode)
+        LayoutCallbackInfo::new(rd, win(w, h), DarkLightMode::Light)
     }
 
     fn drain() -> (alloc::vec::Vec<SizeQuery>, bool) {
@@ -1364,7 +1374,14 @@ mod size_query_tests {
             }
         }
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
@@ -1372,6 +1389,8 @@ mod size_query_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -1510,7 +1529,7 @@ mod size_query_tests {
 mod system_style_dependency_tests {
     use azul_css::{
         props::basic::color::ColorU,
-        system::{SystemStyle, Theme},
+        system::{SystemStyle, DarkLightMode},
     };
 
     use super::*;
@@ -1540,7 +1559,14 @@ mod system_style_dependency_tests {
             }
         }
         fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
             LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
@@ -1548,6 +1574,8 @@ mod system_style_dependency_tests {
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
                 safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
             }
         }
     }
@@ -1559,7 +1587,7 @@ mod system_style_dependency_tests {
                 dimensions: LogicalSize::new(800.0, 600.0),
                 ..WindowSize::default()
             },
-            WindowTheme::LightMode,
+            DarkLightMode::Light,
         )
     }
 
@@ -1583,7 +1611,7 @@ mod system_style_dependency_tests {
 
         // Polarity flip: rebuild.
         let mut dark = style();
-        dark.theme = Theme::Dark;
+        dark.mode = DarkLightMode::Dark;
         assert!(deps.dom_depends_on_change(&old, &dark));
     }
 
@@ -1674,19 +1702,20 @@ mod system_style_dependency_tests {
         );
     }
 
-    /// `get_theme()` is the tracked way to read the polarity; the bare `theme`
-    /// FIELD declares nothing, exactly like reading `window_size` directly.
+    /// `get_mode()` is the tracked way to read the light / dark mode; the bare
+    /// `theme` FIELD declares nothing, exactly like reading `window_size`
+    /// directly.
     #[test]
-    fn get_theme_declares_the_polarity_and_the_bare_field_declares_nothing() {
+    fn get_mode_declares_the_mode_and_the_bare_field_declares_nothing() {
         let rd = Rd::new();
         let rd = rd.ref_data();
         let _ = take_recorded_style_dependencies();
 
         let info = info(&rd);
-        let _ = info.theme;
+        let _ = info.mode;
         assert!(take_recorded_style_dependencies().is_empty());
 
-        assert_eq!(info.get_theme(), WindowTheme::LightMode);
+        assert_eq!(info.get_mode(), DarkLightMode::Light);
         let declared = take_recorded_style_dependencies();
         assert!(declared.contains(SystemStyleDependency::Theme));
         assert!(!declared.contains(SystemStyleDependency::Colors));
@@ -1709,5 +1738,464 @@ mod system_style_dependency_tests {
         let declared = take_recorded_style_dependencies();
         assert!(declared.contains(SystemStyleDependency::Everything));
         assert!(declared.contains(SystemStyleDependency::Colors));
+    }
+}
+
+/// `LayoutCallbackInfo::add_global_hotkey` & co.: `layout()` DECLARES the
+/// global hotkeys the state it is built from wants, through the same
+/// thread-local recorder shape as the size queries and the style
+/// dependencies - the FFI-frozen, `Copy` info struct does not change.
+#[cfg(test)]
+mod global_hotkey_recorder_tests {
+    use azul_css::{system::SystemStyle, AzString};
+
+    use super::*;
+    use crate::{
+        global_hotkey::{
+            take_recorded_global_hotkeys, GlobalHotkey, GlobalHotkeyError, GlobalHotkeyInfo,
+            GlobalHotkeyInfoVec, GlobalHotkeyOwner, GlobalHotkeyStatus, HotkeyModifiers,
+            GLOBAL_HOTKEY_DECLARATION_CAP,
+        },
+        geom::LogicalSize,
+        refany::{OptionRefAny, RefAny},
+        window::VirtualKeyCode as K,
+    };
+
+    struct Rd {
+        image_cache: crate::resources::ImageCache,
+        gl: crate::gl::OptionGlContextPtr,
+        fonts: rust_fontconfig::FcFontCache,
+        style: alloc::sync::Arc<SystemStyle>,
+        hotkeys: GlobalHotkeyInfoVec,
+    }
+
+    impl Rd {
+        fn new(hotkeys: Vec<GlobalHotkeyInfo>) -> Self {
+            Self {
+                image_cache: crate::resources::ImageCache::default(),
+                gl: crate::gl::OptionGlContextPtr::None,
+                fonts: rust_fontconfig::FcFontCache::default(),
+                style: alloc::sync::Arc::new(SystemStyle::default()),
+                hotkeys: GlobalHotkeyInfoVec::from_vec(hotkeys),
+            }
+        }
+
+        fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
+                image_cache: &self.image_cache,
+                gl_context: &self.gl,
+                system_fonts: &self.fonts,
+                system_style: alloc::sync::Arc::clone(&self.style),
+                active_route: None,
+                monitors: crate::window::MonitorVec::from_const_slice(&[]),
+                safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: self.hotkeys.clone(),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
+            }
+        }
+    }
+
+    fn info(rd: &LayoutCallbackInfoRefData<'_>) -> LayoutCallbackInfo {
+        LayoutCallbackInfo::new(
+            rd,
+            WindowSize {
+                dimensions: LogicalSize::new(800.0, 600.0),
+                ..WindowSize::default()
+            },
+            DarkLightMode::Light,
+        )
+    }
+
+    fn ctrl_alt(key: K) -> GlobalHotkey {
+        GlobalHotkey {
+            modifiers: HotkeyModifiers {
+                ctrl: true,
+                alt: true,
+                shift: false,
+                meta: false,
+            },
+            key,
+        }
+    }
+
+    /// A callback the recorder only stores (never invoked here), told apart
+    /// by its number.
+    fn cb(n: usize) -> CoreCallback {
+        CoreCallback {
+            cb: n,
+            ctx: OptionRefAny::None,
+        }
+    }
+
+    fn entry(
+        hotkey: GlobalHotkey,
+        status: GlobalHotkeyStatus,
+        owner: GlobalHotkeyOwner,
+    ) -> GlobalHotkeyInfo {
+        GlobalHotkeyInfo {
+            hotkey,
+            status,
+            trigger: hotkey.to_display_string(),
+            owner,
+        }
+    }
+
+    /// What one `layout()` call declared drains ONCE: a leak into the next
+    /// call would keep a hotkey alive that the new state no longer wants.
+    #[test]
+    fn declarations_drain_once_and_the_next_drain_is_empty() {
+        let rd = Rd::new(Vec::new());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        assert!(
+            take_recorded_global_hotkeys().declared.is_empty(),
+            "constructing the info declares nothing"
+        );
+
+        info.add_global_hotkey(ctrl_alt(K::K), RefAny::new(1_u32), cb(1));
+        info.add_global_hotkey_with_description(
+            ctrl_alt(K::J),
+            AzString::from("Bring the app to the front"),
+            RefAny::new(2_u32),
+            cb(2),
+        );
+        let recorded = take_recorded_global_hotkeys();
+        assert_eq!(recorded.declared.len(), 2);
+        assert_eq!(recorded.declared[0].hotkey, ctrl_alt(K::K));
+        assert_eq!(recorded.declared[0].description.as_str(), "");
+        assert_eq!(recorded.declared[1].hotkey, ctrl_alt(K::J));
+        assert_eq!(
+            recorded.declared[1].description.as_str(),
+            "Bring the app to the front"
+        );
+        assert_eq!(recorded.declared[1].callback.cb, 2);
+        assert!(!recorded.read_status, "declaring is not reading");
+        assert!(!recorded.overflowed);
+
+        let again = take_recorded_global_hotkeys();
+        assert!(
+            again.declared.is_empty(),
+            "the drain must reset - the next layout() starts from nothing"
+        );
+    }
+
+    /// Declaring the same accelerator twice in one pass: the last
+    /// declaration wins, as a later `with_callback` would.
+    #[test]
+    fn the_last_duplicate_wins() {
+        let rd = Rd::new(Vec::new());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        info.add_global_hotkey(ctrl_alt(K::K), RefAny::new(1_u32), cb(1));
+        info.add_global_hotkey(ctrl_alt(K::J), RefAny::new(2_u32), cb(2));
+        info.add_global_hotkey(ctrl_alt(K::K), RefAny::new(3_u32), cb(3));
+        let recorded = take_recorded_global_hotkeys();
+        assert_eq!(recorded.declared.len(), 2, "one entry per accelerator");
+        let k = recorded
+            .declared
+            .iter()
+            .find(|d| d.hotkey == ctrl_alt(K::K))
+            .expect("Ctrl+Alt+K is declared");
+        assert_eq!(k.callback.cb, 3);
+    }
+
+    /// `layout()` reads where a hotkey stood when the pass began (the
+    /// snapshot the engine took), and the READ is recorded: a later status
+    /// change re-runs this layout once.
+    #[test]
+    fn a_status_read_answers_from_the_snapshot_and_is_recorded() {
+        let rd = Rd::new(vec![
+            entry(
+                ctrl_alt(K::K),
+                GlobalHotkeyStatus::Active,
+                GlobalHotkeyOwner::ThisWindow,
+            ),
+            entry(
+                ctrl_alt(K::T),
+                GlobalHotkeyStatus::Failed(GlobalHotkeyError::TakenByAnotherApp),
+                GlobalHotkeyOwner::OtherWindow,
+            ),
+        ]);
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        assert_eq!(
+            info.get_global_hotkey_status(ctrl_alt(K::K)),
+            GlobalHotkeyStatus::Active
+        );
+        assert_eq!(
+            info.get_global_hotkey_status(ctrl_alt(K::T)),
+            GlobalHotkeyStatus::Failed(GlobalHotkeyError::TakenByAnotherApp)
+        );
+        assert_eq!(
+            info.get_global_hotkey_status(ctrl_alt(K::J)),
+            GlobalHotkeyStatus::NotRegistered,
+            "an accelerator the snapshot does not list is not registered"
+        );
+        let recorded = take_recorded_global_hotkeys();
+        assert!(recorded.read_status);
+        assert!(recorded.declared.is_empty());
+    }
+
+    #[test]
+    fn the_list_is_the_snapshot_with_its_owners_and_reading_it_is_recorded() {
+        let snapshot = vec![
+            entry(
+                ctrl_alt(K::A),
+                GlobalHotkeyStatus::Active,
+                GlobalHotkeyOwner::App,
+            ),
+            entry(
+                ctrl_alt(K::B),
+                GlobalHotkeyStatus::Pending,
+                GlobalHotkeyOwner::ThisWindow,
+            ),
+        ];
+        let rd = Rd::new(snapshot.clone());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        let listed = info.get_global_hotkeys();
+        assert_eq!(listed.as_ref(), snapshot.as_slice());
+        assert!(take_recorded_global_hotkeys().read_status);
+    }
+
+    /// A callback generating accelerators programmatically cannot grow the
+    /// recording without bound; the drain says the list is incomplete.
+    #[test]
+    fn more_than_the_cap_latches_overflowed() {
+        const LETTERS: [K; 26] = [
+            K::A,
+            K::B,
+            K::C,
+            K::D,
+            K::E,
+            K::F,
+            K::G,
+            K::H,
+            K::I,
+            K::J,
+            K::K,
+            K::L,
+            K::M,
+            K::N,
+            K::O,
+            K::P,
+            K::Q,
+            K::R,
+            K::S,
+            K::T,
+            K::U,
+            K::V,
+            K::W,
+            K::X,
+            K::Y,
+            K::Z,
+        ];
+        let rd = Rd::new(Vec::new());
+        let rd = rd.ref_data();
+        let _ = take_recorded_global_hotkeys();
+
+        let info = info(&rd);
+        for i in 0..(GLOBAL_HOTKEY_DECLARATION_CAP + 10) {
+            let bits = i / LETTERS.len();
+            let hotkey = GlobalHotkey {
+                modifiers: HotkeyModifiers {
+                    ctrl: bits & 1 != 0,
+                    alt: bits & 2 != 0,
+                    shift: bits & 4 != 0,
+                    meta: bits & 8 != 0,
+                },
+                key: LETTERS[i % LETTERS.len()],
+            };
+            info.add_global_hotkey(hotkey, RefAny::new(i), cb(i + 1));
+        }
+        let recorded = take_recorded_global_hotkeys();
+        assert!(recorded.overflowed);
+        assert_eq!(recorded.declared.len(), GLOBAL_HOTKEY_DECLARATION_CAP);
+        assert!(
+            !take_recorded_global_hotkeys().overflowed,
+            "the flag resets with the drain"
+        );
+    }
+}
+#[cfg(test)]
+mod app_theme_tests {
+    //! The app theme a DOM is BUILT for (`@theme(<name>)` blocks select by
+    //! it in the cascade; a widget's STRUCTURE branches on it at build time).
+    //!
+    //! A widget's `dom()` has no `LayoutCallbackInfo`, so the theme is
+    //! ambient, the seam shape of the style-dependency recorder: the engine
+    //! enters a [`ThemeScope`] with the window's theme around every DOM build
+    //! of that window, and outside one the app's published theme applies.
+    //!
+    //! This binary never PUBLISHES an app theme (`set_app_theme` is
+    //! `App::create`'s and `CallbackInfo::set_theme`'s; the dll's headless
+    //! test covers it), so outside a scope the answer here is the default.
+    use azul_css::{dynamic_selector::DEFAULT_APP_THEME, system::SystemStyle, AzString};
+
+    use super::*;
+    use crate::{
+        app_theme::{app_theme, current_theme, ThemeScope},
+        geom::LogicalSize,
+    };
+
+    struct Rd {
+        image_cache: crate::resources::ImageCache,
+        gl: crate::gl::OptionGlContextPtr,
+        fonts: rust_fontconfig::FcFontCache,
+        style: alloc::sync::Arc<SystemStyle>,
+    }
+    impl Rd {
+        fn new() -> Self {
+            Self {
+                image_cache: crate::resources::ImageCache::default(),
+                gl: crate::gl::OptionGlContextPtr::None,
+                fonts: rust_fontconfig::FcFontCache::default(),
+                style: alloc::sync::Arc::new(SystemStyle::default()),
+            }
+        }
+        fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            static EN_US: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            let locale = EN_US.get_or_init(|| AzString::from("en-US"));
+            static NO_WINDOW_ID: std::sync::OnceLock<AzString> = std::sync::OnceLock::new();
+            LayoutCallbackInfoRefData {
+                locale,
+                accessed_locale: core::cell::Cell::new(false),
+                accessed_text_direction: core::cell::Cell::new(false),
+                text_direction: crate::callbacks::TextDirection::LeftToRight,
+                image_cache: &self.image_cache,
+                gl_context: &self.gl,
+                system_fonts: &self.fonts,
+                system_style: alloc::sync::Arc::clone(&self.style),
+                active_route: None,
+                monitors: crate::window::MonitorVec::from_const_slice(&[]),
+                safe_area: azul_css::system::SafeAreaInsets::default(),
+                global_hotkeys: crate::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+                window_id: NO_WINDOW_ID.get_or_init(|| AzString::from("")),
+            }
+        }
+    }
+
+    fn info(rd: &LayoutCallbackInfoRefData<'_>) -> LayoutCallbackInfo {
+        LayoutCallbackInfo::new(
+            rd,
+            WindowSize {
+                dimensions: LogicalSize::new(800.0, 600.0),
+                ..WindowSize::default()
+            },
+            DarkLightMode::Light,
+        )
+    }
+
+    #[test]
+    fn outside_any_dom_build_the_theme_is_the_apps_which_defaults_to_flat() {
+        assert_eq!(app_theme().as_str(), DEFAULT_APP_THEME);
+        assert_eq!(current_theme().as_str(), "flat");
+    }
+
+    #[test]
+    fn a_theme_scope_sets_the_theme_a_dom_is_built_for_and_restores_the_outer_one() {
+        assert_eq!(current_theme().as_str(), "flat");
+        {
+            let _flora = ThemeScope::enter(AzString::from("flora"));
+            assert_eq!(current_theme().as_str(), "flora");
+            {
+                let _inner = ThemeScope::enter(AzString::from("monokai"));
+                assert_eq!(current_theme().as_str(), "monokai");
+            }
+            assert_eq!(
+                current_theme().as_str(),
+                "flora",
+                "leaving the inner scope restores the outer one"
+            );
+        }
+        assert_eq!(
+            current_theme().as_str(),
+            "flat",
+            "and leaving the outer one the app's"
+        );
+    }
+
+    #[test]
+    fn a_theme_scope_belongs_to_the_thread_that_builds() {
+        let _flora = ThemeScope::enter(AzString::from("flora"));
+        let elsewhere = std::thread::spawn(|| current_theme().as_str().to_string())
+            .join()
+            .expect("the probe thread");
+        assert_eq!(
+            elsewhere, "flat",
+            "another thread's DOM build is not inside this window's scope"
+        );
+        assert_eq!(current_theme().as_str(), "flora");
+    }
+
+    /// `layout()` reads the app theme it builds for through its info
+    /// (`get_theme`, a name); the light / dark mode is the other getter
+    /// (`get_mode`).
+    #[test]
+    fn get_theme_answers_the_scope_and_leaves_the_mode_getter_alone() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let info = info(&rd);
+        let _ = take_recorded_style_dependencies();
+
+        assert_eq!(info.get_theme().as_str(), "flat");
+        {
+            let _flora = ThemeScope::enter(AzString::from("flora"));
+            assert_eq!(info.get_theme().as_str(), "flora");
+        }
+        assert!(
+            take_recorded_style_dependencies().is_empty(),
+            "a theme switch ALWAYS rebuilds the DOM, so reading the name declares nothing"
+        );
+        assert_eq!(
+            info.get_mode(),
+            DarkLightMode::Light,
+            "the light / dark mode, as before"
+        );
+    }
+
+    #[test]
+    fn a_theme_switch_has_its_own_relayout_reason() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let info = LayoutCallbackInfo::new_with_reason(
+            &rd,
+            WindowSize::default(),
+            DarkLightMode::Light,
+            RelayoutReason::ThemeChange,
+        );
+        assert_eq!(info.relayout_reason(), RelayoutReason::ThemeChange);
+        assert_ne!(
+            RelayoutReason::ThemeChange,
+            RelayoutReason::ModeChange,
+            "ModeChange is the light / dark mode; the app theme is a DOM rebuild of its own"
+        );
+    }
+
+    /// CAL3: one layout callback serving several editor windows needs to know
+    /// which window it builds - `LayoutCallbackInfo` had no window id.
+    #[test]
+    fn a_layout_callback_knows_which_window_it_builds() {
+        let id = AzString::from("azcalendar-editor-2");
+        let rd = Rd::new();
+        let mut rd = rd.ref_data();
+        rd.window_id = &id;
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
+        assert_eq!(info.get_window_id().as_str(), "azcalendar-editor-2");
     }
 }

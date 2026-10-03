@@ -471,7 +471,7 @@ thread_local = "Per-thread storage for tracing-subscriber's span stacks."
 env_logger = "RUST_LOG-driven logger init used by the turso SDK kits and wr_azul_glyph_rasterizer."
 env_filter = "Filter-directive parser shared by env_logger and android_logger."
 symlink = "Cross-platform symlink creation for tracing-appender's current-log pointer."
-micromail = "Minimal SMTP client (our crate, on crates.io) transporting crash reports by email behind the crash-mail feature."
+micromail = "Minimal SMTP client (our crate, on crates.io) transporting crash reports by email behind the crash-mail feature; 0.2 is AzMail's sender too (MIME builder, DKIM, direct-to-MX or relay delivery)."
 microdns = "Dependency-free DNS resolver micromail uses to find the MX host for crash-report mail."
 
 # === Bit/byte/number utilities ===
@@ -598,6 +598,8 @@ fallible-iterator = "Fallible iterator trait used by addr2line/gimli."
 ucd-trie = "Compressed Unicode trie used by regex-syntax."
 utf8_iter = "Iterate UTF-8 by char without prior validation — used by ICU4X (icu_collections)."
 utf16_iter = "Iterate UTF-16 by code point — used by ICU4X (icu_collator)."
+pulldown-cmark = "CommonMark parser (no default features): the Markdown reader of the shared rich-text editor (azul-layout feature rich_text_markdown; AzNotes / AzWriter documents)."
+unicase = "Case-insensitive string comparison under pulldown-cmark (link reference labels)."
 
 # === wasm / web target glue ===
 wasm-bindgen = "WebAssembly/web target glue (azul's wasm build)."
@@ -806,3 +808,11 @@ openssl-probe = "Finds the system certificate bundle for rustls-native-certs on 
 plist = "Reads macOS property lists for netdev's interface metadata."
 convert_case = "Case conversion for the derive_more macros the iroh crates use."
 unicode-xid = "Identifier validation inside derive_more's proc macro."
+
+# === AzMail example app (examples/azul-mail): IMAP sync and MIME parsing ===
+imap = "AzMail's IMAP client (3.0.0-alpha.15, no TLS feature): sync API over any Read + Write stream, so it runs on an azul Thread over azul's own rustls + rustls-rustcrypto stream. Example app only."
+imap-proto = "IMAP response parser (nom 7) under the imap crate; AzMail also names its LIST attribute type. Example app only."
+bufstream = "Buffered Read + Write wrapper the imap crate keeps its connection in. Example app only."
+mail-parser = "MIME parsing (Stalwart) for AzMail's index lines and message view: headers, RFC 2047/2231, charsets via encoding_rs, text and HTML bodies. Example app only."
+hashify = "Proc macro under mail-parser: compile-time perfect-hash tables for header names and charsets. Example app only."
+mini-mail-auth = "Minimal DKIM signer (rsa-sha256, relaxed/relaxed; our fork of Stalwart's mail-auth, only rsa + sha2 + base64) under micromail's dkim feature: AzMail signs outgoing mail. Example app only."

@@ -20,7 +20,6 @@ use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec,
     },
-    impl_option_inner,
     props::{
         basic::{color::ColorU, *},
         layout::{
@@ -178,7 +177,9 @@ static SLIDER_TRACK_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Center)),
+    // `start`, like Segmented and Pagination: the parent decides where a
+    // fixed-size widget goes. `center` centred it HORIZONTALLY in a column.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(TRACK_WIDTH))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
@@ -294,9 +295,8 @@ impl Slider {
     pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
-            theme: crate::widgets::themes::OptionUiTheme::Some(
-                crate::widgets::themes::UiTheme::Flat,
-            ),
+            // No opinion: the slider follows the app theme (`dom`).
+            theme: crate::widgets::themes::OptionUiTheme::None,
             slider_state: SliderStateWrapper {
                 inner: SliderState { value, min, max },
                 ..Default::default()
@@ -337,8 +337,8 @@ impl Slider {
         })
     }
 
-    /// Pick the widget theme. Unset (`None`), the widget renders in the
-    /// default theme (`crate::widgets::themes::UiTheme::default()`).
+    /// Pick the widget theme. Unset (`None`), the widget follows the
+    /// app theme (`AppConfig::with_theme`, flat by default).
     pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
@@ -401,16 +401,17 @@ impl Slider {
         self
     }
 
+    /// Renders the slider. Unpinned (`theme: None`, the default), it follows
+    /// the APP theme: built in the structure of the theme its DOM is built
+    /// for, every node carrying flat's and flora's blocks
+    /// (`themes::theme_blocks::follow_app_theme`).
     #[must_use]
     pub fn dom(self) -> Dom {
-        match self.theme {
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
-                crate::widgets::themes::flat::slider(self)
-            }
-            crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flora) => {
-                crate::widgets::themes::flora::slider(self)
-            }
-            _ => Dom::create_div(),
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::slider(self),
+            Some(UiTheme::Flora) => flora::slider(self),
+            None => theme_blocks::follow_app_theme(self, flat::slider, flora::slider),
         }
     }
 }
@@ -491,7 +492,7 @@ pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
         // Everything else keeps its default (Tab moves on, Escape clears).
         _ => return Update::DoNothing,
     };
-    let step_fraction = if ks.ctrl_down() || ks.super_down() {
+    let step_fraction = if ks.primary_down() {
         0.10
     } else {
         0.01
@@ -2259,7 +2260,9 @@ mod autotest_generated {
         // theme appends the declarations only it can write — here a dark fill
         // for each of the two nodes, asserted by the test below. Comparing the
         // theme-independent half is what isolates the widget's own styling.
-        let s = Slider::create(75.0, 0.0, 100.0);
+        // (One theme's slider: unpinned, the themes' blocks repeat what they
+        // twin differently.)
+        let s = Slider::create(75.0, 0.0, 100.0).with_theme(crate::widgets::themes::UiTheme::Flat);
         let (track_props, thumb_props) = (
             properties(&s.resolved_track_style()),
             properties(&s.resolved_thumb_style()),
@@ -2284,6 +2287,48 @@ mod autotest_generated {
                     .any(|p| matches!(p, CssProperty::BackgroundContent(_))),
                 "the {what} has no dark fill, so it keeps its light one",
             );
+        }
+    }
+
+    /// A track or thumb style the CALLER set is the caller's in the dark
+    /// mode too: `Some` is an answer (the field docs), so the theme lays no
+    /// paint of its own over it. The status bar's zoom slider injects a
+    /// transparent hit area over its own rail and a raised-paper thumb; the
+    /// looks appended their dark rail fill and accent thumb after them - a
+    /// black box over the rail in flora's dark status bar (WRITER6 W3), a
+    /// grey one in flat's.
+    #[test]
+    fn a_style_the_caller_set_gets_no_paint_from_the_theme() {
+        use crate::widgets::themes::UiTheme;
+        let caller = || {
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(
+                alloc::vec![CssPropertyWithConditions::simple(
+                    CssProperty::const_width(LayoutWidth::const_px(100)),
+                )],
+            ))
+        };
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let mut s = Slider::create(75.0, 0.0, 100.0).with_theme(theme);
+            s.track_style = caller();
+            s.thumb_style = caller();
+            let dom = s.dom();
+            for (what, node) in [("track", &dom), ("thumb", &dom.children.as_ref()[0])] {
+                let painted = |props: Vec<CssProperty>| {
+                    props
+                        .iter()
+                        .any(|p| matches!(p, CssProperty::BackgroundContent(_)))
+                };
+                assert!(
+                    !painted(theme_probe::unthemed(node)),
+                    "{}: the theme painted the caller's {what}",
+                    theme.name()
+                );
+                assert!(
+                    !painted(theme_probe::dark(node)),
+                    "{}: the theme painted the caller's {what} at night",
+                    theme.name()
+                );
+            }
         }
     }
 
@@ -2845,5 +2890,36 @@ mod autotest_generated {
         // Clamped at both ends, so holding an arrow cannot leave the range.
         assert!((step(100.0, 0.0, 100.0, 1.0, true) - 100.0).abs() < 1e-4);
         assert!((step(0.0, 0.0, 100.0, -1.0, true) - 0.0).abs() < 1e-4);
+    }
+}
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: a slider's structure is its base, declared once for every app
+    //! theme - never inside a `@theme(<name>)` block.
+
+    use super::Slider;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_slider_declares_its_structure_once_for_every_theme() {
+        for t in BOTH {
+            // At the start, in the middle and at the end of its track.
+            for value in [0.0_f32, 50.0, 100.0] {
+                let dom = under(t, || {
+                    Slider::create(value, 0.0, 100.0)
+                        .with_accessibility_name("Volume")
+                        .dom()
+                });
+                assert_structure_is_shared(
+                    &format!("slider at {value} built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

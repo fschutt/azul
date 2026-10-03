@@ -241,6 +241,16 @@ pub fn translate_displaylist_to_wr(
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
 
+    // How often each scroll id has been pushed so far. The display list
+    // closes a frame around a box painted outside it and reopens it after
+    // (`DisplayListGenerator::enter_scroll_chain` - a position:fixed header
+    // on a scrolled page, a translucent item inside a plain scroll box), so
+    // one id can open several frames. Each is a spatial node of its own, and
+    // WebRender asserts that no two nodes of a scene share a
+    // `SpatialTreeItemKey`; `set_scroll_offsets` moves every node carrying
+    // the id, so they still scroll as one.
+    let mut scroll_frame_pushes: BTreeMap<u64, u64> = BTreeMap::new();
+
     // Coordinate offset stack - tracks the origin offset for each spatial context.
     // When we enter a scroll frame, items inside have absolute coordinates but
     // WebRender expects coordinates relative to the scroll frame's content_rect origin.
@@ -937,6 +947,12 @@ pub fn translate_displaylist_to_wr(
                 let current_clip = current_clip!();
                 let current_offset = current_offset!();
                 let external_scroll_id = ExternalScrollId(*scroll_id, pipeline_id);
+                let push_index = {
+                    let pushes = scroll_frame_pushes.entry(*scroll_id).or_insert(0);
+                    let index = *pushes;
+                    *pushes += 1;
+                    index
+                };
 
                 // Apply parent offset to frame_rect for correct positioning in parent space
                 let adjusted_frame_rect = apply_offset(frame_rect, current_offset);
@@ -984,7 +1000,7 @@ pub fn translate_displaylist_to_wr(
                     LayoutVector2D::zero(), // external_scroll_offset
                     0,                      // scroll_offset_generation (APZScrollGeneration)
                     HasScrollLinkedEffect::No,
-                    SpatialTreeItemKey::new(*scroll_id, 0),
+                    SpatialTreeItemKey::new(*scroll_id, push_index),
                 );
 
                 log_debug!(
@@ -1337,14 +1353,52 @@ pub fn translate_displaylist_to_wr(
                     // ImageRendering::Auto and PremultipliedAlpha are reasonable defaults
                     use webrender::api::ImageRendering as WrImageRendering;
 
-                    builder.push_image(
-                        &info,
-                        rect,
-                        WrImageRendering::Auto,
-                        WrAlphaType::PremultipliedAlpha,
-                        wr_image_key,
-                        ColorF::WHITE, // No tint by default
-                    );
+                    // An NV12 frame (camera / decoder) is a YUV image: its two
+                    // planes (R8 luma + RG8 chroma, see
+                    // `wr_translate2::nv12_plane_descriptors`) are converted to
+                    // RGB in the shader, in the frame's own matrix and range.
+                    let format = resolved_image.descriptor.format;
+                    let chroma_key = if format.is_nv12() {
+                        renderer_resources
+                            .nv12_chroma_keys
+                            .get(&resolved_image.key)
+                            .copied()
+                    } else {
+                        None
+                    };
+                    match chroma_key {
+                        Some(chroma_key) => {
+                            use webrender::api::{
+                                ColorDepth as WrColorDepth, ColorRange as WrColorRange,
+                                YuvColorSpace as WrYuvColorSpace, YuvData as WrYuvData,
+                            };
+                            builder.push_yuv_image(
+                                &info,
+                                rect,
+                                WrYuvData::NV12(wr_image_key, translate_image_key(chroma_key)),
+                                WrColorDepth::Color8,
+                                if format.is_rec709() {
+                                    WrYuvColorSpace::Rec709
+                                } else {
+                                    WrYuvColorSpace::Rec601
+                                },
+                                if format.is_full_range() {
+                                    WrColorRange::Full
+                                } else {
+                                    WrColorRange::Limited
+                                },
+                                WrImageRendering::Auto,
+                            );
+                        }
+                        None => builder.push_image(
+                            &info,
+                            rect,
+                            WrImageRendering::Auto,
+                            WrAlphaType::PremultipliedAlpha,
+                            wr_image_key,
+                            ColorF::WHITE, // No tint by default
+                        ),
+                    }
                 } else {
                     log_debug!(
                         LogCategory::DisplayList,
@@ -1609,46 +1663,57 @@ pub fn translate_displaylist_to_wr(
                 // Convert CSS gradient to WebRender gradient
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
-                // Create layout rect for computing gradient points (use scaled size)
-                use azul_css::props::basic::{
-                    LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
-                    LayoutSize as CssLayoutSize,
-                };
                 let scaled_width = scale_px(bounds.0.size.width, dpi_scale);
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
-                let layout_rect = CssLayoutRect {
-                    origin: CssLayoutPoint::new(0, 0),
-                    size: CssLayoutSize {
-                        width: scaled_width.round() as isize,
-                        height: scaled_height.round() as isize,
-                    },
-                };
 
-                // Get start and end points from direction
-                let (start, end) = gradient.direction.to_points(&layout_rect);
-                let start_point = LayoutPoint::new(start.x as f32, start.y as f32);
-                let end_point = LayoutPoint::new(end.x as f32, end.y as f32);
-
-                // Convert extend mode
+                // The gradient line and every stop on it, from the resolver the
+                // CPU renderer shares (CSS Images 3: `90deg` runs like `to right`,
+                // a stop at a length sits at that length, a hard stop is two stops
+                // at one offset - WebRender draws those as a hard change). It
+                // works in the box's CSS px; the line is scaled to device px.
+                use azul_css::props::style::background::{color_stops_on_the_line, ExtendMode};
+                let mut resolved =
+                    gradient.resolve_in_box(bounds.0.size.width, bounds.0.size.height);
                 let extend_mode = match gradient.extend_mode {
-                    azul_css::props::style::background::ExtendMode::Clamp => WrExtendMode::Clamp,
-                    azul_css::props::style::background::ExtendMode::Repeat => WrExtendMode::Repeat,
+                    ExtendMode::Clamp => WrExtendMode::Clamp,
+                    ExtendMode::Repeat => {
+                        // The first..last stop span is what repeats.
+                        resolved = resolved.to_repeat_period();
+                        WrExtendMode::Repeat
+                    }
                 };
+                let start_point = LayoutPoint::new(
+                    scale_px(resolved.start.0, dpi_scale),
+                    scale_px(resolved.start.1, dpi_scale),
+                );
+                let end_point = LayoutPoint::new(
+                    scale_px(resolved.end.0, dpi_scale),
+                    scale_px(resolved.end.1, dpi_scale),
+                );
 
-                // Convert gradient stops
-                let wr_stops: Vec<WrGradientStop> = gradient
+                // Convert gradient stops (a clamped gradient only samples the
+                // line itself, so its stops are cut to 0..=1 there).
+                use azul_css::props::basic::color::ColorU as CssColorU;
+                let stops: Vec<(f32, CssColorU)> = resolved
                     .stops
-                    .as_ref()
                     .iter()
-                    .map(|stop| {
-                        WrGradientStop {
-                            offset: stop.offset.normalized(), // normalized() returns 0-1 range
-                            color: wr_translate_color_f(
-                                azul_css::props::basic::color::ColorF::from(
-                                    stop.color.to_color_u_default(),
-                                ),
-                            ),
-                        }
+                    .map(|(t, color)| (*t, color.to_color_u_default()))
+                    .collect();
+                let stops = match gradient.extend_mode {
+                    ExtendMode::Clamp => {
+                        color_stops_on_the_line(&stops, |from: CssColorU, to: CssColorU, t: f32| {
+                            from.interpolate(&to, t)
+                        })
+                    }
+                    ExtendMode::Repeat => stops,
+                };
+                let wr_stops: Vec<WrGradientStop> = stops
+                    .iter()
+                    .map(|&(offset, color)| WrGradientStop {
+                        offset,
+                        color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(
+                            color,
+                        )),
                     })
                     .collect();
 
@@ -2461,8 +2526,12 @@ fn translate_style_filters_to_wr(
     filters: &[azul_css::props::style::filter::StyleFilter],
     dpi_scale: f32,
 ) -> Vec<WrFilterOp> {
-    use azul_css::props::style::filter::StyleFilter;
+    use azul_css::props::style::filter::{fold_flood_in, StyleFilter};
 
+    // WebRender's `Flood` REPLACES its input with the colour and it has no
+    // composite step, so `flood(c) composite(in)` - an icon tint - would paint
+    // a filled box (ledger E15). The pair is one colour matrix; fold it first.
+    let filters = fold_flood_in(filters);
     filters
         .iter()
         .filter_map(|f| match f {
@@ -2496,14 +2565,11 @@ fn translate_style_filters_to_wr(
             StyleFilter::Invert(v) => Some(WrFilterOp::Invert(v.normalized())),
             StyleFilter::Saturate(v) => Some(WrFilterOp::Saturate(v.normalized())),
             StyleFilter::Sepia(v) => Some(WrFilterOp::Sepia(v.normalized())),
-            StyleFilter::ColorMatrix(m) => {
-                let vals = m.to_array();
-                let mut arr = [0.0f32; 20];
-                for (i, v) in vals.iter().enumerate() {
-                    arr[i] = v.get();
-                }
-                Some(WrFilterOp::ColorMatrix(arr))
-            }
+            // The azul matrix is row-major (SVG order); WebRender takes the
+            // input-channel columns, then the offsets. Passed through as-is
+            // (as it was) the matrix was scrambled - the icon grayscale
+            // matrix came out as a different colour transform entirely.
+            StyleFilter::ColorMatrix(m) => Some(WrFilterOp::ColorMatrix(m.to_column_major())),
             StyleFilter::DropShadow(s) => {
                 let offset = LayoutVector2D::new(
                     scale_px(

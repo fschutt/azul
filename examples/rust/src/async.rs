@@ -5,8 +5,7 @@ use azul::{
     option::OptionRefAny,
     prelude::*,
     task::ThreadPool,
-    widgets::{MapSetup, MapTileLayer, MapViewport, MapWidget},
-    window::MapTheme,
+    widgets::{MapSetup, MapTheme, MapTileLayer, MapViewport, MapWidget},
 };
 
 struct MapState {

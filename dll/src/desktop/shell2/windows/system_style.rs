@@ -1,6 +1,7 @@
 //! Native Windows system style discovery via LoadLibrary + GetProcAddress.
 //!
-//! This module loads `User32.dll`, `Dwmapi.dll`, and `UxTheme.dll` at runtime,
+//! This module loads `User32.dll` at runtime (the accent comes from the
+//! registry via `reg`, see `discover_windows_cli_extras`),
 //! queries system metrics, colours, and input timing, then immediately frees
 //! the library handles.
 //!
@@ -9,16 +10,16 @@
 
 #![allow(non_snake_case)]
 
-use alloc::{boxed::Box, string::String};
+use alloc::string::String;
 use core::ffi::c_void;
 
 use azul_css::{
     corety::AzString,
-    css::Css,
     dynamic_selector::{BoolCondition, OsVersion},
-    parser2::new_from_str,
     props::basic::color::{ColorU, OptionColorU},
-    system::{defaults, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme},
+    system::{
+        defaults, windows_accent, InputMetrics, Platform, SubpixelType, TextRenderingHints, DarkLightMode,
+    },
 };
 
 // ── kernel32 functions (always linked on Windows) ────────────────────────
@@ -55,7 +56,6 @@ type FnGetDoubleClickTime = unsafe extern "system" fn() -> u32;
 type FnGetCaretBlinkTime = unsafe extern "system" fn() -> u32;
 type FnSystemParametersInfoW = unsafe extern "system" fn(u32, u32, *mut c_void, u32) -> i32;
 type FnGetSysColor = unsafe extern "system" fn(i32) -> u32;
-type FnDwmGetColorizationColor = unsafe extern "system" fn(*mut u32, *mut i32) -> i32;
 
 // ── Library wrapper ──────────────────────────────────────────────────────
 
@@ -107,39 +107,6 @@ impl Drop for User32 {
     }
 }
 
-struct Dwmapi {
-    DwmGetColorizationColor: FnDwmGetColorizationColor,
-    _handle: *mut c_void,
-}
-
-impl Dwmapi {
-    fn load() -> Option<Self> {
-        unsafe {
-            let h = LoadLibraryA(b"Dwmapi.dll\0".as_ptr());
-            if h.is_null() {
-                return None;
-            }
-            let p = GetProcAddress(h, b"DwmGetColorizationColor\0".as_ptr());
-            if p.is_null() {
-                FreeLibrary(h);
-                return None;
-            }
-            Some(Dwmapi {
-                DwmGetColorizationColor: core::mem::transmute(p),
-                _handle: h,
-            })
-        }
-    }
-}
-
-impl Drop for Dwmapi {
-    fn drop(&mut self) {
-        unsafe {
-            FreeLibrary(self._handle);
-        }
-    }
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 fn color_from_sys(u32: &FnGetSysColor, index: i32) -> ColorU {
@@ -156,7 +123,7 @@ fn color_from_sys(u32: &FnGetSysColor, index: i32) -> ColorU {
 /// Discover Windows system style via LoadLibrary.
 ///
 /// Falls back to `defaults::windows_11_light()` if any DLL fails to load.
-pub(crate) fn discover() -> azul_css::system::SystemStyle {
+pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> azul_css::system::SystemStyle {
     let u32_lib = match User32::load() {
         Some(l) => l,
         None => return defaults::windows_11_light(),
@@ -216,6 +183,22 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         style.colors.button_face = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 15));
         style.colors.button_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 18));
         style.colors.disabled_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 17));
+        // The rest of the semantic slots that have a classic counterpart.
+        // Outside high contrast `adopt_theme_palette` below replaces the
+        // palette wholesale (GetSysColor stays light in dark mode); under
+        // high contrast these ARE the user's colours.
+        // COLOR_WINDOW = 5 (edit fields), COLOR_HIGHLIGHT = 13,
+        // COLOR_HIGHLIGHTTEXT = 14, COLOR_BTNSHADOW = 16, COLOR_GRAYTEXT = 17,
+        // COLOR_HOTLIGHT = 26 (hyperlinks)
+        style.colors.control_background =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 5));
+        style.colors.placeholder_text =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 17));
+        style.colors.text_selection_background =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 13));
+        style.colors.accent_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 14));
+        style.colors.separator = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 16));
+        style.colors.link = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 26));
 
         // ── Text rendering hints ─────────────────────────────────────
         {
@@ -245,20 +228,9 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
             };
         }
 
-        // ── DWM accent colour ────────────────────────────────────────
-        if let Some(dwm) = Dwmapi::load() {
-            let mut colorization: u32 = 0;
-            let mut opaque_blend: i32 = 0;
-            let hr = (dwm.DwmGetColorizationColor)(&mut colorization, &mut opaque_blend);
-            if hr >= 0 {
-                // DwmGetColorizationColor returns 0xAARRGGBB
-                let a = ((colorization >> 24) & 0xFF) as u8;
-                let r = ((colorization >> 16) & 0xFF) as u8;
-                let g = ((colorization >> 8) & 0xFF) as u8;
-                let b = (colorization & 0xFF) as u8;
-                style.colors.accent = OptionColorU::Some(ColorU::new(r, g, b, a));
-            }
-        }
+        // The accent is NOT read here: `DwmGetColorizationColor` is the
+        // window-FRAME colourisation (0xAARRGGBB with a translucent alpha),
+        // not the UI accent. `discover_windows_cli_extras` reads the real one.
 
         // ── Dark mode detection (registry-based, same as old `io` path)
         // We keep this simple: check HKCU\...\Personalize\AppsUseLightTheme
@@ -268,7 +240,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         if let Some(ref bg) = style.colors.window_background.as_option() {
             let luma = (bg.r as u16 + bg.g as u16 + bg.b as u16) / 3;
             if luma < 128 {
-                style.theme = azul_css::system::Theme::Dark;
+                style.theme = DarkLightMode::Dark;
             }
         }
 
@@ -324,7 +296,10 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
     // ── CLI fallback discovery ───────────────────────────────────────
     discover_windows_cli_extras(&mut style);
     style.os_version = detect_windows_version();
-    style.language = detect_language_windows();
+    style.language = azul_css::system::SystemLanguage::resolve(
+        detect_language_windows().as_str(),
+        known_languages,
+    );
 
     let rm = detect_windows_reduced_motion();
     if rm == BoolCondition::True {
@@ -348,17 +323,17 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         );
     }
 
-    if let Some(sheet) = load_app_specific_stylesheet() {
-        style.app_specific_stylesheet = Some(Box::new(sheet));
-    }
+    // The user's stylesheets (`%USERPROFILE%\.azul\css\<theme>\`, and the
+    // legacy `%APPDATA%\azul\styles\<exe>.css`) are not a system style: the
+    // rice loader (`azul_css::rice`) reads them for every window.
 
     discover_windows_riced_style(&mut style);
 
-    // `AZ_THEME=light|dark` overrides the lot — see
-    // `azul_css::system::apply_env_theme_pin`. Applied last so it outranks
+    // `AZ_MODE=light|dark` overrides the lot — see
+    // `azul_css::system::apply_env_mode_pin`. Applied last so it outranks
     // every probe above, and reaching the SYSTEM style (not just the cascade)
     // is what keeps a pinned capture's BACKGROUND in the theme it asked for.
-    azul_css::system::apply_env_theme_pin(
+    azul_css::system::apply_env_mode_pin(
         &mut style,
         defaults::windows_11_light,
         defaults::windows_11_dark,
@@ -423,44 +398,38 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
         2000,
     ) {
         if output.contains("0x0") {
-            style.theme = Theme::Dark;
+            style.theme = DarkLightMode::Dark;
         } else if output.contains("0x1") {
-            style.theme = Theme::Light;
+            style.theme = DarkLightMode::Light;
         }
     }
 
-    // ── Accent colour from DWM registry key ─────────────────────────
-    if let Ok(output) = run_command_with_timeout(
+    // ── UI accent colour ────────────────────────────────────────────
+    // The accent Windows draws its UI with (what
+    // `UISettings.GetColorValue(UIColorType::Accent)` returns) is
+    // `AccentColorMenu` under Explorer\Accent, next to the `AccentPalette`
+    // shades; DWM's `AccentColor` mirrors it. The parsing lives in
+    // `azul_css::system::windows_accent` so it is tested on every platform.
+    // The selection colours keep their own values: the accent is NOT
+    // copied into `selection_background` any more.
+    let accent = run_command_with_timeout(
         "reg",
-        &[
-            "query",
-            r"HKCU\Software\Microsoft\Windows\DWM",
-            "/v",
-            "AccentColor",
-        ],
+        &["query", windows_accent::EXPLORER_ACCENT_KEY],
         2000,
-    ) {
-        // Output line looks like: "    AccentColor    REG_DWORD    0xffb16300"
-        // The value is in ABGR format.
-        if let Some(hex_start) = output.find("0x") {
-            let hex_str = &output[hex_start + 2..];
-            let hex_str = hex_str.trim();
-            // Take only the hex digits (up to 8 characters)
-            let hex_digits: String = hex_str
-                .chars()
-                .take(8)
-                .filter(|c| c.is_ascii_hexdigit())
-                .collect();
-            if let Ok(val) = u32::from_str_radix(&hex_digits, 16) {
-                let a = ((val >> 24) & 0xFF) as u8;
-                let b = ((val >> 16) & 0xFF) as u8;
-                let g = ((val >> 8) & 0xFF) as u8;
-                let r = (val & 0xFF) as u8;
-                let accent = ColorU::new(r, g, b, a);
-                style.colors.accent = OptionColorU::Some(accent);
-                style.colors.selection_background = OptionColorU::Some(accent);
-            }
-        }
+    )
+    .ok()
+    .and_then(|output| windows_accent::accent_from_reg_query(&output))
+    .or_else(|| {
+        run_command_with_timeout(
+            "reg",
+            &["query", windows_accent::DWM_KEY, "/v", "AccentColor"],
+            2000,
+        )
+        .ok()
+        .and_then(|output| windows_accent::accent_from_reg_query(&output))
+    });
+    if let Some(accent) = accent {
+        windows_accent::apply_accent(style, accent);
     }
 }
 
@@ -598,33 +567,6 @@ fn detect_language_windows() -> AzString {
     }
 
     AzString::from_const_str("en-US")
-}
-
-/// Load an application-specific stylesheet from
-/// `%APPDATA%\azul\styles\<exe_name>.css`.
-fn load_app_specific_stylesheet() -> Option<Css> {
-    use std::{env, path::PathBuf};
-
-    if !azul_css::system::ricing_enabled() {
-        return None;
-    }
-
-    let appdata = env::var("APPDATA").ok()?;
-    let exe_path = env::current_exe().ok()?;
-    let exe_stem = exe_path.file_stem()?.to_str()?;
-
-    let mut css_path = PathBuf::from(&appdata);
-    css_path.push("azul");
-    css_path.push("styles");
-    css_path.push(format!("{}.css", exe_stem));
-
-    let css_text = std::fs::read_to_string(&css_path).ok()?;
-    let (css, _warnings) = new_from_str(&css_text);
-    if css.is_empty() {
-        None
-    } else {
-        Some(css)
-    }
 }
 
 /// Check for "riced" style overrides from popular Windows customisation tools.

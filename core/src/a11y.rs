@@ -12,7 +12,9 @@
 
 use alloc::vec::Vec;
 
-use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
+use azul_css::{
+    corety::OptionUsize, props::basic::length::FloatValue, AzString, OptionF32, OptionString,
+};
 
 use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
 
@@ -43,6 +45,14 @@ pub struct AccessibilityInfo {
     pub labelled_by: OptionDomNodeId,
     /// ID of another node that describes this one (for `aria-describedby`).
     pub described_by: OptionDomNodeId,
+    /// A grid or table cell's row in the WHOLE grid, 1-based
+    /// (`aria-rowindex`): a virtualised grid renders a window of its rows, so
+    /// the DOM position does not say which row a cell is in. Maps to
+    /// accesskit's `row_index`.
+    pub row_index: OptionUsize,
+    /// A grid or table cell's column in the WHOLE grid, 1-based
+    /// (`aria-colindex`). Maps to accesskit's `column_index`.
+    pub column_index: OptionUsize,
     /// The element's role (e.g., link, static text, checkbox).
     pub role: AccessibilityRole,
     /// For live regions that update automatically (e.g., chat messages, timers).
@@ -102,6 +112,12 @@ impl AccessibilityInfo {
         if patch.described_by.is_some() {
             self.described_by = patch.described_by;
         }
+        if patch.row_index.is_some() {
+            self.row_index = patch.row_index;
+        }
+        if patch.column_index.is_some() {
+            self.column_index = patch.column_index;
+        }
         if !matches!(patch.role, AccessibilityRole::Unknown) {
             self.role = patch.role;
         }
@@ -138,6 +154,8 @@ impl Default for AccessibilityInfo {
             supported_actions: AccessibilityActionVec::from_const_slice(&[]),
             labelled_by: OptionDomNodeId::None,
             described_by: OptionDomNodeId::None,
+            row_index: OptionUsize::None,
+            column_index: OptionUsize::None,
             role: AccessibilityRole::Unknown,
             is_live_region: false,
         }
@@ -381,6 +399,14 @@ pub enum AccessibilityRole {
     Nothing,
     /// Unknown or unspecified role.
     Unknown,
+    /// Represents an interactive grid of cells the user moves a cell cursor
+    /// through and edits in place - a spreadsheet (WAI-ARIA `grid`). APPENDED
+    /// at the end for ABI stability.
+    Grid,
+    /// Represents one cell of a `Grid` (WAI-ARIA `gridcell`); pair it with
+    /// `AccessibilityInfo::row_index` / `column_index`. APPENDED at the end
+    /// for ABI stability.
+    GridCell,
 }
 
 impl_option!(
@@ -431,6 +457,12 @@ pub enum AccessibilityState {
     Multiselectable,
     /// The element contains protected content that should not be read aloud.
     Protected,
+    /// A column header whose column the rows are sorted by, ascending
+    /// (`aria-sort="ascending"`).
+    SortedAscending,
+    /// A column header whose column the rows are sorted by, descending
+    /// (`aria-sort="descending"`).
+    SortedDescending,
 }
 
 impl_option!(
@@ -524,6 +556,8 @@ impl SmallAriaInfo {
             is_live_region: false,
             labelled_by: OptionDomNodeId::None,
             described_by: OptionDomNodeId::None,
+            row_index: OptionUsize::None,
+            column_index: OptionUsize::None,
         }
     }
 }
@@ -618,6 +652,8 @@ impl ProgressAriaInfo {
             is_live_region: false,
             labelled_by: OptionDomNodeId::None,
             described_by: OptionDomNodeId::None,
+            row_index: OptionUsize::None,
+            column_index: OptionUsize::None,
         }
     }
 }
@@ -714,6 +750,8 @@ impl MeterAriaInfo {
             is_live_region: false,
             labelled_by: OptionDomNodeId::None,
             described_by: OptionDomNodeId::None,
+            row_index: OptionUsize::None,
+            column_index: OptionUsize::None,
         }
     }
 }
@@ -803,6 +841,8 @@ impl DialogAriaInfo {
             is_live_region: false,
             labelled_by: OptionDomNodeId::None,
             described_by: OptionDomNodeId::None,
+            row_index: OptionUsize::None,
+            column_index: OptionUsize::None,
         }
     }
 }

@@ -212,19 +212,19 @@ mod autotest_generated {
         ]
     }
 
-    fn all_themes() -> Vec<ThemeCondition> {
+    /// Every mode a context can be in (an app theme name or "system
+    /// preferred" is not a mode: the context holds light or dark).
+    fn all_themes() -> Vec<azul_css::system::DarkLightMode> {
         vec![
-            ThemeCondition::Light,
-            ThemeCondition::Dark,
-            ThemeCondition::Custom(AzString::from("neon")),
-            ThemeCondition::SystemPreferred,
+            azul_css::system::DarkLightMode::Light,
+            azul_css::system::DarkLightMode::Dark,
         ]
     }
 
-    fn ctx(os: OsCondition, theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(os: OsCondition, theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
             os,
-            theme,
+            mode: theme,
             ..DynamicSelectorContext::default()
         }
     }
@@ -332,8 +332,12 @@ mod autotest_generated {
 
     #[test]
     fn unknown_elements_default_to_inline_display() {
-        // Per CSS spec, unknown/custom elements are inline.
-        for nt in [NodeType::Address, NodeType::Legend, NodeType::Meter] {
+        // Per CSS spec, unknown/custom elements are inline: these are the
+        // node types WITHOUT a row of their own, so they take the `(_,
+        // Display)` catch-all. `address` was listed here until it got its
+        // `display: block` (HTML rendering 15.3.3) - an element with a UA
+        // rule is a known one, and its rule is what this table says.
+        for nt in [NodeType::Output, NodeType::Legend, NodeType::Meter] {
             assert_eq!(display_of(&nt), LayoutDisplay::Inline, "{nt:?}");
         }
     }
@@ -524,6 +528,11 @@ mod autotest_generated {
             NodeType::Script,
             NodeType::Style,
             NodeType::Link,
+            // SVG `<desc>` describes the drawing; it is not part of it. An
+            // icon theme's file carries one, and rendering it put the
+            // description on screen next to the glyph - the same defect as
+            // `<metadata>`, one element along.
+            NodeType::SvgDesc,
         ] {
             assert_eq!(
                 display_of(&nt),
@@ -687,16 +696,10 @@ mod autotest_generated {
     #[test]
     fn button_border_is_symmetric_on_all_four_sides() {
         let widths = [
-            (CssPropertyType::BorderTopWidth, &BUTTON_BORDER_TOP_WIDTH),
-            (
-                CssPropertyType::BorderBottomWidth,
-                &BUTTON_BORDER_BOTTOM_WIDTH,
-            ),
-            (CssPropertyType::BorderLeftWidth, &BUTTON_BORDER_LEFT_WIDTH),
-            (
-                CssPropertyType::BorderRightWidth,
-                &BUTTON_BORDER_RIGHT_WIDTH,
-            ),
+            (CssPropertyType::BorderTopWidth, &BORDER_TOP_WIDTH_1PX),
+            (CssPropertyType::BorderBottomWidth, &BORDER_BOTTOM_WIDTH_1PX),
+            (CssPropertyType::BorderLeftWidth, &BORDER_LEFT_WIDTH_1PX),
+            (CssPropertyType::BorderRightWidth, &BORDER_RIGHT_WIDTH_1PX),
         ];
         for (pt, want) in widths {
             assert_eq!(get_ua_property(&NodeType::Button, pt), Some(want), "{pt:?}");
@@ -741,42 +744,86 @@ mod autotest_generated {
         );
     }
 
-    /// `<hr>` draws its line from the *border*, not from a height — height must
-    /// be exactly 0px, and the width exactly 100%.
+    /// `<hr>` is the HTML Standard's rule (15.3.11, as Chrome draws it): a 1px
+    /// inset gray border on ALL FOUR sides around no height - 2px tall - at
+    /// `width: auto` with `margin-inline: auto` (as wide as its block, centred
+    /// when narrowed). It was the top border alone at `width: 100%`.
     #[test]
-    fn hr_line_comes_from_the_border_not_from_height() {
+    fn hr_is_a_two_pixel_inset_rule_with_an_auto_width() {
         match get_ua_property(&NodeType::Hr, CssPropertyType::Height) {
             Some(CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(pv)))) => {
                 assert_eq!(pv.metric, SizeMetric::Px);
                 assert!(
                     (pv.number.get() - 0.0).abs() < 1e-6,
-                    "hr height must be 0px"
+                    "hr height must be 0px: the rule is its borders"
                 );
             }
             other => panic!("hr height: {other:?}"),
         }
-        match get_ua_property(&NodeType::Hr, CssPropertyType::Width) {
-            Some(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(pv)))) => {
-                assert_eq!(pv.metric, SizeMetric::Percent);
-                assert!(
-                    (pv.number.get() - 100.0).abs() < 1e-4,
-                    "hr width must be 100%"
-                );
-            }
-            other => panic!("hr width: {other:?}"),
+        assert_eq!(
+            get_ua_property(&NodeType::Hr, CssPropertyType::Width),
+            None,
+            "hr width is auto (no UA width), so a side margin keeps it inside its block"
+        );
+        assert_eq!(
+            get_ua_property(&NodeType::Hr, CssPropertyType::MarginLeft),
+            Some(&MARGIN_LEFT_AUTO)
+        );
+        assert_eq!(
+            get_ua_property(&NodeType::Hr, CssPropertyType::MarginRight),
+            Some(&MARGIN_RIGHT_AUTO)
+        );
+        let sides = [
+            (
+                CssPropertyType::BorderTopStyle,
+                &BORDER_TOP_STYLE_INSET,
+                CssPropertyType::BorderTopWidth,
+                &BORDER_TOP_WIDTH_1PX,
+                CssPropertyType::BorderTopColor,
+                &BORDER_TOP_COLOR_GRAY,
+            ),
+            (
+                CssPropertyType::BorderBottomStyle,
+                &BORDER_BOTTOM_STYLE_INSET,
+                CssPropertyType::BorderBottomWidth,
+                &BORDER_BOTTOM_WIDTH_1PX,
+                CssPropertyType::BorderBottomColor,
+                &BORDER_BOTTOM_COLOR_GRAY,
+            ),
+            (
+                CssPropertyType::BorderLeftStyle,
+                &BORDER_LEFT_STYLE_INSET,
+                CssPropertyType::BorderLeftWidth,
+                &BORDER_LEFT_WIDTH_1PX,
+                CssPropertyType::BorderLeftColor,
+                &BORDER_LEFT_COLOR_GRAY,
+            ),
+            (
+                CssPropertyType::BorderRightStyle,
+                &BORDER_RIGHT_STYLE_INSET,
+                CssPropertyType::BorderRightWidth,
+                &BORDER_RIGHT_WIDTH_1PX,
+                CssPropertyType::BorderRightColor,
+                &BORDER_RIGHT_COLOR_GRAY,
+            ),
+        ];
+        for (style_pt, style, width_pt, width, color_pt, color) in sides {
+            assert_eq!(
+                get_ua_property(&NodeType::Hr, style_pt),
+                Some(style),
+                "{style_pt:?}"
+            );
+            assert_eq!(
+                get_ua_property(&NodeType::Hr, width_pt),
+                Some(width),
+                "{width_pt:?}"
+            );
+            assert_eq!(
+                get_ua_property(&NodeType::Hr, color_pt),
+                Some(color),
+                "{color_pt:?}"
+            );
         }
-        assert_eq!(
-            get_ua_property(&NodeType::Hr, CssPropertyType::BorderTopStyle),
-            Some(&BORDER_TOP_STYLE_INSET)
-        );
-        assert_eq!(
-            get_ua_property(&NodeType::Hr, CssPropertyType::BorderTopWidth),
-            Some(&BORDER_TOP_WIDTH_1PX)
-        );
-        assert_eq!(
-            get_ua_property(&NodeType::Hr, CssPropertyType::BorderTopColor),
-            Some(&BORDER_TOP_COLOR_GRAY)
-        );
     }
 
     #[test]
@@ -807,9 +854,12 @@ mod autotest_generated {
 
     #[test]
     fn inline_emphasis_and_link_defaults() {
+        // The ELEMENT row of `<a>` carries no underline: only a link
+        // (`<a href>`) is underlined, through `get_ua_link_property`
+        // (`only_an_a_with_an_href_is_underlined`).
         assert_eq!(
             get_ua_property(&NodeType::A, CssPropertyType::TextDecoration),
-            Some(&TEXT_DECORATION_UNDERLINE)
+            None
         );
         assert_eq!(
             get_ua_property(&NodeType::U, CssPropertyType::TextDecoration),
@@ -1114,7 +1164,7 @@ mod autotest_generated {
     fn per_os_and_theme_defaults_are_what_the_table_promises() {
         let cases: Vec<(
             OsCondition,
-            ThemeCondition,
+            azul_css::system::DarkLightMode,
             LayoutScrollbarWidth,
             ScrollbarVisibilityMode,
             u32,
@@ -1123,7 +1173,7 @@ mod autotest_generated {
         )> = vec![
             (
                 OsCondition::MacOS,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1145,7 +1195,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::MacOS,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1167,7 +1217,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Windows,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1189,7 +1239,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Windows,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1211,7 +1261,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::IOS,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1228,7 +1278,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::IOS,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 500,
@@ -1245,7 +1295,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Android,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 300,
@@ -1262,7 +1312,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Android,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Thin,
                 ScrollbarVisibilityMode::WhenScrolling,
                 300,
@@ -1281,7 +1331,7 @@ mod autotest_generated {
                 // Linux has no OS-specific colour rule: dark falls through to the
                 // generic dark entry.
                 OsCondition::Linux,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1303,7 +1353,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Linux,
-                ThemeCondition::Light,
+                azul_css::system::DarkLightMode::Light,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1312,7 +1362,7 @@ mod autotest_generated {
             ),
             (
                 OsCondition::Web,
-                ThemeCondition::Dark,
+                azul_css::system::DarkLightMode::Dark,
                 LayoutScrollbarWidth::Auto,
                 ScrollbarVisibilityMode::Always,
                 0,
@@ -1347,40 +1397,9 @@ mod autotest_generated {
         }
     }
 
-    /// `match_theme` compares by equality (except when the *condition* is
-    /// `SystemPreferred`), so a context theme of `Custom(..)` / `SystemPreferred`
-    /// matches no `@theme` rule at all — every such context must still resolve a
-    /// colour, via the unconditional fallback.
-    #[test]
-    fn unrecognised_context_themes_fall_back_instead_of_failing() {
-        for theme in [
-            ThemeCondition::Custom(AzString::from("")),
-            ThemeCondition::Custom(AzString::from("🎨")),
-            ThemeCondition::SystemPreferred,
-        ] {
-            // OS-conditioned properties still apply — only the theme rules miss.
-            let r = evaluate_ua_scrollbar_css(&ctx(OsCondition::MacOS, theme.clone()));
-            assert_eq!(r.width, LayoutScrollbarWidth::Thin, "{theme:?}");
-            assert_eq!(
-                r.visibility,
-                ScrollbarVisibilityMode::WhenScrolling,
-                "{theme:?}"
-            );
-            assert_eq!(
-                unwrap_custom(r.color),
-                (CLASSIC_LIGHT_THUMB, CLASSIC_LIGHT_TRACK),
-                "{theme:?}: must fall back to the unconditional colour"
-            );
-        }
-    }
-
-    /// `OsCondition::Apple` is condition-side sugar (it *matches* MacOS/IOS); as a
-    /// *context* value it equals neither, so an `Apple` context gets the generic
-    /// defaults. `DynamicSelectorContext::from_system_style` never produces it, so
-    /// this pins down the (slightly surprising) behaviour rather than blessing it.
     #[test]
     fn apple_as_a_context_os_matches_no_macos_or_ios_rule() {
-        let r = evaluate_ua_scrollbar_css(&ctx(OsCondition::Apple, ThemeCondition::Dark));
+        let r = evaluate_ua_scrollbar_css(&ctx(OsCondition::Apple, azul_css::system::DarkLightMode::Dark));
         assert_eq!(r.width, LayoutScrollbarWidth::Auto);
         assert_eq!(r.visibility, ScrollbarVisibilityMode::Always);
         assert_eq!(r.fade_delay.ms, 0);
@@ -1494,7 +1513,7 @@ mod autotest_generated {
         for (w, h) in hostile {
             let c = DynamicSelectorContext {
                 os: OsCondition::MacOS,
-                theme: ThemeCondition::Dark,
+                mode: azul_css::system::DarkLightMode::Dark,
                 de_version: u32::MAX,
                 viewport_width: w,
                 viewport_height: h,
@@ -1547,10 +1566,10 @@ mod themed_ua_colours {
         ua_css::{get_ua_property, get_ua_property_themed},
     };
 
-    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
             os: OsCondition::MacOS,
-            theme,
+            mode: theme,
             ..DynamicSelectorContext::default()
         }
     }
@@ -1569,13 +1588,13 @@ mod themed_ua_colours {
         let light = get_ua_property_themed(
             &NodeType::Button,
             CssPropertyType::BorderTopColor,
-            Some(&ctx(ThemeCondition::Light)),
+            Some(&ctx(azul_css::system::DarkLightMode::Light)),
         )
         .and_then(border_top);
         let dark = get_ua_property_themed(
             &NodeType::Button,
             CssPropertyType::BorderTopColor,
-            Some(&ctx(ThemeCondition::Dark)),
+            Some(&ctx(azul_css::system::DarkLightMode::Dark)),
         )
         .and_then(border_top);
         assert_eq!(light, Some((200, 200, 200)), "the light border is #c8c8c8");
@@ -1594,9 +1613,12 @@ mod themed_ua_colours {
             (NodeType::Button, CssPropertyType::BorderLeftColor),
             (NodeType::Button, CssPropertyType::BorderRightColor),
             (NodeType::Hr, CssPropertyType::BorderTopColor),
+            (NodeType::Hr, CssPropertyType::BorderBottomColor),
+            (NodeType::Hr, CssPropertyType::BorderLeftColor),
+            (NodeType::Hr, CssPropertyType::BorderRightColor),
         ] {
-            let light = get_ua_property_themed(&node, prop, Some(&ctx(ThemeCondition::Light)));
-            let dark = get_ua_property_themed(&node, prop, Some(&ctx(ThemeCondition::Dark)));
+            let light = get_ua_property_themed(&node, prop, Some(&ctx(azul_css::system::DarkLightMode::Light)));
+            let dark = get_ua_property_themed(&node, prop, Some(&ctx(azul_css::system::DarkLightMode::Dark)));
             assert!(
                 light.is_some() && dark.is_some(),
                 "{node:?}/{prop:?} must resolve"
@@ -1613,7 +1635,7 @@ mod themed_ua_colours {
             get_ua_property(&NodeType::Button, CssPropertyType::BorderTopColor),
         );
         // A non-colour default is untouched by the theme in either mode.
-        for theme in [ThemeCondition::Light, ThemeCondition::Dark] {
+        for theme in [azul_css::system::DarkLightMode::Light, azul_css::system::DarkLightMode::Dark] {
             assert_eq!(
                 get_ua_property_themed(&NodeType::Div, CssPropertyType::Display, Some(&ctx(theme))),
                 get_ua_property(&NodeType::Div, CssPropertyType::Display),
@@ -1634,9 +1656,9 @@ mod one_themed_ua_table {
 
     use crate::ua_css::{get_ua_root_property_themed, UA_PROPERTY_TYPES};
 
-    fn ctx(theme: ThemeCondition) -> DynamicSelectorContext {
+    fn ctx(theme: azul_css::system::DarkLightMode) -> DynamicSelectorContext {
         DynamicSelectorContext {
-            theme,
+            mode: theme,
             ..DynamicSelectorContext::default()
         }
     }
@@ -1654,11 +1676,11 @@ mod one_themed_ua_table {
     fn the_root_text_colour_follows_the_theme() {
         let light = get_ua_root_property_themed(
             CssPropertyType::TextColor,
-            Some(&ctx(ThemeCondition::Light)),
+            Some(&ctx(azul_css::system::DarkLightMode::Light)),
         );
         let dark = get_ua_root_property_themed(
             CssPropertyType::TextColor,
-            Some(&ctx(ThemeCondition::Dark)),
+            Some(&ctx(azul_css::system::DarkLightMode::Dark)),
         );
         assert_eq!(rgb(light), Some((0, 0, 0)), "light: the CSS initial value");
         assert_eq!(
@@ -1689,7 +1711,7 @@ mod one_themed_ua_table {
             CssPropertyType::FontSize,
         ] {
             assert!(
-                get_ua_root_property_themed(pt, Some(&ctx(ThemeCondition::Dark))).is_none(),
+                get_ua_root_property_themed(pt, Some(&ctx(azul_css::system::DarkLightMode::Dark))).is_none(),
                 "{pt:?} is not a document-wide default"
             );
         }
@@ -1773,4 +1795,30 @@ fn editing_hosts_default_to_pre_wrap_and_break_word() {
         ws(get_ua_default(&NodeData::create_node(NodeType::TextArea), false, CssPropertyType::WhiteSpace, None)),
         Some(StyleWhiteSpace::PreWrap)
     );
+}
+
+/// Only a LINK is underlined (HTML rendering 15.3.4: `:link, :visited {
+/// text-decoration: underline }`): an `<a>` without an `href` is a
+/// placeholder, not a hyperlink, and gets neither the link colour nor the
+/// underline. AzMail's sanitizer drops every href it cannot follow
+/// (`{{support_url}}`, `javascript:`), and the mail corpus' postmark invoice
+/// showed "support team" underlined in azul and plain in Chrome.
+#[test]
+fn only_an_a_with_an_href_is_underlined() {
+    use crate::dom::{AttributeType, NodeData};
+
+    let underline = |n: &NodeData| {
+        get_ua_default(n, false, CssPropertyType::TextDecoration, None)
+            == Some(&TEXT_DECORATION_UNDERLINE)
+    };
+    let placeholder = NodeData::create_node(NodeType::A);
+    assert!(!underline(&placeholder), "an <a> without href is not underlined");
+
+    let mut link = NodeData::create_node(NodeType::A);
+    link.set_attributes(
+        vec![AttributeType::Href("https://example.org/".into())].into(),
+    );
+    assert!(underline(&link), "an <a href> is underlined");
+    // <u> and <ins> keep theirs.
+    assert!(underline(&NodeData::create_node(NodeType::U)));
 }

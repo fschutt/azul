@@ -391,6 +391,30 @@ impl KeyModifiers {
     pub const fn is_empty(&self) -> bool {
         !self.shift && !self.ctrl && !self.alt && !self.meta
     }
+
+    /// Is the platform's PRIMARY shortcut modifier held? Cmd (`meta`) on
+    /// macOS, Ctrl everywhere else - the modifier of Copy, Save, Undo and of
+    /// a list's toggle-click.
+    ///
+    /// Test this, never `ctrl || meta`: on a Mac Ctrl+click is the secondary
+    /// click and Ctrl+S is not Save, and elsewhere the Win key is not Ctrl.
+    /// "macOS" means [`crate::window::mac_shortcut_conventions`]: an X11
+    /// window on a Mac follows the Linux rule.
+    #[must_use]
+    pub fn primary_down(&self) -> bool {
+        self.primary_down_for(crate::window::mac_shortcut_conventions())
+    }
+
+    /// [`Self::primary_down`] under the given platform convention: `meta`
+    /// when `mac`, `ctrl` otherwise.
+    #[must_use]
+    pub const fn primary_down_for(&self, mac: bool) -> bool {
+        if mac {
+            self.meta
+        } else {
+            self.ctrl
+        }
+    }
 }
 
 /// What kind of device produced a pointer event.
@@ -1112,6 +1136,16 @@ pub enum EventType {
     /// granted, or lost. Application-level, at the root; the payload is
     /// `EventData::SystemAudio` and `CallbackInfo::get_system_audio_change`.
     SystemAudioChange,
+    /// The caret's TYPING STYLE changed - the formats the next typed text
+    /// takes (Ctrl/Cmd+B / I / U at a collapsed caret, the execCommand state
+    /// override) - with no text changed. APPENDED at the end.
+    ///
+    /// Fired at the editing host after the engine toggled it (the key's
+    /// default action), so a toolbar shows the pressed B at once:
+    /// `CallbackInfo::get_typing_formats(host)` answers the new formats.
+    /// Before, Ctrl+B with no selection reached the app as nothing but its
+    /// KeyDown, which runs BEFORE the toggle (EVENTS7).
+    TypingStyleChanged,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1306,21 +1340,128 @@ pub fn propagate_event(
     node_hierarchy: &crate::id::NodeHierarchy,
     callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
 ) -> PropagationResult {
-    let path = get_dom_path(node_hierarchy, event.target.node);
-    if path.is_empty() {
-        return PropagationResult::default();
+    let dom = event.target.dom;
+    let path: Vec<DomNodeId> = get_dom_path(node_hierarchy, event.target.node)
+        .into_iter()
+        .map(|node| dom_node_at(dom, node))
+        .collect();
+    let along = propagate_event_along(event, &path, &|at: DomNodeId| {
+        at.node
+            .into_crate_internal()
+            .and_then(|node| callbacks.get(&node))
+            .map(Vec::as_slice)
+    });
+    PropagationResult {
+        callbacks_to_invoke: along
+            .callbacks_to_invoke
+            .into_iter()
+            .filter_map(|(at, filter)| Some((at.node.into_crate_internal()?, filter)))
+            .collect(),
+        default_prevented: along.default_prevented,
     }
+}
 
-    let ancestors = &path[..path.len().saturating_sub(1)];
-    let target_node_id = *path.last().unwrap();
+/// `node` of `dom` as a [`DomNodeId`].
+const fn dom_node_at(dom: DomId, node: NodeId) -> DomNodeId {
+    DomNodeId {
+        dom,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+    }
+}
 
-    let mut result = PropagationResult::default();
+/// How many dom boundaries (`VirtualView` pages in pages) an event path
+/// crosses before it stops: a host chain that loops must not spin.
+pub const MAX_EVENT_PATH_DOM_HOPS: usize = 16;
+
+/// The propagation path of an event aimed at `target`, ROOT FIRST - across
+/// the doms that host the target's dom.
+///
+/// A child dom (a `VirtualView` page: a progress bar, a video, a virtualized
+/// list) is content of the node that hosts it in its parent dom, the way a
+/// shadow tree is content of its host element (DOM Standard, "get the
+/// parent": a shadow root's parent is its host). So the path does not end at
+/// the child dom's root: it goes on at the host node and up through the
+/// parent dom, and through that dom's own host, and so on. A double-click
+/// on a drive tile's capacity bar (a `ProgressBar` is a `VirtualView`) is a
+/// double-click on the tile.
+///
+/// `parent_of(dom, node)` is the node's parent in its own dom; `host_of(dom)`
+/// names the node hosting a child dom (`None` for the root dom). A target
+/// without a node has an empty path. Bounded: a node seen twice (a parent or
+/// host cycle) ends the walk, and so does the
+/// [`MAX_EVENT_PATH_DOM_HOPS`]th dom boundary.
+#[must_use]
+pub fn get_event_path(
+    target: DomNodeId,
+    parent_of: &dyn Fn(DomId, NodeId) -> Option<NodeId>,
+    host_of: &dyn Fn(DomId) -> Option<(DomId, NodeId)>,
+) -> Vec<DomNodeId> {
+    let mut path = Vec::new();
+    let Some(mut node) = target.node.into_crate_internal() else {
+        return path;
+    };
+    let mut dom = target.dom;
+    let mut hops = 0;
+    let mut seen: BTreeSet<(DomId, NodeId)> = BTreeSet::new();
+    while seen.insert((dom, node)) {
+        path.push(dom_node_at(dom, node));
+        if let Some(parent) = parent_of(dom, node) {
+            node = parent;
+            continue;
+        }
+        // Past the dom's root: a child dom goes on at the node hosting it.
+        if hops == MAX_EVENT_PATH_DOM_HOPS {
+            break;
+        }
+        let Some((host_dom, host_node)) = host_of(dom) else {
+            break;
+        };
+        hops += 1;
+        dom = host_dom;
+        node = host_node;
+    }
+    path.reverse();
+    path
+}
+
+/// Result of an event's propagation along a path that may cross doms
+/// ([`propagate_event_along`]).
+#[derive(Debug, Clone, Default)]
+pub struct PathPropagationResult {
+    /// The nodes whose listeners run, with the filter each one listens
+    /// with, in the order they run.
+    pub callbacks_to_invoke: Vec<(DomNodeId, EventFilter)>,
+    /// Whether default action should be prevented
+    pub default_prevented: bool,
+}
+
+/// [`propagate_event`] along a path that may cross doms
+/// ([`get_event_path`]): capture from the path's root down to the target,
+/// the target, then bubbling back up the path - unless the event type does
+/// not bubble ([`EventType::bubbles`]) or is delivered at its target only
+/// ([`SyntheticEvent::at_target_only`]).
+///
+/// `path` runs root first and ends at the target. `filters_at(node)` is what
+/// that node listens with (`None` when nothing).
+// `'a` is named once: a `dyn Fn` that returns a reference has no input
+// lifetime to elide it from, so it cannot be `'_`.
+#[allow(single_use_lifetimes)]
+pub fn propagate_event_along<'a>(
+    event: &mut SyntheticEvent,
+    path: &[DomNodeId],
+    filters_at: &dyn Fn(DomNodeId) -> Option<&'a [EventFilter]>,
+) -> PathPropagationResult {
+    let Some((&target, ancestors)) = path.split_last() else {
+        return PathPropagationResult::default();
+    };
+
+    let mut result = PathPropagationResult::default();
 
     // A captured release (see `SyntheticEvent::at_target_only`) reaches its
     // target and nothing else: the ancestors get the real release through
     // the hovered node's path.
     if event.at_target_only {
-        propagate_target_phase(event, target_node_id, callbacks, &mut result);
+        propagate_target_phase(event, target, filters_at, &mut result);
         result.default_prevented = event.prevented_default;
         return result;
     }
@@ -1330,13 +1471,13 @@ pub fn propagate_event(
         event,
         ancestors.iter().copied(),
         EventPhase::Capture,
-        callbacks,
+        filters_at,
         &mut result,
     );
 
     // Phase 2: Target
     if !event.stopped {
-        propagate_target_phase(event, target_node_id, callbacks, &mut result);
+        propagate_target_phase(event, target, filters_at, &mut result);
     }
 
     // Phase 3: Bubble (target → root) — unless the event type does not bubble.
@@ -1345,13 +1486,82 @@ pub fn propagate_event(
             event,
             ancestors.iter().rev().copied(),
             EventPhase::Bubble,
-            callbacks,
+            filters_at,
             &mut result,
         );
     }
 
     result.default_prevented = event.prevented_default;
     result
+}
+
+/// The callbacks a pointer event reaches - every `EventFilter::Hover`
+/// listener equal to `filter` on its propagation path - in the order they
+/// run: the target's, then its ancestors' bubbling up, through the doms
+/// that host the target's dom ([`get_event_path`]). Each callback once.
+///
+/// The ONE plan of both dispatchers (the shells'
+/// `dispatch_events_propagated` and the e2e runner's), which each built a
+/// whole dom's callback map per event and propagated inside the target's own
+/// dom only: an event aimed into a `VirtualView` page never reached the
+/// page's host or anything around it.
+///
+/// `styled_dom_of` looks a dom up (`LayoutWindow::layout_results`);
+/// `host_of` names the node that hosts a child dom
+/// (`VirtualViewManager::host_of_nested_dom`).
+// `'a`: see `propagate_event_along`.
+#[allow(single_use_lifetimes)]
+#[must_use]
+pub fn hover_callbacks_along_path<'a>(
+    event: &SyntheticEvent,
+    filter: EventFilter,
+    styled_dom_of: &dyn Fn(DomId) -> Option<&'a crate::styled_dom::StyledDom>,
+    host_of: &dyn Fn(DomId) -> Option<(DomId, NodeId)>,
+) -> Vec<(DomNodeId, crate::callbacks::CoreCallbackData)> {
+    let node_data_of = |at: DomNodeId| -> Option<&'a crate::dom::NodeData> {
+        let node = at.node.into_crate_internal()?;
+        styled_dom_of(at.dom)?
+            .node_data
+            .as_slice()
+            .get(node.index())
+    };
+    let parent_of = |dom: DomId, node: NodeId| -> Option<NodeId> {
+        styled_dom_of(dom)?
+            .node_hierarchy
+            .as_slice()
+            .get(node.index())?
+            .parent_id()
+    };
+    let path = get_event_path(event.target, &parent_of, host_of);
+
+    // A node is on the plan once, whatever number of callbacks it has for
+    // `filter`: the plan below takes all of them, in their order.
+    let listens = [filter];
+    let mut walked = event.clone();
+    let reached = propagate_event_along(&mut walked, &path, &|at: DomNodeId| {
+        node_data_of(at)?
+            .get_callbacks()
+            .as_slice()
+            .iter()
+            .any(|cb| cb.event == filter)
+            .then_some(&listens[..])
+    });
+
+    let mut plan = Vec::new();
+    for (at, _) in reached.callbacks_to_invoke {
+        let Some(node_data) = node_data_of(at) else {
+            continue;
+        };
+        plan.extend(
+            node_data
+                .get_callbacks()
+                .as_slice()
+                .iter()
+                .filter(|cb| cb.event == filter)
+                .map(|cb| (at, cb.clone())),
+        );
+    }
+    plan
 }
 
 impl EventType {
@@ -1375,51 +1585,54 @@ impl EventType {
 }
 
 /// Process a single propagation phase (Capture or Bubble)
-fn propagate_phase(
+// `'a`: see `propagate_event_along`.
+#[allow(single_use_lifetimes)]
+fn propagate_phase<'a>(
     event: &mut SyntheticEvent,
-    nodes: impl Iterator<Item = NodeId>,
+    nodes: impl Iterator<Item = DomNodeId>,
     phase: EventPhase,
-    callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
-    result: &mut PropagationResult,
+    filters_at: &dyn Fn(DomNodeId) -> Option<&'a [EventFilter]>,
+    result: &mut PathPropagationResult,
 ) {
     event.phase = phase;
 
-    for node_id in nodes {
+    for at in nodes {
         if event.stopped_immediate || event.stopped {
             return;
         }
 
-        event.current_target = DomNodeId {
-            dom: event.target.dom,
-            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
-        };
+        // The node of the PATH: across a dom boundary that is the host's dom,
+        // not the target's.
+        event.current_target = at;
 
-        collect_matching_callbacks(event, node_id, phase, callbacks, result);
+        collect_matching_callbacks(event, at, phase, filters_at, result);
     }
 }
 
 /// Process the target phase
-fn propagate_target_phase(
+#[allow(single_use_lifetimes)]
+fn propagate_target_phase<'a>(
     event: &mut SyntheticEvent,
-    target_node_id: NodeId,
-    callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
-    result: &mut PropagationResult,
+    target: DomNodeId,
+    filters_at: &dyn Fn(DomNodeId) -> Option<&'a [EventFilter]>,
+    result: &mut PathPropagationResult,
 ) {
     event.phase = EventPhase::Target;
-    event.current_target = event.target;
+    event.current_target = target;
 
-    collect_matching_callbacks(event, target_node_id, EventPhase::Target, callbacks, result);
+    collect_matching_callbacks(event, target, EventPhase::Target, filters_at, result);
 }
 
 /// Collect callbacks that match the current phase for a node
-fn collect_matching_callbacks(
+#[allow(single_use_lifetimes)]
+fn collect_matching_callbacks<'a>(
     event: &SyntheticEvent,
-    node_id: NodeId,
+    at: DomNodeId,
     phase: EventPhase,
-    callbacks: &BTreeMap<NodeId, Vec<EventFilter>>,
-    result: &mut PropagationResult,
+    filters_at: &dyn Fn(DomNodeId) -> Option<&'a [EventFilter]>,
+    result: &mut PathPropagationResult,
 ) {
-    let Some(node_callbacks) = callbacks.get(&node_id) else {
+    let Some(node_callbacks) = filters_at(at) else {
         return;
     };
 
@@ -1427,7 +1640,7 @@ fn collect_matching_callbacks(
         .iter()
         .take_while(|_| !event.stopped_immediate)
         .filter(|filter| matches_filter_phase(**filter, event, phase))
-        .map(|filter| (node_id, *filter));
+        .map(|filter| (at, *filter));
 
     result.callbacks_to_invoke.extend(matching);
 }
@@ -1533,7 +1746,134 @@ pub enum DefaultAction {
     ResetForm {
         form_node: DomNodeId,
     },
+    /// Directionally scroll `container`, leaving the focus where it is: an
+    /// arrow key for which css-nav-1's spatial navigation steps picked THIS
+    /// container to scroll (no visible candidate in it that way, and it can
+    /// still scroll that way). APPENDED at the enum tail for ABI stability.
+    ///
+    /// Unlike [`Self::ScrollFocusedContainer`], which scrolls the nearest
+    /// overflowing ancestor of the focus, this names the container: the steps
+    /// may have passed an inner one that is at its boundary or says
+    /// `spatial-navigation-action: focus`.
+    ScrollContainer {
+        container: DomNodeId,
+        direction: ScrollDirection,
+        amount: ScrollAmount,
+    },
+    /// Ctrl/Cmd+B, I or U in a RICH contenteditable host: toggle `format`,
+    /// `execCommand("bold" | "italic" | "underline")`. On a collapsed caret it
+    /// sets the typing style the next typed text takes; the execution is
+    /// `LayoutWindow::toggle_text_format`. APPENDED at the enum tail for ABI
+    /// stability.
+    ToggleTextFormat {
+        target: DomNodeId,
+        format: TextFormat,
+    },
+    /// Ctrl/Cmd+Z in an editing host: undo the host's last text edit
+    /// (`SystemChange::UndoTextEdit`). A DEFAULT action, so an editor that
+    /// keeps its own history (the rich-text editor) takes the key with
+    /// `prevent_default` - the browser keydown model. APPENDED at the enum
+    /// tail for ABI stability.
+    UndoTextEdit {
+        target: DomNodeId,
+    },
+    /// Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y in an editing host: redo
+    /// (`SystemChange::RedoTextEdit`), vetoable like
+    /// [`Self::UndoTextEdit`]. APPENDED at the enum tail for ABI stability.
+    RedoTextEdit {
+        target: DomNodeId,
+    },
 }
+
+/// A character format a rich-text editor toggles (Ctrl/Cmd+B, I, U, or a
+/// toolbar button): the inline formatting commands of the execCommand spec
+/// (<https://w3c.github.io/editing/docs/execCommand/#inline-formatting-commands>)
+/// that the engine keeps as a typing style at a collapsed caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub enum TextFormat {
+    /// `font-weight: bold` (`<b>`).
+    Bold,
+    /// `font-style: italic` (`<i>`).
+    Italic,
+    /// `text-decoration: underline` (`<u>`).
+    Underline,
+    /// `text-decoration: line-through` (`<s>`).
+    Strikethrough,
+}
+
+impl TextFormat {
+    /// Every format, in declaration order.
+    pub const ALL: [Self; 4] = [
+        Self::Bold,
+        Self::Italic,
+        Self::Underline,
+        Self::Strikethrough,
+    ];
+}
+
+/// A set of [`TextFormat`]s: the inline formats a stretch of text carries
+/// over the style of the block it is in (`DocumentTextEdit::runs`), or the
+/// formats the text typed next at a caret takes
+/// (`CallbackInfo::get_typing_formats` - what a toolbar shows as pressed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[repr(C)]
+pub struct TextFormatSet {
+    /// `font-weight: bold` (`<b>`).
+    pub bold: bool,
+    /// `font-style: italic` (`<i>`).
+    pub italic: bool,
+    /// `text-decoration: underline` (`<u>`).
+    pub underline: bool,
+    /// `text-decoration: line-through` (`<s>`).
+    pub strikethrough: bool,
+}
+
+impl TextFormatSet {
+    /// No format at all.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        !(self.bold || self.italic || self.underline || self.strikethrough)
+    }
+
+    /// Whether `format` is in the set.
+    #[must_use]
+    pub const fn has(&self, format: TextFormat) -> bool {
+        match format {
+            TextFormat::Bold => self.bold,
+            TextFormat::Italic => self.italic,
+            TextFormat::Underline => self.underline,
+            TextFormat::Strikethrough => self.strikethrough,
+        }
+    }
+
+    /// Put `format` in the set (`on`) or take it out.
+    pub fn set(&mut self, format: TextFormat, on: bool) {
+        match format {
+            TextFormat::Bold => self.bold = on,
+            TextFormat::Italic => self.italic = on,
+            TextFormat::Underline => self.underline = on,
+            TextFormat::Strikethrough => self.strikethrough = on,
+        }
+    }
+
+    /// The formats both sets have.
+    #[must_use]
+    pub const fn intersection(self, other: Self) -> Self {
+        Self {
+            bold: self.bold && other.bold,
+            italic: self.italic && other.italic,
+            underline: self.underline && other.underline,
+            strikethrough: self.strikethrough && other.strikethrough,
+        }
+    }
+}
+
+azul_css::impl_option!(
+    TextFormatSet,
+    OptionTextFormatSet,
+    [Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
 
 /// Amount to scroll for keyboard-based scrolling
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1916,6 +2256,7 @@ fn matches_focus_filter(
         (TextInput, EventType::Input) => true,
         (FocusEventFilter::DocumentEdit, EventType::DocumentEdit) => true,
         (FocusEventFilter::TextChanged, EventType::TextChanged) => true,
+        (FocusEventFilter::TypingStyleChanged, EventType::TypingStyleChanged) => true,
         (VirtualKeyDown, EventType::KeyDown) => true,
         (VirtualKeyUp, EventType::KeyUp) => true,
         (FocusReceived, EventType::Focus) => true,
@@ -2948,6 +3289,11 @@ pub enum FocusEventFilter {
     Invalid,
     /// The pointer moved while this node had focus. APPENDED at the end.
     MouseMove,
+    /// The focused editing host's typing style changed (see
+    /// `EventType::TypingStyleChanged`): Ctrl/Cmd+B / I / U at a collapsed
+    /// caret toggled the formats the next typed text takes. Read them with
+    /// `CallbackInfo::get_typing_formats`. APPENDED at the end.
+    TypingStyleChanged,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -3701,6 +4047,7 @@ static ALL_FOCUS: &[FocusEventFilter] = &[
     FocusEventFilter::Change,
     FocusEventFilter::Reset,
     FocusEventFilter::Invalid,
+    FocusEventFilter::TypingStyleChanged,
 ];
 
 /// Every `WindowEventFilter` variant, so planning can be derived from matching.
@@ -4812,6 +5159,7 @@ pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallback
         focused_node: info.state.focused_node,
         drag_start_position: info.state.drag_start_position,
         focus_is_editable: info.state.focus_is_editable,
+        has_selection: info.state.has_selection,
         seat_focus: info.seat_focus,
     };
 
@@ -4884,6 +5232,8 @@ struct FilterContext<'a> {
     drag_start_position: Option<LogicalPosition>,
     /// See `InputInterpreterState::focus_is_editable`.
     focus_is_editable: bool,
+    /// See `InputInterpreterState::has_selection`.
+    has_selection: bool,
     /// See `InputInterpreterInfo::seat_focus`.
     seat_focus: &'a [(u64, Option<DomNodeId>)],
 }
@@ -4935,6 +5285,7 @@ fn process_event_for_internal(
                 ctx.keyboard_state,
                 ctx.focused_node_for(seat_id),
                 ctx.focus_is_editable,
+                ctx.has_selection,
             )
         }
         EventType::MouseUp => Some(handle_mouse_up()),
@@ -5083,6 +5434,7 @@ fn handle_key_down(
     keyboard_state: &crate::window::KeyboardState,
     focused_node: Option<DomNodeId>,
     focus_is_editable: bool,
+    has_selection: bool,
 ) -> Option<InternalEventAction> {
     use crate::window::VirtualKeyCode;
 
@@ -5100,13 +5452,15 @@ fn handle_key_down(
 
     // MWA-A2: standard shortcuts key off the PRIMARY modifier (Cmd on
     // macOS, Ctrl elsewhere); word-jump / word-delete keys off the
-    // platform's word modifier (Option on macOS, Ctrl elsewhere).
-    let primary = if cfg!(target_os = "macos") {
+    // platform's word modifier (Option on macOS, Ctrl elsewhere). "macOS"
+    // is `mac_shortcut_conventions`: X11 windows on a Mac use the Linux keys.
+    let mac_keys = crate::window::mac_shortcut_conventions();
+    let primary = if mac_keys {
         kbd.modifiers.meta
     } else {
         kbd.modifiers.ctrl
     };
-    let word_mod = if cfg!(target_os = "macos") {
+    let word_mod = if mac_keys {
         kbd.modifiers.alt
     } else {
         kbd.modifiers.ctrl
@@ -5131,13 +5485,26 @@ fn handle_key_down(
                     },
                 ));
             }
+            // An editing shortcut is the engine's on a text-editing focus or
+            // while text is selected (something to copy); on any other focus
+            // (a button, a slider, a canvas) it is the app's key - claiming
+            // it swallowed AzCalculator's Ctrl/Cmd+C after a click on a
+            // keypad button, as it once did Backspace / Delete.
+            if !focus_is_editable && !has_selection {
+                return None;
+            }
             let change = match shortcut {
                 KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
                 KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
                 KeyboardShortcut::Paste => SystemChange::PasteFromClipboard,
                 KeyboardShortcut::SelectAll => SystemChange::SelectAllText,
-                KeyboardShortcut::Undo => SystemChange::UndoTextEdit { target },
-                KeyboardShortcut::Redo => SystemChange::RedoTextEdit { target },
+                // Undo / Redo reach the callbacks: an editor that keeps its
+                // own history (the rich-text editor, a document app) takes
+                // them with `prevent_default`; otherwise the engine's text
+                // undo runs after the callbacks as the key's DEFAULT action
+                // (`DefaultAction::UndoTextEdit` / `RedoTextEdit`, decided in
+                // layout's `default_actions`) - the browser keydown model.
+                KeyboardShortcut::Undo | KeyboardShortcut::Redo => return None,
             };
             return Some(InternalEventAction::AddAndSkip(change));
         }
@@ -5145,6 +5512,10 @@ fn handle_key_down(
             // Ctrl+D adds a multi-cursor, which is the primary's alone
             // (9b-ii-a-i-d-ii-b-i): a seat's passes through to callbacks.
             if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
+                return None;
+            }
+            // Text editing: anywhere else Ctrl/Cmd+D is the app's key.
+            if !focus_is_editable {
                 return None;
             }
             return Some(InternalEventAction::AddAndSkip(
@@ -5171,6 +5542,13 @@ fn handle_key_down(
         let (direction, step) = arrow.to_selection(word_mod);
         SelectionOp::new(direction, step, mode_for_shift)
     } else {
+        // Backspace / Delete edit TEXT, so they too belong to a text-editing
+        // focus only, like the arrows above: claimed anywhere (a focused
+        // button) they were swallowed before the app's key handler ran -
+        // AzCalculator's Backspace after a mouse click on its "=" key.
+        if !focus_is_editable && matches!(vk, VirtualKeyCode::Back | VirtualKeyCode::Delete) {
+            return None;
+        }
         match vk {
             // Backspace/Delete = Delete mode (word modifier upgrades to
             // Word: Option+Backspace on macOS, Ctrl+Backspace elsewhere)

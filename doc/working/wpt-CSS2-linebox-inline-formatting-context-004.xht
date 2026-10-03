@@ -1,0 +1,23 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Inline formatting context with a left border</title>
+<meta name="assert" content="Left borders are respected between inline boxes."/>
+<style>
+div
+            {
+                display: inline;
+            }
+            div div
+            {
+                border-left: 100px solid black;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if there is a black stripe on the left side of "Filler Text".</p>
+        <div>
+            <div>Filler Text</div>
+        </div>
+    
+</body>
+</html>

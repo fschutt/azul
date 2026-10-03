@@ -12,16 +12,32 @@
 //! // Create provider with the default resolver
 //! let provider = IconProviderHandle::with_resolver(default_icon_resolver);
 //!
-//! // Register an image icon
-//! provider.register_icon("app-images", "logo", RefAny::new(ImageIconData {
-//!     image: image_ref, width: 32.0, height: 32.0
-//! }));
+//! // Register an image icon (full-colour artwork: never recoloured)
+//! provider.register_icon("app-images", "logo", RefAny::new(ImageIconData::with_meta(
+//!     image_ref, 32.0, 32.0, IconMeta::for_image(),
+//! )));
 //!
-//! // Register a font icon
-//! provider.register_icon("material-icons", "home", RefAny::new(FontIconData {
-//!     font: font_ref, icon_char: "\u{e88a}".to_string()
-//! }));
+//! // Register a font icon (follows the text colour)
+//! provider.register_icon("material-icons", "home", RefAny::new(FontIconData::new(
+//!     font_ref, "\u{e88a}",
+//! )));
 //! ```
+//!
+//! # Metadata: request x capability
+//!
+//! Every registered icon carries an [`IconMeta`]: the mode its artwork was
+//! drawn for, its variants for the light / dark / high-contrast modes, and
+//! HOW it may be recoloured ([`IconRecolor`]). The default resolver combines
+//! that capability with the system's request (`IconStyleOptions`: tint,
+//! grayscale, inherit the text colour) and never guesses from the kind:
+//!
+//! | recolor        | font glyph            | raster / SVG                              |
+//! |----------------|-----------------------|-------------------------------------------|
+//! | `CurrentColor` | `color` (tint = color)| monochrome: `flood(currentColor) composite(in)` |
+//! | `Mask`         | `color`               | tint: `flood(tint) composite(in)`         |
+//! | `Palette`      | as drawn              | listed paints swapped (SVG)               |
+//! | `Fixed`        | `color` = the colour  | monochrome: `flood(colour) composite(in)` |
+//! | `None`         | as drawn              | variants only                             |
 
 use alloc::{
     string::{String, ToString},
@@ -29,8 +45,8 @@ use alloc::{
 };
 
 use azul_core::{
-    dom::{Dom, NodeData},
-    icon::IconProviderHandle,
+    dom::{Dom, NodeData, NodeType},
+    icon::{IconMeta, IconProviderHandle, IconRecolor},
     refany::{OptionRefAny, RefAny},
     resources::ImageRef,
     styled_dom::StyledDom,
@@ -39,15 +55,19 @@ use azul_css::{
     css::{Css, CssPropertyValue},
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
-        basic::{length::FloatValue, FontRef, StyleFontFamily, StyleFontFamilyVec},
+        basic::{
+            color::{ColorU, OptionColorU, CURRENT_COLOR_TOKEN},
+            length::FloatValue,
+            FontRef, StyleFontFamily, StyleFontFamilyVec,
+        },
         layout::{LayoutHeight, LayoutWidth},
         property::CssProperty,
         style::{
-            filter::{StyleColorMatrix, StyleFilter, StyleFilterVec},
+            filter::{StyleColorMatrix, StyleCompositeFilter, StyleFilter, StyleFilterVec},
             text::StyleTextColor,
         },
     },
-    system::SystemStyle,
+    system::{SystemStyle, DarkLightMode},
 };
 
 // ============================================================================
@@ -74,6 +94,24 @@ pub struct ImageIconData {
     pub width: f32,
     /// The icon's natural HEIGHT in logical px - see [`Self::width`].
     pub height: f32,
+    /// How the artwork may be recoloured and which mode it was drawn for.
+    /// [`IconMeta::for_image`] (never recoloured) unless the registration
+    /// says otherwise: a full-colour bitmap gets `variants`, never a tint.
+    pub meta: IconMeta,
+}
+
+impl ImageIconData {
+    /// An image icon with explicit metadata; `width` / `height` are its
+    /// natural size in logical px (see [`Self::width`]).
+    #[must_use]
+    pub const fn with_meta(image: ImageRef, width: f32, height: f32, meta: IconMeta) -> Self {
+        Self {
+            image,
+            width,
+            height,
+            meta,
+        }
+    }
 }
 
 /// Font-based icon data stored in `RefAny` for the icon resolver.
@@ -85,6 +123,144 @@ pub struct FontIconData {
     pub font: FontRef,
     /// The character/codepoint for this specific icon (e.g., "\u{e88a}" for home)
     pub icon_char: String,
+    /// [`IconMeta::for_font`] by default: the glyph IS the text colour.
+    pub meta: IconMeta,
+}
+
+impl FontIconData {
+    /// A glyph icon with the font default metadata ([`IconMeta::for_font`]).
+    #[must_use]
+    pub fn new(font: FontRef, icon_char: impl Into<String>) -> Self {
+        Self {
+            font,
+            icon_char: icon_char.into(),
+            meta: IconMeta::for_font(),
+        }
+    }
+
+    /// This icon with other metadata (a dark variant, a fixed colour).
+    #[must_use]
+    pub fn with_meta(mut self, meta: IconMeta) -> Self {
+        self.meta = meta;
+        self
+    }
+}
+
+/// An SVG icon: the document itself, drawn when the icon is resolved.
+///
+/// Register with [`register_svg_icon`]; the default resolver needs nothing
+/// else - no custom resolver, no Rust - which is what makes an SVG file a
+/// usable user icon. `currentColor` in the document follows the `<icon>`
+/// node's cascaded `color` (a monochrome document exactly, through its alpha;
+/// see [`IconMeta::is_mask_artwork`]), and an [`IconRecolor::Palette`] swaps
+/// the paints it lists as the document is drawn.
+#[derive(Debug, Clone)]
+pub struct SvgIconData {
+    /// The document, UTF-8 XML.
+    pub svg: Vec<u8>,
+    /// The icon's natural size in logical px (the document's `width` /
+    /// `height`, else its viewBox).
+    pub width: f32,
+    pub height: f32,
+    pub meta: IconMeta,
+}
+
+/// The largest SVG document [`register_svg_icon`] accepts. Icons are small;
+/// a user theme is untrusted input (design 9.1 pitfall 8), so an oversized
+/// file is refused rather than parsed.
+pub const MAX_SVG_ICON_BYTES: usize = 1 << 20;
+
+/// The natural size an SVG that states none is drawn at.
+const DEFAULT_SVG_ICON_SIZE: f32 = 24.0;
+
+/// How many device pixels per logical pixel an SVG icon is rasterised at,
+/// so it stays crisp on a 2x display.
+#[cfg_attr(not(feature = "cpurender"), allow(dead_code))] // only the rasteriser reads it
+const SVG_ICON_OVERSAMPLE: f32 = 2.0;
+
+/// The metadata an SVG document implies when its registration states none:
+/// a document that paints in `currentColor` follows the text colour
+/// ([`IconRecolor::CurrentColor`]), and is `monochrome` when EVERY paint is
+/// `currentColor` or `none`; anything else is full-colour artwork, never
+/// recoloured ([`IconMeta::for_image`]).
+///
+/// This reads the author's own statement (`currentColor`) - it does not
+/// guess from the kind of icon.
+#[must_use]
+pub fn default_svg_icon_meta(svg: &[u8]) -> IconMeta {
+    let mentions_current_color = svg
+        .windows(b"currentcolor".len())
+        .any(|w| w.eq_ignore_ascii_case(b"currentcolor"));
+    if !mentions_current_color {
+        return IconMeta::for_image();
+    }
+    #[cfg(feature = "cpurender")]
+    let monochrome = crate::cpurender::svg_uses_only_current_color(svg);
+    #[cfg(not(feature = "cpurender"))]
+    let monochrome = false;
+    IconMeta::for_image()
+        .with_recolor(IconRecolor::CurrentColor)
+        .with_monochrome(monochrome)
+}
+
+/// Register an SVG document as an icon, with its metadata (see
+/// [`default_svg_icon_meta`] for what a plain `currentColor` icon wants).
+///
+/// Returns `false`, registering nothing, when `svg` is larger than
+/// [`MAX_SVG_ICON_BYTES`] or is not an SVG document.
+pub fn register_svg_icon(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    svg: &[u8],
+    meta: IconMeta,
+) -> bool {
+    let Some(data) = svg_icon_data(svg, meta) else {
+        return false;
+    };
+    provider.register_icon(pack_name, icon_name, RefAny::new(data));
+    true
+}
+
+/// The registered value for an SVG document, or `None` for input that is
+/// too large or not an SVG.
+fn svg_icon_data(svg: &[u8], meta: IconMeta) -> Option<SvgIconData> {
+    if svg.len() > MAX_SVG_ICON_BYTES || !is_svg_document(svg) {
+        return None;
+    }
+    #[cfg(feature = "cpurender")]
+    let size = crate::cpurender::svg_natural_size(svg);
+    #[cfg(not(feature = "cpurender"))]
+    let size: Option<(f32, f32)> = None;
+    let (width, height) = size.unwrap_or((DEFAULT_SVG_ICON_SIZE, DEFAULT_SVG_ICON_SIZE));
+    Some(SvgIconData {
+        svg: svg.to_vec(),
+        width,
+        height,
+        meta,
+    })
+}
+
+/// Does `svg` parse as XML with an `<svg>` root?
+fn is_svg_document(svg: &[u8]) -> bool {
+    #[cfg(feature = "xml")]
+    {
+        let Ok(text) = core::str::from_utf8(svg) else {
+            return false;
+        };
+        let Ok(nodes) = crate::xml::parse_xml_string(text) else {
+            return false;
+        };
+        nodes.iter().any(|n| {
+            matches!(n, azul_core::xml::XmlNodeChild::Element(e)
+                if e.node_type.as_str().eq_ignore_ascii_case("svg"))
+        })
+    }
+    #[cfg(not(feature = "xml"))]
+    {
+        let _ = svg;
+        false
+    }
 }
 
 /// An icon that IS a `Dom` - the general case, of which image and font icons
@@ -145,16 +321,108 @@ pub extern "C" fn default_icon_resolver(
 
     // Try ImageIconData
     if let Some(img) = data.downcast_ref::<ImageIconData>() {
+        if let Some(variant) = variant_redirect(&img.meta, original_icon_node, system_style) {
+            return variant;
+        }
         return create_image_icon_from_original(&img, original_icon_node, system_style);
     }
 
     // Try FontIconData
     if let Some(font_icon) = data.downcast_ref::<FontIconData>() {
+        if let Some(variant) = variant_redirect(&font_icon.meta, original_icon_node, system_style)
+        {
+            return variant;
+        }
         return create_font_icon_from_original(&font_icon, original_icon_node, system_style);
+    }
+
+    // Try SvgIconData
+    if let Some(svg) = data.downcast_ref::<SvgIconData>() {
+        if let Some(variant) = variant_redirect(&svg.meta, original_icon_node, system_style) {
+            return variant;
+        }
+        return create_svg_icon_from_original(&svg, original_icon_node, system_style);
     }
 
     // Unknown data type -> empty div
     Dom::create_div()
+}
+
+/// Is the style the resolver was handed in the dark mode? The core
+/// resolution entry point hands the resolver the WINDOW's mode here, not the
+/// desktop's (`azul_core::icon::resolve_icons_in_dom_with_context`).
+///
+/// Reads `SystemStyle::theme`, the light / dark slot (renamed to a mode by
+/// the naming migration; this is the one place to follow it).
+fn is_dark(style: &SystemStyle) -> bool {
+    style.mode == DarkLightMode::Dark
+}
+
+/// The `<icon>` redirected to the artwork for the current mode, when the
+/// metadata names one ([`azul_core::icon::IconVariants::pick`]).
+///
+/// The redirect is an ICON NODE: the core resolution loop resolves an icon
+/// that resolves to another icon again, so the variant can be any registered
+/// icon and gets its own metadata applied. The call site's inline styles and
+/// accessibility travel with it. A variant naming the icon itself is not
+/// followed (the loop would stop there anyway, leaving nothing drawn).
+fn variant_redirect(meta: &IconMeta, original: &NodeData, style: &SystemStyle) -> Option<Dom> {
+    let spec = meta
+        .variants
+        .pick(is_dark(style), bool::from(style.prefers_high_contrast))?;
+    if let NodeType::Icon(name) = original.get_node_type() {
+        if name.as_str().trim().eq_ignore_ascii_case(spec.as_str().trim()) {
+            return None;
+        }
+    }
+    let mut dom = Dom::create_icon(spec.clone());
+    let props = copy_appropriate_styles_vec(original);
+    if !props.is_empty() {
+        dom.root
+            .set_css_props(CssPropertyWithConditionsVec::from_vec(props));
+    }
+    if let Some(a11y) = original.get_accessibility_info() {
+        dom = dom.with_accessibility_info(a11y.clone());
+    }
+    Some(dom)
+}
+
+/// What the resolver paints an icon's ink with: the request (the system's
+/// `IconStyleOptions`) combined with the capability (the icon's
+/// [`IconRecolor`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ink {
+    /// The artwork's own colours.
+    Native,
+    /// The `<icon>` node's cascaded `color`.
+    CurrentColor,
+    /// One colour: concrete, or a `system:` token the cascade resolves.
+    Color(ColorU),
+}
+
+/// Request x capability (design 8.2): a tint on `CurrentColor` becomes the
+/// colour, on `Mask` it is flooded, on `Palette` / `None` it is ignored; an
+/// explicit `Fixed` colour beats the tint and the CSS `color` alike (9.1
+/// pitfall 10). `Mask` artwork drawn for the other mode, or asked to follow
+/// the text colour (`inherit_text_color`), takes the text colour.
+fn ink_for(meta: &IconMeta, style: &SystemStyle) -> Ink {
+    let dark = is_dark(style);
+    let tint = match style.icon_style.tint_color {
+        OptionColorU::Some(c) => Some(c),
+        OptionColorU::None => None,
+    };
+    match &meta.recolor {
+        IconRecolor::Fixed(colors) => Ink::Color(colors.for_mode(dark)),
+        IconRecolor::CurrentColor => tint.map_or(Ink::CurrentColor, Ink::Color),
+        IconRecolor::Mask => match tint {
+            Some(c) => Ink::Color(c),
+            None if style.icon_style.inherit_text_color || !meta.designed_for.suits(dark) => {
+                Ink::CurrentColor
+            }
+            None => Ink::Native,
+        },
+        IconRecolor::Palette(_) | IconRecolor::None => Ink::Native,
+    }
 }
 
 /// An icon that IS a `Dom`: whatever the caller registered, spliced in whole.
@@ -217,7 +485,7 @@ fn create_image_icon_from_original(
         }
 
         // Apply SystemStyle-aware filters
-        apply_icon_style_filters(&mut props_vec, system_style);
+        apply_icon_style_filters(&mut props_vec, &img.meta, system_style);
 
         dom.root
             .set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
@@ -263,7 +531,7 @@ fn create_font_icon_from_original(
         props_vec.push(font_prop);
 
         // Apply SystemStyle-aware color modifications for font icons
-        apply_font_icon_color(&mut props_vec, system_style);
+        apply_font_icon_color(&mut props_vec, &font_icon.meta, system_style);
 
         dom.root
             .set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
@@ -275,6 +543,105 @@ fn create_font_icon_from_original(
     }
 
     dom
+}
+
+/// Draw an SVG icon: the document is rasterised with the paints the metadata
+/// asks for, then placed exactly like an image icon (natural size, the call
+/// site's styles, the ink as `flood() composite(in)` where it applies).
+///
+/// `currentColor` in the document:
+/// - monochrome artwork with an ink ([`Ink::Color`] / [`Ink::CurrentColor`]) is drawn in opaque
+///   black - a pure alpha mask - and the ink is flooded through it by the image filters, so it
+///   follows the node's CASCADED `color` exactly (the resolver runs before the cascade, so only
+///   the display list knows that colour);
+/// - otherwise it is the explicit ink, else the `<icon>`'s own inline `color`, else the mode's
+///   `system:text`.
+///
+/// A [`IconRecolor::Palette`] swaps its paints as the document is drawn,
+/// `system:` targets resolved for the mode the icon is drawn in.
+#[cfg(feature = "cpurender")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded icon pixel size
+fn create_svg_icon_from_original(
+    svg: &SvgIconData,
+    original: &NodeData,
+    system_style: &SystemStyle,
+) -> Dom {
+    use azul_css::props::basic::color::SystemColorRef;
+
+    let dark = is_dark(system_style);
+    let resolve = |c: ColorU| {
+        SystemColorRef::from_color_token(c)
+            .map_or(c, |r| r.resolve_for_theme(&system_style.colors, dark))
+    };
+    let ink = ink_for(&svg.meta, system_style);
+    let flooded = svg.meta.is_mask_artwork() && ink != Ink::Native;
+    let current_color = if flooded {
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+    } else {
+        match ink {
+            Ink::Color(c) => resolve(c),
+            Ink::CurrentColor | Ink::Native => resolve(
+                inline_text_color(original).unwrap_or_else(|| SystemColorRef::Text.to_color_token()),
+            ),
+        }
+    };
+    let palette = match &svg.meta.recolor {
+        IconRecolor::Palette(map) => map
+            .as_ref()
+            .iter()
+            .map(|m| (m.from, resolve(m.to)))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let paint = crate::cpurender::SvgPaintContext {
+        current_color: Some(current_color),
+        palette,
+    };
+    let device = |logical: f32| ((logical * SVG_ICON_OVERSAMPLE).ceil().max(1.0)) as u32;
+    let Ok(image) = crate::cpurender::render_svg_to_imageref_painted(
+        &svg.svg,
+        device(svg.width),
+        device(svg.height),
+        &paint,
+    ) else {
+        return Dom::create_div();
+    };
+    let as_image = ImageIconData::with_meta(image, svg.width, svg.height, svg.meta.clone());
+    create_image_icon_from_original(&as_image, original, system_style)
+}
+
+/// Without the rasteriser there is nothing to draw an SVG icon with.
+#[cfg(not(feature = "cpurender"))]
+fn create_svg_icon_from_original(
+    _svg: &SvgIconData,
+    _original: &NodeData,
+    _system_style: &SystemStyle,
+) -> Dom {
+    static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+    ANNOUNCE.call_once(|| {
+        eprintln!(
+            "[azul][icons] an SVG icon was resolved, but this build has no `cpurender` feature - \
+             SVG icons render as nothing"
+        );
+    });
+    Dom::create_div()
+}
+
+/// The last `color:` the call site set on the `<icon>` itself, if any.
+#[cfg(feature = "cpurender")]
+fn inline_text_color(original: &NodeData) -> Option<ColorU> {
+    copy_appropriate_styles_vec(original)
+        .iter()
+        .rev()
+        .find_map(|p| match &p.property {
+            CssProperty::TextColor(CssPropertyValue::Exact(c)) => Some(c.inner),
+            _ => None,
+        })
 }
 
 /// Copy styles from original node
@@ -291,58 +658,21 @@ fn copy_appropriate_styles_vec(original_node: &NodeData) -> Vec<CssPropertyWithC
         .collect()
 }
 
-/// Apply SystemStyle-aware filters to icon properties.
+/// Apply SystemStyle-aware filters to image-like icon properties.
 ///
-/// This adds CSS filters based on accessibility and theming settings:
-/// - Grayscale filter if `prefer_grayscale` is true
+/// - a grayscale colour matrix if `prefer_grayscale` is asked for;
+/// - the ink ([`ink_for`]) as `flood(c) composite(in)` when the artwork is an
+///   alpha mask ([`IconMeta::is_mask_artwork`]). The composite is the point:
+///   a bare `flood()` REPLACES the element with a solid colour, so the tint
+///   used to paint a filled square the size of the icon (ledger E15);
+///   `composite(in)` keeps the flood only where the artwork's own alpha is.
+///   Full-colour artwork is never flooded - it gets `variants` instead.
 fn apply_icon_style_filters(
     props_vec: &mut Vec<CssPropertyWithConditions>,
+    meta: &IconMeta,
     system_style: &SystemStyle,
 ) {
-    let icon_style = &system_style.icon_style;
-
-    // Collect filters to apply
-    let mut filters = Vec::new();
-
-    // Grayscale filter: Uses a color matrix that converts to grayscale
-    // Standard luminance weights: R*0.2126 + G*0.7152 + B*0.0722
-    if icon_style.prefer_grayscale {
-        // Grayscale color matrix (4x5):
-        // [0.2126, 0.7152, 0.0722, 0, 0]  <- R output
-        // [0.2126, 0.7152, 0.0722, 0, 0]  <- G output
-        // [0.2126, 0.7152, 0.0722, 0, 0]  <- B output
-        // [0,      0,      0,      1, 0]  <- A output
-        let grayscale_matrix = StyleColorMatrix {
-            m0: FloatValue::new(0.2126),
-            m1: FloatValue::new(0.7152),
-            m2: FloatValue::new(0.0722),
-            m3: FloatValue::new(0.0),
-            m4: FloatValue::new(0.0),
-            m5: FloatValue::new(0.2126),
-            m6: FloatValue::new(0.7152),
-            m7: FloatValue::new(0.0722),
-            m8: FloatValue::new(0.0),
-            m9: FloatValue::new(0.0),
-            m10: FloatValue::new(0.2126),
-            m11: FloatValue::new(0.7152),
-            m12: FloatValue::new(0.0722),
-            m13: FloatValue::new(0.0),
-            m14: FloatValue::new(0.0),
-            m15: FloatValue::new(0.0),
-            m16: FloatValue::new(0.0),
-            m17: FloatValue::new(0.0),
-            m18: FloatValue::new(1.0),
-            m19: FloatValue::new(0.0),
-        };
-        filters.push(StyleFilter::ColorMatrix(grayscale_matrix));
-    }
-
-    // Apply tint color as a flood filter if specified
-    if let azul_css::props::basic::color::OptionColorU::Some(tint) = &icon_style.tint_color {
-        filters.push(StyleFilter::Flood(*tint));
-    }
-
-    // Add filters if any were collected
+    let filters = icon_filters(meta, system_style);
     if !filters.is_empty() {
         props_vec.push(CssPropertyWithConditions::simple(CssProperty::Filter(
             CssPropertyValue::Exact(StyleFilterVec::from_vec(filters)),
@@ -350,25 +680,80 @@ fn apply_icon_style_filters(
     }
 }
 
+/// The filters [`apply_icon_style_filters`] adds, in order: grayscale first,
+/// then the ink - all in ONE `filter:` list (a second declaration would
+/// replace the first in the cascade).
+fn icon_filters(meta: &IconMeta, system_style: &SystemStyle) -> Vec<StyleFilter> {
+    let mut filters = Vec::new();
+    if system_style.icon_style.prefer_grayscale {
+        filters.push(StyleFilter::ColorMatrix(grayscale_matrix()));
+    }
+    if meta.is_mask_artwork() {
+        let flood = match ink_for(meta, system_style) {
+            Ink::Color(c) => Some(c),
+            // The display list swaps the token for the node's own `color`.
+            Ink::CurrentColor => Some(CURRENT_COLOR_TOKEN),
+            Ink::Native => None,
+        };
+        if let Some(color) = flood {
+            filters.push(StyleFilter::Flood(color));
+            filters.push(StyleFilter::Composite(StyleCompositeFilter::In));
+        }
+    }
+    filters
+}
+
+/// Rec. 709 luminance as a colour matrix, alpha passed through.
+///
+/// Row-major 4x5 (SVG `feColorMatrix` order), offsets in the fifth column:
+/// ```text
+/// [0.2126, 0.7152, 0.0722, 0, 0]  <- R output
+/// [0.2126, 0.7152, 0.0722, 0, 0]  <- G output
+/// [0.2126, 0.7152, 0.0722, 0, 0]  <- B output
+/// [0,      0,      0,      1, 0]  <- A output
+/// ```
+fn grayscale_matrix() -> StyleColorMatrix {
+    StyleColorMatrix {
+        m0: FloatValue::new(0.2126),
+        m1: FloatValue::new(0.7152),
+        m2: FloatValue::new(0.0722),
+        m3: FloatValue::new(0.0),
+        m4: FloatValue::new(0.0),
+        m5: FloatValue::new(0.2126),
+        m6: FloatValue::new(0.7152),
+        m7: FloatValue::new(0.0722),
+        m8: FloatValue::new(0.0),
+        m9: FloatValue::new(0.0),
+        m10: FloatValue::new(0.2126),
+        m11: FloatValue::new(0.7152),
+        m12: FloatValue::new(0.0722),
+        m13: FloatValue::new(0.0),
+        m14: FloatValue::new(0.0),
+        m15: FloatValue::new(0.0),
+        m16: FloatValue::new(0.0),
+        m17: FloatValue::new(0.0),
+        m18: FloatValue::new(1.0),
+        m19: FloatValue::new(0.0),
+    }
+}
+
 /// Apply SystemStyle-aware color modifications for font icons.
 ///
-/// Font icons can use text color directly, so we can:
-/// - Apply tint color as text color
-/// - Inherit text color from parent
+/// A glyph is painted in the text colour, so the ink ([`ink_for`]) is simply
+/// a `color:` pushed AFTER the call site's own declarations - which is what
+/// makes an explicit recolour (and a tint) beat an inline `color`. Following
+/// the CSS colour needs nothing: `color` is inherited, and pushing one would
+/// break that.
 fn apply_font_icon_color(
     props_vec: &mut Vec<CssPropertyWithConditions>,
+    meta: &IconMeta,
     system_style: &SystemStyle,
 ) {
-    let icon_style = &system_style.icon_style;
-
-    // If tint color is specified, use it as the text color
-    if let azul_css::props::basic::color::OptionColorU::Some(tint) = &icon_style.tint_color {
+    if let Ink::Color(color) = ink_for(meta, system_style) {
         props_vec.push(CssPropertyWithConditions::simple(CssProperty::TextColor(
-            CssPropertyValue::Exact(StyleTextColor { inner: *tint }),
+            CssPropertyValue::Exact(StyleTextColor { inner: color }),
         )));
     }
-    // Note: inherit_text_color doesn't need explicit handling - text color
-    // is inherited by default in CSS. We only need to NOT override it.
 }
 
 // IconProviderHandle Helper Functions
@@ -428,7 +813,25 @@ pub fn register_image_icon_sized(
         width: sane(width, bitmap.width),
         height: sane(height, bitmap.height),
         image,
+        meta: IconMeta::for_image(),
     };
+    provider.register_icon(pack_name, icon_name, RefAny::new(data));
+}
+
+/// Register an image icon with metadata: how it may be recoloured
+/// ([`IconMeta::for_mask`] for monochrome ink on alpha, which a tint floods
+/// through its own alpha), the mode it was drawn for and its variants for
+/// other modes. The bitmap's own size is the natural size, as in
+/// [`register_image_icon`].
+pub fn register_image_icon_with_meta(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    image: ImageRef,
+    meta: IconMeta,
+) {
+    let size = image.get_size();
+    let data = ImageIconData::with_meta(image, size.width, size.height, meta);
     provider.register_icon(pack_name, icon_name, RefAny::new(data));
 }
 
@@ -440,11 +843,7 @@ pub fn register_icons_from_zip(
     zip_bytes: &[u8],
 ) {
     for (icon_name, image, width, height) in load_images_from_zip(zip_bytes) {
-        let data = ImageIconData {
-            image,
-            width,
-            height,
-        };
+        let data = ImageIconData::with_meta(image, width, height, IconMeta::for_image());
         provider.register_icon(pack_name, &icon_name, RefAny::new(data));
     }
 }
@@ -498,10 +897,7 @@ pub fn register_font_icon(
     font: FontRef,
     icon_char: &str,
 ) {
-    let data = FontIconData {
-        font,
-        icon_char: icon_char.to_string(),
-    };
+    let data = FontIconData::new(font, icon_char);
     provider.register_icon(pack_name, icon_name, RefAny::new(data));
 }
 
@@ -593,10 +989,7 @@ pub fn register_material_icons(provider: &mut IconProviderHandle, font: &FontRef
         let icon_char = icon_to_char(*icon);
         let name = icon_to_html_name(icon);
 
-        let data = FontIconData {
-            font: font.clone(),
-            icon_char: icon_char.to_string(),
-        };
+        let data = FontIconData::new(font.clone(), icon_char.to_string());
         provider.register_icon("material-icons", name, RefAny::new(data));
     }
 }
@@ -752,18 +1145,11 @@ mod autotest_generated {
 
     /// `ImageIconData` with explicitly-chosen (possibly hostile) f32 dimensions.
     fn image_icon(width: f32, height: f32) -> ImageIconData {
-        ImageIconData {
-            image: null_img(1, 1),
-            width,
-            height,
-        }
+        ImageIconData::with_meta(null_img(1, 1), width, height, IconMeta::for_image())
     }
 
     fn font_icon(icon_char: &str) -> FontIconData {
-        FontIconData {
-            font: dummy_font_ref(),
-            icon_char: icon_char.to_string(),
-        }
+        FontIconData::new(dummy_font_ref(), icon_char)
     }
 
     fn grayscale_style() -> SystemStyle {
@@ -937,10 +1323,7 @@ mod autotest_generated {
     #[test]
     fn resolver_font_icon_yields_text_node_with_font_family() {
         let font = dummy_font_ref();
-        let data = RefAny::new(FontIconData {
-            font: font.clone(),
-            icon_char: "\u{e88a}".to_string(),
-        });
+        let data = RefAny::new(FontIconData::new(font.clone(), "\u{e88a}"));
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
 
         // TWO nodes: the <span> and its text leaf. It was one when the glyph
@@ -1217,7 +1600,7 @@ mod autotest_generated {
     #[test]
     fn icon_filters_default_style_adds_nothing() {
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &SystemStyle::default());
+        apply_icon_style_filters(&mut props, &IconMeta::for_image(), &SystemStyle::default());
         assert!(
             props.is_empty(),
             "default SystemStyle must not synthesise a filter"
@@ -1227,7 +1610,7 @@ mod autotest_generated {
     #[test]
     fn icon_filters_grayscale_uses_quantised_luminance_matrix() {
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &grayscale_style());
+        apply_icon_style_filters(&mut props, &IconMeta::for_image(), &grayscale_style());
 
         let filters = filters_of(&props);
         assert_eq!(filters.len(), 1);
@@ -1258,7 +1641,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn icon_filters_tint_emits_flood_even_when_fully_transparent() {
+    fn icon_filters_tint_on_a_mask_floods_even_when_fully_transparent() {
         // a == 0 is still forwarded — the resolver does not treat it as "no tint".
         let transparent = ColorU {
             r: 1,
@@ -1267,15 +1650,39 @@ mod autotest_generated {
             a: 0,
         };
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &tint_style(transparent));
+        apply_icon_style_filters(&mut props, &IconMeta::for_mask(), &tint_style(transparent));
 
         let filters = filters_of(&props);
-        assert_eq!(filters.len(), 1);
-        assert!(matches!(filters[0], StyleFilter::Flood(c) if c == transparent));
+        assert_eq!(
+            filters,
+            vec![
+                StyleFilter::Flood(transparent),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ]
+        );
     }
 
     #[test]
-    fn icon_filters_grayscale_and_tint_are_ordered_matrix_then_flood() {
+    fn icon_filters_tint_on_full_colour_artwork_is_ignored() {
+        // An image registered without metadata is full-colour artwork: a tint
+        // cannot recolour it (it gets `variants`, never a flood), so the
+        // request is dropped rather than painting a coloured box.
+        let mut props = Vec::new();
+        apply_icon_style_filters(
+            &mut props,
+            &IconMeta::for_image(),
+            &tint_style(ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+        );
+        assert!(filters_of(&props).is_empty());
+    }
+
+    #[test]
+    fn icon_filters_grayscale_and_tint_are_ordered_matrix_then_flood_in() {
         let tint = ColorU {
             r: 255,
             g: 0,
@@ -1286,9 +1693,9 @@ mod autotest_generated {
         style.icon_style.tint_color = OptionColorU::Some(tint);
 
         let mut props = Vec::new();
-        apply_icon_style_filters(&mut props, &style);
+        apply_icon_style_filters(&mut props, &IconMeta::for_mask(), &style);
 
-        // Both filters must live in ONE `filter:` declaration (a second declaration
+        // All filters must live in ONE `filter:` declaration (a second declaration
         // would overwrite the first in the cascade, silently dropping the grayscale).
         let filter_decls = props
             .iter()
@@ -1297,9 +1704,13 @@ mod autotest_generated {
         assert_eq!(filter_decls, 1);
 
         let filters = filters_of(&props);
-        assert_eq!(filters.len(), 2);
+        assert_eq!(filters.len(), 3);
         assert!(matches!(filters[0], StyleFilter::ColorMatrix(_)));
         assert!(matches!(filters[1], StyleFilter::Flood(c) if c == tint));
+        assert!(matches!(
+            filters[2],
+            StyleFilter::Composite(StyleCompositeFilter::In)
+        ));
     }
 
     #[test]
@@ -1307,7 +1718,7 @@ mod autotest_generated {
         let mut props = vec![CssPropertyWithConditions::simple(CssProperty::width(
             LayoutWidth::px(4.0),
         ))];
-        apply_icon_style_filters(&mut props, &grayscale_style());
+        apply_icon_style_filters(&mut props, &IconMeta::for_image(), &grayscale_style());
 
         assert_eq!(props.len(), 2);
         assert!(
@@ -1336,7 +1747,7 @@ mod autotest_generated {
     #[test]
     fn font_icon_color_default_style_adds_nothing() {
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &SystemStyle::default());
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &SystemStyle::default());
         assert!(props.is_empty());
     }
 
@@ -1347,7 +1758,7 @@ mod autotest_generated {
         let mut style = SystemStyle::default();
         style.icon_style.inherit_text_color = true;
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &style);
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &style);
         assert!(props.is_empty());
     }
 
@@ -1360,7 +1771,7 @@ mod autotest_generated {
             a: 6,
         };
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &tint_style(tint));
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &tint_style(tint));
 
         assert_eq!(props.len(), 1);
         assert_eq!(text_color_of(&props), Some(tint));
@@ -1378,7 +1789,7 @@ mod autotest_generated {
         style.icon_style.inherit_text_color = true;
 
         let mut props = Vec::new();
-        apply_font_icon_color(&mut props, &style);
+        apply_font_icon_color(&mut props, &IconMeta::for_font(), &style);
         assert_eq!(text_color_of(&props), Some(tint));
     }
 
@@ -1499,9 +1910,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn duplicate_icon_across_packs_resolves_to_the_alphabetically_first_pack() {
-        // "First match wins" iterates a BTreeMap => pack *name* order, NOT the
-        // registration order. Registering into "zzz" first must not shadow "aaa".
+    fn duplicate_icon_across_packs_resolves_to_the_first_registered_pack() {
+        // "First match wins" in pack RANK order, then REGISTRATION order - not
+        // by pack name: "zzz", registered first, shadows "aaa".
         let mut provider = create_default_icon_provider();
         register_image_icon(&mut provider, "zzz", "dup", null_img(1, 1));
         register_image_icon(&mut provider, "aaa", "dup", null_img(2, 2));
@@ -1510,9 +1921,15 @@ mod autotest_generated {
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(
             width_px(&out),
-            Some(2.0),
-            "lookup must return the alphabetically-first pack's icon"
+            Some(1.0),
+            "lookup must return the first registered pack's icon"
         );
+
+        // ...unless the later pack is ranked.
+        provider.set_pack_rank("aaa", 0);
+        let data = provider.lookup("dup").expect("icon registered");
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(width_px(&out), Some(2.0));
     }
 
     #[test]
@@ -1625,5 +2042,378 @@ mod autotest_generated {
             text_of(&out).is_some(),
             "a material icon must resolve to a text node"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // icon metadata: defaults, the variant per mode, request x capability
+    // (scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md 8.1/8.2)
+    // ---------------------------------------------------------------------
+
+    use azul_core::icon::{IconDesignedFor, IconModeColors};
+
+    fn dark_style() -> SystemStyle {
+        let mut s = SystemStyle::default();
+        s.mode = DarkLightMode::Dark;
+        s
+    }
+
+    fn masked_image(meta: IconMeta) -> RefAny {
+        RefAny::new(ImageIconData::with_meta(null_img(4, 4), 4.0, 4.0, meta))
+    }
+
+    /// The icon spec a resolution redirected to, if it is an icon node.
+    fn icon_name_of(dom: &Dom) -> Option<String> {
+        match dom.root.get_node_type() {
+            NodeType::Icon(n) => Some(n.as_str().to_string()),
+            _ => None,
+        }
+    }
+
+    /// The LAST `color:` of the resolved icon (later declarations win).
+    fn last_text_color(dom: &Dom) -> Option<ColorU> {
+        all_props(dom).iter().rev().find_map(|p| match &p.property {
+            CssProperty::TextColor(CssPropertyValue::Exact(c)) => Some(c.inner),
+            _ => None,
+        })
+    }
+
+    fn with_css_color(color: ColorU) -> NodeData {
+        original_with(vec![CssPropertyWithConditions::simple(
+            CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor { inner: color })),
+        )])
+    }
+
+    const CSS_RED: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const JSON_BLUE: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 255,
+        a: 255,
+    };
+
+    #[test]
+    fn a_font_icon_follows_the_text_colour_by_default() {
+        let icon = FontIconData::new(dummy_font_ref(), "\u{e88a}");
+        assert_eq!(icon.meta.recolor, IconRecolor::CurrentColor);
+        assert!(icon.meta.monochrome, "a glyph is one colour by construction");
+        assert_eq!(icon.meta.designed_for, IconDesignedFor::Any);
+        assert_eq!(icon.meta, IconMeta::for_font());
+    }
+
+    #[test]
+    fn an_image_icon_is_never_recoloured_by_default() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon(&mut provider, "app", "logo", null_img(8, 8));
+        let mut data = provider.lookup("logo").expect("registered");
+        {
+            let img = data
+                .downcast_ref::<ImageIconData>()
+                .expect("an image icon");
+            assert_eq!(img.meta.recolor, IconRecolor::None);
+            assert!(!img.meta.monochrome);
+            assert_eq!(img.meta, IconMeta::for_image());
+        }
+        // A tint request cannot touch full-colour artwork: no flood, no filter.
+        let out = resolve(data, &Dom::create_div().root, &tint_style(CSS_RED));
+        assert!(filters_of(&all_props(&out)).is_empty());
+    }
+
+    #[test]
+    fn registering_an_image_with_metadata_keeps_the_metadata() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon_with_meta(
+            &mut provider,
+            "app",
+            "glyph",
+            null_img(16, 16),
+            IconMeta::for_mask(),
+        );
+        let mut data = provider.lookup("glyph").expect("registered");
+        let img = data.downcast_ref::<ImageIconData>().expect("an image icon");
+        assert_eq!(img.meta, IconMeta::for_mask());
+        assert_eq!((img.width, img.height), (16.0, 16.0));
+    }
+
+    #[test]
+    fn the_dark_mode_picks_the_dark_variant_and_the_light_mode_keeps_the_icon() {
+        let meta = IconMeta::for_image().with_dark_variant("home-dark");
+        let original = Dom::create_icon("home").root;
+
+        let dark = resolve(masked_image(meta.clone()), &original, &dark_style());
+        assert_eq!(
+            icon_name_of(&dark).as_deref(),
+            Some("home-dark"),
+            "dark mode must redirect to the dark artwork"
+        );
+
+        let light = resolve(masked_image(meta), &original, &SystemStyle::default());
+        assert!(has_image_node(&light), "light mode draws the icon itself");
+    }
+
+    #[test]
+    fn a_light_to_dark_switch_swaps_the_artwork_through_the_provider() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon_with_meta(
+            &mut provider,
+            "app",
+            "home",
+            null_img(4, 4),
+            IconMeta::for_image().with_dark_variant("home-dark"),
+        );
+        register_image_icon(&mut provider, "app", "home-dark", null_img(9, 9));
+        let shared = azul_core::icon::SharedIconProvider::from_handle(provider);
+
+        let mut light = Dom::create_icon("home");
+        azul_core::icon::resolve_icons_in_dom(&mut light, &shared, &SystemStyle::default());
+        assert_eq!(width_px(&light), Some(4.0));
+
+        // Same provider, same cache: the mode flip alone must swap the artwork.
+        let mut dark = Dom::create_icon("home");
+        azul_core::icon::resolve_icons_in_dom(&mut dark, &shared, &dark_style());
+        assert_eq!(width_px(&dark), Some(9.0), "the dark variant's own artwork");
+    }
+
+    #[test]
+    fn the_high_contrast_variant_wins_when_high_contrast_is_asked_for() {
+        let meta = IconMeta::for_image()
+            .with_dark_variant("home-dark")
+            .with_high_contrast_variant("home-hc");
+        let mut style = dark_style();
+        style.prefers_high_contrast = azul_css::dynamic_selector::BoolCondition::True;
+        let out = resolve(masked_image(meta), &Dom::create_icon("home").root, &style);
+        assert_eq!(icon_name_of(&out).as_deref(), Some("home-hc"));
+    }
+
+    #[test]
+    fn a_variant_that_names_the_icon_itself_is_not_followed() {
+        let meta = IconMeta::for_image().with_dark_variant("HOME");
+        let out = resolve(masked_image(meta), &Dom::create_icon("home").root, &dark_style());
+        assert!(has_image_node(&out), "a self-reference draws the icon itself");
+    }
+
+    #[test]
+    fn a_tint_on_a_mask_icon_floods_it_through_its_own_alpha() {
+        let tint = ColorU {
+            r: 200,
+            g: 10,
+            b: 10,
+            a: 255,
+        };
+        let out = resolve(
+            masked_image(IconMeta::for_mask()),
+            &Dom::create_div().root,
+            &tint_style(tint),
+        );
+        assert_eq!(
+            filters_of(&all_props(&out)),
+            vec![
+                StyleFilter::Flood(tint),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "a bare flood paints the whole box (E15); composite(in) keeps it inside the \
+             artwork's alpha"
+        );
+    }
+
+    #[test]
+    fn a_mask_icon_without_a_request_is_drawn_as_it_is() {
+        let out = resolve(
+            masked_image(IconMeta::for_mask()),
+            &Dom::create_div().root,
+            &SystemStyle::default(),
+        );
+        assert!(filters_of(&all_props(&out)).is_empty());
+    }
+
+    #[test]
+    fn current_colour_on_a_monochrome_raster_floods_with_the_css_colour() {
+        let meta = IconMeta::for_image()
+            .with_recolor(IconRecolor::CurrentColor)
+            .with_monochrome(true);
+        let out = resolve(masked_image(meta), &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(
+            filters_of(&all_props(&out)),
+            vec![
+                StyleFilter::Flood(CURRENT_COLOR_TOKEN),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "the flood carries the currentColor token; the display list swaps in the node's \
+             cascaded `color`"
+        );
+    }
+
+    #[test]
+    fn current_colour_on_full_colour_raster_artwork_is_not_honoured() {
+        // `monochrome: false` says the artwork is not an alpha mask: flooding
+        // it would erase its own colours, so only variants apply.
+        let meta = IconMeta::for_image().with_recolor(IconRecolor::CurrentColor);
+        let out = resolve(masked_image(meta), &Dom::create_div().root, &tint_style(CSS_RED));
+        assert!(filters_of(&all_props(&out)).is_empty());
+    }
+
+    #[test]
+    fn a_mask_icon_drawn_for_light_follows_the_text_colour_in_dark_mode() {
+        let meta = IconMeta::for_mask().with_designed_for(IconDesignedFor::Light);
+
+        let light = resolve(
+            masked_image(meta.clone()),
+            &Dom::create_div().root,
+            &SystemStyle::default(),
+        );
+        assert!(
+            filters_of(&all_props(&light)).is_empty(),
+            "in the mode it was drawn for, the artwork is drawn as it is"
+        );
+
+        let dark = resolve(masked_image(meta), &Dom::create_div().root, &dark_style());
+        assert_eq!(
+            filters_of(&all_props(&dark)),
+            vec![
+                StyleFilter::Flood(CURRENT_COLOR_TOKEN),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "dark ink on a dark background: follow the text colour instead"
+        );
+    }
+
+    #[test]
+    fn a_fixed_recolour_picks_the_colour_of_the_mode() {
+        let colors = IconModeColors {
+            light: ColorU {
+                r: 1,
+                g: 1,
+                b: 1,
+                a: 255,
+            },
+            dark: ColorU {
+                r: 250,
+                g: 250,
+                b: 250,
+                a: 255,
+            },
+        };
+        let meta = IconMeta::for_mask().with_recolor(IconRecolor::Fixed(colors));
+        let dark = resolve(masked_image(meta.clone()), &Dom::create_div().root, &dark_style());
+        assert_eq!(filters_of(&all_props(&dark))[0], StyleFilter::Flood(colors.dark));
+        let light = resolve(masked_image(meta), &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(filters_of(&all_props(&light))[0], StyleFilter::Flood(colors.light));
+    }
+
+    /// Pitfall 10: a rice can set `color` on the `<icon>` (CSS) and `recolor`
+    /// in `remap.json`. An explicit recolour colour beats the CSS `color`.
+    #[test]
+    fn an_explicit_recolour_colour_beats_the_css_colour_on_a_font_icon() {
+        let icon = FontIconData::new(dummy_font_ref(), "x").with_meta(
+            IconMeta::for_font().with_recolor(IconRecolor::Fixed(IconModeColors::same(JSON_BLUE))),
+        );
+        let out = resolve(RefAny::new(icon), &with_css_color(CSS_RED), &SystemStyle::default());
+        assert_eq!(last_text_color(&out), Some(JSON_BLUE));
+    }
+
+    /// ...and `recolor: currentColor` means "take the CSS colour".
+    #[test]
+    fn current_color_recolour_takes_the_css_colour_on_a_font_icon() {
+        let icon = FontIconData::new(dummy_font_ref(), "x");
+        let out = resolve(RefAny::new(icon), &with_css_color(CSS_RED), &SystemStyle::default());
+        assert_eq!(last_text_color(&out), Some(CSS_RED));
+    }
+
+    // ---------------------------------------------------------------------
+    // SVG icons: registration without Rust-side rasterising
+    // ---------------------------------------------------------------------
+
+    const CURRENT_COLOR_SVG: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" fill="currentColor"/></svg>"#;
+    const FULL_COLOUR_SVG: &[u8] = br##"<svg viewBox="0 0 24 12"><rect width="12" height="12" fill="#000000"/><rect x="12" width="12" height="12" fill="#00ff00"/></svg>"##;
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_current_color_svg_defaults_to_following_the_text_colour() {
+        let meta = default_svg_icon_meta(CURRENT_COLOR_SVG);
+        assert_eq!(meta.recolor, IconRecolor::CurrentColor);
+        assert!(meta.monochrome, "every paint is currentColor: an alpha mask");
+    }
+
+    #[test]
+    fn a_full_colour_svg_defaults_to_never_recoloured() {
+        assert_eq!(default_svg_icon_meta(FULL_COLOUR_SVG), IconMeta::for_image());
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn register_svg_icon_keeps_the_document_its_natural_size_and_metadata() {
+        let mut provider = create_default_icon_provider();
+        let meta = IconMeta::for_image().with_dark_variant("logo-dark");
+        assert!(register_svg_icon(
+            &mut provider,
+            "app",
+            "Logo",
+            FULL_COLOUR_SVG,
+            meta.clone()
+        ));
+        let mut data = provider.lookup("logo").expect("registered, name folded");
+        let svg = data.downcast_ref::<SvgIconData>().expect("an SVG icon");
+        assert_eq!((svg.width, svg.height), (24.0, 12.0), "the viewBox size");
+        assert_eq!(svg.meta, meta);
+        assert_eq!(svg.svg.as_slice(), FULL_COLOUR_SVG);
+    }
+
+    #[test]
+    fn register_svg_icon_refuses_what_is_not_an_svg() {
+        let mut provider = create_default_icon_provider();
+        assert!(!register_svg_icon(
+            &mut provider,
+            "app",
+            "x",
+            b"not an svg",
+            IconMeta::for_image()
+        ));
+        let huge = vec![b' '; MAX_SVG_ICON_BYTES + 1];
+        assert!(!register_svg_icon(
+            &mut provider,
+            "app",
+            "y",
+            &huge,
+            IconMeta::for_image()
+        ));
+        assert!(provider.list_packs().is_empty(), "nothing registered");
+    }
+
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_resolved_svg_icon_is_an_image_at_its_natural_size() {
+        let mut provider = create_default_icon_provider();
+        register_svg_icon(
+            &mut provider,
+            "app",
+            "dot",
+            CURRENT_COLOR_SVG,
+            default_svg_icon_meta(CURRENT_COLOR_SVG),
+        );
+        let data = provider.lookup("dot").expect("registered");
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
+        assert!(has_image_node(&out));
+        assert_eq!(width_px(&out), Some(16.0));
+        assert_eq!(height_px(&out), Some(16.0));
+        assert_eq!(
+            filters_of(&all_props(&out)),
+            vec![
+                StyleFilter::Flood(CURRENT_COLOR_TOKEN),
+                StyleFilter::Composite(StyleCompositeFilter::In),
+            ],
+            "a monochrome currentColor document follows the node's `color` like a glyph"
+        );
+    }
+
+    #[test]
+    fn a_font_icon_that_refuses_recolouring_ignores_the_tint() {
+        let icon = FontIconData::new(dummy_font_ref(), "x")
+            .with_meta(IconMeta::for_font().with_recolor(IconRecolor::None));
+        let out = resolve(RefAny::new(icon), &Dom::create_div().root, &tint_style(JSON_BLUE));
+        assert_eq!(last_text_color(&out), None);
     }
 }

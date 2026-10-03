@@ -76,7 +76,7 @@ use super::{
     check_box::CheckBox,
     combobox::ComboBox,
     drop_down::DropDown,
-    themes::flat,
+    themes::{flat, style_kit, OptionUiTheme, UiTheme},
 };
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -731,7 +731,7 @@ fn push_border_colors_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&Ribbon
         v.push(Cond::simple(edge_color(edge, light)));
     }
     for edge in EDGES {
-        v.push(Cond::dark_theme(edge_color(edge, dark)));
+        v.push(Cond::dark_mode(edge_color(edge, dark)));
     }
 }
 
@@ -2584,6 +2584,11 @@ pub struct Ribbon {
     pub style: RibbonStyle,
     /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
     pub behavior: RibbonBehavior,
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays flora's paper, hairlines and stones on the same
+    /// metrics. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 /// The application button at the far left of the tab strip ("FILE").
@@ -2697,6 +2702,17 @@ pub struct RibbonButton {
     pub toggled: bool,
     /// Optional click callback (same family as [`Button::on_click`]).
     pub on_click: OptionButtonOnClick,
+    /// Why the command cannot run now ("Select a file to rename"); empty =
+    /// enabled. A disabled button keeps its place and its keyboard stop, is
+    /// dimmed, never runs `on_click`, is announced unavailable with this
+    /// reason as its description, and shows the reason as a tooltip on hover
+    /// and on click (Office's greyed commands and their tooltips).
+    pub disabled_reason: AzString,
+    /// The name of an icon-only button (empty `label`): what a screen reader
+    /// says ("Bold"). Office's Font and Alignment groups are rows of such
+    /// buttons; without a name each was announced as "button". Empty = the
+    /// label names the button.
+    pub alt: AzString,
 }
 
 /// Drop-down decoration of a [`RibbonButton`].
@@ -2723,6 +2739,11 @@ pub struct RibbonGallery {
     pub selected: usize,
     /// Optional callback fired when a cell is clicked (receives cell index).
     pub on_select: OptionRibbonGalleryOnSelect,
+    /// How many cells the in-ribbon strip shows (0: every cell). Office's
+    /// galleries show one row of a few cells - the row holding the selected
+    /// one - and "More" opens all of them; a gallery of every cell inline
+    /// pushed the groups after it off a 1280 px window (AzShow's Layout).
+    pub visible: usize,
 }
 
 /// One gallery cell: an arbitrary preview [`Dom`] over a name label.
@@ -2875,6 +2896,20 @@ impl RibbonTab {
         self.add_group(group);
         self
     }
+
+    /// Appends every group of `groups`, in order.
+    pub fn add_groups(&mut self, groups: RibbonGroupVec) {
+        for group in groups.as_ref() {
+            self.groups.push(group.clone());
+        }
+    }
+
+    /// Builder method: appends every group of `groups` and returns `self`.
+    #[must_use]
+    pub fn with_groups(mut self, groups: RibbonGroupVec) -> Self {
+        self.add_groups(groups);
+        self
+    }
 }
 
 impl RibbonGroup {
@@ -2908,17 +2943,28 @@ impl RibbonGroup {
         self
     }
 
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
+
     /// Sets the dialog-box-launcher callback (renders the launcher button).
     pub fn set_launcher<C: Into<super::button::ButtonOnClickCallback>>(
         &mut self,
         data: RefAny,
         on_click: C,
     ) {
-        self.launcher = Some(super::button::ButtonOnClick {
-            refany: data,
-            callback: on_click.into(),
-        })
-        .into();
+        self.launcher = Some(super::button::ButtonOnClick::create(data, on_click)).into();
     }
 
     /// Builder method: sets the launcher callback and returns `self`.
@@ -2953,6 +2999,21 @@ impl RibbonColumn {
         self.add_item(item);
         self
     }
+
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
 }
 
 impl Default for RibbonColumn {
@@ -2981,6 +3042,21 @@ impl RibbonRow {
         self.add_item(item);
         self
     }
+
+    /// Appends every item of `items`, in order (what folding
+    /// [`Self::with_item`] over a list does).
+    pub fn add_items(&mut self, items: RibbonItemVec) {
+        for item in items.as_ref() {
+            self.items.push(item.clone());
+        }
+    }
+
+    /// Builder method: appends every item of `items` and returns `self`.
+    #[must_use]
+    pub fn with_items(mut self, items: RibbonItemVec) -> Self {
+        self.add_items(items);
+        self
+    }
 }
 
 impl Default for RibbonRow {
@@ -2999,7 +3075,41 @@ impl RibbonButton {
             arrow: RibbonArrow::None,
             toggled: false,
             on_click: OptionButtonOnClick::None,
+            disabled_reason: AzString::from_const_str(""),
+            alt: AzString::from_const_str(""),
         }
+    }
+
+    /// Names an icon-only button for assistive technology (see
+    /// [`Self::alt`]).
+    pub fn set_alt(&mut self, alt: AzString) {
+        self.alt = alt;
+    }
+
+    /// Builder method: [`Self::set_alt`].
+    #[must_use]
+    pub fn with_alt(mut self, alt: AzString) -> Self {
+        self.set_alt(alt);
+        self
+    }
+
+    /// Disables the button: `reason` says why the command cannot run now
+    /// (an empty reason enables it again). See [`Self::disabled_reason`].
+    pub fn set_disabled(&mut self, reason: AzString) {
+        self.disabled_reason = reason;
+    }
+
+    /// Builder method: disables the button with `reason` and returns `self`.
+    #[must_use]
+    pub fn with_disabled(mut self, reason: AzString) -> Self {
+        self.set_disabled(reason);
+        self
+    }
+
+    /// Whether the button is disabled (it has a reason).
+    #[must_use]
+    pub fn is_disabled(&self) -> bool {
+        !self.disabled_reason.as_str().is_empty()
     }
 
     /// Builder method: sets the arrow decoration and returns `self`.
@@ -3049,7 +3159,21 @@ impl RibbonGallery {
             cells,
             selected: 0,
             on_select: None.into(),
+            visible: 0,
         }
+    }
+
+    /// Shows `visible` cells in the ribbon (0: every cell); see
+    /// [`Self::visible`].
+    pub const fn set_visible(&mut self, visible: usize) {
+        self.visible = visible;
+    }
+
+    /// Builder method: [`Self::set_visible`].
+    #[must_use]
+    pub const fn with_visible(mut self, visible: usize) -> Self {
+        self.set_visible(visible);
+        self
     }
 
     /// Builder method: sets the selected cell index and returns `self`.
@@ -3104,7 +3228,23 @@ impl Ribbon {
             on_tab_click: None.into(),
             style: RibbonStyle::office_2013(),
             behavior: RibbonBehavior::office_2013(),
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme: the ribbon, its buttons and every embedded
+    /// widget without a theme of its own keep this look whatever the app
+    /// theme is. Unset (`None`), the ribbon follows the app theme
+    /// (`AppConfig::with_theme`, flat by default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the application button ("FILE").
@@ -3183,7 +3323,7 @@ impl Ribbon {
     /// `layout()` logic.
     #[must_use]
     pub fn dom(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Adaptive)
+        self.themed(RibbonChromeMode::Adaptive)
     }
 
     /// Builds ONLY the desktop chrome (tab strip + content band), with no
@@ -3194,7 +3334,7 @@ impl Ribbon {
     /// breakpoint swaps the structure.
     #[must_use]
     pub fn dom_desktop(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Desktop)
+        self.themed(RibbonChromeMode::Desktop)
     }
 
     /// Builds ONLY the touch chrome: the full-width active-tab button (tap
@@ -3204,10 +3344,36 @@ impl Ribbon {
     /// relayout). See [`Self::dom_desktop`] for the pairing contract.
     #[must_use]
     pub fn dom_mobile(self) -> Dom {
-        self.build_chrome(RibbonChromeMode::Mobile)
+        self.themed(RibbonChromeMode::Mobile)
     }
 
-    fn build_chrome(self, mode: RibbonChromeMode) -> Dom {
+    /// `mode`'s chrome in the ribbon's theme: a pinned theme is that look;
+    /// no theme follows the app theme - the ribbon built in both looks and
+    /// merged into ONE tree in the structure of the theme the DOM is built
+    /// for (`UiTheme::current()`), every node carrying each look's
+    /// declarations in its `@theme(<name>)` block.
+    fn themed(self, mode: RibbonChromeMode) -> Dom {
+        match self.theme.into_option() {
+            Some(theme) => self.build_in(theme, mode),
+            None => {
+                let flat = self.clone().build_in(UiTheme::Flat, mode);
+                let flora = self.build_in(UiTheme::Flora, mode);
+                crate::widgets::themes::theme_blocks::follow_dom(UiTheme::current(), flat, flora)
+            }
+        }
+    }
+
+    /// `mode`'s chrome in exactly `theme`'s look: flat is the palette's own
+    /// parts; flora fills every part the caller left `None` with flora's
+    /// paint on the same geometry (`themes::flora::ribbon_style`).
+    fn build_in(mut self, theme: UiTheme, mode: RibbonChromeMode) -> Dom {
+        if theme == UiTheme::Flora {
+            self.style = crate::widgets::themes::flora::ribbon_style(self.style);
+        }
+        self.build_chrome(mode, theme)
+    }
+
+    fn build_chrome(self, mode: RibbonChromeMode, theme: UiTheme) -> Dom {
         let Self {
             app_button,
             tabs,
@@ -3215,6 +3381,9 @@ impl Ribbon {
             on_tab_click,
             style,
             behavior,
+            // The look to build is `theme`: the field is the caller's pin,
+            // already resolved by `themed`.
+            theme: _,
         } = self;
         let has_callback = on_tab_click.is_some();
 
@@ -3358,7 +3527,7 @@ impl Ribbon {
                     .groups
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|g| group_dom(g, &style, behavior))
+                    .map(|g| group_dom(g, &style, behavior, theme))
                     .collect(),
                 None => Vec::new(),
             };
@@ -3388,7 +3557,7 @@ impl Ribbon {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_BUTTON))
             .with_css_props(style.resolved_mobile_tab_button_style())
             .with_children(DomVec::from_vec(vec![
-                crate::widgets::widget_p()
+                crate::widgets::widget_p_chrome()
                     .with_css_props(style.resolved_mobile_tab_label_style())
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_text_do_not_use_without_block_level_wrapper(active_label),
@@ -3564,8 +3733,13 @@ impl Ribbon {
                 vec![mobile_tab_button, mobile_tab_overlay, band]
             }
         };
+        // The root carries the theme marker (`__azul-theme-<name>`), like
+        // every themed widget: the look it was BUILT in.
         let mut container = Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_RIBBON))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_RIBBON[0].clone(),
+                style_kit::marker(theme),
+            ]))
             .with_css_props(style.resolved_container_style())
             .with_children(DomVec::from_vec(children));
         // The chrome state (collapse flag) lives on the container as a
@@ -3599,16 +3773,13 @@ fn merged_style(
     base: &CssPropertyWithConditionsVec,
     extra: &CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
-    if extra.as_ref().is_empty() {
-        return base.clone();
-    }
-    let mut v: Vec<Cond> = base.as_ref().to_vec();
-    v.extend_from_slice(extra.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
+    crate::widgets::themes::theme_blocks::stack_parts(base, extra)
 }
 
 /// Expands ribbon button config to the existing [`Button`] widget with the
-/// given part styles injected through `Button`'s public style fields.
+/// given part styles injected through `Button`'s public style fields, in the
+/// ribbon's theme (`theme`): the button is part of the ribbon's look, so it
+/// is built in that look, never left to follow on its own.
 fn styled_button(
     icon: AzString,
     label: AzString,
@@ -3618,8 +3789,13 @@ fn styled_button(
     label_style: CssPropertyWithConditionsVec,
     trailing_icon_style: CssPropertyWithConditionsVec,
     on_click: OptionButtonOnClick,
+    disabled_reason: AzString,
+    alt: AzString,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(label);
+    // An icon-only button's name ("Bold"); empty = the label names it.
+    b.alt = alt;
     b.icon = icon;
     b.trailing_icon = trailing_icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
@@ -3627,10 +3803,19 @@ fn styled_button(
     b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
     b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
     b.on_click = on_click;
+    b.disabled_reason = disabled_reason;
+    b.set_theme(theme);
     b.dom()
 }
 
-fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
+/// Added to a disabled ribbon button ([`RibbonButton::disabled_reason`]),
+/// next to the Button's own `BUTTON_DISABLED_CLASS`: the disabled state
+/// itself (dimmed, inert, unavailable, the reason as tooltip) is the
+/// Button's (`Button::with_disabled`).
+pub const RIBBON_DISABLED_CLASS: &str = "__azul-native-ribbon-button-disabled";
+
+fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
+    let disabled = rb.is_disabled();
     let base = if large {
         &s.resolved_large_button_style()
     } else {
@@ -3656,7 +3841,8 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
             s.resolved_small_label_style(),
         )
     };
-    styled_button(
+    // The Button drops a disabled command's click, dims it and says why.
+    let mut dom = styled_button(
         rb.icon,
         rb.label,
         trailing,
@@ -3665,13 +3851,23 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
         label_style,
         s.resolved_arrow_icon_style(),
         rb.on_click,
-    )
+        rb.disabled_reason,
+        rb.alt,
+        theme,
+    );
+    if disabled {
+        dom.root.add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
+    }
+    dom
 }
 
-fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+/// One item in the ribbon's theme. An embedded widget the caller left
+/// without a theme (`None`) is part of the ribbon's look and is built in
+/// `theme`; one the caller pinned keeps its pin.
+fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     match item {
-        RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s),
-        RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s),
+        RibbonItem::LargeButton(rb) => expand_ribbon_button(rb, true, s, theme),
+        RibbonItem::SmallButton(rb) => expand_ribbon_button(rb, false, s, theme),
         RibbonItem::Column(col) => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_COLUMN))
             .with_css_props(s.resolved_column_style())
@@ -3679,7 +3875,7 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
                 col.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b))
+                    .map(|it| item_dom(it, s, b, theme))
                     .collect(),
             )),
         RibbonItem::Row(row) => Dom::create_div()
@@ -3689,13 +3885,28 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
                 row.items
                     .into_library_owned_vec()
                     .into_iter()
-                    .map(|it| item_dom(it, s, b))
+                    .map(|it| item_dom(it, s, b, theme))
                     .collect(),
             )),
-        RibbonItem::Combo(combo) => combo.dom(),
-        RibbonItem::Drop(drop) => drop.dom(),
-        RibbonItem::Check(check) => check.dom(),
-        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b),
+        RibbonItem::Combo(mut combo) => {
+            if combo.theme.is_none() {
+                combo.set_theme(theme);
+            }
+            combo.dom()
+        }
+        RibbonItem::Drop(mut drop) => {
+            if drop.theme.is_none() {
+                drop.set_theme(theme);
+            }
+            drop.dom()
+        }
+        RibbonItem::Check(mut check) => {
+            if check.theme.is_none() {
+                check.set_theme(theme);
+            }
+            check.dom()
+        }
+        RibbonItem::Gallery(gallery) => gallery_dom(gallery, s, b, theme),
         RibbonItem::Separator => Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEPARATOR))
             .with_css_props(s.resolved_separator_style()),
@@ -3717,7 +3928,7 @@ static GROUP_FILL_STYLE: &[Cond] = &[
     Cond::simple(P::const_min_width(LayoutMinWidth::const_px(160))),
 ];
 
-fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     let RibbonGroup {
         label,
         items,
@@ -3728,7 +3939,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
     let item_doms: Vec<Dom> = items
         .into_library_owned_vec()
         .into_iter()
-        .map(|it| item_dom(it, s, b))
+        .map(|it| item_dom(it, s, b, theme))
         .collect();
 
     let items_row = Dom::create_div()
@@ -3747,7 +3958,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         );
     }
     footer_children.push(
-        crate::widgets::widget_p()
+        crate::widgets::widget_p_chrome()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
             .with_css_props(s.resolved_group_label_style())
             .with_children(DomVec::from_vec(vec![
@@ -3764,6 +3975,9 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
             s.resolved_small_label_style(),
             s.resolved_arrow_icon_style(),
             Some(l).into(),
+            AzString::from_const_str(""),
+            AzString::from_const_str("More options"),
+            theme,
         ));
     }
     let footer = Dom::create_div()
@@ -3786,20 +4000,39 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         .with_children(DomVec::from_vec(vec![items_row, footer]))
 }
 
-fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
+/// The cells the in-ribbon strip shows: the row of `visible` cells holding
+/// `selected` (the last row filled from the end; no selection - an index
+/// past the cells - is the first row), or every cell when `visible` is 0 or
+/// covers them all.
+fn gallery_window(len: usize, selected: usize, visible: usize) -> core::ops::Range<usize> {
+    if visible == 0 || visible >= len {
+        return 0..len;
+    }
+    let selected = if selected < len { selected } else { 0 };
+    let start = ((selected / visible) * visible).min(len - visible);
+    start..start + visible
+}
+
+fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme) -> Dom {
     let RibbonGallery {
         cells,
         selected,
         on_select,
+        visible,
     } = gallery;
     let has_callback = on_select.is_some();
     let cells = cells.into_library_owned_vec();
+    let strip_cells = gallery_window(cells.len(), selected, visible);
 
     // The cells are built twice: once for the in-ribbon strip and once for
     // the expansion panel, so "More" can show every cell without a relayout.
     let build_cells = |in_panel: bool| -> Vec<Dom> {
         let mut out: Vec<Dom> = Vec::with_capacity(cells.len());
         for (idx, cell) in cells.iter().enumerate() {
+            // The strip shows its window of cells; the panel every cell.
+            if !in_panel && !strip_cells.contains(&idx) {
+                continue;
+            }
             let (classes, cell_style) = if idx == selected {
                 (
                     CLS_GALLERY_CELL_SELECTED,
@@ -3811,7 +4044,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             } else {
                 (CLS_GALLERY_CELL, s.resolved_gallery_cell_style())
             };
-            let label = crate::widgets::widget_p()
+            let label = crate::widgets::widget_p_chrome()
                 .with_css_props(s.resolved_gallery_cell_label_style())
                 .with_children(DomVec::from_vec(vec![
                     Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone()),
@@ -3866,6 +4099,9 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
                 s.resolved_small_label_style(),
                 s.resolved_arrow_icon_style(),
                 OptionButtonOnClick::None,
+                AzString::from_const_str(""),
+                AzString::from_const_str(["Previous row", "Next row", "More"][i]),
+                theme,
             );
             // The third button is "More": it expands the panel.
             if i == 2 && b.expandable_gallery {
@@ -4719,6 +4955,7 @@ mod tests {
     #[test]
     fn dom_renders_app_button_tabs_and_filler_in_order() {
         let r = Ribbon::new(tabs(3))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .with_active_tab(1);
         let dom = r.dom();
@@ -4954,7 +5191,9 @@ mod tests {
     fn render_item(item: RibbonItem) -> Dom {
         let tab = RibbonTab::new(AzString::from("t"))
             .with_group(RibbonGroup::new(AzString::from("g")).with_item(item));
-        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_theme(UiTheme::Flat)
+            .dom();
         let (_, content) = parts(&dom);
         let (items, _) = group_parts(content, 0);
         assert_eq!(items.children.as_ref().len(), 1);
@@ -5001,6 +5240,16 @@ mod tests {
         );
     }
 
+    /// AzSheets' Font and Alignment groups become rows of icon-only buttons
+    /// (Excel's); each must still say what it is.
+    #[test]
+    fn an_icon_only_button_is_named_by_its_alt() {
+        let rb = small_btn("format_bold", "").with_alt(AzString::from_const_str("Bold"));
+        let node = render_item(RibbonItem::SmallButton(rb));
+        let info = node.root.get_accessibility_info().expect("a button role");
+        assert_eq!(info.accessibility_name.as_ref().map(|n| n.as_str()), Some("Bold"));
+    }
+
     #[test]
     fn icon_only_small_button_skips_the_empty_label() {
         let node = render_item(RibbonItem::SmallButton(small_btn("format_bold", "")));
@@ -5024,6 +5273,91 @@ mod tests {
             expected,
             "checked props must come last so they win (inline CSS is last-wins)"
         );
+    }
+
+    /// Office greys a command that cannot run and its tooltip says why
+    /// ("Paste: copy or cut something first"). A disabled ribbon button keeps
+    /// its place and its keyboard stop, never runs the app's callback, drops
+    /// the hover / pressed paint, is dimmed, is announced as unavailable with
+    /// the reason as its description, and shows the reason as a tooltip when
+    /// the pointer rests on it or it is clicked.
+    #[test]
+    fn a_disabled_button_is_dimmed_inert_and_says_why() {
+        extern "C" fn app_click(_: RefAny, _: CallbackInfo) -> Update {
+            Update::RefreshDom
+        }
+        let reason = "Nothing to paste: copy or cut something first";
+        let rb = small_btn("content_paste", "Paste")
+            .with_on_click(RefAny::new(7u32), app_click as crate::widgets::button::ButtonOnClickCallbackType)
+            .with_disabled(AzString::from(reason));
+        assert!(rb.is_disabled());
+        assert_eq!(rb.disabled_reason.as_str(), reason);
+        assert!(!small_btn("content_paste", "Paste").is_disabled());
+
+        let node = render_item(RibbonItem::SmallButton(rb));
+        assert!(has_class(&node, "__azul-native-button"), "still the Button widget");
+        assert!(has_class(&node, RIBBON_DISABLED_CLASS));
+
+        let a11y = node
+            .root
+            .get_accessibility_info()
+            .expect("a ribbon button is announced");
+        assert!(
+            a11y.states
+                .as_ref()
+                .contains(&azul_core::a11y::AccessibilityState::Unavailable),
+            "announced as unavailable"
+        );
+        assert_eq!(
+            a11y.description.as_ref().map(|d| d.as_str()),
+            Some(reason),
+            "the reason is the description"
+        );
+
+        // Dimmed, and no hover / pressed paint left.
+        let mut dimmed = false;
+        for (prop, conditions) in node.root.style.iter_inline_properties() {
+            let states: Vec<&DynamicSelector> = conditions
+                .as_ref()
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c,
+                        DynamicSelector::PseudoState(PseudoStateType::Hover | PseudoStateType::Active)
+                    )
+                })
+                .collect();
+            assert!(states.is_empty(), "a disabled button has no {states:?} paint: {prop:?}");
+            if let CssProperty::Opacity(o) = prop {
+                if o.get_property().map_or(false, |o| o.inner.normalized() < 0.75) {
+                    dimmed = true;
+                }
+            }
+        }
+        assert!(dimmed, "a disabled button is dimmed");
+
+        // The app's callback is gone; what is left shows the reason.
+        let callbacks = node.root.get_callbacks().as_ref();
+        assert!(!callbacks.is_empty(), "hover and click show the reason");
+        for cb in callbacks {
+            let mut data = cb.refany.clone();
+            assert!(
+                data.downcast_ref::<u32>().is_none(),
+                "the app's click data is not attached to a disabled button"
+            );
+            assert!(
+                data.downcast_ref::<crate::widgets::button::DisabledReason>().is_some(),
+                "every callback of a disabled button carries its reason"
+            );
+        }
+        let events: Vec<EventFilter> = callbacks.iter().map(|cb| cb.event).collect();
+        for wanted in [
+            EventFilter::Hover(HoverEventFilter::MouseEnter),
+            EventFilter::Hover(HoverEventFilter::MouseLeave),
+            EventFilter::Hover(HoverEventFilter::Click),
+        ] {
+            assert!(events.contains(&wanted), "{wanted:?} in {events:?}");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -5054,7 +5388,7 @@ mod tests {
             let Some(state) = state else { continue };
             let is_dark = conds
                 .iter()
-                .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
             if is_dark {
                 dark.push((p.get_type(), state));
             } else {
@@ -5087,7 +5421,7 @@ mod tests {
                     .any(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state));
                 let is_dark = conds
                     .iter()
-                    .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)));
+                    .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)));
                 matches!(p, CssProperty::BackgroundContent(_))
                     && gated_on_state
                     && is_dark == want_dark
@@ -5101,6 +5435,7 @@ mod tests {
         use azul_css::StringVec;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -5133,7 +5468,7 @@ mod tests {
                 matches!(p, CssProperty::TextColor(_))
                     && conds
                         .iter()
-                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+                        .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
                     && conds
                         .iter()
                         .any(|c| matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover)))
@@ -5209,6 +5544,41 @@ mod tests {
         let row_ch = ch[1].children.as_ref();
         assert_eq!(row_ch.len(), 2);
         assert!(has_class(&row_ch[1], "__azul-native-ribbon-separator"));
+    }
+
+    /// `with_items` / `with_groups` append a whole list, in order - what
+    /// six apps folded `with_item` over (DEDUP_OFFICE D9 / A4).
+    #[test]
+    fn with_items_appends_the_list_in_order() {
+        let items = || {
+            RibbonItemVec::from_vec(vec![
+                RibbonItem::SmallButton(small_btn("content_cut", "Cut")),
+                RibbonItem::Separator,
+            ])
+        };
+        let column = RibbonColumn::new()
+            .with_item(RibbonItem::SmallButton(small_btn("content_copy", "Copy")))
+            .with_items(items());
+        let labels: Vec<&str> = column
+            .items
+            .as_ref()
+            .iter()
+            .map(|it| match it {
+                RibbonItem::SmallButton(b) => b.label.as_str(),
+                RibbonItem::Separator => "|",
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(labels, vec!["Copy", "Cut", "|"]);
+        assert_eq!(RibbonRow::new().with_items(items()).items.len(), 2);
+        let group = RibbonGroup::new(AzString::from("Clipboard")).with_items(items());
+        assert_eq!(group.items.len(), 2);
+        let tab = RibbonTab::new(AzString::from("Home")).with_groups(RibbonGroupVec::from_vec(vec![
+            group.clone(),
+            RibbonGroup::new(AzString::from("Font")),
+        ]));
+        let names: Vec<&str> = tab.groups.as_ref().iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(names, vec!["Clipboard", "Font"]);
     }
 
     #[test]
@@ -5295,6 +5665,41 @@ mod tests {
         }
     }
 
+    /// AzShow's HOME put all seven layouts inline (863 px) and pushed Font,
+    /// Paragraph and Editing off a 1280 px window. A gallery shows one row
+    /// of `visible` cells - the row holding the selected cell - and "More"
+    /// every cell; a click still reports the cell's own index.
+    #[test]
+    fn a_gallery_shows_the_row_of_the_selected_cell_and_more_shows_every_cell() {
+        let wrapper = render_item(RibbonItem::Gallery(gallery(7).with_selected(4).with_visible(3)));
+        let frame = &wrapper.children.as_ref()[0];
+        let strip = &frame.children.as_ref()[0];
+        let labels: Vec<String> = strip
+            .children
+            .as_ref()
+            .iter()
+            .map(|c| text_of(&c.children.as_ref()[1]).unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(labels, vec!["Style 3", "Style 4", "Style 5"], "the row of cell 4");
+        let panel = &wrapper.children.as_ref()[1];
+        assert_eq!(panel.children.as_ref().len(), 7, "More shows every cell");
+
+        // The last row is filled from the end, not left short.
+        let last = render_item(RibbonItem::Gallery(gallery(7).with_selected(6).with_visible(3)));
+        let strip = &last.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 4"));
+        assert_eq!(strip.children.as_ref().len(), 3);
+
+        // No selection (AzShow's New Slide gallery): the first row.
+        let none = render_item(RibbonItem::Gallery(gallery(7).with_selected(usize::MAX).with_visible(3)));
+        let strip = &none.children.as_ref()[0].children.as_ref()[0];
+        assert_eq!(text_of(&strip.children.as_ref()[0].children.as_ref()[1]), Some("Style 0"));
+
+        // 0 (the default) shows every cell.
+        let all = render_item(RibbonItem::Gallery(gallery(5)));
+        assert_eq!(all.children.as_ref()[0].children.as_ref()[0].children.as_ref().len(), 5);
+    }
+
     #[test]
     fn gallery_cells_carry_their_own_index_in_the_click_payload() {
         let g = gallery(2).with_on_select(
@@ -5333,7 +5738,8 @@ mod tests {
             RibbonGroup::new(AzString::from("g"))
                 .with_item(RibbonItem::SmallButton(small_btn("format_bold", ""))),
         );
-        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]));
+        let mut r = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+            .with_theme(UiTheme::Flat);
         r.style.small_button_style = OptionCssPropertyWithConditionsVec::Some(injected.clone());
         let dom = r.dom();
         let (_, content) = parts(&dom);
@@ -5892,6 +6298,7 @@ mod tests {
         use crate::widgets::theme_probe::unconditional;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, content) = parts(&dom);
@@ -5949,6 +6356,7 @@ mod tests {
         use CssPropertyType as T;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -6057,7 +6465,7 @@ mod tests {
         conds
             .as_ref()
             .iter()
-            .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Dark)))
+            .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
     }
 
     /// Invariant I8 for the ribbon's RESTING colours: every opaque colour a
@@ -6184,6 +6592,7 @@ mod tests {
         use crate::widgets::theme_probe::dark;
 
         let dom = Ribbon::new(tabs(2))
+            .with_theme(UiTheme::Flat)
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -6235,7 +6644,7 @@ mod tests {
     fn the_chrome_goes_dark_with_the_window() {
         use crate::widgets::theme_probe::dark;
 
-        let dom = Ribbon::new(tabs(2)).dom();
+        let dom = Ribbon::new(tabs(2)).with_theme(UiTheme::Flat).dom();
         let (bar, content) = parts(&dom);
         let colours = |node: &Dom| dark(node).iter().filter_map(colour_of).collect::<Vec<_>>();
         assert_eq!(
@@ -6254,6 +6663,300 @@ mod tests {
                     !crate::widgets::theme_probe::unconditional(node).contains(&p),
                     "a dark value leaked into the unconditional style: {p:?}"
                 );
+            }
+        }
+    }
+}
+
+/// The ribbon's flora look (W5a): flora's toolbar strip over a leaf, the
+/// selected tab cut as the sunken accent stone, controls that are bare paper
+/// until the pointer lifts them - on exactly the flat ribbon's metrics.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{dynamic_selector::PseudoStateType, props::property::CssPropertyType, StringVec};
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc};
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    /// A ribbon with every part a look paints: the application button, a
+    /// selected and an unselected tab, a large, a small and a toggled button,
+    /// a separator, a dialog launcher and a gallery with a selected cell.
+    fn fixture() -> Ribbon {
+        let cells: Vec<RibbonGalleryCell> = (0..3)
+            .map(|i| RibbonGalleryCell::new(Dom::create_div(), AzString::from(format!("Style {i}"))))
+            .collect();
+        let clipboard = RibbonGroup::new("Clipboard".into())
+            .with_item(RibbonItem::LargeButton(
+                RibbonButton::new("content_paste".into(), "Paste".into())
+                    .with_arrow(RibbonArrow::Split),
+            ))
+            .with_item(RibbonItem::Column(
+                RibbonColumn::new()
+                    .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                        "content_cut".into(),
+                        "Cut".into(),
+                    )))
+                    .with_item(RibbonItem::SmallButton(
+                        RibbonButton::new("format_bold".into(), "".into()).with_toggled(true),
+                    )),
+            ))
+            .with_item(RibbonItem::Separator)
+            .with_launcher(
+                RefAny::new(0u8),
+                noop as crate::widgets::button::ButtonOnClickCallbackType,
+            );
+        let styles = RibbonGroup::new("Styles".into()).with_item(RibbonItem::Gallery(
+            RibbonGallery::new(cells.into()).with_selected(1),
+        ));
+        Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new("HOME".into())
+                .with_group(clipboard)
+                .with_group(styles),
+            RibbonTab::new("INSERT".into()),
+        ]))
+        .with_app_button(RibbonAppButton::new("FILE".into()))
+    }
+
+    fn ribbon(theme: UiTheme) -> Dom {
+        fixture().with_theme(theme).dom()
+    }
+
+    /// The adaptive, desktop and touch chromes of the fixture in `theme`.
+    fn every_chrome(theme: UiTheme) -> [(&'static str, Dom); 3] {
+        [
+            ("adaptive", fixture().with_theme(theme).dom()),
+            ("desktop", fixture().with_theme(theme).dom_desktop()),
+            ("mobile", fixture().with_theme(theme).dom_mobile()),
+        ]
+    }
+
+    fn node<'a>(dom: &'a Dom, class: &str) -> &'a Dom {
+        tc::find(dom, class).unwrap_or_else(|| panic!("the ribbon renders a {class}"))
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    /// Every button of the fixture, in tree order: Paste, Cut, the toggled
+    /// Bold, the launcher, then the gallery's three spinner buttons.
+    fn buttons(dom: &Dom) -> Vec<&Dom> {
+        tc::find_all(dom, "__azul-native-button")
+    }
+
+    #[test]
+    fn a_flora_ribbon_is_flora_s_toolbar_strip_over_a_leaf_in_both_modes() {
+        let dom = ribbon(UiTheme::Flora);
+        let bar = node(&dom, "__azul-native-ribbon-tabbar");
+        let content = node(&dom, "__azul-native-ribbon-content");
+        for (dark, strip, leaf) in [
+            (false, flora::LIGHT_STRIP, flora::LIGHT_SUR),
+            (true, flora::DARK_STRIP, flora::DARK_SUR),
+        ] {
+            assert_eq!(face(&dom, dark, None), fill(strip), "the chrome (dark: {dark})");
+            assert_eq!(face(bar, dark, None), fill(strip), "the tab strip (dark: {dark})");
+            assert_eq!(face(content, dark, None), fill(leaf), "the content leaf (dark: {dark})");
+        }
+    }
+
+    #[test]
+    fn a_flora_ribbon_s_selected_tab_is_the_sunken_accent_stone_and_the_others_lift_under_the_pointer(
+    ) {
+        let dom = ribbon(UiTheme::Flora);
+        let active = node(&dom, "__azul-native-ribbon-tab-active");
+        let tabs = tc::find_all(&dom, "__azul-native-ribbon-tab");
+        let other = tabs
+            .iter()
+            .find(|t| !tc::has_class(t, "__azul-native-ribbon-tab-active"))
+            .expect("an unselected tab");
+        for (dark, soft, hover) in [
+            (false, flora::LIGHT_SOFT1, flora::HOVER_FACE_LIGHT),
+            (true, flora::DARK_SOFT1, flora::HOVER_FACE_DARK),
+        ] {
+            assert_eq!(
+                face(active, dark, None),
+                flora::selected_stone(),
+                "the selected tab is the sunken stone, its own colour (dark: {dark})"
+            );
+            assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
+            assert_eq!(tc::text_color(other, dark), Some(soft), "an unselected tab (dark: {dark})");
+            assert_eq!(
+                face(other, dark, Some(PseudoStateType::Hover)),
+                vec![hover],
+                "an unselected tab lifts to the hover face (dark: {dark})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_flora_application_button_is_the_accent_stone_written_on_accent() {
+        let dom = ribbon(UiTheme::Flora);
+        let app = node(&dom, "__azul-native-ribbon-appbutton");
+        for dark in [false, true] {
+            assert_eq!(
+                face(app, dark, None).first(),
+                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                "a stone is its own colour in both modes (dark: {dark})"
+            );
+            assert_eq!(tc::text_color(app, dark), Some(flora::LIGHT_ON_ACC));
+        }
+    }
+
+    #[test]
+    fn a_flora_ribbon_button_is_bare_paper_that_lifts_under_the_pointer_and_rings_on_focus() {
+        let dom = ribbon(UiTheme::Flora);
+        let paste = buttons(&dom)[0];
+        for (dark, hover, pressed) in [
+            (false, flora::HOVER_FACE_LIGHT, flora::PRESSED_FACE_LIGHT),
+            (true, flora::HOVER_FACE_DARK, flora::PRESSED_FACE_DARK),
+        ] {
+            assert_eq!(
+                face(paste, dark, None),
+                fill(ColorU::TRANSPARENT),
+                "at rest the strip shows through (dark: {dark})"
+            );
+            assert_eq!(face(paste, dark, Some(PseudoStateType::Hover)), vec![hover]);
+            assert_eq!(face(paste, dark, Some(PseudoStateType::Active)), vec![pressed]);
+            assert!(tc::has_focus_ring(paste, dark), "a Tab stop is ringed (dark: {dark})");
+        }
+        assert_eq!(tc::focus_ring_color(paste, false), Some(flora::LIGHT_ACC));
+        assert_eq!(tc::focus_ring_color(paste, true), Some(flora::DARK_GLOW));
+    }
+
+    #[test]
+    fn a_toggled_flora_button_is_pushed_in_paper() {
+        let dom = ribbon(UiTheme::Flora);
+        let bold = buttons(&dom)[2];
+        assert_eq!(face(bold, false, None), vec![flora::PRESSED_FACE_LIGHT]);
+        assert_eq!(face(bold, true, None), vec![flora::PRESSED_FACE_DARK]);
+    }
+
+    #[test]
+    fn the_flora_ribbon_keeps_every_theme_invariant_in_every_chrome() {
+        for (chrome, dom) in every_chrome(UiTheme::Flora) {
+            tc::assert_theme_invariants(&format!("flora ribbon ({chrome})"), &dom);
+        }
+    }
+
+    /// Flora repaints the ribbon; it does not re-measure it. The ribbon's
+    /// layout was measured for its heights, paddings and borders (the 68px
+    /// item row, the 26px strip), so the flora look keeps every one of them.
+    #[test]
+    fn a_flora_ribbon_keeps_every_metric_of_the_flat_ribbon() {
+        let flat = every_chrome(UiTheme::Flat);
+        let flora_chromes = every_chrome(UiTheme::Flora);
+        for ((chrome, a), (_, b)) in flat.iter().zip(flora_chromes.iter()) {
+            let moved = flora::chrome_metric_findings(a, b);
+            assert!(
+                moved.is_empty(),
+                "the flora ribbon ({chrome}) moves:\n  {}",
+                moved.join("\n  ")
+            );
+        }
+    }
+
+    #[test]
+    fn a_part_the_caller_set_wins_over_the_flora_look() {
+        let own = CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_font_size(
+            StyleFontSize::const_px(99),
+        ))]);
+        let mut r = fixture().with_theme(UiTheme::Flora);
+        r.style.large_button_style = OptionCssPropertyWithConditionsVec::Some(own);
+        let dom = r.dom();
+        let paste = buttons(&dom)[0];
+        assert_eq!(
+            paste
+                .root
+                .style
+                .iter_inline_properties()
+                .map(|(p, _)| p.clone())
+                .collect::<Vec<_>>(),
+            vec![P::const_font_size(StyleFontSize::const_px(99))],
+            "the caller's part reaches the button verbatim"
+        );
+    }
+
+    #[test]
+    fn a_pinned_ribbon_builds_its_buttons_and_its_unpinned_embedded_widgets_in_its_theme() {
+        let marker = |t: UiTheme| match t {
+            UiTheme::Flat => style_kit::FLAT_CLASS,
+            UiTheme::Flora => style_kit::FLORA_CLASS,
+        };
+        let combo = |label: &str| ComboBox::new(StringVec::from_vec(vec![AzString::from(label)]));
+        for (theme, other) in [(UiTheme::Flat, UiTheme::Flora), (UiTheme::Flora, UiTheme::Flat)] {
+            let tab = RibbonTab::new("t".into()).with_group(
+                RibbonGroup::new("g".into())
+                    .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                        "format_bold".into(),
+                        "".into(),
+                    )))
+                    .with_item(RibbonItem::Combo(combo("a")))
+                    .with_item(RibbonItem::Combo(combo("b").with_theme(other))),
+            );
+            let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab]))
+                .with_theme(theme)
+                .dom();
+            assert!(tc::has_class(&dom, marker(theme)), "the root carries its theme marker");
+            assert!(
+                tc::has_class(buttons(&dom)[0], marker(theme)),
+                "a ribbon button is built in the ribbon's theme"
+            );
+            let combos = tc::find_all(&dom, "__azul-native-combobox");
+            assert_eq!(combos.len(), 2);
+            assert!(
+                tc::has_class(combos[0], marker(theme)),
+                "an embedded widget with no theme of its own is built in the ribbon's"
+            );
+            assert!(
+                tc::has_class(combos[1], marker(other)),
+                "an embedded widget the caller pinned keeps its pin"
+            );
+        }
+    }
+
+    /// R5: the ribbon's structure is its base - the flat part's geometry,
+    /// which the flora look keeps (`themes::flora::ribbon_style`) - declared
+    /// once for every app theme, never inside a `@theme(<name>)` block. The
+    /// fixture embeds no foreign widget (a combo box, a drop-down, a check
+    /// box): built in the ribbon's look, those carry their OWN widget's
+    /// structure, which their own tests hold to this rule.
+    #[test]
+    fn a_ribbon_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{under, BOTH},
+            theme_checks::assert_structure_is_shared,
+        };
+        for t in BOTH {
+            // Every chrome, with the first tab selected (its groups, the
+            // toggled button and the picked gallery cell shown) and with the
+            // second one selected (an empty tab).
+            for active in [0, 1] {
+                let chromes = under(t, || {
+                    [
+                        ("adaptive", fixture().with_active_tab(active).dom()),
+                        ("desktop", fixture().with_active_tab(active).dom_desktop()),
+                        ("mobile", fixture().with_active_tab(active).dom_mobile()),
+                    ]
+                });
+                for (chrome, dom) in chromes {
+                    assert_structure_is_shared(
+                        &format!("ribbon ({chrome}, tab {active}) built for {}", t.name()),
+                        &dom,
+                        &[],
+                    );
+                }
             }
         }
     }

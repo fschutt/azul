@@ -422,6 +422,21 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("add_image_to_cache",        None),
     ("remove_image_from_cache",   None),
     ("key_down",                  None),
+    // Global hotkeys through the window's manager on the SIMULATED backend
+    // (AZ_BACKEND=headless): press a declared accelerator, program the
+    // backend's answer to the next grab (taken / refused / pending), and
+    // settle a pending one. Deterministic input, like key_down.
+    ("global_hotkey",             None),
+    ("global_hotkey_answer",      None),
+    ("global_hotkey_settle",      None),
+    // DENY: a notification click / button / dismissal queued into the
+    // mailbox. Only the dll's notification service (AZ_BACKEND=headless)
+    // routes it to a callback; the in-crate runner generated tests run in
+    // has none, so nothing a generated scenario asserts afterwards can see
+    // it. Hand-written AZ_E2E scenarios use it (examples/azul-widgets/e2e/).
+    ("notification_event",        Some("delivered by the dll's notification service \
+                                        (AZ_BACKEND=headless); the in-crate runner has none, \
+                                        so its callback never runs - red on arrival")),
     ("key_up",                    None),
     ("text_input",                None),
     ("touch_start",               None),
@@ -484,6 +499,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // removal half is a genuine leak detector.
     ("add_timer",                 None),
     ("remove_timer",              None),
+    // `CallbackInfo::set_mode` / `set_theme` - an app's own light / dark and
+    // theme toggles (AzWidgets' toolbar, AzBuilder's page through these ops).
+    // The engine then decides what the switch costs: a restyle for the mode,
+    // a DOM rebuild for the theme.
+    ("set_mode",                  None),
+    ("set_theme",                 None),
 
     // -- ALLOW: HARNESS CONTROL --------------------------------------------
     ("mount",                     None),
@@ -491,6 +512,9 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("tick_ms",                   None),
     ("wait",                      None),
     ("wait_frame",                None),
+    // Waits for the window to come to rest (no slide, transition, easing or
+    // fade in flight) - harness control; it forges nothing.
+    ("wait_settled",              None),
     ("reset_frame_counters",      None),
     ("snapshot_frame",            None),
     ("snapshot_resources",        None),
@@ -508,12 +532,19 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // get_dom_tree. A multi-DOM scenario has no other way to learn the ids it
     // then addresses.
     ("list_doms",                 None),
+    // ALLOW: read-only enumeration of the windows the debug server reaches
+    // (a dialog, a menu the app opened). A multi-window scenario has no other
+    // way to learn the `window_id`s it then addresses.
+    ("list_windows",              None),
     ("get_node_hierarchy",        None),
     ("get_html_string",           None),
     ("get_node_css_properties",   None),
     ("get_node_dataset",          None),
     ("get_focus_state",           None),
     ("get_cursor_state",          None),
+    // The app's mode choice and what the window shows; the app theme.
+    ("get_mode",                  None),
+    ("get_theme",                 None),
     ("get_selection_state",       None),
     ("dump_selection_manager",    None),
     ("get_scroll_states",         None),
@@ -540,7 +571,6 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("delete_component",           Some("visual-editor/IDE surface, not engine behaviour")),
     ("update_component",           Some("visual-editor/IDE surface, not engine behaviour")),
     ("update_component_render_fn", Some("visual-editor/IDE surface, not engine behaviour")),
-    ("update_component_compile_fn",Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_preview",      Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_registry",     Some("visual-editor/IDE surface, not engine behaviour")),
     ("get_component_render_tree",  Some("visual-editor/IDE surface, not engine behaviour")),
@@ -551,8 +581,58 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_library_components",     Some("visual-editor/IDE surface, not engine behaviour")),
     ("import_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
     ("export_component_library",   Some("visual-editor/IDE surface, not engine behaviour")),
+    // AzBuilder's document ops (layout/src/e2e/builder.rs): they REPLACE the
+    // app's DOM with the builder's document — pinned by the builder_tests
+    // module, never a generated behaviour test.
+    ("builder_get_document",       Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_insert",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_move",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_delete",             Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_set_attribute",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_undo",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_redo",               Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_reset",              Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_convert_to_component", Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: the document's own stylesheet (a builder edit that remounts the
+    // document; pinned by builder_tests / export_tests / project_tests).
+    ("builder_get_stylesheet",     Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_set_stylesheet",     Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: maps a window point to a builder document node through the
+    // builder's own marker classes - IDE plumbing (a drop onto the window
+    // picture); `hit_test` is the engine-facing query.
+    ("builder_hit_test",           Some("visual-editor/IDE surface, not engine behaviour")),
+    // B5: document edits and the document file (the format project_save
+    // writes) - pinned by builder_tests.
+    ("builder_duplicate",          Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_save_document",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("builder_load_document",      Some("visual-editor/IDE surface, not engine behaviour")),
+    ("get_component_thumbnail",    Some("visual-editor/IDE surface, not engine behaviour")),
+    // AzBuilder's project folder ops (layout/src/e2e/project.rs): they read
+    // and write the user's disk — pinned by the project_tests module, never a
+    // generated behaviour test.
+    ("project_info",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_open",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_close",              Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_list",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_read_file",          Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_write_file",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_create",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_rename",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_delete",             Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_save",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_load",               Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_export_zip",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
+    ("project_import_zip",         Some("visual-editor/IDE surface (project files), not engine behaviour")),
     ("export_code",                Some("codegen surface, not engine behaviour")),
     ("export_code_zip",            Some("codegen surface, not engine behaviour")),
+    // AzBuilder's quick exports (layout/src/e2e/export.rs), pinned by the
+    // export_tests module.
+    ("get_codegen_languages",      Some("codegen surface, not engine behaviour")),
+    ("get_css_rules",              Some("codegen surface, not engine behaviour")),
+    ("compile_css",                Some("codegen surface, not engine behaviour")),
+    ("html_to_code",               Some("codegen surface, not engine behaviour")),
+    ("export_subtree_code",        Some("codegen surface, not engine behaviour")),
+    ("export_component_code",      Some("codegen surface, not engine behaviour")),
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),
     ("run_e2e_tests",              Some("the test runner itself — a test may not recurse into it")),
     ("get_logs",                   Some("debug-server tooling, asserts nothing about the engine")),
@@ -3222,7 +3302,6 @@ mod tests {
             "delete_component",
             "update_component",
             "update_component_render_fn",
-            "update_component_compile_fn",
             "create_library",
             "delete_library",
             "export_code",
@@ -4071,6 +4150,7 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         E2eTestResult {
             name: name.to_string(),
             status: if failed == 0 { "pass" } else { "fail" }.to_string(),
+            skip_reason: None,
             duration_ms: 7,
             step_count: steps.len(),
             steps_passed: steps.len() - failed,

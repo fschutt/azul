@@ -214,6 +214,37 @@ pub struct NodeScrollPhysics {
     pub is_rubber_banding: bool,
 }
 
+/// THE scroll-physics timer (`SCROLL_MOMENTUM_TIMER_ID`): drains
+/// `input_queue` with `scroll_physics`, once per frame of the window that
+/// arms it (`frame_interval_nanos`, from `LayoutWindow::frame_interval_nanos`
+/// - the refresh rate of the monitor the window is on).
+///
+/// Every shell arms it through here. There were six copies (macOS, X11,
+/// Wayland, Win32, headless, the pass-end driver), all ticking at the
+/// preset's fixed `timer_interval_ms` (16 ms): half the frames on a 120 Hz
+/// panel. The physics integrates the time that really passed, so the
+/// interval only sets the cadence; `timer_interval_ms` is set to one frame of
+/// the window too, because the FIRST tick has no measured time and steps by
+/// it.
+#[must_use]
+pub fn create_scroll_physics_timer(
+    input_queue: ScrollInputQueue,
+    mut scroll_physics: ScrollPhysics,
+    frame_interval_nanos: u64,
+) -> crate::timer::Timer {
+    scroll_physics.timer_interval_ms = u32::try_from(frame_interval_nanos.saturating_add(500_000) / 1_000_000)
+        .unwrap_or(u32::MAX)
+        .max(1);
+    crate::timer::Timer::create(
+        RefAny::new(ScrollPhysicsState::new(input_queue, scroll_physics)),
+        scroll_physics_timer_callback as crate::timer::TimerCallbackType,
+        crate::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn,
+    )
+    .with_interval(azul_core::task::Duration::System(
+        azul_core::task::SystemTimeDiff::from_nanos(frame_interval_nanos),
+    ))
+}
+
 impl ScrollPhysicsState {
     /// Create a new physics state with the shared input queue and global config
     #[must_use]
@@ -427,6 +458,14 @@ pub extern "C" fn scroll_physics_timer_callback(
         let key = (input.dom_id, input.node_id);
         match input.source {
             ScrollInputSource::TrackpadContinuous | ScrollInputSource::TrackpadMomentum => {
+                // THE USER'S HAND TAKES THE VIEW: an engine glide in flight on
+                // this node (the caret reveal's `AnimateTo`) dies here. Only
+                // dropping the node's velocity left the seek target armed -
+                // the seek loop skips a node without a velocity entry, so the
+                // glide went dormant, and woke with the next velocity entry
+                // (a momentum edge hand-off, a `TrackpadEnd` over an edge)
+                // to glide back to a caret the user had scrolled away from.
+                retire_engine_seek(&mut physics.animate_targets, key);
                 let is_momentum = input.source == ScrollInputSource::TrackpadMomentum;
                 // Once the rubber-band spring owns an axis, the OS momentum tail
                 // for THAT axis is dropped: it knows nothing about our edge, and
@@ -578,9 +617,14 @@ pub extern "C" fn scroll_physics_timer_callback(
                 ) {
                     if let Some(info) = timer_info.get_scroll_node_info(input.dom_id, input.node_id)
                     {
+                        // Consecutive clicks extend the WHEEL's own target; an
+                        // engine glide's target (the caret reveal) is not the
+                        // user's, so a click during one moves from the view the
+                        // user is looking at - and the insert below retires it.
                         let base = physics
                             .animate_targets
                             .get(&key)
+                            .filter(|(_, device)| !is_engine_seek(*device))
                             .map_or(info.current_offset, |(t, _)| *t);
                         // Clamp into the scrollable range: a wheel click at
                         // the boundary must not build up an off-range target
@@ -1201,6 +1245,39 @@ pub extern "C" fn scroll_physics_timer_callback(
 }
 
 // ============================================================================
+// Who owns a seek target
+// ============================================================================
+
+/// Is a seek (an `animate_targets` entry) armed by `device` the ENGINE
+/// moving the view on somebody's behalf - the caret reveal's glide
+/// (`Keyboard`), an app's `scroll_to_animated` (`Programmatic`), an
+/// assistive technology, a test driver - rather than the user's own wheel
+/// glide? A user gesture on the node retires an engine seek; it extends or
+/// replaces a wheel glide by the ordinary rules.
+const fn is_engine_seek(device: ScrollInputDevice) -> bool {
+    !matches!(
+        device,
+        ScrollInputDevice::MouseWheel
+            | ScrollInputDevice::Unknown
+            | ScrollInputDevice::Touchpad
+            | ScrollInputDevice::Touchscreen
+    )
+}
+
+/// Drop `key`'s seek target if the engine armed it ([`is_engine_seek`]).
+fn retire_engine_seek(
+    animate_targets: &mut BTreeMap<(DomId, NodeId), (LogicalPosition, ScrollInputDevice)>,
+    key: (DomId, NodeId),
+) {
+    if animate_targets
+        .get(&key)
+        .is_some_and(|(_, device)| is_engine_seek(*device))
+    {
+        animate_targets.remove(&key);
+    }
+}
+
+// ============================================================================
 // Rubber-banding Helper Functions
 // ============================================================================
 
@@ -1582,10 +1659,8 @@ mod autotest_generated {
             ),
             LogicalSize::new(content.0, content.1),
             Instant::now(),
-            0.0,
-            0.0,
-            false,
-            false,
+            crate::solver3::scrollbar::ScrollbarPresence::None,
+            crate::solver3::scrollbar::ScrollbarPresence::None,
         );
     }
 
@@ -2850,6 +2925,131 @@ mod autotest_generated {
                 );
             },
         );
+    }
+
+    // ==================================================================
+    // A user gesture retires the ENGINE's glide (the caret reveal's
+    // `AnimateTo`, keyboard provenance) - TEXT_SCROLL_VS_CARET_REVEAL §8
+    // step 2 (M2)
+    // ==================================================================
+
+    /// The finger arm dropped the node's velocity but left its seek target,
+    /// and the seek loop only visits nodes WITH a velocity entry: the reveal
+    /// glide went dormant instead of dying, and woke up - gliding back to a
+    /// caret the user had scrolled away from - as soon as anything
+    /// re-created a velocity entry (a momentum edge hand-off, a `TrackpadEnd`
+    /// over an edge, the stale-gesture arm).
+    #[test]
+    fn a_finger_retires_the_caret_reveal_glide_it_interrupts() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        // The caret reveal's glide: `scroll_selection_into_view` queues an
+        // `AnimateTo` with KEYBOARD provenance.
+        queue.push(input_dev(
+            3,
+            (0.0, 400.0),
+            ScrollInputSource::AnimateTo,
+            ScrollInputDevice::Keyboard,
+        ));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let _ = env.tick(&data);
+                let _ = env.take_changes();
+                // The user puts a finger down and scrolls up.
+                queue.push(input_dev(
+                    3,
+                    (0.0, -30.0),
+                    ScrollInputSource::TrackpadContinuous,
+                    ScrollInputDevice::Touchpad,
+                ));
+                let _ = env.tick(&data);
+                let _ = env.take_changes();
+            },
+        );
+        with_state(&mut data, |st| {
+            assert!(
+                !st.animate_targets.contains_key(&key(3)),
+                "THE BUG (M2): the finger took the view, but the reveal's seek target toward \
+                 y=400 is still armed and wakes up with the next velocity entry: {:?}",
+                st.animate_targets.get(&key(3))
+            );
+        });
+    }
+
+    /// A wheel click based its new target on the node's existing seek
+    /// target, whoever armed it: a click during a caret-reveal glide
+    /// extended the REVEAL's destination instead of moving from the view the
+    /// user is looking at.
+    #[test]
+    fn a_wheel_click_during_a_caret_reveal_glide_moves_from_the_view_not_the_reveal_target() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        queue.push(input_dev(
+            3,
+            (0.0, 400.0),
+            ScrollInputSource::AnimateTo,
+            ScrollInputDevice::Keyboard,
+        ));
+        queue.push(input_dev(
+            3,
+            (0.0, -30.0),
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputDevice::MouseWheel,
+        ));
+        with_env(
+            |w| {
+                register_node(w, 3, (100.0, 100.0), (100.0, 500.0));
+                w.scroll_manager.set_scroll_position(
+                    DomId::ROOT_ID,
+                    NodeId::new(3),
+                    LogicalPosition::new(0.0, 100.0),
+                    Instant::now(),
+                );
+            },
+            |env| {
+                let _ = env.tick(&data);
+            },
+        );
+        with_state(&mut data, |st| {
+            let (target, device) = st.animate_targets[&key(3)];
+            assert_eq!(device, ScrollInputDevice::MouseWheel, "the wheel owns the node now");
+            assert_eq!(
+                target.y, 70.0,
+                "THE BUG (M2): the wheel's target is the view (y=100) minus the click (30), not \
+                 the reveal's destination (400) minus 30"
+            );
+        });
+    }
+
+    /// The control: consecutive WHEEL clicks still extend the wheel's own
+    /// target (`consecutive_wheel_clicks_extend_the_target_instead_of_stacking_impulses`),
+    /// and a user's own wheel glide is not an engine seek a finger has to
+    /// retire before it can be extended.
+    #[test]
+    fn a_wheel_glide_is_the_users_own_and_is_not_retired_as_an_engine_seek() {
+        let (mut data, queue) = state_with(ScrollPhysics::default());
+        queue.push(input_dev(
+            3,
+            (0.0, 30.0),
+            ScrollInputSource::WheelDiscrete,
+            ScrollInputDevice::MouseWheel,
+        ));
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let _ = env.tick(&data);
+                queue.push(input_dev(
+                    3,
+                    (0.0, 30.0),
+                    ScrollInputSource::WheelDiscrete,
+                    ScrollInputDevice::MouseWheel,
+                ));
+                let _ = env.tick(&data);
+            },
+        );
+        with_state(&mut data, |st| {
+            let (target, _) = st.animate_targets[&key(3)];
+            assert_eq!(target.y, 60.0, "the second click extends the first click's target");
+        });
     }
 
     // ==================================================================

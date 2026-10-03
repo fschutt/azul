@@ -365,6 +365,7 @@ mod autotest_generated {
             NodeChangeSet::CHILDREN_CHANGED,
             NodeChangeSet::IMAGE_CHANGED,
             NodeChangeSet::CONTENTEDITABLE,
+            NodeChangeSet::CUSTOM_PROPERTIES,
             NodeChangeSet::INLINE_STYLE_PAINT,
             NodeChangeSet::STYLED_STATE,
             NodeChangeSet::CALLBACKS,
@@ -1550,6 +1551,72 @@ mod autotest_generated {
         );
     }
 
+    #[test]
+    fn a_leaf_does_not_follow_its_subtree_into_a_container_with_another_id() {
+        // LAYOUT7 item 7 (AzMail's Add Account wizard, MAIL6): page 1's field
+        // `#acct-name > p > "x"` is replaced by page 2's `#acct-imap-host > p
+        // > "x"` at the same place. The exact-subtree tier (A2) matched the
+        // text "x" across: it checked only the IMMEDIATE parent's identity
+        // (the anonymous `p`, none on both sides), so the text overlay of the
+        // name field - what the user typed - moved into the host field.
+        //
+        // old:  0 root ── 1 (#acct-name)      ── 2 p ── 3 "x"
+        // new:  0 root ── 1 (#acct-imap-host) ── 2 p ── 3 "x"
+        let hier = vec![
+            hitem(None, None, None, Some(1)),
+            hitem(Some(0), None, None, Some(2)),
+            hitem(Some(1), None, None, Some(3)),
+            hitem(Some(2), None, None, None),
+        ];
+        let field = |id: &str| {
+            vec![
+                NodeData::create_div(),
+                id_node(id),
+                NodeData::create_node(crate::dom::NodeType::P),
+                NodeData::create_text_do_not_use_without_block_level_wrapper("x"),
+            ]
+        };
+        let r = reconcile_dom(
+            &field("acct-name"),
+            &field("acct-imap-host"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        for node in [2, 3] {
+            assert!(
+                !r.node_moves
+                    .iter()
+                    .any(|m| m.new_node_id.index() == node && m.old_node_id.index() == node),
+                "node {node} lives in a container the author named differently: it is a new \
+                 element; moves = {:?}",
+                r.node_moves,
+            );
+        }
+
+        // The same field rendered again is the same element, all the way down.
+        let same = reconcile_dom(
+            &field("acct-name"),
+            &field("acct-name"),
+            &hier,
+            &hier,
+            &no_layout(),
+            &no_layout(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        assert!(
+            same.node_moves
+                .iter()
+                .any(|m| m.new_node_id.index() == 3 && m.old_node_id.index() == 3),
+            "moves = {:?}",
+            same.node_moves,
+        );
+    }
+
     // ========================================================================
     // create_migration_map
     // ========================================================================
@@ -1820,6 +1887,32 @@ mod autotest_generated {
 
         // An index past the arena is a no-op, not a panic.
         merge_fresh_dataset(&mut plain, 99, RefAny::new(TestState(3)));
+    }
+
+    /// One widget, two nodes: the wrapper merges (keeps the retained state),
+    /// the panel inside it carries a clone of the same dataset and no merge
+    /// callback. Merged node by node the panel ended on the fresh allocation
+    /// - an orphan - because the wrapper's re-point ran before the panel held
+    /// it. Merged as a batch, both end on the retained state.
+    #[test]
+    fn autotest_merge_fresh_datasets_unifies_a_widget_spread_over_two_nodes() {
+        let mut nodes = vec![NodeData::create_div(), NodeData::create_div()];
+        let retained = RefAny::new(TestState(7));
+        let retained_ptr = retained.sharing_info.ptr as usize;
+        nodes[0].set_dataset(OptionRefAny::Some(retained.clone()));
+        nodes[0].set_merge_callback(merge_keep_old as DatasetMergeCallbackType);
+        nodes[1].set_dataset(OptionRefAny::Some(retained));
+
+        let fresh = RefAny::new(TestState(0));
+        merge_fresh_datasets(&mut nodes, vec![(0, fresh.clone()), (1, fresh)]);
+
+        for (i, nd) in nodes.iter().enumerate() {
+            assert_eq!(
+                nd.get_dataset().unwrap().sharing_info.ptr as usize,
+                retained_ptr,
+                "node {i} must end on the retained (merged) allocation"
+            );
+        }
     }
 
     #[test]
@@ -2589,6 +2682,51 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_moved_tab_stop_is_not_a_layout_change() {
+        // REPORTED (RadioGroup indicators turned into tall pills, "sometimes"):
+        // a roving-tabindex group rewrites its rows' tab indices on every
+        // selection change - `set_tab_index` on the live DOM, and a rebuilt
+        // DOM with the new stop. The tab index shares `NodeData::flags` with
+        // contenteditable, the whole of `flags` sat in `attrs_hash`, and an
+        // `attrs_hash` change is CONTENTEDITABLE: every row whose stop moved
+        // went LAYOUT-dirty and was rebuilt as a fresh relayout root. Which
+        // key Tab lands on changes neither layout nor paint.
+        for (from, to) in [
+            (TabIndex::Auto, TabIndex::NoKeyboardFocus),
+            (TabIndex::NoKeyboardFocus, TabIndex::Auto),
+            (TabIndex::Auto, TabIndex::OverrideInParent(3)),
+        ] {
+            let a = NodeDataFingerprint::compute(&NodeData::create_div().with_tab_index(from), None);
+            let b = NodeDataFingerprint::compute(&NodeData::create_div().with_tab_index(to), None);
+            assert!(
+                !a.might_affect_layout(&b),
+                "{from:?} -> {to:?}: a tab stop is not layout"
+            );
+            assert!(
+                !a.diff(&b).needs_layout(),
+                "{from:?} -> {to:?}: a tab stop must never relayout: {:?}",
+                a.diff(&b)
+            );
+            assert!(!a.diff(&b).needs_paint(), "{from:?} -> {to:?}: nor repaint");
+        }
+        // Gaining a tab stop is no layout change either.
+        let plain = NodeDataFingerprint::compute(&NodeData::create_div(), None);
+        let tabbed = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_tab_index(TabIndex::Auto),
+            None,
+        );
+        assert!(!plain.diff(&tabbed).needs_layout());
+        // contenteditable still is.
+        let editable = NodeDataFingerprint::compute(
+            &NodeData::create_div()
+                .with_tab_index(TabIndex::Auto)
+                .with_contenteditable(true),
+            None,
+        );
+        assert!(tabbed.diff(&editable).needs_layout());
+    }
+
+    #[test]
     fn autotest_fingerprint_diff_is_symmetric() {
         let a = NodeDataFingerprint::compute(
             &NodeData::create_text_do_not_use_without_block_level_wrapper("a"),
@@ -2802,6 +2940,41 @@ mod dom_fingerprint_tests {
     }
 
     #[test]
+    fn a_changed_fluent_argument_changes_the_structure_fingerprint() {
+        // The text a localizable node renders is its key's translation
+        // FORMATTED WITH these arguments: "You have 1 new email" and "You have
+        // 2 new emails" come from the same key. If the fingerprint cannot see
+        // them, `regenerate_layout`'s pre-cascade skip keeps the retained DOM
+        // and the count on screen never changes.
+        use crate::dom::{FluentArg, FluentArgKV};
+        let unread = |count: i32| {
+            Dom::create_p_with_text(azul_css::corety::AzString::tr("unread-emails"))
+                .with_fluent_args(alloc::vec![FluentArgKV {
+                    key: "count".into(),
+                    value: FluentArg::I32(count),
+                }])
+        };
+        let (a, _) = fingerprint_dom(&unread(1));
+        let (b, _) = fingerprint_dom(&unread(2));
+        assert_ne!(
+            a.structure_root, b.structure_root,
+            "a Fluent argument is part of what the node renders"
+        );
+    }
+
+    #[test]
+    fn a_text_becoming_a_translation_key_changes_the_structure_fingerprint() {
+        // `AzString` equality and hashing read the characters only, so
+        // "Save" and `AzString::tr("Save")` hash alike - but one renders
+        // "Save" and the other renders the key's translation.
+        let plain = Dom::create_p_with_text(azul_css::corety::AzString::from("save"));
+        let key = Dom::create_p_with_text(azul_css::corety::AzString::tr("save"));
+        let (a, _) = fingerprint_dom(&plain);
+        let (b, _) = fingerprint_dom(&key);
+        assert_ne!(a.structure_root, b.structure_root);
+    }
+
+    #[test]
     fn with_css_sheet_change_is_style_tier_only() {
         let base = || sample_dom();
         let (a, _) = fingerprint_dom(&base().with_css("div { color: red; }"));
@@ -2867,5 +3040,143 @@ mod dom_fingerprint_tests {
         let (_, transfers) = fingerprint_dom(&sample_dom());
         assert!(transfers.image_callbacks.is_empty());
         assert!(transfers.callbacks.is_empty());
+    }
+}
+
+/// A widget toggled through `set_css_property` keeps its identity across the
+/// rebuild that follows (ANIM8, 2026-10-03).
+///
+/// The engine writes an imperative patch with
+/// `NodeData::upsert_inline_css_property`: the declaration is removed where it
+/// stood and appended as a rule of its own. The node then declares the same
+/// properties as a fresh build of the same widget, in another ORDER - and the
+/// identity hash read the order. So the rebuilt switch no longer hashed like
+/// its old self but exactly like an untouched twin elsewhere in the document,
+/// and `reconcile_dom`'s subtree pass handed it the twin's identity:
+/// AzWidgets' Switch matched the ShellSettingsDialog's switch 7400 px further
+/// down, flew in from there (a FLIP slide from the twin's rect) and its tween
+/// went to the other switch - "the toggle immediately transitions".
+#[cfg(test)]
+mod a_toggled_widget_keeps_its_identity {
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+        props::{
+            layout::{LayoutFlexGrow, LayoutHeight, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+
+    use super::*;
+    use crate::{dom::NodeData, styled_dom::NodeHierarchyItem};
+
+    fn hitem(
+        parent: Option<usize>,
+        prev: Option<usize>,
+        next: Option<usize>,
+        last_child: Option<usize>,
+    ) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: prev.map_or(0, |p| p + 1),
+            next_sibling: next.map_or(0, |p| p + 1),
+            last_child: last_child.map_or(0, |p| p + 1),
+        }
+    }
+
+    /// A switch track as its widget builds it: width, height, flex-grow -
+    /// `height` stands for the state-dependent property (the real track's
+    /// background), declared in the MIDDLE of the list.
+    fn fresh_track(height: isize) -> NodeData {
+        NodeData::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(36))),
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                height,
+            ))),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(0),
+            )),
+        ]))
+    }
+
+    /// The same track after its click handler patched the state property
+    /// in place (`set_css_property` -> `upsert_inline_css_property`).
+    fn toggled_track(from: isize, to: isize) -> NodeData {
+        let mut nd = fresh_track(from);
+        nd.upsert_inline_css_property(CssProperty::const_height(LayoutHeight::const_px(to)));
+        nd
+    }
+
+    fn knob() -> NodeData {
+        NodeData::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
+        ]))
+    }
+
+    /// root > [track A > knob A, track B > knob B]
+    fn hierarchy() -> Vec<NodeHierarchyItem> {
+        vec![
+            hitem(None, None, None, Some(3)),
+            hitem(Some(0), None, Some(3), Some(2)),
+            hitem(Some(1), None, None, None),
+            hitem(Some(0), Some(1), None, Some(4)),
+            hitem(Some(3), None, None, None),
+        ]
+    }
+
+    #[test]
+    fn a_patched_declaration_keeps_the_nodes_identity_hash() {
+        // Values are not part of the identity hash (a toggle is the same
+        // node); WHICH properties are declared is. A patch of a property the
+        // node already declares changes neither.
+        assert_eq!(
+            toggled_track(20, 21).calculate_node_data_hash(),
+            fresh_track(21).calculate_node_data_hash(),
+            "an imperatively patched track hashes like a fresh build of the same track"
+        );
+    }
+
+    #[test]
+    fn the_toggled_switch_is_not_matched_with_its_untouched_twin() {
+        // OLD frame: switch A was clicked (its track patched to 21), switch B
+        // never touched. NEW frame: the app rebuilt both, A in its new state.
+        let old = vec![
+            NodeData::create_div(),
+            toggled_track(20, 21),
+            knob(),
+            fresh_track(20),
+            knob(),
+        ];
+        let new = vec![
+            NodeData::create_div(),
+            fresh_track(21),
+            knob(),
+            fresh_track(20),
+            knob(),
+        ];
+        let h = hierarchy();
+        let diff = reconcile_dom(
+            &old,
+            &new,
+            &h,
+            &h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        let old_of = |new_idx: usize| {
+            diff.node_moves
+                .iter()
+                .find(|m| m.new_node_id == NodeId::new(new_idx))
+                .map(|m| m.old_node_id.index())
+        };
+        assert_eq!(
+            old_of(1),
+            Some(1),
+            "the toggled track (A) is still A after the rebuild, not its twin B"
+        );
+        assert_eq!(old_of(2), Some(2), "A's knob is still A's knob");
+        assert_eq!(old_of(3), Some(3), "the untouched track B is still B");
+        assert_eq!(old_of(4), Some(4), "B's knob is still B's knob");
     }
 }

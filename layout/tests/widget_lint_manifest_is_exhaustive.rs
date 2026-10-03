@@ -38,6 +38,12 @@ const MANIFEST_FN: &str = "pub(super) fn every_widget_dom()";
 /// re-checked by `the_exemption_list_has_no_stale_entries`.
 const EXEMPT: &[(&str, &str)] = &[
     (
+        "dialog_kit",
+        "the look and the shared parts (button row, check row, match highlight) of the dialog-shaped \
+         widgets: no widget type of its own; its parts render inside the wizard_pages, \
+         standard_dialogs and settings_dialog entries",
+    ),
+    (
         "map_themes",
         "MapCSS palette constants for MapWidget: declares no widget type and no dom()",
     ),
@@ -110,6 +116,10 @@ fn manifest_body() -> &'static str {
 fn is_registered(body: &str, module: &str) -> bool {
     body.contains(format!("\"{module}\"").as_str())
         || body.contains(format!("\"{module} ").as_str())
+        // A module with many widgets of its own (the app shells) hands the
+        // manifest its entries through a fixtures function:
+        // `all.extend(super::shells::fixtures::every_shell())`.
+        || body.contains(format!("super::{module}::fixtures::").as_str())
 }
 
 #[test]
