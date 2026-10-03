@@ -27,3 +27,6 @@ replacing the CSS Content type with it; ANIM8 closure lifetime fixed). NOT BUILT
 "no change" measure had run the OLD library: SIP strips DYLD_* through /usr/bin/env, and the OUT_DIR copy never refreshed).
 MEASURED on the fresh build, AzWidgets knob tick: root_layout_pass 0.42 ms (was 19-229 ms), 11 taffy misses (was 12181),
 0 text re-flows (was 2853), relayout 31-32 ms profiled / 20-21 ms UNPROFILED (was 157-309 profiled).
+| ANIMFRAME8 | aab288d543431cefd | wt/animframe8 | running (follow-up; base 5745afee6) |
+| A11YPATCH8 | aa100334a0a477111 | wt/a11ypatch8 | running (follow-up; base 5745afee6) |
+| SYSUI8 | a8592cc8171aa7d82 | wt/sysui8 | running (follow-up; base 5745afee6) |
