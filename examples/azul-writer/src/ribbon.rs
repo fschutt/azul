@@ -239,7 +239,10 @@ fn home_tab(app: &RefAny, editor: Option<&RichTextEditorState>) -> RibbonTab {
             RibbonGalleryCell::create(Dom::create_span_with_text(s("AaBbCc")).with_css(s(css)), s(name))
         })
         .collect();
+    // A row of three styles (the row with the caret's) and More, as Word's
+    // gallery: all six inline pushed the Editing group off a 1280 px window.
     let gallery = RibbonGallery::create(cells)
+        .with_visible(3)
         .with_selected(editor.map_or(0, current_style))
         .with_on_select(
             RefAny::new(GalleryRef { app: app.clone() }),
