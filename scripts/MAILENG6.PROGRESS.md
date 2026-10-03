@@ -35,8 +35,10 @@ agents - keep files under `m6/` (a `msg.txt` at the root got overwritten).
   center"><a><span style="display:block;width:100px;height:40px"></span></a></div>` -> div 19.2px,
   the span gets no box (Chrome: 40px, span at x 0). Same in a cell with whitespace text. CSS 2.2
   9.2.1.1 splitting of an inline around a block is not implemented (reconciler + layout_ifc).
-- NEXT: item 5 RTL + border-collapse borders (fc/display_list collapsed border resolution);
-  then item 6, then item 2.
+- item 5 RTL collapse: RED `a7fda9cc9` + FIX `4b9f52dcf` (start/end sides by direction,
+  `CollapsedBorders.rtl` for the cell/table half-borders). Item 5 DONE.
+- NEXT: item 6 (inline-flex / inline-grid / inline-table and <img> inside spans through
+  `fc::measure_atomic_inline`; strut x-height / cap-height from OS/2), then item 2.
 
 ## (older notes, items 3/7 plan)
 - item 3 + 7 (Chrome's rounded font metrics + the Times/Helvetica/Courier ascent hack).
