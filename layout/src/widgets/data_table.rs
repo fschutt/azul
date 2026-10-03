@@ -475,3 +475,509 @@ pub struct DataTableView {
     /// `order` holds the rows shown; `false` = every row in the app's order.
     pub ordered: bool,
 }
+
+impl DataTableView {
+    /// No sort, no filter (every row in the app's order), nothing
+    /// selected, scrolled to the top-left, nothing edited.
+    #[must_use]
+    pub const fn create() -> Self {
+        Self {
+            sort: DataTableSortKeyVec::from_const_slice(&[]),
+            filters: DataTableFilterVec::from_const_slice(&[]),
+            order: U32Vec::from_const_slice(&[]),
+            selection: ListSelection::create(),
+            widths: CellGridSizeVec::from_const_slice(&[]),
+            edit_text: AzString::from_const_str(""),
+            top: 0,
+            left_column: 0,
+            active_column: 0,
+            edit_cursor: 0,
+            edit_row: 0,
+            edit_column: 0,
+            query_serial: 0,
+            order_serial: 0,
+            drag: DataTableDrag {
+                start_px: 0.0,
+                start_size: 0.0,
+                size: 0.0,
+                column: 0,
+                kind: DataTableDragKind::None,
+            },
+            edit: DataTableEditTarget::None,
+            ordered: false,
+        }
+    }
+
+    /// Whether the rows are being sorted / filtered (the order shown is
+    /// still the previous one).
+    #[must_use]
+    pub const fn is_sorting(&self) -> bool {
+        self.query_serial != self.order_serial
+    }
+
+    /// Whether a sort key or a filter is set.
+    #[must_use]
+    pub const fn has_query(&self) -> bool {
+        !self.sort.is_empty() || !self.filters.is_empty()
+    }
+
+    /// Whether a cell or a filter is being edited.
+    #[must_use]
+    pub const fn is_editing(&self) -> bool {
+        !matches!(self.edit, DataTableEditTarget::None)
+    }
+
+    /// How many rows are shown, of the app's `row_count`.
+    #[must_use]
+    pub fn shown_count(&self, row_count: u32) -> u32 {
+        if self.ordered {
+            u32::try_from(self.order.len()).unwrap_or(u32::MAX)
+        } else {
+            row_count
+        }
+    }
+
+    /// The app's row shown at `position` (0 = the first row shown).
+    #[must_use]
+    pub fn row_at(&self, position: u32, row_count: u32) -> OptionU32 {
+        if self.ordered {
+            self.order
+                .get(position as usize)
+                .copied()
+                .filter(|r| *r < row_count)
+                .into()
+        } else if position < row_count {
+            OptionU32::Some(position)
+        } else {
+            OptionU32::None
+        }
+    }
+
+    /// Where the app's row `row` is shown (`None`: filtered out).
+    #[must_use]
+    pub fn position_of(&self, row: u32, row_count: u32) -> OptionU32 {
+        if self.ordered {
+            self.order
+                .as_slice()
+                .iter()
+                .position(|r| *r == row)
+                .and_then(|p| u32::try_from(p).ok())
+                .into()
+        } else if row < row_count {
+            OptionU32::Some(row)
+        } else {
+            OptionU32::None
+        }
+    }
+
+    /// The cursor's row (the app's index): the selection's focus.
+    #[must_use]
+    pub fn cursor_row(&self) -> OptionU32 {
+        self.selection
+            .focus
+            .into_option()
+            .and_then(|k| u32::try_from(k).ok())
+            .into()
+    }
+
+    /// The sort a header click on `column` makes: plain, the column alone
+    /// (ascending, then descending, then unsorted when it is already the
+    /// only key); `add` (Shift), the column as one more key (ascending,
+    /// then descending, then out). The order follows (see the module).
+    pub fn click_sort(&mut self, column: u32, add: bool) {
+        use DataTableSortDirection::{Ascending, Descending};
+        let mut keys = self.sort.as_slice().to_vec();
+        let at = keys.iter().position(|k| k.column == column);
+        if add {
+            match at {
+                Some(i) => match keys[i].direction {
+                    Ascending => keys[i].direction = Descending,
+                    Descending => {
+                        keys.remove(i);
+                    }
+                },
+                None => keys.push(DataTableSortKey::create(column, Ascending)),
+            }
+        } else {
+            keys = match (at, keys.len()) {
+                (Some(0), 1) => match keys[0].direction {
+                    Ascending => alloc::vec![DataTableSortKey::create(column, Descending)],
+                    Descending => Vec::new(),
+                },
+                (Some(0), _) => {
+                    let flipped = match keys[0].direction {
+                        Ascending => Descending,
+                        Descending => Ascending,
+                    };
+                    alloc::vec![DataTableSortKey::create(column, flipped)]
+                }
+                _ => alloc::vec![DataTableSortKey::create(column, Ascending)],
+            };
+        }
+        self.set_sort(DataTableSortKeyVec::from_vec(keys));
+    }
+
+    /// Sorts by `keys` (the first the primary one; empty = the app's
+    /// order). The order follows (see the module).
+    pub fn set_sort(&mut self, keys: DataTableSortKeyVec) {
+        if keys != self.sort {
+            self.sort = keys;
+            self.bump_query();
+        }
+    }
+
+    /// No sort: the app's order (the filters stay).
+    pub fn clear_sort(&mut self) {
+        self.set_sort(DataTableSortKeyVec::from_const_slice(&[]));
+    }
+
+    /// The filter of `column` (a column of kind `kind`) is `text`; an empty
+    /// text removes it. The order follows (see the module).
+    pub fn set_filter(&mut self, column: u32, kind: DataTableSortKind, text: AzString) {
+        let mut filters: Vec<DataTableFilter> = self
+            .filters
+            .as_slice()
+            .iter()
+            .filter(|f| f.column != column)
+            .cloned()
+            .collect();
+        if !text.as_str().trim().is_empty() {
+            filters.push(DataTableFilter::parse(column, kind, text));
+            filters.sort_by_key(|f| f.column);
+        }
+        let filters = DataTableFilterVec::from_vec(filters);
+        if filters != self.filters {
+            self.filters = filters;
+            self.bump_query();
+        }
+    }
+
+    /// No filters (the sort stays).
+    pub fn clear_filters(&mut self) {
+        if !self.filters.is_empty() {
+            self.filters = DataTableFilterVec::from_const_slice(&[]);
+            self.bump_query();
+        }
+    }
+
+    /// The text of `column`'s filter ("" = none).
+    #[must_use]
+    pub fn filter_text(&self, column: u32) -> AzString {
+        self.filters
+            .as_slice()
+            .iter()
+            .find(|f| f.column == column)
+            .map_or_else(|| AzString::from_const_str(""), |f| f.text.clone())
+    }
+
+    /// `column`'s place among the sort keys and its direction.
+    #[must_use]
+    pub(crate) fn sort_of(&self, column: u32) -> Option<(usize, DataTableSortDirection)> {
+        self.sort
+            .as_slice()
+            .iter()
+            .position(|k| k.column == column)
+            .map(|i| (i, self.sort.as_slice()[i].direction))
+    }
+
+    /// A new query: the order no longer fits it - unless there is no query
+    /// left, which needs no work (every row in the app's order).
+    fn bump_query(&mut self) {
+        self.query_serial = self.query_serial.wrapping_add(1);
+        self.top = 0;
+        if !self.has_query() {
+            self.order = U32Vec::from_const_slice(&[]);
+            self.ordered = false;
+            self.order_serial = self.query_serial;
+        }
+    }
+
+    /// The view with `order` (the rows `serial`'s query shows) in place;
+    /// the selection keeps only the rows still shown.
+    #[must_use]
+    pub(crate) fn with_order(mut self, serial: u32, order: Vec<u32>) -> Self {
+        if serial != self.query_serial {
+            return self; // a newer query is on its way
+        }
+        let shown = u32::try_from(order.len()).unwrap_or(u32::MAX);
+        if !self.selection.keys.is_empty() || self.selection.focus.is_some() {
+            let keys: Vec<u64> = order.iter().map(|r| u64::from(*r)).collect();
+            self.selection.retain_in(U64Vec::from_vec(keys));
+        }
+        self.order = U32Vec::from_vec(order);
+        self.ordered = true;
+        self.order_serial = serial;
+        self.top = self.top.min(shown.saturating_sub(1));
+        self
+    }
+}
+
+impl Default for DataTableView {
+    fn default() -> Self {
+        Self::create()
+    }
+}
+
+// ---- filters: what a typed filter means ----
+
+impl DataTableFilter {
+    /// What `text`, typed into the filter of `column` (a column of kind
+    /// `kind`), asks - see [`DataTableSortKind`]. A Number or Date filter
+    /// that reads as neither falls back to "the shown text contains it".
+    #[must_use]
+    pub fn parse(column: u32, kind: DataTableSortKind, text: AzString) -> Self {
+        let typed = String::from(text.as_str().trim());
+        let mut filter = Self {
+            text,
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            column,
+            op: DataTableFilterOp::Contains,
+            min_inclusive: true,
+            max_inclusive: true,
+        };
+        let bounds = match kind {
+            DataTableSortKind::Text => {
+                if typed.starts_with('=') {
+                    filter.op = DataTableFilterOp::Equals;
+                }
+                None
+            }
+            DataTableSortKind::Number => number_bounds(&typed),
+            DataTableSortKind::Date => date_bounds(&typed),
+        };
+        if let Some(b) = bounds {
+            filter.op = b.op;
+            filter.min = b.min;
+            filter.max = b.max;
+            filter.min_inclusive = b.min_inclusive;
+            filter.max_inclusive = b.max_inclusive;
+        }
+        filter
+    }
+
+    /// Whether nothing was typed.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.text.as_str().trim().is_empty()
+    }
+
+    /// Whether `value` lies within the bounds.
+    #[must_use]
+    pub fn admits(&self, value: f64) -> bool {
+        if value.is_nan() {
+            return false;
+        }
+        let above = if self.min_inclusive {
+            value >= self.min
+        } else {
+            value > self.min
+        };
+        let below = if self.max_inclusive {
+            value <= self.max
+        } else {
+            value < self.max
+        };
+        above && below
+    }
+
+    /// Whether the filter reads the shown text (Contains, or a Text
+    /// column's Equals) rather than the value.
+    pub(crate) fn reads_text(&self, kind: DataTableSortKind) -> bool {
+        self.op == DataTableFilterOp::Contains
+            || (kind == DataTableSortKind::Text && self.op == DataTableFilterOp::Equals)
+    }
+
+    /// The folded text a text filter looks for (the `=` of Equals off).
+    pub(crate) fn needle(&self) -> String {
+        let t = self.text.as_str().trim();
+        let t = if self.op == DataTableFilterOp::Equals {
+            t.strip_prefix('=').unwrap_or(t).trim()
+        } else {
+            t
+        };
+        fold(t)
+    }
+}
+
+/// The bounds a typed number or date filter names.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Bounds {
+    min: f64,
+    max: f64,
+    min_inclusive: bool,
+    max_inclusive: bool,
+    op: DataTableFilterOp,
+}
+
+impl Bounds {
+    const fn open(op: DataTableFilterOp) -> Self {
+        Self {
+            min: f64::NEG_INFINITY,
+            max: f64::INFINITY,
+            min_inclusive: true,
+            max_inclusive: true,
+            op,
+        }
+    }
+}
+
+/// Case folded, for comparing texts.
+pub(crate) fn fold(text: &str) -> String {
+    text.to_lowercase()
+}
+
+/// A typed number: `1,234.5`, `-3`, `12 %`. Returns the number and how
+/// many decimals were typed.
+fn typed_number(text: &str) -> Option<(f64, i32)> {
+    let cleaned: String = text
+        .trim()
+        .trim_end_matches('%')
+        .chars()
+        .filter(|c| *c != ',' && !c.is_whitespace())
+        .collect();
+    if cleaned.is_empty() {
+        return None;
+    }
+    let value: f64 = cleaned.parse().ok()?;
+    if !value.is_finite() {
+        return None;
+    }
+    let decimals = cleaned
+        .split_once('.')
+        .map_or(0, |(_, f)| i32::try_from(f.len()).unwrap_or(0));
+    Some((value, decimals))
+}
+
+/// A Number column's filter: `a..b` (either end may be left out), `>a`,
+/// `>=a`, `<a`, `<=a`, `=a` or `a` (what shows as `a`: within half a unit
+/// of its last typed decimal).
+fn number_bounds(typed: &str) -> Option<Bounds> {
+    let t = typed.trim();
+    if let Some((lo, hi)) = t.split_once("..") {
+        let mut b = Bounds::open(DataTableFilterOp::Range);
+        if !lo.trim().is_empty() {
+            b.min = typed_number(lo)?.0;
+        }
+        if !hi.trim().is_empty() {
+            b.max = typed_number(hi)?.0;
+        }
+        return Some(b);
+    }
+    let mut b = Bounds::open(DataTableFilterOp::Range);
+    if let Some(rest) = t.strip_prefix(">=") {
+        b.min = typed_number(rest)?.0;
+    } else if let Some(rest) = t.strip_prefix("<=") {
+        b.max = typed_number(rest)?.0;
+    } else if let Some(rest) = t.strip_prefix('>') {
+        b.min = typed_number(rest)?.0;
+        b.min_inclusive = false;
+    } else if let Some(rest) = t.strip_prefix('<') {
+        b.max = typed_number(rest)?.0;
+        b.max_inclusive = false;
+    } else {
+        let rest = t.strip_prefix('=').unwrap_or(t);
+        let (value, decimals) = typed_number(rest)?;
+        let half = 0.5 * 10f64.powi(-decimals);
+        b = Bounds {
+            min: value - half,
+            max: value + half,
+            min_inclusive: true,
+            max_inclusive: false,
+            op: DataTableFilterOp::Equals,
+        };
+    }
+    Some(b)
+}
+
+/// The day number (days since 1970-01-01) of a civil date (Howard
+/// Hinnant's `days_from_civil`).
+pub(crate) fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let m = i64::from(month);
+    let d = i64::from(day);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The days `[start, end)` a typed date names: `YYYY`, `YYYY-MM` or
+/// `YYYY-MM-DD` (a real date).
+#[allow(clippy::cast_precision_loss)] // day numbers are far below 2^52
+fn date_span(text: &str) -> Option<(f64, f64)> {
+    let parts: Vec<&str> = text.trim().split('-').map(str::trim).collect();
+    let year: u32 = parts.first()?.parse().ok()?;
+    if !(1000..=9999).contains(&year) || parts.len() > 3 {
+        return None;
+    }
+    let y = i64::from(year);
+    let (start, end) = match parts.len() {
+        1 => (days_from_civil(y, 1, 1), days_from_civil(y + 1, 1, 1)),
+        2 => {
+            let month: u32 = parts[1].parse().ok()?;
+            if !(1..=12).contains(&month) {
+                return None;
+            }
+            let next = if month == 12 {
+                days_from_civil(y + 1, 1, 1)
+            } else {
+                days_from_civil(y, month + 1, 1)
+            };
+            (days_from_civil(y, month, 1), next)
+        }
+        _ => {
+            let month: u32 = parts[1].parse().ok()?;
+            let day: u32 = parts[2].parse().ok()?;
+            if !(1..=12).contains(&month)
+                || day == 0
+                || day > crate::widgets::date_picker::days_in_month(year, month)
+            {
+                return None;
+            }
+            let d = days_from_civil(y, month, day);
+            (d, d + 1)
+        }
+    };
+    Some((start as f64, end as f64))
+}
+
+/// A Date column's filter: a period (`2024`, `2024-03`, `2024-03-05`) is
+/// every day in it; `a..b` from the start of `a` to the end of `b`; `>a`
+/// after the period, `>=a` from its start, `<a` before it, `<=a` to its end.
+fn date_bounds(typed: &str) -> Option<Bounds> {
+    let t = typed.trim();
+    let mut b = Bounds::open(DataTableFilterOp::Range);
+    if let Some((lo, hi)) = t.split_once("..") {
+        if !lo.trim().is_empty() {
+            b.min = date_span(lo)?.0;
+        }
+        if !hi.trim().is_empty() {
+            b.max = date_span(hi)?.1;
+            b.max_inclusive = false;
+        }
+        return Some(b);
+    }
+    if let Some(rest) = t.strip_prefix(">=") {
+        b.min = date_span(rest)?.0;
+    } else if let Some(rest) = t.strip_prefix("<=") {
+        b.max = date_span(rest)?.1;
+        b.max_inclusive = false;
+    } else if let Some(rest) = t.strip_prefix('>') {
+        b.min = date_span(rest)?.1;
+    } else if let Some(rest) = t.strip_prefix('<') {
+        b.max = date_span(rest)?.0;
+        b.max_inclusive = false;
+    } else {
+        let (start, end) = date_span(t.strip_prefix('=').unwrap_or(t))?;
+        b = Bounds {
+            min: start,
+            max: end,
+            min_inclusive: true,
+            max_inclusive: false,
+            op: DataTableFilterOp::Equals,
+        };
+    }
+    Some(b)
+}
