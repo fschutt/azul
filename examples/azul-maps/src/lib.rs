@@ -755,14 +755,15 @@ pub fn start() {
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
     let (data_root, pins_key, kept) = {
         let mut k = kit_ref.clone();
-        match k.downcast_ref::<kit::Kit>() {
+        let read = match k.downcast_ref::<kit::Kit>() {
             Some(k) => (
                 k.data_root.clone(),
                 k.key(PINS_FILE),
                 k.settings.get(VIEW_KEY).and_then(|text| parse_view(text)),
             ),
             None => (PathBuf::new(), String::new(), None),
-        }
+        };
+        read
     };
     // The map opens where it was left (settings.json), else on the start.
     let (lat, lon, zoom) = kept.unwrap_or(HOME);

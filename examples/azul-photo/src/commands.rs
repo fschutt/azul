@@ -14,9 +14,9 @@ use azul_appkit::{
 };
 
 use azul::{
-    css::DarkLightMode,
+    css::{DarkLightMode, TextRasterStyle},
     dialog::{FileDialog, FileOpenResult},
-    image::{RawImageData, TextRasterStyle},
+    image::RawImageData,
     option::{OptionDarkLightMode, OptionFileTypeList},
     prelude::*,
     widgets::{
@@ -136,7 +136,7 @@ fn with_kit(app: &PhotoApp, f: impl FnOnce(&mut kit::Kit)) {
     let mut handle = app.kit.clone();
     if let Some(mut k) = handle.downcast_mut::<kit::Kit>() {
         f(&mut k);
-    }
+    };
 }
 
 /// A button's payload: the app and its command.

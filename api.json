@@ -58125,6 +58125,25 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "`font_family` at `size_px`, in `color`, the font's own line height."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "font_family": "String"
+                                    },
+                                    {
+                                        "size_px": "f32"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::cpurender::text_raster::TextRasterStyle::create(font_family, size_px, color)"
+                            }
+                        },
                         "functions": {
                             "with_line_height": {
                                 "doc": [
@@ -58142,6 +58161,34 @@
                                     "type": "TextRasterStyle"
                                 },
                                 "fn_body": "object.with_line_height(line_height)"
+                            },
+                            "with_bold": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "bold": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextRasterStyle"
+                                },
+                                "fn_body": "object.with_bold(bold)"
+                            },
+                            "with_italic": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "italic": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextRasterStyle"
+                                },
+                                "fn_body": "object.with_italic(italic)"
                             }
                         },
                         "repr": "C"
@@ -95306,6 +95353,19 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "An editor showing `rule`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "rule": "DateRepeatRule"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::date_repeat_picker::DateRepeatPicker::create(rule)"
+                            }
+                        },
                         "functions": {
                             "dom": {
                                 "doc": [
@@ -95323,6 +95383,232 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_completion_option": {
+                                "doc": [
+                                    "Show the \"Repeat from the day it is completed\" box (a to-do's",
+                                    "choice; an appointment has none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "shown": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_completion_option(shown)"
+                            },
+                            "set_end_option": {
+                                "doc": [
+                                    "Show the \"Ends\" row; a repeat that cannot end leaves it out."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "shown": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_end_option(shown)"
+                            },
+                            "set_month_weekday_option": {
+                                "doc": [
+                                    "Offer a monthly rule on the start's nth weekday; without it, a monthly rule repeats on",
+                                    "the start's day."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "shown": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_month_weekday_option(shown)"
+                            },
+                            "set_on_change": {
+                                "doc": [
+                                    "Sets the callback invoked when any part changes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "DateRepeatPickerOnChangeCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_change(data, callback)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme of the editor and its parts; unset, they follow",
+                                    "the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "set_week_start": {
+                                "doc": [
+                                    "The weekday the weekday toggles and the end date's calendar start on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "week_start": "DatePickerWeekStart"
+                                    }
+                                ],
+                                "fn_body": "object.set_week_start(week_start)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with the default editor and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "with_completion_option": {
+                                "doc": [
+                                    "[`Self::set_completion_option`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "shown": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.with_completion_option(shown)"
+                            },
+                            "with_end_option": {
+                                "doc": [
+                                    "[`Self::set_end_option`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "shown": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.with_end_option(shown)"
+                            },
+                            "with_month_weekday_option": {
+                                "doc": [
+                                    "[`Self::set_month_weekday_option`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "shown": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.with_month_weekday_option(shown)"
+                            },
+                            "with_on_change": {
+                                "doc": [
+                                    "[`Self::set_on_change`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "DateRepeatPickerOnChangeCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.with_on_change(data, callback)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "with_week_start": {
+                                "doc": [
+                                    "[`Self::set_week_start`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "week_start": "DatePickerWeekStart"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DateRepeatPicker"
+                                },
+                                "fn_body": "object.with_week_start(week_start)"
                             }
                         },
                         "repr": "C"
@@ -95423,6 +95709,20 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A rule that does not repeat, from `start`: every 1, ending never",
+                                    "(10 times, or on `start`, once an end is chosen)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "start": "DatePickerState"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::date_repeat_picker::DateRepeatRule::create(start)"
+                            }
+                        },
                         "functions": {
                             "from_rrule": {
                                 "doc": [
@@ -95444,6 +95744,23 @@
                                     "type": "OptionDateRepeatRule"
                                 },
                                 "fn_body": "azul_layout::widgets::date_repeat_picker::DateRepeatRule::from_rrule(rrule, start)"
+                            },
+                            "to_rrule": {
+                                "doc": [
+                                    "The rule as the value of an RFC 5545 `RRULE` (`FREQ=WEEKLY;",
+                                    "INTERVAL=2;COUNT=10;BYDAY=MO,WE`), its parts in the order `FREQ`,",
+                                    "`INTERVAL` (when not 1), `COUNT` / `UNTIL` (a date), `BYMONTHDAY` /",
+                                    "`BYDAY`; empty when it does not repeat."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.to_rrule().into()"
                             }
                         },
                         "repr": "C"

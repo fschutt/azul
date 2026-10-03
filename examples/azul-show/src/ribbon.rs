@@ -206,7 +206,7 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
             .and_then(|el| el.body())
     });
     let has = |axis| body.is_some_and(|b| text::all_have(b, axis));
-    use azwriter::ir::FormatAxis as F;
+    use crate::ir::FormatAxis as F;
     let align = body
         .and_then(|b| b.paragraphs.first())
         .map_or(Align::Left, |p| p.align);

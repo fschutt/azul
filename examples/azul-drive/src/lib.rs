@@ -1643,9 +1643,9 @@ pub fn start() {
     refresh_disks(&mut state);
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
-    let config = azul_appkit::ui::app_config(&kit);
+    let config = azul_appkit::ui::app_config(&state.kit);
     let window = azul_appkit::ui::window_options(
-        &kit,
+        &state.kit,
         layout,
         (1200.0, 760.0),
         (640.0, 420.0),

@@ -1,5 +1,5 @@
 //! The text of a text box, edited in place with AzWriter's rich text model
-//! (`azwriter::ir`): the deck's [`TextBody`] converts to an `IrDocument` (one
+//! (`crate::ir`): the deck's [`TextBody`] converts to an `IrDocument` (one
 //! paragraph block per paragraph), the IR renders the contenteditable DOM
 //! (`ir::to_content_dom`), the engine's typing is synced back run by run
 //! (`ir::set_run_text` / `ir::sync_block_text`), Enter / Backspace across
@@ -13,7 +13,7 @@ use azul::{
     css::DocumentOperation,
     dom::{Dom, DomNodeId, NodeType},
 };
-use azwriter::ir::{self, FormatAxis, IrAlign, IrBlock, IrDocument, IrParaStyle, IrParagraph, IrRun};
+use crate::ir::{self, FormatAxis, IrAlign, IrBlock, IrDocument, IrParaStyle, IrParagraph, IrRun};
 
 use crate::model::{Align, Paragraph, Run, TextBody};
 

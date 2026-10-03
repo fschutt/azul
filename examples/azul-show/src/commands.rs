@@ -14,7 +14,7 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     window::{WindowCreateOptions, WindowDecorations, WindowFrame},
 };
-use azwriter::ir::FormatAxis;
+use crate::ir::FormatAxis;
 
 use crate::{
     app::{AppState, BackstagePage, Command, CommandData, Play, Screen, ShowRuntime},

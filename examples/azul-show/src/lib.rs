@@ -25,6 +25,9 @@ pub mod editor;
 pub mod find;
 mod find_ui;
 pub mod ids;
+/// The rich text model of a text box (AzWriter's former IR, moved here when AzWriter moved onto
+/// azul's RichTextDoc; AzShow's text boxes move onto RichTextDoc next - wave 7 OFFICE7).
+pub mod ir;
 pub mod model;
 pub mod render;
 mod ribbon;

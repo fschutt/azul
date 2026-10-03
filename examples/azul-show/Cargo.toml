@@ -23,9 +23,8 @@ azul-storage = { path = "../azul-storage", features = ["azul"] }
 # The app skeleton: switches, the data root, the settings file and page, the
 # shortcuts table, the undo / redo stack (`azul_appkit::UndoHistory`).
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
-# The rich text of a text box is AzWriter's IR (`azwriter::ir`): one rich text
-# model for both apps until it moves into azul as the RichTextEditor model.
-AzWriter = { path = "../azul-writer" }
+# The text boxes' rich text model (src/ir.rs, AzWriter's former IR) reads Markdown.
+pulldown-cmark = { version = "0.9", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
