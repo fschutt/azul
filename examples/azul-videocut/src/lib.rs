@@ -50,6 +50,7 @@ use std::{
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, DialogOnCloseCallbackType, NumberInputOnValueChangeCallbackType,
+        StandardDialogOnEventCallbackType,
         SegmentedOnChangeCallbackType, SliderOnValueChangeCallbackType, TimelineOnEventCallbackType,
         UpdateImageType,
     },
@@ -73,7 +74,8 @@ use azul::{
     },
     video::{VideoDecoder, VideoEncoder},
     widgets::{
-        ButtonType, Dialog, DialogState, NumberInputState, ProgressBar, Segmented,
+        AboutDialog, ButtonType, Dialog, DialogState, NumberInputState, ProgressDialog, Segmented,
+        StandardDialogEvent, StandardDialogEventKind,
         SegmentedState, Slider, SliderState, StatusBar, StatusBarSegment, Timeline, TimelineClip,
         TimelineClipTint, TimelineEdge, TimelineEvent, TimelineEventKind, TimelineTrack,
         TimelineTrackKind, Titlebar,
@@ -1615,6 +1617,21 @@ fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
             _ => format!("{} of {} frames - {}", p.done, p.total, p.how),
         },
     );
+    if running {
+        // While it runs: azul's standard ProgressDialog (status, bar, Cancel).
+        let progress = ProgressDialog::create("Exporting", percent)
+            .with_text(line.as_str())
+            .with_detail(format!("H.264 in MP4 by {}", app.encoder).as_str())
+            .with_cancel("Cancel export", true)
+            .with_on_event(app_ref.clone(), on_export_event as StandardDialogOnEventCallbackType)
+            .dom();
+        return Dialog::create(progress)
+            .with_title("Export")
+            .with_open(true)
+            .with_modal(true)
+            .with_close_button(false)
+            .dom();
+    }
     let labels = |items: &[&str]| StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>());
     let body = Dom::create_div()
         .with_css(DIALOG_BODY_CSS)
@@ -1643,20 +1660,11 @@ fn export_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
                 .with_on_change(app_ref.clone(), on_export_range as SegmentedOnChangeCallbackType)
                 .dom(),
         )
-        .with_child(
-            ProgressBar::create(percent)
-                .with_accessibility_name("Export progress")
-                .dom(),
-        )
         .with_child(text(&line, NOTE_CSS))
-        .with_child(row(if running {
-            vec![button("Cancel export", app_ref, on_export_cancel)]
-        } else {
-            vec![
-                primary("Export now", app_ref, on_export_start),
-                button("Close", app_ref, on_export_close),
-            ]
-        }));
+        .with_child(row(vec![
+            primary("Export now", app_ref, on_export_start),
+            button("Close", app_ref, on_export_close),
+        ]));
     Dialog::create(body)
         .with_title("Export")
         .with_open(true)
@@ -1717,18 +1725,19 @@ fn settings_dialog(app: &VideoCut, app_ref: &RefAny) -> Dom {
         .dom()
 }
 
-/// About AzVideoCut.
+/// About AzVideoCut: azul's standard AboutDialog.
 fn about_dialog(app_ref: &RefAny) -> Dom {
-    let body = Dom::create_div()
-        .with_css(DIALOG_BODY_CSS)
-        .with_child(text("AzVideoCut 0.1", BIN_NAME_CSS))
-        .with_child(text(
+    let body = AboutDialog::create("AzVideoCut", env!("CARGO_PKG_VERSION"))
+        .with_icon("movie")
+        .with_description(
             "A video editor on the public azul API: Mp4Demuxer + VideoDecoder read the \
              frames, a CPU compositor puts the tracks together, VideoEncoder + Mp4Muxer write \
              the export. The project is files on a Drive.",
-            NOTE_CSS,
-        ))
-        .with_child(row(vec![button("Close", app_ref, on_about_close)]));
+        )
+        .with_copyright("MIT license")
+        .with_credit("azul", "MIT")
+        .with_on_event(app_ref.clone(), on_about_event as StandardDialogOnEventCallbackType)
+        .dom();
     Dialog::create(body)
         .with_title("About AzVideoCut")
         .with_open(true)
@@ -2810,12 +2819,22 @@ extern "C" fn on_about_open(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-extern "C" fn on_about_close(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// The About dialog's OK closes it.
+extern "C" fn on_about_event(mut data: RefAny, _info: CallbackInfo, _event: StandardDialogEvent) -> Update {
     let Some(mut app) = data.downcast_mut::<VideoCut>() else {
         return Update::DoNothing;
     };
     app.about_open = false;
     Update::RefreshDom
+}
+
+/// The progress dialog's Cancel stops the export (the job ends at the next
+/// frame and reports it).
+extern "C" fn on_export_event(data: RefAny, info: CallbackInfo, event: StandardDialogEvent) -> Update {
+    match event.kind {
+        StandardDialogEventKind::Cancel => on_export_cancel(data, info),
+        _ => Update::DoNothing,
+    }
 }
 
 extern "C" fn on_theme_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
