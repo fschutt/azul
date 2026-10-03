@@ -288,24 +288,31 @@ impl SeekBar {
                 _ => return false,
             }
         };
-        let Some(mut data) = info.get_dataset(track) else {
+        move_surface(info, track, position_s)
+    }
+}
+
+/// Moves the seek surface (a seek bar's trough, a waveform) at `node` to `position_s` in place;
+/// skipped while the user drags it. False when `node` carries no seek surface. The one in-place
+/// move for both widgets.
+pub(crate) fn move_surface(info: &mut CallbackInfo, node: DomNodeId, position_s: f64) -> bool {
+    let Some(mut data) = info.get_dataset(node) else {
+        return false;
+    };
+    let (state, surface) = {
+        let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
             return false;
         };
-        let state = {
-            let Some(mut w) = data.downcast_mut::<SeekBarWrapper>() else {
-                return false;
-            };
-            if w.inner.dragging {
-                // The user holds the thumb: the player must not pull it away.
-                return true;
-            }
-            w.inner.position_s = position_s;
-            let now = w.inner;
-            now
-        };
-        show_position(info, track, state);
-        true
-    }
+        if w.inner.dragging {
+            // The user holds the thumb: the player must not pull it away.
+            return true;
+        }
+        w.inner.position_s = position_s;
+        let now = (w.inner, w.surface);
+        now
+    };
+    show_position(info, node, state, surface);
+    true
 }
 
 impl Default for SeekBar {
@@ -329,10 +336,20 @@ impl_option!(
 
 // ==== Interaction ====
 
-/// The trough's dataset: the hook and where the bar is.
+/// Which widget a seek surface is: its parts differ, its interaction does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SeekSurface {
+    /// A seek bar's trough: [buffered, played, ticks.., thumb].
+    Bar,
+    /// A waveform: [bars.., playhead].
+    Waveform,
+}
+
+/// The seek surface's dataset: the hook, where it is, and which widget it is.
 pub(crate) struct SeekBarWrapper {
     pub on_seek: OptionSeekBarOnSeek,
     pub inner: SeekBarState,
+    pub surface: SeekSurface,
 }
 
 /// Whether `node` is a seek bar's trough (it carries the bar's dataset).
@@ -345,7 +362,7 @@ fn is_track(info: &mut CallbackInfo, node: DomNodeId) -> bool {
 }
 
 /// What a screen reader says for a bar at `state`: "1:12 of 9:22".
-fn value_text(state: SeekBarState) -> String {
+pub(crate) fn value_text(state: SeekBarState) -> String {
     alloc::format!(
         "{} of {}",
         media_time(state.position_s),
@@ -354,14 +371,27 @@ fn value_text(state: SeekBarState) -> String {
 }
 
 /// Moves the played part, the thumb and the time label of the bar whose trough is `track` to
-/// `state`, in place.
-fn show_position(info: &mut CallbackInfo, track: DomNodeId, state: SeekBarState) {
+/// `state`, in place (a waveform: its playhead).
+fn show_position(
+    info: &mut CallbackInfo,
+    track: DomNodeId,
+    state: SeekBarState,
+    surface: SeekSurface,
+) {
     use azul_css::props::{
         basic::pixel::PixelValue,
         layout::{LayoutLeft, LayoutWidth},
         property::CssProperty,
     };
     let percent = seek_fraction(state.position_s, state.duration_s) * 100.0;
+    if surface == SeekSurface::Waveform {
+        // [bars.., playhead]: the playhead moves; the bars' colours follow at the next build.
+        if let Some(head) = info.get_last_child(track) {
+            info.set_css_property(head, CssProperty::const_left(LayoutLeft::percent(percent)));
+        }
+        info.set_accessibility_value(track, AzString::from(value_text(state)));
+        return;
+    }
     // [buffered, played, ticks.., thumb]
     if let Some(played) = info
         .get_first_child(track)
@@ -406,7 +436,7 @@ fn seek_to_pointer(w: &mut SeekBarWrapper, info: &mut CallbackInfo) -> Update {
     }
     w.inner.position_s = time_at(pos.x, width, w.inner.duration_s);
     let track = info.get_hit_node();
-    show_position(info, track, w.inner);
+    show_position(info, track, w.inner, w.surface);
     report(w, info)
 }
 
@@ -482,7 +512,7 @@ pub extern "C" fn on_seek_bar_key(mut data: RefAny, mut info: CallbackInfo) -> U
     w.inner.position_s = target;
     w.inner.dragging = false;
     let track = info.get_hit_node();
-    show_position(&mut info, track, w.inner);
+    show_position(&mut info, track, w.inner, w.surface);
     report(&mut w, &mut info)
 }
 
@@ -579,13 +609,61 @@ pub(crate) static SEEK_THUMB_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_height(LayoutHeight::const_px(12))),
 ];
 
-/// The bar's DOM in `look`.
-pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
+/// The pointer, touch and key callbacks of a seek surface (a seek bar's trough, a waveform) on
+/// its dataset `data` - one set for both widgets.
+pub(crate) fn seek_callbacks(data: &RefAny) -> Vec<azul_core::callbacks::CoreCallbackData> {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
-        dom::{EventFilter, FocusEventFilter, HoverEventFilter, TabIndex},
+        dom::{EventFilter, FocusEventFilter, HoverEventFilter},
         refany::OptionRefAny,
     };
+    let mk = |event: EventFilter, cb: usize| CoreCallbackData {
+        event,
+        callback: CoreCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        },
+        refany: data.clone(),
+    };
+    alloc::vec![
+        mk(
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            on_seek_bar_pointer_down as usize
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::MouseMove),
+            on_seek_bar_pointer_move as usize
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            on_seek_bar_pointer_up as usize
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::MouseLeave),
+            on_seek_bar_pointer_leave as usize
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::TouchStart),
+            on_seek_bar_pointer_down as usize
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::TouchMove),
+            on_seek_bar_pointer_move as usize
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::TouchEnd),
+            on_seek_bar_pointer_up as usize
+        ),
+        mk(
+            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+            on_seek_bar_key as usize
+        ),
+    ]
+}
+
+/// The bar's DOM in `look`.
+pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
+    use azul_core::{dom::TabIndex, refany::OptionRefAny};
     let part = |base: &[CssPropertyWithConditions], skin: &[CssPropertyWithConditions]| {
         crate::widgets::themes::decl::on_base(base, skin)
     };
@@ -649,49 +727,9 @@ pub(crate) fn build(bar: SeekBar, look: &SeekBarLook) -> Dom {
     let data = RefAny::new(SeekBarWrapper {
         on_seek,
         inner: state,
+        surface: SeekSurface::Bar,
     });
-    let mk = |event: EventFilter, cb: usize| CoreCallbackData {
-        event,
-        callback: CoreCallback {
-            cb,
-            ctx: OptionRefAny::None,
-        },
-        refany: data.clone(),
-    };
-    let callbacks = alloc::vec![
-        mk(
-            EventFilter::Hover(HoverEventFilter::MouseDown),
-            on_seek_bar_pointer_down as usize
-        ),
-        mk(
-            EventFilter::Hover(HoverEventFilter::MouseMove),
-            on_seek_bar_pointer_move as usize
-        ),
-        mk(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
-            on_seek_bar_pointer_up as usize
-        ),
-        mk(
-            EventFilter::Hover(HoverEventFilter::MouseLeave),
-            on_seek_bar_pointer_leave as usize
-        ),
-        mk(
-            EventFilter::Hover(HoverEventFilter::TouchStart),
-            on_seek_bar_pointer_down as usize
-        ),
-        mk(
-            EventFilter::Hover(HoverEventFilter::TouchMove),
-            on_seek_bar_pointer_move as usize
-        ),
-        mk(
-            EventFilter::Hover(HoverEventFilter::TouchEnd),
-            on_seek_bar_pointer_up as usize
-        ),
-        mk(
-            EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-            on_seek_bar_key as usize
-        ),
-    ];
+    let callbacks = seek_callbacks(&data);
     let track = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(TRACK_CLASS))
         .with_css_props(props(part(SEEK_TRACK_BASE, &look.track)))

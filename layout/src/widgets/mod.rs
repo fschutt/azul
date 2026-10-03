@@ -1894,6 +1894,19 @@ mod label_convention {
                 .with_accessibility_name("Player")
                 .dom(),
         ));
+        // The waveform: sixteen peaks, a quarter played.
+        all.push((
+            "waveform",
+            super::waveform::Waveform::create(
+                azul_css::F32Vec::from_vec(alloc::vec![
+                    0.2, 0.5, 0.9, 0.4, 0.7, 0.3, 1.0, 0.6, 0.2, 0.8, 0.5, 0.1, 0.6, 0.9, 0.3, 0.4,
+                ]),
+                30.0,
+                120.0,
+            )
+            .with_accessibility_name("Position")
+            .dom(),
+        ));
         // The level meter: well into the amber, named.
         all.push((
             "level_meter",
@@ -2799,6 +2812,8 @@ mod theme_contrast {
         "seek_bar",
         // A transport: a row of buttons and a slider.
         "media_controls",
+        // A waveform: a slider drawn as the audio.
+        "waveform",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

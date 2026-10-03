@@ -167,10 +167,16 @@ impl Waveform {
         s
     }
 
-    /// The waveform's DOM.
+    /// The waveform's DOM: the pinned theme's look, or (unpinned) both looks in their `@theme`
+    /// blocks, the app theme picking.
     #[must_use]
     pub fn dom(self) -> azul_core::dom::Dom {
-        azul_core::dom::Dom::create_div()
+        use crate::widgets::themes::{flat, flora, theme_blocks, UiTheme};
+        match self.theme.into_option() {
+            Some(UiTheme::Flat) => flat::waveform(self),
+            Some(UiTheme::Flora) => flora::waveform(self),
+            None => theme_blocks::follow_app_theme(self, flat::waveform, flora::waveform),
+        }
     }
 
     /// Moves the playhead of a built waveform (its root `node`) to `position_s` in place (the
@@ -180,8 +186,7 @@ impl Waveform {
         node: azul_core::dom::DomNodeId,
         position_s: f64,
     ) -> bool {
-        let _ = (info, node, position_s);
-        false
+        crate::widgets::seek_bar::move_surface(info, node, position_s)
     }
 }
 
@@ -203,6 +208,175 @@ azul_css::impl_option!(
     copy = false,
     [Debug, Clone, PartialEq]
 );
+
+/// The waveform: bars side by side, centred on their midline, the playhead's positioning context.
+pub(crate) static WAVEFORM_BASE: &[azul_css::dynamic_selector::CssPropertyWithConditions] = {
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions as P,
+        props::{
+            layout::{
+                LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutHeight, LayoutMinWidth,
+                LayoutPosition,
+            },
+            property::CssProperty,
+            style::{StyleCursor, StyleUserSelect},
+        },
+    };
+    &[
+        P::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+        P::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+        P::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+        P::simple(CssProperty::const_position(LayoutPosition::Relative)),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(48))),
+        P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(40))),
+        P::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        P::simple(CssProperty::user_select(StyleUserSelect::None)),
+    ]
+};
+
+/// A bar: an equal share of the width.
+pub(crate) static WAVEFORM_BAR_BASE: &[azul_css::dynamic_selector::CssPropertyWithConditions] = {
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions as P,
+        props::{layout::LayoutFlexGrow, property::CssProperty},
+    };
+    &[P::simple(CssProperty::const_flex_grow(
+        LayoutFlexGrow::const_new(1),
+    ))]
+};
+
+/// The playhead: a 2 px line the waveform's height, centred on the play position.
+pub(crate) static WAVEFORM_HEAD_BASE: &[azul_css::dynamic_selector::CssPropertyWithConditions] = {
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditions as P,
+        props::{
+            layout::{LayoutHeight, LayoutMarginLeft, LayoutPosition, LayoutTop, LayoutWidth},
+            property::CssProperty,
+        },
+    };
+    &[
+        P::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        P::simple(CssProperty::const_top(LayoutTop::const_px(0))),
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(2))),
+        P::simple(CssProperty::const_height(LayoutHeight::const_px(48))),
+        P::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
+            -1,
+        ))),
+    ]
+};
+
+/// The waveform's DOM in `look`: [bar.., playhead] on a seek surface (the seek bar's dataset,
+/// callbacks and merge, so a press, a drag and the keys seek exactly as on a seek bar).
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom {
+    use azul_core::{
+        dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+        refany::{OptionRefAny, RefAny},
+    };
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions as P, CssPropertyWithConditionsVec},
+        props::{
+            basic::pixel::PixelValue,
+            layout::{LayoutHeight, LayoutLeft},
+            property::CssProperty,
+        },
+        AzString,
+    };
+
+    use crate::widgets::seek_bar::{
+        merge_seek_bar_state, seek_callbacks, seek_fraction, value_text, SeekBarState,
+        SeekBarWrapper, SeekSurface,
+    };
+
+    static ROOT: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-waveform"))];
+    static HEAD: &[IdOrClass] = &[Class(AzString::from_const_str(
+        "__azul-native-waveform-head",
+    ))];
+    const BAR: AzString = AzString::from_const_str("__azul-native-waveform-bar");
+    const PLAYED: AzString = AzString::from_const_str("__azul-native-waveform-played");
+
+    let Waveform {
+        position_s,
+        duration_s,
+        peaks,
+        on_seek,
+        accessibility_name,
+        theme: _,
+    } = wave;
+    crate::widgets::warn_widget_needs_a_name("Waveform", accessibility_name.is_some());
+    let state = SeekBarState {
+        position_s,
+        duration_s,
+        dragging: false,
+    };
+    let fraction = seek_fraction(position_s, duration_s);
+    let part = |base: &[P], skin: &[P]| crate::widgets::themes::decl::on_base(base, skin);
+    let peaks = peaks.as_ref();
+    let n = peaks.len().max(1) as f32;
+    let mut children: Vec<Dom> = Vec::with_capacity(peaks.len() + 1);
+    for (i, peak) in peaks.iter().enumerate() {
+        let played = (i as f32 + 0.5) / n <= fraction;
+        let height = if peak.is_finite() {
+            (peak.clamp(0.0, 1.0) * 100.0).max(2.0)
+        } else {
+            2.0
+        };
+        let mut props = part(
+            WAVEFORM_BAR_BASE,
+            if played { &look.played } else { &look.bar },
+        );
+        props.push(P::simple(CssProperty::const_height(LayoutHeight::Px(
+            PixelValue::percent(height),
+        ))));
+        let mut classes = alloc::vec![IdOrClass::Class(BAR)];
+        if played {
+            classes.push(IdOrClass::Class(PLAYED));
+        }
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(props)),
+        );
+    }
+    let mut head = part(WAVEFORM_HEAD_BASE, &look.head);
+    head.push(P::simple(CssProperty::const_left(LayoutLeft::percent(
+        fraction * 100.0,
+    ))));
+    children.push(
+        Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(HEAD))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(head)),
+    );
+
+    let data = RefAny::new(SeekBarWrapper {
+        on_seek,
+        inner: state,
+        surface: SeekSurface::Waveform,
+    });
+    let mut classes: Vec<IdOrClass> = ROOT.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(part(
+            WAVEFORM_BASE,
+            &look.root,
+        )))
+        .with_callbacks(seek_callbacks(&data).into())
+        .with_dataset(OptionRefAny::Some(data))
+        .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+            merge_seek_bar_state,
+        ))
+        .with_tab_index(TabIndex::Auto)
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Slider,
+            accessibility_name,
+            accessibility_value: Some(AzString::from(value_text(state))).into(),
+            ..Default::default()
+        })
+        .with_children(DomVec::from_vec(children))
+}
 
 /// What a theme decides about a waveform: the SKIN of each part.
 #[derive(Debug, Clone, Default)]

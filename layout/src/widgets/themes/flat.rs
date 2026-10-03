@@ -6571,3 +6571,37 @@ pub(crate) fn media_controls_look() -> crate::widgets::media_controls::MediaCont
 pub fn media_controls(c: crate::widgets::media_controls::MediaControls) -> Dom {
     crate::widgets::media_controls::build(c, &media_controls_look())
 }
+
+// ==== waveform ====
+//
+// The flat waveform is a sound editor's overview on a white sheet: grey bars
+// (the strong border) not played yet, flat's accent for the played part, a
+// playhead in the ink; the sheet wears the focus halo. At night the
+// desktop's page, the lifted accent.
+
+/// Flat's waveform look.
+#[must_use]
+pub(crate) fn waveform_look() -> crate::widgets::waveform::WaveformLook {
+    use super::decl;
+    let mut root = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    root.extend(decl::radius(3));
+    root.extend(decl::padding(4, 4, 4, 4));
+    root.extend(decl::focus_halo(LIGHT_GLOW, DARK_GLOW));
+    let mut bar = decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec();
+    bar.extend(decl::margin(0, 1, 0, 0));
+    let mut played = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    played.extend(decl::margin(0, 1, 0, 0));
+    crate::widgets::waveform::WaveformLook {
+        root,
+        bar,
+        played,
+        head: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat waveform.
+#[must_use]
+pub fn waveform(w: crate::widgets::waveform::Waveform) -> Dom {
+    crate::widgets::waveform::build(w, &waveform_look())
+}
