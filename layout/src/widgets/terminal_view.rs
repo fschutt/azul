@@ -578,6 +578,49 @@ pub struct TerminalPalette {
 }
 
 impl TerminalPalette {
+    /// Every colour `c` (a starting point for a palette built in code).
+    #[must_use]
+    pub const fn uniform(c: ChartColor) -> Self {
+        Self {
+            black: c,
+            red: c,
+            green: c,
+            yellow: c,
+            blue: c,
+            magenta: c,
+            cyan: c,
+            white: c,
+            bright_black: c,
+            bright_red: c,
+            bright_green: c,
+            bright_yellow: c,
+            bright_blue: c,
+            bright_magenta: c,
+            bright_cyan: c,
+            bright_white: c,
+            foreground: c,
+            background: c,
+            cursor: c,
+            selection: c,
+        }
+    }
+
+    /// Flat's terminal: dark text on the page white by day, the desktop's
+    /// night console at night (Windows Terminal's Campbell colours).
+    #[must_use]
+    pub const fn flat() -> Self {
+        Self::uniform(ChartColor::same(ColorU::rgb(0, 0, 0)))
+    }
+
+    /// Flora's "ink" terminal: the code panel's warm ink ground in both
+    /// modes (`--fl-code-bg #211F1B`, `--fl-code-fg #E4E1D6`; the dark
+    /// room `#141414` / `#E2E2E2` at night), the ANSI colours from Flora's
+    /// accent families.
+    #[must_use]
+    pub const fn flora_ink() -> Self {
+        Self::uniform(ChartColor::same(ColorU::rgb(0, 0, 0)))
+    }
+
     /// ANSI colour `index` (0..15; past 15 the last bright one).
     #[must_use]
     pub const fn ansi(&self, index: u8) -> ChartColor {
@@ -1169,3 +1212,672 @@ pub(crate) fn wheel_action(
 }
 
 // TERM9-NEXT: the build, the handlers.
+
+#[cfg(test)]
+mod encoding_tests {
+    //! The bytes the keys, typed text, a paste, the pointer and the focus
+    //! send to the program (xterm's encodings).
+    use super::*;
+    use VirtualKeyCode as K;
+
+    const NONE: KeyModifiers = KeyModifiers {
+        shift: false,
+        ctrl: false,
+        alt: false,
+        meta: false,
+    };
+
+    fn m(shift: bool, ctrl: bool, alt: bool, meta: bool) -> KeyModifiers {
+        KeyModifiers {
+            shift,
+            ctrl,
+            alt,
+            meta,
+        }
+    }
+
+    fn shift() -> KeyModifiers {
+        m(true, false, false, false)
+    }
+
+    fn ctrl() -> KeyModifiers {
+        m(false, true, false, false)
+    }
+
+    fn alt() -> KeyModifiers {
+        m(false, false, true, false)
+    }
+
+    /// A fresh terminal where Alt sends escape (the Linux / Windows default).
+    fn modes() -> TerminalModes {
+        let mut t = TerminalModes::create();
+        t.alt_sends_escape = true;
+        t
+    }
+
+    fn key(t: &TerminalModes, k: VirtualKeyCode, mods: KeyModifiers) -> Vec<u8> {
+        t.encode_key(k, mods).as_slice().to_vec()
+    }
+
+    #[test]
+    fn an_arrow_key_sends_csi_and_ss3_in_application_cursor_mode() {
+        let mut t = modes();
+        assert_eq!(key(&t, K::Up, NONE), b"\x1b[A");
+        assert_eq!(key(&t, K::Down, NONE), b"\x1b[B");
+        assert_eq!(key(&t, K::Right, NONE), b"\x1b[C");
+        assert_eq!(key(&t, K::Left, NONE), b"\x1b[D");
+        t.application_cursor = true;
+        assert_eq!(key(&t, K::Up, NONE), b"\x1bOA");
+        assert_eq!(key(&t, K::Left, NONE), b"\x1bOD");
+    }
+
+    #[test]
+    fn an_arrow_with_modifiers_sends_csi_1_semicolon_the_modifier() {
+        let mut t = modes();
+        t.application_cursor = true;
+        assert_eq!(key(&t, K::Up, shift()), b"\x1b[1;2A");
+        assert_eq!(key(&t, K::Left, alt()), b"\x1b[1;3D");
+        assert_eq!(key(&t, K::Right, ctrl()), b"\x1b[1;5C");
+        assert_eq!(key(&t, K::Down, m(true, true, false, false)), b"\x1b[1;6B");
+        assert_eq!(key(&t, K::Down, m(true, true, true, false)), b"\x1b[1;8B");
+    }
+
+    #[test]
+    fn home_and_end_follow_the_cursor_mode() {
+        let mut t = modes();
+        assert_eq!(key(&t, K::Home, NONE), b"\x1b[H");
+        assert_eq!(key(&t, K::End, NONE), b"\x1b[F");
+        assert_eq!(key(&t, K::End, ctrl()), b"\x1b[1;5F");
+        t.application_cursor = true;
+        assert_eq!(key(&t, K::Home, NONE), b"\x1bOH");
+        assert_eq!(key(&t, K::End, NONE), b"\x1bOF");
+    }
+
+    #[test]
+    fn the_editing_keys_send_tilde_sequences() {
+        let t = modes();
+        assert_eq!(key(&t, K::Insert, NONE), b"\x1b[2~");
+        assert_eq!(key(&t, K::Delete, NONE), b"\x1b[3~");
+        assert_eq!(key(&t, K::PageUp, NONE), b"\x1b[5~");
+        assert_eq!(key(&t, K::PageDown, NONE), b"\x1b[6~");
+        assert_eq!(key(&t, K::Delete, ctrl()), b"\x1b[3;5~");
+        assert_eq!(key(&t, K::PageUp, alt()), b"\x1b[5;3~");
+    }
+
+    #[test]
+    fn function_keys_send_ss3_up_to_f4_and_tilde_codes_after() {
+        let t = modes();
+        assert_eq!(key(&t, K::F1, NONE), b"\x1bOP");
+        assert_eq!(key(&t, K::F2, NONE), b"\x1bOQ");
+        assert_eq!(key(&t, K::F3, NONE), b"\x1bOR");
+        assert_eq!(key(&t, K::F4, NONE), b"\x1bOS");
+        assert_eq!(key(&t, K::F5, NONE), b"\x1b[15~");
+        assert_eq!(key(&t, K::F6, NONE), b"\x1b[17~");
+        assert_eq!(key(&t, K::F10, NONE), b"\x1b[21~");
+        assert_eq!(key(&t, K::F11, NONE), b"\x1b[23~");
+        assert_eq!(key(&t, K::F12, NONE), b"\x1b[24~");
+        assert_eq!(key(&t, K::F13, NONE), b"\x1b[25~");
+        assert_eq!(key(&t, K::F20, NONE), b"\x1b[34~");
+        assert_eq!(key(&t, K::F1, shift()), b"\x1b[1;2P");
+        assert_eq!(key(&t, K::F5, ctrl()), b"\x1b[15;5~");
+    }
+
+    #[test]
+    fn ctrl_and_a_letter_sends_its_c0_control() {
+        let t = modes();
+        assert_eq!(key(&t, K::A, ctrl()), [0x01]);
+        assert_eq!(key(&t, K::C, ctrl()), [0x03]);
+        assert_eq!(key(&t, K::D, ctrl()), [0x04]);
+        assert_eq!(key(&t, K::Z, ctrl()), [0x1a]);
+        // Shift does not change a control character.
+        assert_eq!(key(&t, K::C, m(true, true, false, false)), [0x03]);
+    }
+
+    #[test]
+    fn ctrl_and_punctuation_sends_the_remaining_controls() {
+        let t = modes();
+        assert_eq!(key(&t, K::Space, ctrl()), [0x00]);
+        assert_eq!(key(&t, K::Key2, ctrl()), [0x00]);
+        assert_eq!(key(&t, K::LBracket, ctrl()), [0x1b]);
+        assert_eq!(key(&t, K::Backslash, ctrl()), [0x1c]);
+        assert_eq!(key(&t, K::RBracket, ctrl()), [0x1d]);
+        assert_eq!(key(&t, K::Key6, ctrl()), [0x1e]);
+        assert_eq!(key(&t, K::Minus, ctrl()), [0x1f]);
+        assert_eq!(key(&t, K::Slash, ctrl()), [0x1f]);
+    }
+
+    #[test]
+    fn enter_tab_backspace_and_escape_send_their_bytes() {
+        let t = modes();
+        assert_eq!(key(&t, K::Return, NONE), b"\r");
+        assert_eq!(key(&t, K::NumpadEnter, NONE), b"\r");
+        assert_eq!(key(&t, K::Tab, NONE), b"\t");
+        assert_eq!(key(&t, K::Tab, shift()), b"\x1b[Z");
+        assert_eq!(key(&t, K::Back, NONE), [0x7f]);
+        assert_eq!(key(&t, K::Back, ctrl()), [0x08]);
+        assert_eq!(key(&t, K::Escape, NONE), [0x1b]);
+    }
+
+    #[test]
+    fn alt_sends_escape_before_the_key_when_the_user_wants_meta() {
+        let t = modes();
+        assert_eq!(key(&t, K::B, alt()), b"\x1bb");
+        assert_eq!(key(&t, K::B, m(true, false, true, false)), b"\x1bB");
+        assert_eq!(key(&t, K::Key1, alt()), b"\x1b1");
+        assert_eq!(key(&t, K::Back, alt()), b"\x1b\x7f");
+        assert_eq!(key(&t, K::Return, alt()), b"\x1b\r");
+        assert_eq!(key(&t, K::Period, alt()), b"\x1b.");
+        // Option types characters when Alt does not send escape (macOS).
+        let mut mac = modes();
+        mac.alt_sends_escape = false;
+        assert!(key(&mac, K::B, alt()).is_empty());
+    }
+
+    #[test]
+    fn ctrl_alt_and_a_letter_is_left_to_the_layout_for_altgr() {
+        // AltGr arrives as Ctrl+Alt on Windows: its character comes typed.
+        let t = modes();
+        assert!(key(&t, K::Q, m(false, true, true, false)).is_empty());
+        assert!(key(&t, K::Key7, m(false, true, true, false)).is_empty());
+    }
+
+    #[test]
+    fn a_letter_without_ctrl_or_alt_sends_nothing_because_its_text_comes_typed() {
+        let t = modes();
+        assert!(key(&t, K::A, NONE).is_empty());
+        assert!(key(&t, K::A, shift()).is_empty());
+        assert!(key(&t, K::Key1, NONE).is_empty());
+        assert!(key(&t, K::Space, NONE).is_empty());
+        assert!(key(&t, K::LShift, shift()).is_empty());
+    }
+
+    #[test]
+    fn keys_with_cmd_or_the_windows_key_are_the_apps() {
+        let t = modes();
+        assert!(key(&t, K::C, m(false, false, false, true)).is_empty());
+        assert!(key(&t, K::Up, m(false, false, false, true)).is_empty());
+        assert!(key(&t, K::Return, m(false, false, false, true)).is_empty());
+    }
+
+    #[test]
+    fn the_keypad_sends_ss3_in_application_keypad_mode() {
+        let mut t = modes();
+        assert!(key(&t, K::Numpad5, NONE).is_empty());
+        t.application_keypad = true;
+        assert_eq!(key(&t, K::Numpad0, NONE), b"\x1bOp");
+        assert_eq!(key(&t, K::Numpad5, NONE), b"\x1bOu");
+        assert_eq!(key(&t, K::Numpad9, NONE), b"\x1bOy");
+        assert_eq!(key(&t, K::NumpadEnter, NONE), b"\x1bOM");
+        assert_eq!(key(&t, K::NumpadAdd, NONE), b"\x1bOk");
+        assert_eq!(key(&t, K::NumpadSubtract, NONE), b"\x1bOm");
+        assert_eq!(key(&t, K::NumpadMultiply, NONE), b"\x1bOj");
+        assert_eq!(key(&t, K::NumpadDivide, NONE), b"\x1bOo");
+        assert_eq!(key(&t, K::NumpadDecimal, NONE), b"\x1bOn");
+    }
+
+    #[test]
+    fn typed_text_goes_out_as_utf8_without_control_characters() {
+        let t = modes();
+        assert_eq!(t.encode_text(AzString::from("é€")).as_slice(), "é€".as_bytes());
+        assert_eq!(t.encode_text(AzString::from("a\u{3}b\r")).as_slice(), b"ab");
+        assert!(t.encode_text(AzString::from("")).as_slice().is_empty());
+    }
+
+    #[test]
+    fn a_paste_is_bracketed_when_the_program_asks_and_cannot_close_the_bracket() {
+        let mut t = modes();
+        t.bracketed_paste = true;
+        assert_eq!(
+            t.encode_paste(AzString::from("ls\x1b[201~ -la\n")).as_slice(),
+            b"\x1b[200~ls[201~ -la\n\x1b[201~"
+        );
+    }
+
+    #[test]
+    fn an_unbracketed_paste_sends_line_breaks_as_carriage_returns() {
+        let t = modes();
+        assert_eq!(t.encode_paste(AzString::from("a\r\nb\nc")).as_slice(), b"a\rb\rc");
+    }
+
+    #[test]
+    fn focus_is_reported_only_when_the_program_asks() {
+        let mut t = modes();
+        assert!(t.encode_focus(true).as_slice().is_empty());
+        t.focus_reporting = true;
+        assert_eq!(t.encode_focus(true).as_slice(), b"\x1b[I");
+        assert_eq!(t.encode_focus(false).as_slice(), b"\x1b[O");
+    }
+
+    fn mouse(
+        t: &TerminalModes,
+        b: TerminalMouseButton,
+        a: TerminalMouseAction,
+        line: u32,
+        column: u32,
+        mods: KeyModifiers,
+    ) -> Vec<u8> {
+        t.encode_mouse(b, a, TerminalPoint::create(line, column), mods)
+            .as_slice()
+            .to_vec()
+    }
+
+    use TerminalMouseAction as A;
+    use TerminalMouseButton as B;
+
+    #[test]
+    fn no_pointer_report_without_a_mouse_mode() {
+        let t = modes();
+        assert!(mouse(&t, B::Left, A::Press, 0, 0, NONE).is_empty());
+        assert!(mouse(&t, B::WheelUp, A::Press, 0, 0, NONE).is_empty());
+    }
+
+    #[test]
+    fn an_sgr_report_names_the_button_the_cell_and_the_modifiers() {
+        let mut t = modes();
+        t.mouse = TerminalMouseMode::Click;
+        t.mouse_encoding = TerminalMouseEncoding::Sgr;
+        assert_eq!(mouse(&t, B::Left, A::Press, 4, 9, NONE), b"\x1b[<0;10;5M");
+        assert_eq!(mouse(&t, B::Left, A::Release, 4, 9, NONE), b"\x1b[<0;10;5m");
+        assert_eq!(mouse(&t, B::Middle, A::Press, 0, 0, NONE), b"\x1b[<1;1;1M");
+        assert_eq!(mouse(&t, B::Right, A::Press, 4, 9, ctrl()), b"\x1b[<18;10;5M");
+        assert_eq!(mouse(&t, B::Left, A::Press, 0, 0, shift()), b"\x1b[<4;1;1M");
+        assert_eq!(mouse(&t, B::Left, A::Press, 0, 0, alt()), b"\x1b[<8;1;1M");
+        assert_eq!(mouse(&t, B::WheelUp, A::Press, 4, 9, NONE), b"\x1b[<64;10;5M");
+        assert_eq!(mouse(&t, B::WheelDown, A::Press, 4, 9, NONE), b"\x1b[<65;10;5M");
+        // Past the old 223-column limit: SGR says it.
+        assert_eq!(mouse(&t, B::Left, A::Press, 0, 299, NONE), b"\x1b[<0;300;1M");
+    }
+
+    #[test]
+    fn a_default_report_is_three_offset_bytes_and_a_release_is_button_3() {
+        let mut t = modes();
+        t.mouse = TerminalMouseMode::Click;
+        assert_eq!(mouse(&t, B::Left, A::Press, 0, 0, NONE), [0x1b, b'[', b'M', 32, 33, 33]);
+        assert_eq!(mouse(&t, B::Right, A::Press, 2, 5, NONE), [0x1b, b'[', b'M', 34, 38, 35]);
+        assert_eq!(mouse(&t, B::Left, A::Release, 0, 0, NONE), [0x1b, b'[', b'M', 35, 33, 33]);
+        // A cell the three bytes cannot say is not reported.
+        assert!(mouse(&t, B::Left, A::Press, 0, 300, NONE).is_empty());
+    }
+
+    #[test]
+    fn a_utf8_report_writes_large_coordinates_as_characters() {
+        let mut t = modes();
+        t.mouse = TerminalMouseMode::Click;
+        t.mouse_encoding = TerminalMouseEncoding::Utf8;
+        // Column 200 is 32 + 201 = 233 = U+00E9, two bytes in UTF-8.
+        assert_eq!(
+            mouse(&t, B::Left, A::Press, 0, 200, NONE),
+            [0x1b, b'[', b'M', 32, 0xC3, 0xA9, 33]
+        );
+    }
+
+    #[test]
+    fn motion_is_reported_only_in_the_modes_that_ask_for_it() {
+        let mut t = modes();
+        t.mouse_encoding = TerminalMouseEncoding::Sgr;
+        t.mouse = TerminalMouseMode::Click;
+        assert!(mouse(&t, B::Left, A::Motion, 1, 1, NONE).is_empty());
+        t.mouse = TerminalMouseMode::Drag;
+        assert_eq!(mouse(&t, B::Left, A::Motion, 1, 1, NONE), b"\x1b[<32;2;2M");
+        assert!(mouse(&t, B::None, A::Motion, 1, 1, NONE).is_empty());
+        t.mouse = TerminalMouseMode::Motion;
+        assert_eq!(mouse(&t, B::None, A::Motion, 1, 1, NONE), b"\x1b[<35;2;2M");
+    }
+}
+
+#[cfg(test)]
+mod palette_tests {
+    //! The colours a cell is drawn in.
+    use super::*;
+
+    fn rgb(r: u8, g: u8, b: u8) -> ColorU {
+        ColorU::rgb(r, g, b)
+    }
+
+    #[test]
+    fn the_256_colour_cube_and_grey_ramp_follow_xterm() {
+        assert_eq!(xterm_256_color(15), None);
+        assert_eq!(xterm_256_color(16), Some(rgb(0, 0, 0)));
+        assert_eq!(xterm_256_color(21), Some(rgb(0, 0, 255)));
+        assert_eq!(xterm_256_color(196), Some(rgb(255, 0, 0)));
+        assert_eq!(xterm_256_color(110), Some(rgb(135, 175, 215)));
+        assert_eq!(xterm_256_color(231), Some(rgb(255, 255, 255)));
+        assert_eq!(xterm_256_color(232), Some(rgb(8, 8, 8)));
+        assert_eq!(xterm_256_color(255), Some(rgb(238, 238, 238)));
+    }
+
+    #[test]
+    fn a_palette_index_below_16_is_its_ansi_colour() {
+        let p = TerminalPalette::flat();
+        assert_eq!(p.ansi(0), p.black);
+        assert_eq!(p.ansi(1), p.red);
+        assert_eq!(p.ansi(9), p.bright_red);
+        assert_eq!(p.ansi(15), p.bright_white);
+        assert_eq!(p.color_of(TerminalColor::Indexed(4)), p.blue);
+        assert_eq!(p.color_of(TerminalColor::Indexed(12)), p.bright_blue);
+        assert_eq!(
+            p.color_of(TerminalColor::Indexed(196)),
+            ChartColor::same(rgb(255, 0, 0))
+        );
+        assert_eq!(
+            p.color_of(TerminalColor::Rgb(rgb(1, 2, 3))),
+            ChartColor::same(rgb(1, 2, 3))
+        );
+        assert_eq!(p.color_of(TerminalColor::Foreground), p.foreground);
+        assert_eq!(p.color_of(TerminalColor::Background), p.background);
+    }
+
+    #[test]
+    fn the_default_ground_is_not_painted_and_another_one_is() {
+        let p = TerminalPalette::flora_ink();
+        let plain = p.colors_of(&TerminalStyle::create());
+        assert_eq!(plain.ink, p.foreground);
+        assert!(!plain.paints_ground);
+        let on_blue = p.colors_of(&TerminalStyle::colored(
+            TerminalColor::Foreground,
+            TerminalColor::Indexed(4),
+        ));
+        assert!(on_blue.paints_ground);
+        assert_eq!(on_blue.ground, p.blue);
+    }
+
+    #[test]
+    fn inverse_swaps_ink_and_ground_and_paints_the_ground() {
+        let p = TerminalPalette::flat();
+        let mut s = TerminalStyle::create();
+        s.inverse = true;
+        let c = p.colors_of(&s);
+        assert_eq!(c.ink, p.background);
+        assert_eq!(c.ground, p.foreground);
+        assert!(c.paints_ground);
+    }
+
+    #[test]
+    fn hidden_text_is_drawn_in_its_ground() {
+        let p = TerminalPalette::flat();
+        let mut s = TerminalStyle::colored(TerminalColor::Indexed(1), TerminalColor::Indexed(2));
+        s.hidden = true;
+        let c = p.colors_of(&s);
+        assert_eq!(c.ink, p.green);
+        assert_eq!(c.ground, p.green);
+    }
+
+    #[test]
+    fn dim_text_is_the_ink_at_two_thirds() {
+        let p = TerminalPalette::flat();
+        let mut s = TerminalStyle::create();
+        s.dim = true;
+        let c = p.colors_of(&s);
+        assert_eq!(c.ink.light.a, 170);
+        assert_eq!(c.ink.dark.a, 170);
+        assert_eq!(c.ink.light.r, p.foreground.light.r);
+    }
+
+    #[test]
+    fn both_built_in_palettes_keep_the_text_readable_on_their_ground() {
+        let luma = |c: ColorU| {
+            0.2126 * f32::from(c.r) + 0.7152 * f32::from(c.g) + 0.0722 * f32::from(c.b)
+        };
+        for p in [TerminalPalette::flat(), TerminalPalette::flora_ink()] {
+            for (ink, ground) in [
+                (p.foreground.light, p.background.light),
+                (p.foreground.dark, p.background.dark),
+            ] {
+                assert!((luma(ink) - luma(ground)).abs() > 120.0, "{ink:?} on {ground:?}");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod view_tests {
+    //! The grid, the scroll window and the selection.
+    use super::*;
+    use VirtualKeyCode as K;
+
+    const NONE: KeyModifiers = KeyModifiers {
+        shift: false,
+        ctrl: false,
+        alt: false,
+        meta: false,
+    };
+
+    fn m(shift: bool, ctrl: bool, alt: bool, meta: bool) -> KeyModifiers {
+        KeyModifiers {
+            shift,
+            ctrl,
+            alt,
+            meta,
+        }
+    }
+
+    /// A screen of `rows` blank rows over `history` lines, scrolled up `scroll`.
+    fn screen(rows: u32, history: u32, scroll: u32) -> TerminalScreen {
+        let mut s = TerminalScreen::create(TerminalLineVec::from_vec(
+            (0..rows)
+                .map(|_| TerminalLine::plain(AzString::from("")))
+                .collect(),
+        ));
+        s.history = history;
+        s.scroll = scroll;
+        s
+    }
+
+    #[test]
+    fn the_grid_is_the_whole_cells_that_fit() {
+        assert_eq!(
+            TerminalGridSize::fitting(800.0, 340.0, 8.0, 17.0),
+            TerminalGridSize::create(100, 20)
+        );
+        assert_eq!(
+            TerminalGridSize::fitting(807.9, 356.0, 8.0, 17.0),
+            TerminalGridSize::create(100, 20)
+        );
+        // A box that is not there yet, or nonsense: the smallest grid.
+        assert_eq!(
+            TerminalGridSize::fitting(0.0, 0.0, 8.0, 17.0),
+            TerminalGridSize::create(2, 1)
+        );
+        assert_eq!(
+            TerminalGridSize::fitting(f32::NAN, 100.0, 8.0, 17.0),
+            TerminalGridSize::create(2, 5)
+        );
+        assert_eq!(
+            TerminalGridSize::fitting(800.0, 340.0, 0.0, 17.0),
+            TerminalGridSize::create(2, 20)
+        );
+    }
+
+    #[test]
+    fn the_cell_follows_the_font_size_until_the_face_is_measured() {
+        let guess = Metrics::of(10.0, 0.0, None);
+        assert!((guess.cell_width - 6.0).abs() < 1e-4);
+        assert!((guess.line_height - 13.0).abs() < 1e-4);
+        let measured = Metrics::of(10.0, 15.0, Some(6.25));
+        assert!((measured.cell_width - 6.25).abs() < 1e-4);
+        assert!((measured.line_height - 15.0).abs() < 1e-4);
+        let nonsense = Metrics::of(-3.0, 0.0, Some(f32::NAN));
+        assert!((nonsense.font_size - TERMINAL_FONT_SIZE).abs() < 1e-4);
+        assert!(nonsense.cell_width > 0.0);
+    }
+
+    #[test]
+    fn a_point_maps_to_its_cell_and_half_clamped_into_the_grid() {
+        let metrics = Metrics::of(10.0, 17.0, Some(8.0));
+        let grid = TerminalGridSize::create(80, 24);
+        assert_eq!(
+            metrics.cell_at(grid, 8.0 * 10.0 + 5.0, 17.0 * 3.0 + 1.0),
+            (TerminalPoint::create(3, 10), true)
+        );
+        assert_eq!(
+            metrics.cell_at(grid, 8.0 * 10.0 + 1.0, 0.0),
+            (TerminalPoint::create(0, 10), false)
+        );
+        assert_eq!(
+            metrics.cell_at(grid, 10_000.0, 10_000.0),
+            (TerminalPoint::create(23, 79), true)
+        );
+        assert_eq!(
+            metrics.cell_at(grid, -4.0, -4.0),
+            (TerminalPoint::create(0, 0), false)
+        );
+    }
+
+    #[test]
+    fn scrolling_stops_at_the_oldest_line_and_at_the_output() {
+        assert_eq!(scroll_after(0, 100, 3), 3);
+        assert_eq!(scroll_after(99, 100, 3), 100);
+        assert_eq!(scroll_after(2, 100, -3), 0);
+        assert_eq!(scroll_after(0, 0, 3), 0);
+        assert_eq!(scroll_after(50, 100, i64::MIN), 0);
+        assert_eq!(scroll_after(50, 100, i64::MAX), 100);
+    }
+
+    #[test]
+    fn the_scroll_bar_thumb_sits_where_the_view_is() {
+        assert_eq!(scroll_bar(600.0, 400.0, 24, 0, 0), None);
+        let at_bottom = scroll_bar(600.0, 400.0, 24, 76, 0).expect("a bar");
+        assert_eq!(at_bottom.track, (600.0, 0.0, SCROLLBAR_PX, 400.0));
+        assert!((at_bottom.thumb_len - 96.0).abs() < 1e-3);
+        assert!((at_bottom.thumb_start + at_bottom.thumb_len - 400.0).abs() < 1e-3);
+        let at_top = scroll_bar(600.0, 400.0, 24, 76, 76).expect("a bar");
+        assert!(at_top.thumb_start.abs() < 1e-3);
+    }
+
+    #[test]
+    fn dragging_the_thumb_to_the_top_shows_the_oldest_line() {
+        let bar = scroll_bar(600.0, 400.0, 24, 76, 0).expect("a bar");
+        assert_eq!(scroll_for_thumb(&bar, 0.0, 76), 76);
+        assert_eq!(scroll_for_thumb(&bar, -50.0, 76), 76);
+        assert_eq!(scroll_for_thumb(&bar, 400.0 - bar.thumb_len, 76), 0);
+        assert_eq!(
+            scroll_for_thumb(&bar, (400.0 - bar.thumb_len) / 2.0, 76),
+            38
+        );
+    }
+
+    #[test]
+    fn copy_and_paste_chords_follow_the_platform_and_leave_ctrl_c_to_the_program() {
+        let s = screen(24, 0, 0);
+        let k = |key, mods, mac| key_action(&s, 24, key, mods, mac);
+        assert_eq!(k(K::C, m(false, false, false, true), true), KeyAction::Copy);
+        assert_eq!(k(K::V, m(false, false, false, true), true), KeyAction::Paste);
+        assert_eq!(
+            k(K::C, m(false, true, false, false), true),
+            KeyAction::Bytes(alloc::vec![3])
+        );
+        assert_eq!(k(K::C, m(true, true, false, false), false), KeyAction::Copy);
+        assert_eq!(k(K::V, m(true, true, false, false), false), KeyAction::Paste);
+        assert_eq!(
+            k(K::C, m(false, true, false, false), false),
+            KeyAction::Bytes(alloc::vec![3])
+        );
+        assert_eq!(k(K::Insert, m(true, false, false, false), false), KeyAction::Paste);
+        assert_eq!(k(K::A, NONE, false), KeyAction::Nothing);
+        assert_eq!(k(K::Up, NONE, false), KeyAction::Bytes(b"\x1b[A".to_vec()));
+    }
+
+    #[test]
+    fn shift_page_up_scrolls_a_screen_and_shift_end_returns_to_the_output() {
+        let shift = m(true, false, false, false);
+        let s = screen(24, 100, 10);
+        assert_eq!(key_action(&s, 24, K::PageUp, shift, false), KeyAction::Scroll(33));
+        assert_eq!(key_action(&s, 24, K::PageDown, shift, false), KeyAction::Scroll(0));
+        assert_eq!(key_action(&s, 24, K::Home, shift, false), KeyAction::Scroll(100));
+        assert_eq!(key_action(&s, 24, K::End, shift, false), KeyAction::Scroll(0));
+        // On the alternate screen they are the program's.
+        let mut full = screen(24, 0, 0);
+        full.modes.alternate_screen = true;
+        assert_eq!(
+            key_action(&full, 24, K::PageUp, shift, false),
+            KeyAction::Bytes(b"\x1b[5;2~".to_vec())
+        );
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_scrollback_or_belongs_to_the_program() {
+        let p = TerminalPoint::create(4, 9);
+        let s = screen(24, 100, 10);
+        assert_eq!(wheel_action(&s, -1, p, NONE), KeyAction::Scroll(13));
+        assert_eq!(wheel_action(&s, 2, p, NONE), KeyAction::Scroll(4));
+        assert_eq!(wheel_action(&s, 0, p, NONE), KeyAction::Nothing);
+        // A program that asked for reports hears every notch.
+        let mut reported = screen(24, 100, 0);
+        reported.modes.mouse = TerminalMouseMode::Click;
+        reported.modes.mouse_encoding = TerminalMouseEncoding::Sgr;
+        assert_eq!(
+            wheel_action(&reported, -2, p, NONE),
+            KeyAction::Bytes(b"\x1b[<64;10;5M\x1b[<64;10;5M".to_vec())
+        );
+        // A full-screen program with alternate scroll gets arrow keys.
+        let mut full = screen(24, 0, 0);
+        full.modes.alternate_screen = true;
+        full.modes.alternate_scroll = true;
+        assert_eq!(
+            wheel_action(&full, 1, p, NONE),
+            KeyAction::Bytes(b"\x1b[B\x1b[B\x1b[B".to_vec())
+        );
+        full.modes.application_cursor = true;
+        assert_eq!(
+            wheel_action(&full, -1, p, NONE),
+            KeyAction::Bytes(b"\x1bOA\x1bOA\x1bOA".to_vec())
+        );
+    }
+
+    #[test]
+    fn a_selection_covers_its_rows_from_the_start_to_the_end_column() {
+        let sel =
+            TerminalSelection::create(TerminalPoint::create(3, 2), TerminalPoint::create(1, 5));
+        assert_eq!(sel.start, TerminalPoint::create(1, 5));
+        assert_eq!(sel.columns_on(0, 80), None);
+        assert_eq!(sel.columns_on(1, 80), Some((5, 79)));
+        assert_eq!(sel.columns_on(2, 80), Some((0, 79)));
+        assert_eq!(sel.columns_on(3, 80), Some((0, 2)));
+        assert_eq!(sel.columns_on(4, 80), None);
+        let block = TerminalSelection::create_block(
+            TerminalPoint::create(3, 2),
+            TerminalPoint::create(1, 5),
+        );
+        assert_eq!(block.columns_on(2, 80), Some((2, 5)));
+        assert_eq!(block.columns_on(1, 80), Some((2, 5)));
+        // A column past the grid is cut at its edge.
+        let wide =
+            TerminalSelection::create(TerminalPoint::create(0, 90), TerminalPoint::create(0, 120));
+        assert_eq!(wide.columns_on(0, 80), None);
+        let past =
+            TerminalSelection::create(TerminalPoint::create(0, 70), TerminalPoint::create(0, 120));
+        assert_eq!(past.columns_on(0, 80), Some((70, 79)));
+    }
+
+    #[test]
+    fn the_selected_text_joins_the_rows_and_drops_trailing_blanks() {
+        let mut s = TerminalScreen::create(TerminalLineVec::from_vec(alloc::vec![
+            TerminalLine::plain(AzString::from("hello world   ")),
+            TerminalLine::plain(AzString::from("second")),
+        ]));
+        s.selection = OptionTerminalSelection::Some(TerminalSelection::create(
+            TerminalPoint::create(0, 6),
+            TerminalPoint::create(1, 2),
+        ));
+        assert_eq!(s.selected_text().as_str(), "world\nsec");
+        // A soft-wrapped row runs on into the next one.
+        if let Some(first) = s.lines.as_mut().first_mut() {
+            first.wrapped = true;
+        }
+        assert_eq!(s.selected_text().as_str(), "world   sec");
+    }
+
+    #[test]
+    fn the_selected_text_counts_a_wide_character_as_two_columns() {
+        let wide = TerminalRun::create(AzString::from("日本"), 4, TerminalStyle::create());
+        let narrow = TerminalRun::create(AzString::from("ab"), 2, TerminalStyle::create());
+        let mut s = TerminalScreen::create(TerminalLineVec::from_vec(alloc::vec![
+            TerminalLine::create(TerminalRunVec::from_vec(alloc::vec![wide, narrow]))
+        ]));
+        s.selection = OptionTerminalSelection::Some(TerminalSelection::create(
+            TerminalPoint::create(0, 2),
+            TerminalPoint::create(0, 4),
+        ));
+        assert_eq!(s.selected_text().as_str(), "本a");
+    }
+}
