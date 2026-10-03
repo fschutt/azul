@@ -91,6 +91,9 @@ const MONTHS: [&str; 12] = [
     "November", "December",
 ];
 
+/// The year a birthday without one is shown in: a leap year.
+const LEAP_YEAR: i32 = 2000;
+
 impl Birthday {
     /// `1987-03-14`, `19870314`, `--0314`, `--03-14`, `1987-03-14T00:00:00Z`;
     /// the day-first `14.03.1987` / `14.03.` the edit form takes too.
@@ -154,6 +157,36 @@ impl Birthday {
             Some(y) => format!("{} {month} {y}", self.day),
             None => format!("{} {month}", self.day),
         }
+    }
+
+    /// The birthday a date picker's day makes: that date, or - the year unknown - its day
+    /// and month alone. `None` for a day that is no date.
+    #[must_use]
+    pub fn picked(year: i32, month: u32, day: u32, year_known: bool) -> Option<Birthday> {
+        if !(1..=12).contains(&month) || day == 0 {
+            return None;
+        }
+        if year_known && !(1..=9999).contains(&year) {
+            return None;
+        }
+        // Without a year, any day a month ever has (29 February too).
+        let max = if year_known {
+            azul_pim::dates::days_in_month(year, month)
+        } else {
+            azul_pim::dates::days_in_month(LEAP_YEAR, month)
+        };
+        (day <= max).then_some(Birthday {
+            year: year_known.then_some(year),
+            month,
+            day,
+        })
+    }
+
+    /// The year the date picker shows the birthday in: its own, else 2000 (a leap year, so a
+    /// 29 February without a year is a day of the grid).
+    #[must_use]
+    pub fn picker_year(&self) -> i32 {
+        self.year.unwrap_or(LEAP_YEAR)
     }
 
     /// The edit form's text: `14.03.1987` or `14.03.`.
@@ -713,6 +746,20 @@ mod tests {
         let (back, _) = parse_vcf(&c.to_vcf(Version::V3));
         assert_eq!(back[0].phones[0].label, "assistant");
         assert_eq!(back[0].phones[1].label, "main");
+    }
+
+    #[test]
+    fn a_birthday_is_picked_on_a_calendar_with_or_without_its_year() {
+        let b = Birthday::picked(1987, 3, 14, true).unwrap();
+        assert_eq!(b, Birthday { year: Some(1987), month: 3, day: 14 });
+        assert_eq!(b.to_form(), "14.03.1987");
+        assert_eq!(b.picker_year(), 1987);
+        let no_year = Birthday::picked(2000, 2, 29, false).unwrap();
+        assert_eq!(no_year, Birthday { year: None, month: 2, day: 29 });
+        assert_eq!(no_year.to_form(), "29.02.");
+        assert_eq!(no_year.picker_year(), 2000, "a leap year: 29 February is on the grid");
+        assert_eq!(Birthday::picked(1987, 2, 30, true), None);
+        assert_eq!(Birthday::picked(1987, 13, 1, false), None);
     }
 
     #[test]

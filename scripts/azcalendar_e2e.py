@@ -22,9 +22,15 @@ Stages (each runs even when one before it failed; `--only` / `--skip` pick them)
             event file with `"repeat": "FREQ=WEEKLY;BYDAY=<its weekday>"`, `AZCAL_EDITOR closed`.
             BLOCKED (not failed) when the debug server does not reach a window made at runtime -
             the headless backend does not run child windows yet (MAIL2's engine change).
+  close     Ctrl/Cmd+N, a title typed, the editor window's `close` op: the close is held and
+            `AZCAL_EDITOR asking`, the question shows; "Don't Save" closes it and writes no
+            event file. An unedited editor closes at once, without asking.
   repeat    the weekly events (the imported one, and the editor's when it was made) are on the
             next week too (Forward, #view-next), not on the week their exception names, and again
             the week after.
+  occurrence  Enter on the editor's weekly event a week on: the editor opens on that day with
+            "This occurrence" (#editor-scope); Save writes a one-off event on that day and the
+            series skips it (`except`).
   contrast  under flat and flora, light and dark: for the Week, Month and List views and the
             backstage, every piece of text the display list paints (button labels among them) is
             read against the rectangles painted under it; under 2:1 is a finding (the threshold of
@@ -226,6 +232,19 @@ def stage_views(app, ctx):
     w.wait_for("#view-schedule")
     w.key("3", primary=True, alt=True)
     w.wait_for("#view-week")
+    # The view is kept for the next start: the file thread writes it into settings.txt.
+    settings_file = os.path.join(app.data, "settings.txt")
+
+    def kept_view():
+        try:
+            with open(settings_file, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except FileNotFoundError:
+            return None
+        views = [l for l in lines if l.startswith("view=")]
+        return views[-1] if views else None
+
+    w.until("view=week in settings.txt", lambda: kept_view() == "view=week")
     # FILE opens the backstage over the window; Escape closes it.
     w.click(text="FILE")
     w.wait_for("#shell-backstage")
@@ -360,8 +379,11 @@ def stage_editor(app, ctx):
     )
     ed = reach_editor(app)
     ed.type_into("#editor-title", EDITOR_TITLE)
+    # The repeat row is the RecurrenceEditor (#editor-repeat): "Weekly" on its frequency row
+    # brings its "Ends" row and the weekday toggles.
+    ed.wait_for("#editor-repeat")
     ed.click(text="Weekly")
-    ed.wait_for("#editor-repeat-variant")
+    ed.until("the recurrence editor's weekly rows", lambda: ed.shows("Ends"))
     # Save & Close closes the editor window: no frames are asked of it after
     # the click (`click` waits two frames on the window it clicked, and a
     # closed window answers "No window has the id"). The main window waits.
@@ -370,6 +392,10 @@ def stage_editor(app, ctx):
         "AZCAL_EDITOR closed",
         lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:],
     )
+    # Save & Close's own close_window goes through CloseRequested too: a saved form closes
+    # without asking.
+    if "asking" in app.printed("AZCAL_EDITOR")[opened:]:
+        raise Failure("Save & Close asked 'save changes?' after saving")
     new = w.until(
         "the editor's event file",
         lambda: [n for n in wi.event_files(app.data) if n not in before] or None,
@@ -383,6 +409,42 @@ def stage_editor(app, ctx):
         raise Failure(f"{new[0]}: the repeat is not weekly on its weekday: {event}")
     ctx["editor_event"] = (event["id"], date)
     return f"{EDITOR_TITLE!r} saved from the editor window, weekly on {weekday}"
+
+
+# ==== close ====
+
+def stage_close(app, ctx):
+    """An edited appointment is not lost to the window's close: the close is held and the window
+    asks "save changes?"; Don't Save closes it and writes nothing. An unedited one closes at
+    once."""
+    w = app.main
+    before = set(wi.event_files(app.data))
+    # Edited: held, asked, discarded.
+    opened = len(app.printed("AZCAL_EDITOR"))
+    w.key("n", primary=True)
+    w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
+    ed = reach_editor(app)
+    ed.type_into("#editor-title", "Not to be kept")
+    ed.must({"op": "close"})
+    ed.frames(3)
+    w.until("AZCAL_EDITOR asking", lambda: "asking" in app.printed("AZCAL_EDITOR")[opened:])
+    if "closed" in app.printed("AZCAL_EDITOR")[opened:]:
+        raise Failure("the edited appointment's window closed without asking")
+    ed.until("the question", lambda: ed.shows("Don't Save"))
+    ed.click(text="Don't Save")
+    w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
+    if set(wi.event_files(app.data)) != before:
+        raise Failure("Don't Save wrote an event file")
+    # Unedited: closes at once.
+    opened = len(app.printed("AZCAL_EDITOR"))
+    w.key("n", primary=True)
+    w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
+    ed = reach_editor(app)
+    ed.must({"op": "close"})
+    w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
+    if "asking" in app.printed("AZCAL_EDITOR")[opened:]:
+        raise Failure("an unedited appointment asked before it closed")
+    return "an edited appointment asks before it closes (Don't Save writes nothing); an unedited one closes"
 
 
 # ==== repeat ====
@@ -422,6 +484,45 @@ def stage_repeat(app, ctx):
     if not checked:
         raise Failure("no weekly event to check: the import and the editor stages made none")
     return "on the next week: " + ", ".join(checked)
+
+
+# ==== occurrence ====
+
+def stage_occurrence(app, ctx):
+    """One occurrence of the editor's weekly event, edited alone: Enter on its block a week on
+    opens the editor on that day with "This occurrence" chosen (#editor-scope); a new title
+    and Save write a new event file on that day without a repeat, and the series' file skips
+    the day (`except`)."""
+    if "editor_event" not in ctx:
+        raise Blocked("the editor stage made no weekly event to take an occurrence of")
+    w = app.main
+    eid, date = ctx["editor_event"]
+    day = date + datetime.timedelta(days=7)
+    show_week_of(w, day)
+    block = f"#event-{eid}-{ymd(day)}"
+    w.wait_for(block)
+    opened = len(app.printed("AZCAL_EDITOR"))
+    before = set(wi.event_files(app.data))
+    w.must({"op": "focus_node", "selector": block})
+    w.frames(1)
+    w.key("return")
+    w.until("AZCAL_EDITOR open", lambda: "open" in app.printed("AZCAL_EDITOR")[opened:])
+    ed = reach_editor(app)
+    ed.wait_for("#editor-scope")
+    ed.type_into("#editor-title", " (moved)")
+    ed.click(selector="#editor-save")
+    w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
+    new = w.until(
+        "the occurrence's own event file",
+        lambda: [n for n in wi.event_files(app.data) if n not in before] or None,
+    )
+    one = wi.read_event(app.data, new[0])
+    if one.get("date") != day.isoformat() or one.get("repeat"):
+        raise Failure(f"{new[0]}: not a one-off event on {day}: {one}")
+    series = wi.read_event(app.data, f"{eid}.json")
+    if day.isoformat() not in (series.get("except") or []):
+        raise Failure(f"the series does not skip {day}: {series}")
+    return f"the occurrence of {day} became {new[0]}; the series skips that day"
 
 
 # ==== contrast ====
@@ -535,7 +636,9 @@ STAGES = [
     ("views", stage_views),
     ("import", stage_import),
     ("editor", stage_editor),
+    ("close", stage_close),
     ("repeat", stage_repeat),
+    ("occurrence", stage_occurrence),
     ("contrast", stage_contrast),
 ]
 

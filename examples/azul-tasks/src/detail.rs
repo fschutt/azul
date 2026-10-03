@@ -14,7 +14,8 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnRemoveCallbackType,
         DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
-        SegmentedOnChangeCallbackType, SwitchOnToggleCallbackType, TextAreaOnFocusLostCallbackType,
+        RecurrenceEditorOnChangeCallbackType, SegmentedOnChangeCallbackType,
+        SwitchOnToggleCallbackType, TextAreaOnFocusLostCallbackType,
         TextAreaOnTextInputCallbackType, TextInputOnFocusLostCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
         TimePickerOnChangeCallbackType,
@@ -28,8 +29,9 @@ use azul::{
     vec::StringVec,
     widgets::{
         ButtonType, CheckBoxState, Chip, ChipState, DatePicker, DatePickerState, DropDown,
-        OnTextInputReturn, Segmented, SegmentedState, Switch, SwitchState, TextArea,
-        TextAreaState, TextInputState, TextInputValid, TimePicker, TimePickerState,
+        OnTextInputReturn, RecurrenceEditor, RecurrenceRule, Segmented, SegmentedState, Switch,
+        SwitchState, TextArea, TextAreaState, TextInputState, TextInputValid, TimePicker,
+        TimePickerState,
     },
 };
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
@@ -38,6 +40,7 @@ use crate::{
     model::{self, Priority, Reminder, Subtask, Task},
     recur::{Repeat, Unit},
     reminders::{self, Preset},
+    repeat_form,
     state::{self, Tasks},
     views,
 };
@@ -105,20 +108,6 @@ pub fn preset_repeat(index: usize, due: NaiveDate) -> Option<Repeat> {
     };
     Some(rule.anchored(due))
 }
-
-/// The custom editor's units.
-const UNITS: [&str; 4] = ["days", "weeks", "months", "years"];
-/// The custom editor's counts.
-const COUNTS: usize = 30;
-const WEEK: [Weekday; 7] = [
-    Weekday::Mon,
-    Weekday::Tue,
-    Weekday::Wed,
-    Weekday::Thu,
-    Weekday::Fri,
-    Weekday::Sat,
-    Weekday::Sun,
-];
 
 fn strings(items: &[&str]) -> StringVec {
     StringVec::from(items.iter().map(|s| AzString::from(*s)).collect::<Vec<_>>())
@@ -258,7 +247,7 @@ fn task_pane(s: &Tasks, app: &RefAny, t: &Task, now: NaiveDateTime) -> Dom {
 
     pane.add_child(steps(app, t));
     pane.add_child(Dom::create_div().with_css(RULE));
-    pane.add_child(due(app, t, today));
+    pane.add_child(due(s, app, t, today));
     pane.add_child(repeat(s, app, t, today));
     pane.add_child(reminder(s, app, t, today));
     pane.add_child(list_field(s, app, t));
@@ -329,7 +318,7 @@ fn steps(app: &RefAny, t: &Task) -> Dom {
 
 /// The due date: quick days when there is none; the date, the time (or "Add time") and
 /// "Clear" when there is one.
-fn due(app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
+fn due(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
     let mut row = Dom::create_div().with_css(FIELD).with_child(label("Due"));
     match t.due {
         None => {
@@ -346,6 +335,8 @@ fn due(app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
             row.add_child(
                 DatePicker::create(u32::try_from(date.year()).unwrap_or(1970), date.month(), date.day())
                     .with_today(u32::try_from(today.year()).unwrap_or(1970), today.month(), today.day())
+                    // The week start setting (Settings > General).
+                    .with_week_start(repeat_form::picker_week_start(s.settings.week_start))
                     .with_accessibility_name("Due date")
                     .with_on_change(detail_ref(app, &t.id, 0), on_due_date as DatePickerOnChangeCallbackType)
                     .dom()
@@ -390,7 +381,7 @@ fn due(app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
 }
 
 /// The repeat: the preset control, and the editor for a custom rule.
-fn repeat(s: &Tasks, app: &RefAny, t: &Task, _today: NaiveDate) -> Dom {
+fn repeat(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
     let preset = repeat_preset(t.repeat.as_ref());
     let mut out = Dom::create_div().with_css("display: flex; flex-direction: column; gap: 6px;");
     out.add_child(field(
@@ -404,52 +395,24 @@ fn repeat(s: &Tasks, app: &RefAny, t: &Task, _today: NaiveDate) -> Dom {
     ));
     let editing = s.drafts.custom_repeat && s.drafts.task == t.id;
     if let Some(rule) = t.repeat.as_ref().filter(|_| editing || preset == REPEATS.len() - 1) {
-        let counts: Vec<String> = (1..=COUNTS).map(|n| n.to_string()).collect();
-        let unit = Unit::ALL.iter().position(|u| *u == rule.unit).unwrap_or(0);
-        let mut editor = Dom::create_div()
-            .with_id("repeat-editor")
-            .with_css(FIELD)
-            .with_child(label("Every"))
-            .with_child(
-                DropDown::create(owned(counts))
-                    .with_selected(usize::try_from(rule.every).unwrap_or(1).clamp(1, COUNTS) - 1)
-                    .with_accessibility_name("Every how many")
-                    .with_on_choice_change(detail_ref(app, &t.id, 0), on_repeat_every as DropDownOnChoiceChangeCallbackType)
-                    .dom(),
-            )
-            .with_child(
-                DropDown::create(strings(&UNITS))
-                    .with_selected(unit)
-                    .with_accessibility_name("Unit")
-                    .with_on_choice_change(detail_ref(app, &t.id, 0), on_repeat_unit as DropDownOnChoiceChangeCallbackType)
-                    .dom(),
-            );
-        if rule.unit == Unit::Week {
-            for (n, day) in WEEK.iter().enumerate() {
-                let on = rule.weekdays.contains(day);
-                editor.add_child(
-                    Button::with_type(
-                        azul_pim::dates::weekday_short(*day),
-                        if on { ButtonType::Primary } else { ButtonType::Default },
-                    )
-                    .with_on_click(detail_ref(app, &t.id, n), on_repeat_day as ButtonOnClickCallbackType)
-                    .dom()
-                    .with_accessibility_name(format!(
-                        "{} {}",
-                        azul_pim::dates::weekday_short(*day),
-                        if on { "(on)" } else { "(off)" }
-                    )),
-                );
-            }
-        }
-        editor.add_child(
-            CheckBox::create(rule.from_completion)
-                .with_accessibility_name("Count from completion")
-                .with_on_toggle(detail_ref(app, &t.id, 0), on_repeat_from_completion as CheckBoxOnToggleCallbackType)
-                .dom(),
+        // The custom repeat is azul's RecurrenceEditor (AzCalendar's too): every N days /
+        // weeks on days / months / years, from completion; a to-do's repeat has no end and no
+        // "second Wednesday", so the editor leaves those out.
+        let due = t.due.unwrap_or(today);
+        out.add_child(
+            RecurrenceEditor::create(repeat_form::rule_of(Some(rule), due))
+                .with_week_start(repeat_form::picker_week_start(s.settings.week_start))
+                .with_completion_option(true)
+                .with_end_option(false)
+                .with_month_weekday_option(false)
+                .with_accessibility_name("Custom repeat")
+                .with_on_change(
+                    detail_ref(app, &t.id, 0),
+                    on_repeat_rule as RecurrenceEditorOnChangeCallbackType,
+                )
+                .dom()
+                .with_id("repeat-editor"),
         );
-        editor.add_child(Dom::create_span_with_text("after completion").with_css(META));
-        out.add_child(editor);
         out.add_child(Dom::create_span_with_text(rule.label()).with_css(META));
     }
     out
@@ -470,6 +433,7 @@ fn reminder(s: &Tasks, app: &RefAny, t: &Task, today: NaiveDate) -> Dom {
         row.add_child(
             DatePicker::create(u32::try_from(at.year()).unwrap_or(1970), at.month(), at.day())
                 .with_today(u32::try_from(today.year()).unwrap_or(1970), today.month(), today.day())
+                .with_week_start(repeat_form::picker_week_start(s.settings.week_start))
                 .with_accessibility_name("Reminder date")
                 .with_on_change(detail_ref(app, &t.id, 0), on_reminder_date as DatePickerOnChangeCallbackType)
                 .dom(),
@@ -862,67 +826,24 @@ extern "C" fn on_repeat(mut data: RefAny, mut info: CallbackInfo, index: usize) 
     })
 }
 
-/// Edits the custom rule of task `i` with `f` (a rule is made when there is none).
-fn edit_rule(s: &mut Tasks, i: usize, f: impl FnOnce(&mut Repeat)) {
-    let today = state::now().date();
-    let t = &mut s.tasks[i];
-    let due = *t.due.get_or_insert(today);
-    let rule = t.repeat.get_or_insert_with(|| Repeat::weekly().on_weekdays(&[due.weekday()]));
-    f(rule);
-    s.drafts.custom_repeat = true;
-}
-
-extern "C" fn on_repeat_every(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
-        edit_rule(s, i, |r| r.every = u32::try_from(index + 1).unwrap_or(1));
-    })
-}
-
-extern "C" fn on_repeat_unit(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
-        let due = s.tasks[i].due;
-        edit_rule(s, i, |r| {
-            r.unit = Unit::ALL.get(index).copied().unwrap_or(Unit::Day);
-            r.month_day = None;
-            if r.unit == Unit::Week {
-                if let (true, Some(d)) = (r.weekdays.is_empty(), due) {
-                    r.weekdays = vec![d.weekday()];
-                }
-            } else {
-                r.weekdays.clear();
-                if let Some(d) = due {
-                    if matches!(r.unit, Unit::Month | Unit::Year) {
-                        r.month_day = Some(d.day());
-                    }
-                }
-            }
-        });
-    })
-}
-
-extern "C" fn on_repeat_day(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
-        let Some(day) = WEEK.get(n).copied() else {
-            return;
-        };
-        edit_rule(s, i, |r| {
-            let mut days = r.weekdays.clone();
-            if let Some(pos) = days.iter().position(|d| *d == day) {
-                if days.len() > 1 {
-                    days.remove(pos);
-                }
-            } else {
-                days.push(day);
-            }
-            *r = r.clone().on_weekdays(&days);
-        });
-    })
-}
-
-extern "C" fn on_repeat_from_completion(mut data: RefAny, mut info: CallbackInfo, state: CheckBoxState) -> Update {
-    with_task(&mut data, &mut info, |_info, _app, s, i, _| {
-        edit_rule(s, i, |r| r.from_completion = state.checked);
-    })
+/// The custom repeat's editor changed the rule: the task takes it ("Never" takes the repeat
+/// away). Typing the "every N" number does not rebuild the pane (the field keeps its caret).
+extern "C" fn on_repeat_rule(mut data: RefAny, mut info: CallbackInfo, rule: RecurrenceRule) -> Update {
+    let mut rebuild = true;
+    let update = with_task(&mut data, &mut info, |_info, _app, s, i, _| {
+        let today = state::now().date();
+        let t = &mut s.tasks[i];
+        let due = *t.due.get_or_insert(today);
+        let next = repeat_form::repeat_of(&rule, t.repeat.as_ref(), due);
+        rebuild = !repeat_form::only_the_number_changed(t.repeat.as_ref(), next.as_ref());
+        t.repeat = next;
+        s.drafts.custom_repeat = true;
+    });
+    if rebuild {
+        update
+    } else {
+        Update::DoNothing
+    }
 }
 
 // ==== Callbacks: reminder ====

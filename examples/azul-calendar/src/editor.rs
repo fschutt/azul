@@ -54,17 +54,8 @@ pub enum Ends {
 }
 
 impl Ends {
-    /// The choices of the "Ends" list, in its order.
+    /// The ends, in the order a rule's end is tried in.
     pub const CHOICES: [Ends; 3] = [Ends::Never, Ends::After, Ends::On];
-
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Ends::Never => "Never",
-            Ends::After => "After a number of times",
-            Ends::On => "On a date",
-        }
-    }
 }
 
 /// The reminder choices: minutes before the start, and what the list says.
@@ -127,6 +118,12 @@ pub struct EditorForm {
     pub uid: String,
     /// Why the last Save did not save.
     pub error: String,
+    /// The day of the repeating event's occurrence the form was opened on (`None`: a series
+    /// opened as a whole, a plain event, a new one).
+    pub occurrence: Option<NaiveDate>,
+    /// Opened on an occurrence: Save edits the whole series (else that occurrence alone, which
+    /// becomes an event of its own).
+    pub whole_series: bool,
 }
 
 impl EditorForm {
@@ -167,6 +164,8 @@ impl EditorForm {
             except: Vec::new(),
             uid: String::new(),
             error: String::new(),
+            occurrence: None,
+            whole_series: false,
         }
     }
 
@@ -221,6 +220,71 @@ impl EditorForm {
         form.except = event.except.clone();
         form.uid = event.uid.clone();
         form
+    }
+
+    /// The form of the repeating `series`' occurrence on `day`: the event's fields on that
+    /// day, editing that occurrence alone until "The whole series" is chosen.
+    #[must_use]
+    pub fn from_occurrence(serial: u32, series: &Event, day: NaiveDate) -> EditorForm {
+        let mut form = EditorForm::from_event(serial, series);
+        form.occurrence = Some(day);
+        form.whole_series = false;
+        form.move_to(day);
+        form
+    }
+
+    /// Edits the whole series (`whole`, the form on the series' first day `series_first`) or
+    /// the occurrence the form was opened on (on its day).
+    pub fn set_whole_series(&mut self, whole: bool, series_first: NaiveDate) {
+        let Some(day) = self.occurrence else {
+            return;
+        };
+        self.whole_series = whole;
+        self.move_to(if whole { series_first } else { day });
+    }
+
+    /// Shows the form on `day`, its days after the first moving along (the repeat's last date
+    /// is the series', and stays).
+    fn move_to(&mut self, day: NaiveDate) {
+        let span = (self.last_day - self.date).num_days().max(0);
+        self.date = day;
+        self.last_day = day + Duration::days(span);
+    }
+
+    /// The form edits the occurrence it was opened on, not the series.
+    #[must_use]
+    pub fn edits_one_occurrence(&self) -> bool {
+        self.occurrence.is_some() && !self.whole_series
+    }
+
+    /// What Save writes for one occurrence of `series`: the series skipping the occurrence's
+    /// day, and the occurrence as an event of its own (`new_id`, no repeat, the form's edits,
+    /// `meeting`); `Err` with what to tell the user.
+    pub fn occurrence_events(
+        &self,
+        series: &Event,
+        new_id: &str,
+        meeting: Option<Meeting>,
+    ) -> Result<(Event, Event), String> {
+        let Some(day) = self.occurrence else {
+            return Err(String::from("This appointment is not an occurrence of a series."));
+        };
+        let one = EditorForm {
+            id: new_id.to_string(),
+            repeat: Repeat::Never,
+            custom: None,
+            except: Vec::new(),
+            uid: String::new(),
+            ..self.clone()
+        }
+        .event(meeting)?;
+        let mut kept = series.clone();
+        if !kept.except.contains(&day) {
+            kept.except.push(day);
+            kept.except.sort();
+        }
+        let kept = kept.check().map_err(|e| error_text(&e))?;
+        Ok((kept, one))
     }
 
     /// Moves the first day to `date`; an all-day event's last day moves along (the same number
@@ -317,6 +381,72 @@ impl EditorForm {
             "Appointment"
         };
         format!("{title} - {kind}")
+    }
+
+    /// Anything the form saves differs from `opened` (the form as the window opened with it):
+    /// closing the window then asks "save changes?". The error line and the serial are no
+    /// edits.
+    #[must_use]
+    pub fn changed_since(&self, opened: &EditorForm) -> bool {
+        let edits = |f: &EditorForm| EditorForm {
+            serial: 0,
+            error: String::new(),
+            ..f.clone()
+        };
+        edits(self) != edits(opened)
+    }
+
+    /// The rule the recurrence editor shows: the form's choice made into a rule, or its own
+    /// rule; `None` when it does not repeat.
+    #[must_use]
+    pub fn shown_rule(&self) -> Option<Rule> {
+        if self.repeat == Repeat::Custom {
+            return self.custom.clone();
+        }
+        rule_of(
+            self.repeat,
+            self.interval,
+            self.ends,
+            self.count,
+            self.until,
+            self.date,
+        )
+    }
+
+    /// Takes the rule the recurrence editor made (`None`: it does not repeat): a rule one of
+    /// the choices makes shows as that choice, any other is kept as the form's own.
+    pub fn set_rule(&mut self, rule: Option<Rule>) {
+        let Some(rule) = rule else {
+            self.repeat = Repeat::Never;
+            self.custom = None;
+            return;
+        };
+        let shown = repeat_of(&rule, self.date);
+        self.repeat = shown.repeat;
+        self.interval = shown.interval;
+        self.ends = shown.ends;
+        self.count = shown.count;
+        self.until = shown.until;
+        self.custom = (shown.repeat == Repeat::Custom).then_some(rule);
+    }
+}
+
+/// What a close request does to the editor window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseAnswer {
+    /// The window closes: nothing unsaved (or the form was saved and is gone).
+    Close,
+    /// The close is held and the window asks "save changes?".
+    Ask,
+}
+
+/// What a close request does to the editor window showing `form` (`None`: saved, cancelled or
+/// deleted - gone), which opened with `opened`.
+#[must_use]
+pub fn close_answer(form: Option<&EditorForm>, opened: Option<&EditorForm>) -> CloseAnswer {
+    match (form, opened) {
+        (Some(form), Some(opened)) if form.changed_since(opened) => CloseAnswer::Ask,
+        _ => CloseAnswer::Close,
     }
 }
 
@@ -463,73 +593,6 @@ pub fn repeat_choices(date: NaiveDate, custom: Option<&Rule>) -> Vec<(Repeat, St
     choices
 }
 
-/// The repeat row's segments: "Does not repeat", "Daily", "Weekly", "Monthly", "Yearly", and
-/// "Custom" when the event has a rule of its own.
-#[must_use]
-pub fn repeat_segments(has_custom: bool) -> Vec<&'static str> {
-    let mut segments = vec!["Does not repeat", "Daily", "Weekly", "Monthly", "Yearly"];
-    if has_custom {
-        segments.push("Custom");
-    }
-    segments
-}
-
-/// The segment `repeat` is shown on (weekly and every weekday share "Weekly", the two monthly
-/// choices "Monthly").
-#[must_use]
-pub fn repeat_segment(repeat: Repeat) -> usize {
-    match repeat {
-        Repeat::Never => 0,
-        Repeat::Daily => 1,
-        Repeat::Weekly | Repeat::Weekdays => 2,
-        Repeat::MonthlyDay | Repeat::MonthlyWeekday => 3,
-        Repeat::Yearly => 4,
-        Repeat::Custom => 5,
-    }
-}
-
-/// The repeat a click on segment `index` picks; within "Weekly" and "Monthly" the choice
-/// stays the one it was.
-#[must_use]
-pub fn repeat_of_segment(index: usize, current: Repeat) -> Repeat {
-    match index {
-        0 => Repeat::Never,
-        1 => Repeat::Daily,
-        2 if current == Repeat::Weekdays => Repeat::Weekdays,
-        2 => Repeat::Weekly,
-        3 if current == Repeat::MonthlyWeekday => Repeat::MonthlyWeekday,
-        3 => Repeat::MonthlyDay,
-        4 => Repeat::Yearly,
-        _ => Repeat::Custom,
-    }
-}
-
-/// The second row of a weekly or monthly repeat: its two choices, as `(choice, label)`;
-/// empty for every other repeat.
-#[must_use]
-pub fn repeat_variants(repeat: Repeat, date: NaiveDate) -> Vec<(Repeat, String)> {
-    let pair = match repeat {
-        Repeat::Weekly | Repeat::Weekdays => [Repeat::Weekly, Repeat::Weekdays],
-        Repeat::MonthlyDay | Repeat::MonthlyWeekday => [Repeat::MonthlyDay, Repeat::MonthlyWeekday],
-        _ => return Vec::new(),
-    };
-    pair.into_iter()
-        .map(|r| (r, repeat_label(r, date, None)))
-        .collect()
-}
-
-/// The unit of "Every N ...": "days", "weeks", "months", "years".
-#[must_use]
-pub fn interval_unit(repeat: Repeat) -> &'static str {
-    match repeat {
-        Repeat::Daily => "days",
-        Repeat::Weekly | Repeat::Weekdays => "weeks",
-        Repeat::MonthlyDay | Repeat::MonthlyWeekday => "months",
-        Repeat::Yearly => "years",
-        Repeat::Never | Repeat::Custom => "",
-    }
-}
-
 /// The reminder list's index of `minutes` (an imported reminder that is no choice: the nearest
 /// earlier one).
 #[must_use]
@@ -553,13 +616,6 @@ pub fn parse_attendees(text: &str) -> Result<Vec<String>, String> {
     // A separator inside a quoted name ("Lovelace, Ada" <ada@example.org>) is part of the name.
     azul_pim::mail_address::address_list(text)
         .map_err(|entry| format!("{entry:?} is not an e-mail address."))
-}
-
-/// A number typed into "Every N" or "After N times": at least 1, at most 999; `None` for no
-/// number.
-#[must_use]
-pub fn parse_count(text: &str) -> Option<u32> {
-    text.trim().parse::<u32>().ok().map(|n| n.clamp(1, 999))
 }
 
 #[cfg(test)]
@@ -816,43 +872,122 @@ mod tests {
         assert_eq!(m.window_title(), "Untitled - Meeting");
     }
 
+    const OTHER_ID: &str = "7d3c0f1e-2a4b-4c5d-8e6f-0a1b2c3d4e5f";
+
+    /// "Team sync", weekly on Wednesdays from 30 September 2026, 09:00 - 10:00.
+    fn series() -> Event {
+        let mut f = form();
+        f.set_rule(Rule::parse("FREQ=WEEKLY;BYDAY=WE").ok());
+        f.event(None).unwrap()
+    }
+
+    /// Outlook's "Open this occurrence": the form shows the occurrence's day; Save keeps the
+    /// series (skipping that day) and makes the occurrence an event of its own with the edits.
     #[test]
-    fn the_repeat_row_is_five_segments_and_a_second_row_for_weekly_and_monthly() {
-        assert_eq!(
-            repeat_segments(false),
-            vec!["Does not repeat", "Daily", "Weekly", "Monthly", "Yearly"]
-        );
-        assert_eq!(repeat_segments(true).last(), Some(&"Custom"));
-        for repeat in Repeat::CHOICES {
-            let index = repeat_segment(repeat);
-            assert_eq!(repeat_of_segment(index, repeat), repeat, "{repeat:?}");
-        }
-        assert_eq!(repeat_segment(Repeat::Weekdays), 2);
-        assert_eq!(repeat_of_segment(2, Repeat::Never), Repeat::Weekly);
-        assert_eq!(repeat_of_segment(3, Repeat::Daily), Repeat::MonthlyDay);
-        assert_eq!(repeat_of_segment(5, Repeat::Weekly), Repeat::Custom);
-        let date = d(2026, 9, 30);
-        let weekly: Vec<String> = repeat_variants(Repeat::Weekdays, date)
-            .into_iter()
-            .map(|(_, l)| l)
-            .collect();
-        assert_eq!(
-            weekly,
-            vec!["Weekly on Wednesday", "Every weekday (Monday to Friday)"]
-        );
-        let monthly: Vec<Repeat> = repeat_variants(Repeat::MonthlyDay, date)
-            .into_iter()
-            .map(|(r, _)| r)
-            .collect();
-        assert_eq!(monthly, vec![Repeat::MonthlyDay, Repeat::MonthlyWeekday]);
-        assert!(repeat_variants(Repeat::Daily, date).is_empty());
+    fn an_occurrence_is_edited_alone_and_saved_as_an_event_of_its_own() {
+        let series = series();
+        let day = d(2026, 10, 14);
+        let mut f = EditorForm::from_occurrence(2, &series, day);
+        assert_eq!((f.date, f.last_day), (day, day), "the form is on the occurrence's day");
+        assert_eq!(f.occurrence, Some(day));
+        assert!(f.edits_one_occurrence());
+        assert!(f.existing);
+        f.title = String::from("Team sync (moved)");
+        f.start = at(11, 0);
+        f.end = at(12, 0);
+        let (kept, one) = f.occurrence_events(&series, OTHER_ID, None).unwrap();
+        assert_eq!(kept.id, series.id);
+        assert_eq!(kept.except, vec![day], "the series skips the day");
+        assert_eq!(kept.repeat, series.repeat);
+        assert_eq!((kept.title.as_str(), kept.start), ("Team sync", at(9, 0)), "the series is as it was");
+        assert_eq!(one.id, OTHER_ID);
+        assert_eq!((one.date, one.start, one.end), (day, at(11, 0), at(12, 0)));
+        assert_eq!(one.title, "Team sync (moved)");
+        assert_eq!(one.repeat, None, "the occurrence does not repeat");
+        assert!(one.except.is_empty());
+        assert_eq!(one.uid, "");
+        assert_eq!(one.calendar, series.calendar);
+        // An edit that fails says why and writes nothing.
+        f.title.clear();
+        assert!(f.occurrence_events(&series, OTHER_ID, None).is_err());
     }
 
     #[test]
-    fn counts_are_held_to_one_to_999() {
-        assert_eq!(parse_count(" 3 "), Some(3));
-        assert_eq!(parse_count("0"), Some(1));
-        assert_eq!(parse_count("5000"), Some(999));
-        assert_eq!(parse_count("two"), None);
+    fn the_whole_series_is_edited_from_its_first_day() {
+        let series = series();
+        let day = d(2026, 10, 14);
+        let mut f = EditorForm::from_occurrence(2, &series, day);
+        f.set_whole_series(true, series.date);
+        assert!(!f.edits_one_occurrence());
+        assert_eq!(f.date, series.date, "the series is shown from its first day");
+        assert_eq!(rule_text(&f).as_deref(), Some("FREQ=WEEKLY;BYDAY=WE"));
+        f.set_whole_series(false, series.date);
+        assert!(f.edits_one_occurrence());
+        assert_eq!(f.date, day, "back on the occurrence's day");
+        // A plain event has no occurrence to edit alone.
+        assert!(!EditorForm::from_event(3, &form().event(None).unwrap()).edits_one_occurrence());
+    }
+
+    /// Every close goes through the window's CloseRequested - the app's own close_window after
+    /// Save & Close too (INFRA6): a saved form is gone by then, so the window closes without
+    /// asking; an edited open form asks; an unedited one closes.
+    #[test]
+    fn save_closes_the_editor_without_asking() {
+        let opened = form();
+        let mut edited = opened.clone();
+        edited.title.push_str(" (moved)");
+        // Save & Close: the form was written and taken out of the state before close_window.
+        assert_eq!(close_answer(None, Some(&opened)), CloseAnswer::Close);
+        assert_eq!(close_answer(None, None), CloseAnswer::Close);
+        assert_eq!(close_answer(Some(&edited), Some(&opened)), CloseAnswer::Ask);
+        assert_eq!(close_answer(Some(&opened), Some(&opened)), CloseAnswer::Close);
+    }
+
+    /// Closing the editor asks "save changes?" only after an edit: a form is changed since it
+    /// was opened when anything it saves differs - not when only its error line or its serial
+    /// do, and not after an edit that was undone by hand.
+    #[test]
+    fn a_form_is_changed_only_when_what_it_saves_differs_from_when_it_opened() {
+        let opened = form();
+        let mut f = opened.clone();
+        assert!(!f.changed_since(&opened), "a form just opened is unchanged");
+        f.error = String::from("Give the event a title.");
+        f.serial += 1;
+        assert!(!f.changed_since(&opened), "the error line and the serial are not edits");
+        f.title.push('!');
+        assert!(f.changed_since(&opened), "a title typed");
+        f.title.pop();
+        assert!(!f.changed_since(&opened), "the same title again");
+        f.set_rule(Rule::parse("FREQ=DAILY").ok());
+        assert!(f.changed_since(&opened), "a repeat chosen");
+        let mut g = opened.clone();
+        g.reminder = None;
+        assert!(g.changed_since(&opened), "a reminder taken away");
+    }
+
+    /// The recurrence editor hands the form a rule: one of the form's choices shows as that
+    /// choice (any interval and end), any other - Monday and Wednesday every week - is kept as
+    /// the form's own rule; the rule the editor shows is the form's.
+    #[test]
+    fn a_rule_from_the_recurrence_editor_becomes_the_forms_repeat() {
+        let mut f = form();
+        assert_eq!(f.shown_rule(), None, "a new appointment does not repeat");
+        let every_two_weeks = Rule::parse("FREQ=WEEKLY;INTERVAL=2;COUNT=4;BYDAY=WE").unwrap();
+        f.set_rule(Some(every_two_weeks.clone()));
+        assert_eq!(f.repeat, Repeat::Weekly);
+        assert_eq!((f.interval, f.ends, f.count), (2, Ends::After, 4));
+        assert_eq!(f.custom, None);
+        assert_eq!(f.shown_rule(), Some(every_two_weeks));
+        assert_eq!(rule_text(&f).as_deref(), Some("FREQ=WEEKLY;INTERVAL=2;COUNT=4;BYDAY=WE"));
+
+        let two_days = Rule::parse("FREQ=WEEKLY;BYDAY=MO,WE").unwrap();
+        f.set_rule(Some(two_days.clone()));
+        assert_eq!(f.repeat, Repeat::Custom);
+        assert_eq!(f.custom.as_ref(), Some(&two_days));
+        assert_eq!(f.shown_rule(), Some(two_days));
+
+        f.set_rule(None);
+        assert_eq!((f.repeat, f.custom.as_ref()), (Repeat::Never, None));
+        assert_eq!(rule_text(&f), None);
     }
 }

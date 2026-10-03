@@ -122,6 +122,23 @@ pub struct ImportRow {
 #[must_use]
 pub fn import_preview(text: &str, existing: &[Contact]) -> (Vec<ImportRow>, Vec<String>) {
     let (cards, problems) = parse_vcf(text);
+    (preview_rows(cards, existing), problems)
+}
+
+/// The import preview of a CSV table, its columns mapped by `mapping` (`csv.rs`).
+#[must_use]
+pub fn csv_preview(
+    table: &crate::csv::Table,
+    mapping: &[crate::csv::Field],
+    existing: &[Contact],
+) -> (Vec<ImportRow>, Vec<String>) {
+    let (cards, problems) = crate::csv::contacts(table, mapping);
+    (preview_rows(cards, existing), problems)
+}
+
+/// The preview rows of the cards a file holds: new, an update of the contact with the same
+/// UID, or a possible duplicate (new ones are chosen to import).
+fn preview_rows(cards: Vec<Contact>, existing: &[Contact]) -> Vec<ImportRow> {
     let mut rows: Vec<ImportRow> = Vec::new();
     for mut c in cards {
         let same_uid = (!c.uid.is_empty())
@@ -154,7 +171,7 @@ pub fn import_preview(text: &str, existing: &[Contact]) -> (Vec<ImportRow>, Vec<
             selected,
         });
     }
-    (rows, problems)
+    rows
 }
 
 /// The import summary: `55 new · 3 duplicates · 1 update`.

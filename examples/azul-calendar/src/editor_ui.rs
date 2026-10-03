@@ -1,8 +1,9 @@
 //! The event editor: a window of its own (Outlook's appointment window), on the same Office
 //! scaffold as the main window - its title row, a ribbon (Save & Close, Delete, Delete This
 //! Occurrence, Add AzMeet Link, Close) and the form (`editor.rs` holds what it edits): subject,
-//! location, attendees, start and end (date and time), all day, repeat (Segmented rows a script
-//! can click), every N, ends, reminder, calendar, "Add AzMeet link", notes.
+//! location, attendees, start and end (date and time), all day, repeat (azul's
+//! `RecurrenceEditor`: frequency, every N, weekdays or the month's day, the end), reminder,
+//! calendar, "Add AzMeet link", notes.
 //!
 //! One editor window at a time: the window's layout callback reads `CalState::editor`, so two
 //! windows would show one form; asking for a second says so in the main window instead. The
@@ -12,7 +13,8 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, DatePickerOnChangeCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, CloseGuardOnEventCallbackType,
+        DatePickerOnChangeCallbackType, RecurrenceEditorOnChangeCallbackType,
         SegmentedOnChangeCallbackType, TextAreaOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
     },
@@ -22,16 +24,18 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, CheckBoxState, DatePicker, DatePickerState, OnTextInputReturn, Ribbon,
-        RibbonButton, RibbonGroup, RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea,
-        TextAreaState, TextInputState, TimePicker, TimePickerState, Titlebar,
+        ButtonType, CheckBoxState, CloseGuard, CloseGuardEvent, CloseGuardEventKind, DatePicker,
+        DatePickerState, DatePickerWeekStart,
+        OnTextInputReturn, RecurrenceEditor, RecurrenceRule, Ribbon, RibbonButton, RibbonGroup,
+        RibbonItem, RibbonTab, Segmented, SegmentedState, TextArea, TextAreaState,
+        TextInputState, TimePicker, TimePickerState, Titlebar,
     },
     window::WindowDecorations,
 };
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
-    editor::{self, EditorForm, Ends, Repeat, REMINDERS},
+    editor::{self, EditorForm, Repeat, REMINDERS},
     event, timegrid, week, CalState, BODY, EDITOR_WINDOW_ID, ERROR, LABEL, PAGE, SECONDARY,
 };
 
@@ -102,8 +106,15 @@ pub(crate) fn open_event(
         let serial = s.editors_opened;
         s.selected = Some((id.to_string(), date));
         s.events.iter().find(|e| e.id == id).map(|e| {
+            // A repeating event opens on the occurrence it was opened from, editing that
+            // occurrence alone until "The whole series" is chosen (Outlook's "Open this
+            // occurrence").
             let occurrence = e.repeat.is_some().then_some(date);
-            (EditorForm::from_event(serial, e), occurrence)
+            let form = match occurrence {
+                Some(day) => EditorForm::from_occurrence(serial, e, day),
+                None => EditorForm::from_event(serial, e),
+            };
+            (form, occurrence)
         })
     };
     match opened {
@@ -129,6 +140,8 @@ pub(crate) fn open_form(
         return Update::RefreshDom;
     }
     let title = form.window_title();
+    s.editor_opened = Some(form.clone());
+    s.editor_asking = false;
     s.editor = Some(form);
     s.editor_occurrence = occurrence;
     s.draft = None;
@@ -149,6 +162,8 @@ fn closed(s: &mut CalState) {
     if s.editor.take().is_some() {
         println!("AZCAL_EDITOR closed");
     }
+    s.editor_opened = None;
+    s.editor_asking = false;
     s.editor_occurrence = None;
 }
 
@@ -179,6 +194,18 @@ extern "C" fn editor_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         None => Dom::create_div()
             .with_css(PAGE)
             .with_child(Dom::create_span_with_text("This appointment is closed.")),
+    };
+    // "Save changes?" over the window: the close guard's question and answers. Its veto is
+    // `on_editor_close_requested`'s, made from the form as it is when the close comes - the
+    // guard's own reads the form as this DOM was built, and would stop the close a Save &
+    // Close makes right after its save (reported to INFRA6).
+    let shell = match &s.editor {
+        Some(form) => CloseGuard::create(shell, form.window_title())
+            .with_dirty(false)
+            .with_asking(s.editor_asking)
+            .with_on_event(app.clone(), on_editor_answer as CloseGuardOnEventCallbackType)
+            .dom(),
+        None => shell,
     };
     Dom::create_body()
         .with_css(BODY)
@@ -260,6 +287,8 @@ fn date_picker(
     cb: DatePickerOnChangeCallbackType,
 ) -> Dom {
     DatePicker::create(date.year().max(1) as u32, date.month(), date.day())
+        // The calendar's weeks run Monday to Sunday: so do its date pickers' rows.
+        .with_week_start(DatePickerWeekStart::Monday)
         .with_accessibility_name(name)
         .with_on_change(app.clone(), cb)
         .dom()
@@ -283,25 +312,6 @@ fn time_picker(
         .with_css("margin-right: 8px;")
 }
 
-fn segmented(
-    labels: Vec<String>,
-    selected: usize,
-    id: &str,
-    app: &RefAny,
-    cb: SegmentedOnChangeCallbackType,
-) -> Dom {
-    Segmented::create(StringVec::from(
-        labels
-            .into_iter()
-            .map(AzString::from)
-            .collect::<Vec<AzString>>(),
-    ))
-    .with_selected_index(selected)
-    .with_on_change(app.clone(), cb)
-    .dom()
-    .with_id(id)
-}
-
 fn check(
     checked: bool,
     label: &str,
@@ -321,10 +331,76 @@ fn check(
         .with_child(Dom::create_span_with_text(label).with_css("margin-left: 6px;"))
 }
 
+/// The day a date picker shows for `date`.
+fn picker_day(date: NaiveDate) -> DatePickerState {
+    DatePickerState {
+        year: u32::try_from(date.year()).unwrap_or(1),
+        month: date.month(),
+        day: date.day(),
+    }
+}
+
+/// The repeat row's controls: the recurrence editor (`#editor-repeat`) on the form's rule, or -
+/// for a rule of the event's own it cannot show - what the rule says and "Replace", which
+/// starts a rule the editor can show.
+fn repeat_rows(form: &EditorForm, app: &RefAny) -> Vec<Dom> {
+    // One occurrence does not repeat by itself: the series' rule is edited with the series.
+    if form.edits_one_occurrence() {
+        return vec![Dom::create_span_with_text(
+            "This occurrence only - choose \"The whole series\" to change how it repeats.",
+        )
+        .with_id("editor-repeat-occurrence")
+        .with_css(SECONDARY)];
+    }
+    let text = form
+        .shown_rule()
+        .map(|rule| rule.to_rrule(true))
+        .unwrap_or_default();
+    match RecurrenceRule::from_rrule(text, picker_day(form.date)).into_option() {
+        Some(rule) => vec![RecurrenceEditor::create(rule)
+            // The calendar's weeks run Monday to Sunday (`week::week_start`).
+            .with_week_start(DatePickerWeekStart::Monday)
+            .with_accessibility_name("Repeat")
+            .with_on_change(app.clone(), on_repeat_rule as RecurrenceEditorOnChangeCallbackType)
+            .dom()
+            .with_id("editor-repeat")],
+        None => vec![
+            Dom::create_span_with_text(editor::repeat_label(
+                Repeat::Custom,
+                form.date,
+                form.custom.as_ref(),
+            ))
+            .with_id("editor-repeat-custom")
+            .with_css("margin-right: 8px;"),
+            Button::create("Replace")
+                .with_on_click(app.clone(), on_repeat_replace)
+                .dom()
+                .with_id("editor-repeat-replace"),
+        ],
+    }
+}
+
 /// The form (`#editor-form` holds it): every field of `editor.rs`'s form, the error line and
 /// the buttons.
 fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
-    let mut page = Dom::create_div().with_css(PAGE).with_child(row(
+    let mut page = Dom::create_div().with_css(PAGE);
+    // Opened on an occurrence of a series: this occurrence alone, or the whole series.
+    if let Some(day) = form.occurrence {
+        page.add_child(row(
+            "Edit",
+            vec![
+                Segmented::create(StringVec::from(vec![
+                    AzString::from(format!("This occurrence ({})", day.format("%a %-d %b"))),
+                    AzString::from("The whole series"),
+                ]))
+                .with_selected_index(usize::from(form.whole_series))
+                .with_on_change(app.clone(), on_scope as SegmentedOnChangeCallbackType)
+                .dom()
+                .with_id("editor-scope"),
+            ],
+        ));
+    }
+    page.add_child(row(
         "Subject",
         vec![crate::text_field(
             &form.title,
@@ -412,100 +488,9 @@ fn form_dom(s: &CalState, form: &EditorForm, app: &RefAny) -> Dom {
         ));
     }
     page.add_child(row("End", end));
-
-    // Repeat: the five (six) segments, the weekly / monthly variant, every N, the end.
-    let segments = editor::repeat_segments(form.custom.is_some())
-        .into_iter()
-        .map(String::from)
-        .collect();
-    page.add_child(row(
-        "Repeat",
-        vec![segmented(
-            segments,
-            editor::repeat_segment(form.repeat),
-            "editor-repeat",
-            app,
-            on_repeat,
-        )],
-    ));
-    let variants = editor::repeat_variants(form.repeat, form.date);
-    if !variants.is_empty() {
-        let selected = variants
-            .iter()
-            .position(|(r, _)| *r == form.repeat)
-            .unwrap_or(0);
-        let labels = variants.into_iter().map(|(_, l)| l).collect();
-        page.add_child(row(
-            "",
-            vec![segmented(
-                labels,
-                selected,
-                "editor-repeat-variant",
-                app,
-                on_repeat_variant,
-            )],
-        ));
-    }
-    if form.repeat == Repeat::Custom {
-        page.add_child(row(
-            "",
-            vec![Dom::create_span_with_text(editor::repeat_label(
-                Repeat::Custom,
-                form.date,
-                form.custom.as_ref(),
-            ))],
-        ));
-    }
-    if !matches!(form.repeat, Repeat::Never | Repeat::Custom) {
-        page.add_child(row(
-            "Every",
-            vec![
-                Dom::create_div()
-                    .with_css("width: 64px; margin-right: 8px;")
-                    .with_child(
-                        TextInput::create()
-                            .with_text(form.interval.to_string().as_str())
-                            .with_accessibility_name("Repeat every")
-                            .with_on_text_input(app.clone(), on_interval)
-                            .dom()
-                            .with_id("editor-interval"),
-                    ),
-                Dom::create_span_with_text(editor::interval_unit(form.repeat)),
-            ],
-        ));
-        let ends: Vec<String> = Ends::CHOICES
-            .iter()
-            .map(|e| e.label().to_string())
-            .collect();
-        let selected = Ends::CHOICES
-            .iter()
-            .position(|e| *e == form.ends)
-            .unwrap_or(0);
-        let mut ends_row = vec![segmented(ends, selected, "editor-ends", app, on_ends)];
-        match form.ends {
-            Ends::Never => {}
-            Ends::After => ends_row.push(
-                Dom::create_div()
-                    .with_css("width: 64px; margin-left: 8px; margin-right: 8px;")
-                    .with_child(
-                        TextInput::create()
-                            .with_text(form.count.to_string().as_str())
-                            .with_accessibility_name("Number of times")
-                            .with_on_text_input(app.clone(), on_count)
-                            .dom()
-                            .with_id("editor-count"),
-                    ),
-            ),
-            Ends::On => ends_row.push(date_picker(
-                form.until,
-                "Last date",
-                "editor-until",
-                app,
-                on_until,
-            )),
-        }
-        page.add_child(row("Ends", ends_row));
-    }
+    // Repeat: the recurrence editor (daily / weekly on days / monthly / yearly, every N, the
+    // end), or the event's own rule when it is one the editor cannot show.
+    page.add_child(row("Repeat", repeat_rows(form, app)));
 
     let reminders: Vec<String> = REMINDERS.iter().map(|(_, l)| l.to_string()).collect();
     page.add_child(row(
@@ -669,36 +654,6 @@ extern "C" fn on_notes(
     crate::typed()
 }
 
-extern "C" fn on_interval(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    state: TextInputState,
-) -> OnTextInputReturn {
-    let n = editor::parse_count(state.get_text().as_str());
-    with_form(&mut data, |f| {
-        if let Some(n) = n {
-            f.interval = n;
-        }
-        false
-    });
-    crate::typed()
-}
-
-extern "C" fn on_count(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    state: TextInputState,
-) -> OnTextInputReturn {
-    let n = editor::parse_count(state.get_text().as_str());
-    with_form(&mut data, |f| {
-        if let Some(n) = n {
-            f.count = n;
-        }
-        false
-    });
-    crate::typed()
-}
-
 /// The start date: the end date (an all-day event's) and a repeat's last date move along; the
 /// repeat's labels name the new day.
 extern "C" fn on_start_date(
@@ -722,17 +677,6 @@ extern "C" fn on_end_date(mut data: RefAny, _info: CallbackInfo, state: DatePick
     with_form(&mut data, |f| {
         let turned = (date.year(), date.month()) != (f.last_day.year(), f.last_day.month());
         f.set_last_day(date);
-        turned
-    })
-}
-
-extern "C" fn on_until(mut data: RefAny, _info: CallbackInfo, state: DatePickerState) -> Update {
-    let Some(date) = crate::picked(state) else {
-        return Update::DoNothing;
-    };
-    with_form(&mut data, |f| {
-        let turned = (date.year(), date.month()) != (f.until.year(), f.until.month());
-        f.until = date;
         turned
     })
 }
@@ -781,37 +725,66 @@ extern "C" fn on_all_day(mut data: RefAny, _info: CallbackInfo, state: CheckBoxS
     })
 }
 
-extern "C" fn on_repeat(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
-    with_form(&mut data, |f| {
-        f.repeat = editor::repeat_of_segment(state.selected_index, f.repeat);
-        if f.repeat == Repeat::Custom && f.custom.is_none() {
-            f.repeat = Repeat::Never;
+/// An RRULE's parts as the form's rows see them: INTERVAL and COUNT without their numbers
+/// (typing a number changes no row), every other part as it is.
+fn rows_of(rrule: &str) -> Vec<&str> {
+    rrule
+        .split(';')
+        .map(|part| match part.split_once('=') {
+            Some((key @ ("INTERVAL" | "COUNT"), _)) => key,
+            _ => part,
+        })
+        .collect()
+}
+
+/// The recurrence editor changed the rule: the form takes it (a rule of the form's choices,
+/// or one of its own). The window is rebuilt unless only a number was typed.
+extern "C" fn on_repeat_rule(mut data: RefAny, _info: CallbackInfo, rule: RecurrenceRule) -> Update {
+    let text = rule.to_rrule().as_str().to_string();
+    let parsed = if text.is_empty() {
+        None
+    } else {
+        match crate::rrule::Rule::parse(&text) {
+            Ok(parsed) => Some(parsed),
+            Err(e) => {
+                eprintln!("[azcalendar] the recurrence editor's rule {text:?}: {e}");
+                return Update::DoNothing;
+            }
         }
-        true
+    };
+    with_form(&mut data, |f| {
+        let before = f
+            .shown_rule()
+            .map(|r| r.to_rrule(true))
+            .unwrap_or_default();
+        f.set_rule(parsed);
+        rows_of(&before) != rows_of(&text)
     })
 }
 
-extern "C" fn on_repeat_variant(
-    mut data: RefAny,
-    _info: CallbackInfo,
-    state: SegmentedState,
-) -> Update {
-    with_form(&mut data, |f| {
-        if let Some((repeat, _)) = editor::repeat_variants(f.repeat, f.date)
-            .into_iter()
-            .nth(state.selected_index)
-        {
-            f.repeat = repeat;
-        }
-        true
-    })
+/// "This occurrence" / "The whole series": the form moves to the occurrence's day or to the
+/// series' first day.
+extern "C" fn on_scope(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(form) = s.editor.as_mut() else {
+        return Update::DoNothing;
+    };
+    let Some(first) = s.events.iter().find(|e| e.id == form.id).map(|e| e.date) else {
+        return Update::DoNothing;
+    };
+    form.error.clear();
+    form.set_whole_series(state.selected_index == 1, first);
+    Update::RefreshDom
 }
 
-extern "C" fn on_ends(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
+/// "Replace" beside a rule the recurrence editor cannot show: the event no longer repeats by
+/// it, and the editor shows, to make a new rule with.
+extern "C" fn on_repeat_replace(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_form(&mut data, |f| {
-        if let Some(ends) = Ends::CHOICES.get(state.selected_index) {
-            f.ends = *ends;
-        }
+        f.set_rule(None);
         true
     })
 }
@@ -882,31 +855,47 @@ fn save(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     } else {
         None
     };
-    let event = match form.event(meeting) {
-        Ok(event) => event,
+    // One occurrence of a series: the series skips its day, the occurrence is an event of its
+    // own. Anything else: the form's event.
+    let made = if form.edits_one_occurrence() {
+        match s.events.iter().find(|e| e.id == form.id) {
+            Some(series) => form
+                .occurrence_events(series, &event::new_event_id(), meeting)
+                .map(|(kept, one)| vec![kept, one]),
+            None => Err(String::from(
+                "The series of this occurrence is gone: it was deleted meanwhile.",
+            )),
+        }
+    } else {
+        form.event(meeting).map(|event| vec![event])
+    };
+    let events = match made {
+        Ok(events) => events,
         Err(message) => {
             eprintln!("[azcalendar] cannot save: {message}");
             form.error = message;
             return Update::RefreshDom;
         }
     };
-    let (date, start, title) = (event.date, event.start, event.title.clone());
-    match s.store_event(event) {
-        Ok(_) => {
-            s.notice = format!("Saved \"{title}\".");
-            closed(s);
-            timegrid::reveal(s, info, date, start);
-            info.close_window();
-            Update::RefreshDomAllWindows
-        }
-        Err(message) => {
+    // The window shows the last one next: the event, or the occurrence.
+    let Some((date, start, title)) = events.last().map(|e| (e.date, e.start, e.title.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    for event in events {
+        if let Err(message) = s.store_event(event) {
             eprintln!("[azcalendar] {message}");
             if let Some(form) = s.editor.as_mut() {
                 form.error = message;
             }
-            Update::RefreshDom
+            return Update::RefreshDom;
         }
     }
+    s.notice = format!("Saved \"{title}\".");
+    closed(s);
+    timegrid::reveal(s, info, date, start);
+    info.close_window();
+    Update::RefreshDomAllWindows
 }
 
 /// Cancel / Close: the window goes, nothing is saved.
@@ -914,6 +903,11 @@ extern "C" fn on_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
+    // An edited appointment asks first (Outlook's "Do you want to save changes?").
+    if s.editor_dirty() {
+        s.editor_asking = true;
+        return Update::RefreshDom;
+    }
     closed(&mut s);
     info.close_window();
     Update::RefreshDomAllWindows
@@ -933,15 +927,11 @@ extern "C" fn on_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if existing {
-        if let Err(e) = event::remove(&s.data_dir, &id) {
-            if let Some(form) = s.editor.as_mut() {
-                form.error = format!("Could not delete the event: {e}");
-            }
-            return Update::RefreshDom;
-        }
+        // The file goes on the file thread; `AZCAL_DELETED` once it is gone.
+        s.remove_event_file(&id);
+        s.announce_on_landing(&event::object_key(&id), format!("AZCAL_DELETED {id}"));
         s.events.retain(|e| e.id != id);
         s.selected = None;
-        println!("AZCAL_DELETED {id}");
         s.notice = format!("Deleted \"{title}\".");
     }
     closed(s);
@@ -985,15 +975,54 @@ extern "C" fn on_delete_occurrence(mut data: RefAny, mut info: CallbackInfo) -> 
 }
 
 /// The window is closed by its close button (or the system): the form goes unsaved.
-extern "C" fn on_editor_close_requested(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_editor_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<CalState>() else {
         return Update::DoNothing;
     };
     if s.editor.is_none() {
         return Update::DoNothing;
     }
+    // An edited appointment is not lost to the close button (B29): the close is held and the
+    // window asks "save changes?" (`on_editor_answer` hears the answer).
+    if s.editor_dirty() {
+        s.editor_asking = true;
+        println!("AZCAL_EDITOR asking");
+        info.prevent_window_close();
+        return Update::RefreshDom;
+    }
     closed(&mut s);
     Update::RefreshDomAllWindows
+}
+
+/// The answer to "save changes?": Save saves and closes (or shows why it cannot), Don't Save
+/// drops the form (the guard closes the window), Cancel keeps the window as it is.
+extern "C" fn on_editor_answer(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: CloseGuardEvent,
+) -> Update {
+    match event.kind {
+        CloseGuardEventKind::Save => {
+            if let Some(mut s) = data.downcast_mut::<CalState>() {
+                s.editor_asking = false;
+            }
+            save(&mut data, &mut info)
+        }
+        CloseGuardEventKind::Discard => {
+            let Some(mut s) = data.downcast_mut::<CalState>() else {
+                return Update::DoNothing;
+            };
+            closed(&mut s);
+            Update::RefreshDomAllWindows
+        }
+        CloseGuardEventKind::Cancel | CloseGuardEventKind::Ask => {
+            let Some(mut s) = data.downcast_mut::<CalState>() else {
+                return Update::DoNothing;
+            };
+            s.editor_asking = false;
+            Update::RefreshDom
+        }
+    }
 }
 
 /// Ctrl / Cmd + S (or + Enter) saves and closes.

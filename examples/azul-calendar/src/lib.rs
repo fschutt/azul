@@ -59,6 +59,7 @@ pub mod meeting;
 pub use azul_pim::rrule;
 pub mod sample;
 pub mod settings;
+pub mod store;
 pub mod tasks;
 // A temporary folder for tests (the one the PIM apps share).
 #[cfg(test)]
@@ -70,6 +71,7 @@ mod chrome;
 mod editor_ui;
 mod timegrid;
 mod views_ui;
+mod writes;
 
 /// AzMeet's meeting links and room keys: AzMeet's own `rooms.rs`, compiled into AzCalendar too,
 /// so the two apps read links the same way.
@@ -99,6 +101,7 @@ use azul::{
     vec::{StyledTextRunVec, U8Vec},
     window::WindowDecorations,
 };
+use azul_pim::write_queue::WriteQueue;
 use chrono::{Datelike, NaiveDate, NaiveTime, Timelike};
 
 use crate::{
@@ -166,10 +169,10 @@ pub(crate) const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12p
                                 (prefers-color-scheme: dark) { color: #f2b8b5; }";
 /// A block's title: one line, cut with an ellipsis at the block's edge.
 pub(crate) const CLIPPED_TITLE: &str = "font-weight: bold; white-space: nowrap; overflow: \
-                                        hidden; text-overflow: ellipsis;";
+                                        hidden; text-overflow: ellipsis; flex-shrink: 0;";
 /// A block's other lines, the same way.
 pub(crate) const CLIPPED_LINE: &str = "color: system:secondary-text; white-space: nowrap; \
-                                       overflow: hidden; text-overflow: ellipsis;";
+                                       overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;";
 /// The popover's card: the whole of its window.
 pub(crate) const POPOVER: &str = "display: flex; flex-direction: column; width: 320px; padding: \
                                   16px; box-sizing: border-box; background: \
@@ -254,6 +257,30 @@ pub(crate) struct CalState {
     pub(crate) editors_opened: u32,
     /// Open the editor once the window is up (`--screen editor`).
     pub(crate) editor_at_start: bool,
+    /// The form as the editor window opened with it: closing the window asks "save
+    /// changes?" once the form differs from it (`EditorForm::changed_since`).
+    pub(crate) editor_opened: Option<EditorForm>,
+    /// The editor window shows that question (its close guard is asking).
+    pub(crate) editor_asking: bool,
+    // ---- durable writes (`store.rs`): queued here, written on a file thread ----
+    /// Writes into the calendar's data folder (events, calendars, settings, exports).
+    pub(crate) data_writes: WriteQueue,
+    /// Writes into the task store's folder (the To-Do bar's tasks).
+    pub(crate) task_writes: WriteQueue,
+    /// The batch of each queue on its way, with the lines it prints once landed.
+    pub(crate) data_flight: writes::InFlight,
+    pub(crate) task_flight: writes::InFlight,
+    /// The settings file's text as last written (a setting replaces its line in it).
+    pub(crate) settings_text: String,
+    /// The main window was asked to close while writes waited: it closes once they landed.
+    pub(crate) closing: bool,
+    /// Writes failed when the window was to close, and the user was told: the next close
+    /// passes.
+    pub(crate) close_despite_failures: bool,
+    /// Lines for stdout once the write of their key landed (`AZCAL_SAVED <path>`, ...).
+    pub(crate) on_landing: Vec<(String, String)>,
+    /// The import file being read.
+    pub(crate) import_pending: Option<PathBuf>,
     // ---- FILE > Open & Export ----
     pub(crate) import_path: String,
     /// The calendar an import goes into: its index in `calendars`.
@@ -344,41 +371,86 @@ impl CalState {
         println!("AZCAL_VIEW {} {first} {last}", self.view.name());
     }
 
-    /// Saves one setting line in the settings file (the others are kept).
-    pub(crate) fn save_setting(&self, line: &str) {
-        if let Err(e) = settings::write_line(&settings::path(&self.data_dir), line) {
-            eprintln!(
-                "[azcalendar] could not save a setting ({}): {e}",
-                line.trim()
-            );
+    /// Saves one setting line in the settings file (the others are kept): the file's text is
+    /// queued for the file thread (`store.rs`).
+    pub(crate) fn save_setting(&mut self, line: &str) {
+        self.settings_text = settings::with_line(&self.settings_text, line);
+        self.data_writes.put(
+            settings::FILE_NAME.to_string(),
+            self.settings_text.clone().into_bytes(),
+        );
+    }
+
+    /// Puts `event` into the calendar (in place of the event with its id) and queues its file
+    /// for the file thread (`store.rs`; `AZCAL_SAVED` says when it landed). Returns where the
+    /// file goes.
+    pub(crate) fn store_event(&mut self, event: Event) -> Result<PathBuf, String> {
+        let key = event::object_key(&event.id);
+        self.data_writes
+            .put(key.clone(), event::to_json(&event).into_bytes());
+        let path = self.data_dir.join(&key);
+        self.announce_on_landing(&key, format!("AZCAL_SAVED {}", path.display()));
+        if let Some(m) = &event.meeting {
+            println!("AZCAL_LINK {}", m.link);
+        }
+        eprintln!("[azcalendar] \"{}\" goes to {key}", event.title);
+        match self.event_index(&event.id) {
+            Some(i) => self.events[i] = event,
+            None => self.events.push(event),
+        }
+        Ok(path)
+    }
+
+    /// Prints `line` on stdout once the write of `key` landed (a newer write of the key
+    /// replaces the waiting one, and its line goes along).
+    pub(crate) fn announce_on_landing(&mut self, key: &str, line: String) {
+        if !self.on_landing.iter().any(|(k, l)| k == key && *l == line) {
+            self.on_landing.push((key.to_string(), line));
         }
     }
 
-    /// Writes `event` to its file and puts it into the calendar (in place of the event with its
-    /// id). `Err` says why the file could not be written.
-    pub(crate) fn store_event(&mut self, event: Event) -> Result<PathBuf, String> {
-        match event::save(&self.data_dir, &event) {
-            Ok(path) => {
-                println!("AZCAL_SAVED {}", path.display());
-                if let Some(m) = &event.meeting {
-                    println!("AZCAL_LINK {}", m.link);
-                }
-                eprintln!(
-                    "[azcalendar] saved \"{}\" to {}",
-                    event.title,
-                    path.display()
-                );
-                match self.event_index(&event.id) {
-                    Some(i) => self.events[i] = event,
-                    None => self.events.push(event),
-                }
-                Ok(path)
-            }
-            Err(e) => Err(format!(
-                "Could not write {}: {e}",
-                event::event_path(&self.data_dir, &event.id).display()
-            )),
-        }
+    /// The writes that did not land and wait for a retry.
+    pub(crate) fn write_failures(&self) -> usize {
+        self.data_writes.failures().len() + self.task_writes.failures().len()
+    }
+
+    /// Queues the removal of the event `id`'s file (what a waiting write of it would have said
+    /// on landing is not said).
+    pub(crate) fn remove_event_file(&mut self, id: &str) {
+        let key = event::object_key(id);
+        self.on_landing.retain(|(k, _)| *k != key);
+        self.data_writes.delete(key);
+    }
+
+    /// Queues `calendar`'s file.
+    pub(crate) fn store_calendar(&mut self, calendar: &Calendar) {
+        self.data_writes.put(
+            calendars::object_key(&calendar.id),
+            calendars::to_json(calendar).into_bytes(),
+        );
+    }
+
+    /// Queues the removal of the calendar `id`'s file.
+    pub(crate) fn remove_calendar_file(&mut self, id: &str) {
+        self.data_writes.delete(calendars::object_key(id));
+    }
+
+    /// Queues `task`'s file in the task store.
+    pub(crate) fn store_task(&mut self, task: &Task) {
+        self.task_writes
+            .put(task.key(), azul_pim::task::task_to_json(task).into_bytes());
+    }
+
+    /// No write waits and none is on its way.
+    pub(crate) fn writes_idle(&self) -> bool {
+        self.data_writes.is_idle() && self.task_writes.is_idle()
+    }
+
+    /// The open editor's form differs from the form it opened with: closing its window asks
+    /// "save changes?" first.
+    pub(crate) fn editor_dirty(&self) -> bool {
+        editor::close_answer(self.editor.as_ref(), self.editor_opened.as_ref())
+            == editor::CloseAnswer::Ask
     }
 
     /// How many meeting links wait for the meeting server.
@@ -511,11 +583,47 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app.clone(),
             on_window_key,
         )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app.clone(),
+            on_main_close_requested,
+        )
         .with_child(
             ShellThemeScope::create(root)
                 .with_accent(ShellThemeAccent::Blue)
                 .dom(),
         )
+}
+
+/// The main window is asked to close (its close button, Cmd+Q's close, the app's own): it
+/// waits for the writes on their way (`writes.rs` closes it once they landed), and says once
+/// what did not land.
+extern "C" fn on_main_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<CalState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let failures = s.write_failures();
+    match store::main_close(!s.writes_idle(), failures, s.close_despite_failures) {
+        store::MainClose::Close => Update::DoNothing,
+        store::MainClose::Wait => {
+            eprintln!("[azcalendar] the window closes once the waiting writes landed");
+            s.closing = true;
+            info.prevent_window_close();
+            writes::pump(s, &mut info, &app);
+            Update::DoNothing
+        }
+        store::MainClose::Tell => {
+            s.close_despite_failures = true;
+            s.notice = format!(
+                "{failures} change(s) could not be written. Close the window again to quit \
+                 without them."
+            );
+            info.prevent_window_close();
+            Update::RefreshDom
+        }
+    }
 }
 
 /// The menu bar (the native one on macOS): Calendar, View, Settings.
@@ -868,23 +976,15 @@ extern "C" fn on_registered(mut data: RefAny, _info: CallbackInfo, result: RefAn
                 return Update::DoNothing;
             }
             event.meeting = Some(registered);
-            match event::save(&s.data_dir, event) {
-                Ok(path) => {
-                    println!("AZCAL_SYNCED {link}");
-                    eprintln!(
-                        "[azcalendar] {server} registered {link}; {} rewritten",
-                        path.display()
-                    );
-                    s.sync_error.clear();
-                }
-                Err(e) => {
-                    // Registered, but the file still says pending: the next start sends it
-                    // again, and registering is idempotent.
-                    s.sync_error =
-                        format!("{link} is registered, but its file was not rewritten: {e}");
-                    eprintln!("[azcalendar] {}", s.sync_error);
-                }
-            }
+            // The file says so once it is rewritten (`AZCAL_SYNCED` then). Should the write not
+            // land, the file still says pending: the next start sends it again, and
+            // registering is idempotent.
+            let event = event.clone();
+            let key = event::object_key(&event.id);
+            eprintln!("[azcalendar] {server} registered {link}; {key} is rewritten");
+            let _ = s.store_event(event);
+            s.announce_on_landing(&key, format!("AZCAL_SYNCED {link}"));
+            s.sync_error.clear();
         }
         Err((status, message)) => {
             eprintln!("[azcalendar] azlin://meet/{room_id} not registered: {message}");
@@ -918,6 +1018,9 @@ extern "C" fn on_sync_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Tim
     let app = data.clone();
     if let Some(mut s) = data.downcast_mut::<CalState>() {
         sync_links(&mut s, &mut info.callback_info, &app);
+        // Writes that did not land go again, at the links' pace (not every write tick).
+        s.data_writes.retry();
+        s.task_writes.retry();
     }
     TimerCallbackReturn::continue_unchanged()
 }
@@ -946,8 +1049,17 @@ fn start_syncing(data: &mut RefAny, info: &mut CallbackInfo) {
                 SystemTimeDiff::from_millis(REMINDER_TICK_MS),
             )),
         );
+        // Every durable write: the main window starts the file threads (`writes.rs`).
+        let get_time = info.get_system_time_fn();
+        info.add_timer(
+            TimerId::unique(),
+            Timer::create(app.clone(), writes::on_write_tick, get_time).with_interval(
+                Duration::System(SystemTimeDiff::from_millis(writes::WRITE_TICK_MS)),
+            ),
+        );
     }
     sync_links(s, info, &app);
+    writes::pump(s, info, &app);
 }
 
 /// "Sync meeting links now": sends every pending link again, refused ones too.
@@ -1187,6 +1299,17 @@ pub fn start() {
         editor_occurrence: None,
         editors_opened: 0,
         editor_at_start,
+        editor_opened: None,
+        editor_asking: false,
+        data_writes: WriteQueue::new(),
+        task_writes: WriteQueue::new(),
+        data_flight: writes::InFlight::default(),
+        task_flight: writes::InFlight::default(),
+        settings_text: text.to_string(),
+        closing: false,
+        close_despite_failures: false,
+        on_landing: Vec::new(),
+        import_pending: None,
         import_path: String::new(),
         import_calendar: 0,
         export_path: String::new(),

@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, path::PathBuf, sync::Arc};
 
 use azul::widgets::ListSelection;
 use azul_storage::Drive;
-use chrono::{Local, NaiveDate, NaiveDateTime, Timelike};
+use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 
 use crate::{
     model::{self, Settings, Task, TaskList},
@@ -114,6 +114,11 @@ pub struct Tasks {
     pub root: PathBuf,
     pub queue: WriteQueue,
     pub files: FileWork,
+    /// The appearance kept across restarts (`aztasks/settings.json`, `appearance.rs`).
+    pub appearance: azul_appkit::settings::AppSettings,
+    /// The Data settings' import path, and what the last import or export did.
+    pub import_path: String,
+    pub io_message: String,
     /// Fill an empty data folder with the sample once it is read.
     pub sample_requested: bool,
     // ---- what is shown
@@ -164,6 +169,21 @@ pub fn now() -> NaiveDateTime {
     now.with_nanosecond(0).unwrap_or(now)
 }
 
+/// A local moment in UTC (the earlier of two at a clock change; as it is in a gap).
+#[must_use]
+pub fn local_to_utc(at: NaiveDateTime) -> NaiveDateTime {
+    Local
+        .from_local_datetime(&at)
+        .earliest()
+        .map_or(at, |local| local.naive_utc())
+}
+
+/// A UTC moment in local time.
+#[must_use]
+pub fn utc_to_local(at: NaiveDateTime) -> NaiveDateTime {
+    Local.from_utc_datetime(&at).naive_local()
+}
+
 /// A new id: a random version-4 UUID (lower case), azul's `Uuid::from_seed` of a random
 /// seed (as AzCalendar mints its event ids).
 #[must_use]
@@ -175,6 +195,14 @@ pub fn new_id() -> String {
 
 impl Tasks {
     /// An empty state over `drive`, before the files are read.
+    /// Keeps the appearance for the next start: its file goes to the write queue.
+    pub fn save_appearance(&mut self) {
+        self.queue.put(
+            crate::appearance::settings_key(),
+            self.appearance.to_json().into_bytes(),
+        );
+    }
+
     pub fn new(drive: Arc<dyn Drive>, root: PathBuf, view: View) -> Tasks {
         let clock = now();
         Tasks {
@@ -188,6 +216,9 @@ impl Tasks {
             root,
             queue: WriteQueue::new(),
             files: FileWork::default(),
+            appearance: azul_appkit::settings::AppSettings::default(),
+            import_path: String::new(),
+            io_message: String::new(),
             sample_requested: false,
             view,
             selection: ListSelection::create(),
@@ -320,6 +351,60 @@ impl Tasks {
             lists: &lists,
         };
         parse::parse_with(text, &ctx, &self.quick.ignore)
+    }
+
+    // ==== Import / export (iCalendar VTODO, `vtodo.rs`) ====
+
+    /// Exports the list shown (outside a list: every task) as an iCalendar file into AzTasks'
+    /// folder of the data tree (`aztasks/exports/<list>.ics`), through the write queue; `now`
+    /// is local, `to_utc` turns a local moment into UTC. Returns the file's key and how many
+    /// to-dos it holds.
+    pub fn export_tasks(
+        &mut self,
+        now: NaiveDateTime,
+        to_utc: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
+    ) -> (String, usize) {
+        let list = match &self.view {
+            View::List(id) => self.lists.iter().find(|l| &l.id == id).cloned(),
+            _ => None,
+        };
+        let name = list.as_ref().map_or("Tasks", |l| l.name.as_str());
+        let tasks: Vec<&Task> = self
+            .tasks
+            .iter()
+            .filter(|t| list.as_ref().map_or(true, |l| t.list == l.id))
+            .collect();
+        let count = tasks.len();
+        let text = crate::vtodo::write(&tasks, name, to_utc(now), to_utc);
+        let key = azul_appkit::data::app_key(
+            crate::appearance::APP_FOLDER,
+            &format!("exports/{}", crate::vtodo::file_name_for(name)),
+        );
+        self.queue.put(key.clone(), text.into_bytes());
+        (key, count)
+    }
+
+    /// Imports the to-dos of the iCalendar `text` into the default list, after its tasks, each
+    /// queued; `to_local` turns a UTC moment into local time. Returns what could not be read.
+    pub fn import_tasks(
+        &mut self,
+        text: &str,
+        now: NaiveDateTime,
+        to_local: &dyn Fn(NaiveDateTime) -> NaiveDateTime,
+    ) -> Vec<String> {
+        let Some(list) = self.default_list() else {
+            return vec![String::from(
+                "There is no list to import the to-dos into: make a list first.",
+            )];
+        };
+        let mut ids = new_id;
+        let imported = crate::vtodo::read(text, &list, now, &mut ids, to_local);
+        for mut t in imported.tasks {
+            t.order = model::next_order(&self.tasks, &list);
+            self.tasks.push(t);
+            self.save_task(self.tasks.len() - 1);
+        }
+        imported.problems
     }
 
     // ==== Saving ====
@@ -834,5 +919,75 @@ mod tests {
         assert_eq!(s.tasks[0].title, "Book the room");
         let batch = s.queue.take().expect("the old file is queued for a rewrite");
         assert!(batch.iter().any(|w| w.key() == key), "{batch:?}");
+    }
+
+    fn state_in(dir: &TempDir) -> Tasks {
+        Tasks::new(
+            Arc::new(LocalDrive::new(&dir.0)),
+            dir.0.clone(),
+            View::Smart(Smart::Today),
+        )
+    }
+
+    /// The Data settings' export: the list shown (else every task) as an iCalendar file in
+    /// AzTasks' own folder of the data tree, written through the queue.
+    #[test]
+    fn an_export_writes_the_list_shown_into_the_data_tree() {
+        let dir = TempDir::create();
+        let mut s = state_in(&dir);
+        let at = now();
+        s.lists = vec![
+            TaskList::new("work".into(), "Work".into(), 1),
+            TaskList::new("home".into(), "Home".into(), 2),
+        ];
+        for (id, list, title) in [("a", "work", "Report"), ("b", "home", "Ferns"), ("c", "work", "Mail")] {
+            s.tasks.push(Task::new(id.into(), list.into(), title.into(), at));
+        }
+        s.view = View::List("work".into());
+        let (key, count) = s.export_tasks(at, &|d| d);
+        assert_eq!((key.as_str(), count), ("aztasks/exports/Work.ics", 2));
+        let batch = s.queue.take().expect("the export is queued");
+        let text = match batch.iter().find(|w| w.key() == key) {
+            Some(store::Write::Put { bytes, .. }) => String::from_utf8_lossy(bytes).into_owned(),
+            other => panic!("no put of {key}: {other:?}"),
+        };
+        assert!(text.contains("SUMMARY:Report") && text.contains("SUMMARY:Mail"), "{text}");
+        assert!(!text.contains("SUMMARY:Ferns"), "only the list shown: {text}");
+        s.queue.finish(Vec::new());
+        // Outside a list: every task, the file named after the app.
+        s.view = View::Smart(Smart::Today);
+        let (key, count) = s.export_tasks(at, &|d| d);
+        assert_eq!((key.as_str(), count), ("aztasks/exports/Tasks.ics", 3));
+    }
+
+    /// The imported to-dos join the default list after its tasks, and each is queued.
+    #[test]
+    fn imported_to_dos_join_the_default_list_after_its_tasks() {
+        let dir = TempDir::create();
+        let mut s = state_in(&dir);
+        let at = now();
+        s.lists = vec![TaskList::new("work".into(), "Work".into(), 1)];
+        let mut old = Task::new("a".into(), "work".into(), "Report".into(), at);
+        old.order = 4;
+        s.tasks.push(old);
+        let text = "BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nSUMMARY:One\r\nEND:VTODO\r\n\
+                    BEGIN:VTODO\r\nSUMMARY:Two\r\nEND:VTODO\r\nEND:VCALENDAR\r\n";
+        let problems = s.import_tasks(text, at, &|d| d);
+        assert!(problems.is_empty(), "{problems:?}");
+        let added: Vec<(&str, &str, i64)> = s
+            .tasks
+            .iter()
+            .filter(|t| t.id != "a")
+            .map(|t| (t.title.as_str(), t.list.as_str(), t.order))
+            .collect();
+        let step = model::ORDER_STEP;
+        assert_eq!(added, [("One", "work", 4 + step), ("Two", "work", 4 + 2 * step)]);
+        let batch = s.queue.take().expect("the new tasks are queued");
+        assert_eq!(batch.len(), 2);
+        // No list yet: nothing to import into.
+        let mut empty = state_in(&dir);
+        let problems = empty.import_tasks(text, at, &|d| d);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(empty.tasks.is_empty());
     }
 }

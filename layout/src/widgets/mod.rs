@@ -492,6 +492,13 @@ pub mod rich_text;
 /// check items, quotes, code, tables, Markdown shortcuts, one undo history;
 /// see `rich_text_editor.rs`.
 pub mod rich_text_editor;
+/// Recurrence editor widget.
+///
+/// How an appointment or a to-do repeats: daily / weekly on chosen days /
+/// monthly on a day or a weekday / yearly, every N, ending never / after N
+/// times / on a date (and "from completion" for a to-do), producing an
+/// RFC 5545 RRULE; see `recurrence_editor.rs`.
+pub mod recurrence_editor;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1815,6 +1822,11 @@ mod label_convention {
             "rich_text_editor",
             super::rich_text_editor::fixtures::sample().dom(),
         ));
+        // The recurrence editor: weekly on two days, ending after ten times.
+        all.push((
+            "recurrence_editor",
+            super::recurrence_editor::fixtures::sample().dom(),
+        ));
         all
     }
 
@@ -2704,6 +2716,7 @@ mod theme_contrast {
         "path_input",
         "shortcut_recorder",
         "shortcut_recorder (recording)",
+        "recurrence_editor",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

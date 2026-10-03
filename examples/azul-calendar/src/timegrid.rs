@@ -325,12 +325,23 @@ fn event_block(s: &CalState, e: &Event, date: NaiveDate, p: &week::Placement, ap
              hidden; {}",
             s.colour_of(e).event_css(),
             if selected { SELECTED_RING } else { "" }
-        ))
-        .with_child(Dom::create_span_with_text(e.title.as_str()).with_css(CLIPPED_TITLE))
-        .with_child(Dom::create_span_with_text(time.as_str()).with_css(CLIPPED_LINE));
-    if !e.location.is_empty() {
+        ));
+    // Only the lines that fit (LOOK: a 15-minute block squeezed two lines into 6 px each): a
+    // short block says "title, time" on one line.
+    let lines = week::block_lines(height);
+    if lines == 1 {
+        dom.add_child(
+            Dom::create_span_with_text(format!("{}, {time}", e.title)).with_css(CLIPPED_TITLE),
+        );
+    } else {
+        dom.add_child(Dom::create_span_with_text(e.title.as_str()).with_css(CLIPPED_TITLE));
+        dom.add_child(Dom::create_span_with_text(time.as_str()).with_css(CLIPPED_LINE));
+    }
+    if lines >= 3 && !e.location.is_empty() {
         dom.add_child(Dom::create_span_with_text(e.location.as_str()).with_css(CLIPPED_LINE));
     }
+    // The meeting's line stays whatever the height (its "Join meeting" is how one joins from
+    // the week); the block clips what does not fit.
     if let Some(m) = &e.meeting {
         if m.pending {
             dom.add_child(
@@ -614,7 +625,8 @@ fn queue_zoom_save(s: &mut CalState, info: &mut CallbackInfo, app: &RefAny) {
 extern "C" fn on_save_zoom(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
     if let Some(mut s) = data.downcast_mut::<CalState>() {
         s.zoom_save_queued = false;
-        s.save_setting(&settings::hour_px_line(s.hour_px));
+        let line = settings::hour_px_line(s.hour_px);
+        s.save_setting(&line);
     }
     TimerCallbackReturn::terminate_unchanged()
 }

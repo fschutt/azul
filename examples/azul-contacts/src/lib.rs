@@ -11,7 +11,9 @@
 
 pub mod book;
 pub mod contact;
+pub mod csv;
 pub mod dupes;
+pub mod photo;
 pub mod sample;
 pub mod store;
 pub mod vcard;

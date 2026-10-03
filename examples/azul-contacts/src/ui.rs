@@ -22,17 +22,23 @@
 //! `AZCONTACTS_EXPORTED <key>`, `AZCONTACTS_DUPLICATES <n>`,
 //! `AZCONTACTS_MERGED <uid>`, `AZCONTACTS_JUMP <letter>`.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnRemoveCallbackType,
-        DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
+        DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
+        NumberInputOnValueChangeCallbackType, SegmentedOnChangeCallbackType,
         ShellNavigationPaneOnEventCallbackType, SwitchOnToggleCallbackType, TextAreaOnTextInputCallbackType,
         TextInputOnTextInputCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
     dom::{ClipboardContent, DomNodeId, ScrollIntoViewOptions},
+    error::ResultRawImageDecodeImageError,
+    image::{ImageRef, RawImage},
     option::{OptionFileTypeList, OptionString},
     prelude::*,
     shells::{
@@ -40,9 +46,10 @@ use azul::{
         ShellNavigationPaneEventKind, ShellThemeAccent, ShellThemeScope,
     },
     str::String as AzString,
-    vec::{StringVec, StyledTextRunVec},
+    vec::{StringVec, StyledTextRunVec, U8VecRef},
     widgets::{
-        Avatar, AvatarSize, ButtonType, CheckBoxState, Chip, ChipState, DropDown, OnTextInputReturn, Segmented,
+        Avatar, AvatarSize, ButtonType, CheckBoxState, Chip, ChipState, DatePicker, DatePickerState, DropDown,
+        NumberInput, NumberInputState, OnTextInputReturn, Segmented,
         SegmentedState, StatusBar, StatusBarSegment, Switch, SwitchState, TextArea, TextAreaState,
         TextInputState, TextInputValid, TreeViewNode,
     },
@@ -152,6 +159,21 @@ pub struct ImportState {
     pub problems: Vec<String>,
     pub group: String,
     pub reading: bool,
+    /// A CSV file's table and how its columns map to contact fields (`None`: a .vcf).
+    pub csv: Option<CsvImport>,
+}
+
+/// A CSV import's table and its column mapping (one field per column, `csv::guess`ed from
+/// the header, changed in the preview).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CsvImport {
+    pub table: crate::csv::Table,
+    pub mapping: Vec<crate::csv::Field>,
+}
+
+/// The file is a CSV file (by its name).
+fn is_csv(path: &str) -> bool {
+    path.trim().to_ascii_lowercase().ends_with(".csv")
 }
 
 /// The merge screen.
@@ -196,6 +218,9 @@ pub struct ContactsApp {
     pub export_version: Version,
     /// The screen `--screen` asked for, applied once the contacts are loaded.
     pub start_screen: String,
+    /// Decoded photos by `photo::key` (`None`: azul could not decode it - the initials show),
+    /// filled after each change for the contact shown and the form (`refresh_photos`).
+    pub photos: BTreeMap<u64, Option<ImageRef>>,
 }
 
 fn now_secs() -> u64 {
@@ -251,6 +276,7 @@ impl ContactsApp {
             ignored,
             export_version: version,
             start_screen: args.screen.clone().unwrap_or_default(),
+            photos: BTreeMap::new(),
         }
     }
 
@@ -409,7 +435,7 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         texts.push(block("font-size: 11px; opacity: 0.7;", text(subtitle)));
     }
     let mut children = vec![
-        Avatar::create(book::initials(c)).with_size(AvatarSize::Small).dom(),
+        avatar(s, c, AvatarSize::Small),
         column("flex-grow: 1; padding-left: 8px; min-width: 0px;", texts),
     ];
     if c.favorite {
@@ -572,7 +598,7 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
         row(
             "padding: 12px 0px;",
             vec![
-                Avatar::create(book::initials(c)).with_size(AvatarSize::Large).dom(),
+                avatar(s, c, AvatarSize::Large),
                 column(
                     "padding-left: 12px;",
                     vec![
@@ -759,7 +785,54 @@ fn labels_for(kind: RowKind) -> &'static [&'static str] {
     }
 }
 
-fn edit_view(app: &RefAny, form: &Form) -> Dom {
+/// The birthday on a calendar: azul's DatePicker on the birthday's month (a birthday
+/// without a year in a leap year), its year as a number, "Year unknown"; without a birthday,
+/// a button that starts one. Each sets the form's text (`DD.MM.YYYY` / `DD.MM.`).
+fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
+    let Some(b) = Birthday::parse(&form.birthday_text) else {
+        return row(
+            "padding-top: 6px;",
+            vec![button("Add a birthday", "edit-birthday-add", app, on_birthday_add)],
+        );
+    };
+    let year = u32::try_from(b.picker_year()).unwrap_or(2000);
+    let mut controls = vec![
+        DatePicker::create(year, b.month, b.day)
+            .with_accessibility_name("Birthday")
+            .with_on_change(app.clone(), on_birthday_picked as DatePickerOnChangeCallbackType)
+            .dom()
+            .with_id("edit-birthday-picker"),
+    ];
+    let mut side = vec![row(
+        "gap: 6px; align-items: center;",
+        vec![
+            CheckBox::create(b.year.is_none())
+                .with_accessibility_name("Year unknown")
+                .with_on_toggle(app.clone(), on_birthday_no_year as CheckBoxOnToggleCallbackType)
+                .dom()
+                .with_id("edit-birthday-no-year"),
+            text("Year unknown"),
+        ],
+    )];
+    if let Some(y) = b.year {
+        // The calendar's arrows step months: a year decades back is typed.
+        side.push(row(
+            "gap: 6px; align-items: center;",
+            vec![
+                text("Year"),
+                NumberInput::create(y as f32)
+                    .with_accessibility_name("Birth year")
+                    .with_on_value_change(app.clone(), on_birthday_year as NumberInputOnValueChangeCallbackType)
+                    .dom()
+                    .with_id("edit-birthday-year"),
+            ],
+        ));
+    }
+    controls.push(column("gap: 8px; padding-left: 12px;", side));
+    row("padding-top: 6px; align-items: flex-start;", controls)
+}
+
+fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
     let d = &form.draft;
     let mut children = Vec::new();
     children.push(row(
@@ -771,7 +844,7 @@ fn edit_view(app: &RefAny, form: &Form) -> Dom {
         ],
     ));
     let mut photo_row = vec![
-        Avatar::create(book::initials(d)).with_size(AvatarSize::Medium).dom(),
+        avatar(s, d, AvatarSize::Medium),
         button("Change photo\u{2026}", "edit-photo", app, on_photo_choose),
     ];
     if !d.photo.trim().is_empty() {
@@ -877,6 +950,7 @@ fn edit_view(app: &RefAny, form: &Form) -> Dom {
         "Birthday",
         vec![
             input(app, FormField::Birthday, &form.birthday_text, "DD.MM.YYYY, or DD.MM. without a year", "edit-birthday"),
+            birthday_picker(app, form),
         ],
     ));
     let chips: Vec<Dom> = d
@@ -965,13 +1039,54 @@ fn status_text(status: &ImportStatus, book: &[Contact]) -> String {
     }
 }
 
+/// A CSV column of the import preview.
+struct ImportColumnRef {
+    app: RefAny,
+    index: usize,
+}
+
+/// The CSV columns and what each becomes: the header, an example value, a drop-down of the
+/// contact's fields (`#import-column-<n>`).
+fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
+    let labels: Vec<&str> = crate::csv::Field::ALL.iter().map(|f| f.label()).collect();
+    let mut rows = vec![block("padding: 8px 0px 4px 0px; font-weight: 600;", text("Columns"))];
+    for (i, header) in csv.table.headers.iter().enumerate() {
+        let field = csv.mapping.get(i).copied().unwrap_or(crate::csv::Field::Skip);
+        let example = csv
+            .table
+            .rows
+            .iter()
+            .map(|r| r.get(i).map(String::as_str).unwrap_or_default().trim())
+            .find(|v| !v.is_empty())
+            .unwrap_or("\u{2014}")
+            .to_string();
+        rows.push(row(
+            "gap: 8px; padding: 2px 0px; font-size: 13px;",
+            vec![
+                block("width: 180px;", text(header.as_str())),
+                block("width: 200px; opacity: 0.7;", text(example)),
+                DropDown::create(strs(&labels))
+                    .with_selected(field.index())
+                    .with_accessibility_name(format!("Column {header}"))
+                    .with_on_choice_change(
+                        RefAny::new(ImportColumnRef { app: app.clone(), index: i }),
+                        on_import_column as DropDownOnChoiceChangeCallbackType,
+                    )
+                    .dom()
+                    .with_id(format!("import-column-{i}")),
+            ],
+        ));
+    }
+    column("", rows).with_id("import-columns")
+}
+
 fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     let mut children = vec![
         block("font-size: 18px; font-weight: 600; padding: 10px 0px;", text("Import contacts")),
         row(
             "gap: 6px;",
             vec![
-                block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf file", "import-path")),
+                block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf or .csv file", "import-path")),
                 button("Read", "import-read", app, on_import_read),
                 button("Choose file\u{2026}", "import-choose", app, on_import_choose),
             ],
@@ -982,6 +1097,9 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     }
     for p in &st.problems {
         children.push(block("font-size: 12px; opacity: 0.8;", text(p.as_str())));
+    }
+    if let Some(csv) = &st.csv {
+        children.push(csv_mapping(app, csv));
     }
     if !st.rows.is_empty() {
         children.push(block("padding: 8px 0px; font-weight: 600;", text(store::import_summary(&st.rows))).with_id("import-summary"));
@@ -1016,7 +1134,10 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     } else if !st.reading {
         children.push(block(
             "padding-top: 12px; opacity: 0.75; font-size: 13px;",
-            text("vCard 3.0 and 4.0 files with one or many cards. Nothing is imported before you press Import."),
+            text(
+                "vCard 3.0 and 4.0 files with one or many cards, or a CSV file (Outlook's or Google's, \
+                 its columns mapped to the contact's fields). Nothing is imported before you press Import.",
+            ),
         ));
         children.push(row("padding-top: 8px;", vec![button("Cancel", "import-cancel", app, on_import_cancel)]));
     }
@@ -1136,7 +1257,7 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
 
 fn reading_pane(s: &ContactsApp, app: &RefAny) -> Dom {
     match &s.reading {
-        Reading::Edit(form) => edit_view(app, form),
+        Reading::Edit(form) => edit_view(s, app, form),
         Reading::Import(st) => import_view(s, app, st),
         Reading::Merge(st) => merge_view(s, app, st),
         Reading::Card => match s.selected_index() {
@@ -1244,9 +1365,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .dom()
     };
     let root = column("flex-grow: 1; min-height: 0px;", vec![content]);
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(ShellThemeScope::create(root).with_accent(ShellThemeAccent::Blue).dom())
+    // The theme scope's own body (SMALL6): no UA margin, the window's full height.
+    ShellThemeScope::create(root)
+        .with_accent(ShellThemeAccent::Blue)
+        .body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 
@@ -1263,7 +1385,53 @@ fn with_app(
         return Update::DoNothing;
     };
     f(&mut guard, info, &handle);
+    refresh_photos(&mut guard);
     Update::RefreshDom
+}
+
+/// The photo as a picture azul shows: decoded and scaled to the largest avatar.
+fn decode_photo(photo: &str) -> Option<ImageRef> {
+    let bytes = crate::photo::image_bytes(photo)?;
+    let image = match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
+        ResultRawImageDecodeImageError::Ok(image) => image,
+        ResultRawImageDecodeImageError::Err(_) => return None,
+    };
+    let image = image.thumbnail(PHOTO_PX, PHOTO_PX).into_option()?;
+    ImageRef::create_rawimage(image).into_option()
+}
+
+/// The largest a decoded photo is kept, in pixels (the large avatar, on a 2x screen).
+const PHOTO_PX: u32 = 160;
+
+/// Decodes the photos the window shows next - the list's visible contacts are many, so only
+/// the selected contact's and the form's - once each (`photo::KEPT` at most).
+fn refresh_photos(s: &mut ContactsApp) {
+    let mut wanted: Vec<String> = Vec::new();
+    if let Some(c) = s.selected.as_ref().and_then(|uid| s.book.iter().find(|c| &c.uid == uid)) {
+        wanted.push(c.photo.clone());
+    }
+    if let Reading::Edit(form) = &s.reading {
+        wanted.push(form.draft.photo.clone());
+    }
+    for photo in wanted.into_iter().filter(|p| !p.trim().is_empty()) {
+        let key = crate::photo::key(&photo);
+        if s.photos.contains_key(&key) {
+            continue;
+        }
+        if s.photos.len() >= crate::photo::KEPT {
+            s.photos.clear();
+        }
+        s.photos.insert(key, decode_photo(&photo));
+    }
+}
+
+/// The contact's avatar: its photo when one is decoded, else its initials.
+fn avatar(s: &ContactsApp, c: &Contact, size: AvatarSize) -> Dom {
+    let mut a = Avatar::create(book::initials(c)).with_size(size);
+    if let Some(Some(image)) = s.photos.get(&crate::photo::key(&c.photo)) {
+        a = a.with_image(image.clone());
+    }
+    a.dom()
 }
 
 fn write_files(s: &ContactsApp, info: &mut CallbackInfo, app: &RefAny, jobs: Vec<FileJob>, tag: u64) {
@@ -1318,17 +1486,12 @@ fn read_import_file(s: &mut ContactsApp, info: &mut CallbackInfo, app: &RefAny, 
     let folder = if folder.as_os_str().is_empty() { Path::new(".") } else { folder };
     let mut state = match std::mem::replace(&mut s.reading, Reading::Card) {
         Reading::Import(st) => st,
-        _ => ImportState {
-            path: String::new(),
-            rows: Vec::new(),
-            problems: Vec::new(),
-            group: "Imported".to_string(),
-            reading: false,
-        },
+        _ => empty_import(),
     };
     state.path = path.display().to_string();
     state.rows.clear();
     state.problems.clear();
+    state.csv = None;
     state.reading = true;
     s.reading = Reading::Import(state);
     kit::spawn_file_jobs(
@@ -1366,6 +1529,7 @@ fn empty_import() -> ImportState {
         problems: Vec::new(),
         group: "Imported".to_string(),
         reading: false,
+        csv: None,
     }
 }
 
@@ -1456,9 +1620,28 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
                     st.problems = vec![p];
                 }
                 if let Some(text) = text {
-                    let (rows, problems) = store::import_preview(&text, &book);
+                    // A CSV file: its columns mapped by their headers, the user changes the
+                    // mapping in the preview.
+                    let (rows, problems) = if is_csv(&st.path) {
+                        match crate::csv::parse(&text) {
+                            Ok(table) => {
+                                let mapping: Vec<crate::csv::Field> =
+                                    table.headers.iter().map(|h| crate::csv::guess(h)).collect();
+                                let preview = store::csv_preview(&table, &mapping, &book);
+                                st.csv = Some(CsvImport { table, mapping });
+                                preview
+                            }
+                            Err(e) => (Vec::new(), vec![e]),
+                        }
+                    } else {
+                        store::import_preview(&text, &book)
+                    };
                     if rows.is_empty() && problems.is_empty() {
-                        st.problems.push("The file holds no vCard.".to_string());
+                        st.problems.push(if st.csv.is_some() {
+                            "No row of the file names a person: map the columns below.".to_string()
+                        } else {
+                            "The file holds no vCard.".to_string()
+                        });
                     }
                     st.problems.extend(problems);
                     st.rows = rows;
@@ -1715,6 +1898,54 @@ fn with_form(app: &mut RefAny, info: &mut CallbackInfo, f: impl FnOnce(&mut Form
     })
 }
 
+/// A day picked on the birthday's calendar (or its month turned): the birthday is that day,
+/// its year kept unknown when it was.
+extern "C" fn on_birthday_picked(mut data: RefAny, mut info: CallbackInfo, state: DatePickerState) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        let year_known = Birthday::parse(&form.birthday_text).map_or(true, |b| b.year.is_some());
+        let year = i32::try_from(state.year).unwrap_or(2000);
+        if let Some(b) = Birthday::picked(year, state.month, state.day, year_known) {
+            form.birthday_text = b.to_form();
+        }
+    })
+}
+
+/// "Year unknown": the birthday loses its year, or gets the one the calendar shows.
+extern "C" fn on_birthday_no_year(mut data: RefAny, mut info: CallbackInfo, state: CheckBoxState) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        if let Some(b) = Birthday::parse(&form.birthday_text) {
+            if let Some(next) = Birthday::picked(b.picker_year(), b.month, b.day, !state.checked) {
+                form.birthday_text = next.to_form();
+            }
+        }
+    })
+}
+
+/// The birth year typed.
+extern "C" fn on_birthday_year(mut data: RefAny, mut info: CallbackInfo, state: NumberInputState) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        let year = state.number.round();
+        if !(1.0..=9999.0).contains(&year) {
+            return;
+        }
+        if let Some(b) = Birthday::parse(&form.birthday_text) {
+            // 29 February in a year without one: the 28th.
+            let picked = Birthday::picked(year as i32, b.month, b.day, true)
+                .or_else(|| Birthday::picked(year as i32, b.month, b.day.saturating_sub(1), true));
+            if let Some(next) = picked {
+                form.birthday_text = next.to_form();
+            }
+        }
+    })
+}
+
+/// "Add a birthday": 1 January, year unknown, to change on the calendar.
+extern "C" fn on_birthday_add(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_form(&mut data, &mut info, |form| {
+        form.birthday_text = Birthday { year: None, month: 1, day: 1 }.to_form();
+    })
+}
+
 fn set_field(form: &mut Form, field: FormField, value: String) {
     let d = &mut form.draft;
     match field {
@@ -1963,22 +2194,6 @@ extern "C" fn on_edit_keep(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_form(&mut data, &mut info, |form| form.confirm_discard = false)
 }
 
-/// Standard base64 (for a photo picked from a file).
-#[must_use]
-pub fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        out.push(TABLE[(n >> 18) as usize & 63] as char);
-        out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
-    }
-    out
-}
-
 /// The image type of a picture file by its name.
 #[must_use]
 pub fn image_mime(path: &str) -> &'static str {
@@ -2049,7 +2264,7 @@ extern "C" fn on_photo_read(mut app: RefAny, mut msg: RefAny, mut info: Callback
                 match result {
                     Ok(Some(bytes)) if bytes.len() <= 2 * 1024 * 1024 => {
                         if let Reading::Edit(form) = &mut s.reading {
-                            form.draft.photo = format!("data:{};base64,{}", image_mime(&key), base64(&bytes));
+                            form.draft.photo = azul_pim::data_uri::data_uri(image_mime(&key), &bytes);
                             s.notice = "Photo set".to_string();
                         }
                     }
@@ -2126,6 +2341,30 @@ extern "C" fn on_import_toggle(mut data: RefAny, mut info: CallbackInfo, state: 
         if let Reading::Import(st) = &mut s.reading {
             if let Some(r) = st.rows.get_mut(index) {
                 r.selected = state.checked;
+            }
+        }
+    })
+}
+
+/// A CSV column mapped to another field: the preview's rows are made again.
+extern "C" fn on_import_column(mut data: RefAny, mut info: CallbackInfo, choice: usize) -> Update {
+    let Some((mut app, index)) = data.downcast_ref::<ImportColumnRef>().map(|r| (r.app.clone(), r.index)) else {
+        return Update::DoNothing;
+    };
+    let Some(field) = crate::csv::Field::ALL.get(choice).copied() else {
+        return Update::DoNothing;
+    };
+    with_app(&mut app, &mut info, |s, _info, _| {
+        let book = s.book.clone();
+        if let Reading::Import(st) = &mut s.reading {
+            if let Some(csv) = st.csv.as_mut() {
+                if let Some(slot) = csv.mapping.get_mut(index) {
+                    *slot = field;
+                }
+                let (rows, problems) = store::csv_preview(&csv.table, &csv.mapping, &book);
+                st.rows = rows;
+                st.problems = problems;
+                println!("AZCONTACTS_IMPORT_PREVIEW {} {}", st.rows.len(), store::import_summary(&st.rows));
             }
         }
     })
@@ -2353,13 +2592,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn base64_matches_the_standard_alphabet_and_padding() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-        assert_eq!(base64(&[0xff, 0xfe, 0xfd]), "//79");
+    fn a_picture_file_names_its_image_type() {
+        // The photo's base64 is azul_pim::data_uri's (tested there).
         assert_eq!(image_mime("Me.PNG"), "image/png");
         assert_eq!(image_mime("me.jpg"), "image/jpeg");
     }

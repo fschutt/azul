@@ -9,11 +9,14 @@
        import preview of the fixture (3 rows: 2 new, 1 possible duplicate); Import writes 2
        more files;
     3. search: "krug" finds Ben Krüger only; a click on a row selects it;
-    4. a new contact: a bad email is refused with a message, the fixed one is saved as
-       contacts/<uid>.vcf (vCard 4.0, FN and EMAIL in it);
+    4. a new contact: a bad email is refused with a message; "Add a birthday" shows the
+       birthday's calendar (#edit-birthday-picker, "Year unknown"); the fixed one is saved as
+       contacts/<uid>.vcf (vCard 4.0, FN, EMAIL and BDAY:--0101 in it);
     5. possible duplicates: the merge screen merges the first pair; one file goes;
     6. the A-Z bar scrolls to a section; the settings page saves Flora / Dark;
-    7. deleting the new contact removes its file; screenshots on the way.
+    7. deleting the new contact removes its file;
+    8. an Outlook CSV file: the preview maps its 5 columns (#import-column-<n>) and shows 2
+       new people; Import writes 2 more files. Screenshots on the way.
 
 Usage (after building libazul with the debug server and AzContacts, one app at a time):
 
@@ -118,6 +121,11 @@ def body(args, logs, out):
         app.click(selector="#edit-email-remove-0")
         app.click(selector="#edit-add-email")
         app.text_input("#edit-email-0", "test.person@example.org")
+        # The birthday on a calendar: "Add a birthday" starts 1 January, year unknown.
+        app.click(selector="#edit-birthday-add")
+        app.until("the birthday calendar", lambda: app.has_id("edit-birthday-picker"))
+        if not app.has_id("edit-birthday-no-year"):
+            raise Failure("the birthday has no 'Year unknown' box")
         saved_before = len(app.printed("AZCONTACTS_SAVED"))
         app.click(selector="#edit-save")
         app.until("the new contact's file", lambda: len(app.printed("AZCONTACTS_SAVED")) > saved_before)
@@ -127,6 +135,8 @@ def body(args, logs, out):
             card = f.read()
         if "VERSION:4.0" not in card or "FN:Test Person" not in card or "test.person@example.org" not in card:
             raise Failure("%s does not hold the new contact:\n%s" % (path, card))
+        if "BDAY:--0101" not in card:
+            raise Failure("%s does not hold the birthday picked (1 January, no year):\n%s" % (path, card))
         app.log("saved %s" % path)
 
         # 5: duplicates and merge.
@@ -170,6 +180,30 @@ def body(args, logs, out):
         app.click(selector="#card-delete")
         app.click(selector="#card-delete-confirm")
         app.until("the file to go", lambda: not os.path.exists(path))
+
+        # 8: a CSV file (Outlook's columns), mapped by its headers; Import writes its people.
+        csv_path = os.path.join(logs, "outlook.csv")
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
+            f.write("First Name,Last Name,E-mail Address,Mobile Phone,Notes\r\n"
+                    "Csv,Firstperson,csv.first@example.org,+49 170 0000 9101,\"From Outlook, quoted\"\r\n"
+                    "Csv,Secondperson,csv.second@example.org,,\r\n")
+        app.click(selector="#toolbar-import")
+        app.until("the import screen", lambda: app.has_id("import-path"))
+        previews = len(app.printed("AZCONTACTS_IMPORT_PREVIEW", r".+"))
+        app.text_input("#import-path", csv_path)
+        app.click(selector="#import-read")
+        app.until("the CSV preview",
+                  lambda: len(app.printed("AZCONTACTS_IMPORT_PREVIEW", r".+")) > previews)
+        preview = app.last("AZCONTACTS_IMPORT_PREVIEW")
+        if not preview.startswith("2 ") or "2 new" not in preview:
+            raise Failure("the CSV preview should be 2 new rows: %r" % preview)
+        for n in range(5):
+            if not app.has_id("import-column-%d" % n):
+                raise Failure("the CSV column %d has no mapping control" % n)
+        app.screenshot(os.path.join(out, "import-csv.png"))
+        before = len(contact_files(data_dir))
+        app.click(selector="#import-run")
+        app.until("the CSV people's files", lambda: len(contact_files(data_dir)) == before + 2)
         app.log("PASS")
         return True
     except Failure:

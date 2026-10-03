@@ -26,6 +26,7 @@
 //! `--size`). On stdout, for scripts: see `state.rs` and `jobs.rs`, plus `AZTASKS_REMINDER
 //! <task>` and `AZTASKS_NOTIFICATION <kind> <task>`.
 
+pub mod appearance;
 pub mod args;
 pub mod backstage;
 pub mod chrome;
@@ -39,10 +40,12 @@ pub mod parse;
 /// A to-do's repeat lives in the shared PIM crate (DEDUP_EDITORS B6).
 pub use azul_pim::repeat as recur;
 pub mod reminders;
+pub mod repeat_form;
 pub mod sample;
 pub mod state;
 pub mod store;
 pub mod views;
+pub mod vtodo;
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -61,7 +64,7 @@ use azul::{
 use azul_storage::{Drive, LocalDrive};
 
 use crate::{
-    args::{Args, Mode, Screen},
+    args::{Args, Screen},
     chrome::Command,
     model::Reminder,
     state::{Page, Tasks},
@@ -118,7 +121,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         list_column,
         detail::pane(s, &app, now),
     )
-    .with_list_label("Tasks");
+    .with_list_label("Tasks")
+    // LOOK 2026-10-03: the list was narrow (the reminder banner wrapped, "Dismiss" was cut) and
+    // the reading pane far too wide; the navigation pane's lists were cut at its right edge.
+    .with_navigation_ratio(0.22)
+    .with_list_ratio(0.6);
     if s.show_todo_bar {
         pim = pim.with_todo_bar(chrome::todo_bar(s, &app, now));
     }
@@ -135,13 +142,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css("position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(shell.dom())
         .with_child(chrome::palette(s, &app));
-    Dom::create_body()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(
-            ShellThemeScope::create(root)
-                .with_accent(ShellThemeAccent::Leaf)
-                .dom(),
-        )
+    // LOOK: a hand-styled <body> kept the UA's 8 px margin (a white strip at the left and
+    // bottom); the theme scope's own body (SMALL6) fills the window.
+    ShellThemeScope::create(root)
+        .with_accent(ShellThemeAccent::Leaf)
+        .body()
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 
@@ -467,15 +472,23 @@ pub fn start() {
         s.os_notifications.1
     );
 
-    let mut config = AppConfig::create();
-    if let Some(theme) = &args.theme {
-        config = config.with_theme(theme.as_str());
+    // The appearance kept from the last run (read before the window: the first frame needs
+    // it); `--theme` / `--mode` win for this run.
+    if let Ok(bytes) = s.drive.get(&appearance::settings_key()) {
+        let (saved, problem) = azul_appkit::settings::AppSettings::parse(&String::from_utf8_lossy(&bytes));
+        if let Some(problem) = problem {
+            eprintln!("[aztasks] {}: {problem}", appearance::settings_key());
+        }
+        s.appearance = saved;
     }
-    match args.mode {
-        Some(Mode::Light) => config = config.with_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),
-        Some(Mode::Dark) => config = config.with_mode(OptionDarkLightMode::Some(DarkLightMode::Dark)),
-        Some(Mode::System) | None => {}
-    }
+    let (theme, mode) = appearance::effective(&args, &s.appearance);
+    let config = AppConfig::create()
+        .with_theme(theme.name())
+        .with_mode(match mode {
+            azul_appkit::args::ModePref::Light => OptionDarkLightMode::Some(DarkLightMode::Light),
+            azul_appkit::args::ModePref::Dark => OptionDarkLightMode::Some(DarkLightMode::Dark),
+            azul_appkit::args::ModePref::System => OptionDarkLightMode::None,
+        });
     let app = App::create(RefAny::new(s), config);
     let mut window = WindowCreateOptions::create(layout);
     let (w, h) = args.size.unwrap_or((1280.0, 800.0));
