@@ -43,6 +43,9 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   point; display_list_dirty consumed by repaint_only). Seen, not fixed: X11 GPU path treats
   display_list_dirty as "already rebuilt" but ImageById (window.rs apply_content_change) does NOT
   rebuild the DL itself (the clip-mask arm does) -> css-id image registration stale on X11 GPU.
+- E: 5dfd0ca5d RED / 58b722ef2 GREEN: begin_reconciliation installs the window context on the new
+  StyledDom before the transition capture (2nd transition = inherited color #e8e8e8 -> light black;
+  probe_e.py). Test layout/tests/a_rebuild_transitions_only_what_its_window_sees_change.rs.
 - coordinator (INFRA6 note): runner close protocol. 021331d4c RED / b150ef6ba GREEN
   (runner.rs close_unconfirmed + confirm_app_close + run_frame extracted; tests mod close_protocol_tests).
 
@@ -51,8 +54,9 @@ Branch `wt/headless6` from base 25d78e309. Brief: scripts/waves/wave6/HEADLESS6.
   Scratchpad was wiped: probes now in <scratchpad>/headless6/probe (client.py = debug-server client).
   In-process check: `target/release/azul-doc e2e <dir>` (prebuilt) -> D, E, F, G PASS in-process, so they
   are host-only. Solo runs (fresh process each, solo.sh) fail the same way -> not cross-scenario leaks.
-  Next: D (live CSS driver steps on wall clock under AZ_E2E: decide), E (2 transitions: probe which
-  property), then the report.
+  Next: SMALL6's bug (coordinator, 2026-10-03): first `screenshot` after set_theme + set_mode shows
+  text of two layouts (old + new); next frame clean. RED first. Then D (live CSS driver steps on the
+  wall clock under AZ_E2E: decide), then the report.
 
 ## NEXT
 - C..G need a probe run (power permitting): probe scenarios in scratchpad/probe.
