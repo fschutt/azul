@@ -7383,6 +7383,79 @@ mod tests {
         );
     }
 
+    /// User decision D2 (2026-10-05): the debug server's `focus_node` focuses
+    /// like the engine's `FocusTarget::Id` (FIX9-INPUT 3.2) - a node that
+    /// cannot hold focus (the row an app named around a widget's field) hands
+    /// it to its first focusable descendant, and the op answers with the node
+    /// that took it. It refused the row ("cannot hold focus") while
+    /// `set_focus` on the same id focused the field. Only a subtree with
+    /// nothing focusable in it is still an error.
+    #[test]
+    fn focus_node_on_an_unfocusable_row_focuses_its_first_focusable_descendant() {
+        use azul_core::dom::IdOrClass;
+
+        let focus_scenario = |selector: &str| {
+            let mut field = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("field".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"));
+            field.set_contenteditable(true);
+            let row = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("row".into())].into())
+                .with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(vec![IdOrClass::Class("label".into())].into())
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Search",
+                        )),
+                )
+                .with_child(field);
+            let mut dom = Dom::create_body().with_child(row);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "focus_node_delegates",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "focus_node", "selector": selector },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            run_e2e_test_keeping_runner(&test, Some(styled_dom))
+        };
+
+        let (result, runner) = focus_scenario(".row");
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .and_then(|f| f.node.into_crate_internal())
+            .expect("focus_node on the row focused a node");
+        let node_data = runner.layout_window.layout_results[&DomId::ROOT_ID]
+            .styled_dom
+            .node_data
+            .as_container();
+        assert!(
+            node_data[focused].has_class("field"),
+            "the focus went to the row's first focusable descendant, the field"
+        );
+        let answer = serde_json::to_string(&result.steps[1].response).expect("json");
+        assert!(
+            answer.contains(&format!("\"node_id\":{}", focused.index())),
+            "focus_node answers with the node that took the focus: {answer}"
+        );
+
+        // A subtree with nothing focusable in it still refuses by name.
+        let (result, _) = focus_scenario(".label");
+        assert_eq!(result.status, "fail", "{:#?}", result.steps);
+    }
+
     /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always
     /// shown) over 20 rows of 30px. Classic on purpose: whether an overlay
     /// bar or a `scrollbar-width: none` bar exists at all is the
