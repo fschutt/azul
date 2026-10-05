@@ -861,6 +861,135 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     }
 }
 
+/// The shift `position: relative` gives a box with the resolved insets
+/// `offsets` in a containing block of `direction` (CSS 2.2 9.4.3). The one
+/// rule: for boxes ([`adjust_relative_positions`]) and for the text of
+/// inline boxes ([`inline_relative_offset`]).
+// +spec:positioning:5eb813 - relative positioning offsets contents from normal flow
+// position +spec:positioning:a2e5f1 - relative positioning shifts element from
+// static position (vs absolute/float) top/bottom/left/right offsets are applied
+// relative to the static position.
+//
+// +spec:positioning:218b50 - Relative positioning: top=-bottom, left=-right,
+// direction-dependent resolution, top wins over bottom According to CSS 2.1 Section
+// 9.4.3:
+// - For `top` and `bottom`: if both are specified, `top` wins and `bottom` is ignored
+// - For `left` and `right`: depends on direction (ltr/rtl)
+//   - In LTR: if both specified, `left` wins and `right` is ignored
+//   - In RTL: if both specified, `right` wins and `left` is ignored
+//
+// +spec:overflow:53dffd - both left/right auto → used values are 0, boxes stay in original
+// position +spec:positioning:5a099e - negative offsets can cause overlapping (no
+// clamping applied) +spec:positioning:d189de - bottom offset for relative
+// positioning is with respect to the box's own bottom edge +spec:positioning:d80f47
+// - opposing inset values are negations: top wins over bottom, left/right per direction
+// +spec:positioning:ecc27c - relative positioning: left/right move box horizontally without
+// changing size, left = -right +spec:positioning:50218d - relative: offset from
+// static position (top edges of box itself) both auto → 0; one auto → negative of
+// other; neither auto → bottom ignored (top wins) +spec:positioning:ac768b -
+// relative positioning: both auto→0, one auto→neg of other, neither→top wins;
+// direction-aware left/right +spec:positioning:e3727e - top/bottom: both auto→0,
+// one auto→negative of other, neither auto→bottom ignored Vertical positioning:
+// `top` takes precedence over `bottom`
+pub(crate) fn relative_shift(
+    offsets: &PositionOffsets,
+    direction: azul_css::props::style::StyleDirection,
+) -> LogicalPosition {
+    use azul_css::props::style::StyleDirection;
+
+    let dy = match (offsets.top, offsets.bottom) {
+        (Some(top), _) => top,
+        (None, Some(bottom)) => -bottom,
+        (None, None) => 0.0,
+    };
+    // +spec:containing-block:6d4fb1 - over-constrained relative positioning: ltr→left wins,
+    // rtl→right wins
+    let dx = match direction {
+        StyleDirection::Ltr => match (offsets.left, offsets.right) {
+            (Some(left), _) => left,
+            // +spec:overflow:fb426c - left auto: used value is minus the value of right
+            (None, Some(right)) => -right,
+            (None, None) => 0.0,
+        },
+        StyleDirection::Rtl => match (offsets.right, offsets.left) {
+            (Some(right), _) => -right,
+            (None, Some(left)) => left,
+            (None, None) => 0.0,
+        },
+    };
+    LogicalPosition::new(dx, dy)
+}
+
+/// How far `position: relative` moves the content of DOM node `node` that
+/// the line layout of the inline formatting context rooted at `ifc_root`
+/// paints - a text run, an inline box's background and border: the shifts
+/// of every relatively positioned non-atomic INLINE box enclosing it (the
+/// node itself included) added up, each box shifted from where its parent
+/// box put it (CSS 2.2 9.4.3: "once a box has been laid out according to
+/// the normal flow ... it may be shifted relative to this position", its
+/// content with it, no other box with it).
+///
+/// The walk ends at `ifc_root` (the DOM node whose style the IFC root
+/// resolves, `fc::ifc_root_style_dom_id`) or at the first ancestor that is
+/// no inline box: the block container of the lines, the containing block
+/// whose content box `cb_size` the percentages resolve against and whose
+/// `direction` decides between `left` and `right`. Its own shift is not
+/// added: it moves as a box ([`adjust_relative_positions`]) and its lines
+/// with it. That pass moves BOXES and never reaches the text of an inline
+/// box, which is painted from the lines - the display list adds this
+/// (pdfocr engine issue 2). Zero, after a lookup or two, for text in no
+/// relatively positioned inline box.
+pub(crate) fn inline_relative_offset(
+    styled_dom: &StyledDom,
+    node: NodeId,
+    ifc_root: NodeId,
+    cb_size: LogicalSize,
+    viewport_size: LogicalSize,
+) -> LogicalPosition {
+    use azul_css::props::{layout::LayoutDisplay, style::StyleDirection};
+
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data = styled_dom.node_data.as_container();
+    let mut shifted: Vec<NodeId> = Vec::new();
+    let mut block = None;
+    let mut current = Some(node);
+    while let Some(id) = current {
+        if id == ifc_root {
+            block = Some(id);
+            break;
+        }
+        if !matches!(node_data[id].get_node_type(), NodeType::Text(_)) {
+            let display =
+                get_display_property(styled_dom, Some(id)).unwrap_or(LayoutDisplay::Inline);
+            if display != LayoutDisplay::Inline {
+                block = Some(id);
+                break;
+            }
+            if get_position_type(styled_dom, Some(id)) == LayoutPosition::Relative {
+                shifted.push(id);
+            }
+        }
+        current = hierarchy.get(id).and_then(|h| h.parent_id());
+    }
+    if shifted.is_empty() {
+        return LogicalPosition::zero();
+    }
+    let direction = block
+        .and_then(|b| {
+            let state = &styled_dom.styled_nodes.as_container()[b].styled_node_state;
+            match get_direction_property(styled_dom, b, state) {
+                MultiValue::Exact(d) => Some(d),
+                _ => None,
+            }
+        })
+        .unwrap_or(StyleDirection::Ltr);
+    shifted.iter().fold(LogicalPosition::zero(), |sum, &id| {
+        let offsets = resolve_position_offsets(styled_dom, Some(id), cb_size, viewport_size);
+        let shift = relative_shift(&offsets, direction);
+        LogicalPosition::new(sum.x + shift.x, sum.y + shift.y)
+    })
+}
+
 // +spec:positioning:5b0d7f - relative positioning: offset from normal flow position, siblings
 // unaffected +spec:positioning:8afbe2 - Relative positioning preserves normal flow size and space;
 // only visual offset applied after layout +spec:positioning:3502d5 - relative and absolute
@@ -965,40 +1094,6 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 
         let initial_pos = *current_pos;
 
-        // +spec:positioning:5eb813 - relative positioning offsets contents from normal flow
-        // position +spec:positioning:a2e5f1 - relative positioning shifts element from
-        // static position (vs absolute/float) top/bottom/left/right offsets are applied
-        // relative to the static position.
-        let mut delta_x = 0.0;
-        let mut delta_y = 0.0;
-
-        // +spec:positioning:218b50 - Relative positioning: top=-bottom, left=-right,
-        // direction-dependent resolution, top wins over bottom According to CSS 2.1 Section
-        // 9.4.3:
-        // - For `top` and `bottom`: if both are specified, `top` wins and `bottom` is ignored
-        // - For `left` and `right`: depends on direction (ltr/rtl)
-        //   - In LTR: if both specified, `left` wins and `right` is ignored
-        //   - In RTL: if both specified, `right` wins and `left` is ignored
-
-        // +spec:overflow:53dffd - both left/right auto → used values are 0, boxes stay in original
-        // position +spec:positioning:5a099e - negative offsets can cause overlapping (no
-        // clamping applied) +spec:positioning:d189de - bottom offset for relative
-        // positioning is with respect to the box's own bottom edge +spec:positioning:d80f47
-        // - opposing inset values are negations: top wins over bottom, left/right per direction
-        // +spec:positioning:ecc27c - relative positioning: left/right move box horizontally without
-        // changing size, left = -right +spec:positioning:50218d - relative: offset from
-        // static position (top edges of box itself) both auto → 0; one auto → negative of
-        // other; neither auto → bottom ignored (top wins) +spec:positioning:ac768b -
-        // relative positioning: both auto→0, one auto→neg of other, neither→top wins;
-        // direction-aware left/right +spec:positioning:e3727e - top/bottom: both auto→0,
-        // one auto→negative of other, neither auto→bottom ignored Vertical positioning:
-        // `top` takes precedence over `bottom`
-        if let Some(top) = offsets.top {
-            delta_y = top;
-        } else if let Some(bottom) = offsets.bottom {
-            delta_y = -bottom;
-        }
-
         // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by
         // 9.4.3 rules Spec: "If the 'direction' property of the containing block is 'ltr',
         // the value of 'left' wins" Get the direction of the containing block (parent), not
@@ -1016,25 +1111,13 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 }
             })
             .unwrap_or(StyleDirection::Ltr);
-        // +spec:containing-block:6d4fb1 - over-constrained relative positioning: ltr→left wins,
-        // rtl→right wins
-        match cb_direction {
-            StyleDirection::Ltr => {
-                if let Some(left) = offsets.left {
-                    delta_x = left;
-                } else if let Some(right) = offsets.right {
-                    // +spec:overflow:fb426c - left auto: used value is minus the value of right
-                    delta_x = -right;
-                }
-            }
-            StyleDirection::Rtl => {
-                if let Some(right) = offsets.right {
-                    delta_x = -right;
-                } else if let Some(left) = offsets.left {
-                    delta_x = left;
-                }
-            }
-        }
+        // The one rule for the shift, shared with the text of relatively
+        // positioned INLINE boxes, which this pass does not reach
+        // (`inline_relative_offset`).
+        let LogicalPosition {
+            x: delta_x,
+            y: delta_y,
+        } = relative_shift(&offsets, cb_direction);
 
         // +spec:overflow:f1e1ce - relative positioning may cause overflow:auto/scroll boxes to need
         // scrollbars Only apply the shift if there is a non-zero delta.

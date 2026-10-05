@@ -216,6 +216,14 @@ fn dir(_: &str, value: &str) -> Option<NodeSetting> {
     }
 }
 
+/// `lang` / `xml:lang`: the element's content language (a BCP 47 tag), for
+/// its subtree - `hyphens: auto` picks its hyphenation resource by it (CSS
+/// Text 3 5.4), the accessibility tree reports it. Kept as written, an empty
+/// value too: `lang=""` says "unknown" and hides an ancestor's language.
+fn lang(_: &str, value: &str) -> Option<NodeSetting> {
+    Some(NodeSetting::Attribute(AttributeType::Lang(value.trim().into())))
+}
+
 fn style(_: &str, value: &str) -> Option<NodeSetting> {
     Some(NodeSetting::Style(value.into()))
 }
@@ -388,6 +396,10 @@ static BUILTIN: &[XmlAttribute] = &[
     entry("valign", Tags(HINT_VALIGN_TAGS), 8, presentational),
     entry("nowrap", Tags(HINT_CELL_TAGS), 8, presentational),
     entry("dir", AnyElement, 9, dir),
+    // `xml:lang` after `lang`: given both, it is the node's LAST `Lang`, the
+    // one its readers take (HTML: the XML-namespace attribute wins).
+    entry("lang", AnyElement, 9, lang),
+    entry("xml:lang", AnyElement, 10, lang),
     entry("style", AnyElement, 10, style),
     entry("data-l10n*", AnyElement, 11, l10n),
     entry("data-*", FormControls, 5, data),
@@ -988,6 +1000,23 @@ mod tests {
     use azul_css::props::style::background::StyleBackgroundContent;
 
     use super::*;
+
+    #[test]
+    fn a_lang_attribute_lands_on_its_node_as_the_content_language() {
+        // CSS Text 3 5.4: `hyphens: auto` hyphenates in the CONTENT
+        // LANGUAGE, which markup states with `lang` (`xml:lang` in XML). The
+        // table had no entry for either, so every loader dropped `lang="en"`
+        // and nothing downstream could read it (pdfocr engine issue 3).
+        for name in ["lang", "LANG", "xml:lang"] {
+            assert_eq!(
+                setting_of("div", name, "en-GB").map(|(_, s)| s),
+                Some(NodeSetting::Attribute(AttributeType::Lang(AzString::from(
+                    "en-GB"
+                )))),
+                "`{name}=\"en-GB\"` on a div"
+            );
+        }
+    }
 
     #[test]
     fn a_data_url_in_a_style_attribute_keeps_its_base64_payload() {
