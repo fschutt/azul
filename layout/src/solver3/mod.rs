@@ -1168,12 +1168,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     }
     drop(probe_cache_remap);
     crate::probe::sample_peak_rss("rss:after_cache_remap");
-    for &node_idx in &recon_result.intrinsic_dirty {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
-    for &node_idx in &recon_result.layout_roots {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
+    cache_map.mark_dirty_all(
+        recon_result
+            .intrinsic_dirty
+            .iter()
+            .chain(recon_result.layout_roots.iter())
+            .copied(),
+        &new_tree.nodes,
+    );
 
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {

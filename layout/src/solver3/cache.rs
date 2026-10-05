@@ -423,34 +423,38 @@ impl LayoutCacheMap {
         &mut self.entries[node_index]
     }
 
-    /// Invalidate a node and propagate dirty flags upward through ancestors.
+    /// Invalidate a node and every ancestor.
     ///
-    /// Implements Taffy's early-stop optimization: propagation halts at the
-    /// first ancestor whose cache is already empty (i.e., already dirty).
-    /// This prevents redundant O(depth) propagation when multiple children
-    /// of the same parent are dirtied.
+    /// An EMPTY entry says nothing about the ancestors: a flex / grid item
+    /// laid out by taffy never gets an entry, nor does a node the reconcile
+    /// built fresh. Taffy's early stop ("an empty ancestor is already dirty")
+    /// left a flex container's layout slot in place, which served the old
+    /// child positions and never laid the fresh item out (a dragged slider's
+    /// thumb vanished, FIX9 1.6). The early stop survives in
+    /// [`Self::mark_dirty_all`], keyed by what that call cleared.
     pub fn mark_dirty(&mut self, node_index: usize, tree: &[LayoutNodeHot]) {
-        if node_index >= self.entries.len() {
-            return;
-        }
-        let cache = &mut self.entries[node_index];
-        if cache.is_empty {
-            return; // Already dirty → ancestors are too
-        }
-        cache.clear();
+        self.mark_dirty_all(core::iter::once(node_index), tree);
+    }
 
-        // Propagate upward (Taffy's early-stop optimization)
-        let mut current = tree.get(node_index).and_then(|n| n.parent);
-        while let Some(parent_idx) = current {
-            if parent_idx >= self.entries.len() {
-                break;
+    /// [`Self::mark_dirty`] for many nodes: every ancestor chain is walked
+    /// once - a walk stops at a node an earlier walk of THIS call cleared, so
+    /// the whole batch costs O(nodes), not O(nodes x depth).
+    pub fn mark_dirty_all(
+        &mut self,
+        nodes: impl IntoIterator<Item = usize>,
+        tree: &[LayoutNodeHot],
+    ) {
+        let mut cleared = alloc::vec![false; self.entries.len()];
+        for node_index in nodes {
+            let mut current = Some(node_index);
+            while let Some(idx) = current {
+                if idx >= self.entries.len() || cleared[idx] {
+                    break;
+                }
+                cleared[idx] = true;
+                self.entries[idx].clear();
+                current = tree.get(idx).and_then(|n| n.parent);
             }
-            let parent_cache = &mut self.entries[parent_idx];
-            if parent_cache.is_empty {
-                break; // Stop early — ancestor already dirty
-            }
-            parent_cache.clear();
-            current = tree.get(parent_idx).and_then(|n| n.parent);
         }
     }
 }
@@ -5356,22 +5360,20 @@ mod autotest_generated {
     }
 
     #[test]
-    fn cachemap_mark_dirty_stops_at_the_first_dirty_ancestor() {
-        // 0 (clean) <- 1 (already dirty) <- 2 (clean)
-        let tree = vec![plain(None), plain(Some(0)), plain(Some(1))];
+    fn cachemap_mark_dirty_all_walks_a_shared_ancestor_chain_once() {
+        // 0 <- 1 <- {2, 3}: the second walk stops at 1, which the first
+        // walk of the same call cleared.
+        let tree = vec![plain(None), plain(Some(0)), plain(Some(1)), plain(Some(1))];
         let mut m = LayoutCacheMap::default();
-        m.resize_to_tree(3);
-        m.get_mut(0)
-            .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
-        m.get_mut(2)
-            .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        m.resize_to_tree(4);
+        for i in 0..4 {
+            m.get_mut(i)
+                .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        }
 
-        m.mark_dirty(2, &tree);
+        m.mark_dirty_all([2, 3], &tree);
 
-        assert!(m.get(2).is_empty);
-        assert!(m.get(1).is_empty);
-        // Early stop: the grandparent keeps its cached entry.
-        assert!(!m.get(0).is_empty);
+        assert!(m.entries.iter().all(|e| e.is_empty));
     }
 
     /// A flex item laid out by taffy never gets an entry of its own, and
@@ -5395,21 +5397,6 @@ mod autotest_generated {
 
         assert!(m.get(1).is_empty, "the container lays its items out again");
         assert!(m.get(0).is_empty);
-    }
-
-    #[test]
-    fn cachemap_mark_dirty_on_an_already_dirty_node_leaves_ancestors_alone() {
-        let tree = vec![plain(None), plain(Some(0))];
-        let mut m = LayoutCacheMap::default();
-        m.resize_to_tree(2);
-        m.get_mut(0)
-            .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
-        // entry 1 is fresh → already dirty
-
-        m.mark_dirty(1, &tree);
-
-        assert!(m.get(1).is_empty);
-        assert!(!m.get(0).is_empty);
     }
 
     #[test]

@@ -801,12 +801,14 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     // Move cache_map out of LayoutCache for the duration of layout.
     let mut cache_map = std::mem::take(&mut cache.cache_map);
     cache_map.resize_to_tree(new_tree.nodes.len());
-    for &node_idx in &recon_result.intrinsic_dirty {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
-    for &node_idx in &recon_result.layout_roots {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
-    }
+    cache_map.mark_dirty_all(
+        recon_result
+            .intrinsic_dirty
+            .iter()
+            .chain(recon_result.layout_roots.iter())
+            .copied(),
+        &new_tree.nodes,
+    );
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
