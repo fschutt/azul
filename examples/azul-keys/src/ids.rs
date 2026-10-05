@@ -158,8 +158,6 @@ indexed! {
     edit_field_value = "edit-field-value-";
     /// A custom field's remove button in the edit form.
     edit_field_remove = "edit-field-remove-";
-    /// A tag chip of the edit form.
-    edit_tag_chip = "edit-tag-chip-";
     /// A row of the audit table.
     audit_row = "audit-row-";
 }

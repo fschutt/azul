@@ -43,9 +43,8 @@ use crate::vault::{sections, Kind, Scope, Vault};
 
 // ==== Small pieces ====
 
-// The pieces every Azlin app shares (azul_appkit::pieces). `row` is the name ui_item.rs
-// imports; the shared one is `flex_row` (appkit's `ui::row` is the settings row).
-pub(crate) use azul_appkit::pieces::flex_row as row;
+// The pieces every Azlin app shares (azul_appkit::pieces); ui_item.rs imports them from here.
+// A flex row is `flex_row` (appkit's `ui::row` is the settings row).
 pub(crate) use azul_appkit::pieces::{
     block, button, column, flex_row, icon_button, primary, strs, text,
 };

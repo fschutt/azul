@@ -31,8 +31,8 @@ use crate::session::{Form, ImportView, Reading, Reveal, Session};
 use crate::store::{self, Work};
 use crate::totp::{group_code, Totp};
 use crate::ui::{
-    block, button, column, form_row, icon_button, keep, leave_form, note, primary, problem, row,
-    strength_bar, strs, text, with_app,
+    block, button, column, flex_row, form_row, icon_button, keep, leave_form, note, primary,
+    problem, strength_bar, strs, text, with_app,
 };
 use crate::vault::{Field, Item, Kind};
 
@@ -113,7 +113,7 @@ fn reveal_button(app: &RefAny, reveal: Reveal, shown: bool, id: AzString) -> Dom
 
 /// A field of the item: the label, the value, the buttons.
 fn field_row(label: &str, value: Dom, buttons: Vec<Dom>) -> Dom {
-    row(
+    flex_row(
         "align-items: flex-start; padding: 4px 0px;",
         vec![
             block(
@@ -124,7 +124,7 @@ fn field_row(label: &str, value: Dom, buttons: Vec<Dom>) -> Dom {
                 "flex-grow: 1; min-width: 0px; font-size: 13px; padding-top: 4px;",
                 value,
             ),
-            row("gap: 4px; flex-shrink: 0;", buttons),
+            flex_row("gap: 4px; flex-shrink: 0;", buttons),
         ],
     )
 }
@@ -145,7 +145,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
     if !item.folder.is_empty() {
         subtitle.push_str(&format!(" \u{b7} {}", item.folder));
     }
-    let header = row(
+    let header = flex_row(
         "padding-bottom: 8px;",
         vec![
             Avatar::create(item.initials())
@@ -210,7 +210,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                 let left = totp.remaining(t);
                 #[allow(clippy::cast_precision_loss)] // seconds
                 let (left_s, period_s) = (left as f64, totp.period.max(1) as f64);
-                row(
+                flex_row(
                     "gap: 8px;",
                     vec![
                         block(
@@ -310,7 +310,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             .collect();
         rows.push(field_row(
             "tags",
-            row("gap: 4px; flex-wrap: wrap;", chips),
+            flex_row("gap: 4px; flex-wrap: wrap;", chips),
             Vec::new(),
         ));
     }
@@ -343,7 +343,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         date(item.modified)
     )));
     let actions = if session.confirm_delete {
-        row(
+        flex_row(
             "gap: 8px; padding-top: 12px;",
             vec![
                 block(
@@ -355,7 +355,7 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
             ],
         )
     } else {
-        row(
+        flex_row(
             "gap: 8px; padding-top: 12px;",
             vec![
                 icon_button("Edit", "edit", ids::ITEM_EDIT, app, on_edit),
@@ -587,7 +587,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     if d.kind == Kind::Login || !d.password.is_empty() {
         rows.push(form_row(
             "Password",
-            row(
+            flex_row(
                 "gap: 4px;",
                 vec![
                     block(
@@ -713,7 +713,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     for (n, f) in d.fields.iter().enumerate() {
         rows.push(form_row(
             "Field",
-            row(
+            flex_row(
                 "gap: 4px;",
                 vec![
                     block(
@@ -807,7 +807,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
             .with_id(ids::EDIT_FAVORITE),
     ));
     if form.confirm_discard {
-        rows.push(row(
+        rows.push(flex_row(
             "gap: 8px; padding-top: 12px;",
             vec![
                 block("font-size: 13px;", text("Discard your changes?")),
@@ -816,7 +816,7 @@ fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
             ],
         ));
     } else {
-        rows.push(row(
+        rows.push(flex_row(
             "gap: 8px; padding: 12px 0px 0px 110px;",
             vec![
                 primary("Save", ids::EDIT_SAVE, app, on_edit_save),
@@ -1061,7 +1061,7 @@ struct GenRef {
 }
 
 fn gen_check(app: &RefAny, option: GenOption, checked: bool, label: &str, id: AzString) -> Dom {
-    row(
+    flex_row(
         "gap: 4px; padding-right: 12px;",
         vec![
             CheckBox::create(checked)
@@ -1097,7 +1097,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
         .with_on_change(app.clone(), on_gen_mode as SegmentedOnChangeCallbackType)
         .dom()
         .with_id(ids::GEN_MODE),
-        row(
+        flex_row(
             "gap: 8px; padding: 12px 0px;",
             vec![
                 block(
@@ -1133,7 +1133,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
     let value = value.clamp(min, max);
     rows.push(form_row(
         label,
-        row(
+        flex_row(
             "gap: 8px;",
             vec![
                 block(
@@ -1153,7 +1153,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
     ));
     match o.mode {
         Mode::Password => {
-            rows.push(row(
+            rows.push(flex_row(
                 "flex-wrap: wrap; padding: 4px 0px;",
                 vec![
                     gen_check(app, GenOption::Upper, o.upper, "A-Z", ids::GEN_UPPER),
@@ -1171,7 +1171,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
             ));
         }
         Mode::Passphrase => {
-            rows.push(row(
+            rows.push(flex_row(
                 "flex-wrap: wrap; padding: 4px 0px;",
                 vec![
                     gen_check(
@@ -1196,7 +1196,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
     rows.push(
         form_row(
             "Strength",
-            row(
+            flex_row(
                 "gap: 8px;",
                 vec![
                     block(
@@ -1220,7 +1220,7 @@ fn generator_view(session: &Session, app: &RefAny) -> Dom {
         "The edit form's Generate button uses these settings. Drawn from the system's random \
          source; nothing is kept.",
     ));
-    rows.push(row(
+    rows.push(flex_row(
         "padding-top: 8px;",
         vec![button("Close", ids::GEN_CLOSE, app, on_panel_close)],
     ));
@@ -1341,7 +1341,7 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
         ),
         form_row(
             "File",
-            row(
+            flex_row(
                 "gap: 4px;",
                 vec![
                     block(
@@ -1399,7 +1399,7 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
                 rows.push(note(line));
             }
             if !imported.items.is_empty() {
-                rows.push(row(
+                rows.push(flex_row(
                     "gap: 8px; padding-top: 8px;",
                     vec![
                         primary(
@@ -1421,7 +1421,7 @@ fn import_view(view: &ImportView, app: &RefAny) -> Dom {
         None => {}
     }
     if !matches!(view.result, Some(Ok(_))) {
-        rows.push(row(
+        rows.push(flex_row(
             "padding-top: 8px;",
             vec![button("Close", ids::IMPORT_CANCEL, app, on_panel_close)],
         ));
@@ -1571,7 +1571,7 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
         };
         let problems: Vec<String> = finding.problems.iter().map(|p| p.label()).collect();
         rows.push(
-            row(
+            flex_row(
                 "padding: 4px 0px; cursor: pointer;",
                 vec![
                     block("width: 34%; font-size: 13px;", text(item.title.as_str())),
@@ -1601,7 +1601,7 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
     if shown == 0 {
         rows.push(note("Nothing to fix here."));
     }
-    rows.push(row(
+    rows.push(flex_row(
         "gap: 8px; padding-top: 12px;",
         vec![
             icon_button(
