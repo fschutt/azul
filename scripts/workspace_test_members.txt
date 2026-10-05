@@ -55,6 +55,7 @@ tested: AzPlayer             # dll_tests (the history and resume positions, the 
 tested: AzCode               # dll_tests (the piece table, the incremental highlighter, find / replace, the workspace model)
 tested: AzKeys               # dll_tests (the vault file crypto, TOTP vectors, import, generator, audit, the vault files on a drive)
 tested: AzMonitor            # dll_tests (the history ring, rates, sorting, the filter, the sample machine, the tick plan)
+tested: AzNews               # dll_tests (RSS / Atom / JSON Feed parsing incl. malformed feeds, OPML round trip, read state, refresh merge, the reader view)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

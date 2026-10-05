@@ -169,6 +169,53 @@ pub fn read_outside(path: &Path) -> Result<Vec<u8>, String> {
     }
 }
 
+/// What [`open_external`] may hand to the system: a web address (`http:` / `https:`) or a file or
+/// folder that exists. Anything else (`javascript:`, `file:` addresses, a made-up path) is
+/// refused with a sentence.
+pub fn external_target(target: &str) -> Result<String, String> {
+    let t = target.trim();
+    let lower = t.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        if t.chars().any(char::is_whitespace) {
+            return Err(format!("\u{201c}{t}\u{201d} is not a web address."));
+        }
+        return Ok(t.to_string());
+    }
+    if !t.is_empty() && !lower.contains(':') && Path::new(t).exists() {
+        return Ok(t.to_string());
+    }
+    if !t.is_empty() && cfg!(windows) && Path::new(t).exists() {
+        return Ok(t.to_string());
+    }
+    Err(format!("\u{201c}{t}\u{201d} cannot be opened."))
+}
+
+/// Opens a web address in the default browser, or a file / folder in its default app (`open` on
+/// macOS, `xdg-open` on Linux and the BSDs, `cmd /C start` on Windows) - see
+/// [`external_target`] for what is passed on. Returns once the opener started.
+// TODO(engine): an azul API for this (a platform call, also for the web build); AzReview's
+// lib.rs opens its folder the same way.
+pub fn open_external(target: &str) -> Result<(), String> {
+    let target = external_target(target)?;
+    let mut command = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg(&target);
+        c
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", ""]).arg(&target);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&target);
+        c
+    };
+    command
+        .spawn()
+        .map(|_child| ())
+        .map_err(|e| format!("{target} could not be opened: {e}"))
+}
+
 #[cfg(test)]
 pub(crate) mod test_dir {
     //! A fresh folder under the system's temporary folder, removed on drop.
@@ -354,5 +401,18 @@ mod tests {
         let out = run_job(&drive, put("../escape.txt", "x"));
         let error = out.error().expect("refused");
         assert!(error.contains("not a valid name"), "{error}");
+    }
+    #[test]
+    fn only_web_addresses_and_existing_paths_are_handed_to_the_system() {
+        assert_eq!(external_target(" https://example.org/a?b=1 "), Ok("https://example.org/a?b=1".to_string()));
+        assert!(external_target("HTTP://example.org").is_ok());
+        assert!(external_target("javascript:alert(1)").is_err());
+        assert!(external_target("file:///etc/passwd").is_err());
+        assert!(external_target("https://exa mple.org").is_err());
+        assert!(external_target("").is_err());
+        let dir = TestDir::new("external-target");
+        let path = dir.path().display().to_string();
+        assert_eq!(external_target(&path), Ok(path.clone()));
+        assert!(external_target(&format!("{path}/missing")).is_err());
     }
 }
