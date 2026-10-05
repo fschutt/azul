@@ -34,11 +34,20 @@ first per language; commit after every language.
   sit by value (Vec destructors, VecRefs) are exact-size FILLER blobs; usize/isize are
   BINARY-DOUBLE [UNSIGNED] (was USAGE POINTER). Test parser now skips field doc comments.
 
+- ALGOL 68 (lang_algol68): RED a5ba93181, fix (this commit). `read az string (REF AZSTRING) STRING`
+  (element-wise through the byte Vec's index accessor, never consumes); per heap-owning MODE
+  `replace az <type> (REF field, new)` (_delete, then move); `replace az string text (field,
+  STRING)`. Example sets the title with replace az string text.
+
 ## IN PROGRESS
-- ALGOL 68 (lang_algol68).
+(none)
 
 ## NEXT
-- final report.
+- parent: compile, regenerate target/codegen, run the unit tests + bug_classes.
 
 ## Open questions
-(none yet)
+- Lisp: register-callback results and nested plist reads of wrapped types are boxed foreign
+  buffers that are never freed (small leak per callback registration).
+- Red: bool args/returns still logic! (32-bit); a bool C return has garbage upper bits.
+- Smalltalk: handles are ByteArray-backed structs that Pharo's GC may move while C holds &self.
+
