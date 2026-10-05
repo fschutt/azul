@@ -33,11 +33,14 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
   layout/tests/text3_baseline_exact.rs 6.4 -> 6.3333 / 4.8 -> 4.2; text3_regression_metrics.rs -6.4 -> 0.0 /
   4.8 -> 1.0.
 
+- 1.9 eafd79a34 (perf, no RED: clone + 2 marks removed; both error returns set cache.tree = None).
+
 ## IN PROGRESS
-1.9
+1.10
 
 ## NEXT
-1.9 delete the wasm-lift tree clone (solver3/mod.rs ~1277 cache.tree = Some((*new_tree).clone()))
+1.10 RED the_html_elements_style_attribute_reaches_the_root (core/src/xml.rs ~6012 str_to_dom_unstyled,
+~7014 render_dom_from_body_node_fast)
 
 ## Open questions
 (none)
