@@ -924,7 +924,12 @@ impl MacOSWindow {
         // very transition it had just produced.
         self.snapshot_window_state_baseline("macos.handle_flags_changed");
 
-        self.update_keyboard_state(key_code, modifiers, is_down);
+        flags_changed_keyboard_state(
+            self.common.keyboard_state_mut(),
+            key_code,
+            modifiers,
+            is_down,
+        );
 
         let result = self.process_window_events(0);
         self.convert_result_with_fanout(result)
@@ -1162,6 +1167,100 @@ impl MacOSWindow {
     }
 }
 
+/// A key event's change to the keyboard state: the pressed set, the current
+/// key, its physical position, the modifiers and the locks.
+fn update_keyboard_state_of(
+    keyboard_state: &mut KeyboardState,
+    keycode: u16,
+    modifiers: NSEventModifierFlags,
+    is_down: bool,
+) {
+    use azul_core::window::VirtualKeyCode;
+
+    // Convert keycode to VirtualKeyCode first.
+    //
+    // `None` — a key the LOGICAL table has no entry for — must NOT skip
+    // the whole handler the way it used to. The physical position, the
+    // lock state and the modifier set are all true regardless of whether
+    // this codebase happens to name the key's layout meaning, and
+    // returning early left them stale for exactly the keys (media, OEM,
+    // non-US extras) a positional binding is most likely to want. Only the
+    // pressed-VIRTUAL-key bookkeeping below actually needs the `vk`.
+    let vk_opt = convert_keycode(keycode);
+
+    if let Some(vk) = vk_opt {
+        if is_down {
+            // Add to pressed keys if not already present
+            let mut already_pressed = false;
+            for pressed_key in keyboard_state.pressed_virtual_keycodes.as_ref() {
+                if *pressed_key == vk {
+                    already_pressed = true;
+                    break;
+                }
+            }
+            if !already_pressed {
+                // Convert to Vec, add, convert back
+                let mut pressed_vec: Vec<VirtualKeyCode> =
+                    keyboard_state.pressed_virtual_keycodes.as_ref().to_vec();
+                pressed_vec.push(vk);
+                keyboard_state.pressed_virtual_keycodes =
+                    azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
+            }
+            keyboard_state.current_virtual_keycode =
+                azul_core::window::OptionVirtualKeyCode::Some(vk);
+        } else {
+            // Remove from pressed keys
+            let pressed_vec: Vec<VirtualKeyCode> = keyboard_state
+                .pressed_virtual_keycodes
+                .as_ref()
+                .iter()
+                .copied()
+                .filter(|k| *k != vk)
+                .collect();
+            keyboard_state.pressed_virtual_keycodes =
+                azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
+            keyboard_state.current_virtual_keycode =
+                azul_core::window::OptionVirtualKeyCode::None;
+        }
+    }
+
+    // The PHYSICAL position of this key, which `current_virtual_keycode`
+    // cannot answer: it names what the user's LAYOUT produces, so a game
+    // binding "forward" to the W position gets Z on AZERTY. Carbon
+    // keycodes are positional, so this is a table lookup, not a guess.
+    keyboard_state.current_physical_key = if is_down {
+        azul_core::window::OptionPhysicalKey::Some(
+            azul_core::window::PhysicalKey::from_macos_keycode(keycode),
+        )
+    } else {
+        azul_core::window::OptionPhysicalKey::None
+    };
+
+    // `modifiers` is a pure function of the pressed set, so it is
+    // recomputed wherever that set moves.
+    keyboard_state.sync_modifiers();
+
+    // `locks` is NOT derivable from the pressed set: a lock is a toggle
+    // that stays engaged after its key is released, and no key event
+    // describes it. It has to be read from the OS, which is what the flags
+    // on the event carry. macOS reports only caps lock this way — its
+    // `NSEventModifierFlags` has no num-lock or scroll-lock bit (the
+    // `NumericPad` flag means "this key is on the keypad", not "num lock is
+    // on") — so the other two stay false rather than being guessed from it.
+    keyboard_state.locks.caps_lock = modifiers.contains(NSEventModifierFlags::CapsLock);
+}
+
+/// `flagsChanged:`'s change to the keyboard state: the one modifier key (or
+/// Caps Lock) whose state flipped.
+fn flags_changed_keyboard_state(
+    keyboard_state: &mut KeyboardState,
+    keycode: u16,
+    modifiers: NSEventModifierFlags,
+    is_down: bool,
+) {
+    update_keyboard_state_of(keyboard_state, keycode, modifiers, is_down);
+}
+
 impl MacOSWindow {
     /// Update keyboard state from event.
     fn update_keyboard_state(
@@ -1170,81 +1269,7 @@ impl MacOSWindow {
         modifiers: NSEventModifierFlags,
         is_down: bool,
     ) {
-        use azul_core::window::VirtualKeyCode;
-
-        // Convert keycode to VirtualKeyCode first (before borrowing).
-        //
-        // `None` — a key the LOGICAL table has no entry for — must NOT skip
-        // the whole handler the way it used to. The physical position, the
-        // lock state and the modifier set are all true regardless of whether
-        // this codebase happens to name the key's layout meaning, and
-        // returning early left them stale for exactly the keys (media, OEM,
-        // non-US extras) a positional binding is most likely to want. Only the
-        // pressed-VIRTUAL-key bookkeeping below actually needs the `vk`.
-        let vk_opt = self.convert_keycode(keycode);
-
-        let keyboard_state = self.common.keyboard_state_mut();
-
-        if let Some(vk) = vk_opt {
-            if is_down {
-                // Add to pressed keys if not already present
-                let mut already_pressed = false;
-                for pressed_key in keyboard_state.pressed_virtual_keycodes.as_ref() {
-                    if *pressed_key == vk {
-                        already_pressed = true;
-                        break;
-                    }
-                }
-                if !already_pressed {
-                    // Convert to Vec, add, convert back
-                    let mut pressed_vec: Vec<VirtualKeyCode> =
-                        keyboard_state.pressed_virtual_keycodes.as_ref().to_vec();
-                    pressed_vec.push(vk);
-                    keyboard_state.pressed_virtual_keycodes =
-                        azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
-                }
-                keyboard_state.current_virtual_keycode =
-                    azul_core::window::OptionVirtualKeyCode::Some(vk);
-            } else {
-                // Remove from pressed keys
-                let pressed_vec: Vec<VirtualKeyCode> = keyboard_state
-                    .pressed_virtual_keycodes
-                    .as_ref()
-                    .iter()
-                    .copied()
-                    .filter(|k| *k != vk)
-                    .collect();
-                keyboard_state.pressed_virtual_keycodes =
-                    azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
-                keyboard_state.current_virtual_keycode =
-                    azul_core::window::OptionVirtualKeyCode::None;
-            }
-        }
-
-        // The PHYSICAL position of this key, which `current_virtual_keycode`
-        // cannot answer: it names what the user's LAYOUT produces, so a game
-        // binding "forward" to the W position gets Z on AZERTY. Carbon
-        // keycodes are positional, so this is a table lookup, not a guess.
-        keyboard_state.current_physical_key = if is_down {
-            azul_core::window::OptionPhysicalKey::Some(
-                azul_core::window::PhysicalKey::from_macos_keycode(keycode),
-            )
-        } else {
-            azul_core::window::OptionPhysicalKey::None
-        };
-
-        // `modifiers` is a pure function of the pressed set, so it is
-        // recomputed wherever that set moves.
-        keyboard_state.sync_modifiers();
-
-        // `locks` is NOT derivable from the pressed set: a lock is a toggle
-        // that stays engaged after its key is released, and no key event
-        // describes it. It has to be read from the OS, which is what the flags
-        // on the event carry. macOS reports only caps lock this way — its
-        // `NSEventModifierFlags` has no num-lock or scroll-lock bit (the
-        // `NumericPad` flag means "this key is on the keypad", not "num lock is
-        // on") — so the other two stay false rather than being guessed from it.
-        keyboard_state.locks.caps_lock = modifiers.contains(NSEventModifierFlags::CapsLock);
+        update_keyboard_state_of(self.common.keyboard_state_mut(), keycode, modifiers, is_down);
     }
 
     /// Handle compositor resize notification.
@@ -1548,4 +1573,60 @@ impl MacOSWindow {
     // - dispatch_events_propagated() - W3C Capture→Target→Bubble dispatch
     // - apply_user_change() - Result handling
     // This eliminates ~336 lines of platform-specific duplicated code.
+}
+
+#[cfg(test)]
+mod keyboard_state_tests {
+    use super::*;
+
+    /// The Carbon keycode of the A key (its position on a US layout).
+    const MACOS_KEYCODE_A: u16 = 0x00;
+
+    fn command() -> NSEventModifierFlags {
+        NSEventModifierFlags::Command
+    }
+
+    /// AppKit sends no `keyUp:` for a key released while Cmd is held, so
+    /// after Cmd+A (no menu item takes it) the A key's only release is the
+    /// Cmd key's `flagsChanged:`.
+    #[test]
+    fn a_letter_pressed_with_cmd_is_released_when_cmd_comes_up() {
+        let mut ks = KeyboardState::default();
+        flags_changed_keyboard_state(&mut ks, MACOS_KEYCODE_LWIN, command(), true);
+        update_keyboard_state_of(&mut ks, MACOS_KEYCODE_A, command(), true);
+        // (the A key goes up here; AppKit swallows its keyUp:)
+        flags_changed_keyboard_state(
+            &mut ks,
+            MACOS_KEYCODE_LWIN,
+            NSEventModifierFlags::empty(),
+            false,
+        );
+
+        assert!(!ks.is_key_down(VirtualKeyCode::A), "{ks:?}");
+        assert!(!ks.super_down(), "{ks:?}");
+        assert!(ks.pressed_virtual_keycodes.as_ref().is_empty(), "{ks:?}");
+        assert!(!ks.modifiers.meta, "{ks:?}");
+    }
+
+    /// Only the last Cmd key coming up ends the window in which key-ups are
+    /// lost, and a modifier is never released by it: modifiers report their
+    /// own release through `flagsChanged:`.
+    #[test]
+    fn a_letter_stays_down_while_the_other_cmd_key_is_held_and_shift_stays_down() {
+        let mut ks = KeyboardState::default();
+        let shift = NSEventModifierFlags::Shift;
+        let shift_cmd = NSEventModifierFlags::Shift | NSEventModifierFlags::Command;
+        flags_changed_keyboard_state(&mut ks, MACOS_KEYCODE_LSHIFT, shift, true);
+        flags_changed_keyboard_state(&mut ks, MACOS_KEYCODE_LWIN, shift_cmd, true);
+        flags_changed_keyboard_state(&mut ks, MACOS_KEYCODE_RWIN, shift_cmd, true);
+        update_keyboard_state_of(&mut ks, MACOS_KEYCODE_A, shift_cmd, true);
+
+        flags_changed_keyboard_state(&mut ks, MACOS_KEYCODE_LWIN, shift_cmd, false);
+        assert!(ks.is_key_down(VirtualKeyCode::A), "{ks:?}");
+
+        flags_changed_keyboard_state(&mut ks, MACOS_KEYCODE_RWIN, shift, false);
+        assert!(!ks.is_key_down(VirtualKeyCode::A), "{ks:?}");
+        assert!(ks.is_key_down(VirtualKeyCode::LShift), "{ks:?}");
+        assert!(ks.modifiers.shift, "{ks:?}");
+    }
 }
