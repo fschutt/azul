@@ -222,3 +222,25 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     Update::DoNothing
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SHORTCUTS;
+
+    /// The keys `commands::handle_key` takes (Mod+O included: the welcome screen promises it);
+    /// the F1 list must show every one of them.
+    #[test]
+    fn the_shortcut_list_names_every_key_the_window_takes() {
+        let window_keys = [
+            "Mod+O", "Mod+S", "Mod+W", "Mod+F", "Mod+H", "Mod+G", "F3", "Escape",
+        ];
+        for key in window_keys {
+            assert!(
+                SHORTCUTS
+                    .iter()
+                    .any(|s| s.keys.split(" / ").any(|k| k == key)),
+                "the F1 list does not name {key}"
+            );
+        }
+    }
+}
