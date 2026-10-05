@@ -898,6 +898,8 @@ pub fn sanitize_js_identifier(name: &str) -> String {
 }
 
 fn is_js_reserved(s: &str) -> bool {
+    // allow-api-name: the language's keyword table - a word is escaped because the
+    // LANGUAGE reserves it, whichever API item happens to share it.
     matches!(
         s,
         "break"

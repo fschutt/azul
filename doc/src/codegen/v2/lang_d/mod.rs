@@ -605,6 +605,8 @@ pub fn d_type_name(name: &str) -> String {
 }
 
 pub fn is_d_keyword(s: &str) -> bool {
+    // allow-api-name: the language's keyword table - a word is escaped because the
+    // LANGUAGE reserves it, whichever API item happens to share it.
     matches!(
         s,
         "abstract"

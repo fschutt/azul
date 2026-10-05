@@ -1081,6 +1081,8 @@ pub fn sanitize_identifier(name: &str) -> String {
 fn is_ocaml_reserved(s: &str) -> bool {
     // `end` and `inherit` are keywords that happen to spell api.json method
     // names too; this list is about the parser, not about the API.
+    // allow-api-name: the language's keyword table - a word is escaped because the
+    // LANGUAGE reserves it, whichever API item happens to share it.
     matches!(
         s,
         "and"
