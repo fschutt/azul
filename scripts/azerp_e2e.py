@@ -11,12 +11,15 @@ interpreted ERP views.
     3. CHECK-OUT / CHECK-IN: the check-out modal takes a custodian, the status pill reads
        "Checked out", Check in reads "In use" again;
     4. MAINTENANCE: "Log maintenance" writes an entry; the Maintenance tab lists it;
+       DELETE asks first (AZERP_ASK_DELETE <id>, the "Delete A-...?" question): its Cancel
+       keeps the asset and its files, its Delete removes them (AZERP_REMOVED erp/assets/<id>.json);
     5. A WRONG FORM: a new asset without a name is refused (AZERP_REFUSED name: ...);
     6. EXPORT, REPORTS, RUN: "Export CSV" writes erp/exports/assets-2026-10-03.csv; the
        Reports tab shows the figures; the depreciation run of 2026 posts its journal to
        erp/exports/depreciation-run-2026.csv;
-    7. RESTART + IMPORT: AzERP again on the same folder with a CSV file argument - 13
-       assets read back, the import preview names 1 new asset, Import writes it;
+    7. RESTART + IMPORT: AzERP again on the same folder with a CSV file argument - the 12
+       sample assets read back (the new one was deleted), the import preview names 1 new
+       asset, Import writes it;
     8. screenshots after each step, flat light; dark at the end.
 
 Usage (after building libazul with the debug server and AzERP; ONE app at a time, through
@@ -31,6 +34,8 @@ import os
 
 import azlin_e2e as e2e
 from azlin_e2e import Failure
+# The one "click a standard dialog's button by its label" (the page has a "Delete" too).
+from azwriter_e2e import click_dialog_button
 
 TAG = "azerp"
 TODAY = "2026-10-03"
@@ -134,6 +139,34 @@ def body(args, logs, out):
             raise Failure("the Maintenance tab does not list the entry")
         app.screenshot(os.path.join(out, "4-maintenance.png"))
 
+        # ---- 4b. delete asks first: Cancel keeps the asset, Delete removes its files ----
+        asset_file = os.path.join(data_dir, *key.split("/"))
+        asked = app.after("the delete question", "AZERP_ASK_DELETE", r"\S+",
+                          lambda: app.click(selector="#__azerp_action-delete"))
+        if asked not in key:
+            raise Failure("Delete asked about %r, not the new asset (%s)" % (asked, key))
+        app.until("the question", lambda: app.has_id("__azerp_confirm-delete"))
+        app.screenshot(os.path.join(out, "4b-delete-question.png"))
+        removed = len(app.printed("AZERP_REMOVED"))
+        click_dialog_button(app, "Cancel")
+        app.until("the question gone after Cancel", lambda: not app.has_id("__azerp_confirm-delete"))
+        app.frame(2)
+        if len(app.printed("AZERP_REMOVED")) != removed or not os.path.exists(asset_file):
+            raise Failure("Cancel removed files: %s" % app.printed("AZERP_REMOVED")[removed:])
+        if not app.shows("Drill press"):
+            raise Failure("the asset's page is gone after Cancel")
+        app.after("the delete question again", "AZERP_ASK_DELETE", r"\S+",
+                  lambda: app.click(selector="#__azerp_action-delete"))
+        app.until("the question again", lambda: app.has_id("__azerp_confirm-delete"))
+        click_dialog_button(app, "Delete")
+        app.until("the asset's file removed", lambda: key in app.printed("AZERP_REMOVED"))
+        app.frame(2)
+        if os.path.exists(asset_file):
+            raise Failure("%s is still on disk after Delete" % key)
+        if app.has_id("__azerp_confirm-delete") or app.shows("Drill press"):
+            raise Failure("the deleted asset is still shown")
+        app.log("Cancel kept %s, Delete removed it: %s" % (key, app.printed("AZERP_REMOVED")[removed:]))
+
         # ---- 5. a wrong form ----
         app.click(text="Register")
         app.after("the asset form", "AZERP_FORM", r"\S+", lambda: app.click(text="New asset"))
@@ -187,8 +220,9 @@ def body(args, logs, out):
     try:
         again.until("the register again", lambda: again.printed("AZERP_READY", r"\d+"))
         ready = int(again.printed("AZERP_READY", r"\d+")[-1])
-        if ready != SAMPLE_ASSETS + 1:
-            raise Failure("%d assets read back, not %d" % (ready, SAMPLE_ASSETS + 1))
+        # The sample's assets (the new one was deleted in 4b).
+        if ready != SAMPLE_ASSETS:
+            raise Failure("%d assets read back, not %d" % (ready, SAMPLE_ASSETS))
         again.frame(3)
         if not again.has_id("__azerp_import-summary") or not again.shows("1 new"):
             raise Failure("the import preview does not name 1 new asset")
@@ -196,7 +230,7 @@ def body(args, logs, out):
         again.after("the import", "AZERP_IMPORTED", r"\d+", lambda: again.click(selector="#__azerp_import-commit"))
         if again.last("AZERP_IMPORTED") != "1":
             raise Failure("imported %r assets" % again.last("AZERP_IMPORTED"))
-        again.until("the imported files", lambda: len(files(data_dir, "assets")) == SAMPLE_ASSETS + 2)
+        again.until("the imported files", lambda: len(files(data_dir, "assets")) == SAMPLE_ASSETS + 1)
         again.screenshot(os.path.join(out, "10-imported.png"))
         again.log("PASS")
         return True
