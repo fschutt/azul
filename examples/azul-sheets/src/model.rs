@@ -1,6 +1,9 @@
-//! The UI model's arithmetic, without azul: which cells to fetch for the
+//! The UI model's arithmetic, without azul's UI: which cells to fetch for the
 //! window in view, what a fill drag means for the engine, number-format
-//! steps, the status bar's numbers, colours. Tested on its own.
+//! steps, the status bar's numbers (grouped by azul's one number formatter,
+//! `MoneyInput::format_amount`), colours. Tested on its own.
+
+use azul::widgets::{MoneyCurrency, MoneyInput, MoneyLocale};
 
 use crate::{
     engine::{CellArea, FillTo, SheetInfo, LAST_COLUMN, LAST_ROW},
@@ -130,34 +133,32 @@ pub fn step_decimals(format: &str, more: bool) -> String {
 }
 
 /// A number as the status bar shows it: thousands separated, at most two
-/// decimals, no trailing zeros ("1,234.5", "-0.25", "12").
+/// decimals, no trailing zeros ("1,234.5", "-0.25", "12"). The grouping is
+/// azul's (`MoneyInput::format_amount` of the whole cents, no symbol); a
+/// number beyond whole cents in an i64 is written as Excel writes it
+/// ("1E+20").
 #[must_use]
 pub fn format_number(v: f64) -> String {
     if !v.is_finite() {
         return String::from("#NUM!");
     }
-    let rounded = (v * 100.0).round() / 100.0;
-    let negative = rounded < 0.0;
-    let text = format!("{:.2}", rounded.abs());
-    let (int, frac) = text.split_once('.').unwrap_or((text.as_str(), ""));
-    let mut grouped = String::new();
-    for (i, c) in int.chars().enumerate() {
-        if i > 0 && (int.len() - i) % 3 == 0 {
-            grouped.push(',');
-        }
-        grouped.push(c);
+    let cents = (v * 100.0).round();
+    // i64::MAX is about 9.22e18 cents.
+    if cents.abs() >= 9.0e18 {
+        return format!("{v:e}").replacen('e', "E+", 1);
     }
-    let frac = frac.trim_end_matches('0');
-    let mut out = String::new();
-    if negative && (grouped != "0" || !frac.is_empty()) {
-        out.push('-');
-    }
-    out.push_str(&grouped);
-    if !frac.is_empty() {
-        out.push('.');
-        out.push_str(frac);
-    }
-    out
+    #[allow(clippy::cast_possible_truncation)]
+    let cents = cents as i64;
+    let text = MoneyInput::format_amount(
+        cents,
+        MoneyCurrency::create("", "", 2),
+        MoneyLocale::en_us(),
+    );
+    // "1,234.50" -> "1,234.5", "12.00" -> "12", "0.00" -> "0".
+    text.as_str()
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
 }
 
 /// The status bar's statistics of a selection: Excel shows Average and Sum
