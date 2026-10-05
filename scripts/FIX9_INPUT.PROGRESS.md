@@ -16,11 +16,13 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 - 3.5 Url::open: RED dec04a08a, GREEN 04121d6b6 (opener_command; Url::open_path new -> api.json)
 - 3.6 final_url: RED f66ad9d5a, GREEN 3f34d7033 (HttpResponse.final_url last field -> api.json)
 
+- 3.7 runner outside press: RED e1264e068, GREEN 1c1e16713
+
 ## IN PROGRESS
-- 3.7 runner outside-press popup dismissal (layout/src/e2e/runner.rs dismiss_popups_on_escape)
+- 3.8 e2e paste op (layout/src/e2e/full.rs DebugEvent + gene2e OP_POLICY)
 
 ## NEXT
-- 3.8 .. 3.16 in order
+- 3.9 .. 3.16 in order
 
 ## Open questions
 (none)
