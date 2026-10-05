@@ -16297,3 +16297,70 @@ mod auto_scroll_tests {
         assert_eq!((nan_pointer.x, nan_pointer.y), (0.0, 0.0));
     }
 }
+
+#[cfg(all(test, feature = "a11y"))]
+mod a11y_regeneration_tests {
+    use std::{cell::RefCell, sync::Arc};
+
+    use azul_core::{
+        callbacks::{LayoutCallback, LayoutCallbackInfo},
+        dom::Dom,
+        geom::LogicalSize,
+        icon::{IconProviderHandle, SharedIconProvider},
+        refany::{OptionRefAny, RefAny},
+        resources::AppConfig,
+    };
+    use azul_layout::window_state::WindowCreateOptions;
+    use rust_fontconfig::FcFontCache;
+
+    use super::{PlatformWindow, SharedUndoManager};
+    use crate::desktop::shell2::headless::HeadlessWindow;
+
+    extern "C" fn page(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_accessibility_name("Save")
+                .with_child(Dom::create_span_with_text("Save")),
+        )
+    }
+
+    /// A regeneration builds the accessibility tree ONCE (A11YPATCH8 left 1):
+    /// every layout pass ends with `LayoutWindow::update_a11y_tree`, and the
+    /// shells' `regenerate_layout` then ran a second, redundant pass
+    /// (`refill_a11y_tree_after_regeneration`) - a walk of every exposed node
+    /// for an update that could only come back empty.
+    #[test]
+    fn regenerate_layout_builds_the_a11y_tree_once() {
+        let mut opts = WindowCreateOptions::default();
+        opts.window_state.layout_callback = LayoutCallback {
+            cb: page,
+            ctx: OptionRefAny::None,
+        };
+        opts.window_state.size.dimensions = LogicalSize::new(200.0, 100.0);
+        let mut window = HeadlessWindow::new(
+            opts,
+            Arc::new(RefCell::new(RefAny::new(()))),
+            SharedUndoManager::new(),
+            AppConfig::default(),
+            SharedIconProvider::from_handle(IconProviderHandle::default()),
+            Arc::new(FcFontCache::default()),
+            None,
+        )
+        .expect("a headless window");
+        window.regenerate_layout().expect("the first layout");
+        let updates = |w: &HeadlessWindow| {
+            w.common
+                .layout_window
+                .as_ref()
+                .map(|lw| lw.a11y_tree_updates)
+                .expect("a layout window")
+        };
+        let before = updates(&window);
+        window.regenerate_layout().expect("the regeneration");
+        assert_eq!(
+            updates(&window) - before,
+            1,
+            "one layout pass, one accessibility pass"
+        );
+    }
+}
