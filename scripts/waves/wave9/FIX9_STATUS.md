@@ -34,12 +34,12 @@ GREEN; layout lib 4 + layout all 38 failing (-> round 3); doc 8 failing (bug_cla
 this checkout, not ours); apps lib: AzMonitor + AzNotes test helpers fixed (bc0b00177, AzNotes), rerun pending.
 | Task | Agent id | Branch | Report | State |
 |---|---|---|---|---|
-| R3-PAINT | a2b50af7b06081acb | wt/r3-paint | scripts/R3_PAINT_2026_10_05.md | running |
-| R3-TEXT | aa29d62945e549b29 | wt/r3-text | scripts/R3_TEXT_2026_10_05.md | running |
-| R3-WIDGETS | aab70e6966f347921 | wt/r3-widgets | scripts/R3_WIDGETS_2026_10_05.md | running |
-| R3-FRAME | ae324df22d3899ae3 | wt/r3-frame | scripts/R3_FRAME_2026_10_05.md | running |
-| R3-E2E (Modal button does not rebuild the main window; AzNews / AzCode infinite-height box) | a280d19d436d15d59 | wt/r3-e2e | scripts/R3_E2E_2026_10_05.md | running |
-| R3-APPS (10 failing app lib tests) | a1902e84164760a94 | wt/r3-apps | scripts/R3_APPS_2026_10_05.md | running |
+| R3-PAINT (MERGED) | a2b50af7b06081acb | wt/r3-paint | scripts/R3_PAINT_2026_10_05.md | running |
+| R3-TEXT (MERGED) | aa29d62945e549b29 | wt/r3-text | scripts/R3_TEXT_2026_10_05.md | running |
+| R3-WIDGETS (MERGED) | aab70e6966f347921 | wt/r3-widgets | scripts/R3_WIDGETS_2026_10_05.md | running |
+| R3-FRAME (MERGED) | ae324df22d3899ae3 | wt/r3-frame | scripts/R3_FRAME_2026_10_05.md | running |
+| R3-E2E MERGED (Modal button does not rebuild the main window; AzNews / AzCode infinite-height box) | a280d19d436d15d59 | wt/r3-e2e | scripts/R3_E2E_2026_10_05.md | running |
+| R3-APPS MERGED (10 failing app lib tests) | a1902e84164760a94 | wt/r3-apps | scripts/R3_APPS_2026_10_05.md | running |
 
 ## pdfocr engine issues (2026-10-05 night; /Users/fschutt/Development/pdfocr/results/engine-issues/README.md + repro.zip)
 | Issue | Owner | Branch / worktree | Report |
@@ -47,3 +47,12 @@ this checkout, not ours); apps lib: AzMonitor + AzNotes test helpers fixed (bc0b
 | 1 sup / sub / vertical-align shrink but do not move (run takes vertical-align from the text node, not its inline ancestors) | R3-TEXT (aa29d62945e549b29, told) | wt/r3-text | scripts/R3_TEXT_2026_10_05.md "pdfocr issue 1" |
 | 2 position: relative on an inline span; 3 hyphens: auto ignores lang | PDFOCR-AZUL aa0807006e05d6a08 | wt/pdfocr-azul | scripts/PDFOCR_AZUL_2026_10_05.md |
 | 4 printpdf from_html_with_cache decodes every image for every page | PRINTPDF-IMAGES acbd8c219bb2cf6ce | ../printpdf-lazy-images, branch fix/html-images-decoded-per-page (from origin/azul-codegen-api 84dce8c) | PRINTPDF_IMAGES_REPORT.md there |
+
+2026-10-05 late night: ALL round-3 branches + PDFOCR-AZUL merged (2961792fa; one hand-resolved conflict in
+css/src/props/property.rs - both typed-`none` additions kept). printpdf fix on ../printpdf-lazy-images branch
+fix/html-images-decoded-per-page (NOT pushed): its 4 new tests + 55 lib tests pass against the local azul.
+Still open from round 3: an_inline_date_picker_fits_its_pane (flex min-content of a fixed-width item - needs a
+suite run), a_short_list_in_a_shell_pane_fills_its_pane_from_the_top (the UA `html { height: 100% }` rule is
+commented out in core/src/ua_css.rs; Chrome has no such rule -> give the shells' roots + the test height: 100%,
+per the "Chrome is the reference" ruling), R3-TEXT's leftovers (vh fast path on a height-only resize, an <img> in
+a shifted span), R3-PAINT's (the styled-DOM loader draws no inline SVG, a stroke without stroke-width draws nothing).
