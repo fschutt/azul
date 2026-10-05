@@ -3052,6 +3052,40 @@ mod tests {
         }
     }
 
+    /// TOOLS7 seen: a `&Vec<u8>` (and an owned `Vec<u8>`) argument got the
+    /// read-only byte view (`U8VecRef`, `.as_slice()`), so the body passed a
+    /// `&[u8]` where the method takes a Vec; a `&mut [T]` got the same view
+    /// and the method could not write into it. A borrowed Vec is built from
+    /// the view, an owned one is the `U8Vec` handed over, and a `&mut [T]`
+    /// crosses as the writable view api.json has (`U8VecRefMut`, the gl
+    /// `GLfloatVecRefMut` / `GLintVecRefMut`), read with a null-safe
+    /// `from_raw_parts_mut` (its `as_mut_slice` is private to core).
+    #[test]
+    fn a_vec_ref_argument_is_passed_as_a_vec_and_a_mut_slice_as_a_mut_slice() {
+        let source = r#"
+            impl T {
+                pub fn load(&mut self, bytes: &Vec<u8>) {}
+                pub fn take(&mut self, bytes: Vec<u8>) {}
+                pub fn fill(&self, out: &mut [u8]) {}
+                pub fn scale(&self, out: &mut [f32]) {}
+            }
+        "#;
+        let mut_view = "unsafe { core::slice::from_raw_parts_mut(if out.len == 0 { \
+                        core::ptr::NonNull::dangling().as_ptr() } else { out.ptr }, out.len) }";
+        let cases = [
+            ("load", "U8VecRef", "object.load(&bytes.as_slice().to_vec())".to_string()),
+            ("take", "U8Vec", "object.take(bytes.into_library_owned_vec())".to_string()),
+            ("fill", "U8VecRefMut", format!("object.fill({mut_view})")),
+            ("scale", "GLfloatVecRefMut", format!("object.scale({mut_view})")),
+        ];
+        for (name, ty, body) in cases {
+            let f = added(source, name);
+            let args = arg_list(&f);
+            assert_eq!(args.last().map(|(_, t)| t.as_str()), Some(ty), "{name}: {args:?}");
+            assert_eq!(f.fn_body.as_deref(), Some(body.as_str()), "{name}");
+        }
+    }
+
     /// The `.as_str()` / `.as_slice()` accessors were spliced in with
     /// `replace("text)")`, which also hit an argument whose name ENDS with
     /// another's (`context)` for `text`). Every accessor matches whole
