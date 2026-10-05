@@ -3910,3 +3910,72 @@ mod tests {
         assert!(!reserved_member("withCss"));
     }
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for Swift.
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            super::super::generate(super::super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("Swift generates")
+        })
+    }
+
+    /// The body of `public final class {name}: ...`.
+    fn class_body(name: &str) -> &'static str {
+        let out = output();
+        let head = format!("\npublic final class {}: ", name);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("no class {} in the Swift output", name));
+        let rest = &out[start + 1..];
+        let end = rest.find("\n}\n").expect("class ends");
+        &rest[..end]
+    }
+
+    /// The member starting at `head`, up to its closing brace.
+    fn member<'a>(body: &'a str, head: &str) -> &'a str {
+        let start = body
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{}` in:\n{}", head, body));
+        let rest = &body[start..];
+        let end = rest.find("\n    }\n").expect("member ends");
+        &rest[..end]
+    }
+
+    #[test]
+    fn the_text_field_of_text_input_state_gets_a_setter_next_to_the_get_text_property() {
+        let body = class_body("TextInputState");
+        // The api.json method keeps the property name `text` ...
+        let get = member(body, "    public var text: String {");
+        assert!(get.contains("AzTextInputState_getText("), "{}", get);
+        // ... and the field is still writable through `setText(_:)`, which
+        // releases the old Vec before storing the new one.
+        let set = member(body, "    public func setText(_ newValue: ");
+        assert!(set.contains("\\AzTextInputState.text)!"), "{}", set);
+        let del = set.find("AzU32Vec_delete(__f)").expect("releases the old value");
+        let store = set.find("__f.pointee = __v").expect("stores the new value");
+        assert!(del < store, "{}", set);
+    }
+
+    #[test]
+    fn a_string_field_setter_releases_the_old_string_before_storing_the_new_one() {
+        let set = member(class_body("FullWindowState"), "    public var title: String {");
+        let del = set.find("AzString_delete(__f)").expect("releases");
+        let store = set.find("__f.pointee = __v").expect("stores");
+        assert!(del < store, "{}", set);
+    }
+
+    #[test]
+    fn a_struct_field_getter_is_a_view_and_its_setter_consumes_the_new_value() {
+        let p = member(class_body("WindowCreateOptions"), "    public var windowState: FullWindowState {");
+        assert!(p.contains("FullWindowState(_view: "), "{}", p);
+        assert!(p.contains("newValue._take()"), "{}", p);
+        assert!(p.contains("AzFullWindowState_delete(__f)"), "{}", p);
+    }
+}
