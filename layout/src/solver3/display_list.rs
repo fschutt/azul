@@ -15855,3 +15855,72 @@ mod tiled_mask_tests {
         assert!(tile_mask(&null, rect(0.0, 0.0, 2.0, 2.0), rect(0.0, 0.0, 20.0, 20.0)).is_none());
     }
 }
+
+#[cfg(all(test, feature = "cpurender"))]
+mod svg_mask_memo_tests {
+    use azul_core::{dom::DomId, geom::LogicalSize, resources::RendererResources};
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The SVG masks of `document` laid out in a fresh 100 x 100 window:
+    /// (the clip masks of its shapes, the stroke masks of its strokes).
+    fn masks_of(document: &str) -> (Vec<ImageRef>, Vec<Option<ImageRef>>) {
+        let styled = crate::xml::parse_xml_to_styled_dom(document).expect("the document parses");
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(100.0, 100.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+            .expect("the document lays out");
+        let dl = &lw
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list;
+        let mut clips = Vec::new();
+        let mut strokes = Vec::new();
+        for item in &dl.items {
+            match item {
+                DisplayListItem::PushImageMaskClip { mask_image, .. } => {
+                    clips.push(mask_image.clone());
+                }
+                DisplayListItem::StrokedPath { mask, .. } => strokes.push(mask.clone()),
+                _ => {}
+            }
+        }
+        (clips, strokes)
+    }
+
+    /// Every display-list build rasterised every SVG clip mask and stroke
+    /// mask again (CHART7): a chart's 2x-oversampled masks, per frame, for
+    /// geometry that had not changed. An unchanged shape in an unchanged box
+    /// gets the SAME mask image back.
+    #[test]
+    fn a_rebuilt_display_list_reuses_its_unchanged_svg_masks() {
+        let doc = "<html><head><style>body { margin: 0; }</style></head><body>\
+                   <svg viewBox=\"0 0 10 10\" width=\"40\" height=\"40\">\
+                   <path d=\"M0 0 L10 0 L10 10 Z\" fill=\"red\" stroke=\"blue\" \
+                   stroke-width=\"1\"/></svg></body></html>";
+        let (clips_a, strokes_a) = masks_of(doc);
+        let (clips_b, strokes_b) = masks_of(doc);
+        assert!(
+            !clips_a.is_empty(),
+            "the filled path paints through its clip mask"
+        );
+        assert!(
+            strokes_a.iter().any(Option::is_some),
+            "the stroke carries its mask"
+        );
+        assert_eq!(
+            clips_a, clips_b,
+            "the second build reuses the first build's clip mask images"
+        );
+        assert_eq!(strokes_a, strokes_b, "and its stroke mask images");
+    }
+}
