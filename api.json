@@ -14626,39 +14626,6 @@
                                 ],
                                 "fn_body": "object.set_clipboard_content(content)"
                             },
-                            "set_copy_content": {
-                                "doc": [
-                                    "Set/modify the clipboard content before a copy operation",
-                                    "",
-                                    "Use this to transform clipboard content before copying.",
-                                    "The change is queued and will be applied after the callback returns,",
-                                    "if preventDefault() was not called.",
-                                    "",
-                                    "# Example",
-                                    "```ignore",
-                                    "On::Copy -> |info| {",
-                                    "    if let Some(mut content) = info.inspect_copy_changeset(target) {",
-                                    "        // Add prefix to copied text",
-                                    "        content.plain_text = format!(\"[COPIED] {}\", content.plain_text);",
-                                    "        info.set_copy_content(target, content);",
-                                    "    }",
-                                    "    Update::DoNothing",
-                                    "}",
-                                    "```"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "target": "DomNodeId"
-                                    },
-                                    {
-                                        "content": "ClipboardContent"
-                                    }
-                                ],
-                                "fn_body": "object.set_copy_content(target, content)"
-                            },
                             "set_cut_content": {
                                 "doc": [
                                     "Set/modify the clipboard content before a cut operation",
@@ -20108,6 +20075,31 @@
                                     "type": "OptionRawImage"
                                 },
                                 "fn_body": "object.text_image(text, style)"
+                            },
+                            "set_copy_content": {
+                                "doc": [
+                                    "Put `content` on the system clipboard (a copy)",
+                                    "",
+                                    "The change is queued and written to the clipboard right after the",
+                                    "callback returns, whatever `prevent_default` says - from any callback",
+                                    "(a \"Copy link\" button's click too). In an `On::Copy` callback the",
+                                    "engine's own copy runs AFTER it unless the callback also calls",
+                                    "`prevent_default()`, and writes the current text selection (if there",
+                                    "is one) over this content: call both to replace what a Ctrl+C copies,",
+                                    "as with `clipboardData.setData` plus `preventDefault` on the web."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "target": "DomNodeId"
+                                    },
+                                    {
+                                        "content": "ClipboardContent"
+                                    }
+                                ],
+                                "fn_body": "object.set_copy_content(target, content)"
                             }
                         },
                         "repr": "C"
@@ -62564,20 +62556,6 @@
                                 ],
                                 "fn_body": "object.set_container_background(background)"
                             },
-                            "with_container_style": {
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "background": "StyleBackgroundContentVec"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ProgressBar"
-                                },
-                                "fn_body": "progressbar.with_container_background(background)"
-                            },
                             "set_bar_background": {
                                 "fn_args": [
                                     {
@@ -103059,6 +103037,12 @@
                                 },
                                 "image": {
                                     "type": "OptionImageRef"
+                                },
+                                "lines": {
+                                    "type": "StringVec"
+                                },
+                                "placeholder": {
+                                    "type": "OptionColorU"
                                 }
                             }
                         ],
@@ -103179,6 +103163,69 @@
                                     "type": "IconGridItem"
                                 },
                                 "fn_body": "object.with_name(name)"
+                            },
+                            "set_lines": {
+                                "doc": [
+                                    "The extra lines under the label (\"Jane Austen\", \"42 %\")."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "lines": "StringVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_lines(lines)"
+                            },
+                            "set_placeholder": {
+                                "doc": [
+                                    "The colour of the tile the glyph sits on while there is no",
+                                    "thumbnail."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "fn_body": "object.set_placeholder(color)"
+                            },
+                            "with_lines": {
+                                "doc": [
+                                    "[`Self::set_lines`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "lines": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGridItem"
+                                },
+                                "fn_body": "object.with_lines(lines)"
+                            },
+                            "with_placeholder": {
+                                "doc": [
+                                    "[`Self::set_placeholder`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IconGridItem"
+                                },
+                                "fn_body": "object.with_placeholder(color)"
                             }
                         },
                         "repr": "C"
