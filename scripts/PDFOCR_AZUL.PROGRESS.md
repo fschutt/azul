@@ -2,7 +2,8 @@
 
 Task: pdfocr engine issues 2 (position: relative on an inline span does not
 move its text) and 3 (`hyphens: auto` ignores the `lang` attribute).
-Report: /Users/fschutt/Development/pdfocr/results/engine-issues/README.md
+Report: scripts/PDFOCR_AZUL_2026_10_05.md (pdfocr's issue list:
+/Users/fschutt/Development/pdfocr/results/engine-issues/README.md)
 
 ## DONE
 - 7f90585b5 progress file
@@ -10,20 +11,22 @@ Report: /Users/fschutt/Development/pdfocr/results/engine-issues/README.md
   layout/tests/hyphens_auto_hyphenates_in_the_language_of_the_lang_attribute.rs (NEW, unregistered)
 - 030ce1de7 issue 3 GREEN: xml_attributes `lang` / `xml:lang` entries;
   fc.rs content_language + hyphenation_language_of_tag, read under hyphens: auto only
+- 0221a4aca progress
+- 92001bbee issue 2 RED: layout/tests/a_relatively_positioned_inline_box_moves_its_text.rs (NEW, unregistered)
+- 794987ebb issue 2 GREEN 1/2: positioning.rs relative_shift + inline_relative_offset
+- 93706ab82 issue 2 GREEN 2/2: display_list.rs inline_run_shifts, shifted runs + paged payload
+- 919a2032d issue 2: a moved run claims no proven uniform background
+- report scripts/PDFOCR_AZUL_2026_10_05.md
 
 ## IN PROGRESS
-- issue 2: RED test
+- (none)
 
 ## NEXT
-- issue 2 RED: layout/tests/a_relatively_positioned_inline_moves_its_text.rs
-- issue 2 GREEN: positioning.rs shared shift helper + display_list.rs shifts
-  the runs (and the paged TextLayout payload) of relpos inline boxes
+- coordinator: register the two new test files in layout/tests/all.rs, compile, run
+  the commands in the report.
 
-## Findings
-- issue 3 root cause has two halves: the XML loader's ONE attribute table
-  (core/src/xml_attributes.rs) has no `lang` entry, so `lang="en"` never
-  reaches the DOM; and fc.rs reads the hyphenation language only from
-  `-azul-hyphenation-language`.
-- issue 2: adjust_relative_positions moves layout BOXES; the text of an inline
-  box is painted from its block container's line layout (glyph runs + the
-  paged TextLayout payload printpdf draws from), which never sees the offset.
+## Open questions / follow-ups
+- caret + selection highlight of moved inline text stay at the laid-out place.
+- an inline-block inside a relatively positioned span does not move with it.
+- DL patching (`try_copy_cached_run`) could keep a stale shift when only a span's
+  `top` changes and the IFC does not re-emit.
