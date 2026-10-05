@@ -10781,6 +10781,100 @@ pub(super) mod lcd_pretile_tests {
              same pixels (check FIR padding and tile placement)"
         );
     }
+
+    /// A FRACTIONAL clip cuts tiled LCD text where it cuts the other text
+    /// paths (Engine backlog 5, FB3's "text clip twins"): the sweep and the
+    /// grayscale path paint the whole pixels `text_clip_pixel_box` gives
+    /// `text_run_clip`, while the tile path kept its own i32 box, snapped
+    /// OUTWARD from the clip_rect - a clip ending at x = 100.5 let the tiles
+    /// paint column 100, which the sweep leaves alone.
+    #[test]
+    fn a_fractional_clip_cuts_tiled_lcd_text_where_it_cuts_grayscale_text() {
+        let Some(font) = load_test_font() else {
+            eprintln!("no system test font — skipping");
+            return;
+        };
+        if !text_lcd_enabled() || lcd_linear_params().is_none() || !lcd_pretile_enabled() {
+            eprintln!("no LCD tile path in this configuration — skipping");
+            return;
+        }
+        let (rr, fm, font_hash) = rr_with(&font);
+        let font_size = 24.0;
+        let glyphs = shape(&font, "HHHHHHHHHHHHHHHHHHHH", font_size, 8.0, 40.0);
+        let bg = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let color = ColorU {
+            r: 20,
+            g: 20,
+            b: 20,
+            a: 255,
+        };
+        let proven = LogicalRect {
+            origin: LogicalPosition {
+                x: -10_000.0,
+                y: -10_000.0,
+            },
+            size: LogicalSize {
+                width: 20_000.0,
+                height: 20_000.0,
+            },
+        };
+        // Every right edge x + 0.5 across the run's middle (one of them lands
+        // in a stem), and a fractional bottom edge through the glyphs.
+        for right in 60..140u16 {
+            let clip_rect = LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize {
+                    width: f32::from(right) + 0.5,
+                    height: 35.5,
+                },
+            };
+            let paint = |uniform_bg| {
+                let mut pm = AzulPixmap::new(320, 60).unwrap();
+                pm.fill(bg.r, bg.g, bg.b, 255);
+                let mut gc = GlyphCache::new();
+                render_text_with_bg(
+                    &glyphs,
+                    font_hash,
+                    font_size,
+                    color,
+                    &mut pm,
+                    &clip_rect,
+                    None,
+                    &rr,
+                    &fm,
+                    1.0,
+                    &mut gc,
+                    (0.0, 0.0),
+                    false,
+                    uniform_bg,
+                );
+                pm
+            };
+            let sweep = paint(None);
+            let tiles = paint(Some((bg, proven.into())));
+            let diff: Vec<usize> = sweep
+                .data
+                .iter()
+                .zip(tiles.data.iter())
+                .enumerate()
+                .filter(|(_, (a, b))| a != b)
+                .map(|(i, _)| i / 4)
+                .collect();
+            assert!(
+                diff.is_empty(),
+                "clip right edge {right}.5, bottom 35.5: the tiles paint {} pixels the sweep does \
+                 not, first at ({}, {})",
+                diff.len(),
+                diff[0] % 320,
+                diff[0] / 320
+            );
+        }
+    }
 }
 
 #[cfg(all(test, feature = "std"))]
