@@ -50,7 +50,7 @@ use alloc::{format, string::String, vec::Vec};
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
+    dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, TabIndex},
     events::FocusEventFilter,
     refany::{OptionRefAny, RefAny},
     resources::{ImageRef, OptionImageRef},
@@ -1694,14 +1694,7 @@ pub(crate) static TIMELINE_SPACER_BASE: &[P] = &[no_shrink()];
 /// The scroll bar's track: the thumb is placed in it.
 pub(crate) static TIMELINE_SCROLL_TRACK_BASE: &[P] = &[position(LayoutPosition::Relative), grow(1)];
 
-fn classes(names: &[&'static str]) -> IdOrClassVec {
-    IdOrClassVec::from_vec(
-        names
-            .iter()
-            .map(|n| IdOrClass::Class(AzString::from_const_str(*n)))
-            .collect(),
-    )
-}
+use crate::widgets::themes::decl::classes;
 
 /// A ruler label: `MM:SS:FF` steps of frames in the first hour, else the
 /// media clock (`M:SS`, `H:MM:SS` past the first hour - the seek bar's

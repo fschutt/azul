@@ -65,7 +65,7 @@ use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        Dom, DomNodeId, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, SvgNodeData,
+        Dom, DomNodeId, EventFilter, HoverEventFilter, SvgNodeData,
         TabIndex,
     },
     events::FocusEventFilter,
@@ -2509,15 +2509,7 @@ const BOX_SWATCH: (f32, f32) = (10.0, 10.0);
 
 type Decl = CssPropertyWithConditions;
 
-/// One class list.
-fn classes(names: &[&'static str]) -> IdOrClassVec {
-    IdOrClassVec::from_vec(
-        names
-            .iter()
-            .map(|n| IdOrClass::Class(AzString::from_const_str(n)))
-            .collect(),
-    )
-}
+use crate::widgets::themes::decl::classes;
 
 /// Absolutely placed at `(left, top)`, `w` x `h` px.
 fn placed(left: f32, top: f32, w: f32, h: f32) -> Vec<Decl> {
