@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use azul_storage::{Drive, DriveError, ListRequest};
+use azul_storage::{Drive, DriveError};
 
 /// One thing to do in the data folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,20 +63,13 @@ impl FileOutcome {
     }
 }
 
-/// Every key under `prefix`, at any depth, in key order (all pages).
+/// Every key under `prefix`, at any depth, in key order (all pages: azul-storage's
+/// `ops::list_all`).
 pub fn list_all(drive: &dyn Drive, prefix: &str) -> Result<Vec<String>, DriveError> {
-    let mut keys = Vec::new();
-    let mut request = ListRequest::recursive(prefix);
-    // A drive that keeps answering with a token would loop forever: stop
-    // after far more pages than any folder of an app has.
-    for _ in 0..10_000 {
-        let page = drive.list(&request)?;
-        keys.extend(page.objects.into_iter().map(|o| o.key));
-        match page.next {
-            Some(token) => request = ListRequest::recursive(prefix).with_continuation(token),
-            None => break,
-        }
-    }
+    let mut keys: Vec<String> = azul_storage::ops::list_all(drive, prefix)?
+        .into_iter()
+        .map(|o| o.key)
+        .collect();
     keys.sort();
     Ok(keys)
 }
