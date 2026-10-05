@@ -27,8 +27,12 @@ azul-storage = { path = "../azul-storage" }
 
 [features]
 default = []
-# `testing::TempDir` for the apps' tests (a dev-dependency turns it on).
-test-util = []
+# `testing::TempDir` for the apps' tests (a dev-dependency turns it on): azul-storage's.
+test-util = ["azul-storage/testing"]
+
+[dev-dependencies]
+# This crate's own tests use the same TempDir.
+azul-storage = { path = "../azul-storage", features = ["testing"] }
 
 [lib]
 name = "azul_pim"
