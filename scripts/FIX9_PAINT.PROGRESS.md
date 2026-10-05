@@ -29,12 +29,15 @@ Branch wt/fix9-paint (fast-forwarded to b454da215). Brief: scripts/waves/wave9/S
 - 2.11 lints skip unchanged DOM: instrumentation b617d6eb6 (pub dom_lint_runs), RED 5b796699f,
   GREEN 3b961da00 (per-dom arena stamp + new_generation / kept_doms).
 
+- 2.12 lint dedupe: RED 62abe69c0 (3 tests), GREEN ef05aaf81 (core diagnostics::emit_once, cleared by
+  clear(); dom_lint identity_key/report_once; has_readable_text_label twin folded).
+
 ## IN PROGRESS
-2.12 lint findings deduped through diagnostics
+2.13 redundant a11y pass in dll common/event.rs
 
 ## NEXT
-2.12 RED, GREEN (dom_lint.rs warn_a11y_shape / div_as_text / interactive -> dedup_key / EMITTED;
-core/src/diagnostics.rs); then 2.13, 2.14, then the suite failure.
+2.13 (dll/src/desktop/shell2/common/event.rs refill_a11y_tree_after_regeneration ~4874); then 2.14,
+then the suite failure.
 
 ## Open questions
 (none)
