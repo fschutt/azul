@@ -18,9 +18,11 @@ No cargo. Report: scripts/FIX9_WIDGETS_2026_10_05.md.
 - 4.12 refactor b4b7b3350 (no RED)
 - 4.13 RED a6a000f6c (RED by compile), GREEN ea917eadd
 - 4.14 refactor ec5bfb751 (decl.rs appended - outside Files line, item names it)
+- 4.15 refactor dbd708496 (no RED)
+- 4.16 RED becbfa671, GREEN 82fad2e6b
 
 ## IN PROGRESS
-- 4.15 hook() builders -> CoreCallbackData::create
+- 4.17 dialog_kit row_button -> Button::with_disabled
 
 ## NEXT
 - 4.1 .. 4.18 in order, then the 4 suite failures, then the report.
