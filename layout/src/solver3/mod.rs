@@ -947,6 +947,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
+            let any_columns = multicol::dom_declares_columns(new_dom);
+            let node_of = |idx: usize| {
+                new_tree.nodes.get(idx).map(|n| {
+                    (
+                        n.parent,
+                        n.formatting_context,
+                        any_columns && multicol::is_multicol_box(new_dom, n.dom_node_id),
+                    )
+                })
+            };
             let mut dirty_roots = std::collections::BTreeSet::new();
             for (dom_id_dirty, scope) in css_dirty {
                 if *scope == azul_css::props::property::RelayoutScope::None {
@@ -965,10 +975,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 };
                 recon_result.intrinsic_dirty.insert(idx);
                 // A `Full` change (margins, position, float, display) moves
-                // the box in its parent's flow: the PARENT places it, so the
-                // parent is the root. Re-solved on its own, a block keeps the
-                // slot its parent's last pass gave it (LAYOUTPERF8 bug B).
-                let root = if *scope == azul_css::props::property::RelayoutScope::Full {
+                // a box of BLOCK flow in its parent's flow: the PARENT places
+                // it, so the parent is the root. Re-solved on its own, a
+                // block keeps the slot its parent's last pass gave it
+                // (LAYOUTPERF8 bug B). A flex / grid item or an inline-level
+                // box is lifted to its container below anyway.
+                let root = if *scope == azul_css::props::property::RelayoutScope::Full
+                    && cache::lift_to_slot_container(idx, &node_of) == idx
+                {
                     new_tree
                         .nodes
                         .get(idx)
@@ -983,16 +997,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // inline-level box is re-solved by its container, or its
             // siblings keep the slots they had; a box in a multi-column
             // flow by the multi-column container.
-            let any_columns = multicol::dom_declares_columns(new_dom);
-            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, |idx| {
-                new_tree.nodes.get(idx).map(|n| {
-                    (
-                        n.parent,
-                        n.formatting_context,
-                        any_columns && multicol::is_multicol_box(new_dom, n.dom_node_id),
-                    )
-                })
-            });
+            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, &node_of);
             recon_result.layout_roots.extend(promoted);
             // A root below another one is laid out by that one's pass (the
             // reconcile's own roots were cleaned the same way).

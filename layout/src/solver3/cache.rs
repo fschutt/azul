@@ -1035,7 +1035,7 @@ pub(crate) fn outermost_layout_roots(
 
 /// [`promote_layout_roots_to_containers`]' flex / grid / inline-level lift
 /// of one root.
-fn lift_to_slot_container(
+pub(crate) fn lift_to_slot_container(
     idx: usize,
     node: &impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
 ) -> usize {
