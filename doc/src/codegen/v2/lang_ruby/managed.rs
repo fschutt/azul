@@ -178,9 +178,14 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     // FFI::Struct, primitive, nil) is a no-op. The wrapper emitter never
     // emits it for RefAny args (passed as clones) or Ruby Strings
     // (copied by `_az_string`).
+    //
+    // A borrowed view (a field getter's result, see `_view`) is never
+    // consumed: it owns nothing, `_own` moved a deep copy of it, and its
+    // owner still holds the field.
     builder.line("def self._consume(val)");
     builder.indent();
     builder.line("return unless val.respond_to?(:ptr) && val.respond_to?(:instance_variable_set)");
+    builder.line("return if val.instance_variable_defined?(:@az_owner)");
     builder.line("begin");
     builder.indent();
     builder.line("ObjectSpace.undefine_finalizer(val)");
@@ -191,6 +196,8 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     builder.dedent();
     builder.line("end");
     builder.blank();
+
+    emit_field_access_helpers(builder, ir, config);
 
     // Auto-AzString conversion: codegen emits Azul._az_string(x) for
     // every wrapper-method arg whose IR type is the string class and
@@ -232,7 +239,9 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
     builder.line("def self._az_string(val)");
     builder.indent();
     builder.line("return val if val.is_a?(FFI::Struct) || val.is_a?(FFI::Pointer)");
-    builder.line("return val.ptr if val.respond_to?(:ptr)");
+    // A wrapper is MOVED (the wrapper emitter `_consume`s it after the
+    // call); a field view moves a deep copy.
+    builder.line("return _own(val) if val.respond_to?(:ptr)");
     match string_from_utf8 {
         Some(from_utf8) => {
             builder.line("bytes = val.to_s.encode(Encoding::UTF_8).bytes");
@@ -254,41 +263,42 @@ pub fn emit_managed_module(builder: &mut CodeBuilder, ir: &CodegenIR, config: &C
 
     // CC-4: recursive opts-hash applier. Each wrapper class's
     // `with(opts)` instance method routes through this helper to
-    // assign nested fields of the underlying FFI::Struct. Hash
-    // values that are themselves Hashes recurse into the nested
-    // struct; Ruby Strings auto-convert via `_az_string`. Other
-    // values are forwarded by-value.
-    //
-    // Drops user-visible drilling like
-    //   `window.ptr[:window_state][:title] = Azul._az_string('...')`
-    // in favor of
+    // assign nested fields of the underlying FFI::Struct in place:
     //   `window.with(window_state: { title: 'Hello World' })`.
+    // A Hash value recurses into the nested struct; a Ruby String becomes
+    // a fresh AzString; a wrapper is MOVED in (`_own`, then `_consume`);
+    // anything else is written as-is. A field whose type owns heap memory
+    // has its old value released first (`FIELD_DELETE`), after the new
+    // value was checked to fit - never overwritten without a release, never
+    // released and then left holding freed memory.
     builder.line("def self._apply_opts(struct, opts)");
     builder.indent();
     builder.line("opts.each do |key, value|");
     builder.indent();
+    builder.line("key = key.to_sym");
     builder.line("if value.is_a?(::Hash)");
     builder.indent();
     builder.line("_apply_opts(struct[key], value)");
+    builder.line("next");
     builder.dedent();
+    builder.line("end");
+    builder.line("ftype = struct.class.layout[key].type");
+    builder.line("sc = ftype.respond_to?(:struct_class) ? ftype.struct_class : nil");
+    builder.line("del = sc && FIELD_DELETE[sc.name.to_s.split('::').last]");
     // Fully-qualified ::String references Ruby's built-in String —
     // inside `module Azul` the bare `String` would resolve to the
     // codegen-emitted `Azul::String` wrapper class instead and the
     // is_a? check would silently return false for Ruby string
     // literals.
-    builder.line("elsif value.is_a?(::String)");
+    builder.line("nv = value.is_a?(::String) ? _az_string(value) : _own(value)");
+    builder.line("if sc && !nv.is_a?(sc)");
     builder.indent();
-    builder.line("struct[key] = _az_string(value)");
-    builder.dedent();
-    builder.line("elsif value.respond_to?(:ptr) && value.ptr.is_a?(FFI::Struct)");
-    builder.indent();
-    builder.line("struct[key] = value.ptr");
-    builder.dedent();
-    builder.line("else");
-    builder.indent();
-    builder.line("struct[key] = value");
+    builder.line("raise TypeError, \"Azul.with: #{key} expects #{sc.name}, got #{value.class}\"");
     builder.dedent();
     builder.line("end");
+    builder.line("Native.send(del, struct[key]) if del");
+    builder.line("struct[key] = nv");
+    builder.line("_consume(value) if del");
     builder.dedent();
     builder.line("end");
     builder.dedent();
@@ -664,5 +674,123 @@ fn emit_invoker_registration(
     builder.line("end");
     builder.line(&format!("@_live_pins << {}", invoker_var));
     builder.line(&format!("Native.{}({})", setter_rb, invoker_var));
+    builder.blank();
+}
+
+/// The runtime half of the field accessors (`wrappers::emit_field_accessors`)
+/// and of every by-value move:
+///
+/// - `_fields(obj)`: the FFI::Struct a wrapper reads and writes, refusing a
+///   moved-out wrapper - or a view whose owner (at any depth) was moved;
+/// - `_view(cls, owner, key)`: a wrapper of class `cls` over the `key` field
+///   of `owner`, sharing its memory (so `opts.window_state.title = 'x'`
+///   reaches `opts`). Built with `allocate`, so it never gets a finalizer:
+///   the memory is borrowed and the owner frees it. It keeps the owner
+///   alive through `@az_owner`;
+/// - `_own(val)`: the struct to MOVE into a by-value slot (a C argument or
+///   a field). A wrapper hands over its own struct (the caller then
+///   `_consume`s it); a view hands over a deep copy (`clone`), or a byte
+///   copy when its type owns no heap memory, so the owner keeps its field;
+///   any other value passes through;
+/// - `_read_string(s)`: the UTF-8 text of an AzString struct, decoded
+///   without consuming or freeing it;
+/// - `FIELD_DELETE`: FFI struct name -> its `_delete` attach, for every
+///   type that owns heap memory (`_apply_opts` releases a field's old value
+///   with it).
+fn emit_field_access_helpers(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    builder.line("# The FFI::Struct behind a wrapper or a field view; refuses moved-out values.");
+    builder.line("def self._fields(obj)");
+    builder.indent();
+    builder.line("owner = obj.instance_variable_get(:@az_owner)");
+    builder.line("_fields(owner) unless owner.nil?");
+    builder.line("p = obj.ptr");
+    builder.line("raise ArgumentError, \"#{obj.class}: this value was moved\" if p.nil?");
+    builder.line("p");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
+    builder.line("# A live view of the `key` field of `owner`: writes reach `owner`. Borrowed");
+    builder.line("# memory: no finalizer (allocate skips initialize); `.clone` copies it out.");
+    builder.line("def self._view(cls, owner, key)");
+    builder.indent();
+    builder.line("v = cls.allocate");
+    builder.line("v.instance_variable_set(:@ptr, _fields(owner)[key])");
+    builder.line("v.instance_variable_set(:@az_owner, owner)");
+    builder.line("v");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
+    builder.line("# The struct to MOVE into a by-value slot. A field view moves a deep copy");
+    builder.line("# (its owner keeps the field); the caller `_consume`s a moved wrapper.");
+    builder.line("def self._own(val)");
+    builder.indent();
+    builder.line("return val unless val.respond_to?(:ptr)");
+    builder.line("p = val.ptr");
+    builder.line("raise ArgumentError, \"#{val.class}: this value was moved\" if p.nil?");
+    builder.line("return p unless val.instance_variable_defined?(:@az_owner)");
+    builder.line("_fields(val)");
+    builder.line("if val.class.instance_method(:clone).owner == val.class");
+    builder.indent();
+    builder.line("c = val.clone");
+    builder.line("begin");
+    builder.indent();
+    builder.line("ObjectSpace.undefine_finalizer(c)");
+    builder.dedent();
+    builder.line("rescue StandardError");
+    builder.line("end");
+    builder.line("return c.ptr");
+    builder.dedent();
+    builder.line("end");
+    builder.line("if val.class.respond_to?(:finalize)");
+    builder.indent();
+    builder.line(
+        "raise ArgumentError, \"#{val.class}: a field view has no deep copy; pass a fresh value\"",
+    );
+    builder.dedent();
+    builder.line("end");
+    builder.line("copy = p.class.new");
+    builder.line("copy.pointer.put_bytes(0, p.pointer.get_bytes(0, p.class.size))");
+    builder.line("copy");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
+    // The String class's single field (`vec`), spelled as the FFI layout
+    // spells it; its U8Vec has the `ptr` / `len` fields every Vec has.
+    let vec_field = string_struct_name(ir)
+        .and_then(|n| ir.find_struct(n))
+        .and_then(|s| s.fields.first())
+        .map(|f| super::types::ruby_field_name(&f.name))
+        .unwrap_or_else(|| "vec".to_string());
+    builder.line("# The text of an AzString struct, decoded; the struct is not consumed.");
+    builder.line("def self._read_string(s)");
+    builder.indent();
+    builder.line(&format!("vec = s[:{}]", vec_field));
+    builder.line("p = vec[:ptr]");
+    builder.line("n = vec[:len]");
+    builder.line("return '' if p.nil? || p.null? || n.zero?");
+    builder.line("p.read_bytes(n).force_encoding('UTF-8')");
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
+
+    builder.line("# FFI struct name -> `_delete` attach of every type that owns heap memory.");
+    builder.line("FIELD_DELETE = {");
+    builder.indent();
+    let mut seen = std::collections::BTreeSet::new();
+    for f in ir.functions.iter().filter(|f| f.kind == FunctionKind::Delete) {
+        if !seen.insert(f.class_name.clone()) {
+            continue;
+        }
+        builder.line(&format!(
+            "'{}' => :{},",
+            config.apply_prefix(&f.class_name),
+            ruby_attach_name(&f.c_name)
+        ));
+    }
+    builder.dedent();
+    builder.line("}.freeze");
     builder.blank();
 }

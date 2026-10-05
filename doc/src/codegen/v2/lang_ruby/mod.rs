@@ -269,7 +269,7 @@ mod field_accessor_tests {
         assert!(apply.contains("_own(value)"), "{}", apply);
         assert!(apply.contains("_consume(value)"), "{}", apply);
         assert!(apply.contains("FIELD_DELETE"), "the old value is released:\n{}", apply);
-        assert!(azul_rb().contains("Native::AzString => :az_string_delete"));
+        assert!(azul_rb().contains("'AzString' => :az_string_delete,"));
     }
 
     #[test]
