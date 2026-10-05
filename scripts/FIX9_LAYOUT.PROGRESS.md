@@ -37,12 +37,14 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
 
 - 1.10 RED dce418e18, GREEN 6d1841594 (xml.rs mod html_root_attribute_tests; html_root_node_data).
 
+- 1.11 RED 5634f0047, GREEN c7410153e (xml.rs mod scan_external_resources_tests; .rev() pushes, Text arm gone).
+
 ## IN PROGRESS
-1.11
+1.12
 
 ## NEXT
-1.11 RED scan_external_resources_lists_resources_in_document_order_once_and_ignores_url_in_prose
-(core/src/xml.rs ~378-399 LIFO stack + Text arm)
+1.12 RED a_data_url_in_a_style_attribute_keeps_its_base64_payload (core/src/xml_attributes.rs ~526
+style.split(';') -> split_top_level)
 
 ## Open questions
 (none)
