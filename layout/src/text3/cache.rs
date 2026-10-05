@@ -17249,6 +17249,67 @@ mod autotest_generated {
         assert_eq!(get_item_vertical_align(&img), Some(VerticalAlign::Top));
     }
 
+    #[test]
+    fn a_superscript_rises_a_third_of_its_parents_font_size_and_grows_the_line() {
+        // Chrome (LayoutNG): `vertical-align: super` raises a box's baseline
+        // by its parent's font size / 3 + 1px, `sub` lowers it by / 5 + 1px,
+        // and the line box holds the shifted box (CSS 2.1 10.8.1). The
+        // parent is the default 16px here. Both were left to the placement
+        // (0.4 / 0.3 of the LINE's ascent) and the line box never counted
+        // the shift: a `<sup>` reached above its line.
+        let c = UnifiedConstraints::default();
+        let up = 16.0 / 3.0 + 1.0;
+        let down = 16.0 / 5.0 + 1.0;
+        let sup = baseline_shift(VerticalAlign::Super, 10.0, 0.0, &c)
+            .expect("super is a shift of the baseline");
+        assert!((sup + up).abs() < 0.01, "super raises by 16 / 3 + 1: {sup}");
+        let sub = baseline_shift(VerticalAlign::Sub, 10.0, 0.0, &c)
+            .expect("sub is a shift of the baseline");
+        assert!((sub - down).abs() < 0.01, "sub lowers by 16 / 5 + 1: {sub}");
+
+        // A 10px box (all above its baseline) in a line whose strut is
+        // 12 above / 4 below.
+        let boxed = |alignment| ShapedItem::Object {
+            source: ci(0, 0),
+            bounds: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            baseline_offset: 0.0,
+            content: InlineContent::Image(InlineImage {
+                source: ImageSource::Placeholder(Size::new(10.0, 10.0)),
+                intrinsic_size: Size::new(10.0, 10.0),
+                display_size: None,
+                baseline_offset: 0.0,
+                alignment,
+                object_fit: ObjectFit::Fill,
+            }),
+        };
+        let strut = (12.0, 4.0);
+        let (asc, desc) = calculate_line_metrics(
+            &[boxed(VerticalAlign::Super)],
+            VerticalAlign::Baseline,
+            &c,
+            strut,
+        );
+        assert!(
+            (asc - (10.0 + up)).abs() < 0.01 && (desc - 4.0).abs() < 0.01,
+            "the raised box grows the line above the strut: {asc} / {desc}"
+        );
+        let (asc, desc) = calculate_line_metrics(
+            &[boxed(VerticalAlign::Sub)],
+            VerticalAlign::Baseline,
+            &c,
+            strut,
+        );
+        assert!(
+            (asc - 12.0).abs() < 0.01 && (desc - down).abs() < 0.01,
+            "the lowered box grows the line below the strut: {asc} / {desc}"
+        );
+    }
+
     // =====================================================================
     // predicate: break-opportunity logic
     // =====================================================================
