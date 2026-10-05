@@ -38,9 +38,36 @@ pub struct PlatformCapability {
 /// [`PlatformCapability::scheduled_notifications`] on `os`
 /// (`std::env::consts::OS`), given what
 /// [`PlatformCapability::notifications`] answered there.
+///
+/// The backends that keep a delivery time themselves are the ones
+/// `desktop::notifications`' `Backend::schedules_itself` names:
+/// UNUserNotificationCenter (macOS, iOS) and a WinRT toast (Windows - not the
+/// `Shell_NotifyIconW` balloon it falls back to). Everywhere else (the
+/// freedesktop server, the Flatpak portal, Android until its alarm receiver
+/// exists) the notification service holds the notification and posts it when
+/// due, which works only while the process runs. Without notifications there
+/// is no scheduling either, for the same reason.
 fn scheduling_of(os: &str, notifications: PlatformCapability) -> PlatformCapability {
-    let _ = os;
-    notifications
+    if !notifications.available {
+        return notifications;
+    }
+    let schedules = match os {
+        "macos" | "ios" => true,
+        "windows" => notifications.backend.as_str().starts_with("WinRT toast"),
+        _ => false,
+    };
+    if schedules {
+        return notifications;
+    }
+    PlatformCapability {
+        available: false,
+        reason: AzString::from(format!(
+            "{} cannot schedule a notification: one with a delivery time is held by the app and \
+             shown when it is due, only while the app runs",
+            notifications.backend.as_str()
+        )),
+        backend: notifications.backend,
+    }
 }
 
 #[inline]
