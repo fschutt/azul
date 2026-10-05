@@ -6885,11 +6885,17 @@ impl LayoutWindow {
                 // the families alone a relayout that only changed sizes (a
                 // zoom) or weights kept the old chains, and the runs whose
                 // new key no chain had shaped to nothing (SYSUI8).
+                //
+                // A specified size in viewport units (`5vw`) is a different
+                // used size in every window: when a node has one, the
+                // viewport is a font requirement too (a resize re-collects
+                // the chains at the new optical size).
                 let mut h: u64 = 0xcbf2_9ce4_8422_2325;
                 let mut mix = |v: u64| {
                     h = h.rotate_left(13) ^ v;
                     h = h.wrapping_mul(0x0100_0000_01b3);
                 };
+                let mut viewport_sized = false;
                 for (i, &fh) in cc.prev_font_hashes.iter().enumerate() {
                     mix(fh);
                     if i < cc.tier1_enums.len() {
@@ -6897,8 +6903,24 @@ impl LayoutWindow {
                         mix(cc.get_font_style(i) as u64);
                     }
                     if i < cc.tier2_dims.len() {
-                        mix(u64::from(cc.get_font_size_raw(i)));
+                        let raw = cc.get_font_size_raw(i);
+                        mix(u64::from(raw));
+                        viewport_sized |= azul_css::compact_cache::decode_pixel_value_u32(raw)
+                            .is_some_and(|pv| {
+                                use azul_css::props::basic::SizeMetric;
+                                matches!(
+                                    pv.metric,
+                                    SizeMetric::Vw
+                                        | SizeMetric::Vh
+                                        | SizeMetric::Vmin
+                                        | SizeMetric::Vmax
+                                )
+                            });
                     }
+                }
+                if viewport_sized {
+                    mix(u64::from(viewport.size.width.to_bits()));
+                    mix(u64::from(viewport.size.height.to_bits()));
                 }
                 h
             });
