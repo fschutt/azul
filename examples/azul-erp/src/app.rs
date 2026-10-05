@@ -101,6 +101,8 @@ pub struct State {
     pub skipped: Vec<Skipped>,
     /// The files to write.
     pub queue: WriteQueue,
+    /// "Delete A-0001?" waits for an answer: the asset's id.
+    pub confirm_delete: Option<String>,
 }
 
 impl State {
@@ -123,6 +125,7 @@ impl State {
             notice: String::new(),
             skipped: Vec::new(),
             queue: WriteQueue::new(),
+            confirm_delete: None,
         }
     }
 
@@ -490,6 +493,14 @@ impl State {
             self.book.put(a);
         }
     }
+
+    /// The Delete action: asks first (RED: it still deletes at once).
+    pub fn ask_delete(&mut self, asset: &str) {
+        self.delete_asset(asset);
+    }
+
+    /// The answer to "Delete ...?" (RED: not built yet).
+    pub fn answer_delete(&mut self, _yes: bool) {}
 
     /// Deletes the asset with its logs (their files too), back to the register.
     pub fn delete_asset(&mut self, asset: &str) {
@@ -1024,6 +1035,33 @@ mod tests {
         );
         assert!(keys.len() >= 2, "its check-out too: {keys:?}");
         assert!(keys.iter().all(|k| k.starts_with("delete ")));
+    }
+
+    #[test]
+    fn delete_asks_first_and_queues_no_file_deletion_until_it_is_confirmed() {
+        let mut s = sampled();
+        let id = s.book.asset_by_number("A-0001").unwrap().id.clone();
+        s.open(&format!("/accounting/assets/{id}"));
+        s.ask_delete(&id);
+        assert_eq!(s.confirm_delete.as_deref(), Some(id.as_str()));
+        assert!(s.book.get::<Asset>(&id).is_some());
+        assert!(written(&mut s).is_empty(), "nothing is deleted before the answer");
+
+        s.answer_delete(false);
+        assert!(s.confirm_delete.is_none());
+        assert!(s.book.get::<Asset>(&id).is_some());
+        assert!(written(&mut s).is_empty(), "No deletes nothing");
+
+        s.ask_delete(&id);
+        s.answer_delete(true);
+        assert!(s.confirm_delete.is_none());
+        assert!(s.book.get::<Asset>(&id).is_none());
+        assert_eq!(s.page, HOME);
+        let keys = written(&mut s);
+        assert!(
+            keys.contains(&format!("delete erp/assets/{id}.json")),
+            "{keys:?}"
+        );
     }
 
     #[test]
