@@ -1108,6 +1108,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         preedit_shaped_node: _,
         seat_preedit_shaped: _,
         dom_lint_runs: _,
+        // One small entry per laid-out DOM.
+        dom_lint_stamps: _,
         timers: _,
         threads: _,
         thread_owners: _,
@@ -1992,6 +1994,12 @@ pub struct LayoutWindow {
     /// How many DOM lint passes ran (`dom_lint`'s four developer lints over
     /// one DOM each) - observability for the "lint only what is new" rule.
     pub dom_lint_runs: u64,
+    /// Per DOM, the arena (node data address, node count) the lints last
+    /// walked. A relayout of the SAME DOM - the retained `StyledDom` handed
+    /// back by value - keeps its arena and its findings, so it is not walked
+    /// again; a new generation, a re-rendered `VirtualView` child or any
+    /// other arena is.
+    dom_lint_stamps: BTreeMap<DomId, (usize, usize)>,
     /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -2522,6 +2530,7 @@ impl LayoutWindow {
             preedit_shaped_node: None,
             seat_preedit_shaped: BTreeMap::new(),
             dom_lint_runs: 0,
+            dom_lint_stamps: BTreeMap::new(),
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
@@ -3036,14 +3045,35 @@ impl LayoutWindow {
         // block (azul does not auto-wrap them in anonymous blocks the way
         // browsers do — state on a text node is inert). One warning per
         // unique finding per process; a correct app emits nothing.
+        //
+        // Only over a DOM that is NEW to the lints (ANIMFRAME8 s8): the ROOT
+        // of a new generation, a child DOM its VirtualView re-rendered this
+        // pass (not in `kept_doms`), or an arena that is not the one linted
+        // last (the first layout; a DOM swapped in through the relayout
+        // entry). A relayout of the retained DOM - an animation frame, a
+        // resize, a restyle - walked all four lints again for findings that
+        // cannot have changed.
         if result.is_ok() {
-            for lr in self.layout_results.values() {
+            for (dom_id, lr) in &self.layout_results {
+                let arena = lr.styled_dom.node_data.as_ref();
+                let stamp = (arena.as_ptr() as usize, arena.len());
+                let rendered_now = if *dom_id == DomId::ROOT_ID {
+                    new_generation
+                } else {
+                    !kept_doms.contains(dom_id)
+                };
+                if !rendered_now && self.dom_lint_stamps.get(dom_id) == Some(&stamp) {
+                    continue;
+                }
+                self.dom_lint_stamps.insert(*dom_id, stamp);
                 self.dom_lint_runs = self.dom_lint_runs.saturating_add(1);
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
                 crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
             }
+            self.dom_lint_stamps
+                .retain(|dom_id, _| self.layout_results.contains_key(dom_id));
         }
 
         result
@@ -25539,8 +25569,9 @@ impl LayoutWindow {
             font_stacks_hash: _,
             preedit_shaped_node: _,
             seat_preedit_shaped: _,
-            // A counter, no node ids.
+            // A counter and DOM-keyed arena stamps, no node ids.
             dom_lint_runs: _,
+            dom_lint_stamps: _,
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
