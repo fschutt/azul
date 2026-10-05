@@ -39,7 +39,9 @@
 //! item or one row (Shift extends, Ctrl / Cmd moves the focus alone),
 //! Page Up / Down by a screen, Home / End to the ends, Ctrl+A selects all,
 //! Ctrl+Space toggles the focused item, Enter activates, the Menu key or
-//! Shift+F10 reports a context menu, Escape clears the selection.
+//! Shift+F10 reports a context menu, Escape clears the selection, a letter
+//! or digit selects the next item whose label starts with it (type-ahead,
+//! around the end; the data callback is asked until one matches).
 //!
 //! ACCESSIBILITY: the grid is a `List` that is `Multiselectable`, its value
 //! says how many items are selected; every item shown is a `ListItem` named
@@ -958,6 +960,28 @@ pub(crate) fn drag_end(g: &IconGrid) -> Option<IconGridEvent> {
     }
 }
 
+/// The letter or digit `key` types, lower case: type-ahead matches case
+/// folded, so whether Shift is held does not matter.
+fn typed_letter(key: VirtualKeyCode) -> Option<char> {
+    // VirtualKeyCode: Key1..Key9 are 0..=8, Key0 is 9, A..Z are 10..=35.
+    let index = key as u32;
+    match index {
+        0..=8 => char::from_digit(index + 1, 10),
+        9 => Some('0'),
+        10..=35 => char::from_u32(u32::from(b'a') + index - 10),
+        _ => None,
+    }
+}
+
+/// Does `label` start with `letter` (lower case), case folded?
+fn named_with(label: &str, letter: char) -> bool {
+    label
+        .trim_start()
+        .chars()
+        .next()
+        .is_some_and(|c| c.to_lowercase().next() == Some(letter))
+}
+
 /// What `key` does (`shift`, `ctrl` = the primary modifier).
 pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift: bool, ctrl: bool) -> Option<IconGridEvent> {
     use VirtualKeyCode as K;
@@ -995,6 +1019,23 @@ pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift:
         e.shift = shift;
         e.ctrl = ctrl;
         return Some(e);
+    }
+    if !ctrl {
+        if let Some(letter) = typed_letter(key) {
+            // Type-ahead (Explorer, Finder): the next item whose label
+            // starts with the letter, after the focused one, around the end.
+            let start = focus.map_or(0, |f| f + 1);
+            let target = (0..count).map(|i| (start + i) % count).find(|&i| {
+                let item = item_at(&g.data_source, usize::try_from(i).unwrap_or(0));
+                named_with(item.label.as_str(), letter)
+            })?;
+            let index = usize::try_from(target).unwrap_or(0);
+            next.selection.click(target);
+            reveal(&mut next, geo, index);
+            let mut e = IconGridEvent::create(IconGridEventKind::Select, next);
+            e.index = OptionUsize::Some(index);
+            return Some(e);
+        }
     }
     match key {
         K::A if ctrl => {
