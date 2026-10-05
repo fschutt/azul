@@ -2854,7 +2854,7 @@ pub fn reconcile_recursive(
 /// - an absolutely positioned box (inset-sized, `top: 0; bottom: 0`, the map
 ///   widget), a float, a table box (CSS 2.2 17.5.3), an inline-block, and a
 ///   box in vertical writing (its `height` is the inline size).
-fn forwards_containing_block_height(tree: &LayoutTree, node_index: usize) -> bool {
+pub(crate) fn forwards_containing_block_height(tree: &LayoutTree, node_index: usize) -> bool {
     let id = LayoutNodeId::new(node_index);
     let (Some(node), Some(warm)) = (tree.get(id), tree.warm(id)) else {
         return true;

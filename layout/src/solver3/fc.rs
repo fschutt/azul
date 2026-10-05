@@ -3207,8 +3207,33 @@ fn layout_bfc<T: ParsedFontTrait>(
                     children_containing_block_size.height,
                 )
             } else {
-                // Block-level elements use their own content-box
-                child_node.box_props.inner_size(child_size, writing_mode)
+                // Block-level elements use their own content-box - its HEIGHT
+                // only where the height is the box's own, as the child's own
+                // layout offers its content (`cache::prepare_layout_context`):
+                // an auto-height box (or a percentage one computing to auto)
+                // has the height its content gives it, so its content sees
+                // an indefinite one (CSS 2.2 10.5) - or the containing
+                // block's, where the box forwards it. Pass 1's used height
+                // here is that content's own result: offered back as a
+                // definite height, a `height: 100%` inline-block on the
+                // body's line resolved against the body's line box (AzMail's
+                // paper 118 / 414 tall for content of 114 / 400).
+                let inner = child_node.box_props.inner_size(child_size, writing_mode);
+                let height_is_auto = tree.warm(LayoutNodeId::new(child_index)).is_none_or(|w| {
+                    crate::solver3::sizing::height_is_auto_for_children(
+                        &child_node.formatting_context,
+                        w.computed_style.height.as_ref(),
+                        children_containing_block_size.height.is_finite(),
+                    )
+                });
+                if !height_is_auto {
+                    inner
+                } else if crate::solver3::cache::forwards_containing_block_height(tree, child_index)
+                {
+                    LogicalSize::new(inner.width, children_containing_block_size.height)
+                } else {
+                    LogicalSize::new(inner.width, f32::INFINITY)
+                }
             };
 
             debug_info!(
