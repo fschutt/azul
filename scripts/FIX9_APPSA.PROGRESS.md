@@ -8,11 +8,15 @@
 - 5.4 one ribbon builder: e7e48ebbd (appkit ribbon), reader / writer / show / sheets 7f1d3b7ef / drive 116f517fc /
   calendar 2c905acb8 / tasks 45570ae46
 
+- 5.5 drive listings: 27c40b516 (RED list_folder_all), 28a984499 (GREEN), fe6e63846 (list_all_paged), 90c529cbd
+  (appkit/notes/pim), 29849d33b (photo/videocut), 3fbcbc3e6 (code/mail/sheets)
+- 5.6 one TempDir: 566b2cd5b (storage testing + pim re-export), 14bc44b8a (mail), 45b9bdbe7 (appkit/drive)
+
 ## IN PROGRESS
-5.5 paged drive-listing loops -> azul_storage::ops::list_all / new list_folder_all
+5.7 AzReview open with the OS through appkit open_external -> azul::Url::open
 
 ## NEXT
-5.5 -> 5.14 in order (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
+5.7 -> 5.14 in order (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
 
 ## Round-2 notes so far
 - AzKeys/Cargo.toml still lists csv (unused after 5.1): drop it.
@@ -20,5 +24,8 @@
 - AzNews ui.rs:502-540 -> azul_appkit::pieces (R.2).
 - AzCalendar chrome.rs:443-465 `line` / `button` / `primary` are pieces twins with a margin (flex_row("margin-top: 8px"),
   pieces::button(..).with_css("margin-right: 8px")).
+
+- AzReader jobs.rs:357 TempDir copy: needs `[dev-dependencies] azul-storage = { .., features = ["testing"] }` in
+  examples/azul-reader/Cargo.toml (outside PKG 5), then `use azul_storage::testing::TempDir`.
 
 ## Open questions
