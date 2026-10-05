@@ -8591,3 +8591,23 @@ pub(crate) fn code_view_look() -> crate::widgets::code_view::CodeViewLook {
 pub(crate) fn code_view(v: crate::widgets::code_view::CodeViewResolved) -> Dom {
     crate::widgets::code_view::build(v, &code_view_look())
 }
+
+// ==== icon_grid (item extras) ====
+//
+// The OPTIONAL extras of a flora icon-grid item (user decision D3,
+// 2026-10-05): its extra lines under the label in the soft ink one size
+// down (the dialogs' hint ink), and the placeholder tile's corners rounded
+// like a thumbnail's - the item gives the tile its colour.
+
+/// Flora's skin for an icon-grid item's extras.
+#[must_use]
+pub(crate) fn icon_grid_extras_look() -> crate::widgets::icon_grid::IconGridExtrasLook {
+    use super::decl;
+
+    let mut line = vec![decl::font_size(11)];
+    line.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    crate::widgets::icon_grid::IconGridExtrasLook {
+        line,
+        placeholder: decl::radius(4).to_vec(),
+    }
+}

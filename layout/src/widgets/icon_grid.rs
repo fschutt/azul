@@ -5,8 +5,10 @@
 //! GENERIC OVER ITS DATA: the grid holds no items. It asks the app for the
 //! items it shows through a DATA callback ([`IconGrid::with_data_source`]:
 //! the item's label, its icon glyph, its thumbnail when the app has one,
-//! a badge), given the item's index. Only the items in view are ever asked
-//! for and built - THUMBNAILS ARRIVE LATER: the app answers an icon glyph
+//! a badge - and, optionally, extra lines under the label and the colour of
+//! a placeholder tile for the glyph), given the item's index. Only the
+//! items in view are ever asked for and built - THUMBNAILS ARRIVE LATER:
+//! the app answers an icon glyph
 //! until its thumbnail thread has the picture, then rebuilds and answers
 //! the image.
 //!
@@ -648,7 +650,8 @@ impl IconGrid {
     #[must_use]
     pub fn dom(self) -> Dom {
         let look = look_for(self.theme);
-        build(self, &look)
+        let extras = extras_for(self.theme);
+        build(self, &look, &extras)
     }
 }
 
@@ -1158,6 +1161,37 @@ pub(crate) fn look_for(theme: OptionUiTheme) -> IconGridLook {
     }
 }
 
+/// What a theme decides about an item's OPTIONAL extras
+/// ([`IconGridItem::lines`], [`IconGridItem::placeholder`]): the skin of
+/// each, laid over its base by [`build`]; built by
+/// `themes::flat::icon_grid_extras_look` and
+/// `themes::flora::icon_grid_extras_look`. An item without extras never
+/// reads it.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct IconGridExtrasLook {
+    /// An extra line under the label (the secondary ink, a size down).
+    pub line: Vec<CssPropertyWithConditions>,
+    /// The placeholder tile (its corners; the item gives its colour).
+    pub placeholder: Vec<CssPropertyWithConditions>,
+}
+
+/// The extras' look a grid with the theme option `theme` is built with, as
+/// [`look_for`]: the pinned theme's own, or both merged part by part.
+pub(crate) fn extras_for(theme: OptionUiTheme) -> IconGridExtrasLook {
+    use crate::widgets::themes::{flat, flora, theme_blocks::follow_props};
+    match theme.into_option() {
+        Some(UiTheme::Flat) => flat::icon_grid_extras_look(),
+        Some(UiTheme::Flora) => flora::icon_grid_extras_look(),
+        None => {
+            let (a, b) = (flat::icon_grid_extras_look(), flora::icon_grid_extras_look());
+            IconGridExtrasLook {
+                line: follow_props(&a.line, &b.line).into_library_owned_vec(),
+                placeholder: follow_props(&a.placeholder, &b.placeholder).into_library_owned_vec(),
+            }
+        }
+    }
+}
+
 // ---- the base: the grid's structure, in every theme ----
 
 /// A box at (`x`, `y`), `w` x `h` px, absolutely placed in the grid.
@@ -1259,9 +1293,11 @@ struct ItemData {
 }
 
 /// The grid's DOM in `look`: [item..] for the items in view, the rubber
-/// band while one is drawn, the scroll bar when the rows overflow.
+/// band while one is drawn, the scroll bar when the rows overflow. An item
+/// is [thumb [picture | glyph, badge?], label, line..]: its extra lines
+/// and its placeholder tile in `extras` (only an item that has them).
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-pub(crate) fn build(grid: IconGrid, look: &IconGridLook) -> Dom {
+pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtrasLook) -> Dom {
     use crate::widgets::themes::decl;
 
     let geo = geometry(&grid);
@@ -1283,16 +1319,30 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook) -> Dom {
         let is_selected = view.selection.contains(key);
         let is_focused = focus == Some(key);
 
+        // No thumbnail and a placeholder colour: the glyph sits on a tile of
+        // that colour, in black or white, whichever reads on it.
+        let tile = if item.image.is_none() {
+            item.placeholder.into_option()
+        } else {
+            None
+        };
         let picture = match item.image.into_option() {
             Some(image) => Dom::create_image(image).with_css_props(CssPropertyWithConditionsVec::from_vec(
                 decl::fill_box().to_vec(),
             )),
-            None => Dom::create_icon(item.icon.clone()).with_css_props(part(
-                &[decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-                    icon_px.round() as isize,
-                )))],
-                &look.icon,
-            )),
+            None => {
+                let glyph = part(
+                    &[decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+                        icon_px.round() as isize,
+                    )))],
+                    &look.icon,
+                );
+                let glyph = match tile {
+                    Some(color) => stacked(glyph, &[decl::simple(decl::ink(color.contrast_text()))]),
+                    None => glyph,
+                };
+                Dom::create_icon(item.icon.clone()).with_css_props(glyph)
+            }
         };
         let mut in_thumb = alloc::vec![picture];
         if !item.badge.as_str().is_empty() {
@@ -1309,13 +1359,30 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook) -> Dom {
                     )),
             );
         }
-        let thumb = Dom::create_div()
-            .with_class(AzString::from_const_str(THUMB_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_base(icon_px)))
-            .with_children(DomVec::from_vec(in_thumb));
+        let mut thumb = Dom::create_div().with_class(AzString::from_const_str(THUMB_CLASS));
+        thumb = match tile {
+            Some(color) => {
+                let mut style = decl::on_base(&thumb_base(icon_px), &extras.placeholder);
+                style.push(decl::simple(decl::fill(color)));
+                thumb
+                    .with_class(AzString::from_const_str(PLACEHOLDER_CLASS))
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+            }
+            None => thumb.with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_base(icon_px))),
+        };
+        let thumb = thumb.with_children(DomVec::from_vec(in_thumb));
         let label = crate::widgets::widget_p_with_text(item.label.clone())
             .with_class(AzString::from_const_str(LABEL_CLASS))
             .with_css_props(part(&label_base(), &look.label));
+        // The extra lines under the label, in order.
+        let mut parts = alloc::vec![thumb, label];
+        for line in item.lines.as_ref() {
+            parts.push(
+                crate::widgets::widget_p_with_text(line.clone())
+                    .with_class(AzString::from_const_str(LINE_CLASS))
+                    .with_css_props(part(&label_base(), &extras.line)),
+            );
+        }
 
         let mut style = part(&item_base(x, y, w, h), &look.item);
         let mut classes = alloc::vec![Class(AzString::from_const_str(ITEM_CLASS))];
@@ -1363,7 +1430,7 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook) -> Dom {
                     }),
                     on_item_drag_start as usize,
                 )
-                .with_children(DomVec::from_vec(alloc::vec![thumb, label])),
+                .with_children(DomVec::from_vec(parts)),
         );
     }
 
@@ -2143,6 +2210,33 @@ mod icon_grid_tests {
                 azul_core::dom::NodeType::Image(_)
             ));
             assert_eq!(theme_checks::background(covered, false), None, "{}", theme.name());
+        }
+    }
+
+    /// The shelf's books without their covers: a cover is a fresh image per
+    /// build (its own identity), and the theme checks compare two builds.
+    extern "C" fn uncovered(data: RefAny, index: usize) -> IconGridItem {
+        let mut item = books(data, index);
+        item.image = OptionImageRef::None;
+        item
+    }
+
+    #[test]
+    fn a_shelf_with_extras_follows_the_app_theme_and_keeps_its_theme_invariants() {
+        let shelf = || {
+            IconGrid::create(9, 400.0, 300.0)
+                .with_data_source(RefAny::new(()), uncovered as IconGridDataSourceCallbackType)
+                .with_accessibility_name(AzString::from("Library"))
+        };
+        checks::assert_follows_the_app_theme(
+            "icon_grid (extras)",
+            || shelf().dom(),
+            |t: UiTheme| shelf().with_theme(t).dom(),
+        );
+        for theme in checks::BOTH {
+            let dom = checks::under(theme, || shelf().dom());
+            theme_checks::assert_structure_is_shared(&format!("icon_grid (extras) built for {}", theme.name()), &dom, &[]);
+            theme_checks::assert_theme_invariants(&format!("icon_grid (extras, {})", theme.name()), &dom);
         }
     }
 
