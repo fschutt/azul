@@ -40,7 +40,7 @@ use azul::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ReadingPaneOnEventCallbackType,
         SegmentedOnChangeCallbackType, ShellNavigationPaneOnEventCallbackType,
         SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType, TimerCallbackInfo,
-        TimerCallbackReturn,
+        TimerCallbackReturn, ToolbarOnEventCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
     image::ImageRef,
@@ -57,7 +57,8 @@ use azul::{
     widgets::{
         ButtonType, CheckBox, CheckBoxState, InfoBar, OnTextInputReturn, ReadingPane,
         ReadingPaneEvent, ReadingPaneEventKind, Segmented, SegmentedState, StatusBar,
-        StatusBarSegment, Switch, SwitchState, TextInputState, TextInputValid, TreeViewNode,
+        StatusBarSegment, Switch, SwitchState, TextInputState, TextInputValid, Toolbar,
+        ToolbarEvent, ToolbarEventKind, ToolbarItem, TreeViewNode,
     },
 };
 use azul_appkit::{
@@ -1301,47 +1302,57 @@ fn reading_pane(s: &NewsApp, app: &RefAny) -> Dom {
 
 // ==== Toolbar, status bar, settings, the window ====
 
-// TODO(WIDGETS9A): Toolbar - this row of Buttons becomes azul's Toolbar widget (overflow menu,
-// roving focus) once it is in the base.
+/// The toolbar in the ribbon row: azul's `Toolbar` (roving focus, the "more" menu). Each tool's
+/// `id` is its DOM-id name from [`ids`]: what [`on_toolbar`] matches.
 fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
-    let tool = |label: &str, icon: &str, id: AzString, cb: ButtonOnClickCallbackType| {
-        Button::create(label)
-            .with_icon(icon)
-            .with_on_click(app.clone(), cb)
-            .dom()
-            .with_id(id)
+    let tool = |id: AzString, label: &str, icon: &str| {
+        ToolbarItem::create_button(id, label, icon).with_show_label(true)
     };
-    row(
-        "gap: 4px; padding: 4px 8px;",
-        vec![
-            tool(
-                if s.refreshing > 0 {
-                    "Refreshing\u{2026}"
-                } else {
-                    "Refresh"
-                },
-                "refresh",
-                ids::TOOLBAR_REFRESH,
-                on_refresh,
-            ),
-            tool("Add feed", "add", ids::TOOLBAR_ADD, on_add_open),
-            tool("Import", "file_upload", ids::TOOLBAR_IMPORT, on_import_open),
-            tool("Export", "file_download", ids::TOOLBAR_EXPORT, on_export),
-            tool(
-                "Mark all as read",
-                "done_all",
-                ids::TOOLBAR_MARK_ALL,
-                on_mark_all,
-            ),
-            block("flex-grow: 1;", Dom::create_div()),
-            tool(
-                "Settings",
-                "settings",
-                ids::TOOLBAR_SETTINGS,
-                on_open_settings,
-            ),
-        ],
+    let refresh = if s.refreshing > 0 {
+        "Refreshing\u{2026}"
+    } else {
+        "Refresh"
+    };
+    let items = vec![
+        tool(ids::TOOLBAR_REFRESH, refresh, "refresh"),
+        tool(ids::TOOLBAR_ADD, "Add feed", "add"),
+        tool(ids::TOOLBAR_IMPORT, "Import", "file_upload"),
+        tool(ids::TOOLBAR_EXPORT, "Export", "file_download"),
+        tool(ids::TOOLBAR_MARK_ALL, "Mark all as read", "done_all"),
+        ToolbarItem::create_spacer(),
+        tool(ids::TOOLBAR_SETTINGS, "Settings", "settings"),
+    ];
+    block(
+        "padding: 4px 8px;",
+        Toolbar::create("News")
+            .with_items(items)
+            .with_on_event(app.clone(), on_toolbar as ToolbarOnEventCallbackType)
+            .dom(),
     )
+}
+
+/// A tool was pressed: the tool's `id` names the command.
+extern "C" fn on_toolbar(data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+    if event.kind != ToolbarEventKind::Activate {
+        return Update::DoNothing;
+    }
+    let id = event.id.as_str();
+    let command: ButtonOnClickCallbackType = if id == ids::TOOLBAR_REFRESH.as_str() {
+        on_refresh
+    } else if id == ids::TOOLBAR_ADD.as_str() {
+        on_add_open
+    } else if id == ids::TOOLBAR_IMPORT.as_str() {
+        on_import_open
+    } else if id == ids::TOOLBAR_EXPORT.as_str() {
+        on_export
+    } else if id == ids::TOOLBAR_MARK_ALL.as_str() {
+        on_mark_all
+    } else if id == ids::TOOLBAR_SETTINGS.as_str() {
+        on_open_settings
+    } else {
+        return Update::DoNothing;
+    };
+    command(data, info)
 }
 
 fn status_bar(s: &NewsApp, _app: &RefAny) -> Dom {
