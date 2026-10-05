@@ -192,15 +192,19 @@ fn is_web_address(target: &str) -> bool {
 /// Opens a web address in the default browser, or a file / folder in its default app - see
 /// [`external_target`] for what is passed on. Returns once the opener started.
 ///
-/// A web address goes through azul's one opener, `Url::open` (feature `azul`). A file or a
-/// folder still through the system's opener here (`open` on macOS, `xdg-open` on Linux and the
-/// BSDs, `cmd /C start` on Windows) until azul exports the path variant of `Url::open` (wave 9,
-/// 3.5); then this calls it too.
+/// With feature `azul` everything goes through azul's one opener: a web address through
+/// `Url::open`, a file or a folder through `Url::open_path` (the target is one argument that no
+/// shell parses again, so an `&` in a name stays in it).
 pub fn open_external(target: &str) -> Result<(), String> {
     let target = external_target(target)?;
-    #[cfg(feature = "azul")]
-    if is_web_address(&target) {
-        return match azul::url::Url::parse(target.as_str()).into_result() {
+    open_target(&target)
+}
+
+/// [`open_external`] after the check: azul's opener.
+#[cfg(feature = "azul")]
+fn open_target(target: &str) -> Result<(), String> {
+    if is_web_address(target) {
+        return match azul::url::Url::parse(target).into_result() {
             Ok(url) if url.open() => Ok(()),
             Ok(_) => Err(format!("{target} could not be opened.")),
             Err(e) => Err(format!(
@@ -209,20 +213,32 @@ pub fn open_external(target: &str) -> Result<(), String> {
             )),
         };
     }
+    if azul::url::Url::open_path(target) {
+        Ok(())
+    } else {
+        Err(format!("{target} could not be opened."))
+    }
+}
+
+/// [`open_external`] after the check, without azul (the kit's plain-Rust build): the system's
+/// opener, the target as one argument (`open` on macOS, `xdg-open` on Linux and the BSDs;
+/// `explorer` for a path and `rundll32 url.dll` for a web address on Windows - never
+/// `cmd /C start`, which splits a target at its `&`).
+#[cfg(not(feature = "azul"))]
+fn open_target(target: &str) -> Result<(), String> {
     let mut command = if cfg!(target_os = "macos") {
-        let mut c = std::process::Command::new("open");
-        c.arg(&target);
+        std::process::Command::new("open")
+    } else if cfg!(windows) && is_web_address(target) {
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
         c
     } else if cfg!(windows) {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]).arg(&target);
-        c
+        std::process::Command::new("explorer")
     } else {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(&target);
-        c
+        std::process::Command::new("xdg-open")
     };
     command
+        .arg(target)
         .spawn()
         .map(|_child| ())
         .map_err(|e| format!("{target} could not be opened: {e}"))
