@@ -8699,85 +8699,19 @@ where
                 .and_then(|nid| {
                     let sd = self.ctx.styled_dom;
                     let styled_nodes = sd.styled_nodes.as_container();
-                    if nid.index() >= styled_nodes.len() {
-                        return None;
-                    }
-                    let cache = &sd.css_property_cache.ptr;
-                    let node_data = sd.node_data.as_container();
-                    // ANCESTOR USER OVERRIDES participate in inheritance: an
-                    // `animation: color ..` transition overrides `color` on a
-                    // CONTAINER, and the precomputed inherited tables cannot
-                    // see it — the text painted the stale colour (found by
-                    // the css_anim_perf_transition damage law: the "colour
-                    // transition" repainted nothing). Walk self -> root: the
-                    // nearest override wins unless a closer node declares its
-                    // OWN colour, which re-roots inheritance below it.
-                    let hierarchy = sd.node_hierarchy.as_container();
-                    let ty = azul_css::props::property::CssPropertyType::TextColor;
-                    let mut cur = Some(nid);
-                    while let Some(n) = cur {
-                        if let Some(azul_css::props::property::CssProperty::TextColor(v)) =
-                            cache.get_user_override(&n, &ty)
-                        {
-                            if let Some(c) = v.get_property() {
-                                return Some(c.inner);
-                            }
-                            break;
-                        }
-                        if n.index() < node_data.len()
-                            && cache.has_own_declaration(&node_data[n], &n, &ty)
-                        {
-                            break;
-                        }
-                        cur = hierarchy
-                            .get(n)
-                            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-                    }
-                    let node_state = &styled_nodes[nid].styled_node_state;
-                    // No declared `color` anywhere up the chain: the UA default
-                    // applies, and that default depends on the theme. Black is
-                    // right on a light window and invisible on a dark one. The
-                    // themed default is CASCADED (the root's `cascaded_props`,
-                    // every descendant's `computed_values`, the compact text
-                    // tier), so on a cascaded DOM `get_text_color` answers it
-                    // here; the fallback below re-derives it from the context
-                    // only for a DOM no UA pass has run on, and asserts that.
-                    Some(
-                        cache
-                            .get_text_color(&node_data[nid], &nid, node_state)
-                            .and_then(|c| c.get_property().copied())
-                            .unwrap_or_else(|| {
-                                debug_assert!(
-                                    !cache.ua_applied,
-                                    "live_color: node {} has no `color` in its resolved style \
-                                     although the UA pass ran — the themed root default did \
-                                     not reach it (theme-chain analysis 2026-09-12, R1)",
-                                    nid.index()
-                                );
-                                // The SAME context the cascade evaluated this
-                                // DOM against — which carries the window's own
-                                // theme — not a fresh system-only one: the two
-                                // used to disagree after an in-app theme switch,
-                                // leaving the widgets dark and the text black.
-                                let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_else(|| {
-                                    self.ctx.system_style.as_ref().map_or_else(
-                                        azul_css::dynamic_selector::DynamicSelectorContext::default,
-                                        |s| {
-                                            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
-                                        },
-                                    )
-                                });
-                                azul_core::ua_css::evaluate_ua_root_text_color(&ctx)
-                            })
-                            .inner,
-                    )
+                    // The one resolution of the used colour - the ancestors'
+                    // runtime overrides (a colour transition on a container),
+                    // the cascade, the themed UA default, `system:` tokens -
+                    // shared with `currentcolor` borders.
+                    styled_nodes.get(nid).map(|styled| {
+                        super::getters::get_used_text_color(sd, nid, &styled.styled_node_state)
+                    })
                 })
-                .unwrap_or(glyph_run.color);
-            // `color: system:<slot>` is a token until here: resolve it
-            // against the context the cascade evaluated, the same way the
-            // baked run colour was.
-            let live_color =
-                super::getters::system_colors_resolved(self.ctx.styled_dom, live_color);
+                // A run without a source node (a marker, synthesized
+                // content) keeps its baked colour, `system:` resolved.
+                .unwrap_or_else(|| {
+                    super::getters::system_colors_resolved(self.ctx.styled_dom, glyph_run.color)
+                });
             match &selection_recolour {
                 Some((rects, selected_color)) => {
                     // A glyph's `point` is its pen position ON THE BASELINE at

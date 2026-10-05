@@ -2629,11 +2629,46 @@ fn background_contents_as_declared(
     }
 }
 
+/// The colour an ancestor's runtime USER OVERRIDE hands down to `dom_id`.
+///
+/// User overrides participate in inheritance: a colour transition writes its
+/// per-tick value as an override on the animated CONTAINER
+/// (`set_user_property_override_fast`), and the precomputed inherited tables
+/// (the compact cache, `computed_values`) cannot see it. Walk self -> root:
+/// the nearest override wins unless a closer node declares its OWN colour,
+/// which re-roots inheritance below it. Free when no node has an override.
+fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<ColorU> {
+    let cache = &styled_dom.css_property_cache.ptr;
+    if cache.user_overridden_properties.is_empty() {
+        return None;
+    }
+    let node_data = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let ty = azul_css::props::property::CssPropertyType::TextColor;
+    let mut cur = Some(dom_id);
+    while let Some(n) = cur {
+        if let Some(azul_css::props::property::CssProperty::TextColor(v)) =
+            cache.get_user_override(&n, &ty)
+        {
+            return v.get_property().map(|c| c.inner);
+        }
+        if n.index() < node_data.len() && cache.has_own_declaration(&node_data[n], &n, &ty) {
+            return None;
+        }
+        cur = hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+    }
+    None
+}
+
 /// The used `color` of `dom_id` - what its text paints in and what
 /// `currentcolor` means for it (a border without a colour of its own, CSS
-/// Backgrounds 3 s4.2). The one resolution of the property: the compact
-/// cache's inherited value, else the cascade, `system:` keywords resolved
-/// against the theme the cascade evaluated.
+/// Backgrounds 3 s4.2). The one resolution of the property, for the text
+/// painter and the border alike: an ancestor's runtime override (a colour
+/// transition, [`inherited_color_override`]), else the compact cache's
+/// inherited value, else the cascade, else the themed UA default;
+/// `system:` keywords resolved against the theme the cascade evaluated.
 #[allow(clippy::cast_possible_truncation)] // the packed 0xRRGGBBAA bytes
 #[must_use]
 pub fn get_used_text_color(
@@ -2642,7 +2677,7 @@ pub fn get_used_text_color(
     node_state: &StyledNodeState,
 ) -> ColorU {
     let cache = &styled_dom.css_property_cache.ptr;
-    let color_from_cache = {
+    let color_from_cache = inherited_color_override(styled_dom, dom_id).or_else(|| {
         // FAST PATH: compact cache for text color
         let mut fast_color = None;
         if node_state.is_normal() {
@@ -2666,7 +2701,7 @@ pub fn get_used_text_color(
                 .and_then(|v| v.get_property().copied())
                 .map(|v| v.inner)
         })
-    };
+    });
 
     // The UA's `color` default is THEMED and CASCADED (the root's
     // `cascaded_props`, every descendant's `computed_values`, the compact
@@ -2680,12 +2715,15 @@ pub fn get_used_text_color(
     let color = color_from_cache.unwrap_or_else(|| {
         debug_assert!(
             !cache.ua_applied,
-            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+            "get_used_text_color: node {} has no `color` in its resolved style although the UA \
              pass ran — the themed root default did not reach it (theme-chain analysis \
              2026-09-12, R1)",
             dom_id.index()
         );
-        ColorU::BLACK
+        // The themed UA default of the SAME context the cascade evaluated
+        // this DOM against (black is invisible on a dark window).
+        let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_default();
+        azul_core::ua_css::evaluate_ua_root_text_color(&ctx).inner
     });
     // `color: system:<slot>` arrives as a token (inherited like any colour);
     // this is where it becomes the colour of the theme the cascade evaluated.
