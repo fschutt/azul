@@ -4215,6 +4215,43 @@ mod tests {
         );
     }
 
+    /// A module-private type can never be part of the C API (the generated
+    /// code lives in another module), but the index took it as one: the XML
+    /// tree builder's `enum NodeData` (core/src/xml_html_tree.rs) was a
+    /// "critical" duplicate of `azul_core::dom::NodeData`, and XML8's
+    /// private `Content` hijacked the CSS `Content` (2026-10-03 / 10-05).
+    /// Only types visible outside their module are indexed.
+    #[test]
+    fn a_module_private_type_does_not_shadow_a_public_one_of_the_same_name() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("core/src/lib.rs", "pub mod dom;\npub mod tree;\n");
+        write("core/src/dom.rs", "#[repr(C)] pub struct NodeData { pub a: u8 }\n");
+        write(
+            "core/src/tree.rs",
+            "enum NodeData { Document, Element { name: String } }\n\
+             struct Hidden;\n\
+             pub(crate) struct CrateWide { pub a: u8 }\n\
+             mod inner { struct AlsoHidden; pub struct Seen; }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let defs: Vec<String> = index
+            .iter_all()
+            .filter(|(name, _)| name.as_str() == "NodeData")
+            .flat_map(|(_, defs)| defs.iter().map(|d| d.full_path.clone()))
+            .collect();
+        assert_eq!(defs, vec!["azul_core::dom::NodeData".to_string()]);
+        assert!(index.resolve("Hidden", None).is_none());
+        assert!(index.resolve("AlsoHidden", None).is_none());
+        assert!(index.resolve("CrateWide", None).is_some(), "pub(crate) is visible to the crate's API code");
+        assert!(index.resolve("Seen", None).is_some());
+    }
+
     /// A method in an `impl T` block of another file (`impl CallbackInfo` in
     /// widgets/form.rs, `impl RichTextDoc` in rich_text/html.rs) is attached
     /// to the type found by NAME, but the type found by PATH kept the old
