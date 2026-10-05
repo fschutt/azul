@@ -545,15 +545,21 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
     b.line("// Str copies a Go string into a freshly allocated AzString. The returned");
     b.line("// value is consumed by whichever libazul call it is passed to.");
     b.line("func Str(s string) *String {");
+    b.line("    raw := azGoAzString(s)");
+    b.line("    ret := &String{ inner: &raw }");
+    b.line("    runtime.SetFinalizer(ret, func(x *String) { x.Close() })");
+    b.line("    return ret");
+    b.line("}");
+    b.blank();
+    b.line("// azGoAzString copies a Go string into a fresh AzString value, owned by");
+    b.line("// the caller (a string field setter moves it into the field).");
+    b.line("func azGoAzString(s string) AzString {");
     b.line("    b := []byte(s)");
     b.line("    ptr := &azGoEmptyByte");
     b.line("    if len(b) > 0 {");
     b.line("        ptr = &b[0]");
     b.line("    }");
-    b.line("    raw := AzString_fromUtf8(ptr, uintptr(len(b)))");
-    b.line("    ret := &String{ inner: &raw }");
-    b.line("    runtime.SetFinalizer(ret, func(x *String) { x.Close() })");
-    b.line("    return ret");
+    b.line("    return AzString_fromUtf8(ptr, uintptr(len(b)))");
     b.line("}");
     b.blank();
     b.line("// GoStr copies an AzString's UTF-8 bytes into a Go string. The AzString");
@@ -1017,6 +1023,8 @@ fn emit_raw_accessors(b: &mut CodeBuilder, ir: &CodegenIR, wrapper_types: &[Stri
     b.line("// libazul parameter (AddChild, Run, ...). Clone() the wrapper first");
     b.line("// if you still need it afterwards. A wrapper that merely borrows its value");
     b.line("// (a callback argument) hands out a clone instead and stays usable.");
+    b.line("// Inner() is the non-destructive counterpart: a pointer to the value the");
+    b.line("// wrapper keeps owning.");
     b.blank();
     for t in wrapper_types {
         let ffi = go_native(t);

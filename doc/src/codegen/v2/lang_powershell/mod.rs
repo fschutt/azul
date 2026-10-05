@@ -105,6 +105,17 @@ fn generate_header(builder: &mut CodeBuilder) {
     builder.line("#");
     builder.line("# The wrapper classes also have finalizers so failure to call");
     builder.line("# Dispose() leaks until the next GC pass — safe but not prompt.");
+    builder.line("#");
+    builder.line("# Fields: every wrapper class exposes its struct fields as properties.");
+    builder.line("# A field holding another class is a live view, so nested writes reach");
+    builder.line("# the owner; a value-type field (an [Azul.Az*] struct) is a COPY - change");
+    builder.line("# the copy, then assign it back:");
+    builder.line("#");
+    builder.line("#     $opts.WindowState.Title = 'Hello'");
+    builder.line("#     $size = $opts.WindowState.Size");
+    builder.line("#     $dim = $size.dimensions; $dim.width = 800; $dim.height = 600");
+    builder.line("#     $size.dimensions = $dim");
+    builder.line("#     $opts.WindowState.Size = $size");
     builder.line("# ============================================================================");
     builder.blank();
 
