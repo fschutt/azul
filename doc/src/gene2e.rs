@@ -636,6 +636,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),
     ("run_e2e_tests",              Some("the test runner itself — a test may not recurse into it")),
     ("get_logs",                   Some("debug-server tooling, asserts nothing about the engine")),
+    // Writes an instrumented build's PGO counters (crate::pgo) - build
+    // tooling; `false` and a no-op in every build a scenario runs in.
+    ("dump_profile",               Some("PGO build tooling (writes profile counters), asserts nothing \
+                                         about the engine")),
     // Routes through `e2e::hooks::take_native_screenshot_base64`, whose default
     // is `None` — and NOTHING in the workspace calls `set_host_hooks`, so the op
     // returns "native screenshot unavailable (no e2e host hook installed)" in
@@ -906,13 +910,7 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     // (this is exactly how `assert_manager_invariants` lost `managers`/`cross`).
     // Shout instead of shipping the lie.
     for a in &asserts {
-        if !a.params.is_empty() {
-            continue;
-        }
-        let Some(body) = top_level_fn_body(&src, &format!("eval_{}", a.name)) else {
-            continue;
-        };
-        if body.contains("params") {
+        if scanner_missed_params(&src, a) {
             eprintln!(
                 "!! [gen-e2e] `{}` reads `params` in full.rs but the schema scan extracted NONE — \
                  the prompt will advertise it as `(no params)` and the model cannot narrow it. \
@@ -928,6 +926,36 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         extra,
         handled,
     })
+}
+
+/// The blind-spot alarm's test: the scan extracted no params for assertion
+/// `a`, yet its eval fn reads `params` for more than its guard.
+///
+/// Only the fn's BODY counts (its signature always names `params`), and the
+/// `reject_unknown_params(.., params, &[..])` guard does not: when the scan
+/// found nothing, the guard's list is empty (`reject_guard_keys` reads it), and
+/// an empty guard is the fn declaring that it takes no params - so the empty
+/// scan is right (`assert_no_unmocked_requests`).
+fn scanner_missed_params(src: &str, a: &OpDef) -> bool {
+    if !a.params.is_empty() {
+        return false;
+    }
+    let Some(body) = top_level_fn_body(src, &format!("eval_{}", a.name)) else {
+        return false;
+    };
+    let Some(open) = body.find('{') else {
+        return false;
+    };
+    let mut rest = &body[open + 1..];
+    let mut outside_guards = String::new();
+    while let Some(p) = rest.find("reject_unknown_params(") {
+        outside_guards.push_str(&rest[..p]);
+        // The guard's `params` argument sits before its `&[..]` allow-list.
+        let guard = &rest[p..];
+        rest = &guard[guard.find(']').map_or(guard.len(), |e| e + 1)..];
+    }
+    outside_guards.push_str(rest);
+    outside_guards.contains("params")
 }
 
 /// The body of the top-level `fn <name>(…)` in `src`, or `None`.
@@ -3425,6 +3453,35 @@ mod tests {
             "OP_POLICY classifies ops that no longer exist in full.rs"
         );
         assert_eq!(classify("brand_new_op"), OpClass::Unclassified);
+    }
+
+    /// An eval fn whose `reject_unknown_params(.., &[])` guard allows NO
+    /// params takes none: the empty scan is right, and the blind-spot alarm
+    /// must not call it a scanner gap (`assert_no_unmocked_requests` did, on
+    /// every run). A fn that reads a param the scanners cannot see still
+    /// raises it.
+    #[test]
+    fn an_assertion_whose_guard_allows_no_params_is_not_a_scanner_gap() {
+        let src = fs::read_to_string(root().join(FULL_RS)).unwrap();
+        let s = parse_schema(&root()).unwrap();
+        let none = s
+            .asserts
+            .iter()
+            .find(|a| a.name == "assert_no_unmocked_requests")
+            .expect("assert_no_unmocked_requests is in the assertion dispatch");
+        assert!(none.params.is_empty(), "{:?}", none.params);
+        assert!(!scanner_missed_params(&src, none));
+
+        // A key read through an unscanned path is still a gap.
+        let hidden = "\nfn eval_assert_hidden(params: &serde_json::Value) -> AssertionResult {\n    \
+                      if let Some(bad) = reject_unknown_params(\"assert_hidden\", params, &[]) {\n        \
+                      return bad;\n    }\n    let k = key_of();\n    read(params, k)\n}\n";
+        let def = OpDef {
+            name: "assert_hidden".to_string(),
+            params: Vec::new(),
+            doc: None,
+        };
+        assert!(scanner_missed_params(hidden, &def));
     }
 
     // -----------------------------------------------------------------------

@@ -217,13 +217,16 @@ pub fn send_crash_reports(
     }
 }
 
-/// Shared transport: one mail, `user_message` body, attachments as base64
-/// MIME parts. Also used by the `ReportProblem` dialog (`report.txt` +
-/// screenshot.png ride the same pipe as crash dumps).
+/// Shared transport: one mail, `user_message` body, the attachments as MIME
+/// parts of their own media type ([`attachment_type`]). Also used by the
+/// `ReportProblem` dialog (`report.txt` + screenshot.png ride the same pipe
+/// as crash dumps). The message is micromail's `MessageBuilder` (MIME, base64,
+/// `MIME-Version`, CRLF), delivered with `Mailer::send_raw`.
 ///
 /// # Errors
 ///
-/// Returns the SMTP error as text.
+/// Returns the SMTP error as text: the recipient the server deferred or
+/// rejected, and why.
 pub fn send_attachments(
     config: &CrashMailConfig,
     user_message: &str,
@@ -252,114 +255,66 @@ pub fn send_attachments(
     } else {
         user_message.to_owned()
     };
-    let mime = build_mime_body(&body_text, attachments);
+    let message = attachments
+        .iter()
+        .fold(
+            micromail::MessageBuilder::new()
+                .from(config.from.clone())
+                .to(config.to.clone())
+                .subject(subject)
+                .text(body_text),
+            |message, (name, bytes)| {
+                message.attachment(name.clone(), attachment_type(name), bytes.clone())
+            },
+        )
+        .build();
 
     let mail_config = micromail::Config::new(config.helo_domain.clone())
         .ports(config.ports.clone())
         .use_tls(config.use_tls);
     let mut mailer = micromail::Mailer::new(mail_config);
-    let mail = micromail::Mail::new()
-        .from(config.from.clone())
-        .to(config.to.clone())
-        .subject(subject)
-        .content_type(format!("multipart/mixed; boundary=\"{MIME_BOUNDARY}\""))
-        .body(mime);
-
-    mailer
-        .send_sync(mail)
-        .map_err(|e| format!("crash mail failed: {e}"))
-}
-
-/// Fixed multipart boundary — the payload is JSON we generate ourselves, so
-/// collision with content is not a concern the way it is for arbitrary MIME.
-const MIME_BOUNDARY: &str = "azul-crash-report-boundary";
-
-/// `multipart/mixed` body: one `text/plain` part (the user's message), then
-/// each dump as an `application/json` base64 attachment.
-fn build_mime_body(text: &str, attachments: &[(String, Vec<u8>)]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::new();
-    let _ = write!(
-        out,
-        "--{MIME_BOUNDARY}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{text}\r\n"
+    let outcomes = mailer.send_raw(
+        &config.from,
+        std::slice::from_ref(&config.to),
+        &message.bytes,
     );
-    for (name, bytes) in attachments {
-        let _ = write!(
-            out,
-            "--{MIME_BOUNDARY}\r\nContent-Type: application/json; \
-             name=\"{name}\"\r\nContent-Disposition: attachment; \
-             filename=\"{name}\"\r\nContent-Transfer-Encoding: base64\r\n\r\n"
-        );
-        // 76-char lines per RFC 2045.
-        let encoded = base64_encode(bytes);
-        for chunk in encoded.as_bytes().chunks(76) {
-            out.push_str(std::str::from_utf8(chunk).unwrap_or_default());
-            out.push_str("\r\n");
-        }
+    if outcomes.is_empty() {
+        return Err(format!("crash mail failed: no deliverable recipient in {}", config.to));
     }
-    let _ = write!(out, "--{MIME_BOUNDARY}--\r\n");
-    out
+    match outcomes.iter().find(|outcome| !outcome.is_accepted()) {
+        None => Ok(()),
+        Some(outcome) => Err(format!(
+            "crash mail failed: {}: {}",
+            outcome.address,
+            match &outcome.status {
+                micromail::RecipientStatus::Deferred { reason, .. } => {
+                    format!("deferred ({reason})")
+                }
+                micromail::RecipientStatus::Rejected { reply, server } => {
+                    format!("rejected by {server}: {reply}")
+                }
+                micromail::RecipientStatus::Accepted { .. } => "accepted".to_owned(),
+            }
+        )),
+    }
 }
 
-/// Standard-alphabet base64 with `=` padding. ~20 lines beats a dependency
-/// for the one place this crate needs an encoder.
-fn base64_encode(input: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for chunk in input.chunks(3) {
-        let b = [
-            chunk[0],
-            chunk.get(1).copied().unwrap_or(0),
-            chunk.get(2).copied().unwrap_or(0),
-        ];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        out.push(ALPHABET[(n >> 18) as usize & 63] as char);
-        out.push(ALPHABET[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 {
-            ALPHABET[(n >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            ALPHABET[n as usize & 63] as char
-        } else {
-            '='
-        });
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn base64_matches_known_vectors() {
-        // RFC 4648 test vectors.
-        assert_eq!(base64_encode(b""), "");
-        assert_eq!(base64_encode(b"f"), "Zg==");
-        assert_eq!(base64_encode(b"fo"), "Zm8=");
-        assert_eq!(base64_encode(b"foo"), "Zm9v");
-        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
-        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
-        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
-    }
-
-    #[test]
-    fn mime_body_carries_message_and_attachment() {
-        let body = build_mime_body(
-            "it crashed while I scrolled",
-            &[(
-                "0-1-crash.json".to_owned(),
-                br#"{"kind":"azul-crash-dump"}"#.to_vec(),
-            )],
-        );
-        assert!(body.contains("it crashed while I scrolled"));
-        assert!(body.contains("filename=\"0-1-crash.json\""));
-        assert!(body.contains("Content-Transfer-Encoding: base64"));
-        // The attachment decodes back to the dump.
-        assert!(body.contains(&base64_encode(br#"{"kind":"azul-crash-dump"}"#)));
-        assert!(body.ends_with(&format!("--{MIME_BOUNDARY}--\r\n")));
+/// The media type of an attachment, by its file name: the crash dumps' and
+/// reports' JSON and the report's text, else the one extension table
+/// (`MimeTypeHint::from_extension`: the screenshot's PNG; anything unknown is
+/// `application/octet-stream`).
+fn attachment_type(file_name: &str) -> String {
+    let extension = file_name
+        .rsplit_once('.')
+        .map_or("", |(_, extension)| extension)
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "json" => "application/json".to_owned(),
+        "txt" => "text/plain".to_owned(),
+        other => azul_core::xml::MimeTypeHint::from_extension(other)
+            .inner
+            .as_str()
+            .to_owned(),
     }
 }
 
@@ -569,6 +524,46 @@ mod smtp_sink_tests {
             message.contains("\r\n.config/azul was missing\r\n"),
             "the dot-led line must survive the SMTP transparency rule:\n{message}"
         );
+    }
+
+    /// One mail: the user's message as the text, each dump a base64
+    /// `application/json` attachment under its file name (restated from the
+    /// hand-made MIME's unit test: the message is micromail's builder now).
+    #[test]
+    fn a_crash_mail_carries_the_message_and_the_dump_as_an_attachment() {
+        let (port, rx) = spawn_sink(false);
+        send_attachments(&contact(port), "it crashed while I scrolled", &dump())
+            .expect("the sink accepts the mail");
+        let message = session_of(&rx)
+            .message
+            .expect("the sink received a message");
+        assert!(message.contains("it crashed while I scrolled"), "{message}");
+        assert!(message.contains("application/json"), "{message}");
+        assert!(message.contains("filename=\"0-1-crash.json\""), "{message}");
+        assert!(message.contains("Content-Transfer-Encoding: base64"), "{message}");
+        // `{"kind":"azul-crash-dump"}`, base64
+        assert!(message.contains("eyJraW5kIjoiYXp1bC1jcmFzaC1kdW1wIn0="), "{message}");
+    }
+
+    /// The problem reporter sends `screenshot.png` through the same pipe as
+    /// the crash dumps (dialogs/report_problem.rs). The hand-made MIME
+    /// labelled EVERY attachment `application/json`, so a mail client offered
+    /// the screenshot as a JSON file. Each part carries the media type of its
+    /// file.
+    #[test]
+    fn a_screenshot_attachment_goes_out_as_a_png() {
+        let (port, rx) = spawn_sink(false);
+        let attachments = vec![
+            ("report.txt".to_owned(), b"what happened".to_vec()),
+            ("screenshot.png".to_owned(), vec![0x89, b'P', b'N', b'G']),
+        ];
+        send_attachments(&contact(port), "see attached", &attachments)
+            .expect("the sink accepts the mail");
+        let message = session_of(&rx)
+            .message
+            .expect("the sink received a message");
+        assert!(message.contains("image/png"), "{message}");
+        assert!(message.contains("filename=\"screenshot.png\""), "{message}");
     }
 
     /// The reporter dialog's text box yields `\n` line ends. micromail 0.1's

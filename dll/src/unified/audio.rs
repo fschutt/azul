@@ -69,6 +69,30 @@ impl AudioSink {
     pub fn is_open(&self) -> bool {
         false
     }
+    /// A closed handle takes no frame.
+    pub fn try_play(&self, _frame: AudioFrame) -> bool {
+        false
+    }
+    pub fn queued_frames(&self) -> u64 {
+        0
+    }
+    pub fn samples_played(&self) -> u64 {
+        0
+    }
+    /// A closed handle cannot pause.
+    pub fn pause(&self) -> bool {
+        false
+    }
+    pub fn resume(&self) {}
+    /// A closed handle has no queue to drop.
+    pub fn clear(&self) -> bool {
+        false
+    }
+    /// `AudioConfig::default()`, as the desktop type answers on a closed
+    /// handle.
+    pub fn config(&self) -> AudioConfig {
+        AudioConfig::default()
+    }
     pub fn play(&self, _frame: AudioFrame) {}
     pub fn frames_played(&self) -> u64 {
         0

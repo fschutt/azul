@@ -859,7 +859,8 @@ impl Runner {
         }
     }
 
-    /// Port of the DLL's `dismiss_on_escape` + the owed focus restore, for the
+    /// Port of the DLL's `dismiss_on_escape` and `dismiss_outside_on_press`
+    /// (`process_transient_dismissal`) + the owed focus restore, for the
     /// runner's popups.
     ///
     /// The runner never reconciles transient windows, so a popup a widget
@@ -872,14 +873,27 @@ impl Runner {
     /// its ring - is handed back at once, unless the user has moved it
     /// (the runner has no "next pass" hook to defer it to).
     ///
+    /// A fresh mouse press closes every forced-open popup whose policy is
+    /// `outside` / `outside-only`, unless it landed on the popup's ANCHOR
+    /// (its parent: the invoker decides about a press on itself, or its
+    /// release would re-open it). A popup is laid out as its own window
+    /// (`display: none` in its parent), so any other press in this window is
+    /// outside it - as in the dll, where the parent sees the press. An inline-
+    /// docked or torn-off one is content / a window of its own and stays. The
+    /// press is NOT spent: it goes on to whatever it landed on.
+    ///
     /// Each dismissed node then gets `ComponentEventFilter::Dismissed`, the
     /// lifecycle event `LayoutWindow::dismiss_transient_window` queues in the
     /// dll (built by the same `create_dismiss_event`, anchored on the node's
     /// parent like a placement), so a widget clears its own `open` flag here
     /// too. Dispatched at once: the runner never drains
     /// `pending_lifecycle_events`. Returns what that dispatch asks for.
-    fn dismiss_popups_on_escape(&mut self) -> ProcessEventResult {
-        use azul_core::{dom::NodeType, transient::TransientDismiss, window::VirtualKeyCode};
+    fn dismiss_popups_on_escape_or_outside_press(&mut self) -> ProcessEventResult {
+        use azul_core::{
+            dom::NodeType,
+            transient::{TransientDismiss, TransientDock},
+            window::{CursorPosition, VirtualKeyCode},
+        };
 
         let esc = |s: &FullWindowState| {
             s.keyboard_state
@@ -887,28 +901,78 @@ impl Runner {
                 .as_ref()
                 .contains(&VirtualKeyCode::Escape)
         };
+        let a_button_is_down = |s: &FullWindowState| {
+            s.mouse_state.left_down || s.mouse_state.right_down || s.mouse_state.middle_down
+        };
         let Some(previous) = self.previous_window_state.as_ref() else {
             return ProcessEventResult::DoNothing;
         };
-        if !(esc(&self.window_state) && !esc(previous)) {
+        let by_escape = esc(&self.window_state) && !esc(previous);
+        let by_press = a_button_is_down(&self.window_state) && !a_button_is_down(previous);
+        if !by_escape && !by_press {
             return ProcessEventResult::DoNothing;
         }
-        let targets: Vec<NodeId> = {
-            let Some(lr) = self.layout_window.layout_results.get(&DomId::ROOT_ID) else {
+        let press_at = match self.window_state.mouse_state.cursor_position {
+            CursorPosition::InWindow(p) => Some(p),
+            _ => None,
+        };
+        // Each popup's anchor: its parent's rect, the anchor a placement
+        // would have had (the dll reports `placement.anchor_rect`). Read
+        // before the nodes close, while the parent still has its rect.
+        let anchor_of = |lw: &LayoutWindow, node: NodeId| {
+            lw.layout_results
+                .get(&DomId::ROOT_ID)
+                .and_then(|lr| {
+                    lr.styled_dom
+                        .node_hierarchy
+                        .as_container()
+                        .get(node)
+                        .and_then(|item| item.parent_id())
+                })
+                .and_then(|parent| {
+                    lw.get_node_rect_in_viewport(DomNodeId {
+                        dom: DomId::ROOT_ID,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
+                    })
+                })
+                .unwrap_or_else(LogicalRect::zero)
+        };
+        let on = |rect: LogicalRect| {
+            press_at.is_some_and(|p| {
+                p.x >= rect.origin.x
+                    && p.x <= rect.origin.x + rect.size.width
+                    && p.y >= rect.origin.y
+                    && p.y <= rect.origin.y + rect.size.height
+            })
+        };
+        let targets: Vec<(NodeId, LogicalRect)> = {
+            let lw = &self.layout_window;
+            let Some(lr) = lw.layout_results.get(&DomId::ROOT_ID) else {
                 return ProcessEventResult::DoNothing;
             };
             let nodes = lr.styled_dom.node_data.as_container();
-            self.layout_window
-                .transient_windows
+            lw.transient_windows
                 .forced_open_nodes()
                 .iter()
                 .copied()
-                .filter(|n| {
-                    matches!(
-                        nodes.get(*n).map(|nd| nd.get_node_type()),
-                        Some(NodeType::TransientWindow(cfg))
-                            if matches!(cfg.dismiss, TransientDismiss::Outside | TransientDismiss::Escape)
-                    )
+                .filter_map(|n| {
+                    let Some(NodeType::TransientWindow(cfg)) =
+                        nodes.get(n).map(|nd| nd.get_node_type())
+                    else {
+                        return None;
+                    };
+                    let anchor = anchor_of(lw, n);
+                    let escape_closes = by_escape
+                        && matches!(cfg.dismiss, TransientDismiss::Outside | TransientDismiss::Escape);
+                    let press_closes = by_press
+                        && matches!(
+                            cfg.dismiss,
+                            TransientDismiss::Outside | TransientDismiss::OutsideOnly
+                        )
+                        && cfg.dock != TransientDock::Inline
+                        && !cfg.torn
+                        && !on(anchor);
+                    (escape_closes || press_closes).then_some((n, anchor))
                 })
                 .collect()
         };
@@ -916,44 +980,25 @@ impl Runner {
             return ProcessEventResult::DoNothing;
         }
         // ==== E1: the `Dismissed` event ====
-        // Built before the nodes close, while each one's parent still has
-        // its rect: the anchor a placement would have had (the dll reports
-        // `placement.anchor_rect`).
         let now = self.now();
         let dismissed_events: Vec<azul_core::events::SyntheticEvent> = targets
             .iter()
-            .map(|node| {
-                let anchor = self
-                    .layout_window
-                    .layout_results
-                    .get(&DomId::ROOT_ID)
-                    .and_then(|lr| {
-                        lr.styled_dom
-                            .node_hierarchy
-                            .as_container()
-                            .get(*node)
-                            .and_then(|item| item.parent_id())
-                    })
-                    .and_then(|parent| {
-                        self.layout_window.get_node_rect_in_viewport(DomNodeId {
-                            dom: DomId::ROOT_ID,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(parent)),
-                        })
-                    })
-                    .unwrap_or_else(LogicalRect::zero);
-                azul_core::diff::create_dismiss_event(*node, DomId::ROOT_ID, &now, anchor)
+            .map(|(node, anchor)| {
+                azul_core::diff::create_dismiss_event(*node, DomId::ROOT_ID, &now, *anchor)
             })
             .collect();
-        for node in targets {
+        for (node, _) in targets {
             // No window is open in the runner, so `dismiss` returns None - its
             // bookkeeping (forced-open released, focus owed, node held
             // dismissed) is what counts.
             let _ = self.layout_window.transient_windows.dismiss(node);
         }
-        // The Escape is spent.
-        let keyboard = self.window_state.keyboard_state.clone();
-        if let Some(previous) = self.previous_window_state.as_mut() {
-            previous.keyboard_state = keyboard;
+        // The Escape is spent (a press is not: it goes on to its target).
+        if by_escape {
+            let keyboard = self.window_state.keyboard_state.clone();
+            if let Some(previous) = self.previous_window_state.as_mut() {
+                previous.keyboard_state = keyboard;
+            }
         }
         if let Some((target, visible)) = self
             .layout_window
@@ -1018,11 +1063,12 @@ impl Runner {
             return ProcessEventResult::DoNothing;
         }
 
-        // ── 0. ESCAPE DISMISSES POPUPS (port of the DLL's `dismiss_on_escape`
-        // in `process_transient_dismissal`, which runs before determination).
+        // ── 0. ESCAPE / AN OUTSIDE PRESS DISMISSES POPUPS (port of the DLL's
+        // `dismiss_on_escape` / `dismiss_outside_on_press` in
+        // `process_transient_dismissal`, which runs before determination).
         // What the popups' `Dismissed` handlers ask for is this pass's too.
         let dismissal = if depth == 0 {
-            self.dismiss_popups_on_escape()
+            self.dismiss_popups_on_escape_or_outside_press()
         } else {
             ProcessEventResult::DoNothing
         };
@@ -7096,6 +7142,120 @@ mod tests {
             runner.layout_window.focus_manager.get_focused_node().copied(),
             Some(node_with_class(&runner, "stop-after")),
             "Tab continues from the swatch to the stop after it"
+        );
+    }
+
+    /// Engine backlog 11: the runner closed a widget's popup on Escape only.
+    /// The real path (the dll's `dismiss_outside_on_press`) also closes an
+    /// `outside` popup on a fresh press anywhere but its anchor (the invoker
+    /// decides about a press on itself), so a scenario that clicks away from
+    /// an open picker saw it stay open.
+    #[test]
+    fn a_press_outside_a_popup_in_a_scenario_dismisses_it() {
+        use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+
+        // Tab to the swatch, Space opens its picker; then (or not) a press
+        // far from the swatch, on bare body.
+        let open_the_picker = |then_press_outside: bool| {
+            let mut dom = Dom::create_body().with_child(
+                ColorInput::create(color_from_hex("#ff5733").expect("a colour")).dom(),
+            );
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let mut steps = vec![
+                serde_json::json!({ "op": "wait_frame" }),
+                serde_json::json!({ "op": "key_down", "key": "Tab" }),
+                serde_json::json!({ "op": "key_up", "key": "Tab" }),
+                serde_json::json!({ "op": "key_down", "key": "Space" }),
+                serde_json::json!({ "op": "key_up", "key": "Space" }),
+                serde_json::json!({ "op": "wait_frame" }),
+            ];
+            if then_press_outside {
+                steps.push(serde_json::json!({ "op": "click", "x": 390.0, "y": 190.0 }));
+                steps.push(serde_json::json!({ "op": "wait_frame" }));
+            }
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "a_press_outside_closes_the_picker",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": steps
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            runner
+                .layout_window
+                .transient_windows
+                .forced_open_nodes()
+                .len()
+        };
+
+        assert_eq!(open_the_picker(false), 1, "premise: Space opened the picker");
+        assert_eq!(
+            open_the_picker(true),
+            0,
+            "the press outside the picker closed it"
+        );
+    }
+
+    /// Engine backlog 10: the e2e protocol has no paste op, so no scenario can
+    /// drive a paste (the runner has no OS clipboard, and a Ctrl+V reads the
+    /// real one in the dll). `{"op": "paste", "text", "html"}` must run what a
+    /// user's paste runs: the `Paste` callbacks (their `prevent_default`
+    /// vetoes it), then `LayoutWindow::paste_clipboard_content` - so a rich
+    /// editor keeps the HTML's bold.
+    #[test]
+    #[ignore = "round 2 (FIX9-INPUT 3.8): the paste op needs a CallbackChange (layout/src/callbacks.rs) \
+                and its arm in the dll's apply_user_change (dll/src/desktop/shell2/common/event.rs)"]
+    fn a_scenarios_paste_op_pastes_bold_html_into_the_focused_editor() {
+        use azul_core::dom::IdOrClass;
+
+        let mut host = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("editor".into())].into())
+            .with_child(
+                Dom::create_p()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("foo")),
+            );
+        host.set_contenteditable(true);
+        let mut dom = Dom::create_body().with_child(host);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "paste_bold_html",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "focus_node", "selector": ".editor" },
+                { "op": "wait_frame" },
+                { "op": "paste", "text": "bold", "html": "<b>bold</b>" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let edit = runner
+            .layout_window
+            .unsynced_text_edits()
+            .into_iter()
+            .find(|e| e.text.as_str().contains("bold"))
+            .expect("the paste reached the editor's text");
+        #[allow(clippy::cast_possible_truncation)]
+        let at = edit.text.as_str().find("bold").expect("pasted") as u32;
+        assert!(
+            edit.runs
+                .as_ref()
+                .iter()
+                .any(|r| r.formats.bold && r.start <= at && r.end >= at + 4),
+            "the pasted word is bold: {:?} in {:?}",
+            edit.runs,
+            edit.text
         );
     }
 

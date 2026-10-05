@@ -858,10 +858,7 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
         return ("String".to_string(), Some("{}.as_str()".to_string()));
     }
 
-    // Handle &Vec<u8> -> U8VecRef (need .as_slice() in fn_body)
-    if trimmed == "&Vec<u8>" || trimmed == "Vec<u8>" {
-        return ("U8VecRef".to_string(), Some("{}.as_slice()".to_string()));
-    }
+    // (`Vec<u8>` arguments: `vec_or_mut_slice_arg`, which sees the ref kind.)
 
     // Slices `[T]` (the source parser splits the `&` off before) or `&[T]`
     if let Some(elem) = trimmed
@@ -920,6 +917,50 @@ fn slice_arg_type(elem: &str) -> Option<String> {
     Some(format!("{elem}VecSlice"))
 }
 
+/// The body accessor of a writable `{..}VecRefMut` view argument: its
+/// `&mut [T]` (`from_raw_parts_mut`, the dangling pointer for an empty view -
+/// a C caller may pass a null one; the view's `as_mut_slice` is private to
+/// core).
+const MUT_SLICE_ACCESSOR: &str = "unsafe { core::slice::from_raw_parts_mut(if {}.len == 0 { \
+                                  core::ptr::NonNull::dangling().as_ptr() } else { {}.ptr }, {}.len) }";
+
+/// The api.json type and body accessor of the arguments a read-only slice
+/// view does not serve, `(ty, ref_kind)` as the source parser splits them:
+/// a borrowed `&Vec<u8>` (a std Vec is built from the `U8VecRef` view), an
+/// owned `Vec<u8>` (the `U8Vec` handed over), and a `&mut [T]` for u8 / f32
+/// / i32 (the writable views api.json has: `U8VecRefMut`, `GLfloatVecRefMut`,
+/// `GLintVecRefMut`). `None` for anything else, `&mut Vec<u8>` and a
+/// `&mut [T]` of another element included: no FFI form here.
+fn vec_or_mut_slice_arg(
+    ty: &str,
+    ref_kind: &crate::api::RefKind,
+) -> Option<(String, Option<String>)> {
+    let ty = ty.trim();
+    if ty == "Vec<u8>" {
+        return match ref_kind {
+            crate::api::RefKind::Value => Some((
+                "U8Vec".to_string(),
+                Some("{}.into_library_owned_vec()".to_string()),
+            )),
+            crate::api::RefKind::Ref => Some((
+                "U8VecRef".to_string(),
+                Some("&{}.as_slice().to_vec()".to_string()),
+            )),
+            _ => None,
+        };
+    }
+    if *ref_kind != crate::api::RefKind::RefMut {
+        return None;
+    }
+    let view = match ty.strip_prefix('[')?.strip_suffix(']')?.trim() {
+        "u8" => "U8VecRefMut",
+        "f32" => "GLfloatVecRefMut",
+        "i32" => "GLintVecRefMut",
+        _ => return None,
+    };
+    Some((view.to_string(), Some(MUT_SLICE_ACCESSOR.to_string())))
+}
+
 /// The api.json type and body accessor of an `Option<inner>` argument
 /// (`source_ty` as written, `Option<AzString>` / `Option<String>`): its FFI
 /// option, converted back - `.into()` for an owned value (a std `String`
@@ -963,14 +1004,8 @@ fn option_arg_ffi_type(inner: &str, source_ty: &str) -> Option<(String, Option<S
     ))
 }
 
-/// `u32` -> `U32`, `LayoutRect` stays.
-fn capitalize(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
-        None => String::new(),
-    }
-}
+// `u32` -> `U32`, `LayoutRect` stays (the codegen's one helper).
+use crate::codegen::v2::upper_first as capitalize;
 
 // // helper functions for list/add/remove
 //
@@ -1456,6 +1491,11 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
             crate::api::RefKind::Ref => return (arg.ty.clone(), Some("&{}".to_string())),
             _ => {}
         }
+    }
+    // A Vec of bytes, or a slice the method writes into: not the read-only
+    // view `convert_arg_type_for_ffi` gives a `[T]` (it never sees the ref)
+    if let Some(converted) = vec_or_mut_slice_arg(&arg.ty, &arg.ref_kind) {
+        return converted;
     }
     // An `Option<X>` crosses as its FFI option and is converted back
     if arg.ref_kind == crate::api::RefKind::Value {
@@ -3049,6 +3089,40 @@ mod tests {
             let args = arg_list(&f);
             assert_eq!(args.last().map(|(_, t)| t.as_str()), Some(ty), "{name}: {args:?}");
             assert_eq!(f.fn_body.as_deref(), Some(body), "{name}");
+        }
+    }
+
+    /// TOOLS7 seen: a `&Vec<u8>` (and an owned `Vec<u8>`) argument got the
+    /// read-only byte view (`U8VecRef`, `.as_slice()`), so the body passed a
+    /// `&[u8]` where the method takes a Vec; a `&mut [T]` got the same view
+    /// and the method could not write into it. A borrowed Vec is built from
+    /// the view, an owned one is the `U8Vec` handed over, and a `&mut [T]`
+    /// crosses as the writable view api.json has (`U8VecRefMut`, the gl
+    /// `GLfloatVecRefMut` / `GLintVecRefMut`), read with a null-safe
+    /// `from_raw_parts_mut` (its `as_mut_slice` is private to core).
+    #[test]
+    fn a_vec_ref_argument_is_passed_as_a_vec_and_a_mut_slice_as_a_mut_slice() {
+        let source = r#"
+            impl T {
+                pub fn load(&mut self, bytes: &Vec<u8>) {}
+                pub fn take(&mut self, bytes: Vec<u8>) {}
+                pub fn fill(&self, out: &mut [u8]) {}
+                pub fn scale(&self, out: &mut [f32]) {}
+            }
+        "#;
+        let mut_view = "unsafe { core::slice::from_raw_parts_mut(if out.len == 0 { \
+                        core::ptr::NonNull::dangling().as_ptr() } else { out.ptr }, out.len) }";
+        let cases = [
+            ("load", "U8VecRef", "object.load(&bytes.as_slice().to_vec())".to_string()),
+            ("take", "U8Vec", "object.take(bytes.into_library_owned_vec())".to_string()),
+            ("fill", "U8VecRefMut", format!("object.fill({mut_view})")),
+            ("scale", "GLfloatVecRefMut", format!("object.scale({mut_view})")),
+        ];
+        for (name, ty, body) in cases {
+            let f = added(source, name);
+            let args = arg_list(&f);
+            assert_eq!(args.last().map(|(_, t)| t.as_str()), Some(ty), "{name}: {args:?}");
+            assert_eq!(f.fn_body.as_deref(), Some(body.as_str()), "{name}");
         }
     }
 

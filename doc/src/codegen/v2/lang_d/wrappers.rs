@@ -53,6 +53,7 @@ use super::{
         managed_host_invoker::{
             callback_ctx_field, has_callback_wrapper_arg, layout_callback_factory_info,
         },
+        upper_first,
     },
     camel, d_type_name,
     model::{ClassInfo, EnumInfo, Field, Kind, Model, Prim, Shape, Ty, Variant},
@@ -2904,14 +2905,6 @@ fn case_names(variants: &[String]) -> Vec<String> {
             n
         })
         .collect()
-}
-
-fn upper_first(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
-        None => String::new(),
-    }
 }
 
 #[cfg(test)]

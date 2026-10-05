@@ -1015,6 +1015,11 @@ pub struct TypeIndex {
     /// The modules declared without `pub` (`azul_layout::cpurender::named`):
     /// a path through one does not name its type from another crate
     private_modules: std::collections::BTreeSet<String>,
+    /// The desktop modules an `azul_dll::unified` facade re-exports
+    /// (`azul_dll::desktop::extra::audio`): a path through one does not name
+    /// its type on every target (`azul_dll::desktop` is not built on wasm32);
+    /// the facade path does
+    facade_sources: std::collections::BTreeSet<String>,
     /// Errors encountered during indexing
     pub errors: Vec<String>,
 }
@@ -1070,11 +1075,25 @@ impl TypeIndex {
         // (TextRasterStyle, wave 6). azul_dll is left out: the generated code
         // lives in that crate, where its private modules are in reach.
         let public: std::collections::BTreeSet<&String> = facts.public.iter().collect();
-        index.private_modules = facts
+        let all_private: std::collections::BTreeSet<String> = facts
             .private
             .iter()
-            .filter(|m| !public.contains(m) && !m.starts_with("azul_dll::"))
+            .filter(|m| !public.contains(m))
             .cloned()
+            .collect();
+        index.private_modules = all_private
+            .iter()
+            .filter(|m| !m.starts_with("azul_dll::"))
+            .cloned()
+            .collect();
+        // azul_dll's own rule: `azul_dll::desktop` is not built on wasm32, so
+        // a type the `azul_dll::unified` facade re-exports is named by the
+        // facade (the 9 desktop externals of 2026-10-05).
+        index.facade_sources = facts
+            .reexports
+            .iter()
+            .filter(|r| is_facade(r))
+            .map(|r| r.from.clone())
             .collect();
         for mut typedef in parsed {
             let public = typedef
@@ -1087,6 +1106,13 @@ impl TypeIndex {
             if let Some(path) = public {
                 typedef.full_path = path;
             }
+            let facaded = typedef
+                .full_path
+                .rsplit_once("::")
+                .and_then(|(module, name)| facade_path(module, name, &facts.reexports, &all_private));
+            if let Some(path) = facaded {
+                typedef.full_path = path;
+            }
             index.add_type(typedef);
         }
 
@@ -1094,13 +1120,17 @@ impl TypeIndex {
         // This handles cases where `impl SomeType` is in a different file than `struct SomeType`
         let cross_file_methods: Vec<_> = all_files
             .par_iter()
-            .filter_map(|(_, file_path)| parse_file_for_cross_file_methods(file_path).ok())
+            .filter_map(|(crate_name, file_path)| {
+                parse_file_for_cross_file_methods(file_path)
+                    .ok()
+                    .map(|methods| (crate_name.as_str(), methods))
+            })
             .collect();
 
         // Merge cross-file methods into existing types
-        for methods_map in cross_file_methods {
+        for (crate_name, methods_map) in cross_file_methods {
             for (type_name, methods) in methods_map {
-                index.attach_methods_to_type(&type_name, methods);
+                index.attach_methods_to_type(&type_name, crate_name, methods);
             }
         }
 
@@ -1115,15 +1145,29 @@ impl TypeIndex {
         Ok(index)
     }
 
-    /// Attach methods from cross-file impl blocks to existing types
-    fn attach_methods_to_type(&mut self, type_name: &str, methods: Vec<MethodDef>) {
+    /// Attach methods from cross-file impl blocks (found in a file of
+    /// `impl_crate`) to existing types. An inherent method only reaches the
+    /// candidates of its own crate (an inherent impl lives in its type's
+    /// crate); a trait impl's method reaches every candidate of the name.
+    fn attach_methods_to_type(
+        &mut self,
+        type_name: &str,
+        impl_crate: &str,
+        methods: Vec<MethodDef>,
+    ) {
         if let Some(candidates) = self.by_name.get_mut(type_name) {
             // Attach to all candidates (usually there's only one definition)
             for arc in candidates.iter_mut() {
+                let crate_of_type = arc.crate_name.clone();
+                let reaches =
+                    |m: &&MethodDef| m.from_trait.is_some() || crate_of_type == impl_crate;
+                if !methods.iter().any(|m| reaches(&m)) {
+                    continue;
+                }
                 // We need to get a mutable reference to the TypeDefinition
                 // Since we use Arc, we need to use Arc::make_mut
                 let typedef = Arc::make_mut(arc);
-                for method in &methods {
+                for method in methods.iter().filter(reaches) {
                     // Avoid duplicates by checking if method already exists
                     if !typedef.methods.iter().any(|m| m.name == method.name) {
                         typedef.methods.push(method.clone());
@@ -1277,8 +1321,12 @@ impl TypeIndex {
 
     /// The first private module on the way to `path` (a type or module
     /// path), if any: the path does not name its item from another crate.
+    /// A desktop module the `azul_dll::unified` facade re-exports counts:
+    /// the path does not name its item on every target (wasm32), the
+    /// facade path does.
     pub fn private_module_on(&self, path: &str) -> Option<String> {
         first_private_module(path, &self.private_modules)
+            .or_else(|| first_private_module(path, &self.facade_sources))
     }
 
     /// Record `module` as declared without `pub` (tests).
@@ -1385,23 +1433,34 @@ impl TypeIndex {
 // file collection
 /// Recursively collect all .rs files in a directory
 fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir: &Path) {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    // Skip excluded paths (tests, examples, build.rs, etc.)
+    let mut found = Vec::new();
+    rust_files_under(dir, &crate::autofix::module_map::should_exclude_path, &mut found);
+    files.extend(found.into_iter().map(|path| (crate_name.to_string(), path)));
+}
 
+/// Every `.rs` file under `dir`, recursively, into `out` - except the paths
+/// `skip` names (a skipped directory is not entered). THE walker of the
+/// autofix tools: the index skips tests, examples, benches and build
+/// scripts (`module_map::should_exclude_path`), the preflight syntax check
+/// (autofix/mod.rs) reads every file.
+pub(crate) fn rust_files_under(
+    dir: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+    out: &mut Vec<PathBuf>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-
-        // Skip excluded paths (tests, examples, build.rs, etc.)
-        if crate::autofix::module_map::should_exclude_path(&path) {
+        if skip(&path) {
             continue;
         }
-
         if path.is_dir() {
-            collect_rust_files(files, crate_name, &path);
-        } else if path.extension().map_or(false, |e| e == "rs") {
-            files.push((crate_name.to_string(), path));
+            rust_files_under(&path, skip, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
         }
     }
 }
@@ -1847,6 +1906,61 @@ fn public_path(
     })
 }
 
+/// Is `r` an `azul_dll::unified` facade's glob of a desktop module
+/// (`pub use crate::desktop::extra::<m>::*;` in dll/src/unified/<m>.rs, off
+/// wasm32; the facade has wasm32 stubs of the same names)?
+fn is_facade(r: &Reexport) -> bool {
+    r.item.is_none() && r.at.starts_with("azul_dll::unified") && r.from.starts_with("azul_dll::desktop::")
+}
+
+/// The `azul_dll::unified` facade path of the type `module::name`: the
+/// shortest path a facade glob reaches it by - the type at the facade's
+/// source module itself (defined there, or re-exported there by a `pub use`
+/// of its module, by glob or by name: `unified::audio::AudioEncoder`), else
+/// through the public child modules on the way
+/// (`unified::video_codec::pipeline::DecodedVideo`). `None` when no facade
+/// reaches it: outside every facaded module, or behind a private child
+/// module (`private`: every module declared without `pub`).
+fn facade_path(
+    module: &str,
+    name: &str,
+    reexports: &[Reexport],
+    private: &std::collections::BTreeSet<String>,
+) -> Option<String> {
+    reexports
+        .iter()
+        .filter(|r| is_facade(r))
+        .filter_map(|facade| {
+            let source = facade.from.as_str();
+            let at_source = module == source
+                || reexports.iter().any(|r| {
+                    r.at == source
+                        && r.from == module
+                        && r.item.as_deref().map_or(true, |item| item == name)
+                });
+            let relative = if at_source {
+                name.to_string()
+            } else {
+                let tail = module.strip_prefix(source)?.strip_prefix("::")?;
+                let mut on_the_way = source.to_string();
+                for segment in tail.split("::") {
+                    on_the_way = format!("{on_the_way}::{segment}");
+                    if private.contains(&on_the_way) {
+                        return None;
+                    }
+                }
+                format!("{tail}::{name}")
+            };
+            Some(format!("{}::{relative}", facade.at))
+        })
+        .min_by(|a, b| {
+            a.matches("::")
+                .count()
+                .cmp(&b.matches("::").count())
+                .then_with(|| a.cmp(b))
+        })
+}
+
 /// Parse a file to extract impl blocks for cross-file method attachment.
 /// This extracts both inherent impl blocks (`impl Type`) and trait impl blocks
 /// (`impl Trait for Type`) where we want to expose the trait methods as type methods.
@@ -1875,7 +1989,43 @@ fn parse_file_for_cross_file_methods(
         all_methods.entry(type_name).or_default().extend(methods);
     }
 
+    // The impls of a type THIS file defines are not cross-file: phase 1
+    // attached them to the type if it is indexed - and if it is not (a
+    // module-private type, a wasm32 stub) they belong to that type, never to
+    // an indexed type that happens to share its name.
+    let defined = defined_type_names(&syntax_tree.items);
+    all_methods.retain(|type_name, _| !defined.contains(type_name));
+
     Ok(all_methods)
+}
+
+/// Every struct, enum, union and type alias `items` define, inline modules
+/// included, whatever their visibility and cfg.
+fn defined_type_names(items: &[Item]) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for item in items {
+        match item {
+            Item::Struct(s) => {
+                names.insert(s.ident.to_string());
+            }
+            Item::Enum(e) => {
+                names.insert(e.ident.to_string());
+            }
+            Item::Union(u) => {
+                names.insert(u.ident.to_string());
+            }
+            Item::Type(t) => {
+                names.insert(t.ident.to_string());
+            }
+            Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    names.extend(defined_type_names(inner));
+                }
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 /// Extract methods from `impl Trait for Type` blocks.
@@ -4223,6 +4373,61 @@ mod tests {
         );
     }
 
+    /// `azul_dll::desktop` does not exist on wasm32; the `azul_dll::unified`
+    /// facade (`dll/src/unified/<m>.rs`: `pub use crate::desktop::extra::<m>::*;`
+    /// off wasm, stubs on wasm) is the path every target names. Nine api.json
+    /// externals pointed at desktop paths (AudioEncoder, Mp4Muxer, ParsedPdf,
+    /// ...; integration 2026-10-05) because the index named every azul_dll
+    /// type by its definition. A type the facade re-exports takes the facade
+    /// path - through a module's own `pub use` (`AudioEncoder`), defined at the
+    /// module (`AudioSink`), or in a public child module (`pipeline::Decoded`)
+    /// - and the desktop path counts as not nameable, so the scan fixes it. A
+    /// type the facade cannot reach (a private child) keeps its path.
+    #[test]
+    fn a_desktop_extra_type_reexported_by_the_unified_facade_takes_the_facade_path() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("dll/src/lib.rs", "pub mod desktop;\npub mod unified;\n");
+        write("dll/src/desktop/mod.rs", "pub mod extra;\n");
+        write("dll/src/desktop/extra/mod.rs", "pub mod audio;\n");
+        write(
+            "dll/src/desktop/extra/audio/mod.rs",
+            "pub mod codec;\npub use codec::{AudioEncoder};\npub(crate) mod playback;\npub mod pipeline;\n\
+             #[repr(C)] pub struct AudioSink { pub ptr: *mut u8 }\n",
+        );
+        write("dll/src/desktop/extra/audio/codec.rs", "#[repr(C)] pub struct AudioEncoder { pub ptr: *mut u8 }\n");
+        write("dll/src/desktop/extra/audio/playback.rs", "#[repr(C)] pub struct Internal { pub a: u8 }\n");
+        write("dll/src/desktop/extra/audio/pipeline.rs", "#[repr(C)] pub struct Decoded { pub a: u8 }\n");
+        write("dll/src/unified/mod.rs", "pub mod audio;\n");
+        write(
+            "dll/src/unified/audio.rs",
+            "#[cfg(not(target_arch = \"wasm32\"))]\npub use crate::desktop::extra::audio::*;\n\
+             #[cfg(target_arch = \"wasm32\")]\n#[repr(C)] pub struct AudioSink { pub ptr: *mut u8 }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let path_of = |name: &str| index.resolve(name, None).expect(name).full_path.clone();
+
+        assert_eq!(path_of("AudioEncoder"), "azul_dll::unified::audio::AudioEncoder");
+        assert_eq!(path_of("AudioSink"), "azul_dll::unified::audio::AudioSink");
+        assert_eq!(path_of("Decoded"), "azul_dll::unified::audio::pipeline::Decoded");
+        assert_eq!(path_of("Internal"), "azul_dll::desktop::extra::audio::playback::Internal");
+
+        // The scan's path fix: the desktop path of a facaded type is not
+        // nameable on every target, its facade path is.
+        assert_eq!(
+            index
+                .private_module_on("azul_dll::desktop::extra::audio::codec::AudioEncoder")
+                .as_deref(),
+            Some("azul_dll::desktop::extra::audio")
+        );
+        assert_eq!(index.private_module_on("azul_dll::unified::audio::AudioEncoder"), None);
+    }
+
     /// A module-private type can never be part of the C API (the generated
     /// code lives in another module), but the index took it as one: the XML
     /// tree builder's `enum NodeData` (core/src/xml_html_tree.rs) was a
@@ -4258,6 +4463,59 @@ mod tests {
         assert!(index.resolve("AlsoHidden", None).is_none());
         assert!(index.resolve("CrateWide", None).is_some(), "pub(crate) is visible to the crate's API code");
         assert!(index.resolve("Seen", None).is_some());
+    }
+
+    /// Phase 2 attached the methods of every `impl X` block it found to EVERY
+    /// indexed type named X: it parses every file, the one defining a
+    /// module-private X too (the XML tree builder's `enum NodeData` lent its
+    /// helpers to `azul_core::dom::NodeData`), and an inherent impl in one
+    /// crate reached a type of that name in another - inherent impls live in
+    /// their type's crate (integration 2026-10-05). A cross-file impl of the
+    /// public type still attaches.
+    #[test]
+    fn a_private_types_impl_methods_stay_off_a_public_type_of_the_same_name() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("core/src/lib.rs", "pub mod dom;\npub mod dom_ext;\npub mod tree;\npub mod shared;\n");
+        write("core/src/dom.rs", "#[repr(C)] pub struct NodeData { pub a: u8 }\n");
+        write(
+            "core/src/dom_ext.rs",
+            "impl NodeData { pub fn public_method(&self) -> u8 { 0 } }\n",
+        );
+        write(
+            "core/src/tree.rs",
+            "enum NodeData { Document }\nimpl NodeData { pub fn private_helper(&self) -> u8 { 0 } }\n",
+        );
+        write("core/src/shared.rs", "#[repr(C)] pub struct Shared { pub a: u8 }\n");
+        write("layout/src/lib.rs", "pub mod a;\npub mod b;\n");
+        write("layout/src/a.rs", "#[repr(C)] pub struct Shared { pub b: u8 }\n");
+        write(
+            "layout/src/b.rs",
+            "impl Shared { pub fn layout_only(&self) -> u8 { 0 } }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let methods = |path: &str| -> Vec<String> {
+            index
+                .get_by_path(path)
+                .expect(path)
+                .methods
+                .iter()
+                .map(|m| m.name.clone())
+                .collect()
+        };
+        let node_data = methods("azul_core::dom::NodeData");
+        assert!(node_data.contains(&"public_method".to_string()), "{node_data:?}");
+        assert!(!node_data.contains(&"private_helper".to_string()), "{node_data:?}");
+        assert!(
+            !methods("azul_core::shared::Shared").contains(&"layout_only".to_string()),
+            "an inherent impl in azul_layout is not azul_core's"
+        );
+        assert!(methods("azul_layout::a::Shared").contains(&"layout_only".to_string()));
     }
 
     /// A method in an `impl T` block of another file (`impl CallbackInfo` in
@@ -4298,7 +4556,7 @@ mod tests {
             is_public: true,
             from_trait: None,
         };
-        index.attach_methods_to_type("CallbackInfo", vec![method]);
+        index.attach_methods_to_type("CallbackInfo", "azul_layout", vec![method]);
 
         let by_path = index
             .get_by_path("azul_layout::callbacks::CallbackInfo")

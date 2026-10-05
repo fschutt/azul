@@ -41,6 +41,7 @@ use super::super::ir::{
 use super::super::c_layout::union_payload_layout;
 use super::super::lang_fortran::layout::{type_layout, AbiLayout};
 use super::{ffi_type_name, primitive_to_go, snake_to_pascal};
+use crate::codegen::v2::upper_first;
 
 /// Generate the contents of `types.go`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -597,14 +598,6 @@ fn emit_union_body(
 /// Constructor parameter name for a variant member (`Payload` -> `payload`,
 /// `Payload0` -> `payload0`, `Width` -> `width`); `u`/`v` are taken.
 /// `defaultVariant` -> `DefaultVariant`: an exported Go identifier.
-fn upper_first(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-        None => String::new(),
-    }
-}
-
 fn ctor_param_name(member: &str) -> String {
     let mut c = member.chars();
     let lower = match c.next() {

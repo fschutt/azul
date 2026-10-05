@@ -130,26 +130,21 @@ impl Url {
         self.scheme.as_str() == "http"
     }
 
-    /// Opens this URL in the system's default browser.
+    /// Opens this URL in the system's default browser. `true` once the
+    /// opener started (`false` where the platform has none).
     #[cfg(feature = "std")]
     pub fn open(&self) -> bool {
-        let s = self.href.as_str();
-        #[cfg(target_os = "windows")]
-        {
-            std::process::Command::new("cmd").args(&["/C", "start", s]).spawn().is_ok()
-        }
-        #[cfg(target_os = "macos")]
-        {
-            std::process::Command::new("open").arg(s).spawn().is_ok()
-        }
-        #[cfg(target_os = "linux")]
-        {
-            std::process::Command::new("xdg-open").arg(s).spawn().is_ok()
-        }
-        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-        {
-            false
-        }
+        spawn_opener(self.href.as_str(), false)
+    }
+
+    /// Opens a file in its default app, or a folder in the file manager
+    /// (`open` on macOS, `xdg-open` on Linux and the BSDs, `explorer` on
+    /// Windows; the path is one argument, no shell parses it). `true` once
+    /// the opener started (`false` where the platform has none).
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn open_path(path: &str) -> bool {
+        spawn_opener(path, true)
     }
 
     /// Get the effective port (using default ports for http/https)
@@ -216,6 +211,92 @@ impl fmt::Display for Url {
     }
 }
 
+/// The program and arguments that hand `target` - a URL, or a file / folder
+/// path when `is_path` - to its default handler on `os`
+/// (`std::env::consts::OS`), or `None` where there is no opener.
+///
+/// The target is always ONE argument and no shell runs in between. Windows
+/// used `cmd /C start <url>`: cmd re-parses the line, so an `&` (every URL
+/// with two query parameters) ended the command, and a quoted first argument
+/// became the window title. A URL goes to `rundll32 url.dll,FileProtocolHandler`
+/// (the shell's URL handler, no command-line parsing of the URL); a path goes
+/// to `explorer`, which opens a file in its default app and a folder in a
+/// window. Elsewhere `open` (macOS) and `xdg-open` (Linux and the BSDs) take
+/// both.
+#[cfg(feature = "std")]
+fn opener_command<'a>(
+    target: &'a str,
+    is_path: bool,
+    os: &str,
+) -> Option<(&'static str, alloc::vec::Vec<&'a str>)> {
+    match os {
+        "windows" if is_path => Some(("explorer", alloc::vec![target])),
+        "windows" => Some((
+            "rundll32",
+            alloc::vec!["url.dll,FileProtocolHandler", target],
+        )),
+        "macos" => Some(("open", alloc::vec![target])),
+        "linux" | "freebsd" | "openbsd" | "netbsd" | "dragonfly" => {
+            Some(("xdg-open", alloc::vec![target]))
+        }
+        _ => None,
+    }
+}
+
+/// Spawns [`opener_command`] for this platform; `true` once it started.
+#[cfg(feature = "std")]
+fn spawn_opener(target: &str, is_path: bool) -> bool {
+    opener_command(target, is_path, std::env::consts::OS).is_some_and(|(program, args)| {
+        std::process::Command::new(program)
+            .args(args)
+            .spawn()
+            .is_ok()
+    })
+}
+
 #[cfg(test)]
 #[path = "url_test.rs"]
 mod url_test;
+
+#[cfg(all(test, feature = "std"))]
+mod opener_tests {
+    use super::opener_command;
+
+    /// `cmd /C start <url>` re-parsed the line: an `&` (every URL with two
+    /// query parameters) ended the command there, and a quoted first
+    /// argument became the window title. The URL must reach the opener as
+    /// ONE argument that no shell parses again.
+    #[test]
+    fn the_windows_open_command_keeps_an_ampersand_url_whole() {
+        let url = "https://example.com/search?q=a&lang=en";
+        let (program, args) = opener_command(url, false, "windows").expect("an opener");
+        assert_ne!(program, "cmd", "cmd splits the URL at its `&`: {args:?}");
+        assert_eq!(args.last(), Some(&url));
+        assert_eq!(args.iter().filter(|a| a.contains("example.com")).count(), 1);
+    }
+
+    /// A file or folder opens in its default app on every desktop, the path
+    /// whole as one argument (a space in it included).
+    #[test]
+    fn a_file_path_opens_in_its_default_app_on_every_desktop() {
+        let path = r"C:\Users\me\My Documents\report & summary.pdf";
+        assert_eq!(
+            opener_command(path, true, "windows"),
+            Some(("explorer", alloc::vec![path]))
+        );
+        let path = "/home/me/My Documents/report.pdf";
+        assert_eq!(
+            opener_command(path, true, "linux"),
+            Some(("xdg-open", alloc::vec![path]))
+        );
+        assert_eq!(
+            opener_command(path, true, "freebsd"),
+            Some(("xdg-open", alloc::vec![path]))
+        );
+        assert_eq!(
+            opener_command(path, true, "macos"),
+            Some(("open", alloc::vec![path]))
+        );
+        assert_eq!(opener_command(path, true, "android"), None);
+    }
+}

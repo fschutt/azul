@@ -72,6 +72,7 @@ use anyhow::Result;
 
 use super::config::CodegenConfig;
 use super::generator::CodeBuilder;
+use super::upper_first;
 use super::ir::CodegenIR;
 use super::module_plan::ModulePlan;
 
@@ -1231,19 +1232,6 @@ fn upper_camel_first_word(s: &str) -> String {
     } else {
         upper_first(s)
     }
-}
-
-fn upper_first(s: &str) -> String {
-    if s.is_empty() {
-        return String::new();
-    }
-    let first = s.chars().next().unwrap();
-    let mut out = String::with_capacity(s.len());
-    for c in first.to_uppercase() {
-        out.push(c);
-    }
-    out.push_str(&s[first.len_utf8()..]);
-    out
 }
 
 /// Sanitize a doc-comment line so a stray `-}` doesn't terminate the
