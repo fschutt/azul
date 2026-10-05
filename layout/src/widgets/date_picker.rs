@@ -2092,18 +2092,42 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
     )
 }
 
-/// `face` with the ring of today after it.
+/// `face` with the ring of today on it (see [`marked`]).
 pub(crate) fn ringed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
-    let mut v = face.as_ref().to_vec();
-    v.extend_from_slice(faces.today.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
+    marked(face, &faces.today)
 }
 
-/// `face` with the wash of the lit range after it.
+/// `face` with the wash of the lit range on it (see [`marked`]).
 pub(crate) fn washed(face: &CssPropertyWithConditionsVec, faces: &CellFaces) -> CssPropertyWithConditionsVec {
-    let mut v = face.as_ref().to_vec();
-    v.extend_from_slice(faces.in_range.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
+    marked(face, &faces.in_range)
+}
+
+/// `mark` (a RESTING part: the range's wash, today's ring) on `face`, and
+/// the face's state declarations (`:hover`, `:active`, `:focus`) after it
+/// again. The faces are merged parts (both themes' blocks when the picker
+/// follows the app theme), so they stack with `stack_parts`, never by
+/// appending. A resting declaration stacked after a state one wins in that
+/// state too (the last match wins): the wash hid the hover face, and
+/// today's ring - a shadow in the slot the focus halo uses (`decl::shadow`)
+/// - hid the focus halo, so a focused today showed no focus. Re-stacked,
+/// the state wins in its state, as a CSS `:focus { box-shadow }` replaces
+/// the resting one. The one rule for both pickers (the date range picker's
+/// day faces use it too).
+pub(crate) fn marked(
+    face: &CssPropertyWithConditionsVec,
+    mark: &CssPropertyWithConditionsVec,
+) -> CssPropertyWithConditionsVec {
+    use crate::widgets::themes::theme_blocks::stack_parts;
+    let states: Vec<CssPropertyWithConditions> = face
+        .as_ref()
+        .iter()
+        .filter(|d| !d.pseudo_state_conditions().is_empty())
+        .cloned()
+        .collect();
+    stack_parts(
+        &stack_parts(face, mark),
+        &CssPropertyWithConditionsVec::from_vec(states),
+    )
 }
 
 /// One day of the grid: the click picks it, the arrow keys move focus from it
