@@ -699,6 +699,40 @@ mod autotest_generated {
     }
 
     #[test]
+    fn text_next_to_an_absolutely_positioned_sibling_is_not_reported() {
+        // An out-of-flow box splits no line: the text keeps its line box
+        // beside a mark pinned over it (a check item's box, a badge).
+        for position in ["absolute", "fixed"] {
+            let sd = styled(
+                Dom::create_body().with_child(
+                    Dom::create_div()
+                        .with_child(Dom::create_div())
+                        .with_child(raw_text("title")),
+                ),
+                &format!("body > div > div {{ position: {position}; }}"),
+            );
+            assert_eq!(
+                collect_text_placement_warnings(&sd),
+                Vec::<String>::new(),
+                "position: {position}"
+            );
+        }
+        // A float still counts: azul places no float inside an inline
+        // formatting context yet.
+        let sd = styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div())
+                    .with_child(raw_text("title")),
+            ),
+            "body > div > div { float: left; }",
+        );
+        let w = collect_text_placement_warnings(&sd);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("block-level siblings"), "{w:?}");
+    }
+
+    #[test]
     fn several_text_children_of_one_parent_are_all_reported() {
         // The per-parent memo must not swallow the sibling text runs it was
         // computed for.
