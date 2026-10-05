@@ -504,3 +504,121 @@ fn idiomatic_method_name(method_name: &str) -> String {
 fn sanitize_comment(s: &str) -> String {
     s.replace(['\n', '\r'], " ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::{bug_classes::ir, config::CodegenConfig};
+
+    fn lisp() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// The text of the top-level form starting with `head`.
+    fn form(head: &str) -> &'static str {
+        let out = lisp();
+        let start = out
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{head}` in azul.lisp"));
+        let rest = &out[start..];
+        let end = rest[1..].find("\n(").map_or(rest.len(), |e| e + 1);
+        &rest[..end]
+    }
+
+    #[test]
+    fn a_wrapper_holds_a_foreign_pointer_because_by_value_returns_are_boxed_not_plists() {
+        let from =
+            form("(defmethod translate-from-foreign (p (type az-window-create-options-tclass))");
+        assert!(from.contains("(%azul-box p '(:struct az-window-create-options))"), "{from}");
+        let into = form(
+            "(defmethod translate-into-foreign-memory (value (type az-window-create-options-tclass) p)",
+        );
+        assert!(into.contains("(if (pointerp value)"), "{into}");
+        assert!(into.contains("(call-next-method)"), "{into}");
+        // A `&self` method hands over the handle's pointer.
+        let run = form("(defun app-run (obj");
+        assert!(run.contains("(app-ptr obj)"), "{run}");
+        assert!(run.contains("(%consume root-window)"), "{run}");
+    }
+
+    #[test]
+    fn closing_a_wrapper_deletes_the_value_and_frees_its_buffer() {
+        let close = form("(defmethod close-window-create-options ((obj window-create-options))");
+        assert!(close.contains("(azul-internal::%az-window-create-options-delete p)"), "{close}");
+        assert!(close.contains("(cffi:foreign-free p)"), "{close}");
+    }
+
+    #[test]
+    fn a_by_value_wrapper_argument_is_consumed_after_the_call() {
+        let with_child = form("(defun dom-with-child (obj");
+        assert!(with_child.contains("(%consume obj)"), "{with_child}");
+        assert!(with_child.contains("(%consume child)"), "{with_child}");
+        assert!(with_child.contains("(%unwrap child)"), "{with_child}");
+    }
+
+    #[test]
+    fn the_title_getter_decodes_the_string_without_consuming_it() {
+        let get = form("(defun full-window-state-title (obj)");
+        assert!(
+            get.contains(
+                "(%string-value (cffi:foreign-slot-pointer (full-window-state-ptr obj) '(:struct \
+                 azul-internal::az-full-window-state) 'azul-internal::title))"
+            ),
+            "{get}"
+        );
+    }
+
+    #[test]
+    fn the_title_setter_releases_the_old_string_then_moves_the_new_one_in() {
+        let set = form("(defun (setf full-window-state-title) (v obj)");
+        assert!(set.contains("(%string-arg v)"), "{set}");
+        assert!(set.contains("#'azul-internal::%az-string-delete"), "{set}");
+        assert!(set.contains("(%move-in "), "{set}");
+    }
+
+    #[test]
+    fn the_window_state_getter_deep_copies_and_the_setter_deletes_then_consumes() {
+        let get = form("(defun window-create-options-window-state (obj)");
+        assert!(
+            get.contains(
+                "(make-instance 'full-window-state :ptr \
+                 (azul-internal::%az-full-window-state-clone "
+            ),
+            "{get}"
+        );
+        let set = form("(defun (setf window-create-options-window-state) (v obj)");
+        assert!(set.contains("#'azul-internal::%az-full-window-state-delete"), "{set}");
+        let mv = form("(defun %move-in (fp type v release)");
+        assert!(mv.contains("(funcall release fp)"), "{mv}");
+        assert!(mv.contains("(%consume v)"), "{mv}");
+    }
+
+    #[test]
+    fn a_plain_value_field_reads_and_writes_as_a_keyword_plist() {
+        let get = form("(defun full-window-state-size (obj)");
+        assert!(get.contains("(%plist-keys (cffi:mem-ref "), "{get}");
+        assert!(get.contains("'(:struct azul-internal::az-window-size)"), "{get}");
+        let set = form("(defun (setf full-window-state-size) (v obj)");
+        assert!(set.contains("(%plist-keys v t)"), "{set}");
+    }
+
+    #[test]
+    fn a_bool_field_reads_and_writes_in_place() {
+        let get = form("(defun full-window-state-window-focused (obj)");
+        assert!(
+            get.contains(
+                "(cffi:foreign-slot-value (full-window-state-ptr obj) '(:struct \
+                 azul-internal::az-full-window-state) 'azul-internal::window-focused)"
+            ),
+            "{get}"
+        );
+        assert!(lisp().contains("(defun (setf full-window-state-window-focused) (v obj)"));
+    }
+
+    #[test]
+    fn the_text_field_stays_writable_next_to_the_get_text_method() {
+        assert!(lisp().contains("(defun text-input-state-get-text (obj"));
+        let set = form("(defun (setf text-input-state-text) (v obj)");
+        assert!(set.contains("#'azul-internal::%az-u32-vec-delete"), "{set}");
+    }
+}
