@@ -25,8 +25,10 @@ use azul::{
         ToDoBarOnEventCallbackType, WriteBackCallbackType,
     },
     dom::VirtualKeyCode,
+    error::ResultRawImageDecodeImageError,
     http::{HttpBytesResult, HttpRequestConfig},
-    image::{ImageDecodeResult, ImageRef, RawImage},
+    image::{ImageRef, RawImage},
+    option::OptionThreadSendMsg,
     prelude::*,
     shells::{
         PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationModule,
@@ -34,6 +36,7 @@ use azul::{
         ShellThemeAccent, ShellThemeScope,
     },
     str::String as AzString,
+    vec::U8VecRef,
     widgets::{
         AboutDialog, Backstage, BackstageNavItem, InfoBar, SummaryList, SummaryListEvent, Modal,
         ModalState, StandardDialogEvent,
@@ -49,7 +52,7 @@ use crate::{
     folders::Role,
     html,
     listing::{self, FolderNode, ListRow},
-    message, ui_account, ui_compose, with_app, MailApp, SyncState,
+    message, pictures, ui_account, ui_compose, with_app, MailApp, SyncState,
 };
 
 /// The backstage's pages (File).
@@ -1163,7 +1166,10 @@ extern "C" fn on_list_event(mut data: RefAny, mut info: CallbackInfo, event: Sum
                     .clone()
                     .apply(index as u64, event.shift, event.ctrl);
                 if !event.shift && !event.ctrl {
-                    if let Some(flags) = s.open_message(uid) {
+                    stop_pictures(s, &mut info);
+                    let flags = s.open_message(uid);
+                    show_own_pictures(s, &mut info, &app);
+                    if let Some(flags) = flags {
                         crate::save_flags(s, &mut info, app.clone(), flags);
                     }
                 }
@@ -1287,13 +1293,20 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
     let html = open.sanitized.as_ref().filter(|_| !s.plain_text);
     if let Some(sanitized) = html {
         if sanitized.blocked_images > 0 && !open.pictures {
+            // What the pre-pass found on the web ("3 pictures and 1 font"), else "some
+            // pictures" (pictures that are not on the web).
+            let held_back = match sanitized.remote.summary() {
+                summary if summary.is_empty() => String::from("some pictures"),
+                summary => summary,
+            };
+            let text = format!(
+                "Click here to download pictures. To help protect your privacy, AzMail \
+                 prevented automatic download of {held_back} in this message."
+            );
             pane = pane.with_info_bar(
-                InfoBar::create(
-                    "Click here to download pictures. To help protect your privacy, AzMail \
-                     prevented automatic download of some pictures in this message.",
-                )
-                .with_icon("info")
-                .with_action("Download pictures"),
+                InfoBar::create(text.as_str())
+                    .with_icon("info")
+                    .with_action("Download pictures"),
             );
         }
     }
@@ -1373,10 +1386,10 @@ fn html_body(sanitized: &html::Sanitized) -> Dom {
     }
 }
 
-extern "C" fn on_reading_event(mut data: RefAny, _info: CallbackInfo, event: ReadingPaneEvent) -> Update {
+extern "C" fn on_reading_event(mut data: RefAny, mut info: CallbackInfo, event: ReadingPaneEvent) -> Update {
     with_app(&mut data, |s, app| {
         match event.kind {
-            ReadingPaneEventKind::LoadImages => load_pictures(s, &app),
+            ReadingPaneEventKind::LoadImages => load_pictures(s, &mut info, &app),
             ReadingPaneEventKind::Attachment => {
                 s.notice = format!("{} is in the message file; saving attachments comes next.", event.text.as_str());
             }
@@ -1389,12 +1402,19 @@ extern "C" fn on_reading_event(mut data: RefAny, _info: CallbackInfo, event: Rea
     .unwrap_or(Update::DoNothing)
 }
 
-// ==== Download pictures ====
+// ==== Pictures: the mail's own at once, its web pictures after "Download pictures" ====
+//
+// Nothing is fetched or decoded on the UI thread: a download Thread fetches the web pictures
+// one after the other through azul's HTTP client (each `download_bytes` blocks that worker; its
+// bytes resume on the UI thread, where the mail's Budget is checked), and a decode Thread turns
+// bytes into images and writes each back; the write-back puts it into the image cache under the
+// key its `<img src>` names (the web address, or the `cid:` key of a part of the mail).
 
-/// "Download pictures": the mail is sanitized again with its web pictures kept, and each one is
-/// fetched; when it arrives it is decoded and put into the image cache under its address, where
-/// the `<img src>` finds it.
-fn load_pictures(s: &mut MailApp, app: &RefAny) {
+/// "Download pictures": the mail is sanitized again with its web pictures kept, and the
+/// download Thread fetches the ones it shows ([`pictures::fetch_list`]: http / https, no
+/// tracking pixel, at most `MAX_PICTURES`).
+fn load_pictures(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) {
+    stop_pictures(s, info);
     let Some(open) = s.open.as_mut() else {
         return;
     };
@@ -1402,18 +1422,120 @@ fn load_pictures(s: &mut MailApp, app: &RefAny) {
         return;
     };
     open.pictures = true;
-    let sanitized = html::sanitize_with(&part, true);
-    let urls = sanitized.remote_images.clone();
+    let sanitized = html::sanitize_mail(
+        &part,
+        &html::PictureOptions {
+            web: true,
+            inline: pictures::content_ids(&open.inline),
+        },
+    );
+    let urls = pictures::fetch_list(&sanitized);
     open.sanitized = Some(sanitized);
+    if urls.is_empty() {
+        return;
+    }
+    println!("AZMAIL_PICTURES_FETCH {}", urls.len());
+    let thread = ThreadId::unique();
+    open.pictures_thread = Some(thread);
+    open.budget = pictures::Budget::default();
+    let job = DownloadJob {
+        app: app.clone(),
+        folder: open.folder.clone(),
+        uid: open.entry.uid,
+        urls,
+    };
+    info.add_thread(
+        thread,
+        Thread::create(RefAny::new(job), app.clone(), download_thread),
+    );
+}
+
+/// Stops the open mail's picture downloads (another mail is opened, or they start again).
+pub(crate) fn stop_pictures(s: &mut MailApp, info: &mut CallbackInfo) {
+    if let Some(thread) = s.open.as_mut().and_then(|open| open.pictures_thread.take()) {
+        info.remove_thread(thread);
+    }
+}
+
+/// The open mail's own pictures (`cid:` parts it shows): decoded on a Thread, no download.
+pub(crate) fn show_own_pictures(s: &mut MailApp, info: &mut CallbackInfo, app: &RefAny) {
+    let Some(open) = s.open.as_ref() else {
+        return;
+    };
+    let Some(sanitized) = open.sanitized.as_ref() else {
+        return;
+    };
+    let decodes = pictures::inline_decodes(sanitized, &open.inline);
+    if decodes.is_empty() {
+        return;
+    }
+    start_decode(info, app, &open.folder, open.entry.uid, decodes);
+}
+
+/// Decodes `pictures` (image-cache key, bytes) of message `uid` in `folder` on a Thread.
+fn start_decode(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    folder: &str,
+    uid: u32,
+    pictures: Vec<(String, Vec<u8>)>,
+) {
+    let job = DecodeJob {
+        folder: folder.to_string(),
+        uid,
+        pictures,
+    };
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(RefAny::new(job), app.clone(), decode_thread),
+    );
+}
+
+/// What the download Thread fetches, for which message.
+#[derive(Clone)]
+struct DownloadJob {
+    app: RefAny,
+    folder: String,
+    uid: u32,
+    urls: Vec<String>,
+}
+
+/// One web picture on its way: the message it belongs to and its address.
+#[derive(Clone)]
+struct PictureRef {
+    app: RefAny,
+    folder: String,
+    uid: u32,
+    url: String,
+}
+
+/// Fetches the job's pictures one after the other through azul's HTTP client (no cookies;
+/// size cap and timeout per picture), until it is stopped.
+extern "C" fn download_thread(mut init: RefAny, _sender: ThreadSender, mut receiver: ThreadReceiver) {
+    let Some(job) = init
+        .downcast_ref::<DownloadJob>()
+        .map(|job| DownloadJob::clone(&job))
+    else {
+        return;
+    };
     let config = HttpRequestConfig::create()
-        .with_timeout(20)
-        .with_max_size(10 * 1024 * 1024)
+        .with_timeout(pictures::PICTURE_TIMEOUT_SECS)
+        .with_max_size(pictures::MAX_PICTURE_BYTES as u64)
         .with_user_agent("AzMail");
-    for url in urls {
+    for url in &job.urls {
+        // Stopped (another mail is open, or the mail's budget is spent): nothing more.
+        while let OptionThreadSendMsg::Some(message) = receiver.recv() {
+            if matches!(message, ThreadSendMsg::TerminateThread) {
+                return;
+            }
+        }
+        // Blocks this worker for the transfer; the bytes resume on the UI thread.
         let _request = config.download_bytes(
             url.as_str(),
             RefAny::new(PictureRef {
-                app: app.clone(),
+                app: job.app.clone(),
+                folder: job.folder.clone(),
+                uid: job.uid,
                 url: url.clone(),
             }),
             on_picture_bytes as ResumeCallbackType,
@@ -1421,60 +1543,129 @@ fn load_pictures(s: &mut MailApp, app: &RefAny) {
     }
 }
 
-struct PictureRef {
-    app: RefAny,
-    url: String,
-}
-
-/// A picture's bytes arrived: decode them (off the UI thread too).
-extern "C" fn on_picture_bytes(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
-    let Some(picture) = data.downcast_ref::<PictureRef>().map(|p| PictureRef {
-        app: p.app.clone(),
-        url: p.url.clone(),
-    }) else {
+/// A web picture's bytes arrived (on the UI thread): counted against the mail's budget, then
+/// decoded on a Thread. Past the mail's total the downloads stop.
+extern "C" fn on_picture_bytes(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picture) = data
+        .downcast_ref::<PictureRef>()
+        .map(|p| PictureRef::clone(&p))
+    else {
         return Update::DoNothing;
     };
     let Some(answer) = HttpBytesResult::downcast(result).into_option() else {
         return Update::DoNothing;
     };
-    match answer.result {
-        azul::error::ResultU8VecHttpError::Ok(bytes) => {
-            let _request = RawImage::decode_image_bytes(
-                bytes,
-                RefAny::new(picture),
-                on_picture_decoded as ResumeCallbackType,
-            );
-            Update::DoNothing
-        }
+    let bytes = match answer.result {
+        azul::error::ResultU8VecHttpError::Ok(bytes) => bytes.as_slice().to_vec(),
         azul::error::ResultU8VecHttpError::Err(e) => {
             eprintln!("[azmail] picture {} not downloaded: {e:?}", picture.url);
-            Update::DoNothing
+            return Update::DoNothing;
         }
+    };
+    let mut app = picture.app.clone();
+    with_app(&mut app, |s, app| {
+        let Some(open) = s
+            .open
+            .as_mut()
+            .filter(|o| o.folder == picture.folder && o.entry.uid == picture.uid)
+        else {
+            // Another mail is open now.
+            return Update::DoNothing;
+        };
+        let len = bytes.len();
+        if !open.budget.take(len) {
+            if open.budget.spent_for(len) {
+                // The mail's total is spent: no further download.
+                if let Some(thread) = open.pictures_thread.take() {
+                    info.remove_thread(thread);
+                }
+            }
+            eprintln!("[azmail] picture {} left out ({len} bytes)", picture.url);
+            return Update::DoNothing;
+        }
+        let (folder, uid) = (open.folder.clone(), open.entry.uid);
+        start_decode(&mut info, &app, &folder, uid, vec![(picture.url.clone(), bytes)]);
+        Update::DoNothing
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// What the decode Thread turns into images, for which message.
+#[derive(Clone)]
+struct DecodeJob {
+    folder: String,
+    uid: u32,
+    /// The image-cache key and the bytes of each picture.
+    pictures: Vec<(String, Vec<u8>)>,
+}
+
+/// A decoded picture, written back to the UI thread.
+struct DecodedPicture {
+    folder: String,
+    uid: u32,
+    key: String,
+    image: RawImage,
+}
+
+/// Decodes the job's pictures and writes each one back as soon as it is ready.
+extern "C" fn decode_thread(mut init: RefAny, mut sender: ThreadSender, mut receiver: ThreadReceiver) {
+    let Some(job) = init
+        .downcast_ref::<DecodeJob>()
+        .map(|job| DecodeJob::clone(&job))
+    else {
+        return;
+    };
+    for (key, bytes) in job.pictures {
+        while let OptionThreadSendMsg::Some(message) = receiver.recv() {
+            if matches!(message, ThreadSendMsg::TerminateThread) {
+                return;
+            }
+        }
+        let image = match RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_slice())) {
+            ResultRawImageDecodeImageError::Ok(image) => image,
+            ResultRawImageDecodeImageError::Err(e) => {
+                eprintln!("[azmail] picture {key} not decoded: {e:?}");
+                continue;
+            }
+        };
+        sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+            refany: RefAny::new(DecodedPicture {
+                folder: job.folder.clone(),
+                uid: job.uid,
+                key,
+                image,
+            }),
+            callback: WriteBackCallback {
+                cb: on_picture_decoded,
+                ctx: OptionRefAny::None,
+            },
+        }));
     }
 }
 
-/// A picture is decoded: into the image cache under its address, and the window redraws.
-extern "C" fn on_picture_decoded(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
-    let Some(url) = data.downcast_ref::<PictureRef>().map(|p| p.url.clone()) else {
+/// A picture is decoded: into the image cache under its key, and the window redraws (if its
+/// mail is still the open one).
+extern "C" fn on_picture_decoded(mut app: RefAny, mut payload: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut decoded) = payload.downcast_mut::<DecodedPicture>() else {
         return Update::DoNothing;
     };
-    let Some(decoded) = ImageDecodeResult::downcast(result).into_option() else {
+    let still_open = with_app(&mut app, |s, _| {
+        s.open
+            .as_ref()
+            .is_some_and(|o| o.folder == decoded.folder && o.entry.uid == decoded.uid)
+    })
+    .unwrap_or(false);
+    if !still_open {
         return Update::DoNothing;
-    };
-    match decoded.result {
-        azul::error::ResultRawImageDecodeImageError::Ok(raw) => {
-            match ImageRef::create_rawimage(raw).into_option() {
-                Some(image) => {
-                    info.add_image_to_cache(url.as_str(), image);
-                    Update::RefreshDom
-                }
-                None => Update::DoNothing,
-            }
+    }
+    let image = std::mem::replace(&mut decoded.image, RawImage::empty());
+    match ImageRef::create_rawimage(image).into_option() {
+        Some(image) => {
+            println!("AZMAIL_PICTURE_SHOWN {}", decoded.key);
+            info.add_image_to_cache(decoded.key.as_str(), image);
+            Update::RefreshDom
         }
-        azul::error::ResultRawImageDecodeImageError::Err(e) => {
-            eprintln!("[azmail] picture {url} not decoded: {e:?}");
-            Update::DoNothing
-        }
+        None => Update::DoNothing,
     }
 }
 

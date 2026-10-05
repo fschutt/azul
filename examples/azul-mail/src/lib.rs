@@ -191,6 +191,12 @@ pub(crate) struct OpenMessage {
     pub(crate) sanitized: Option<html::Sanitized>,
     /// "Download pictures" was clicked for this message.
     pub(crate) pictures: bool,
+    /// The pictures the mail carries itself (`cid:` parts): shown without asking.
+    pub(crate) inline: Vec<message::InlinePicture>,
+    /// The Thread downloading this mail's web pictures ("Download pictures"), while it runs.
+    pub(crate) pictures_thread: Option<ThreadId>,
+    /// What this mail's web pictures have downloaded so far.
+    pub(crate) budget: pictures::Budget,
 }
 
 pub(crate) enum SyncState {
@@ -411,20 +417,29 @@ impl MailApp {
             Some(store) => store.get(&entry.path).map_err(|e| e.to_string()),
             None => Err(String::from("no account")),
         };
-        let (view, error) = match bytes {
+        let (view, error, inline) = match bytes {
             Ok(bytes) => match message::parse_view(&bytes) {
-                Some(view) => (Some(view), String::new()),
-                None => (None, String::from("This file is not a mail message.")),
+                Some(view) => (Some(view), String::new(), message::inline_pictures(&bytes)),
+                None => (
+                    None,
+                    String::from("This file is not a mail message."),
+                    Vec::new(),
+                ),
             },
-            Err(e) => (None, format!("Could not read {}: {e}", entry.path)),
+            Err(e) => (None, format!("Could not read {}: {e}", entry.path), Vec::new()),
         };
         println!("AZMAIL_OPEN {folder} {uid}");
         let was_read = self.flags.is_read(&entry);
-        // The HTML part on its paper, pictures off until the reader asks for them.
+        // The HTML part on its paper: the mail's own pictures shown, its web pictures off
+        // until the reader asks for them.
+        let options = html::PictureOptions {
+            web: false,
+            inline: pictures::content_ids(&inline),
+        };
         let sanitized = view
             .as_ref()
             .and_then(|v| v.html.as_deref())
-            .map(html::sanitize);
+            .map(|part| html::sanitize_mail(part, &options));
         self.open = Some(OpenMessage {
             folder,
             entry,
@@ -432,6 +447,9 @@ impl MailApp {
             error,
             sanitized,
             pictures: false,
+            inline,
+            pictures_thread: None,
+            budget: pictures::Budget::default(),
         });
         if was_read {
             return None;
