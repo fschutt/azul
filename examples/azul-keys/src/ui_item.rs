@@ -18,7 +18,7 @@ use azul::{
     widgets::{
         Avatar, AvatarSize, CheckBoxState, Chip, OnTextInputReturn, Segmented, SegmentedState,
         Slider, SliderState, Switch, SwitchState, TextArea, TextAreaState, TextInputState,
-        TextInputValid, TokenInput, TokenInputEvent,
+        TextInputValid, TokenInput, TokenInputEvent, Gauge, GaugeBand, GaugeBandKind, GaugeKind,
     },
 };
 
@@ -208,7 +208,8 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         let value = match Totp::parse(&item.totp) {
             Ok(totp) => {
                 let left = totp.remaining(t);
-                let used = (totp.period - left) as f32 / totp.period as f32 * 100.0;
+                #[allow(clippy::cast_precision_loss)] // seconds
+                let (left_s, period_s) = (left as f64, totp.period.max(1) as f64);
                 row(
                     "gap: 8px;",
                     vec![
@@ -217,10 +218,16 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                             text(group_code(&totp.code_at(t))),
                         )
                         .with_id(ids::ITEM_TOTP_CODE),
-                        // TODO(WIDGETS9B): Gauge - a draining ring in place of the bar.
-                        block("width: 60px;", ProgressBar::create(100.0 - used).dom())
+                        // A draining ring with the seconds left in it; the last five warn.
+                        Gauge::create(left_s, 0.0, period_s)
+                            .with_kind(GaugeKind::Ring)
+                            .with_size(40.0)
+                            .with_thickness(4.0)
+                            .with_value_text(format!("{left}"))
+                            .with_accessibility_name("Seconds until the next code")
+                            .with_band(GaugeBand::create(0.0, 5.0, GaugeBandKind::Warn))
+                            .dom()
                             .with_id(ids::ITEM_TOTP_RING),
-                        block("font-size: 12px; opacity: 0.7;", text(format!("{left} s"))),
                     ],
                 )
             }
