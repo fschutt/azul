@@ -971,4 +971,36 @@ mod tests {
         assert_eq!(pending_count(), 0);
         assert!(!has_work());
     }
+
+    /// The test harness runs tests side by side on its threads, and every
+    /// drainer takes EVERYTHING (`take_completed`; the e2e runner's pump runs
+    /// inside many runner tests): with one process-wide queue a test's
+    /// completion could be swallowed by the test running beside it, and the
+    /// http tests' worker-thread answers made that window as long as a
+    /// transfer. Test B drains while test A's completion waits; A must still
+    /// find it.
+    #[test]
+    fn a_tests_completion_is_not_drained_by_a_test_running_beside_it() {
+        use std::sync::mpsc::channel;
+
+        let (completed_tx, completed_rx) = channel::<()>();
+        let (drained_tx, drained_rx) = channel::<()>();
+
+        let test_a = std::thread::spawn(move || {
+            let id = complete(RefAny::new(()), ResumeCallback::create(noop), 7u32);
+            completed_tx.send(()).expect("test B listens");
+            drained_rx.recv().expect("test B drained");
+            take_completed().iter().any(|c| c.request_id == id)
+        });
+        let test_b = std::thread::spawn(move || {
+            completed_rx.recv().expect("test A completed");
+            let _ = take_completed();
+            drained_tx.send(()).expect("test A listens");
+        });
+        test_b.join().expect("test B ran");
+        assert!(
+            test_a.join().expect("test A ran"),
+            "test A's completion is still in the queue for test A after test B drained"
+        );
+    }
 }
