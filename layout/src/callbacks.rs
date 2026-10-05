@@ -7053,11 +7053,15 @@ impl CallbackInfo {
         self.set_copy_content(self.hit_dom_node, content);
     }
 
-    /// Set/modify the clipboard content before a copy operation
+    /// Put `content` on the system clipboard (a copy)
     ///
-    /// Use this to transform clipboard content before copying.
-    /// The change is queued and will be applied after the callback returns,
-    /// if `preventDefault()` was not called.
+    /// The change is queued and written to the clipboard right after the
+    /// callback returns, whatever `prevent_default` says - from any callback
+    /// (a "Copy link" button's click too). In an `On::Copy` callback the
+    /// engine's own copy runs AFTER it unless the callback also calls
+    /// `prevent_default()`, and writes the current text selection (if there
+    /// is one) over this content: call both to replace what a Ctrl+C copies,
+    /// as with `clipboardData.setData` plus `preventDefault` on the web.
     pub fn set_copy_content(&mut self, target: DomNodeId, content: ClipboardContent) {
         self.push_change(CallbackChange::SetCopyContent { target, content });
     }
