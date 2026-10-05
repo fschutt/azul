@@ -606,6 +606,10 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     ("PageSequence", "pdf"),
     ("PageSetup", "pdf"),
     ("PaginationInfo", "pdf"),
+    // A parsed PDF's page size sits beside `ParsedPdf`: the css keyword
+    // "size" (a whole word, longer than "pdf") filed it in css. Spelled in
+    // full: a "Pdf" prefix would decide every future Pdf* name here.
+    ("PdfPageSize", "pdf"),
     // `AppConfig::natural_scroll` (9b-ii-b-i-a) belongs beside AppConfig, not
     // in `image` where the keyword pass filed it.
     ("NaturalScroll", "app"),
