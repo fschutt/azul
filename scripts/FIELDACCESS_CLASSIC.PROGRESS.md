@@ -19,10 +19,19 @@ Str / Value{delete, clone}), string copy fn + layout, all derived from the IR.
   User: `ws = opts%get_window_state(); call ws%set_title('Hi'); sz = ws%get_size();
   call sz%set_dimensions(d); call ws%set_size(sz); call opts%set_window_state(ws)`
 
+- FreeBASIC: RED db8dbd682, fix = the commit after it. Methods/constructors call `func.c_name`;
+  receiver = first arg of Method/MethodMut/DeepCopy (Clone() lost the extra arg; by-value
+  receiver passes `this.raw` + disowns); `Type String_`; copy ctor + `Operator Let` (deep copy via
+  _clone, move without); `TakeRaw()`; `Property <Field>` get/set per field (method name wins ->
+  `<Field>Field`); Types topologically ordered by wrapped-field deps; module-level
+  `AzulStringRead` (non-consuming) / `AzulStringNew`.
+  User: `Dim ws As Azul.FullWindowState = opts.WindowState : ws.Title = "Hi" :
+  Dim sz As AzWindowSize = ws.Size : sz.dimensions.width = 800 : ws.Size = sz : opts.WindowState = ws`
+
 ## IN PROGRESS
-- FreeBASIC
+- VB6
 
 ## NEXT
-- VB6, Pascal.
+- Pascal.
 
 ## Open questions
