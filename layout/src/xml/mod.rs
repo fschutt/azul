@@ -620,7 +620,8 @@ fn feed_xml_tokens(
 
     // A namespace prefix is part of the name: `<user:card/>` is the `card`
     // component of library `user` (`ComponentMap::get_by_qualified_name`),
-    // `<svg:rect/>` a rect, and `</o:p>` closes an `<o:p>`, not a `<p>`.
+    // `<svg:rect/>` a rect, and `</o:p>` closes an `<o:p>`, not a `<p>`. So is
+    // an attribute's: `epub:type` is not a `type`, `xmlns:dc` not a `dc`.
     fn qualified(prefix: &str, local: &str) -> String {
         if prefix.is_empty() {
             String::from(local)
@@ -636,10 +637,15 @@ fn feed_xml_tokens(
             Token::ElementStart { prefix, local, .. } => {
                 start = Some((qualified(prefix.as_str(), local.as_str()), Vec::new()));
             }
-            Token::Attribute { local, value, .. } => {
+            Token::Attribute {
+                prefix,
+                local,
+                value,
+                ..
+            } => {
                 if let Some((_, attributes)) = start.as_mut() {
                     attributes.push((
-                        String::from(local.as_str()),
+                        qualified(prefix.as_str(), local.as_str()),
                         decode_xml_entities(value.as_str()).into_owned(),
                     ));
                 }
