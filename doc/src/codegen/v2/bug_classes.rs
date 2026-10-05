@@ -1927,7 +1927,14 @@ fn referenced_symbols(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
                             let t = line.trim_end();
                             t.ends_with('{') || t.ends_with(')') || t.ends_with('}')
                         };
-                    if definition || (renames_an_export && !quoted) {
+                    // `void (__cdecl *AzX_y)(void) = ...;`: a function-pointer
+                    // variable the binding defines itself (the ABI guard's MSVC
+                    // load hook) - not an import.
+                    let fn_pointer_variable = head.ends_with('*')
+                        && rest
+                            .strip_prefix(')')
+                            .is_some_and(|r| r.trim_start().starts_with('('));
+                    if definition || fn_pointer_variable || (renames_an_export && !quoted) {
                         defined.insert(tok.to_string());
                     } else if quoted || called {
                         used.insert(tok.to_string());
