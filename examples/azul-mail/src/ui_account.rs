@@ -27,6 +27,7 @@ use azul::{
 
 use crate::{
     account::{self, Account, AccountForm, Secret},
+    dkim,
     send::SendSettings,
     sending::SendingForm,
     ids, ui_main, with_app, IoJob, MailApp,
@@ -58,6 +59,13 @@ pub(crate) struct AccountEditor {
     pub(crate) step: usize,
     /// Finish / Save was pressed and the files are being written.
     pub(crate) saving: bool,
+    /// A DKIM key made in this editor: its private half goes to the keyring when the account is
+    /// saved, its public half into sending.json and the DNS record shown.
+    pub(crate) dkim_new_key: Option<dkim::KeyPair>,
+    /// A key is being made or DNS is being asked (on a thread).
+    pub(crate) dkim_busy: bool,
+    /// What the last "Check DNS" found, one line per record.
+    pub(crate) dkim_report: Vec<String>,
 }
 
 impl AccountEditor {
@@ -73,8 +81,76 @@ impl AccountEditor {
             drawn,
             step: 0,
             saving: false,
+            dkim_new_key: None,
+            dkim_busy: false,
+            dkim_report: Vec::new(),
         }
     }
+
+    /// The public half of the key the account signs with: one made here, else the saved one.
+    pub(crate) fn dkim_public_key(&self) -> String {
+        match &self.dkim_new_key {
+            Some(pair) => pair.public_key.clone(),
+            None => self
+                .settings
+                .dkim
+                .as_ref()
+                .map(|d| d.public_key.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The sending settings the form describes: the route and STARTTLS, then DKIM.
+    fn sending_settings(&self) -> Result<SendSettings, String> {
+        let applied = self.sending.apply(&self.settings)?;
+        // Submission signs in to the outgoing server of the Servers page: never unencrypted
+        // to another computer.
+        if let Ok(account) = self.form.to_account() {
+            crate::sending::check_submission(&applied, &account.smtp.host, account.smtp.port)?;
+        }
+        let new_key = self
+            .dkim_new_key
+            .as_ref()
+            .map(|pair| pair.public_key.as_str())
+            .unwrap_or_default();
+        self.sending
+            .apply_dkim(applied, &self.form.email, new_key, crate::now_unix())
+    }
+}
+
+/// A DKIM key was made (on a thread): kept in the editor until the account is saved.
+pub(crate) fn dkim_key_made(s: &mut MailApp, result: Result<dkim::KeyPair, String>) {
+    let Some(editor) = s.editor.as_mut() else {
+        return;
+    };
+    editor.dkim_busy = false;
+    match result {
+        Ok(pair) => {
+            println!("AZMAIL_DKIM_KEY_MADE");
+            editor.dkim_new_key = Some(pair);
+            editor.sending.dkim = true;
+            editor.dkim_report.clear();
+            editor.error.clear();
+        }
+        Err(e) => editor.error = e,
+    }
+}
+
+/// "Check DNS" is done (on a thread).
+pub(crate) fn dkim_checked(s: &mut MailApp, report: &dkim::DnsReport) {
+    let Some(editor) = s.editor.as_mut() else {
+        return;
+    };
+    editor.dkim_busy = false;
+    editor.dkim_report = dkim::report_lines(report);
+    println!(
+        "AZMAIL_DKIM_CHECKED {}",
+        if report.dkim == dkim::Published::Matches {
+            "published"
+        } else {
+            "not-published"
+        }
+    );
 }
 
 /// File > Add Account: the wizard, on an empty form (or `prefill`).
@@ -121,6 +197,16 @@ pub(crate) fn account_saved(
         .as_ref()
         .map(|e| e.secret.clone())
         .filter(|secret| !secret.is_empty());
+    // A DKIM key made in the editor: into the keyring and memory, now that sending.json names
+    // its public half.
+    let new_dkim_key = s
+        .editor
+        .as_mut()
+        .and_then(|e| e.dkim_new_key.take())
+        .map(|pair| pair.private_pem);
+    if let Some(key) = new_dkim_key {
+        crate::remember_dkim_key(s, info, &account.id, key);
+    }
     let index = match s.accounts.iter().position(|a| a.id == account.id) {
         Some(i) => {
             s.accounts[i] = account.clone();
@@ -169,7 +255,7 @@ fn check_step(s: &MailApp, editor: &AccountEditor, step: usize) -> Result<(), St
             Ok(())
         }
         1 => editor.form.to_account().map(|_| ()).map_err(|e| e.to_string()),
-        2 => editor.sending.apply(&editor.settings).map(|_| ()),
+        2 => editor.sending_settings().map(|_| ()),
         _ => Ok(()),
     }
 }
@@ -184,7 +270,7 @@ fn save(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
             .try_for_each(|step| check_step(s, editor, step).map_err(|e| (step, e)))
             .and_then(|()| {
                 let account = editor.form.to_account().map_err(|e| (1, e.to_string()))?;
-                let settings = editor.sending.apply(&editor.settings).map_err(|e| (2, e))?;
+                let settings = editor.sending_settings().map_err(|e| (2, e))?;
                 Ok((account, settings, editor.editing))
             })
     };
@@ -303,6 +389,8 @@ enum Field {
     Folder,
     SendHost,
     SendPort,
+    DkimDomain,
+    DkimSelector,
 }
 
 /// A form check box.
@@ -311,6 +399,7 @@ enum Flag {
     Plain,
     Xoauth2,
     StartTls,
+    Dkim,
 }
 
 struct FieldRef {
@@ -493,8 +582,8 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column;")
         .with_child(label("Send mail:"))
         .with_child(
-            Segmented::create(strings(&["Directly", "Through an SMTP server"]))
-                .with_selected_index(usize::from(sending.smtp))
+            Segmented::create(strings(&crate::sending::ROUTE_CHOICES))
+                .with_selected_index(sending.route_index())
                 .with_on_change(app.clone(), on_route as SegmentedOnChangeCallbackType)
                 .dom(),
         );
@@ -518,6 +607,27 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
                 ids::SEND_PORT,
             ),
         ));
+    } else if sending.submission {
+        // The account's own outgoing server (the Servers page), signed in.
+        let (host, port) = match editor.form.to_account() {
+            Ok(account) => (account.smtp.host, account.smtp.port),
+            Err(_) => (
+                editor.drawn.smtp_host.clone(),
+                editor.drawn.smtp_port.parse().unwrap_or(account::SMTPS_PORT),
+            ),
+        };
+        let protection = if port == account::SMTPS_PORT {
+            "encrypted from the first byte"
+        } else {
+            "encrypted with STARTTLS before the sign-in"
+        };
+        let text = format!(
+            "AzMail signs in to {host} port {port} (the outgoing server on the Servers page) \
+             with this account's password or token, {protection}, and hands every mail to it. \
+             Gmail, iCloud and Fastmail want an app password. For a connection that cannot \
+             deliver directly; DKIM below still signs as your own domain."
+        );
+        page.add_child(Dom::create_span_with_text(text.as_str()).with_css(NOTE));
     } else {
         page.add_child(
             Dom::create_span_with_text(
@@ -534,6 +644,187 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
         Flag::StartTls,
         "Use STARTTLS when the server offers it",
     ))
+    .with_child(dkim_fields(editor, app))
+}
+
+/// Client-side DKIM: on or off, the domain and selector, the key, the DNS record to publish,
+/// what DNS has now, and the notes on DMARC, SPF, reverse DNS and port 25.
+fn dkim_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
+    let sending = &editor.sending;
+    let mut page = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; margin-top: 16px;")
+        .with_child(check(
+            app,
+            sending.dkim,
+            Flag::Dkim,
+            "Sign my mail with DKIM (needs a domain of your own whose DNS you can edit)",
+        ));
+    if !sending.dkim {
+        return page;
+    }
+    let address_domain = account::email_domain(&editor.form.email).unwrap_or_default();
+    let saved_selector = editor
+        .settings
+        .dkim
+        .as_ref()
+        .map(|d| d.selector.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| dkim::default_selector(crate::now_unix()));
+    page.add_child(label("Domain and selector:"));
+    page.add_child(pair(
+        input(
+            app,
+            TextInput::create(),
+            Field::DkimDomain,
+            &sending.dkim_domain,
+            &address_domain,
+            ids::DKIM_DOMAIN,
+        ),
+        input(
+            app,
+            TextInput::create(),
+            Field::DkimSelector,
+            &sending.dkim_selector,
+            &saved_selector,
+            ids::DKIM_SELECTOR,
+        ),
+    ));
+    let public_key = editor.dkim_public_key();
+    let create_label = if public_key.is_empty() {
+        "Create a key"
+    } else {
+        "Create a new key"
+    };
+    let check_dns = if public_key.is_empty() {
+        None
+    } else {
+        Some(
+            Button::create("Check DNS")
+                .with_on_click(app.clone(), on_dkim_check as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::DKIM_CHECK)
+                .with_css("margin-left: 8px;"),
+        )
+    };
+    let mut buttons = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; margin-top: 12px;")
+        .with_child(
+            Button::create(create_label)
+                .with_on_click(app.clone(), on_dkim_create as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::DKIM_CREATE),
+        );
+    if let Some(check_dns) = check_dns {
+        buttons.add_child(check_dns);
+    }
+    page.add_child(buttons);
+    if editor.dkim_busy {
+        page.add_child(Dom::create_span_with_text("Working...").with_css(NOTE));
+    }
+    if public_key.is_empty() {
+        page.add_child(
+            Dom::create_span_with_text(
+                "AzMail makes the key on this computer and keeps its private half in the system \
+                 keyring; you publish the public half in your domain's DNS.",
+            )
+            .with_css(NOTE),
+        );
+        return page;
+    }
+    let domain = match sending.dkim_domain.trim() {
+        "" => address_domain.clone(),
+        typed => typed.to_string(),
+    };
+    let selector = match sending.dkim_selector.trim() {
+        "" => saved_selector,
+        typed => typed.to_string(),
+    };
+    let record_css = "font-family: monospace; font-size: 12px; overflow-wrap: anywhere; \
+                      margin-top: 4px;";
+    page.add_child(label("Publish this TXT record in your domain's DNS:"));
+    page.add_child(
+        Dom::create_span_with_text(dkim::record_name(&selector, &domain))
+            .with_css(record_css)
+            .with_id(ids::DKIM_NAME),
+    );
+    page.add_child(
+        Dom::create_span_with_text(dkim::record_value(&public_key))
+            .with_css(record_css)
+            .with_id(ids::DKIM_VALUE),
+    );
+    page.add_child(label("As a line of a zone file:"));
+    page.add_child(
+        Dom::create_span_with_text(dkim::zone_line(&selector, &domain, &public_key))
+            .with_css(record_css),
+    );
+    if editor.dkim_new_key.is_some() {
+        page.add_child(
+            Dom::create_span_with_text(
+                "A new key: Save puts it into the system keyring. Until its record is \
+                 published, receivers cannot check the signature.",
+            )
+            .with_css(NOTE),
+        );
+    }
+    for line in &editor.dkim_report {
+        page.add_child(Dom::create_span_with_text(line.as_str()).with_css(NOTE));
+    }
+    for note in dkim::setup_notes(&domain, editor.form.email.trim()) {
+        page.add_child(Dom::create_span_with_text(note).with_css(NOTE));
+    }
+    page
+}
+
+/// "Create a key": a new RSA key on a thread ([`dkim_key_made`] takes it).
+extern "C" fn on_dkim_create(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, |s, app| {
+        let Some(editor) = s.editor.as_mut() else {
+            return Update::DoNothing;
+        };
+        if editor.dkim_busy {
+            return Update::DoNothing;
+        }
+        editor.dkim_busy = true;
+        editor.error.clear();
+        crate::spawn_io(&mut info, app, IoJob::DkimKey);
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// "Check DNS": the DKIM, DMARC and SPF records on a thread ([`dkim_checked`] shows them).
+extern "C" fn on_dkim_check(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, |s, app| {
+        let Some(editor) = s.editor.as_mut() else {
+            return Update::DoNothing;
+        };
+        if editor.dkim_busy {
+            return Update::DoNothing;
+        }
+        let settings = match editor.sending_settings() {
+            Ok(settings) => settings,
+            Err(e) => {
+                editor.error = e;
+                return Update::RefreshDom;
+            }
+        };
+        let Some(dkim) = settings.dkim else {
+            return Update::DoNothing;
+        };
+        editor.dkim_busy = true;
+        editor.dkim_report.clear();
+        crate::spawn_io(
+            &mut info,
+            app,
+            IoJob::DkimCheck {
+                selector: dkim.selector,
+                domain: dkim.domain,
+                public_key: dkim.public_key,
+            },
+        );
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
 }
 
 /// Step 4: what Finish does.
@@ -546,8 +837,7 @@ fn finish_summary(editor: &AccountEditor) -> Dom {
         f.imap_host.trim().to_string()
     };
     let sending = editor
-        .sending
-        .apply(&editor.settings)
+        .sending_settings()
         .map(|settings| crate::sending::describe(&settings))
         .unwrap_or_default();
     let line = |text: String| Dom::create_span_with_text(text).with_css("margin-top: 6px;");
@@ -583,6 +873,8 @@ extern "C" fn on_field(mut data: RefAny, _info: CallbackInfo, state: TextInputSt
                     Field::Folder => f.folder = text,
                     Field::SendHost => editor.sending.host = text,
                     Field::SendPort => editor.sending.port = text,
+                    Field::DkimDomain => editor.sending.dkim_domain = text,
+                    Field::DkimSelector => editor.sending.dkim_selector = text,
                 }
             }
         }
@@ -630,6 +922,7 @@ fn set_flag(data: &mut RefAny, checked: Option<bool>) -> Update {
         Flag::Plain => &mut editor.form.plain,
         Flag::Xoauth2 => &mut editor.form.xoauth2,
         Flag::StartTls => &mut editor.sending.starttls,
+        Flag::Dkim => &mut editor.sending.dkim,
     };
     *value = checked.unwrap_or(!*value);
     editor.error.clear();
@@ -647,7 +940,7 @@ extern "C" fn on_flag_label(mut data: RefAny, _info: CallbackInfo) -> Update {
 extern "C" fn on_route(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
     with_app(&mut data, |s, _| {
         if let Some(editor) = s.editor.as_mut() {
-            editor.sending.smtp = state.selected_index == 1;
+            editor.sending.choose_route(state.selected_index);
             editor.error.clear();
         }
         Update::RefreshDom

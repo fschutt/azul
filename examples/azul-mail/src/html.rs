@@ -16,7 +16,13 @@
 //!   class prefix; `@import`, `@font-face`, any URL, positioning and the `<!--` / `-->`
 //!   wrapping go;
 //! - images are NOT loaded (remote images are off): each becomes a grey `[image: alt]` text,
-//!   and a tracking pixel (1x1 or hidden) not even that;
+//!   and a tracking pixel (1x1 or hidden) not even that - except the mail's own pictures (a
+//!   `cid:` naming one of its parts, [`PictureOptions::inline`]), shown at once under a key of
+//!   this message's own ([`Sanitized::inline_key`]), and, after "download pictures", its web
+//!   pictures;
+//! - before anything is shown, the engine's pre-pass over the parsed mail
+//!   (`Xml::scan_external_resources`, after the parse and before layout) lists what it would
+//!   fetch from the web - pictures, fonts, style sheets ([`Sanitized::remote`]);
 //! - only presentational tags stay (`p div span b i u a table tr td ul li h1 ...`); `font`
 //!   becomes a `span`, `center` a centred `div`, the `body` is the MAIL BODY (below), and any
 //!   other tag is dropped with its text kept;
@@ -53,7 +59,7 @@
 
 use azul::{
     dom::{XmlNode, XmlNodeChild},
-    xml::Xml,
+    xml::{ExternalResourceKind, Xml},
 };
 
 use crate::ids;
@@ -75,6 +81,94 @@ pub struct Sanitized {
     /// and its sheet's `.big` the same): one per message, the same with pictures on or off,
     /// never starting with the app's `__azmail_`.
     pub class_prefix: String,
+    /// What the mail would fetch from the web (the engine's pre-pass over the parsed mail):
+    /// the same with pictures on or off.
+    pub remote: RemoteContent,
+    /// The mail's own pictures shown (the Content-IDs of [`PictureOptions::inline`] its `cid:`
+    /// pictures name), each once, in order: the app decodes those parts and registers each
+    /// under [`Sanitized::inline_key`].
+    pub inline_images: Vec<String>,
+}
+
+impl Sanitized {
+    /// The image-cache key of the mail's own picture `content_id`: `cid:<class prefix><id>`,
+    /// so two mails' `image001.png` never meet in the cache.
+    pub fn inline_key(&self, content_id: &str) -> String {
+        inline_key(&self.class_prefix, content_id)
+    }
+}
+
+fn inline_key(prefix: &str, content_id: &str) -> String {
+    format!("cid:{prefix}{content_id}")
+}
+
+/// What a mail would fetch from the web: found by the engine's pre-pass over the parsed mail
+/// (`Xml::scan_external_resources`, after the parse and before layout); http and https
+/// addresses only, each once.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RemoteContent {
+    /// Pictures: `<img src>` and `srcset`, `background`, a CSS `url()` of a picture, icons.
+    pub images: Vec<String>,
+    /// Fonts: an `@font-face` `url()`, `<link as="font">`.
+    pub fonts: Vec<String>,
+    /// Style sheets: `<link rel="stylesheet">`, `@import`.
+    pub stylesheets: Vec<String>,
+}
+
+impl RemoteContent {
+    /// "4 pictures, 1 font and 2 style sheets" (what is there); empty when there is nothing.
+    pub fn summary(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        for (count, one, many) in [
+            (self.images.len(), "picture", "pictures"),
+            (self.fonts.len(), "font", "fonts"),
+            (self.stylesheets.len(), "style sheet", "style sheets"),
+        ] {
+            match count {
+                0 => {}
+                1 => parts.push(format!("1 {one}")),
+                n => parts.push(format!("{n} {many}")),
+            }
+        }
+        match parts.pop() {
+            None => String::new(),
+            Some(last) if parts.is_empty() => last,
+            Some(last) => format!("{} and {last}", parts.join(", ")),
+        }
+    }
+}
+
+/// The pre-pass: what the parsed mail references on the web, by kind.
+pub fn remote_content(document: &Xml) -> RemoteContent {
+    let mut remote = RemoteContent::default();
+    for resource in document.scan_external_resources().iter() {
+        let url = resource.url.as_str().trim();
+        let lower = url.to_ascii_lowercase();
+        if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+            continue;
+        }
+        let list = match resource.kind {
+            ExternalResourceKind::Image | ExternalResourceKind::Icon => &mut remote.images,
+            ExternalResourceKind::Font => &mut remote.fonts,
+            ExternalResourceKind::Stylesheet => &mut remote.stylesheets,
+            _ => continue,
+        };
+        if !list.iter().any(|known| known == url) {
+            list.push(url.to_string());
+        }
+    }
+    remote
+}
+
+/// What the sanitizer does with a mail's pictures. `Default`: none shown (the plain
+/// [`sanitize`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PictureOptions {
+    /// The reader clicked "download pictures": the web pictures are kept.
+    pub web: bool,
+    /// The Content-IDs of the mail's own picture parts (`crate::message::inline_pictures`):
+    /// a `cid:` picture naming one of them is always shown.
+    pub inline: Vec<String>,
 }
 
 /// See the module documentation.
@@ -87,14 +181,32 @@ pub fn sanitize(html: &str) -> Sanitized {
 /// [`Sanitized::remote_images`]. A tracking pixel stays out either way, and a picture that is
 /// not on the web (`cid:` - an attached one -, `data:`, anything else) stays a placeholder.
 pub fn sanitize_with(html: &str, pictures: bool) -> Sanitized {
+    sanitize_mail(
+        html,
+        &PictureOptions {
+            web: pictures,
+            inline: Vec::new(),
+        },
+    )
+}
+
+/// [`sanitize`] with the pictures `options` say: the web ones after "download pictures", the
+/// mail's own (`cid:`) always. The mail is parsed once; the pre-pass lists its web content
+/// right after the parse ([`Sanitized::remote`]).
+pub fn sanitize_mail(html: &str, options: &PictureOptions) -> Sanitized {
     let mut s = Sanitizer {
-        pictures,
+        pictures: options.web,
+        inline: options.inline.clone(),
         prefix: class_prefix(html),
         ..Sanitizer::default()
     };
     let document = Xml::create_from_html(html);
+    let remote = remote_content(&document);
     s.children(&document.root);
-    s.finish()
+    Sanitized {
+        remote,
+        ..s.finish()
+    }
 }
 
 /// Tags deeper than this keep their text only.
@@ -281,6 +393,10 @@ struct Sanitizer {
     pictures: bool,
     /// The web pictures kept, each once.
     remote_images: Vec<String>,
+    /// The Content-IDs of the mail's own pictures that may be shown.
+    inline: Vec<String>,
+    /// The mail's own pictures shown, each once.
+    inline_images: Vec<String>,
     /// The prefix of this message's classes ([`class_prefix`]).
     prefix: String,
     /// What the mail's `<body>` said ([`body_of`]); it is written by `finish`.
@@ -388,74 +504,33 @@ impl Sanitizer {
     /// pictures on - kept for the app to fetch.
     fn image(&mut self, attributes: &[(&str, &str)]) {
         self.blocked_images += 1;
-        let attribute = |name: &str| {
-            attributes
-                .iter()
-                .find(|&&(n, _)| n == name)
-                .map(|&(_, v)| v.trim())
-        };
+        let attribute = |name: &str| attribute_of(attributes, name);
         if is_tracking_pixel(attribute("width"), attribute("height"), attribute("style")) {
             return;
         }
         let alt = attribute("alt").filter(|a| !a.is_empty());
         let src = attribute("src").unwrap_or("");
         let scheme = src.to_ascii_lowercase();
+        // The mail's own picture (`cid:` naming one of its parts): shown at once, under this
+        // message's own key.
+        let own = scheme
+            .strip_prefix("cid:")
+            .and(src.get(4..))
+            .map(str::trim)
+            .filter(|cid| self.inline.iter().any(|c| c == cid));
+        if let Some(cid) = own {
+            self.blocked_images -= 1;
+            let key = inline_key(&self.prefix, cid);
+            self.picture(&key, alt, attributes);
+            if !self.inline_images.iter().any(|c| c == cid) {
+                self.inline_images.push(cid.to_string());
+            }
+            return;
+        }
         if self.pictures && (scheme.starts_with("https://") || scheme.starts_with("http://")) {
             // Loaded after all: an image the app fetches and caches under its src.
             self.blocked_images -= 1;
-            self.out.push_str("<img src=\"");
-            push_attribute(&mut self.out, src);
-            self.out.push('"');
-            if let Some(alt) = alt {
-                self.out.push_str(" alt=\"");
-                push_attribute(&mut self.out, alt);
-                self.out.push('"');
-            }
-            let pixels = |name: &str| {
-                attribute(name)
-                    .map(|v| v.trim_end_matches("px").trim())
-                    .and_then(|v| v.parse::<u32>().ok())
-            };
-            for name in ["width", "height"] {
-                if let Some(n) = pixels(name) {
-                    self.out.push_str(&format!(" {name}=\"{n}\""));
-                }
-            }
-            // What a picture's legacy attributes mean in a browser (HTML's rendering section,
-            // "images"): `align` floats it or aligns it on the line, `hspace` / `vspace` are
-            // its margins, `border` a solid border.
-            let mut styles: Vec<String> = Vec::new();
-            let align = attribute("align").map(str::to_ascii_lowercase);
-            match align.as_deref() {
-                Some("left") => styles.push(String::from("float: left")),
-                Some("right") => styles.push(String::from("float: right")),
-                Some("top") => styles.push(String::from("vertical-align: top")),
-                Some("texttop") => styles.push(String::from("vertical-align: text-top")),
-                Some("middle" | "absmiddle" | "center") => {
-                    styles.push(String::from("vertical-align: middle"));
-                }
-                Some("bottom" | "baseline") => styles.push(String::from("vertical-align: baseline")),
-                Some("absbottom") => styles.push(String::from("vertical-align: bottom")),
-                _ => {}
-            }
-            if let Some(n) = pixels("hspace") {
-                styles.push(format!("margin-left: {n}px"));
-                styles.push(format!("margin-right: {n}px"));
-            }
-            if let Some(n) = pixels("vspace") {
-                styles.push(format!("margin-top: {n}px"));
-                styles.push(format!("margin-bottom: {n}px"));
-            }
-            if let Some(n) = pixels("border") {
-                styles.push(format!("border-width: {n}px"));
-                styles.push(String::from("border-style: solid"));
-            }
-            if !styles.is_empty() {
-                self.out.push_str(" style=\"");
-                push_attribute(&mut self.out, &styles.join("; "));
-                self.out.push('"');
-            }
-            self.out.push_str("/>");
+            self.picture(src, alt, attributes);
             if !self.remote_images.iter().any(|u| u == src) {
                 self.remote_images.push(src.to_string());
             }
@@ -470,6 +545,65 @@ impl Sanitizer {
         self.out.push_str("\">");
         push_text(&mut self.out, &label);
         self.out.push_str("</span>");
+    }
+
+    /// A shown picture: `<img src alt width height/>` with what its legacy attributes mean as
+    /// style; `src` is where the image cache has it (the web address, or a `cid:` key).
+    fn picture(&mut self, src: &str, alt: Option<&str>, attributes: &[(&str, &str)]) {
+        let attribute = |name: &str| attribute_of(attributes, name);
+        self.out.push_str("<img src=\"");
+        push_attribute(&mut self.out, src);
+        self.out.push('"');
+        if let Some(alt) = alt {
+            self.out.push_str(" alt=\"");
+            push_attribute(&mut self.out, alt);
+            self.out.push('"');
+        }
+        let pixels = |name: &str| {
+            attribute(name)
+                .map(|v| v.trim_end_matches("px").trim())
+                .and_then(|v| v.parse::<u32>().ok())
+        };
+        for name in ["width", "height"] {
+            if let Some(n) = pixels(name) {
+                self.out.push_str(&format!(" {name}=\"{n}\""));
+            }
+        }
+        // What a picture's legacy attributes mean in a browser (HTML's rendering section,
+        // "images"): `align` floats it or aligns it on the line, `hspace` / `vspace` are
+        // its margins, `border` a solid border.
+        let mut styles: Vec<String> = Vec::new();
+        let align = attribute("align").map(str::to_ascii_lowercase);
+        match align.as_deref() {
+            Some("left") => styles.push(String::from("float: left")),
+            Some("right") => styles.push(String::from("float: right")),
+            Some("top") => styles.push(String::from("vertical-align: top")),
+            Some("texttop") => styles.push(String::from("vertical-align: text-top")),
+            Some("middle" | "absmiddle" | "center") => {
+                styles.push(String::from("vertical-align: middle"));
+            }
+            Some("bottom" | "baseline") => styles.push(String::from("vertical-align: baseline")),
+            Some("absbottom") => styles.push(String::from("vertical-align: bottom")),
+            _ => {}
+        }
+        if let Some(n) = pixels("hspace") {
+            styles.push(format!("margin-left: {n}px"));
+            styles.push(format!("margin-right: {n}px"));
+        }
+        if let Some(n) = pixels("vspace") {
+            styles.push(format!("margin-top: {n}px"));
+            styles.push(format!("margin-bottom: {n}px"));
+        }
+        if let Some(n) = pixels("border") {
+            styles.push(format!("border-width: {n}px"));
+            styles.push(String::from("border-style: solid"));
+        }
+        if !styles.is_empty() {
+            self.out.push_str(" style=\"");
+            push_attribute(&mut self.out, &styles.join("; "));
+            self.out.push('"');
+        }
+        self.out.push_str("/>");
     }
 
     fn finish(self) -> Sanitized {
@@ -510,8 +644,18 @@ impl Sanitizer {
             has_dark_rules: self.has_dark_rules,
             remote_images: self.remote_images,
             class_prefix: self.prefix,
+            remote: RemoteContent::default(),
+            inline_images: self.inline_images,
         }
     }
+}
+
+/// The value of the attribute `name` (lower case, as the parser gives it), trimmed.
+fn attribute_of<'a>(attributes: &[(&'a str, &'a str)], name: &str) -> Option<&'a str> {
+    attributes
+        .iter()
+        .find(|&&(n, _)| n == name)
+        .map(|&(_, v)| v.trim())
 }
 
 /// The presentational attributes azul's own HTML hints map to CSS where a browser does (core's
@@ -1570,5 +1714,92 @@ mod tests {
         assert!(out.matches("<div>").count() <= 200, "{}", out.len());
         assert!(out.contains('x'));
         assert_eq!(out.matches("<div>").count(), out.matches("</div>").count());
+    }
+
+    // ---- the remote-content pre-pass and the mail's own pictures ----
+
+    /// The engine's scan of the parsed mail (`Xml::scan_external_resources`, after the parse,
+    /// before layout) lists what the mail would fetch from the web - pictures, fonts, style
+    /// sheets -, http and https only, each once; what the sanitizer shows decides what is
+    /// fetched ("download pictures"): no tracking pixel, no background, nothing not on the web.
+    #[test]
+    fn the_pre_pass_lists_the_web_pictures_fonts_and_style_sheets_and_the_shown_ones_are_fetched() {
+        let html = "<html><head><link rel=\"stylesheet\" href=\"https://cdn.example/mail.css\">\
+                    <style>@font-face { font-family: Brand; src: url(https://cdn.example/brand.woff2) }\
+                    @import url(\"https://cdn.example/more.css\");\
+                    .hero { background-image: url(https://cdn.example/hero.jpg) }</style></head>\
+                    <body background=\"http://cdn.example/paper.gif\">\
+                    <img src=\"https://cdn.example/logo.png\" alt=\"Logo\">\
+                    <img src=\"https://cdn.example/logo.png\">\
+                    <img src=\"cid:part1@example\"><img src=\"data:image/png;base64,AAAA\">\
+                    <img src=\"file:///etc/passwd.png\">\
+                    <img src=\"https://t.example/open.gif\" width=\"1\" height=\"1\"></body></html>";
+        let off = sanitize(html);
+        let mut images = off.remote.images.clone();
+        images.sort();
+        assert_eq!(
+            images,
+            vec![
+                String::from("http://cdn.example/paper.gif"),
+                String::from("https://cdn.example/hero.jpg"),
+                String::from("https://cdn.example/logo.png"),
+                String::from("https://t.example/open.gif"),
+            ]
+        );
+        assert_eq!(off.remote.fonts, vec![String::from("https://cdn.example/brand.woff2")]);
+        let mut sheets = off.remote.stylesheets.clone();
+        sheets.sort();
+        assert_eq!(
+            sheets,
+            vec![
+                String::from("https://cdn.example/mail.css"),
+                String::from("https://cdn.example/more.css"),
+            ]
+        );
+        assert!(off.remote_images.is_empty(), "nothing is fetched before the reader asks");
+        assert_eq!(off.remote.summary(), "4 pictures, 1 font and 2 style sheets");
+        // "Download pictures": the same list, and only the shown picture is fetched.
+        let on = sanitize_with(html, true);
+        assert_eq!(on.remote, off.remote);
+        assert_eq!(on.remote_images, vec![String::from("https://cdn.example/logo.png")]);
+        assert_eq!(RemoteContent::default().summary(), "");
+        let one = RemoteContent {
+            images: vec![String::from("https://cdn.example/a.png")],
+            ..RemoteContent::default()
+        };
+        assert_eq!(one.summary(), "1 picture");
+    }
+
+    /// A picture the mail carries itself (`cid:` naming one of its parts) is no download: it
+    /// shows at once, under a key of this message's own (two mails' `image001.png` never mix in
+    /// the image cache); a `cid:` the mail does not have stays a placeholder.
+    #[test]
+    fn the_mails_own_cid_pictures_show_without_asking_under_a_key_of_their_own() {
+        let html = "<p><img src=\"cid:logo@example\" alt=\"Logo\" width=\"120\">\
+                    <img src=\"CID:missing@example\" alt=\"Gone\">\
+                    <img src=\"https://cdn.example/a.png\" alt=\"Web\"></p>";
+        let options = PictureOptions {
+            web: false,
+            inline: vec![String::from("logo@example")],
+        };
+        let s = sanitize_mail(html, &options);
+        assert_eq!(s.inline_images, vec![String::from("logo@example")]);
+        let key = s.inline_key("logo@example");
+        assert_eq!(key, format!("cid:{}logo@example", s.class_prefix));
+        assert!(
+            s.xhtml.contains(&format!("<img src=\"{key}\" alt=\"Logo\" width=\"120\"/>")),
+            "{}",
+            s.xhtml
+        );
+        assert!(s.xhtml.contains("[image: Gone]"), "{}", s.xhtml);
+        assert!(s.xhtml.contains("[image: Web]"), "{}", s.xhtml);
+        assert_eq!(s.blocked_images, 2, "the missing one and the web one");
+        assert!(s.remote_images.is_empty());
+        // The plain sanitizer knows no parts: every cid: picture is a placeholder.
+        assert!(sanitize(html).inline_images.is_empty());
+        assert_eq!(sanitize_mail(html, &PictureOptions::default()), sanitize(html));
+        // Another mail with the same part name gets another key.
+        let other = sanitize_mail("<img src=\"cid:logo@example\"><p>other</p>", &options);
+        assert_ne!(other.inline_key("logo@example"), key);
     }
 }

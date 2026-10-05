@@ -28,6 +28,18 @@ pub const ACCT_FOLDER: AzString = AzString::from_const_str("__azmail_acct_folder
 pub const SEND_HOST: AzString = AzString::from_const_str("__azmail_send_host");
 /// The SMTP port.
 pub const SEND_PORT: AzString = AzString::from_const_str("__azmail_send_port");
+/// Client-side DKIM: the signing domain.
+pub const DKIM_DOMAIN: AzString = AzString::from_const_str("__azmail_dkim_domain");
+/// Client-side DKIM: the selector.
+pub const DKIM_SELECTOR: AzString = AzString::from_const_str("__azmail_dkim_selector");
+/// The "Create a key" button.
+pub const DKIM_CREATE: AzString = AzString::from_const_str("__azmail_dkim_create");
+/// The "Check DNS" button.
+pub const DKIM_CHECK: AzString = AzString::from_const_str("__azmail_dkim_check");
+/// The DNS record's name (`<selector>._domainkey.<domain>`).
+pub const DKIM_NAME: AzString = AzString::from_const_str("__azmail_dkim_name");
+/// The DNS record's value (`v=DKIM1; k=rsa; p=...`).
+pub const DKIM_VALUE: AzString = AzString::from_const_str("__azmail_dkim_value");
 
 // ==== A message window ====
 

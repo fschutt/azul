@@ -47,7 +47,20 @@ webpki-roots = "1.0"
 # Sending (send.rs): the MIME builder, DKIM signing (mini-mail-auth) and the SMTP client - direct to
 # the recipients' MX hosts or through one SMTP server, STARTTLS verified against the Mozilla roots
 # with the same pure-Rust provider as above. Our crate, the client azul's crash mail uses too.
-micromail = { version = "0.2", default-features = false, features = ["tls-rustcrypto", "dkim"] }
+micromail = { version = "0.2", default-features = false, features = ["tls-rustcrypto", "dkim", "signing"] }
+# Client-side DKIM (dkim.rs): the public half of the key micromail generates, as the
+# SubjectPublicKeyInfo the DNS record publishes (micromail's own record helper writes PKCS#1,
+# which OpenDKIM's verifier does not read). The same rsa / base64 micromail builds with.
+rsa = { version = "0.9", features = ["pem"] }
+base64 = "0.22"
+# The TXT lookup that checks the DKIM / DMARC / SPF records (the UDP resolver micromail's MX
+# lookup uses).
+microdns = "0.1"
+# Submission (submit.rs, the optional signed-in route): lettre's blocking SMTP client -
+# implicit TLS or STARTTLS, EHLO, AUTH PLAIN / LOGIN / XOAUTH2 - over rustls with the RustCrypto
+# provider above (installed as the process default) and the Mozilla roots. No message builder:
+# the message stays micromail's. New in the tree: lettre and email_address only.
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider", "webpki-roots"] }
 
 [lib]
 name = "azmail"

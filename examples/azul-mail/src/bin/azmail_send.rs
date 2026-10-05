@@ -5,11 +5,24 @@
 //! azmail-send --data <AzMail folder> --account <id> --from <addr> --to <addr> [--to ...]
 //!     [--cc <addr>]... [--bcc <addr>]... [--subject <text>] [--text <text>] [--html <html>]
 //!     [--attach <file>[=<mime type>]]... [--in-reply-to <id>] [--reference <id>]...
-//!     [--smtp <host:port> | --direct] [--direct-port <port>] [--tls opportunistic|required|off]
+//!     [--smtp <host:port> | --direct | --submission] [--password-env <VAR>]
+//!     [--direct-port <port>] [--tls opportunistic|required|off|implicit]
 //!     [--ca <pem file>] [--helo <name>] [--ignore-policy]
 //!     [--dkim-domain <d> --dkim-selector <s> --dkim-key <pem file>] [--save-settings]
+//!     [--dkim-generate <pem file>] [--port25-probe <host:port>]...
 //! azmail-send --data <dir> --account <id> --retry [--force] [route options as above]
 //! ```
+//!
+//! `--dkim-generate` makes a new key the way the Sending page does (`azmail::dkim`), writes its
+//! private half to the file (a test harness's stand-in for the keyring, mode 0600), signs with
+//! it and prints the DNS record: `AZMAIL_DKIM_NAME <selector>._domainkey.<domain>` and
+//! `AZMAIL_DKIM_VALUE v=DKIM1; k=rsa; p=...` (the domain: `--dkim-domain`, else the From
+//! address's; the selector: `--dkim-selector`, else this month's). `--port25-probe` points the
+//! port-25 probe at a test address instead of the big providers' exchangers.
+//!
+//! `--submission` signs in to the account's own outgoing server (`smtp` in its `account.json`,
+//! with its user name and kind of secret); the secret comes from the environment variable
+//! `--password-env` names (never from the command line, where `ps` would show it).
 //!
 //! Without route options the account's `sending.json` is used. Prints one line per mail:
 //! `AZMAIL_SEND sent <message-id>`, `AZMAIL_SEND queued <reason>` or
@@ -29,11 +42,23 @@ fn usage(why: &str) -> ! {
     eprintln!(
         "usage: azmail-send --data <dir> --account <id> --from <addr> --to <addr> [--cc ..] \
          [--bcc ..] [--subject ..] [--text ..] [--html ..] [--attach file[=mime]] \
-         [--in-reply-to id] [--reference id] [--smtp host:port | --direct] [--direct-port n] \
-         [--tls opportunistic|required|off] [--ca pem] [--helo name] [--ignore-policy] \
+         [--in-reply-to id] [--reference id] [--smtp host:port | --direct | --submission] \
+         [--password-env VAR] [--direct-port n] [--tls opportunistic|required|off|implicit] \
+         [--ca pem] [--helo name] [--ignore-policy] \
          [--dkim-domain d --dkim-selector s --dkim-key pem] [--save-settings] | --retry [--force]"
     );
     std::process::exit(3);
+}
+
+/// Writes a private key file only its owner can read.
+fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    std::fs::write(path, text)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 fn main() {
@@ -48,6 +73,9 @@ fn main() {
     let mut direct_port: Option<u16> = None;
     let mut ignore_policy = false;
     let mut dkim = DkimSettings::default();
+    let mut dkim_generate: Option<PathBuf> = None;
+    let mut port25_probe: Vec<String> = Vec::new();
+    let mut password_env: Option<String> = None;
     let mut retry = false;
     let mut force = false;
     let mut save = false;
@@ -106,6 +134,8 @@ fn main() {
                 });
             }
             "--direct" => route = Some(SendRoute::Direct),
+            "--submission" => route = Some(SendRoute::Submission),
+            "--password-env" => password_env = Some(value("--password-env")),
             "--direct-port" => {
                 direct_port = Some(
                     value("--direct-port")
@@ -118,7 +148,10 @@ fn main() {
                     "opportunistic" => TlsPolicy::Opportunistic,
                     "required" => TlsPolicy::Required,
                     "off" => TlsPolicy::Off,
-                    other => usage(&format!("--tls {other}: opportunistic, required or off")),
+                    "implicit" => TlsPolicy::Implicit,
+                    other => usage(&format!(
+                        "--tls {other}: opportunistic, required, off or implicit"
+                    )),
                 })
             }
             "--ca" => ca = Some(PathBuf::from(value("--ca"))),
@@ -127,6 +160,8 @@ fn main() {
             "--dkim-domain" => dkim.domain = value("--dkim-domain"),
             "--dkim-selector" => dkim.selector = value("--dkim-selector"),
             "--dkim-key" => dkim.key_file = Some(PathBuf::from(value("--dkim-key"))),
+            "--dkim-generate" => dkim_generate = Some(PathBuf::from(value("--dkim-generate"))),
+            "--port25-probe" => port25_probe.push(value("--port25-probe")),
             "--retry" => retry = true,
             "--force" => force = true,
             "--save-settings" => save = true,
@@ -157,6 +192,43 @@ fn main() {
     }
     if ignore_policy {
         settings.ignore_policy = true;
+    }
+    if !port25_probe.is_empty() {
+        settings.port25_probe = port25_probe;
+    }
+    if let Some(var) = password_env {
+        match std::env::var(&var) {
+            Ok(secret) if !secret.is_empty() => {
+                settings.sign_in = Some(azmail::account::Secret::new(secret))
+            }
+            _ => usage(&format!("the environment variable {var} holds no password")),
+        }
+    }
+    if let Some(path) = dkim_generate {
+        let pair = azmail::dkim::generate_key().unwrap_or_else(|e| usage(&e));
+        write_private(&path, pair.private_pem.expose())
+            .unwrap_or_else(|e| usage(&format!("cannot write {}: {e}", path.display())));
+        if dkim.domain.is_empty() {
+            dkim.domain =
+                azmail::account::email_domain(&micromail::message::address_spec(&mail.from))
+                    .unwrap_or_default();
+        }
+        if dkim.selector.is_empty() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs() as i64);
+            dkim.selector = azmail::dkim::default_selector(now);
+        }
+        println!(
+            "AZMAIL_DKIM_NAME {}",
+            azmail::dkim::record_name(&dkim.selector, &dkim.domain)
+        );
+        println!(
+            "AZMAIL_DKIM_VALUE {}",
+            azmail::dkim::record_value(&pair.public_key)
+        );
+        dkim.key_file = Some(path);
+        dkim.public_key = pair.public_key;
     }
     if !dkim.domain.is_empty() || dkim.key_file.is_some() {
         if dkim.selector.is_empty() {

@@ -39,6 +39,42 @@ pub fn choose(kind: AuthKind, caps: ServerCaps) -> Result<AuthMethod, String> {
     }
 }
 
+impl ServerCaps {
+    /// What an SMTP server's EHLO `AUTH` line offers (`AUTH PLAIN LOGIN XOAUTH2`, the
+    /// mechanisms in any case): SMTP has no LOGINDISABLED, so a server that does not list LOGIN
+    /// counts as one that refuses it.
+    pub fn from_smtp_auth(mechanisms: &[&str]) -> ServerCaps {
+        let offers = |name: &str| {
+            mechanisms
+                .iter()
+                .any(|m| m.trim().eq_ignore_ascii_case(name))
+        };
+        ServerCaps {
+            auth_plain: offers("PLAIN"),
+            auth_xoauth2: offers("XOAUTH2"),
+            login_disabled: !offers("LOGIN"),
+        }
+    }
+}
+
+/// The SMTP submission sign-in for the account's kind of secret: [`choose`] over the EHLO
+/// caps, except that an OAuth token goes as XOAUTH2 only when the server offers it (an SMTP
+/// server that does not list a mechanism refuses it, and a refused token would be asked again
+/// and again).
+pub fn choose_submission(kind: AuthKind, caps: ServerCaps) -> Result<AuthMethod, String> {
+    match kind {
+        AuthKind::Xoauth2 if !caps.auth_xoauth2 => Err(String::from(
+            "the outgoing server does not offer XOAUTH2: sign in with an app password, or check \
+             the server and port",
+        )),
+        AuthKind::Password if !caps.auth_plain && caps.login_disabled => Err(String::from(
+            "the outgoing server offers neither AUTH PLAIN nor AUTH LOGIN: it may only take OAuth, \
+             or want STARTTLS first",
+        )),
+        _ => choose(kind, caps),
+    }
+}
+
 /// The `AUTHENTICATE PLAIN` response before base64: `\0<user>\0<password>`.
 pub fn plain_response(user: &str, password: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(user.len() + password.len() + 2);
@@ -119,6 +155,41 @@ mod tests {
             xoauth2_response("ada@example.org", "ya29.token"),
             b"user=ada@example.org\x01auth=Bearer ya29.token\x01\x01"
         );
+    }
+
+    #[test]
+    fn an_smtp_servers_auth_line_says_what_it_offers() {
+        assert_eq!(
+            ServerCaps::from_smtp_auth(&["PLAIN", "login", "XOAUTH2"]),
+            caps(true, true, false)
+        );
+        assert_eq!(ServerCaps::from_smtp_auth(&["LOGIN"]), caps(false, false, false));
+        // No LOGIN listed: refused, as IMAP's LOGINDISABLED.
+        assert_eq!(ServerCaps::from_smtp_auth(&["PLAIN"]), caps(true, false, true));
+        assert_eq!(ServerCaps::from_smtp_auth(&[]), caps(false, false, true));
+    }
+
+    #[test]
+    fn submission_signs_in_with_what_the_server_offers_and_a_token_only_as_offered_xoauth2() {
+        fn offered(mechanisms: &[&str]) -> ServerCaps {
+            ServerCaps::from_smtp_auth(mechanisms)
+        }
+        assert_eq!(
+            choose_submission(AuthKind::Password, offered(&["LOGIN", "PLAIN"])),
+            Ok(AuthMethod::Plain)
+        );
+        assert_eq!(
+            choose_submission(AuthKind::Password, offered(&["LOGIN", "XOAUTH2"])),
+            Ok(AuthMethod::Login)
+        );
+        assert!(choose_submission(AuthKind::Password, offered(&["XOAUTH2"])).is_err());
+        assert!(choose_submission(AuthKind::Password, offered(&[])).is_err());
+        assert_eq!(
+            choose_submission(AuthKind::Xoauth2, offered(&["PLAIN", "XOAUTH2"])),
+            Ok(AuthMethod::Xoauth2)
+        );
+        let refused = choose_submission(AuthKind::Xoauth2, offered(&["PLAIN", "LOGIN"])).unwrap_err();
+        assert!(refused.contains("XOAUTH2"), "{refused}");
     }
 
     #[test]
