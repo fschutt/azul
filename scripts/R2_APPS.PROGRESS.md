@@ -6,12 +6,15 @@
 - A3 AzReader TempDir -> azul_storage::testing::TempDir: 228d84f7b
 - A4 appkit open_external -> Url::open_path (+ no `cmd /C start` without the feature): 65e2e7d86
 - A5 AzCalendar chrome.rs line/button/primary -> pieces: 33ea7e0d2
+- A6 AzContacts Toolbar: 4396334c9
+- A7 AzERP on_reference Clear arm: 1f8e870a0
+- A8 AzCode F1 list Mod+O: RED a0157835f, GREEN 9f3bea1a1
 
 ## IN PROGRESS
-- A6 AzContacts adopts Toolbar
+- A9 E2E steps: aznews (rename -> close -> relaunch), azcode (mock file_open + Mod+O), azerp (Delete ask)
 
 ## NEXT
-- A6, then A7..A9 in order (scripts/waves/wave9/ROUND2.md "PKG R2-APPS"), then the report
+- A9 aznews_e2e.py first, then azcode_e2e.py, then azerp_e2e.py; then the report
   scripts/R2_APPS_2026_10_05.md.
 
 ## Open questions
