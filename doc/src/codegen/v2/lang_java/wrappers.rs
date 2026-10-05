@@ -2117,3 +2117,108 @@ pub(super) fn idiomatic_method_name(method_name: &str) -> String {
         camel
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The wrapper classes `emit_wrapper_class` produces for `names`, built
+    /// from the real api.json (the field accessors are per-field, so a
+    /// fixture would only re-state the generator).
+    fn wrapper_sources(names: &[&str]) -> Vec<String> {
+        let api = crate::api::ApiData::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
+        )
+        .unwrap();
+        let ir = super::super::super::build_ir_from_api(&api).unwrap();
+        let config = CodegenConfig::c_header();
+        let app = app_factory_info(&ir);
+        names
+            .iter()
+            .map(|n| {
+                let s = ir.find_struct(n).unwrap_or_else(|| panic!("{} in api.json", n));
+                let mut b = CodeBuilder::new(&config.indent);
+                emit_wrapper_class(&mut b, s, &ir, &config, app.as_ref());
+                b.finish()
+            })
+            .collect()
+    }
+
+    /// The text of the method whose declaration line contains `sig`, up to
+    /// its closing brace.
+    fn method<'a>(src: &'a str, sig: &str) -> &'a str {
+        let start = src.find(sig).unwrap_or_else(|| panic!("no `{}` in:\n{}", sig, src));
+        let end = src[start..].find("\n    }\n").expect("method end") + start;
+        &src[start..end]
+    }
+
+    fn before(body: &str, first: &str, second: &str) -> bool {
+        match (body.find(first), body.find(second)) {
+            (Some(a), Some(b)) => a < b,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn the_title_getter_decodes_the_string_without_freeing_it_and_the_setter_releases_the_old_one() {
+        let src = &wrapper_sources(&["FullWindowState"])[0];
+        let get = method(src, "public java.lang.String getTitle()");
+        assert!(!get.contains("_delete"), "a getter must not free the field:\n{}", get);
+        assert!(get.contains("StandardCharsets.UTF_8"), "{}", get);
+        let set = method(src, "public void setTitle(java.lang.String v)");
+        assert!(set.contains("AzString_fromUtf8"), "{}", set);
+        assert!(
+            before(set, "AzString_delete(", ".write(0,"),
+            "the old title is released before the new one is written:\n{}",
+            set
+        );
+    }
+
+    #[test]
+    fn the_window_state_getter_deep_copies_and_the_setter_deletes_the_old_state_then_consumes_the_new_one() {
+        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let get = method(src, "public FullWindowState getWindowState()");
+        assert!(get.contains("AzFullWindowState_clone("), "{}", get);
+        assert!(get.contains("return new FullWindowState("), "{}", get);
+        let set = method(src, "public void setWindowState(FullWindowState v)");
+        assert!(before(set, "AzFullWindowState_delete(", ".write(0,"), "{}", set);
+        assert!(set.contains("v.__consume();"), "the argument is moved in:\n{}", set);
+    }
+
+    #[test]
+    fn a_bool_field_reads_and_writes_as_a_java_boolean() {
+        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let get = method(src, "public boolean getSizeToContent()");
+        assert!(get.contains("!= 0"), "{}", get);
+        let set = method(src, "public void setSizeToContent(boolean v)");
+        assert!(set.contains("writeField(\"size_to_content\")"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_can_be_edited_in_place_so_nested_writes_reach_the_options() {
+        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let edit = method(
+            src,
+            "public WindowCreateOptions editWindowState(java.util.function.Consumer<FullWindowState> f)",
+        );
+        assert!(edit.contains("FullWindowState.__borrow("), "{}", edit);
+        assert!(edit.contains("finally"), "the view is invalidated after the edit:\n{}", edit);
+        let fws = &wrapper_sources(&["FullWindowState"])[0];
+        method(fws, "public AzWindowSize.ByValue getSize()");
+        method(fws, "public void setSize(AzWindowSize v)");
+        let edit_size = method(
+            fws,
+            "public FullWindowState editSize(java.util.function.Consumer<AzWindowSize> f)",
+        );
+        assert!(edit_size.contains(".write()"), "{}", edit_size);
+    }
+
+    #[test]
+    fn the_text_field_stays_writable_although_the_api_method_get_text_takes_the_getter_name() {
+        let src = &wrapper_sources(&["TextInputState"])[0];
+        assert_eq!(src.matches(" getText()").count(), 1, "only the api.json getText:\n{}", src);
+        let set = method(src, "public void setText(U32Vec v)");
+        assert!(before(set, "AzU32Vec_delete(", ".write(0,"), "{}", set);
+        assert!(set.contains("v.__consume();"), "{}", set);
+    }
+}
