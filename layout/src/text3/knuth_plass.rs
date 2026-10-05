@@ -2038,6 +2038,38 @@ mod autotest_generated {
         assert_eq!(line_left(&layout, 1), 0.0, "later lines are not");
     }
 
+    /// `text-wrap: balance` through `perform_fragment_layout`, the engine's
+    /// entry: `items` from the cursor position `start` on.
+    fn balanced_fragment(items: &[ShapedItem], start: usize) -> UnifiedLayout {
+        let mut cursor = crate::text3::cache::BreakCursor::new(items);
+        cursor.next_item_index = start;
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(80.0),
+            text_indent: 10.0,
+            text_wrap: crate::text3::cache::TextWrap::Balance,
+            ..Default::default()
+        };
+        crate::text3::cache::perform_fragment_layout(&mut cursor, &[], &c, &mut None, &no_fonts())
+            .expect("the fragment lays out")
+    }
+
+    #[test]
+    fn a_balanced_continuation_fragment_is_not_indented() {
+        // A flow chain: an earlier fragment took "aa " (3 items), so this
+        // one starts mid-paragraph and holds no first formatted line (CSS
+        // Text 3 8.1) - the greedy breaker reads that from the cursor. "bb
+        // cccc" (77px) fits the 80px line unindented; it was indented by
+        // 10px (and wrapped).
+        let items = items_of("aa bb cccc");
+        let layout = balanced_fragment(&items, 3);
+        assert_eq!(line_count(&layout), 1, "one 77px line in 80px");
+        assert_eq!(line_left(&layout, 0), 0.0, "a continuation is not indented");
+
+        // From the paragraph's start the first line is indented (a pin).
+        let layout = balanced_fragment(&items, 0);
+        assert_eq!(line_left(&layout, 0), 10.0, "the first formatted line is");
+    }
+
     #[test]
     fn hanging_text_indent_offsets_every_line_but_the_first() {
         let nodes = nodes_for("aa bb cccc");
