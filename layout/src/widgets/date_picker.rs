@@ -6609,6 +6609,41 @@ mod inline_and_today_tests {
         );
     }
 
+    #[test]
+    fn a_focused_today_in_the_date_picker_shows_its_focus_halo_over_its_ring() {
+        // Today's ring is a RESTING shadow in the slot the focus halo uses:
+        // stacked after the face, it also won under `:focus` and hid the
+        // halo (the same bug the range picker had, a7dc9e502). Plain, and
+        // inside a lit range (wash, then ring).
+        let lit = |p: DatePicker| {
+            p.with_range(
+                DatePickerState { year: 2026, month: 9, day: 28 },
+                DatePickerState { year: 2026, month: 10, day: 4 },
+            )
+        };
+        for theme in checks::BOTH {
+            for (what, picker) in [("plain", september()), ("lit", lit(september()))] {
+                let dom = picker.with_theme(theme).dom();
+                let today = theme_checks::find_all(&dom, TODAY);
+                assert_eq!(today.len(), 1, "{} {what}: one cell is today", theme.name());
+                let shadowed = theme_checks::shadowed_states(today[0]);
+                assert!(
+                    shadowed.is_empty(),
+                    "{} {what}: today's ring hides a state:\n  {}",
+                    theme.name(),
+                    shadowed.join("\n  ")
+                );
+                for dark in [false, true] {
+                    assert!(
+                        theme_checks::has_focus_ring(today[0], dark),
+                        "{} {what}: a focused today shows its halo (dark: {dark})",
+                        theme.name()
+                    );
+                }
+            }
+        }
+    }
+
     type Log = Arc<Mutex<Vec<u32>>>;
 
     extern "C" fn record(mut data: RefAny, _: CallbackInfo, state: DatePickerState) -> Update {
@@ -6790,6 +6825,27 @@ mod range_tests {
             .with_theme(UiTheme::Flat)
             .dom();
         assert_eq!(lit(&month).len(), 28);
+    }
+
+    #[test]
+    fn a_lit_day_in_the_date_picker_keeps_its_hover_face_over_the_wash() {
+        // The wash is a RESTING background: stacked after the face it also
+        // won under `:hover` and hid the hover face.
+        for theme in checks::BOTH {
+            let dom = september_with_the_last_week().with_theme(theme).dom();
+            let lit = theme_checks::find_all(&dom, IN_RANGE);
+            assert!(!lit.is_empty(), "{}: the range is lit", theme.name());
+            for day in lit {
+                let shadowed = theme_checks::shadowed_states(day);
+                assert!(
+                    shadowed.is_empty(),
+                    "{}: the wash on {:?} hides a state:\n  {}",
+                    theme.name(),
+                    text_of(day),
+                    shadowed.join("\n  ")
+                );
+            }
+        }
     }
 
     #[test]
