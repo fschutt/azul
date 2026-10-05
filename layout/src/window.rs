@@ -28219,6 +28219,97 @@ mod autotest_generated {
         );
     }
 
+    /// A CSS `opacity` tween is a GPU property after its first frame
+    /// (ANIMFRAME8 s8): the display list binds the node's CSS opacity key in
+    /// its `PushOpacity`, so a later frame publishes the new value in the GPU
+    /// value cache and owes a repaint - no restyle of the whole DOM's compact
+    /// cache, no display-list rebuild. (The first frame may rebuild: the
+    /// layer of a node fading from 1.0 does not exist yet.) Every frame used
+    /// to take the restyle path and rebuild the list.
+    #[test]
+    fn a_css_opacity_tween_frame_after_the_first_is_values_only() {
+        use azul_css::props::{
+            basic::PercentageValue,
+            property::{CssProperty, CssPropertyType},
+            style::StyleOpacity,
+        };
+        let dom = Dom::create_body().with_child(Dom::create_div().with_class("faded".into()).with_css(
+            "width: 20px; height: 20px; background: red; animation: opacity 150ms linear;",
+        ));
+        let mut win = laid_out(StyledDom::create_from_dom(dom), 300.0, 200.0);
+        let node = {
+            let sd = &win.layout_results[&DomId::ROOT_ID].styled_dom;
+            let node_data = sd.node_data.as_container();
+            (0..node_data.len())
+                .map(NodeId::new)
+                .find(|n| {
+                    node_data[*n]
+                        .get_ids_and_classes()
+                        .iter()
+                        .any(|c| matches!(c.as_class(), Some(s) if s == "faded"))
+                })
+                .expect("the faded node")
+        };
+        let _ = win.apply_content_change(crate::overlay::ContentChange::NodeCss {
+            dom_id: DomId::ROOT_ID,
+            node_id: node,
+            props: vec![CssProperty::const_opacity(StyleOpacity {
+                inner: PercentageValue::const_new(50),
+            })],
+            override_only: false,
+        });
+        assert!(
+            win.css_transitions
+                .iter()
+                .any(|t| t.node == node && t.prop_type == CssPropertyType::Opacity),
+            "harness: the opacity write seeds a tween, got {:?}",
+            win.css_transitions
+        );
+
+        // Frame 1, as the shells run it: a rebuild unless the tick patched.
+        let _ = win.tick_animations(0.016);
+        assert!(!win.take_transition_relayout(), "opacity moves no box");
+        if !win.take_transition_patched() && !win.animation_tick_is_values_only() {
+            win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        }
+        let rebuilds = win.frame_report.dl_rebuilds;
+
+        let opacity_of = |win: &LayoutWindow| {
+            win.gpu_state_manager
+                .caches
+                .get(&DomId::ROOT_ID)
+                .and_then(|c| c.current_opacity_values.get(&node).copied())
+        };
+        let mut values = Vec::new();
+        for frame in 2..200 {
+            if win.css_transitions.is_empty() {
+                break;
+            }
+            let _ = win.tick_animations(0.016);
+            assert!(!win.take_transition_relayout(), "frame {frame}: opacity moves no box");
+            let repaint_only = win.take_transition_patched() || win.animation_tick_is_values_only();
+            assert!(
+                repaint_only,
+                "frame {frame}: the tick only moved the node's bound opacity - it owes a repaint, \
+                 not a display-list rebuild (pending css dirt: {:?})",
+                win.pending_css_dirty
+            );
+            values.push(opacity_of(&win).unwrap_or(f32::NAN));
+        }
+        assert!(
+            values.iter().any(|v| *v > 0.55 && *v < 0.95),
+            "the bound opacity passes between 1 and 0.5 mid-fade: {values:?}"
+        );
+        assert!(
+            (opacity_of(&win).unwrap_or(f32::NAN) - 0.5).abs() < 0.01,
+            "the settled fade binds 0.5: {values:?}"
+        );
+        assert_eq!(
+            win.frame_report.dl_rebuilds, rebuilds,
+            "the frames after the first rebuilt no display list"
+        );
+    }
+
     /// THE CLASS (azpaint pressure meter, 2026-08-29): a `VirtualView` child
     /// DOM was laid out against the WINDOW viewport, not the view's own
     /// bounds — a percent-width child of the returned root resolved against
