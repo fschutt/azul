@@ -979,15 +979,21 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     continue;
                 };
                 recon_result.intrinsic_dirty.insert(idx);
-                // A `Full` change (margins, position, float, display) moves
-                // a box of BLOCK flow in its parent's flow: the PARENT places
-                // it, so the parent is the root. Re-solved on its own, a
+                // A box of BLOCK flow is laid out by its PARENT, whatever
+                // the scope. A `Full` change (margins, position, float,
+                // display) moves it in its parent's flow; a `SizingOnly` one
+                // (width, height, padding, borders - and `IfcOnly`, read as
+                // it above) changes its size, which moves the siblings after
+                // it and changes what its parent holds: a scroll box's
+                // extent and bar, an auto height. Re-solved on its own, a
                 // block keeps the slot its parent's last pass gave it
-                // (LAYOUTPERF8 bug B). A flex / grid item or an inline-level
-                // box is lifted to its container below anyway.
-                let root = if *scope == azul_css::props::property::RelayoutScope::Full
-                    && cache::lift_to_slot_container(idx, &node_of) == idx
-                {
+                // (LAYOUTPERF8 bug B), and the parent - a clean clone -
+                // keeps the overflow and the scrollbar of the old size: a
+                // scroll box whose content grew from 400 to 800 px kept the
+                // thumb of 400 (a_grown_scroll_box_paints_its_thumb_from_
+                // the_layout_that_grew_it). A flex / grid item or an
+                // inline-level box is lifted to its container below anyway.
+                let root = if cache::lift_to_slot_container(idx, &node_of) == idx {
                     new_tree
                         .nodes
                         .get(idx)

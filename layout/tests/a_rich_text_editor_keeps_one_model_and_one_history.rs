@@ -622,12 +622,18 @@ fn typing_on_the_second_page_edits_that_block_of_the_whole_document() {
 #[test]
 fn the_pages_of_one_editor_share_one_document() {
     let (mut lw, log) = paged_editor(four_paragraphs(), vec![0, 2]);
+    // Typing goes to the FOCUSED editing host (`record_text_input`), as a
+    // click into a page focuses it: first the first page, then the second.
+    let first_page = node_with_id(&lw, "az-rich-text-page-0");
+    lw.focus_manager.set_focused_node(Some(dnid(first_page)));
     let one = text_node(&lw, "one");
     select(&mut lw, one, 3, one, 3);
     type_text(&mut lw, "A");
     let (_, changes) = fire_on(&lw, "az-rich-text-page-0", EventFilter::Focus(FocusEventFilter::TextChanged));
     apply_acks(&mut lw, &changes);
 
+    let second_page = node_with_id(&lw, "az-rich-text-page-2");
+    lw.focus_manager.set_focused_node(Some(dnid(second_page)));
     let four = text_node(&lw, "four");
     select(&mut lw, four, 4, four, 4);
     type_text(&mut lw, "B");

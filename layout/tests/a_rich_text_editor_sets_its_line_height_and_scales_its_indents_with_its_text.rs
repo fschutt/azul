@@ -29,11 +29,16 @@ use azul_layout::{
 
 use crate::editing_harness::lay_out;
 
-/// A paragraph, then a bullet item at level 1, at `font_px`.
+/// A paragraph (`#ed-0`), a bullet item (`#ed-1`) and its child at level 1
+/// (`#ed-2`), at `font_px`. The level-1 item needs its parent: the model
+/// clamps a list item to one level deeper than the item before it
+/// (`RichTextDoc::normalize`), so a level-1 item right after a paragraph
+/// is a level-0 one.
 fn editor(font_px: f32, line_height: Option<f32>) -> Dom {
     let doc = RichTextDoc::from_blocks(vec![
         RichBlock::paragraph("One"),
-        RichBlock::text(RichBlockKind::Bullet(1), "Two"),
+        RichBlock::text(RichBlockKind::Bullet(0), "Two"),
+        RichBlock::text(RichBlockKind::Bullet(1), "Three"),
     ]);
     let mut state = RichTextEditorState::create(doc);
     state.host_id = AzString::from("ed");
@@ -92,7 +97,7 @@ fn a_rich_text_editors_list_indent_scales_with_its_text() {
     let at_14 = lay_out(editor(14.0, None));
     let at_28 = lay_out(editor(28.0, None));
     let at_3 = lay_out(editor(3.5, None));
-    let indent = |lw: &LayoutWindow| rect(lw, "ed-1").origin.x - rect(lw, "ed-0").origin.x;
+    let indent = |lw: &LayoutWindow| rect(lw, "ed-2").origin.x - rect(lw, "ed-0").origin.x;
     // At the editor's 14 px: 26 + 24 x 1 px, as it always was.
     assert!(
         (indent(&at_14) - 50.0).abs() < 1.0,
