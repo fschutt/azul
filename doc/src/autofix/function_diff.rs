@@ -858,10 +858,7 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
         return ("String".to_string(), Some("{}.as_str()".to_string()));
     }
 
-    // Handle &Vec<u8> -> U8VecRef (need .as_slice() in fn_body)
-    if trimmed == "&Vec<u8>" || trimmed == "Vec<u8>" {
-        return ("U8VecRef".to_string(), Some("{}.as_slice()".to_string()));
-    }
+    // (`Vec<u8>` arguments: `vec_or_mut_slice_arg`, which sees the ref kind.)
 
     // Slices `[T]` (the source parser splits the `&` off before) or `&[T]`
     if let Some(elem) = trimmed
