@@ -7259,6 +7259,71 @@ mod tests {
         );
     }
 
+    /// The paste op is a user's paste, veto included: the focused node's
+    /// `Paste` callbacks run FIRST, and one that calls `prevent_default`
+    /// keeps the engine's paste out of the editor (the app pastes itself, or
+    /// refuses) - exactly what the dll's deferred clipboard block does for a
+    /// Ctrl+V. Without the veto the same scenario lands the text, so the
+    /// assertion cannot pass on a paste that never ran at all.
+    #[test]
+    fn a_paste_callback_that_prevents_default_keeps_the_scenarios_paste_out_of_the_editor() {
+        use azul_core::{
+            dom::IdOrClass,
+            events::{EventFilter, FocusEventFilter},
+        };
+
+        let pasted_lands = |vetoed: bool| -> bool {
+            let mut host = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("editor".into())].into())
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("foo"),
+                ));
+            host.set_contenteditable(true);
+            if vetoed {
+                host = host.with_callback(
+                    EventFilter::Focus(FocusEventFilter::Paste),
+                    RefAny::new(()),
+                    veto_key_down as usize,
+                );
+            }
+            let mut dom = Dom::create_body().with_child(host);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "paste_vetoed_by_a_callback",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "focus_node", "selector": ".editor" },
+                    { "op": "wait_frame" },
+                    { "op": "paste", "text": "pasted" },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            runner
+                .layout_window
+                .unsynced_text_edits()
+                .iter()
+                .any(|e| e.text.as_str().contains("pasted"))
+        };
+
+        assert!(
+            pasted_lands(false),
+            "premise: without a veto the paste op lands its text"
+        );
+        assert!(
+            !pasted_lands(true),
+            "a Paste callback's prevent_default vetoes the engine's paste"
+        );
+    }
+
     /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always
     /// shown) over 20 rows of 30px. Classic on purpose: whether an overlay
     /// bar or a `scrollbar-width: none` bar exists at all is the
