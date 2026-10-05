@@ -1408,6 +1408,14 @@ fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir:
 
 // file parsing
 /// Parse a single file and extract type definitions
+/// True for a type only its own module can name (`struct X` / `enum X`, no
+/// `pub`): the generated C API lives in another module, so such a type is
+/// never part of it - indexing it let a private helper shadow a public type
+/// of the same name (the XML tree builder's `NodeData`, XML8's `Content`).
+fn is_module_private(vis: &syn::Visibility) -> bool {
+    matches!(vis, syn::Visibility::Inherited)
+}
+
 /// True if the item is gated behind `#[cfg(target_arch = "wasm32")]` — i.e. a
 /// platform stub that mirrors a real (non-wasm) type. The indexer skips these so
 /// they don't collide with the canonical definition as a "duplicate type name".
@@ -1586,7 +1594,7 @@ fn parse_file_for_types(
                 // desktop-extra types): they intentionally mirror a real type by
                 // name + repr-C layout, so indexing them would raise a false
                 // "duplicate type name" against the canonical (non-wasm) def.
-                if !is_wasm32_only(&s.attrs) {
+                if !is_wasm32_only(&s.attrs) && !is_module_private(&s.vis) {
                     if let Some(typedef) = extract_struct(crate_name, &module_path, file_path, s) {
                         types.push(typedef);
                     }
@@ -1594,7 +1602,7 @@ fn parse_file_for_types(
             }
 
             Item::Enum(e) => {
-                if !is_wasm32_only(&e.attrs) {
+                if !is_wasm32_only(&e.attrs) && !is_module_private(&e.vis) {
                     if let Some(typedef) = extract_enum(crate_name, &module_path, file_path, e) {
                         types.push(typedef);
                     }
@@ -1950,13 +1958,13 @@ fn extract_types_from_items(
         match item {
             Item::Use(_) => continue,
 
-            Item::Struct(s) => {
+            Item::Struct(s) if !is_module_private(&s.vis) => {
                 if let Some(typedef) = extract_struct(crate_name, module_path, file_path, s) {
                     types.push(typedef);
                 }
             }
 
-            Item::Enum(e) => {
+            Item::Enum(e) if !is_module_private(&e.vis) => {
                 if let Some(typedef) = extract_enum(crate_name, module_path, file_path, e) {
                     types.push(typedef);
                 }
