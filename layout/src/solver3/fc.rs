@@ -1461,6 +1461,49 @@ fn layout_bfc<T: ParsedFontTrait>(
         |columns| columns.geometry.width,
     );
 
+    // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
+    // +spec:box-model:66e123 - ...whose INLINE size is the basis in CSS3 (writing-modes-4 §7.2)
+    // The tree-build resolution used the VIEWPORT as a placeholder containing
+    // block (the real one is only known here), so every percentage margin or
+    // padding in block flow was viewport-based. Re-resolve each child's box
+    // props against this BFC's content box before any of them are read; the
+    // correct em/rem bases are re-derived from the cascade (the tree build
+    // resolved an em against the PARENT's font size - a `zoom: 2; font-size:
+    // 10px; padding: 1em` box had 16px of padding, not 20).
+    // BEFORE Pass 1: Pass 1 sizes every child with these props
+    // (`calculate_layout_for_subtree` -> `prepare_layout_context`) and Pass 2
+    // keeps that `used_size`; re-resolved after it, they moved the margins
+    // but never the size.
+    {
+        let root_fs = crate::solver3::layout_tree::get_root_font_size(ctx.styled_dom);
+        let flow_children: Vec<usize> = {
+            let shared: &LayoutTree = tree;
+            shared
+                .children(node_index)
+                .iter()
+                .copied()
+                .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
+                .collect()
+        };
+        for &child_index in &flow_children {
+            let Some(child_dom_id) = tree
+                .get(LayoutNodeId::new(child_index))
+                .and_then(|n| n.dom_node_id)
+            else {
+                continue;
+            };
+            let efs =
+                crate::solver3::layout_tree::get_element_font_size(ctx.styled_dom, child_dom_id);
+            tree.resolve_box_props(
+                child_index,
+                children_containing_block_size,
+                ctx.viewport_size,
+                efs,
+                root_fs,
+            );
+        }
+    }
+
     // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
     //
     // Inspired by Taffy's two-pass approach: first measure, then position.
@@ -1627,34 +1670,8 @@ fn layout_bfc<T: ParsedFontTrait>(
             .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
             .collect()
     };
-
-    // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
-    // +spec:box-model:66e123 - ...whose INLINE size is the basis in CSS3 (writing-modes-4 §7.2)
-    // The tree-build resolution used the VIEWPORT as a placeholder containing
-    // block (the real one is only known here), so every percentage margin or
-    // padding in block flow was viewport-based. Re-resolve each child's box
-    // props against this BFC's content box before any of them are read; the
-    // correct em/rem bases are re-derived from the cascade.
-    {
-        let root_fs = crate::solver3::layout_tree::get_root_font_size(ctx.styled_dom);
-        for &child_index in &pos_children {
-            let Some(child_dom_id) = tree
-                .get(LayoutNodeId::new(child_index))
-                .and_then(|n| n.dom_node_id)
-            else {
-                continue;
-            };
-            let efs =
-                crate::solver3::layout_tree::get_element_font_size(ctx.styled_dom, child_dom_id);
-            tree.resolve_box_props(
-                child_index,
-                children_containing_block_size,
-                ctx.viewport_size,
-                efs,
-                root_fs,
-            );
-        }
-    }
+    // (Each child's box props were re-resolved against this BFC's content
+    // box before Pass 1 - see there.)
 
     // K30b fragmentation state (inert when `constraints.fragmentainer` is
     // None — the continuous path). Resume = skip every finished sibling
