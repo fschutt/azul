@@ -920,6 +920,50 @@ fn slice_arg_type(elem: &str) -> Option<String> {
     Some(format!("{elem}VecSlice"))
 }
 
+/// The body accessor of a writable `{..}VecRefMut` view argument: its
+/// `&mut [T]` (`from_raw_parts_mut`, the dangling pointer for an empty view -
+/// a C caller may pass a null one; the view's `as_mut_slice` is private to
+/// core).
+const MUT_SLICE_ACCESSOR: &str = "unsafe { core::slice::from_raw_parts_mut(if {}.len == 0 { \
+                                  core::ptr::NonNull::dangling().as_ptr() } else { {}.ptr }, {}.len) }";
+
+/// The api.json type and body accessor of the arguments a read-only slice
+/// view does not serve, `(ty, ref_kind)` as the source parser splits them:
+/// a borrowed `&Vec<u8>` (a std Vec is built from the `U8VecRef` view), an
+/// owned `Vec<u8>` (the `U8Vec` handed over), and a `&mut [T]` for u8 / f32
+/// / i32 (the writable views api.json has: `U8VecRefMut`, `GLfloatVecRefMut`,
+/// `GLintVecRefMut`). `None` for anything else, `&mut Vec<u8>` and a
+/// `&mut [T]` of another element included: no FFI form here.
+fn vec_or_mut_slice_arg(
+    ty: &str,
+    ref_kind: &crate::api::RefKind,
+) -> Option<(String, Option<String>)> {
+    let ty = ty.trim();
+    if ty == "Vec<u8>" {
+        return match ref_kind {
+            crate::api::RefKind::Value => Some((
+                "U8Vec".to_string(),
+                Some("{}.into_library_owned_vec()".to_string()),
+            )),
+            crate::api::RefKind::Ref => Some((
+                "U8VecRef".to_string(),
+                Some("&{}.as_slice().to_vec()".to_string()),
+            )),
+            _ => None,
+        };
+    }
+    if *ref_kind != crate::api::RefKind::RefMut {
+        return None;
+    }
+    let view = match ty.strip_prefix('[')?.strip_suffix(']')?.trim() {
+        "u8" => "U8VecRefMut",
+        "f32" => "GLfloatVecRefMut",
+        "i32" => "GLintVecRefMut",
+        _ => return None,
+    };
+    Some((view.to_string(), Some(MUT_SLICE_ACCESSOR.to_string())))
+}
+
 /// The api.json type and body accessor of an `Option<inner>` argument
 /// (`source_ty` as written, `Option<AzString>` / `Option<String>`): its FFI
 /// option, converted back - `.into()` for an owned value (a std `String`
@@ -1456,6 +1500,11 @@ fn source_arg_ffi_type(arg: &super::type_index::MethodArg) -> (String, Option<St
             crate::api::RefKind::Ref => return (arg.ty.clone(), Some("&{}".to_string())),
             _ => {}
         }
+    }
+    // A Vec of bytes, or a slice the method writes into: not the read-only
+    // view `convert_arg_type_for_ffi` gives a `[T]` (it never sees the ref)
+    if let Some(converted) = vec_or_mut_slice_arg(&arg.ty, &arg.ref_kind) {
+        return converted;
     }
     // An `Option<X>` crosses as its FFI option and is converted back
     if arg.ref_kind == crate::api::RefKind::Value {
