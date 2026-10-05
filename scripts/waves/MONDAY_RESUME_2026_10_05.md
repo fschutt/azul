@@ -1,5 +1,25 @@
 # Resume on Monday (written 2026-10-03 evening)
 
+## DONE on Monday 2026-10-05 (read this first)
+- Every branch merged: ANIMFRAME8, A11YPATCH8, SYSUI8, WIDGETS9A/B, TERM9, PDF9, CLOCK9, READER9, MEDIA9, CODE9,
+  KEYS9, MONITOR9, NEWS9, ERP9, then MAIL9 (resumed by a new agent in its worktree, finished: submission via lettre,
+  remote pictures). merge_one.sh now resolves the theme files' tail appends and parse-checks resolved .rs files.
+- autofix tool: module-private types are no longer indexed (RED 72d346d4a / GREEN 4298fea50 - the XML tree
+  builder's private `NodeData` was a "critical" duplicate). ChartKind::is_bar -> has_bars (collided with isBar()).
+- api.json converged (d52a43f7c): 433 functions in ONE `autofix add` (the list: ~/Development/azul-work/
+  wave9_api_specs.md + wave9_tokens.txt), drift loop to 0 patches / 0 critical. Source fixes: ParsedPdf::
+  create_from_bytes, `pub mod parsed`, ASCII money docs, DateRangePickerEvent field order.
+- Built: the dylib (0 errors) and ALL 35 app crates (4 apps needed fixes, 34047f48f). cargo-vet passes (33
+  exemptions), cooldown passes (signal-hook pinned 0.4.4), justifications for the symphonia crates. Pushed e9354b82a.
+- ANIMFRAME8 probe: the switch ticks do 0 layout passes and 0 DL rebuilds (frame report), the per-tick
+  incremental_relayout is gone. The CLICK that starts the glide still regenerates the whole 3472-node AzWidgets DOM
+  (0.5 - 0.9 s headless) - the next perf target.
+- LEFT: the SYSUI8 look compare (record after -> compare with the SYSUI8 worktree's before), the suites
+  (scripts/waves/tools/suites.sh), each new app's E2E, pdf_chrome_probe.py, the mail corpus, WAYLAND8's Linux
+  checks, the WPT bless; follow-ups: wasm32 AudioSink stub lacks the 7 new methods (MEDIA9 P6), the AudioSink
+  open/play/frames_played docs still say "stub" (remove + re-add), AudioFileDecoder / AudioPlayer / ParsedPdf
+  externals use desktop paths (wasm32 only).
+
 ## State at the pause
 - Branch `fix/input-bugs-2026-09-19` (PR #476): waves 6, 7 and 8 integrated, COMPILE, pushed (last code push
   0de2a2529; docs after it local + pushed as they came). target/release + target/azul-lib = that build.

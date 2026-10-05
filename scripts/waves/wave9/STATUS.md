@@ -6,7 +6,7 @@ Resume: SendMessage the agent id ("continue from your progress file"). Worktrees
 |---|---|---|---|
 | WIDGETS9A | a18aaef546b141fde | wt/widgets9a | DONE (report scripts/WIDGETS9A_2026_10_03.md with the api.json entries; Toolbar (overflow menu, one Tab stop), TokenInput (app-owned state like DataTable), IconGrid (row-scrolled, data callback, rubber band, drag out); engine gap: :focus-within parsed but never set) |
 | WIDGETS9B | acb99bc6296facd68 | wt/widgets9b | DONE (765ae4548; report scripts/WIDGETS9B_2026_10_03.md with the api.json entries - incl. CHANGED ComboBoxStateWrapper (item_details, open_on_type) + ComboBox.status; MoneyInput (minor units), Gauge (Chart vector path), DateRangePicker (DatePicker day_grid shared), ReferencePicker (on ComboBox); ComboBox two-clicks-to-close fixed) |
-| MAIL9 | a4d36f4ef063912bd | wt/mail9 | PAUSED - resume from scripts/MAIL9.PROGRESS.md (report scripts/MAIL9_2026_10_03.md: direct delivery + client DKIM DONE end to end; submission via lettre started; remote-content pre-pass NOT started) |
+| MAIL9 | a4d36f4ef063912bd, resumed 2026-10-05 | wt/mail9 | DONE (505a37610; report scripts/MAIL9_2026_10_03.md: direct delivery + client DKIM (the default); optional signed-in submission via lettre 0.11.23 (465 implicit TLS, else STARTTLS required; plaintext only to loopback); remote pictures: scan_external_resources pre-pass, cid: parts shown, fetched on Threads with caps (40 pictures, 5 / 25 MB); fonts listed, not fetched (no runtime font registration); no api.json) |
 | PDF9 | a90ecd8756e4fac61 | wt/pdf9 | DONE (19 commits; report scripts/PDF9_2026_10_03.md; ParsedPdf -> page SVG in the API (api list in report), CPU SVG renderer: rgb() colours, transform order / lists, fit honoured; AzPdf viewer + export; scripts/pdf_chrome_probe.py; NEXT: azul SVG renderer lacks <text> / <image> (PDF pages show shapes only) - plan in PDF9.PROGRESS.md) |
 | READER9 | ad5e2a07b9e50eb78 | wt/reader9 | DONE (report scripts/READER9_2026_10_03.md; AzReader (EPUB strict XML first, HTML5 fallback; chapter laid out once, pages = clipped windows); engine: Pdf::compute_pagination_with_policy (api.json entry REQUIRED); new azul-appkit css.rs) |
 | TERM9 | aeeb57dd4eb500ff0 | wt/term9 | DONE (report scripts/TERM9_2026_10_03.md with the api.json entries; TerminalView widget (VirtualView, xterm encoding, theme palettes) + AzTerm on alacritty_terminal 0.26 (engine + PTY; new crates listed for vet); engine: a focused node with a Paste callback now gets the paste) |
@@ -19,3 +19,8 @@ Resume: SendMessage the agent id ("continue from your progress file"). Worktrees
 | ERP9 | a7949c63ed0ed81a4 | wt/erp9 | DONE (44 commits; report scripts/ERP9_2026_10_03.md; AzERP asset management on the ERP view-JSON interpreter (first slice, in the app); money in cents, depreciation SL / DB, one JSON per record, CSV in/out, reports; ~70 tests; no api.json) |
 
 2026-10-03 late evening: ALL 16 AGENTS FINISHED except MAIL9 (paused - resume from its PROGRESS file). Integrate on Monday per scripts/waves/MONDAY_RESUME_2026_10_05.md.
+
+2026-10-05 (Monday): INTEGRATED. All 13 wave-9 branches + the 3 wave-8 follow-ups merged (merge order of the Monday
+guide; MAIL9 last), api.json converged (d52a43f7c: 433 functions in one `autofix add`, then the drift loop: 0
+patches, 0 critical), the dylib and all 35 app crates build (fixes 34047f48f), cargo-vet + cooldown pass
+(33 exemptions, signal-hook pinned 0.4.4), pushed (e9354b82a). Post-build checks: see the Monday guide.
