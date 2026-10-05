@@ -13,11 +13,15 @@ Branch wt/fix9-paint (fast-forwarded to b454da215). Brief: scripts/waves/wave9/S
   resize RED fba427c9f, GREEN 307df77e7 (signature folds in the viewport for vw-sized docs).
   Round 2: text3/cache.rs:1109 + paged_layout.rs (2 sites) -> *_in_viewport variants.
 
+- 2.4 SVG stroke caps/joins/dashes: RED 4c6e646a2, GREEN 03e377e56.
+- 2.5 svg_render without PNG: RED d5c38eabd (also corrects the straight-alpha pin), GREEN 2b0d4e81e.
+  New pub fn cpurender::render_svg_to_raw_image_over (Rust-only).
+
 ## IN PROGRESS
-2.4 CPU SVG stroke linecap / linejoin / dasharray
+2.6 SVG clip / stroke mask memo
 
 ## NEXT
-2.4 RED, GREEN; then 2.5 .. 2.14, then the suite failure (window.rs inline-flex test).
+2.6 RED, GREEN; then 2.7 .. 2.14, then the suite failure (window.rs inline-flex test).
 
 ## Open questions
 (none)
