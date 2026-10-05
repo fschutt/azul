@@ -164,6 +164,38 @@ fn is_closure_plumbing(t: &str, ir: &CodegenIR, depth: usize) -> bool {
     false
 }
 
+/// Is `t` a field the callback API wires up - a callback typedef or
+/// wrapper, `RefAny`, a callback data pair, a destructor / clone hook, or a
+/// union (an `Option`) carrying one - and so never a field accessor?
+/// Decided by category and shape, never by name: the one copy C, C++ and
+/// Zig share.
+pub fn is_callback_or_refany_field(t: &str, ir: &CodegenIR) -> bool {
+    let t = t.trim();
+    if is_closure_plumbing(t, ir, 2) {
+        return true;
+    }
+    if let Some(s) = ir.find_struct(t) {
+        if s.callback_wrapper_info.is_some()
+            || matches!(
+                s.category,
+                TypeCategory::RefAny
+                    | TypeCategory::CallbackDataPair
+                    | TypeCategory::CallbackTypedef
+                    | TypeCategory::DestructorOrClone
+            )
+        {
+            return true;
+        }
+    }
+    if let Some(e) = ir.find_enum(t) {
+        return matches!(
+            e.category,
+            TypeCategory::CallbackTypedef | TypeCategory::DestructorOrClone
+        );
+    }
+    false
+}
+
 /// How `f` is read and written, or `None` when it is not exposed (see the
 /// module docs for the list).
 pub fn field_shape<'a>(

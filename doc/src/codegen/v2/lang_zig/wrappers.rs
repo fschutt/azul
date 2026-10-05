@@ -525,39 +525,9 @@ fn gets_field_accessors(s: &StructDef) -> bool {
         && s.generic_params.is_empty()
 }
 
-/// Is `t` a callback typedef, a callback wrapper, a RefAny, or an Option of
-/// one - a field the callback plumbing owns, never a field setter.
+/// See [`crate::codegen::v2::field_access::is_callback_or_refany_field`].
 fn is_callback_or_refany_field(ctx: &Ctx, t: &str) -> bool {
-    if t.contains("RefAny") || ctx.is_callback_typedef(t) {
-        return true;
-    }
-    if let Some(s) = ctx.ir.find_struct(t) {
-        if s.callback_wrapper_info.is_some()
-            || matches!(
-                s.category,
-                TypeCategory::RefAny
-                    | TypeCategory::CallbackDataPair
-                    | TypeCategory::CallbackTypedef
-                    | TypeCategory::DestructorOrClone
-            )
-        {
-            return true;
-        }
-    }
-    if let Some(e) = ctx.ir.find_enum(t) {
-        if matches!(
-            e.category,
-            TypeCategory::CallbackTypedef | TypeCategory::DestructorOrClone
-        ) {
-            return true;
-        }
-        if e.category == TypeCategory::Option {
-            if let Some(inner) = option_payload(ctx, t) {
-                return inner != t && is_callback_or_refany_field(ctx, &inner);
-            }
-        }
-    }
-    false
+    crate::codegen::v2::field_access::is_callback_or_refany_field(t, ctx.ir)
 }
 
 /// `window_state` -> `WindowState`.

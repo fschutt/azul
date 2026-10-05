@@ -2561,7 +2561,7 @@ mod tests {
         assert!(!get.contains("_delete"), "a getter must not free the field:\n{}", get);
         assert!(get.contains("Charsets.UTF_8"), "{}", get);
         assert!(set.contains("AzString_fromUtf8"), "{}", set);
-        assert!(before(set, "AzString_delete(", ".write(0,"), "{}", set);
+        assert!(before(set, "AzString_delete(", "__fp.write(0,"), "{}", set);
     }
 
     #[test]

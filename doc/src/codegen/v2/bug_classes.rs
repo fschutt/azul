@@ -2670,7 +2670,9 @@ fn equality_is_always_paired_with_a_consistent_hash() {
         ("java", java, "boolean equals(", "int hashCode()"),
         ("kotlin", kotlin, "override fun equals(", "override fun hashCode()"),
         ("csharp", csharp, "override bool Equals(", "override int GetHashCode()"),
-        ("ruby", ruby, "def ==(", "def hash"),
+        // `def hash\n`, not `def hash`: a field setter `def hash=(value)`
+        // (MonitorId has a `hash` field) is not the hash method.
+        ("ruby", ruby, "def ==(", "def hash\n"),
     ];
     // The hash body: from its marker to the first blank line (every generated
     // member is separated by one).

@@ -161,8 +161,8 @@ fn emit_runtime_helpers(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Code
     builder.indent();
     builder.line("my ($alias, $bytes) = @_;");
     builder.line("my $n = $Azul::ffi->sizeof($alias);");
-    builder.line("$bytes .= "\0" x ($n - length $bytes) if length($bytes) < $n;");
-    builder.line("return bless \$bytes, "Azul::$alias";");
+    builder.line(r#"$bytes .= "\0" x ($n - length $bytes) if length($bytes) < $n;"#);
+    builder.line(r#"return bless \$bytes, "Azul::$alias";"#);
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -208,10 +208,10 @@ fn emit_runtime_helpers(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Code
         builder.indent();
         builder.line("my ($v) = @_;");
         builder.line(&format!("return _take_bytes($v, {}) if blessed($v);", size));
-        builder.line("my $s = "$v";");
+        builder.line(r#"my $s = "$v";"#);
         builder.line("utf8::encode($s);");
         builder.line("my $n = length $s;");
-        builder.line("my $buf = $n ? $s : "\0";");
+        builder.line(r#"my $buf = $n ? $s : "\0";"#);
         builder.line("my ($bp) = FFI::Platypus::Buffer::scalar_to_buffer($buf);");
         builder.line(&format!(
             "my $rec = Azul::FFI::{}_copyFromBytes($bp, 0, $n);",

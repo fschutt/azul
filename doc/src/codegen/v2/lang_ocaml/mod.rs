@@ -1320,11 +1320,28 @@ mod field_access_tests {
     /// The first generated line whose trimmed text starts with `prefix`,
     /// with the more-indented lines that follow it (its body).
     fn block(prefix: &str) -> String {
+        block_from(0, prefix)
+    }
+
+    /// [`block`] inside `module <module> = struct` - several classes share a
+    /// field name (`title`, `checked`), so an unscoped search can land on
+    /// another class's accessor.
+    fn block_in(module: &str, prefix: &str) -> String {
+        let header = format!("module {} = struct", module);
+        let start = out()
+            .lines()
+            .position(|l| l.trim_start() == header)
+            .unwrap_or_else(|| panic!("no `{}`", header));
+        block_from(start, prefix)
+    }
+
+    fn block_from(start: usize, prefix: &str) -> String {
         let lines: Vec<&str> = out().lines().collect();
-        let i = lines
-            .iter()
-            .position(|l| l.trim_start().starts_with(prefix))
-            .unwrap_or_else(|| panic!("no line starts with `{}`", prefix));
+        let i = start
+            + lines[start..]
+                .iter()
+                .position(|l| l.trim_start().starts_with(prefix))
+                .unwrap_or_else(|| panic!("no line starts with `{}`", prefix));
         let base = indent(lines[i]);
         let mut text = lines[i].trim().to_string();
         for l in &lines[i + 1..] {
@@ -1350,7 +1367,7 @@ mod field_access_tests {
     #[test]
     fn the_window_title_is_read_without_consuming_it() {
         assert!(out().contains("val get_title : t -> string"));
-        let b = block("let get_title (self : t) : string =");
+        let b = block_in("FullWindowState", "let get_title (self : t) : string =");
         assert!(
             b.contains("azul_string_of_az (Ctypes.getf self.raw az_full_window_state_field_title)"),
             "{}",
@@ -1362,7 +1379,7 @@ mod field_access_tests {
     #[test]
     fn setting_the_window_title_releases_the_old_string_then_stores_a_fresh_one() {
         assert!(out().contains("val set_title : t -> string -> unit"));
-        let b = block("let set_title (self : t) (v : string) : unit =");
+        let b = block_in("FullWindowState", "let set_title (self : t) (v : string) : unit =");
         in_order(
             &b,
             &[
@@ -1377,7 +1394,7 @@ mod field_access_tests {
     #[test]
     fn the_window_state_getter_returns_a_deep_copy() {
         assert!(out().contains("val get_window_state : t -> full_window_state"));
-        let b = block("let get_window_state (self : t) : full_window_state =");
+        let b = block_in("WindowCreateOptions", "let get_window_state (self : t) : full_window_state =");
         assert!(
             b.contains(
                 "make_full_window_state (azFullWindowState_clone Ctypes.(addr self.raw |-> \
@@ -1391,7 +1408,7 @@ mod field_access_tests {
     #[test]
     fn setting_the_window_state_releases_the_old_one_then_consumes_the_new_one() {
         assert!(out().contains("val set_window_state : t -> full_window_state -> unit"));
-        let b = block("let set_window_state (self : t) (v : full_window_state) : unit =");
+        let b = block_in("WindowCreateOptions", "let set_window_state (self : t) (v : full_window_state) : unit =");
         in_order(
             &b,
             &[
@@ -1407,7 +1424,7 @@ mod field_access_tests {
         assert!(out().contains(
             "val update_window_state : t -> (full_window_state -> unit) -> unit"
         ));
-        let b = block("let update_window_state (self : t) (f : full_window_state -> unit) : unit =");
+        let b = block_in("WindowCreateOptions", "let update_window_state (self : t) (f : full_window_state -> unit) : unit =");
         in_order(
             &b,
             &[
@@ -1424,7 +1441,7 @@ mod field_access_tests {
     fn a_checkbox_flag_reads_and_writes_as_a_bool_in_place() {
         assert!(out().contains("val get_checked : t -> bool"));
         assert!(out().contains("val set_checked : t -> bool -> unit"));
-        let b = block("let set_checked (self : t) (v : bool) : unit =");
+        let b = block_in("CheckBoxState", "let set_checked (self : t) (v : bool) : unit =");
         assert!(b.contains("Ctypes.setf self az_check_box_state_field_checked v"), "{}", b);
     }
 
@@ -1432,7 +1449,7 @@ mod field_access_tests {
     fn the_text_input_text_is_settable_although_get_text_exists() {
         assert!(out().contains("val set_text : t -> u32_vec -> unit"));
         assert!(!out().contains("val get_text : t -> u32_vec"));
-        let b = block("let set_text (self : t) (v : u32_vec) : unit =");
+        let b = block_in("TextInputState", "let set_text (self : t) (v : u32_vec) : unit =");
         assert!(b.contains("azU32Vec_delete __fp"), "{}", b);
     }
 

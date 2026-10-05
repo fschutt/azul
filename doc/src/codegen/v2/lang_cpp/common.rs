@@ -3191,37 +3191,9 @@ fn class_fn_of(ir: &CodegenIR, class: &str, kind: FunctionKind) -> Option<String
         .map(|f| f.c_name.clone())
 }
 
-/// Is `t` a callback typedef, a callback wrapper, a RefAny, or an Option of
-/// one - a field the callback plumbing owns.
+/// See [`crate::codegen::v2::field_access::is_callback_or_refany_field`].
 fn is_callback_or_refany_field(t: &str, ir: &CodegenIR) -> bool {
-    if t.contains("RefAny") || ir.callback_typedefs.iter().any(|c| c.name == t) {
-        return true;
-    }
-    if let Some(s) = ir.find_struct(t) {
-        if s.callback_wrapper_info.is_some()
-            || matches!(
-                s.category,
-                TypeCategory::RefAny
-                    | TypeCategory::CallbackDataPair
-                    | TypeCategory::CallbackTypedef
-                    | TypeCategory::DestructorOrClone
-            )
-        {
-            return true;
-        }
-    }
-    if let Some(e) = ir.find_enum(t) {
-        if matches!(
-            e.category,
-            TypeCategory::CallbackTypedef | TypeCategory::DestructorOrClone
-        ) {
-            return true;
-        }
-        if let Some(inner) = get_option_inner_from_enum(e) {
-            return inner != t && is_callback_or_refany_field(&inner, ir);
-        }
-    }
-    false
+    crate::codegen::v2::field_access::is_callback_or_refany_field(t, ir)
 }
 
 /// Does the wrapper class for `s` get field accessors at all? Only the

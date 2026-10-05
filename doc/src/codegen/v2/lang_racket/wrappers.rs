@@ -214,7 +214,7 @@ fn emit_field_accessors(
 ) {
     let class = idiomatic_class_name(&s.name);
     let cn = c_name(&s.name);
-    let Some(offsets) = c_layout::field_offsets(&s.fields, ir) else {
+    let Some(offsets) = c_layout::field_offsets_of(&s.fields, ir) else {
         return;
     };
     let mut wrote = false;

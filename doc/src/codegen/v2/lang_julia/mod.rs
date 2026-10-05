@@ -500,7 +500,7 @@ mod field_access_tests {
     #[test]
     fn the_window_title_is_read_without_consuming_it() {
         let l = line("get_title(x::_AzRef{AzFullWindowState})");
-        assert!(l.contains("native_string(unsafe_load(_az_fptr(x, AzString, ")), "{}", l);
+        assert!(l.contains("native_string(unsafe_load(_az_fptr(x, AzString, "), "{}", l);
         assert!(!l.contains("_delete"), "{}", l);
     }
 

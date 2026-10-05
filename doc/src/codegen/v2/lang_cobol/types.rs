@@ -249,7 +249,7 @@ fn emit_laid_out_fields(
     fields: &[FieldDef],
     ir: &CodegenIR,
 ) {
-    let offsets = c_layout::field_offsets(fields, ir);
+    let offsets = c_layout::field_offsets_of(fields, ir);
     let mut cur = 0usize;
     for (i, f) in fields.iter().enumerate() {
         if let Some(off) = offsets.as_ref().map(|o| o[i]) {

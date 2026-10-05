@@ -2678,7 +2678,7 @@ mod tests {
         let set = method(src, "public void setTitle(java.lang.String v)");
         assert!(set.contains("AzString_fromUtf8"), "{}", set);
         assert!(
-            before(set, "AzString_delete(", ".write(0,"),
+            before(set, "AzString_delete(", "__fp.write(0,"),
             "the old title is released before the new one is written:\n{}",
             set
         );

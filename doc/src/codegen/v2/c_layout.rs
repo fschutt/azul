@@ -379,23 +379,15 @@ fn variant_struct_layout(tag: AbiLayout, padding: usize, members: &[AbiLayout]) 
     AbiLayout::new(align_to(off, align), align)
 }
 
-/// The byte offset of every field of struct `name`, in declaration order
-/// (the same model `fields_layout` sizes the struct with). `None` for an
-/// unknown / generic struct or a field whose layout is unknown.
+/// The byte offset and layout of every field of struct `name`, in
+/// declaration order (the same model `fields_layout` sizes the struct with).
+/// `None` for an unknown / generic struct or a field whose layout is unknown.
 pub(crate) fn field_offsets(name: &str, ir: &CodegenIR) -> Option<Vec<(usize, AbiLayout)>> {
     let s = ir.find_struct(name.trim())?;
     if !s.generic_params.is_empty() {
         return None;
     }
-    let mut off = 0usize;
-    let mut out = Vec::with_capacity(s.fields.len());
-    for f in &s.fields {
-        let l = member_layout(&f.type_name, f.ref_kind, ir, 0)?;
-        off = align_to(off, l.align);
-        out.push((off, l));
-        off += l.size;
-    }
-    Some(out)
+    field_layouts(&s.fields, ir)
 }
 
 /// C struct layout over plain named fields.
@@ -425,19 +417,24 @@ fn fields_layout<'a>(
     Some(AbiLayout::new(align_to(off, align), align))
 }
 
-/// The byte offset of every field in `fields`, laid out as the matching
-/// azul.h struct (what C's `offsetof` gives). For bindings that address a
-/// field inside a handle's buffer without a native offset operator.
-pub(crate) fn field_offsets(fields: &[FieldDef], ir: &CodegenIR) -> Option<Vec<usize>> {
+/// The byte offset and layout of every field in `fields`, laid out as the
+/// matching azul.h struct (what C's `offsetof` gives). For bindings that
+/// address a field inside a handle's buffer without a native offset operator.
+pub(crate) fn field_layouts(fields: &[FieldDef], ir: &CodegenIR) -> Option<Vec<(usize, AbiLayout)>> {
     let mut off = 0usize;
     let mut out = Vec::with_capacity(fields.len());
     for f in fields {
         let l = member_layout(&f.type_name, f.ref_kind, ir, 0)?;
         off = align_to(off, l.align);
-        out.push(off);
+        out.push((off, l));
         off += l.size;
     }
     Some(out)
+}
+
+/// Just the offsets of [`field_layouts`].
+pub(crate) fn field_offsets_of(fields: &[FieldDef], ir: &CodegenIR) -> Option<Vec<usize>> {
+    Some(field_layouts(fields, ir)?.into_iter().map(|(off, _)| off).collect())
 }
 
 fn member_layout(

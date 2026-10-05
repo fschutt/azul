@@ -126,47 +126,9 @@ pub(crate) fn escape_cpp_keyword_for_c(name: &str) -> String {
     }
 }
 
-/// Is `t` a callback typedef, a callback wrapper, a RefAny, or an Option of
-/// one: a field the callback API wires up, never a field helper.
+/// See [`super::field_access::is_callback_or_refany_field`].
 fn is_callback_or_refany_field(t: &str, ir: &CodegenIR) -> bool {
-    if t.contains("RefAny") || ir.callback_typedefs.iter().any(|c| c.name == t) {
-        return true;
-    }
-    if let Some(s) = ir.find_struct(t) {
-        if s.callback_wrapper_info.is_some()
-            || matches!(
-                s.category,
-                TypeCategory::RefAny
-                    | TypeCategory::CallbackDataPair
-                    | TypeCategory::CallbackTypedef
-                    | TypeCategory::DestructorOrClone
-            )
-        {
-            return true;
-        }
-    }
-    if let Some(e) = ir.find_enum(t) {
-        if matches!(
-            e.category,
-            TypeCategory::CallbackTypedef | TypeCategory::DestructorOrClone
-        ) {
-            return true;
-        }
-        if e.category == TypeCategory::Option {
-            let payload = e
-                .variants
-                .iter()
-                .find(|v| v.name == "Some")
-                .and_then(|v| match &v.kind {
-                    EnumVariantKind::Tuple(items) => items.first().map(|(p, _)| p.clone()),
-                    _ => None,
-                });
-            if let Some(inner) = payload {
-                return inner != t && is_callback_or_refany_field(&inner, ir);
-            }
-        }
-    }
-    false
+    super::field_access::is_callback_or_refany_field(t, ir)
 }
 
 // ============================================================================

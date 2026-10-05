@@ -164,9 +164,9 @@ fn string_byte_offsets(ir: &CodegenIR) -> Option<(usize, usize)> {
         .iter()
         .find(|s| s.category == super::super::ir::TypeCategory::String)?;
     let vec = s.fields.first()?;
-    let vec_off = *c_layout::field_offsets(&s.fields, ir)?.first()?;
+    let vec_off = *c_layout::field_offsets_of(&s.fields, ir)?.first()?;
     let inner = ir.find_struct(vec.type_name.trim())?;
-    let offs = c_layout::field_offsets(&inner.fields, ir)?;
+    let offs = c_layout::field_offsets_of(&inner.fields, ir)?;
     let ptr = inner.fields.iter().position(|f| {
         f.ref_kind != super::super::ir::FieldRefKind::Owned || f.type_name.trim().starts_with('*')
     })?;

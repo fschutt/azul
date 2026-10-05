@@ -241,7 +241,7 @@ fn emit_fields_alias(b: &mut CodeBuilder, name: &str, fields: &[FieldDef], ir: &
         // a one-byte dummy member, so does this alias.
         b.line("_pad [byte!]        ;; placeholder (no public fields)");
     }
-    let offsets = c_layout::field_offsets(fields, ir);
+    let offsets = c_layout::field_offsets_of(fields, ir);
     let total = type_layout(name, ir).map(|l| l.size);
     let mut cur = 0usize;
     let mut pad = 0usize;

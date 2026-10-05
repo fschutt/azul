@@ -412,6 +412,7 @@ fn wrapper_method_names(s: &StructDef, ir: &CodegenIR) -> std::collections::BTre
         "PartialOrder",
         "Order",
         "Hash",
+        // allow-api-name: Go's `fmt.Stringer` method, not the API class.
         "String",
     ]
     .iter()

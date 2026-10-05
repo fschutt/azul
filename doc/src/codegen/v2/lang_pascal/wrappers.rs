@@ -460,7 +460,9 @@ fn field_props<'a>(
 
 /// The writer's parameter (a wrapper argument is consumed, so not `const`).
 fn setter_param(p: &FieldProp) -> String {
-    if p.wrapped {
+    // A wrapper argument is consumed, so it is passed by value; a String
+    // field takes Pascal's own `string`, which `const` passes without a copy.
+    if p.wrapped && !matches!(p.a.kind, FieldKind::Str { .. }) {
         format!("AValue: {}", p.ty)
     } else {
         format!("const AValue: {}", p.ty)
