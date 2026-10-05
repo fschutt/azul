@@ -1571,4 +1571,91 @@ mod tests {
         assert!(out.contains('x'));
         assert_eq!(out.matches("<div>").count(), out.matches("</div>").count());
     }
+
+    // ---- the remote-content pre-pass and the mail's own pictures ----
+
+    /// The engine's scan of the parsed mail (`Xml::scan_external_resources`, after the parse,
+    /// before layout) lists what the mail would fetch from the web - pictures, fonts, style
+    /// sheets -, http and https only, each once; what the sanitizer shows decides what is
+    /// fetched ("download pictures"): no tracking pixel, no background, nothing not on the web.
+    #[test]
+    fn the_pre_pass_lists_the_web_pictures_fonts_and_style_sheets_and_the_shown_ones_are_fetched() {
+        let html = "<html><head><link rel=\"stylesheet\" href=\"https://cdn.example/mail.css\">\
+                    <style>@font-face { font-family: Brand; src: url(https://cdn.example/brand.woff2) }\
+                    @import url(\"https://cdn.example/more.css\");\
+                    .hero { background-image: url(https://cdn.example/hero.jpg) }</style></head>\
+                    <body background=\"http://cdn.example/paper.gif\">\
+                    <img src=\"https://cdn.example/logo.png\" alt=\"Logo\">\
+                    <img src=\"https://cdn.example/logo.png\">\
+                    <img src=\"cid:part1@example\"><img src=\"data:image/png;base64,AAAA\">\
+                    <img src=\"file:///etc/passwd.png\">\
+                    <img src=\"https://t.example/open.gif\" width=\"1\" height=\"1\"></body></html>";
+        let off = sanitize(html);
+        let mut images = off.remote.images.clone();
+        images.sort();
+        assert_eq!(
+            images,
+            vec![
+                String::from("http://cdn.example/paper.gif"),
+                String::from("https://cdn.example/hero.jpg"),
+                String::from("https://cdn.example/logo.png"),
+                String::from("https://t.example/open.gif"),
+            ]
+        );
+        assert_eq!(off.remote.fonts, vec![String::from("https://cdn.example/brand.woff2")]);
+        let mut sheets = off.remote.stylesheets.clone();
+        sheets.sort();
+        assert_eq!(
+            sheets,
+            vec![
+                String::from("https://cdn.example/mail.css"),
+                String::from("https://cdn.example/more.css"),
+            ]
+        );
+        assert!(off.remote_images.is_empty(), "nothing is fetched before the reader asks");
+        assert_eq!(off.remote.summary(), "4 pictures, 1 font and 2 style sheets");
+        // "Download pictures": the same list, and only the shown picture is fetched.
+        let on = sanitize_with(html, true);
+        assert_eq!(on.remote, off.remote);
+        assert_eq!(on.remote_images, vec![String::from("https://cdn.example/logo.png")]);
+        assert_eq!(RemoteContent::default().summary(), "");
+        let one = RemoteContent {
+            images: vec![String::from("https://cdn.example/a.png")],
+            ..RemoteContent::default()
+        };
+        assert_eq!(one.summary(), "1 picture");
+    }
+
+    /// A picture the mail carries itself (`cid:` naming one of its parts) is no download: it
+    /// shows at once, under a key of this message's own (two mails' `image001.png` never mix in
+    /// the image cache); a `cid:` the mail does not have stays a placeholder.
+    #[test]
+    fn the_mails_own_cid_pictures_show_without_asking_under_a_key_of_their_own() {
+        let html = "<p><img src=\"cid:logo@example\" alt=\"Logo\" width=\"120\">\
+                    <img src=\"CID:missing@example\" alt=\"Gone\">\
+                    <img src=\"https://cdn.example/a.png\" alt=\"Web\"></p>";
+        let options = PictureOptions {
+            web: false,
+            inline: vec![String::from("logo@example")],
+        };
+        let s = sanitize_mail(html, &options);
+        assert_eq!(s.inline_images, vec![String::from("logo@example")]);
+        let key = s.inline_key("logo@example");
+        assert_eq!(key, format!("cid:{}logo@example", s.class_prefix));
+        assert!(
+            s.xhtml.contains(&format!("<img src=\"{key}\" alt=\"Logo\" width=\"120\"/>")),
+            "{}",
+            s.xhtml
+        );
+        assert!(s.xhtml.contains("[image: Gone]"), "{}", s.xhtml);
+        assert!(s.xhtml.contains("[image: Web]"), "{}", s.xhtml);
+        assert_eq!(s.blocked_images, 2, "the missing one and the web one");
+        assert!(s.remote_images.is_empty());
+        // The plain sanitizer knows no parts: every cid: picture is a placeholder.
+        assert!(sanitize(html).inline_images.is_empty());
+        assert_eq!(sanitize_mail(html, &PictureOptions::default()), sanitize(html));
+        // Another mail with the same part name gets another key.
+        let other = sanitize_mail("<img src=\"cid:logo@example\"><p>other</p>", &options);
+        assert_ne!(other.inline_key("logo@example"), key);
+    }
 }
