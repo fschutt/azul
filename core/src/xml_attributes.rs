@@ -979,3 +979,42 @@ pub fn apply_presentational_hints(
         node.style.rules = rules.into();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use azul_css::props::style::background::StyleBackgroundContent;
+
+    use super::*;
+
+    #[test]
+    fn a_data_url_in_a_style_attribute_keeps_its_base64_payload() {
+        // `style.split(';')` cut the declaration at the `;` inside
+        // `url(data:image/png;base64,...)`: the background was dropped (SYSUI8).
+        // A `;` inside parentheses or a quoted string separates nothing.
+        let map = azul_css::props::property::get_css_key_map();
+        let declarations = style_declarations(
+            "background-image: url(data:image/png;base64,iVBORw0KGgo=); color: red",
+            &map,
+        );
+        let image = declarations.iter().find_map(|d| match &d.property {
+            CssProperty::BackgroundContent(CssPropertyValue::Exact(layers)) => {
+                layers.as_ref().iter().find_map(|layer| match layer {
+                    StyleBackgroundContent::Image(url) => Some(url.as_str().to_string()),
+                    _ => None,
+                })
+            }
+            _ => None,
+        });
+        assert_eq!(
+            image.as_deref(),
+            Some("data:image/png;base64,iVBORw0KGgo="),
+            "the whole data URL: {declarations:?}"
+        );
+        assert!(
+            declarations
+                .iter()
+                .any(|d| matches!(d.property, CssProperty::TextColor(_))),
+            "the declaration after it is read too: {declarations:?}"
+        );
+    }
+}
