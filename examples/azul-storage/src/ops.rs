@@ -25,8 +25,18 @@ pub fn list_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<Vec<Object
 /// pages, in key order, as one page (`next` is `None`). The folder listings of the apps
 /// (a browser's folder, a mail account's folders, the workbooks of `sheets/`).
 pub fn list_folder_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<ListPage, DriveError> {
-    let _ = (drive, prefix);
-    unimplemented!()
+    let mut out = ListPage::default();
+    let mut request = ListRequest::folder(prefix);
+    loop {
+        let page = drive.list(&request)?;
+        out.folders.extend(page.folders);
+        out.objects.extend(page.objects);
+        match page.next {
+            Some(token) => request = request.with_continuation(token),
+            None => break,
+        }
+    }
+    Ok(out)
 }
 
 /// Whether the object `key` is there.
