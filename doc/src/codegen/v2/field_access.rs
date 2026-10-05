@@ -56,7 +56,7 @@ impl<'a> FieldShape<'a> {
     /// The `_delete` export to release the field's old value with, if any.
     pub fn delete(&self) -> Option<&'a FunctionDef> {
         match self {
-            FieldShape::Str { delete, .. } => Some(delete),
+            FieldShape::Str { delete, .. } => Some(*delete),
             FieldShape::Value { delete, .. } => *delete,
             _ => None,
         }

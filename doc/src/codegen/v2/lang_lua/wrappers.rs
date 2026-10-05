@@ -477,6 +477,25 @@ fn lua_c_type(name: &str) -> String {
     format!("Az{}", name.trim())
 }
 
+/// `key` as a table key in Lua source: bare, or `['key']` when it is a Lua
+/// keyword (`self.end` / `{ end = 1 }` do not parse).
+fn lua_key(key: &str) -> String {
+    if sanitize_lua_ident(key) == key {
+        key.to_string()
+    } else {
+        format!("['{}']", key)
+    }
+}
+
+/// `self.key`, or `self['key']` for a Lua keyword.
+fn lua_index(obj: &str, key: &str) -> String {
+    if sanitize_lua_ident(key) == key {
+        format!("{}.{}", obj, key)
+    } else {
+        format!("{}['{}']", obj, key)
+    }
+}
+
 /// `get_<field>()` / `set_<field>(v)` on a struct's methods table (the
 /// shared contract in `field_access`). Direct cdata access stays: reading
 /// `opts.window_state` is a live VIEW (a reference cdata, never finalized),
@@ -506,21 +525,22 @@ fn emit_field_accessors(
         let key = super::super::lang_c::escape_cpp_keyword_for_c(&f.name);
         let get = sanitize_lua_ident(&format!("get_{}", f.name));
         let set = sanitize_lua_ident(&format!("set_{}", f.name));
+        let field = lua_index("self", &key);
         let getter: Option<String> = match &shape {
-            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => Some(format!("self.{}", key)),
-            FieldShape::Str { .. } => Some(format!("azul._read_string(self.{})", key)),
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => Some(field.clone()),
+            FieldShape::Str { .. } => Some(format!("azul._read_string({})", field)),
             FieldShape::Value { delete: Some(d), clone: Some(c), .. } => Some(format!(
-                "ffi.gc(C.{}(self.{}), C.{})",
-                c.c_name, key, d.c_name
+                "ffi.gc(C.{}({}), C.{})",
+                c.c_name, field, d.c_name
             )),
             FieldShape::Value { name, delete: None, .. } => {
-                Some(format!("ffi.new('{}', self.{})", lua_c_type(name), key))
+                Some(format!("ffi.new('{}', {})", lua_c_type(name), field))
             }
             // Heap-owning without a deep copy: a copy would be freed twice.
             FieldShape::Value { .. } => None,
         };
         let setter = match &shape {
-            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => format!("self.{} = v", key),
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => format!("{} = v", field),
             FieldShape::Str { name, .. } | FieldShape::Value { name, .. } => format!(
                 "azul._set_field(self, '{}', '{}', v)",
                 key,
@@ -571,7 +591,7 @@ fn emit_field_tables(out: &mut String, ir: &CodegenIR) {
             .filter_map(|(f, shape)| match shape {
                 FieldShape::Str { name, .. } | FieldShape::Value { name, .. } => Some(format!(
                     "{} = '{}'",
-                    super::super::lang_c::escape_cpp_keyword_for_c(&f.name),
+                    lua_key(&super::super::lang_c::escape_cpp_keyword_for_c(&f.name)),
                     lua_c_type(&name)
                 )),
                 _ => None,
