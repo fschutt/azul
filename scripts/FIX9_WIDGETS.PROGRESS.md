@@ -12,9 +12,12 @@ No cargo. Report: scripts/FIX9_WIDGETS_2026_10_05.md.
 - 4.6 RED 9ddfb18ec, GREEN 4ee11ed29
 - 4.7 RED bad3f6692, GREEN 381a9c5fb
 - 4.8 RED 09ee9a125, GREEN 2d58a6847 (api: ReferencePickerEventKind::Clear)
+- 4.9 RED 0c8d84eec, GREEN 84f2a1ef3
+- 4.10 refactor 1db1f4517 (no RED)
+- 4.11 RED a809309aa, GREEN 0d13d1703
 
 ## IN PROGRESS
-- 4.9 CellGrid Ctrl+C / Ctrl+X
+- 4.12 timeline tick_label -> seek_bar::media_time
 
 ## NEXT
 - 4.1 .. 4.18 in order, then the 4 suite failures, then the report.
