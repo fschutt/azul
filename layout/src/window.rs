@@ -28265,6 +28265,94 @@ mod autotest_generated {
         );
     }
 
+    /// A timer attached to a node reads ITS node's box after a rebuild that
+    /// moves the node's id (THREADS8): `remap_node_ids` dropped the timers of
+    /// unmounted nodes but left `Timer.node_id` as it was, so a node inserted
+    /// before the attached one made the timer read its new neighbour
+    /// (`TimerCallbackInfo::get_attached_node_size`).
+    #[test]
+    fn a_timer_reads_its_own_nodes_size_after_a_node_is_inserted_before_it() {
+        let page = |inserted: bool| {
+            let mut body = Dom::create_body();
+            if inserted {
+                body = body.with_child(
+                    Dom::create_div()
+                        .with_id("inserted".into())
+                        .with_css("width: 10px; height: 10px;"),
+                );
+            }
+            StyledDom::create_from_dom(
+                body.with_child(
+                    Dom::create_div()
+                        .with_id("target".into())
+                        .with_css("width: 30px; height: 40px;"),
+                ),
+            )
+        };
+        let target_in = |win: &LayoutWindow| {
+            let sd = &win.layout_results[&DomId::ROOT_ID].styled_dom;
+            let node_data = sd.node_data.as_container();
+            let node = (0..node_data.len())
+                .map(NodeId::new)
+                .find(|n| {
+                    node_data[*n]
+                        .get_ids_and_classes()
+                        .iter()
+                        .any(|c| matches!(c.as_id(), Some(s) if s == "target"))
+                })
+                .expect("the target node");
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            }
+        };
+
+        let mut win = laid_out(page(false), 300.0, 200.0);
+        let target = target_in(&win);
+        assert_eq!(win.get_node_size(target), Some(size(30.0, 40.0)), "harness");
+        let timer_id = TimerId { id: 7 };
+        win.add_timer(
+            timer_id,
+            Timer {
+                node_id: Some(target).into(),
+                ..Timer::default()
+            },
+        );
+
+        // The app's next DOM, installed as the shells install one: the
+        // reconciliation, the layout, its completion.
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(300.0, 200.0);
+        let mut next = page(true);
+        let pending = win.begin_reconciliation(
+            DomId::ROOT_ID,
+            &mut next,
+            azul_core::task::Instant::now(),
+        );
+        win.layout_new_generation(
+            next,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the next DOM lays out");
+        win.finish_reconciliation(DomId::ROOT_ID, &pending);
+
+        let moved = target_in(&win);
+        assert_ne!(moved, target, "harness: the insertion moved the target's id");
+        let attached = win
+            .get_timer(&timer_id)
+            .and_then(|t| t.node_id.into_option())
+            .expect("the timer stays attached to its surviving node");
+        assert_eq!(attached, moved, "the timer follows its node to its new id");
+        assert_eq!(
+            win.get_node_size(attached),
+            Some(size(30.0, 40.0)),
+            "the timer reads its own node's 30 x 40 box, not the inserted 10 x 10 one"
+        );
+    }
+
     /// A CSS `opacity` tween is a GPU property after its first frame
     /// (ANIMFRAME8 s8): the display list binds the node's CSS opacity key in
     /// its `PushOpacity`, so a later frame publishes the new value in the GPU
