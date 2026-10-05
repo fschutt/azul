@@ -178,3 +178,64 @@ fn public_name(class: &str, func: &FunctionDef, has_new: bool) -> String {
         _ => format!("{}-{}", class, method),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::{bug_classes::ir, config::CodegenConfig};
+
+    fn racket() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// The text of the top-level form starting with `head`.
+    fn form(head: &str) -> &'static str {
+        let out = racket();
+        let start = out
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{head}` in azul.rkt"));
+        let rest = &out[start..];
+        let end = rest[1..].find("\n(").map_or(rest.len(), |e| e + 1);
+        &rest[..end]
+    }
+
+    #[test]
+    fn string_decoding_copies_the_bytes_without_make_sized_byte_string() {
+        let decode = form("(define (azul-string->string az)");
+        assert!(!decode.contains("make-sized-byte-string"), "{decode}");
+        assert!(decode.contains("(memcpy b ptr len)"), "{decode}");
+    }
+
+    #[test]
+    fn the_title_getter_decodes_the_field_without_consuming_it() {
+        let get = form("(define (full-window-state-title obj)");
+        assert!(get.contains("(azul-string->string (AzFullWindowState-title obj))"), "{get}");
+    }
+
+    #[test]
+    fn the_title_setter_releases_the_old_string_before_storing_the_new_one() {
+        let set = form("(define (set-full-window-state-title! obj v)");
+        let delete = set.find("(AzString_delete (ptr-add obj ").expect(set);
+        let store = set.find("(set-AzFullWindowState-title! obj new)").expect(set);
+        assert!(delete < store, "{set}");
+        assert!(set.contains("(string->azul-string v)"), "{set}");
+    }
+
+    #[test]
+    fn the_window_state_is_a_view_with_a_deep_copy_and_a_releasing_setter() {
+        let view = form("(define (window-create-options-window-state obj)");
+        assert!(view.contains("(AzWindowCreateOptions-window-state obj)"), "{view}");
+        let copy = form("(define (window-create-options-window-state-copy obj)");
+        assert!(copy.contains("(AzFullWindowState_clone (ptr-add obj "), "{copy}");
+        let set = form("(define (set-window-create-options-window-state! obj v)");
+        assert!(set.contains("(AzFullWindowState_delete (ptr-add obj "), "{set}");
+        assert!(set.contains("(set-AzWindowCreateOptions-window-state! obj v)"), "{set}");
+    }
+
+    #[test]
+    fn the_text_field_stays_writable_next_to_the_get_text_method() {
+        assert!(racket().contains("(define (text-input-state-get-text "));
+        let set = form("(define (set-text-input-state-text! obj v)");
+        assert!(set.contains("(AzU32Vec_delete (ptr-add obj "), "{set}");
+    }
+}
