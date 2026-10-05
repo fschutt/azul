@@ -4,13 +4,16 @@ Brief: /Users/fschutt/Development/azul-work/field_access_wave.md. No compiling; 
 first per language; commit after every language.
 
 ## DONE
-(none yet)
+- Common Lisp (lang_lisp): RED 4ffdc5bdf, fix (this commit). Wrapped classes' by-value values are
+  boxed into a foreign buffer via translate-from-foreign / translate-into-foreign-memory on the
+  defcstruct's -tclass (no plists); azul-handle base class + %unwrap/%consume; by-value wrapper args
+  are moved; field accessors (<class>-<field> obj) / (setf (<class>-<field> obj) v).
 
 ## IN PROGRESS
-- Common Lisp (lang_lisp): wrapper `:ptr` holds a foreign pointer (not a plist), then accessors.
+- Racket (lang_racket).
 
 ## NEXT
-- Racket, Red, Smalltalk, COBOL, ALGOL 68.
+- Red, Smalltalk, COBOL, ALGOL 68.
 
 ## Open questions
 (none yet)

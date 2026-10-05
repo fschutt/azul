@@ -3,16 +3,25 @@
 //! For every IR struct that has a matching `<TypeName>_delete` C
 //! function we emit:
 //!
-//! - A `(defclass <name> () ((ptr :initarg :ptr :reader <name>-ptr)))` that wraps the foreign
-//!   pointer.
-//! - A `(defmethod close-<name> ((obj <name>)))` that calls the matching `%az-<name>-delete` and
-//!   nulls out the pointer slot. CL has no RAII; users invoke this manually or via the macro below.
+//! - A `(defclass <name> (azul-handle) ((ptr :initarg :ptr :accessor <name>-ptr)))`. The `ptr`
+//!   slot holds a FOREIGN POINTER to a buffer of the wrapper's own that stores the value: every
+//!   by-value return of a wrapped class is boxed into such a buffer (see
+//!   [`emit_internal_boxing`]), so `&self` methods can hand the pointer straight to C and by-value
+//!   arguments are copied out of it.
+//! - A `(defmethod close-<name> ((obj <name>)))` that calls the matching `%az-<name>-delete`, frees
+//!   the buffer and nulls out the pointer slot. CL has no RAII; users invoke this manually or via
+//!   the macro below.
 //! - A `(defmacro with-<name> ((var ...) &body body) ...)` that wraps the constructor call in
 //!   `unwind-protect` so the close method runs on non-local exit.
 //! - Idiomatic functions:
 //!   - `(make-<name> ...)` for `Constructor` / `Default`.
 //!   - `(<name>-<method> obj ...)` for `Method` / `MethodMut`.
 //!   - `(<name>-<method> ...)` for `StaticMethod`.
+//!
+//!   A wrapper passed BY VALUE is moved: after the call its buffer is freed and its pointer
+//!   nulled, so a later `close-<name>` is a no-op instead of a double free.
+//! - Field accessors `(<name>-<field> obj)` / `(setf (<name>-<field> obj) v)` for every public
+//!   by-value field (see [`emit_field_accessors`]).
 //!
 //! Plain POD types without a `_delete` get no CLOS wrapper; users
 //! manipulate them through `cffi:foreign-slot-value` directly.
@@ -22,6 +31,8 @@
 //! left to the user (they can construct the FFI struct via
 //! `cffi:foreign-alloc` / `with-foreign-object`).
 
+use std::collections::BTreeSet;
+
 use anyhow::Result;
 
 use super::{
@@ -29,11 +40,13 @@ use super::{
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
-            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
-            TypeCategory,
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, FunctionArg,
+            FunctionDef, FunctionKind, StructDef, TypeCategory,
         },
+        managed_host_invoker, managed_lang_helpers,
     },
-    ident_to_kebab, idiomatic_class_name, raw_fn_name, to_kebab_case,
+    functions::should_emit_function,
+    ident_to_kebab, idiomatic_class_name, map_type_to_cffi, raw_fn_name, to_kebab_case,
 };
 
 pub fn generate_wrappers(
@@ -49,14 +62,19 @@ pub fn generate_wrappers(
     builder.line(";;   (foo-method obj ...)  -- instance method");
     builder.line(";;   (close-foo obj)       -- explicit destructor; nulls the pointer");
     builder.line(";;   (with-foo (var ...) body...) -- unwind-protect helper");
+    builder.line(";;   (foo-field obj) / (setf (foo-field obj) v) -- field accessors");
+    builder.line(";; A wrapper passed by value is MOVED: it is closed for you after the call.");
     builder.line(";; ----------------------------------------------------------------------------");
     builder.blank();
+
+    let lx = Lx::new(ir, config);
+    emit_handle_runtime(builder, &lx);
 
     for s in &ir.structs {
         if !should_emit_wrapper(s, ir, config) {
             continue;
         }
-        emit_struct_wrapper(builder, s, ir);
+        emit_struct_wrapper(builder, s, &lx);
     }
 
     // Tagged-union enums: minimal helpers (tag reader + unit constructors).
@@ -74,7 +92,7 @@ pub fn generate_wrappers(
 // Inclusion filters
 // =============================================================================
 
-fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+pub(super) fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&s.name) {
         return false;
     }
@@ -116,10 +134,291 @@ fn has_delete_function(class_name: &str, ir: &CodegenIR) -> bool {
 }
 
 // =============================================================================
+// Shared generator context
+// =============================================================================
+
+/// What the wrapper emitters need to know beyond one struct.
+struct Lx<'a> {
+    ir: &'a CodegenIR,
+    config: &'a CodegenConfig,
+    /// The IR String class, when it is wrapped and has a byte constructor
+    /// and a `_delete`: `(class, copy-from-bytes raw fn, inner vec slot,
+    /// data-pointer slot, length slot, inner vec struct)`.
+    string: Option<StringInfo>,
+}
+
+struct StringInfo {
+    class: String,
+    from_bytes: String,
+    vec_slot: String,
+    vec_struct: String,
+    ptr_slot: String,
+    len_slot: String,
+}
+
+impl<'a> Lx<'a> {
+    fn new(ir: &'a CodegenIR, config: &'a CodegenConfig) -> Self {
+        let string = ir
+            .structs
+            .iter()
+            .find(|s| s.category == TypeCategory::String)
+            .filter(|s| should_emit_wrapper(s, ir, config))
+            .and_then(|s| {
+                // The byte constructor of the class in the IR's String
+                // category. The IR has no `FunctionKind` for it - it is an
+                // ordinary api.json constructor - so the method name is the
+                // only handle there is.
+                let ctor = ir
+                    .functions_for_class(&s.name)
+                    // allow-api-name: no kind or shape distinguishes this constructor.
+                    .find(|f| f.method_name == "copy_from_bytes")?;
+                if !should_emit_function(ctor, ir, config) {
+                    return None;
+                }
+                // The bytes live in the String's one field (a byte Vec):
+                // its pointer field and its `usize` length field.
+                let vec = s.fields.first()?;
+                let inner = ir.find_struct(vec.type_name.trim())?;
+                let ptr = inner.fields.iter().find(|f| {
+                    f.ref_kind != FieldRefKind::Owned || f.type_name.trim().starts_with('*')
+                })?;
+                let len = inner
+                    .fields
+                    .iter()
+                    .find(|f| f.type_name.trim() == "usize")?;
+                Some(StringInfo {
+                    class: s.name.clone(),
+                    from_bytes: raw_fn_name(&ctor.c_name),
+                    vec_slot: ident_to_kebab(&vec.name),
+                    vec_struct: to_kebab_case(&inner.name),
+                    ptr_slot: ident_to_kebab(&ptr.name),
+                    len_slot: ident_to_kebab(&len.name),
+                })
+            });
+        Self { ir, config, string }
+    }
+
+    /// The struct behind `t` when it gets a CLOS wrapper class.
+    fn wrapped(&self, t: &str) -> Option<&'a StructDef> {
+        self.ir
+            .find_struct(t.trim())
+            .filter(|s| should_emit_wrapper(s, self.ir, self.config))
+    }
+
+    fn is_string(&self, t: &str) -> bool {
+        self.string.as_ref().is_some_and(|s| s.class == t.trim())
+    }
+
+    /// The `%az-*` binding of `class`'s function of `kind`, when emitted.
+    fn class_fn(&self, class: &str, kind: FunctionKind) -> Option<String> {
+        self.ir
+            .functions_for_class(class.trim())
+            .find(|f| f.kind == kind && should_emit_function(f, self.ir, self.config))
+            .map(|f| raw_fn_name(&f.c_name))
+    }
+}
+
+/// Qualify a CFFI type expression produced by [`map_type_to_cffi`] (which
+/// targets `:azul-internal`) for use from `:azul`.
+fn qualify_cffi(expr: &str) -> String {
+    if let Some(rest) = expr.strip_prefix("(:struct ") {
+        format!("(:struct azul-internal::{}", rest)
+    } else if let Some(rest) = expr.strip_prefix("(:union ") {
+        format!("(:union azul-internal::{}", rest)
+    } else if expr.starts_with(':') || expr.starts_with('(') {
+        expr.to_string()
+    } else {
+        format!("azul-internal::{}", expr)
+    }
+}
+
+// =============================================================================
+// Runtime helpers shared by every wrapper
+// =============================================================================
+
+/// `azul-handle` (the base class), the move helpers and the String
+/// conversions, emitted once into `:azul` before the first class.
+fn emit_handle_runtime(builder: &mut CodeBuilder, lx: &Lx) {
+    for line in [
+        ";; Every wrapper object keeps its value in a foreign buffer of its own (PTR).",
+        ";; A wrapper passed by value - as an argument or to a field setter - is MOVED:",
+        ";; its buffer is freed and PTR nulled, so CLOSE on it is a harmless no-op.",
+        "(defclass azul-handle ()",
+        "  ((ptr :initarg :ptr :initform (cffi:null-pointer)))",
+        "  (:documentation \"Base of every wrapper class. PTR is a foreign buffer holding the wrapped value, null once it was moved or closed.\"))",
+        "(export 'azul-handle :azul)",
+        "",
+        "(defun %unwrap (x)",
+        "  \"The foreign pointer of wrapper X; any other X (a foreign pointer, a plist) unchanged.\"",
+        "  (if (typep x 'azul-handle) (slot-value x 'ptr) x))",
+        "",
+        "(defun %consume (x)",
+        "  \"Marks wrapper X as moved: its bytes now belong to the callee, so only X's own buffer is freed and its close disarmed.\"",
+        "  (when (typep x 'azul-handle)",
+        "    (let ((p (slot-value x 'ptr)))",
+        "      (when (and (cffi:pointerp p) (not (cffi:null-pointer-p p)))",
+        "        (cffi:foreign-free p)))",
+        "    (setf (slot-value x 'ptr) (cffi:null-pointer)))",
+        "  nil)",
+        "",
+        "(defun %plist-keys (x to-internal)",
+        "  \"A CFFI struct plist with its slot keys turned into keywords (or, with TO-INTERNAL, back into the :azul-internal slot names), recursively.\"",
+        "  (if (and (consp x)",
+        "           (handler-case (evenp (length x)) (error () nil))",
+        "           (loop for k in x by #'cddr always (and k (symbolp k))))",
+        "      (loop for (k v) on x by #'cddr",
+        "            nconc (list (intern (symbol-name k) (if to-internal :azul-internal :keyword))",
+        "                        (%plist-keys v to-internal)))",
+        "      x))",
+        "",
+        "(defun %move-in (fp type v release)",
+        "  \"Writes V into the TYPE field at FP: RELEASE (when non-nil) frees the old value first, then V's bytes move in and a wrapper V is marked moved.\"",
+        "  (let ((src (%unwrap v)))",
+        "    (when (and (cffi:pointerp src) (cffi:null-pointer-p src))",
+        "      (error \"azul: ~S was already moved or closed\" v))",
+        "    (when release (funcall release fp))",
+        "    (azul-internal::%azul-store fp type src)",
+        "    (%consume v)",
+        "    nil))",
+        "",
+    ] {
+        if line.is_empty() {
+            builder.blank();
+        } else {
+            builder.line(line);
+        }
+    }
+
+    let Some(st) = lx.string.as_ref() else {
+        return;
+    };
+    let class = idiomatic_class_name(&st.class);
+    let string_struct = to_kebab_case(&st.class);
+    builder.line(&format!("(defun {}-from-lisp (s)", class));
+    builder.line(&format!(
+        "  \"A fresh {} holding a UTF-8 copy of the Lisp string S.\"",
+        class.to_uppercase()
+    ));
+    builder.line(
+        "  (multiple-value-bind (buf n) (cffi:foreign-string-alloc s :encoding :utf-8 :null-terminated-p nil)",
+    );
+    builder.line("    (unwind-protect");
+    builder.line(&format!(
+        "         (make-instance '{} :ptr (azul-internal::{} buf 0 n))",
+        class, st.from_bytes
+    ));
+    builder.line("      (cffi:foreign-free buf))))");
+    builder.line(&format!("(export '{}-from-lisp :azul)", class));
+    builder.blank();
+    builder.line("(defun %string-value (sp)");
+    builder.line(&format!(
+        "  \"The Lisp string decoded from the {} at SP; SP is only read, never consumed.\"",
+        class.to_uppercase()
+    ));
+    builder.line(&format!(
+        "  (let* ((vp (cffi:foreign-slot-pointer sp '(:struct azul-internal::{}) 'azul-internal::{}))",
+        string_struct, st.vec_slot
+    ));
+    builder.line(&format!(
+        "         (data (cffi:foreign-slot-value vp '(:struct azul-internal::{}) 'azul-internal::{}))",
+        st.vec_struct, st.ptr_slot
+    ));
+    builder.line(&format!(
+        "         (len (cffi:foreign-slot-value vp '(:struct azul-internal::{}) 'azul-internal::{})))",
+        st.vec_struct, st.len_slot
+    ));
+    builder.line("    (if (or (zerop len) (cffi:null-pointer-p data))");
+    builder.line("        \"\"");
+    builder.line("        (cffi:foreign-string-to-lisp data :count len :encoding :utf-8))))");
+    builder.blank();
+    builder.line(&format!("(defun {}-to-lisp (s)", class));
+    builder.line(&format!(
+        "  \"The Lisp string held by the {} wrapper (or foreign pointer) S, which stays valid.\"",
+        class.to_uppercase()
+    ));
+    builder.line("  (%string-value (%unwrap s)))");
+    builder.line(&format!("(export '{}-to-lisp :azul)", class));
+    builder.blank();
+    builder.line("(defun %string-arg (v)");
+    builder.line(&format!(
+        "  \"V as something a {} parameter takes: a Lisp string becomes a fresh wrapper.\"",
+        class.to_uppercase()
+    ));
+    builder.line(&format!("  (if (stringp v) ({}-from-lisp v) v))", class));
+    builder.blank();
+}
+
+/// Emitted into `:azul-internal` after the bindings: the byte helpers and,
+/// per wrapped class, the CFFI translation that makes a by-value value a
+/// foreign pointer to a buffer of its own instead of a plist.
+///
+/// A plist cannot carry these values: it reads every overlapping variant of
+/// every nested union (an inactive variant's bytes are not a valid enum or
+/// bool) and writing it back rewrites those bytes. A buffer is copied
+/// bit for bit.
+pub fn emit_internal_boxing(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    builder
+        .line(";;; ----------------------------------------------------------------------------");
+    builder
+        .line(";;; By-value wrapped classes travel as foreign pointers to a buffer of their own.");
+    builder
+        .line(";;; ----------------------------------------------------------------------------");
+    builder.blank();
+    for line in [
+        "(defun %azul-copy-bytes (dst src n)",
+        "  \"Copies N bytes from SRC to DST; returns DST.\"",
+        "  (dotimes (i n dst)",
+        "    (setf (mem-aref dst :uint8 i) (mem-aref src :uint8 i))))",
+        "",
+        "(defun %azul-box (src type)",
+        "  \"A fresh foreign buffer holding a bitwise copy of the TYPE value at SRC.\"",
+        "  (let ((n (foreign-type-size type)))",
+        "    (%azul-copy-bytes (foreign-alloc :uint8 :count (max n 1)) src n)))",
+        "",
+        "(defun %azul-store (dst type value)",
+        "  \"Writes VALUE - a foreign pointer to a TYPE value, or a CFFI plist - at DST.\"",
+        "  (if (pointerp value)",
+        "      (%azul-copy-bytes dst value (foreign-type-size type))",
+        "      (setf (mem-ref dst type) value)))",
+        "",
+    ] {
+        if line.is_empty() {
+            builder.blank();
+        } else {
+            builder.line(line);
+        }
+    }
+    for s in &ir.structs {
+        if !should_emit_wrapper(s, ir, config) {
+            continue;
+        }
+        let k = to_kebab_case(&s.name);
+        builder.line(&format!(
+            "(defmethod translate-from-foreign (p (type {}-tclass))",
+            k
+        ));
+        builder.line(&format!("  (%azul-box p '(:struct {})))", k));
+        builder.blank();
+        builder.line(&format!(
+            "(defmethod translate-into-foreign-memory (value (type {}-tclass) p)",
+            k
+        ));
+        builder.line("  (if (pointerp value)");
+        builder.line(&format!(
+            "      (%azul-copy-bytes p value (foreign-type-size '(:struct {})))",
+            k
+        ));
+        builder.line("      (call-next-method)))");
+        builder.blank();
+    }
+}
+
+// =============================================================================
 // Struct wrapper emission
 // =============================================================================
 
-fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, lx: &Lx) {
+    let ir = lx.ir;
     let class = idiomatic_class_name(&s.name);
     let close_sym = format!("close-{}", class);
     let with_sym = format!("with-{}", class);
@@ -130,8 +429,9 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         }
     }
 
-    // (defclass app () ((ptr ...)))
-    builder.line(&format!("(defclass {} ()", class));
+    // (defclass app (azul-handle) ((ptr ...))) - the slot is the base
+    // class's, this only adds the per-class accessor.
+    builder.line(&format!("(defclass {} (azul-handle)", class));
     builder.indent();
     builder.line("((ptr :initarg :ptr");
     builder.line(&format!("        :accessor {}-ptr", class));
@@ -143,16 +443,15 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     builder.line(&format!("(export '{} :azul)", class));
     builder.line(&format!("(export '{}-ptr :azul)", class));
 
-    // close-<name>: free the underlying pointer if non-null.
+    // close-<name>: release the value and the buffer if not moved yet.
     let delete_raw = raw_fn_name(&format!("Az{}_delete", s.name));
     builder.line(&format!("(defmethod {} ((obj {}))", close_sym, class));
     builder.indent();
-    builder.line(&format!("(let ((p ({}-ptr obj))) ", class));
+    builder.line(&format!("(let ((p ({}-ptr obj)))", class));
     builder.indent();
-    builder.line(&format!(
-        "(unless (cffi:null-pointer-p p) (azul-internal::{} p)) ",
-        delete_raw
-    ));
+    builder.line("(when (and (cffi:pointerp p) (not (cffi:null-pointer-p p)))");
+    builder.line(&format!("  (azul-internal::{} p)", delete_raw));
+    builder.line("  (cffi:foreign-free p))");
     builder.line(&format!("(setf ({}-ptr obj) (cffi:null-pointer))))", class));
     builder.dedent();
     builder.dedent();
@@ -164,11 +463,16 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
 
     // Track the first usable constructor (for with-<name> sugar).
     let mut ctor_for_with: Option<&FunctionDef> = None;
+    // Every name defined for this class so far: a field accessor never
+    // replaces an api.json method of the same name.
+    let mut taken: BTreeSet<String> = BTreeSet::new();
+    taken.insert(format!("{}-ptr", class));
 
     for func in &funcs {
         if func.kind.is_trait_function() {
             continue; // Skip Delete/PartialEq/Cmp/Hash/Debug -- close-<name> covers Delete.
         }
+        let lisp_method = idiomatic_method_name(&func.method_name);
         match func.kind {
             FunctionKind::Constructor
             | FunctionKind::StaticMethod
@@ -179,14 +483,30 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
                 {
                     ctor_for_with = Some(func);
                 }
-                emit_static_or_ctor(builder, &class, func, ir);
+                // Constructor / Default -> `make-<class>` (replace the method name).
+                let public_name = match func.kind {
+                    FunctionKind::Constructor | FunctionKind::Default => {
+                        if func.method_name == "new" {
+                            format!("make-{}", class)
+                        } else {
+                            format!("make-{}-{}", class, lisp_method)
+                        }
+                    }
+                    _ => format!("{}-{}", class, lisp_method),
+                };
+                emit_call_wrapper(builder, lx, &class, &public_name, func, false);
+                taken.insert(public_name);
             }
             FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy => {
-                emit_instance_method(builder, &class, func, ir);
+                let public_name = format!("{}-{}", class, lisp_method);
+                emit_call_wrapper(builder, lx, &class, &public_name, func, true);
+                taken.insert(public_name);
             }
             _ => {}
         }
     }
+
+    emit_field_accessors(builder, s, &class, lx, &taken);
 
     // with-<name>: convenience macro that wraps the chosen constructor
     // call in unwind-protect. If no constructor was found we emit a
@@ -196,71 +516,22 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     builder.blank();
 }
 
-fn emit_static_or_ctor(builder: &mut CodeBuilder, class: &str, func: &FunctionDef, ir: &CodegenIR) {
-    let raw = raw_fn_name(&func.c_name);
-    let lisp_method = idiomatic_method_name(&func.method_name);
-
-    // Constructor / Default -> `make-<class>` (replace the method name).
-    let public_name = match func.kind {
-        FunctionKind::Constructor | FunctionKind::Default => {
-            if func.method_name == "new" {
-                format!("make-{}", class)
-            } else {
-                format!("make-{}-{}", class, lisp_method)
-            }
-        }
-        _ => format!("{}-{}", class, lisp_method),
-    };
-
-    let (param_list, mut call_args) = build_param_lists(&func.args, ir, /* has_self */ false);
-    substitute_callback_args(&func.args, &mut call_args, /* self_offset */ 0);
-
-    if !func.doc.is_empty() {
-        for d in &func.doc {
-            builder.line(&format!(";; {}", sanitize_comment(d)));
-        }
-    }
-
-    let returns_self = func
-        .return_type
-        .as_deref()
-        .map(|r| r.trim() == func.class_name)
-        .unwrap_or(false);
-
-    builder.line(&format!(
-        "(defun {} ({})",
-        public_name,
-        param_list.join(" ")
-    ));
-    builder.indent();
-    if returns_self {
-        builder.line(&format!(
-            "(make-instance '{} :ptr (azul-internal::{} {})))",
-            class,
-            raw,
-            call_args.join(" ")
-        ));
-    } else {
-        builder.line(&format!(
-            "(azul-internal::{} {}))",
-            raw,
-            call_args.join(" ")
-        ));
-    }
-    builder.dedent();
-    builder.line(&format!("(export '{} :azul)", public_name));
-    builder.blank();
-}
-
-fn emit_instance_method(
+/// One `(defun ...)` around one C function.
+///
+/// - `&self` (and any pointer argument) gets the wrapper's buffer pointer;
+/// - a wrapped class passed by value is copied out of its buffer and then
+///   MOVED (`%consume`d) after the call - the callee owns those bytes now;
+/// - a String passed by value may also be a Lisp string;
+/// - a returned wrapped class comes back as a fresh wrapper object.
+fn emit_call_wrapper(
     builder: &mut CodeBuilder,
+    lx: &Lx,
     class: &str,
+    public_name: &str,
     func: &FunctionDef,
-    ir: &CodegenIR,
+    has_self: bool,
 ) {
     let raw = raw_fn_name(&func.c_name);
-    let lisp_method = idiomatic_method_name(&func.method_name);
-    let public_name = format!("{}-{}", class, lisp_method);
 
     if !func.doc.is_empty() {
         for d in &func.doc {
@@ -268,66 +539,307 @@ fn emit_instance_method(
         }
     }
 
-    let (mut param_list, mut call_args) = build_param_lists(&func.args, ir, /* has_self */ true);
-
-    // The first arg from the IR is implicit `self` (named after the
-    // lowercased class). Replace it with `obj` and pass the inner ptr.
-    if !param_list.is_empty() {
-        param_list[0] = "obj".to_string();
-        call_args[0] = format!("({}-ptr obj)", class);
-    }
-    substitute_callback_args(&func.args, &mut call_args, /* self_offset */ 0);
-
-    let returns_self = func
-        .return_type
-        .as_deref()
-        .map(|r| r.trim() == func.class_name)
-        .unwrap_or(false);
-
-    builder.line(&format!(
-        "(defun {} ({})",
-        public_name,
-        param_list.join(" ")
-    ));
-    builder.indent();
-    if returns_self {
-        builder.line(&format!(
-            "(make-instance '{} :ptr (azul-internal::{} {})))",
-            class,
-            raw,
-            call_args.join(" ")
-        ));
-    } else {
-        builder.line(&format!(
-            "(azul-internal::{} {}))",
-            raw,
-            call_args.join(" ")
-        ));
-    }
-    builder.dedent();
-    builder.line(&format!("(export '{} :azul)", public_name));
-    builder.blank();
-}
-
-/// Wrap each callback-typed call-arg in `(azul:register-callback "Wrapper" arg)`
-/// so users can pass plain Lisp lambdas. Only kinds in the host-invoker
-/// allowlist are substituted.
-fn substitute_callback_args(
-    args: &[super::super::ir::FunctionArg],
-    call_args: &mut [String],
-    self_offset: usize,
-) {
-    for (i, a) in args.iter().enumerate() {
-        if i < self_offset {
+    let mut params: Vec<String> = Vec::with_capacity(func.args.len());
+    let mut call_args: Vec<String> = Vec::with_capacity(func.args.len());
+    let mut rebinds: Vec<String> = Vec::new();
+    let mut consumed: Vec<String> = Vec::new();
+    for (i, a) in func.args.iter().enumerate() {
+        let owned = a.ref_kind == ArgRefKind::Owned;
+        if has_self && i == 0 {
+            params.push("obj".to_string());
+            call_args.push(format!("({}-ptr obj)", class));
+            if owned {
+                consumed.push("obj".to_string());
+            }
             continue;
         }
-        let Some(cb) = a.callback_info.as_ref() else {
+        let name = ident_to_kebab(&a.name);
+        params.push(name.clone());
+        call_args.push(call_arg(lx, a, &name, owned, &mut rebinds, &mut consumed));
+    }
+
+    let ret_class = func
+        .return_type
+        .as_deref()
+        .and_then(|r| lx.wrapped(r))
+        .map(|s| idiomatic_class_name(&s.name));
+    let call = format!("(azul-internal::{} {})", raw, call_args.join(" "));
+    let call = call.replace(" )", ")");
+
+    builder.line(&format!("(defun {} ({})", public_name, params.join(" ")));
+    builder.indent();
+    if rebinds.is_empty() && consumed.is_empty() {
+        match &ret_class {
+            Some(rc) => builder.line(&format!("(make-instance '{} :ptr {}))", rc, call)),
+            None => builder.line(&format!("{})", call)),
+        }
+    } else {
+        let mut bindings = rebinds;
+        bindings.push(format!("(r {})", call));
+        builder.line(&format!("(let* ({})", bindings.join(" ")));
+        builder.indent();
+        for c in &consumed {
+            builder.line(&format!("(%consume {})", c));
+        }
+        match &ret_class {
+            Some(rc) => builder.line(&format!("(make-instance '{} :ptr r)))", rc)),
+            None => builder.line("r))"),
+        }
+        builder.dedent();
+    }
+    builder.dedent();
+    builder.line(&format!("(export '{} :azul)", public_name));
+    builder.blank();
+}
+
+/// The call-site expression of one non-receiver argument.
+fn call_arg(
+    lx: &Lx,
+    a: &FunctionArg,
+    name: &str,
+    owned: bool,
+    rebinds: &mut Vec<String>,
+    consumed: &mut Vec<String>,
+) -> String {
+    // Callback-typed args accept a plain Lisp function.
+    if let Some(cb) = a.callback_info.as_ref() {
+        return format!(
+            "(azul:register-callback \"{}\" {})",
+            cb.callback_wrapper_name, name
+        );
+    }
+    if lx.wrapped(&a.type_name).is_none() {
+        return name.to_string();
+    }
+    if owned {
+        if lx.is_string(&a.type_name) {
+            rebinds.push(format!("({} (%string-arg {}))", name, name));
+        }
+        consumed.push(name.to_string());
+    }
+    format!("(%unwrap {})", name)
+}
+
+// =============================================================================
+// Field accessors
+// =============================================================================
+
+/// How one field of a wrapped struct is read and written.
+enum FieldShape {
+    /// A C scalar or a unit enum (a keyword): read and written in place.
+    Scalar,
+    /// The String class: read as a Lisp string, written from a Lisp string
+    /// or a string wrapper after the old one is released.
+    Str { delete: String },
+    /// A wrapped class: read as a fresh wrapper holding a deep copy,
+    /// written by moving a wrapper in after the old value is released.
+    Wrapper {
+        class: String,
+        ty: String,
+        delete: String,
+        clone: Option<String>,
+    },
+    /// Any other struct / union value: read as a keyword plist (only when
+    /// it owns no heap memory), written from a plist or a foreign pointer.
+    Value { ty: String, delete: Option<String> },
+}
+
+fn field_shape(f: &FieldDef, lx: &Lx) -> Option<FieldShape> {
+    let ir = lx.ir;
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.contains('<') || t.starts_with('*') || t.starts_with('&') || t.starts_with('[') {
+        return None;
+    }
+    // Callbacks, their wrappers and the type-erased handle are wired up by
+    // the closure plumbing, never by writing bytes into a field.
+    if managed_host_invoker::is_callback_wrapper(ir, t)
+        || managed_lang_helpers::is_refany_type(t, ir)
+        || ir.callback_typedefs.iter().any(|c| c.name.trim() == t)
+    {
+        return None;
+    }
+    let cffi = map_type_to_cffi(t, ir);
+    if cffi == ":pointer" || cffi == ":void" || cffi == ":string" {
+        return None;
+    }
+    if lx.is_string(t) {
+        return Some(FieldShape::Str {
+            delete: lx.class_fn(t, FunctionKind::Delete)?,
+        });
+    }
+    if let Some(s) = lx.wrapped(t) {
+        return Some(FieldShape::Wrapper {
+            class: idiomatic_class_name(&s.name),
+            ty: qualify_cffi(&cffi),
+            delete: lx.class_fn(t, FunctionKind::Delete)?,
+            clone: lx.class_fn(t, FunctionKind::DeepCopy),
+        });
+    }
+    if cffi.starts_with("(:struct ") || cffi.starts_with("(:union ") {
+        let included = ir.find_struct(t).is_some()
+            || ir.find_enum(t).is_some()
+            || ir.find_type_alias(t).is_some();
+        if !included || !lx.config.should_include_type(t) {
+            return None;
+        }
+        let owns_heap = managed_lang_helpers::has_delete_function(t, ir);
+        let delete = lx.class_fn(t, FunctionKind::Delete);
+        // A heap-owning value without a reachable `_delete` cannot be
+        // replaced without leaking the old one.
+        if owns_heap && delete.is_none() {
+            return None;
+        }
+        return Some(FieldShape::Value {
+            ty: qualify_cffi(&cffi),
+            delete,
+        });
+    }
+    // Scalars: C primitives, simple aliases of them and unit enums.
+    if cffi.starts_with(':') || ir.find_enum(t).is_some_and(|e| !e.is_union) {
+        return Some(FieldShape::Scalar);
+    }
+    None
+}
+
+/// `(<class>-<field> obj)` and `(setf (<class>-<field> obj) v)` for every
+/// public by-value field of a wrapped struct:
+///
+/// - a getter returns an independent value - a String decodes to a Lisp
+///   string without consuming the field, a wrapped class comes back as a
+///   fresh wrapper around a deep copy (`_clone`; none -> no getter), a
+///   plain value as a keyword plist (none for heap-owning values);
+/// - a setter releases the field's old value (`_delete`), then moves the
+///   new one in - a wrapper argument is consumed (its close becomes a
+///   no-op), a Lisp string becomes a fresh String.
+///
+/// Getters return COPIES, so a nested write is read-modify-write:
+///
+/// ```lisp
+/// (let ((ws (window-create-options-window-state opts)))   ; a deep copy
+///   (setf (full-window-state-title ws) "Hello")
+///   (setf (window-create-options-window-state opts) ws))  ; moves ws back in
+/// ```
+///
+/// An api.json method of the same name wins over the getter; the setter
+/// (a `(setf ...)` function, its own namespace) is always emitted.
+fn emit_field_accessors(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class: &str,
+    lx: &Lx,
+    taken: &BTreeSet<String>,
+) {
+    let st = format!("(:struct azul-internal::{})", to_kebab_case(&s.name));
+    let mut first = true;
+    for f in &s.fields {
+        let Some(shape) = field_shape(f, lx) else {
             continue;
         };
-        let wrapper = cb.callback_wrapper_name.as_str();
-        // call_args holds the raw param names already; wrap them.
-        let original = call_args[i].clone();
-        call_args[i] = format!("(azul:register-callback \"{}\" {})", wrapper, original);
+        let slot = format!("azul-internal::{}", ident_to_kebab(&f.name));
+        let accessor = format!("{}-{}", class, ident_to_kebab(&f.name));
+        if accessor == format!("{}-ptr", class) {
+            continue;
+        }
+        if first {
+            first = false;
+            builder.line(&format!(
+                ";; Field accessors of {}. Getters return COPIES (a String as a Lisp string,",
+                class
+            ));
+            builder.line(
+                ";; a wrapped class as a fresh deep-copied wrapper, a plain value as a keyword",
+            );
+            builder.line(
+                ";; plist); setters release the old value, then move the new one in. A nested",
+            );
+            builder.line(";; write is read-modify-write:");
+            builder.line(";;   (let ((ws (window-create-options-window-state opts)))");
+            builder.line(";;     (setf (full-window-state-title ws) \"Hello\")");
+            builder.line(";;     (setf (window-create-options-window-state opts) ws))");
+        }
+        let fp = format!(
+            "(cffi:foreign-slot-pointer ({}-ptr obj) '{} '{})",
+            class, st, slot
+        );
+        let in_place = format!(
+            "(cffi:foreign-slot-value ({}-ptr obj) '{} '{})",
+            class, st, slot
+        );
+        if let Some(d) = &f.doc {
+            builder.line(&format!(";; {}", sanitize_comment(d)));
+        }
+        let getter: Option<String> = match &shape {
+            FieldShape::Scalar => Some(in_place.clone()),
+            FieldShape::Str { .. } => Some(format!("(%string-value {})", fp)),
+            FieldShape::Wrapper {
+                class: fc,
+                clone: Some(c),
+                ..
+            } => Some(format!(
+                "(make-instance '{} :ptr (azul-internal::{} {}))",
+                fc, c, fp
+            )),
+            FieldShape::Wrapper { clone: None, .. } => None,
+            FieldShape::Value { ty, delete: None } => {
+                Some(format!("(%plist-keys (cffi:mem-ref {} '{}) nil)", fp, ty))
+            }
+            FieldShape::Value {
+                delete: Some(_), ..
+            } => None,
+        };
+        if let Some(body) = getter {
+            if !taken.contains(&accessor) {
+                builder.line(&format!("(defun {} (obj)", accessor));
+                builder.line(&format!(
+                    "  \"A copy of the `{}` field of a {}.\"",
+                    f.name,
+                    class.to_uppercase()
+                ));
+                builder.line(&format!("  {})", body));
+            }
+        }
+        let setter = match &shape {
+            FieldShape::Scalar => format!("(setf {} v)", in_place),
+            FieldShape::Str { delete } => {
+                let string_ty = format!(
+                    "(:struct azul-internal::{})",
+                    to_kebab_case(
+                        &lx.string
+                            .as_ref()
+                            .map(|s| s.class.clone())
+                            .unwrap_or_default()
+                    )
+                );
+                format!(
+                    "(%move-in {} '{} (%string-arg v) #'azul-internal::{})",
+                    fp, string_ty, delete
+                )
+            }
+            FieldShape::Wrapper { ty, delete, .. } => {
+                format!("(%move-in {} '{} v #'azul-internal::{})", fp, ty, delete)
+            }
+            FieldShape::Value { ty, delete } => format!(
+                "(%move-in {} '{} (%plist-keys v t) {})",
+                fp,
+                ty,
+                delete
+                    .as_ref()
+                    .map_or("nil".to_string(), |d| format!("#'azul-internal::{}", d))
+            ),
+        };
+        builder.line(&format!("(defun (setf {}) (v obj)", accessor));
+        builder.line(&format!(
+            "  \"Replaces the `{}` field of a {} (the old value is released, a wrapper V is moved in).\"",
+            f.name,
+            class.to_uppercase()
+        ));
+        builder.line(&format!("  {}", setter));
+        builder.line("  v)");
+        builder.line(&format!("(export '{} :azul)", accessor));
+        builder.blank();
     }
 }
 
@@ -441,34 +953,6 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
 // Helpers
 // =============================================================================
 
-/// Build the (param-names, raw-call-args) lists for a function.
-/// When `has_self` is true the first arg is treated as the instance
-/// pointer and surfaces in both lists; the caller will overwrite the
-/// names afterwards.
-fn build_param_lists(
-    args: &[super::super::ir::FunctionArg],
-    _ir: &CodegenIR,
-    _has_self: bool,
-) -> (Vec<String>, Vec<String>) {
-    let mut params = Vec::with_capacity(args.len());
-    let mut calls = Vec::with_capacity(args.len());
-    for a in args {
-        let name = ident_to_kebab(&a.name);
-        let bound = match a.ref_kind {
-            ArgRefKind::Owned => name.clone(),
-            ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-                // Caller passes a pointer-bearing object (CLOS instance,
-                // CFFI pointer, foreign struct...). We forward it as-is
-                // and let CFFI sort out the type.
-                name.clone()
-            }
-        };
-        params.push(name);
-        calls.push(bound);
-    }
-    (params, calls)
-}
-
 fn idiomatic_method_name(method_name: &str) -> String {
     // Lisp loves kebab-case; convert camelCase / snake_case uniformly.
     let mut out = String::new();
@@ -529,7 +1013,10 @@ mod tests {
     fn a_wrapper_holds_a_foreign_pointer_because_by_value_returns_are_boxed_not_plists() {
         let from =
             form("(defmethod translate-from-foreign (p (type az-window-create-options-tclass))");
-        assert!(from.contains("(%azul-box p '(:struct az-window-create-options))"), "{from}");
+        assert!(
+            from.contains("(%azul-box p '(:struct az-window-create-options))"),
+            "{from}"
+        );
         let into = form(
             "(defmethod translate-into-foreign-memory (value (type az-window-create-options-tclass) p)",
         );
@@ -544,7 +1031,10 @@ mod tests {
     #[test]
     fn closing_a_wrapper_deletes_the_value_and_frees_its_buffer() {
         let close = form("(defmethod close-window-create-options ((obj window-create-options))");
-        assert!(close.contains("(azul-internal::%az-window-create-options-delete p)"), "{close}");
+        assert!(
+            close.contains("(azul-internal::%az-window-create-options-delete p)"),
+            "{close}"
+        );
         assert!(close.contains("(cffi:foreign-free p)"), "{close}");
     }
 
@@ -587,7 +1077,10 @@ mod tests {
             "{get}"
         );
         let set = form("(defun (setf window-create-options-window-state) (v obj)");
-        assert!(set.contains("#'azul-internal::%az-full-window-state-delete"), "{set}");
+        assert!(
+            set.contains("#'azul-internal::%az-full-window-state-delete"),
+            "{set}"
+        );
         let mv = form("(defun %move-in (fp type v release)");
         assert!(mv.contains("(funcall release fp)"), "{mv}");
         assert!(mv.contains("(%consume v)"), "{mv}");
@@ -597,7 +1090,10 @@ mod tests {
     fn a_plain_value_field_reads_and_writes_as_a_keyword_plist() {
         let get = form("(defun full-window-state-size (obj)");
         assert!(get.contains("(%plist-keys (cffi:mem-ref "), "{get}");
-        assert!(get.contains("'(:struct azul-internal::az-window-size)"), "{get}");
+        assert!(
+            get.contains("'(:struct azul-internal::az-window-size)"),
+            "{get}"
+        );
         let set = form("(defun (setf full-window-state-size) (v obj)");
         assert!(set.contains("(%plist-keys v t)"), "{set}");
     }
