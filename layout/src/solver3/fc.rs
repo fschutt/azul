@@ -15186,6 +15186,9 @@ mod autotest_generated {
     }
 }
 
+/// The formatting contexts of this file checked through a whole window
+/// layout (`LayoutWindow`, the product path).
+///
 /// The inline-collection cache of `layout_ifc` (`CachedInlineContent`, keyed
 /// by the IFC subtree's fingerprint) across a STYLESHEET-ONLY rebuild: the
 /// same DOM, the same classes, another stylesheet. The node fingerprints are
@@ -15193,10 +15196,10 @@ mod autotest_generated {
 /// collection is stale. The rebuild goes through the product path:
 /// `begin_reconciliation` (the CSS diff) then the layout pass.
 #[cfg(test)]
-mod inline_collection_cache_tests {
+mod window_layout_tests {
     use azul_core::{
         dom::{Dom, DomId, IdOrClass, NodeId},
-        geom::LogicalSize,
+        geom::{LogicalPosition, LogicalSize},
         resources::RendererResources,
         styled_dom::StyledDom,
         task::Instant,
@@ -15250,8 +15253,8 @@ mod inline_collection_cache_tests {
             .expect("the node has a size")
     }
 
-    /// The x of DOM node `node` (its calculated position).
-    fn x_of(lw: &LayoutWindow, node: usize) -> f32 {
+    /// The calculated position of DOM node `node`.
+    fn position_of(lw: &LayoutWindow, node: usize) -> LogicalPosition {
         let lr = &lw.layout_results[&DomId::ROOT_ID];
         let index = *lr
             .layout_tree
@@ -15259,10 +15262,9 @@ mod inline_collection_cache_tests {
             .get(&NodeId::new(node))
             .and_then(|v| v.first())
             .expect("the node is laid out");
-        lr.calculated_positions
+        *lr.calculated_positions
             .get(index.index())
             .expect("the node has a position")
-            .x
     }
 
     /// `body(0) > div.p(1) > "Hello Hello Hello"(2)`.
@@ -15328,10 +15330,58 @@ mod inline_collection_cache_tests {
             (a - 60.0).abs() < 0.5,
             "the first inline-block is 60 wide now: {a}"
         );
-        let b = x_of(&lw, 3);
+        let b = position_of(&lw, 3).x;
         assert!(
             (b - 60.0).abs() < 0.5,
             "the second inline-block starts after the 60px one: {b}"
+        );
+    }
+
+    /// `body(0) > div.ul(1) > div.li(2) > div.block(3)`: a list item whose
+    /// first child is a block with no line box in it.
+    fn a_list_item_whose_first_child_is_a_block() -> Dom {
+        let class = |c: &'static str| -> azul_core::dom::IdOrClassVec {
+            vec![IdOrClass::Class(c.into())].into()
+        };
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("ul"))
+                .with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(class("li"))
+                        .with_child(Dom::create_div().with_ids_and_classes(class("block"))),
+                ),
+        )
+    }
+
+    #[test]
+    fn a_list_item_without_a_line_box_is_as_tall_as_its_block() {
+        // `<li><div style="height: 50px"></div></li>`: no line box for the
+        // marker to ride (`marker_line_host` is None). Chrome places the
+        // marker at the item's content start, out of the flow, and the item
+        // is as tall as the taller of the two (LayoutNG's
+        // PositionListMarkerWithoutLineBoxes): 50. The marker took a 20px
+        // line of its own above the block: 70.
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                a_list_item_whose_first_child_is_a_block(),
+                "body { margin: 0; } .ul { margin: 0; padding-left: 40px; } .li { display: \
+                 list-item; list-style-type: disc; line-height: 20px; } .block { height: 50px; }",
+            ),
+        );
+        let li = size_of(&lw, 2).height;
+        assert!(
+            (li - 50.0).abs() < 0.5,
+            "the item is its block's 50px: {li}"
+        );
+        let item_top = position_of(&lw, 2).y;
+        let block_top = position_of(&lw, 3).y;
+        assert!(
+            (block_top - item_top).abs() < 0.5,
+            "the block starts at the item's top, no marker line above it: {block_top} vs \
+             {item_top}"
         );
     }
 }
