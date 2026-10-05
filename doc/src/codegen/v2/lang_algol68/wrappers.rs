@@ -145,3 +145,51 @@ fn should_emit_wrapper(s: &StructDef, config: &CodegenConfig) -> bool {
             | TypeCategory::GenericTemplate
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::{bug_classes::ir, config::CodegenConfig};
+
+    fn a68() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// The PROC declaration starting with `head`, up to its closing `;`
+    /// at column 0 (`END;`) or the end of a one-line declaration.
+    fn proc_text(head: &str) -> &'static str {
+        let out = a68();
+        let start = out
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{head}` in azul.a68"));
+        let rest = &out[start..];
+        let end = rest.find("\nEND;").map_or(rest.len(), |e| e + 5);
+        &rest[..end]
+    }
+
+    #[test]
+    fn a_string_is_read_into_an_algol_string_without_consuming_it() {
+        let read = proc_text("PROC read az string = (REF AZSTRING s) STRING:");
+        assert!(read.contains("az u8 vec get (vec OF s, "), "{read}");
+        assert!(!read.contains("delete"), "{read}");
+    }
+
+    #[test]
+    fn replacing_a_string_field_releases_the_old_one_first() {
+        let set = proc_text("PROC replace az string = (REF AZSTRING field, AZSTRING new) VOID:");
+        let delete = set.find("az string delete (field)").expect(set);
+        let store = set.find("field := new").expect(set);
+        assert!(delete < store, "{set}");
+        let text = proc_text("PROC replace az string text = (REF AZSTRING field, STRING text) VOID:");
+        assert!(text.contains("replace az string (field, "), "{text}");
+    }
+
+    #[test]
+    fn replacing_a_window_state_releases_the_old_one_first() {
+        let set = proc_text(
+            "PROC replace az full window state = (REF AZFULLWINDOWSTATE field, AZFULLWINDOWSTATE \
+             new) VOID:",
+        );
+        assert!(set.contains("az full window state delete (field)"), "{set}");
+    }
+}
