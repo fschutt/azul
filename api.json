@@ -9412,6 +9412,15 @@
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_dll::unified::capability::PlatformCapability::iroh()"
+                            },
+                            "scheduled_notifications": {
+                                "doc": [
+                                    "Probe whether a notification with a delivery time",
+                                    "(`Notification::deliver_at`) is SCHEDULED with the OS - shown at its",
+                                    "time even while the app is not running."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::capability::PlatformCapability::scheduled_notifications()"
                             }
                         },
                         "repr": "C"
@@ -10331,6 +10340,9 @@
                                 },
                                 "headers": {
                                     "type": "HttpHeaderVec"
+                                },
+                                "final_url": {
+                                    "type": "String"
                                 }
                             }
                         ],
@@ -59206,43 +59218,6 @@
                                 "StyleBackgroundClip"
                             ]
                         }
-                    },
-                    "PdfPageSize": {
-                        "external": "azul_dll::desktop::extra::pdf::parsed::PdfPageSize",
-                        "derive": [
-                            "Debug",
-                            "Default",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "width_pt": {
-                                    "type": "f32"
-                                },
-                                "height_pt": {
-                                    "type": "f32"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "to_logical_size": {
-                                "doc": [
-                                    "The size in CSS px (96 per inch): what the page measures at 100 %."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "LogicalSize"
-                                },
-                                "fn_body": "object.to_logical_size()"
-                            }
-                        },
-                        "repr": "C"
                     }
                 }
             },
@@ -108742,7 +108717,8 @@
                             {
                                 "Query": {},
                                 "Pick": {},
-                                "Create": {}
+                                "Create": {},
+                                "Clear": {}
                             }
                         ],
                         "repr": "C"
@@ -123024,6 +123000,36 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "azul_layout::cpurender::draw_text(rawimage, text, style, x, y)"
+                            },
+                            "rgba_to_nv12": {
+                                "doc": [
+                                    "A whole tightly packed RGBA8 or BGRA8 image (`src`, alpha ignored) as",
+                                    "tightly packed NV12 in `dst`'s matrix and range (luma per pixel, each",
+                                    "chroma pair from the average of its 2x2 block): [`rgba_to_nv12`] for",
+                                    "the C API. None when `src` is not RGBA8 / BGRA8, `dst` is not NV12 or",
+                                    "`bytes` is shorter than `width x height` pixels."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "bytes": "U8VecRef"
+                                    },
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    },
+                                    {
+                                        "src": "RawImageFormat"
+                                    },
+                                    {
+                                        "dst": "RawImageFormat"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU8Vec"
+                                },
+                                "fn_body": "azul_core::resources::RawImage::rgba_to_nv12(bytes.as_slice(), width, height, src, dst)"
                             }
                         },
                         "repr": "C"
@@ -187347,7 +187353,7 @@
                         "repr": "C"
                     },
                     "ParsedPdf": {
-                        "external": "azul_dll::desktop::extra::pdf::parsed::ParsedPdf",
+                        "external": "azul_dll::unified::pdf::ParsedPdf",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -187556,6 +187562,43 @@
                                     "type": "OptionString"
                                 },
                                 "fn_body": "object.page_to_svg(index)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PdfPageSize": {
+                        "external": "azul_dll::unified::pdf::PdfPageSize",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width_pt": {
+                                    "type": "f32"
+                                },
+                                "height_pt": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "to_logical_size": {
+                                "doc": [
+                                    "The size in CSS px (96 per inch): what the page measures at 100 %."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalSize"
+                                },
+                                "fn_body": "object.to_logical_size()"
                             }
                         },
                         "repr": "C"
@@ -189631,9 +189674,16 @@
                         "constructors": {
                             "open": {
                                 "doc": [
-                                    "Open an audio output for `config` (sample rate + channels). Returns an",
-                                    "invalid handle (`is_open()` false) on failure. The stub engine always",
-                                    "\"opens\"; the real rodio / AVAudio backend may fail (no device)."
+                                    "Open an audio output for `config` (sample rate + channels). The handle",
+                                    "is open (`is_open()`) only if an output device opened; otherwise it is",
+                                    "closed and [`error_message`](Self::error_message) says why: no output",
+                                    "device, no audio backend in this build, or a device that refuses the",
+                                    "format. Playing into a closed handle does nothing.",
+                                    "",
+                                    "A headless / e2e run never opens the real output: it gets a sink that",
+                                    "counts frames and plays nothing if it asked for one",
+                                    "(`AZ_SYNTHETIC_DEVICES=audio_sink`, or the `mock` op), else a closed",
+                                    "handle, recorded as \"not available in a headless run\"."
                                 ],
                                 "fn_args": [
                                     {
@@ -189657,37 +189707,6 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_open()"
-                            },
-                            "play": {
-                                "doc": [
-                                    "Queue `frame` for playback. Interleaved `f32` samples in the frame's",
-                                    "format are sent to the output. (Stub: counts the frame; the on-device",
-                                    "backend plays the samples.)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "frame": "AudioFrame"
-                                    }
-                                ],
-                                "fn_body": "object.play(frame)"
-                            },
-                            "frames_played": {
-                                "doc": [
-                                    "Number of frames submitted via [`play`](Self::play) so far (`0` if not",
-                                    "open). Mostly a stub progress signal until the real backend lands."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "u64"
-                                },
-                                "fn_body": "object.frames_played()"
                             },
                             "close": {
                                 "doc": [
@@ -189830,6 +189849,38 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.try_play(frame)"
+                            },
+                            "frames_played": {
+                                "doc": [
+                                    "Frames the output device took from [`play`](Self::play) so far. A",
+                                    "frame the device did not take (its queue full, the write failed) is",
+                                    "not counted, and a closed handle counts nothing (`0`). A headless",
+                                    "run's synthetic sink counts every frame."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.frames_played()"
+                            },
+                            "play": {
+                                "doc": [
+                                    "Hands `frame` (interleaved `f32` samples in the frame's format) to the",
+                                    "output device. Does nothing on a closed handle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "frame": "AudioFrame"
+                                    }
+                                ],
+                                "fn_body": "object.play(frame)"
                             }
                         },
                         "repr": "C"
@@ -189994,7 +190045,7 @@
                         "repr": "C"
                     },
                     "AudioDecoder": {
-                        "external": "azul_dll::desktop::extra::audio::codec::AudioDecoder",
+                        "external": "azul_dll::unified::audio::AudioDecoder",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -190074,7 +190125,7 @@
                         "repr": "C"
                     },
                     "AudioEncoder": {
-                        "external": "azul_dll::desktop::extra::audio::codec::AudioEncoder",
+                        "external": "azul_dll::unified::audio::AudioEncoder",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -190182,7 +190233,7 @@
                         "repr": "C"
                     },
                     "EchoCanceller": {
-                        "external": "azul_dll::desktop::extra::audio::echo::EchoCanceller",
+                        "external": "azul_dll::unified::audio::EchoCanceller",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -190317,7 +190368,7 @@
                         "repr": "C"
                     },
                     "AudioFileDecoder": {
-                        "external": "azul_dll::desktop::extra::audio::decode::AudioFileDecoder",
+                        "external": "azul_dll::unified::audio::AudioFileDecoder",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -190566,7 +190617,7 @@
                         "repr": "C"
                     },
                     "AudioPlayer": {
-                        "external": "azul_dll::desktop::extra::audio::player::AudioPlayer",
+                        "external": "azul_dll::unified::audio::AudioPlayer",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -191620,7 +191671,7 @@
                         "repr": "C"
                     },
                     "Mp4Muxer": {
-                        "external": "azul_dll::desktop::extra::video_codec::container::Mp4Muxer",
+                        "external": "azul_dll::unified::video_codec::Mp4Muxer",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -191750,7 +191801,7 @@
                         "repr": "C"
                     },
                     "Mp4Demuxer": {
-                        "external": "azul_dll::desktop::extra::video_codec::container::Mp4Demuxer",
+                        "external": "azul_dll::unified::video_codec::Mp4Demuxer",
                         "custom_impls": [
                             "Clone",
                             "Default",
@@ -193706,6 +193757,23 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.open()"
+                            },
+                            "open_path": {
+                                "doc": [
+                                    "Opens a file in its default app, or a folder in the file manager",
+                                    "(`open` on macOS, `xdg-open` on Linux and the BSDs, `explorer` on",
+                                    "Windows; the path is one argument, no shell parses it). `true` once",
+                                    "the opener started (`false` where the platform has none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "azul_core::url::Url::open_path(path.as_str())"
                             }
                         },
                         "repr": "C"

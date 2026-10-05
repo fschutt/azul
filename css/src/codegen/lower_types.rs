@@ -2258,7 +2258,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("PathInputOnChangeCallback", "dom"),
     ("PathInputOnChangeCallbackType", "callbacks"),
     ("Pdf", "pdf"),
-    ("PdfPageSize", "css"),
+    ("PdfPageSize", "pdf"),
     ("PenState", "callbacks"),
     ("PenTilt", "callbacks"),
     ("PendingTextEdit", "css"),

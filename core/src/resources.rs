@@ -2962,6 +2962,24 @@ pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
 }
 
 impl RawImage {
+    /// A whole tightly packed RGBA8 or BGRA8 image (`src`, alpha ignored) as
+    /// tightly packed NV12 in `dst`'s matrix and range (luma per pixel, each
+    /// chroma pair from the average of its 2x2 block): [`rgba_to_nv12`] for
+    /// the C API. None when `src` is not RGBA8 / BGRA8, `dst` is not NV12 or
+    /// `bytes` is shorter than `width x height` pixels.
+    #[must_use]
+    pub fn rgba_to_nv12(
+        bytes: &[u8],
+        width: u32,
+        height: u32,
+        src: RawImageFormat,
+        dst: RawImageFormat,
+    ) -> azul_css::OptionU8Vec {
+        rgba_to_nv12(bytes, width as usize, height as usize, src, dst)
+            .map(U8Vec::from_vec)
+            .into()
+    }
+
     /// A copy scaled down to fit `max_w x max_h` (aspect kept) as straight
     /// RGBA8 - a thumbnail, sampled by the area-averaging scaler
     /// ([`crate::image_scale::resample_rgba`]). `None` for a source the
