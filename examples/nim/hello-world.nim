@@ -69,9 +69,9 @@ proc main() =
   let data = myDataUpcast(model)
 
   var window = AzWindowCreateOptions_create(layout)
-  window.window_state.title = azStr("Hello World")
-  window.window_state.size.dimensions.width = 400.0'f32
-  window.window_state.size.dimensions.height = 300.0'f32
+  # `setTitle` releases the old title; plain-data fields are assigned directly.
+  window.window_state.setTitle("Hello World")
+  window.window_state.size.dimensions = AzLogicalSize(width: 400.0'f32, height: 300.0'f32)
 
   var app = AzApp_create(data, AzAppConfig_create())
   AzApp_run(addr app, window)
