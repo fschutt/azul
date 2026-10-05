@@ -21,11 +21,15 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 - 3.8 paste op: NOT doable in PKG 3 files (needs CallbackChange in callbacks.rs + dll event.rs arm).
   RED committed #[ignore] d501b146b; design -> report round-2 note.
 
+- 3.9 scheduled_notifications: RED 6beeb4898, GREEN a62d6096d (-> api.json)
+- 3.10 wasm AudioSink stub: c55d35d37 (no RED, cfg wasm32)
+
 ## IN PROGRESS
-- 3.9 PlatformCapability::scheduled_notifications (dll/src/desktop/extra/capability.rs)
+- 3.11 type index: desktop::extra::<m> types re-exported by unified/<m>.rs take the facade path
+  (doc/src/autofix/type_index.rs)
 
 ## NEXT
-- 3.10 .. 3.16 in order
+- 3.12 .. 3.16 in order
 
 ## Open questions
 (none)
