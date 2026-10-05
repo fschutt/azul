@@ -29,10 +29,14 @@ restored from HEAD before committing).
   reader UI - all outside the Files line. Plan in the report.
 - 6.11 AzClock city menu: RED f56e80a21, GREEN 94b948600
 
+- 6.12 AzWidgets video demo: RED f7328bb2b, GREEN 6d042bf0e
+- 6.4 AzMusic covers (optional): SKIPPED, NOT SMALL (no covers kept by the library today)
+- Report: scripts/FIX9_APPSB_2026_10_05.md
+
 ## IN PROGRESS
-- 6.12 AzWidgets video demo -> SeekBar + SeekBar::media_time (RED a_video_past_an_hour_shows_its_hours)
+- nothing
 
 ## NEXT
-- optional 6.4 AzMusic, then the report scripts/FIX9_APPSB_2026_10_05.md
+- nothing: the package is finished (round-2 notes in the report)
 
 ## Open questions
