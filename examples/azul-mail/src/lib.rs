@@ -42,6 +42,7 @@ pub mod imap_client;
 pub mod listing;
 pub mod message;
 pub mod mutf7;
+pub mod pictures;
 pub mod sample;
 pub mod send;
 pub mod sending;

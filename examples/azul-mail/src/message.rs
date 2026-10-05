@@ -537,4 +537,60 @@ Not sure yet.\r\n";
         assert!(quote_lines("").is_empty());
         assert_eq!(quote_lines("x").len(), 1);
     }
+
+    /// A newsletter as Outlook sends it: the HTML and its pictures in `multipart/related`, each
+    /// picture a part with a Content-ID the HTML names as `cid:`.
+    const RELATED: &[u8] = b"From: news@example.org\r\n\
+        To: ada@example.org\r\n\
+        Subject: Pictures inside\r\n\
+        MIME-Version: 1.0\r\n\
+        Content-Type: multipart/related; boundary=\"r1\"\r\n\
+        \r\n\
+        --r1\r\n\
+        Content-Type: text/html; charset=utf-8\r\n\
+        \r\n\
+        <p><img src=\"cid:logo@example\"> <img src=\"cid:chart@example\"></p>\r\n\
+        --r1\r\n\
+        Content-Type: image/png\r\n\
+        Content-ID: <logo@example>\r\n\
+        Content-Transfer-Encoding: base64\r\n\
+        \r\n\
+        iVBORw0KGgo=\r\n\
+        --r1\r\n\
+        Content-Type: IMAGE/GIF; name=\"chart.gif\"\r\n\
+        Content-ID: <chart@example>\r\n\
+        Content-Disposition: inline; filename=\"chart.gif\"\r\n\
+        Content-Transfer-Encoding: base64\r\n\
+        \r\n\
+        R0lGODlh\r\n\
+        --r1\r\n\
+        Content-Type: application/pdf; name=\"terms.pdf\"\r\n\
+        Content-ID: <terms@example>\r\n\
+        Content-Transfer-Encoding: base64\r\n\
+        \r\n\
+        JVBERi0=\r\n\
+        --r1--\r\n";
+
+    #[test]
+    fn the_pictures_a_mail_carries_are_found_by_their_content_id() {
+        let pictures = inline_pictures(RELATED);
+        assert_eq!(
+            pictures,
+            vec![
+                InlinePicture {
+                    content_id: String::from("logo@example"),
+                    mime_type: String::from("image/png"),
+                    bytes: b"\x89PNG\r\n\x1a\n".to_vec(),
+                },
+                InlinePicture {
+                    content_id: String::from("chart@example"),
+                    mime_type: String::from("image/gif"),
+                    bytes: b"GIF89a".to_vec(),
+                },
+            ],
+            "pictures only: the PDF with a Content-ID is no picture"
+        );
+        assert!(inline_pictures(PLAIN).is_empty());
+        assert!(inline_pictures(b"").is_empty());
+    }
 }
