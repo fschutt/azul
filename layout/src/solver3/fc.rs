@@ -11590,8 +11590,27 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 });
 
         let resolved_line_height = line_height.resolve(font_size, 0.0, 0.0, 0.0, 0);
-        let total_height =
-            resolved_line_height + padding_top + padding_bottom + border_top + border_bottom;
+        // CSS 2.2 10.8.1: an inline box with no glyphs holds a strut of its
+        // first available font - line-height tall, straddling the baseline
+        // like the strut of the line itself: that face's rounded A and D with
+        // the leading shared out (`LayoutFontMetrics::inline_box_px`, a
+        // glyph's own box). Its vertical padding and borders are no part of
+        // the line box (10.6.1 / 10.8.1). It was line-height + padding +
+        // borders tall and sat ON the baseline: `<span style="padding: 4px">`
+        // made its line 27.2px (Chrome 18).
+        let (strut_above, strut_below) = ctx
+            .font_manager
+            .first_available_font_metrics(&span_style.font_stack)
+            .filter(|m| m.units_per_em > 0)
+            .and_then(|m| m.inline_box_px(span_style.font_size_px, &span_style.line_height))
+            .unwrap_or_else(|| {
+                crate::text3::cache::split_leading(
+                    resolved_line_height,
+                    font_size * 0.8,
+                    font_size * 0.2,
+                )
+            });
+        let total_height = strut_above + strut_below;
         let total_width =
             margin_left + padding_left + border_left + border_right + padding_right + margin_right;
 
@@ -11625,7 +11644,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             },
             fill: None,
             stroke: None,
-            baseline_offset: 0.0,
+            // From the bottom edge: the strut's share below the baseline.
+            baseline_offset: strut_below,
             alignment: crate::solver3::getters::get_vertical_align_for_node(
                 ctx.styled_dom,
                 span_dom_id,
