@@ -1092,3 +1092,80 @@ fn camel_to_snake(s: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::*;
+
+    /// `php_api.rs` for the real api.json, generated once.
+    fn php_api() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| generate(super::super::bug_classes::ir()).expect("php ext codegen"))
+    }
+
+    /// The `impl Azul<class>` block.
+    fn impl_block(class: &str) -> &'static str {
+        let out = php_api();
+        let head = format!("impl Azul{} {{", class);
+        let i = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("no `{}` in php_api.rs", head));
+        let rest = &out[i..];
+        &rest[..rest.find("\n}\n").unwrap_or(rest.len())]
+    }
+
+    /// `pub fn <name>(...)` in `body`, up to its closing brace.
+    fn method<'a>(body: &'a str, name: &str) -> &'a str {
+        let head = format!("pub fn {}(", name);
+        let i = body
+            .find(&head)
+            .unwrap_or_else(|| panic!("`{}` is missing in:\n{}", name, body));
+        let rest = &body[i..];
+        &rest[..rest.find("\n    }\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn window_create_options_reach_the_window_state_by_copy_and_move_it_back() {
+        let wco = impl_block("WindowCreateOptions");
+        let get = method(wco, "get_window_state");
+        assert!(get.contains("-> AzulFullWindowState"), "{}", get);
+        assert!(get.contains("AzFullWindowState_clone(&self.inner.window_state)"), "{}", get);
+        let set = method(wco, "set_window_state");
+        assert!(set.contains("v: &AzulFullWindowState"), "{}", set);
+        assert!(set.contains("AzFullWindowState_clone(&v.inner)"), "PHP keeps its wrapper:\n{}", set);
+        assert!(
+            set.contains("AzFullWindowState_delete(&mut self.inner.window_state)"),
+            "the old value is released:\n{}",
+            set
+        );
+        assert!(php_api().contains(".class::<AzulFullWindowState>()"));
+    }
+
+    #[test]
+    fn a_window_title_is_a_php_string_and_its_setter_releases_the_old_title() {
+        let fws = impl_block("FullWindowState");
+        let get = method(fws, "get_title");
+        assert!(get.contains("-> String"), "{}", get);
+        assert!(get.contains("self.inner.title.as_str()"), "{}", get);
+        let set = method(fws, "set_title");
+        assert!(set.contains("v: String"), "{}", set);
+        assert!(set.contains("AzString_delete(&mut self.inner.title)"), "{}", set);
+        assert!(set.contains("::core::ptr::write"), "no drop of the freed value:\n{}", set);
+    }
+
+    #[test]
+    fn the_window_size_is_reachable_down_to_its_width() {
+        let set = method(impl_block("FullWindowState"), "set_size");
+        assert!(set.contains("v: &AzulWindowSize"), "{}", set);
+        let dims = method(impl_block("WindowSize"), "get_dimensions");
+        assert!(dims.contains("-> AzulLogicalSize"), "{}", dims);
+        let w = method(impl_block("LogicalSize"), "set_width");
+        assert!(w.contains("v: f32"), "{}", w);
+    }
+
+    #[test]
+    fn a_pod_class_is_copied_never_through_a_clone_export_that_does_not_exist() {
+        assert!(!php_api().contains("AzLogicalSize_clone"));
+        assert!(!php_api().contains("AzWindowSize_clone"));
+    }
+}
