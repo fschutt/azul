@@ -686,17 +686,16 @@ fn a_double_click_selects_the_word() {
 fn the_wheel_scrolls_whole_lines_and_never_past_the_last_line() {
     let text = hundred_lines();
     let mut cv = over(&text);
-    let geo = geometry(&cv);
-    let e = scroll_event(&cv, &geo, 3, 0).expect("a scroll");
+    let e = scroll_event(&cv, 3, 0).expect("a scroll");
     assert_eq!((e.kind, e.view.top_line), (CodeViewEventKind::Scroll, 3));
     cv.view.top_line = 98;
-    assert_eq!(scroll_event(&cv, &geo, 5, 0).map(|e| e.view.top_line), Some(99));
+    assert_eq!(scroll_event(&cv, 5, 0).map(|e| e.view.top_line), Some(99));
     cv.view.top_line = 99;
-    assert!(scroll_event(&cv, &geo, 1, 0).is_none(), "already at the last line");
+    assert!(scroll_event(&cv, 1, 0).is_none(), "already at the last line");
     cv.view.top_line = 5;
-    assert_eq!(scroll_event(&cv, &geo, -200, 0).map(|e| e.view.top_line), Some(0));
-    assert_eq!(scroll_event(&cv, &geo, 0, 4).map(|e| e.view.left_column), Some(4));
-    assert!(scroll_event(&cv, &geo, 0, -1).is_none());
+    assert_eq!(scroll_event(&cv, -200, 0).map(|e| e.view.top_line), Some(0));
+    assert_eq!(scroll_event(&cv, 0, 4).map(|e| e.view.left_column), Some(4));
+    assert!(scroll_event(&cv, 0, -1).is_none());
 }
 
 #[test]

@@ -2463,12 +2463,16 @@ pub(crate) fn double_click_event(cv: &CodeView, lines: &dyn Lines, hit: Hit) -> 
 
 /// The view scrolled by whole `rows` and `columns` (the wheel); `None`
 /// when it is already at that edge.
-pub(crate) fn scroll_event(cv: &CodeView, geo: &Geometry, rows: i64, columns: i64) -> Option<CodeViewEvent> {
+pub(crate) fn scroll_event(cv: &CodeView, rows: i64, columns: i64) -> Option<CodeViewEvent> {
     let last = cv.line_count.max(1) - 1;
-    let top = (i64::from(geo.top) + rows).clamp(0, i64::from(last));
+    // From the VIEW's top line (kept in range), as the column is from the
+    // view's: the geometry is the BUILD's, and a second wheel turn before
+    // the app's rebuild starts from the view the first one stored.
+    let from = cv.view.top_line.min(last);
+    let top = (i64::from(from) + rows).clamp(0, i64::from(last));
     let left = (i64::from(cv.view.left_column) + columns).clamp(0, i64::from(u32::MAX));
     let (top, left) = (u32::try_from(top).unwrap_or(0), u32::try_from(left).unwrap_or(0));
-    if top == geo.top && left == cv.view.left_column {
+    if top == from && left == cv.view.left_column {
         return None;
     }
     let mut view = cv.view.clone();
@@ -3213,7 +3217,7 @@ extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if rows == 0 && columns == 0 {
         return Update::DoNothing;
     }
-    match scroll_event(&cv, &geo, rows, columns) {
+    match scroll_event(&cv, rows, columns) {
         Some(event) => deliver(&mut data, &cv, info, event),
         None => Update::DoNothing,
     }
