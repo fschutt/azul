@@ -1629,6 +1629,17 @@ mod money_tests {
     }
 
     #[test]
+    fn group_digits_groups_by_three_with_the_locales_separator() {
+        assert_eq!(group_digits("1234567", Some(',')), "1,234,567");
+        assert_eq!(group_digits("1234567", Some('.')), "1.234.567");
+        assert_eq!(group_digits("1234", Some('\u{2019}')), "1\u{2019}234");
+        assert_eq!(group_digits("123456", Some('\u{202f}')), "123\u{202f}456");
+        assert_eq!(group_digits("123", Some(',')), "123", "three digits: one group");
+        assert_eq!(group_digits("1234567", None), "1234567", "no separator: ungrouped");
+        assert_eq!(group_digits("", Some(',')), "");
+    }
+
+    #[test]
     fn the_symbol_goes_on_the_locales_side() {
         let en = MoneyLocale::en_us();
         assert_eq!(format_money(123_456, &en, 2, Some("$")), "$1,234.56");
