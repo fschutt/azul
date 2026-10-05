@@ -13,11 +13,14 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 - 3.4 http off-thread: RED 156ae0192, GREEN 4fd4c5af6 (http.rs resume_without_blocking)
   report note: the request queue is process-wide; tests draining it (dialogs.rs, http.rs) can steal entries.
 
+- 3.5 Url::open: RED dec04a08a, GREEN 04121d6b6 (opener_command; Url::open_path new -> api.json)
+- 3.6 final_url: RED f66ad9d5a, GREEN 3f34d7033 (HttpResponse.final_url last field -> api.json)
+
 ## IN PROGRESS
-- 3.5 Url::open Windows quoting + path variant (core/src/url.rs)
+- 3.7 runner outside-press popup dismissal (layout/src/e2e/runner.rs dismiss_popups_on_escape)
 
 ## NEXT
-- 3.6 .. 3.16 in order
+- 3.8 .. 3.16 in order
 
 ## Open questions
 (none)
