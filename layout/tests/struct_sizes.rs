@@ -115,8 +115,10 @@ fn inline_pipeline_struct_sizes_are_pinned() {
     assert_size!(VisualItem, 168, "Stage 2 (bidi) output.");
     assert_size!(
         StyleProperties,
-        248,
-        "Shared behind an Arc, so one per distinct style - NOT per glyph."
+        256,
+        "Shared behind an Arc, so one per distinct style - NOT per glyph. GREW 248 -> 256 \
+         (2026-10-03, 753dbc393): InlineBorderInfo gained `margin_left` / `margin_right` (an \
+         inline box's horizontal margins move the pen, CSS 2.2 s10.3.1), 60 -> 68 B."
     );
 }
 
