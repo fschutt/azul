@@ -15,7 +15,12 @@
    and the HTML part of a newsletter (its text, no image, the "download pictures" bar);
 6. clicks "Send/Receive All Folders" again: nothing is fetched (AZMAIL_SYNC_DONE fetched=0, no
    body fetch in the server's log);
-7. drops a new message into the server's INBOX and syncs once more: only that one is fetched.
+7. drops a new message into the server's INBOX and syncs once more: only that one is fetched;
+8. pictures: drops a mail with a picture of its own (`cid:`), a web picture, a web background
+   and a tracking pixel (both from a local web server) and syncs: its own picture shows at once
+   (AZMAIL_PICTURE_SHOWN cid:...), nothing is fetched and the bar names what the pre-pass held
+   back ("3 pictures"); "Download pictures" fetches the web picture alone - no background, no
+   pixel, no cookie - and shows it.
 
 Usage (from the azul repository, after building AzMail and libazul with the debug server):
 
@@ -34,8 +39,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
+import base64
+import http.server
+import struct
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
@@ -62,6 +72,72 @@ Subject: One more thing about the bulbs
 
 Bring gloves.
 """
+
+
+PICTURE_MESSAGE = """Message-ID: <pictures-1@example.org>
+Date: Wed, 30 Sep 2026 13:00:00 +0200
+From: Garden Weekly <news@example.org>
+To: ada@example.org
+Subject: Pictures inside and outside
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="rel"
+
+--rel
+Content-Type: text/html; charset=utf-8
+
+<html><body background="http://127.0.0.1:{port}/paper.png"><p>Our own logo:</p>
+<img src="cid:own-logo@example.org" alt="Own logo" width="4" height="4">
+<p>From the web:</p><img src="http://127.0.0.1:{port}/logo.png" alt="Web logo" width="4"
+height="4"><img src="http://127.0.0.1:{port}/pixel.gif" width="1" height="1"></body></html>
+--rel
+Content-Type: image/png
+Content-ID: <own-logo@example.org>
+Content-Transfer-Encoding: base64
+
+{png}
+--rel--
+"""
+
+
+def png_bytes(width=4, height=4):
+    """A small valid RGBA PNG (stdlib only)."""
+    rows = b''.join(b'\x00' + b'\x2e\x7d\x32\xff' * width for _ in range(height))
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack('>I', len(data)) + body + struct.pack('>I', zlib.crc32(body))
+    header = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) + chunk(b'IDAT', zlib.compress(rows))
+            + chunk(b'IEND', b''))
+
+
+class PictureServer:
+    """A web server on 127.0.0.1 that serves one PNG at any path and records each request
+    (its path and headers)."""
+
+    def __init__(self):
+        requests = self.requests = []
+        picture = png_bytes()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append((self.path, dict(self.headers)))
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/png')
+                self.send_header('Content-Length', str(len(picture)))
+                self.send_header('Set-Cookie', 'tracked=1')
+                self.end_headers()
+                self.wfile.write(picture)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def stop(self):
+        self.server.shutdown()
 
 
 def log(line):
@@ -392,6 +468,40 @@ class Run:
         if [e['uid'] for e in inbox] != [1, 2, 3, 4, 5]:
             raise Failure(f'the inbox index has {[e["uid"] for e in inbox]}')
         log('a second sync fetched nothing; a new message was fetched alone')
+        self.pictures(imap_server_inbox)
+
+    def pictures(self, inbox):
+        """Step 8: the mail's own picture at once, its web picture after the click only."""
+        web = PictureServer()
+        try:
+            png = base64.encodebytes(png_bytes()).decode('ascii').strip()
+            with open(os.path.join(inbox, '0006-pictures.eml'), 'w', newline='\n') as f:
+                f.write(PICTURE_MESSAGE.format(port=web.port, png=png))
+            self.click('Send/Receive All Folders')
+            self.wait_sync(4)
+            self.click('Pictures inside and outside')
+            self.until('the pictures mail', lambda: self.shows('Our own logo:'))
+            self.until('its own picture', lambda: 'AZMAIL_PICTURE_SHOWN cid:' in self.output('azmail'))
+            self.until('the pictures bar', lambda: self.shows('Click here to download pictures'))
+            if not self.shows('prevented automatic download of 3 pictures'):
+                raise Failure('the bar does not name the 3 web pictures the pre-pass found')
+            if web.requests:
+                raise Failure(f'fetched before the click: {[r[0] for r in web.requests]}')
+            self.click('Download pictures')
+            shown = f'AZMAIL_PICTURE_SHOWN http://127.0.0.1:{web.port}/logo.png'
+            self.until('the web picture', lambda: shown in self.output('azmail'))
+            if 'AZMAIL_PICTURES_FETCH 1' not in self.output('azmail'):
+                raise Failure('the fetch list is not the one shown web picture')
+            time.sleep(1.0)
+            paths = [path for path, _ in web.requests]
+            if paths != ['/logo.png']:
+                raise Failure(f'fetched {paths}: only the shown web picture may be')
+            headers = {k.lower(): v for k, v in web.requests[0][1].items()}
+            if 'cookie' in headers or headers.get('user-agent') != 'AzMail':
+                raise Failure(f'the picture request sent {headers}')
+            log('own picture at once; the web picture alone after "Download pictures"')
+        finally:
+            web.stop()
 
 
 def main():
