@@ -20,11 +20,18 @@ first per language; commit after every language.
   the azul.h offsets and size (c_layout::field_offsets / type_layout). Argument/return mapping
   unchanged (bool args/returns are still logic!).
 
+- Smalltalk (lang_smalltalk): RED f4539f54f, fix (this commit). `fieldsDesc` (`^ #( type name; ...)`,
+  padding/arrays spelled out as uint8/elem fields, callback-typedef fields void*) + class-side
+  `initialize [ self compileFields ]`; bug_classes smalltalk record/padding spelling updated.
+  Wrappers: azulConsume; by-value wrapper args go through `AzulNative azulMove:` (fixes
+  AzulApp>>run: double free), pointer args `azulBorrow:`; field accessors `<field>` (String ->
+  Smalltalk String, heap value -> wrapped _clone, else UFFI copy) and `<field>:` (_delete then move).
+
 ## IN PROGRESS
-- Smalltalk (lang_smalltalk).
+- COBOL (lang_cobol).
 
 ## NEXT
-- COBOL, ALGOL 68.
+- ALGOL 68.
 
 ## Open questions
 (none yet)

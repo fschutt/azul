@@ -3057,8 +3057,8 @@ fn variant_record_bindings() -> Vec<VariantRecords> {
         VariantRecords {
             lang: "smalltalk",
             files: || one("Azul.st"),
-            record: |u, v| format!("Az{u}Variant_{v} class >> fields ["),
-            padding: |n| format!("(uint8 _pad0[{n}])"),
+            record: |u, v| format!("Az{u}Variant_{v} class >> fieldsDesc ["),
+            padding: |n| format!("uint8 _pad0_{};", n - 1),
         },
         VariantRecords {
             lang: "lisp",

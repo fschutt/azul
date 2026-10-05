@@ -7,9 +7,9 @@
 //!   build.
 //! - **Tagged-union enums** -> a `<Az>Foo_Tag` enumeration plus one `<Az>FooVariant_<Variant>`
 //!   `FFIExternalStructure` per variant (each carries the tag plus the payload), plus an outer
-//!   `FFIExternalUnion subclass: #AzFoo` whose `fields` overlap each variant struct at offset 0.
-//! - **POD structs** -> `FFIExternalStructure subclass: #AzFoo` with a class-side `fields` method
-//!   describing the layout. UFFI emits slot accessors automatically.
+//!   `FFIExternalUnion subclass: #AzFoo` whose `fieldsDesc` overlaps each variant struct at offset 0.
+//! - **POD structs** -> `FFIExternalStructure subclass: #AzFoo` with a class-side `fieldsDesc` method
+//!   describing the layout; a class-side `initialize` compiles the slot accessors.
 //!
 //! Generic templates and recursive/destructor/VecRef categories are
 //! deliberately skipped — they have no clean Smalltalk surface.
@@ -200,42 +200,33 @@ fn generate_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR)
             PACKAGE_TYPES,
             &[],
         );
-        method_category_line(builder, "ffi");
-        builder.line(&format!("{} class >> fields [", variant_struct));
-        builder.indent();
-        builder.line("^ #(");
-        builder.indent();
-        builder.line(&format!("({} tag)", tag_field));
+        let mut entries = vec![format!("{} tag;", tag_field)];
         let padding = payload.as_ref().map_or(0, |p| p.padding(&v.name));
-        if padding > 0 {
-            builder.line(&format!("(uint8 _pad0[{}])", padding));
-        }
+        entries.extend(padding_entries("_pad0", padding));
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {
                 if types.len() == 1 {
                     let (ty, ref_kind) = &types[0];
-                    let st_type = ref_kind_field_type(ty, ref_kind, ir);
-                    builder.line(&format!("({} payload)", st_type));
+                    entries.extend(field_entries(ty, ref_kind, "payload", ir));
                 } else {
                     for (i, (ty, ref_kind)) in types.iter().enumerate() {
-                        let st_type = ref_kind_field_type(ty, ref_kind, ir);
-                        builder.line(&format!("({} payload_{})", st_type, i));
+                        entries.extend(field_entries(ty, ref_kind, &format!("payload_{}", i), ir));
                     }
                 }
             }
             EnumVariantKind::Struct(fields) => {
                 for f in fields {
-                    let st_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
-                    builder.line(&format!("({} {})", st_type, sanitize_identifier(&f.name)));
+                    entries.extend(field_entries(
+                        &f.type_name,
+                        &f.ref_kind,
+                        &sanitize_identifier(&f.name),
+                        ir,
+                    ));
                 }
             }
         }
-        builder.dedent();
-        builder.line(")");
-        builder.dedent();
-        builder.line("]");
-        builder.blank();
+        emit_fields_desc(builder, &variant_struct, &[], &entries);
     }
 
     // 3. Outer union: every variant struct overlapped at offset 0.
@@ -248,27 +239,28 @@ fn generate_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR)
         PACKAGE_TYPES,
         &e.doc,
     );
-    method_category_line(builder, "ffi");
-    builder.line(&format!("{} class >> fields [", name));
-    builder.indent();
-    builder.line("\"FFIExternalUnion overlaps every member at offset 0;");
-    builder.line(" the embedded `tag` slot in each variant struct lets the");
-    builder.line(" caller discriminate.\"");
-    builder.line("^ #(");
-    builder.indent();
-    for v in &e.variants {
-        let variant_struct = format!("{}Variant_{}", name, v.name);
-        builder.line(&format!(
-            "({} {})",
-            variant_struct,
-            sanitize_identifier(&v.name)
-        ));
-    }
-    builder.dedent();
-    builder.line(")");
-    builder.dedent();
-    builder.line("]");
-    builder.blank();
+    let entries: Vec<String> = e
+        .variants
+        .iter()
+        .map(|v| {
+            format!(
+                "{}Variant_{} {};",
+                name,
+                v.name,
+                sanitize_identifier(&v.name)
+            )
+        })
+        .collect();
+    emit_fields_desc(
+        builder,
+        &name,
+        &[
+            "FFIExternalUnion overlaps every member at offset 0;",
+            " the embedded `tag` slot in each variant struct lets the",
+            " caller discriminate.",
+        ],
+        &entries,
+    );
 }
 
 // ============================================================================
@@ -288,47 +280,108 @@ fn generate_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         &s.doc,
     );
 
-    method_category_line(builder, "ffi");
-    builder.line(&format!("{} class >> fields [", name));
-    builder.indent();
-    builder.line("\"UnifiedFFI builds slot accessors from this layout. Each entry is");
-    builder.line(" `(<C type spec> <field name>)`.\"");
-    builder.line("^ #(");
-    builder.indent();
-
+    let mut entries = Vec::new();
     if s.fields.is_empty() {
         // Smalltalk's UFFI tolerates empty structs but most C ABIs expect
         // at least one byte; emit a placeholder so the class is loadable.
-        builder.line("(uint8 _placeholder)");
-    } else {
-        for f in &s.fields {
-            emit_field(builder, f, ir);
-        }
+        entries.push("uint8 _placeholder;".to_string());
     }
+    for f in &s.fields {
+        entries.extend(field_entries(
+            &f.type_name,
+            &f.ref_kind,
+            &sanitize_identifier(&f.name),
+            ir,
+        ));
+    }
+    emit_fields_desc(
+        builder,
+        &name,
+        &[
+            "UnifiedFFI builds slot accessors from this layout (see the class-side",
+            " initialize). Each entry is `<C type> <field name>;`.",
+        ],
+        &entries,
+    );
+}
 
+/// The class-side `fieldsDesc` UnifiedFFI reads a structure's (or
+/// union's) layout from - `^ #( <type> <name>; ... )` - and the class-side
+/// `initialize` that compiles the slot accessors from it when the package
+/// loads (UnifiedFFI never does that on its own).
+fn emit_fields_desc(builder: &mut CodeBuilder, class: &str, doc: &[&str], entries: &[String]) {
+    method_category_line(builder, "ffi");
+    builder.line(&format!("{} class >> fieldsDesc [", class));
+    builder.indent();
+    let n = doc.len();
+    for (i, d) in doc.iter().enumerate() {
+        let open = if i == 0 { "\"" } else { "" };
+        let close = if i + 1 == n { "\"" } else { "" };
+        builder.line(&format!("{}{}{}", open, d, close));
+    }
+    builder.line("^ #(");
+    builder.indent();
+    for e in entries {
+        builder.line(e);
+    }
     builder.dedent();
     builder.line(")");
     builder.dedent();
     builder.line("]");
     builder.blank();
+    method_category_line(builder, "class initialization");
+    builder.line(&format!("{} class >> initialize [", class));
+    builder.indent();
+    builder.line("self compileFields");
+    builder.dedent();
+    builder.line("]");
+    builder.blank();
 }
 
-fn emit_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
-    // Inline fixed-size arrays (`[u8; 4]`) — UFFI expresses these as a
-    // `(<elem-type> <name>[N])` triple.
-    if let Some((elem_ty, count)) = parse_array_type(&f.type_name) {
-        let st_elem = map_type_to_uffi(&elem_ty, ir);
-        builder.line(&format!(
-            "({} {}[{}])",
-            st_elem,
-            sanitize_identifier(&f.name),
-            count
-        ));
-        return;
-    }
+/// `n` single-byte filler fields `<prefix>_0; ... <prefix>_<n-1>;`.
+/// UnifiedFFI has no inline array syntax in a `fieldsDesc` (an array needs
+/// an `FFIArray` type of its own), so padding is spelled out byte by byte.
+fn padding_entries(prefix: &str, n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("uint8 {}_{};", prefix, i)).collect()
+}
 
-    let st_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
-    builder.line(&format!("({} {})", st_type, sanitize_identifier(&f.name)));
+/// The `fieldsDesc` entries of one field: `<type> <name>;`, or for an
+/// inline array `[T; N]` one entry per element (`<name>_0` ...).
+fn field_entries(
+    type_name: &str,
+    ref_kind: &FieldRefKind,
+    name: &str,
+    ir: &CodegenIR,
+) -> Vec<String> {
+    if *ref_kind == FieldRefKind::Owned {
+        if let Some((elem_ty, count)) = parse_array_type(type_name) {
+            let st_elem = field_type_spec(&elem_ty, &FieldRefKind::Owned, ir);
+            return (0..count)
+                .map(|i| format!("{} {}_{};", st_elem, name, i))
+                .collect();
+        }
+    }
+    vec![format!(
+        "{} {};",
+        field_type_spec(type_name, ref_kind, ir),
+        name
+    )]
+}
+
+/// A field's UnifiedFFI type: as [`ref_kind_field_type`], except that a
+/// function-pointer typedef is a plain `void*` (its alias class is not a
+/// structure field type) and `isize` is the LP64 `int64`.
+fn field_type_spec(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
+    let t = type_name.trim();
+    if *ref_kind == FieldRefKind::Owned {
+        if ir.callback_typedefs.iter().any(|c| c.name == t) {
+            return "void*".to_string();
+        }
+        if t == "isize" {
+            return "int64".to_string();
+        }
+    }
+    ref_kind_field_type(type_name, ref_kind, ir)
 }
 
 // ============================================================================
