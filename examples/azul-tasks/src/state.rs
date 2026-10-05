@@ -79,8 +79,10 @@ pub struct Drafts {
     pub notes: String,
     /// The "Add a step" line.
     pub step: String,
-    /// The "Add a tag" line.
+    /// The tag field's typed text.
     pub tag: String,
+    /// The tag field's highlighted suggestion.
+    pub tag_active: Option<usize>,
     /// The list being edited in the list settings.
     pub list: String,
     pub list_name: String,
@@ -566,6 +568,7 @@ impl Tasks {
             self.drafts.notes = self.tasks[i].notes.clone();
             self.drafts.step.clear();
             self.drafts.tag.clear();
+            self.drafts.tag_active = None;
             self.drafts.custom_repeat = false;
         }
     }
