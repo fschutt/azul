@@ -702,9 +702,9 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // This is CRITICAL for align-items: stretch to work correctly!
     // Taffy uses known_dimensions to calculate cross_axis_available_space for children.
     let (explicit_width, has_explicit_width) =
-        resolve_explicit_dimension_width(ctx, node, constraints);
+        definite_or_auto(resolve_explicit_dimension_width(ctx, node, constraints));
     let (explicit_height, has_explicit_height) =
-        resolve_explicit_dimension_height(ctx, node, constraints);
+        definite_or_auto(resolve_explicit_dimension_height(ctx, node, constraints));
 
     // FIX: For root nodes or nodes where the parent provides a definite size,
     // use the available_size as known_dimensions if no explicit CSS width/height is set.
@@ -977,6 +977,22 @@ fn border_box_to_content<T: ParsedFontTrait>(
         Axis::Height => bp.border.top + bp.border.bottom + bp.padding.top + bp.padding.bottom,
     };
     (resolved - adjustment).max(0.0)
+}
+
+/// An explicit size that came out non-finite is `auto`: it resolved a
+/// percentage (or a calc() with percent terms) against the INDEFINITE basis a
+/// measurement pass carries as `INFINITY` in `available_size` - a flex basis
+/// or a row's cross size measured on a block that holds a `height: 100%`
+/// flex container. CSS 2.2 10.5 / css-sizing-3 5.2.1: such a percentage
+/// behaves as `auto`, so the container is content-sized; handed to taffy as a
+/// known size, the infinity became the height of every box above it (the
+/// OfficeShell chain of AzNews / AzCode, blank screenshots). The same net
+/// `calculate_used_size_for_node` keeps for a non-finite width.
+fn definite_or_auto((size, explicit): (Option<f32>, bool)) -> (Option<f32>, bool) {
+    match size {
+        Some(px) if !px.is_finite() => (None, false),
+        _ => (size, explicit),
+    }
 }
 
 fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
@@ -15518,5 +15534,55 @@ mod window_layout_tests {
         );
         let h = size_of(&lw, 1).height;
         assert!((h - 18.0).abs() < 0.5, "the line is its strut's 18px: {h}");
+    }
+
+    /// `body(0) > .column(1) > .split(2) > .half(3) > .pane(4) > .row(5)`:
+    /// the chain of every OfficeShell app (AzNews, AzCode) - a `flex-grow`
+    /// column, a split pane, its `display: block` half and the `height: 100%`
+    /// pane in it.
+    fn a_percentage_height_pane_in_a_split_half() -> Dom {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        Dom::create_body().with_child(
+            div("column").with_child(
+                div("split").with_child(div("half").with_child(div("pane").with_child(div("row")))),
+            ),
+        )
+    }
+
+    #[test]
+    fn a_percentage_height_measured_against_an_indefinite_height_is_auto() {
+        // R2-APPS: AzNews' and AzCode's E2E screenshots were blank, stderr
+        // reported a compositor layer 22,598 px / infinitely tall, and the
+        // shell's whole chain (`get_all_nodes_layout`) had an infinite height.
+        // Measuring the half's content height (a flex basis, a row's cross
+        // size) lays it out under an INDEFINITE height (`INFINITY` in
+        // `available_size`), and the pane's `height: 100%` was multiplied by
+        // it. CSS 2.2 10.5: a percentage of an indefinite height computes to
+        // `auto` - the measure is the pane's content (50px). The final layout
+        // then gives the stretched half its definite 600px, and the pane's
+        // 100% resolves against that. Chrome: all four boxes 600px tall.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                a_percentage_height_pane_in_a_split_half(),
+                "body { margin: 0; display: flex; flex-direction: column; height: 600px; } \
+                 .column { display: flex; flex-direction: column; flex-grow: 1; min-height: \
+                 0px; } .split { display: flex; flex-direction: row; width: 100%; height: \
+                 100%; flex-grow: 1; overflow: hidden; } .half { display: block; flex-grow: 1; \
+                 flex-basis: 0px; min-width: 0px; min-height: 0px; overflow: hidden; } .pane { \
+                 display: flex; flex-direction: column; width: 100%; height: 100%; } .row { \
+                 height: 50px; flex-shrink: 0; }",
+            ),
+        );
+        for (node, name) in [(1, "column"), (2, "split"), (3, "half"), (4, "pane")] {
+            let h = size_of(&lw, node).height;
+            assert!(
+                h.is_finite() && (h - 600.0).abs() < 0.5,
+                "the {name} fills the 600px body (Chrome 600): {h}"
+            );
+        }
     }
 }

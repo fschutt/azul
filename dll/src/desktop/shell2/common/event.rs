@@ -13696,10 +13696,6 @@ pub trait PlatformWindow {
             }
         }
 
-        if refresh_all_windows {
-            self.request_regeneration_all_windows();
-        }
-
         // A timer or thread writeback that committed text (`CreateTextInput`
         // from the E2E harness, an app timer editing a field) owes the
         // post-commit notifications like any other pass; folded into the
@@ -13737,6 +13733,24 @@ pub trait PlatformWindow {
         if max_changes_result >= ProcessEventResult::ShouldRegenerateDomCurrentWindow {
             needs_layout_regeneration = true;
             needs_redraw = true;
+        }
+
+        // EVERY WINDOW, once, after every answer is in. Besides a callback's
+        // own `RefreshDomAllWindows`:
+        // - a CHANGE whose pass asked for every window. A script's click or key reaches a window as
+        //   the debug server's TIMER change (`QueueWindowStateSequence`, `ModifyWindowState`), and
+        //   in a transient popup that pass answers `ShouldRegenerateDomAllWindows` (see the end of
+        //   `process_window_events`). Only the callbacks' `Update`s used to be read here, so a
+        //   Modal's Save / Delete changed the app state and the window that owns the modal was
+        //   never rebuilt (R2-APPS, AzERP).
+        // - any rebuild owed by a POPUP: it only mirrors its owner's subtree (`common::transient`),
+        //   so rebuilding the popup alone shows the old content - the rule the event pass applies.
+        if refresh_all_windows
+            || max_changes_result == ProcessEventResult::ShouldRegenerateDomAllWindows
+            || (needs_layout_regeneration
+                && super::transient::mailbox_of(self.get_current_window_state()).is_some())
+        {
+            self.request_regeneration_all_windows();
         }
 
         // Mark frame for regeneration ONLY when a callback returned RefreshDom

@@ -495,3 +495,149 @@ fn a_press_outside_open_menus_closes_them_and_reaches_nothing_under_it() {
         "the box hears the next press and its release"
     );
 }
+
+/// What [`record_page_layout`] shows: an AzERP record with its delete
+/// question open.
+struct RecordPage {
+    deleted: bool,
+}
+
+/// The question's Delete: the record goes, the page must follow.
+extern "C" fn answer_delete(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut page) = data.downcast_mut::<RecordPage>() {
+        page.deleted = true;
+    }
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// `body > p` with the record's name and, while it exists, the delete
+/// question: a `<transient-window open>` covering the viewport with no
+/// light-dismiss - what a `Modal` is - whose only content is the 120x40
+/// Delete button at its top-left.
+extern "C" fn record_page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{NodeData, NodeType},
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+        transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
+    };
+    let deleted = data.downcast_ref::<RecordPage>().is_some_and(|p| p.deleted);
+    let page = Dom::create_body().with_child(Dom::create_p_with_text(if deleted {
+        "Deleted"
+    } else {
+        "Drill press"
+    }));
+    if deleted {
+        return page;
+    }
+    let delete_button = Dom::create_div()
+        .with_css("width: 120px; height: 40px;")
+        .with_callbacks(
+            vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                callback: CoreCallback {
+                    cb: answer_delete as usize,
+                    ctx: OptionRefAny::None,
+                },
+                refany: data.clone(),
+            }]
+            .into(),
+        );
+    let question = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+        TransientWindowConfig::opened()
+            .with_anchor(TransientAnchor::Viewport)
+            .with_dismiss(TransientDismiss::None),
+    )))
+    .with_child(delete_button);
+    page.with_child(Dom::create_div().with_child(question))
+}
+
+/// The debug server's `click` op, as its timer runs it in the window a
+/// script names: move, press and release at (60, 20) - the middle of the
+/// question's Delete button - queued as one state sequence.
+extern "C" fn debug_click_timer(
+    _data: RefAny,
+    mut info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::window::CursorPosition;
+    let mut moved = info.callback_info.get_current_window_state().clone();
+    moved.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(60.0, 20.0));
+    let mut down = moved.clone();
+    down.mouse_state.left_down = true;
+    let mut up = down.clone();
+    up.mouse_state.left_down = false;
+    info.callback_info
+        .queue_window_state_sequence(vec![moved, down, up].into());
+    azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+}
+
+/// R2-APPS, AzERP: a `Modal` is a transient window of its own, and its
+/// content is its OWNER's extracted subtree. A script's click on the delete
+/// question's Delete ran the callback - the record and its file were gone -
+/// but the main window was never rebuilt: the question and the deleted
+/// record stayed on screen until a `redraw` op (the check-out form likewise
+/// saved, and the page never read "Checked out").
+///
+/// The popup's pass DOES ask for every window (a refresh inside a popup is a
+/// refresh of the owner, `ShouldRegenerateDomAllWindows`), but a click a
+/// script sends arrives as the debug server's TIMER change, and the shared
+/// `process_timers_and_threads` only fanned out an `Update` a timer
+/// returned, never the result of the pass its changes ran.
+#[test]
+fn a_modal_button_that_changes_app_state_rebuilds_its_parent_window() {
+    let state = Arc::new(RefCell::new(RefAny::new(RecordPage { deleted: false })));
+    let mut root = make_window_with(&state, record_page_layout);
+    root.regenerate_layout().expect("the page's first layout");
+    let _ = root.common.take_regeneration();
+    root.pump_children();
+    assert_eq!(
+        root.children.len(),
+        1,
+        "harness: the question is a window of its own"
+    );
+    assert_eq!(
+        root.children[0]
+            .common
+            .current_window_state()
+            .window_id
+            .as_str(),
+        "azul-transient",
+        "harness: the question's window is the transient window"
+    );
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    root.children[0].start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_click_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..6 {
+        root.pump_children();
+        root.pump_once(true);
+    }
+
+    let deleted = state
+        .borrow_mut()
+        .downcast_ref::<RecordPage>()
+        .is_some_and(|p| p.deleted);
+    assert!(deleted, "harness: the click ran the question's Delete");
+    let texts = texts_of(&root);
+    assert!(
+        texts.iter().any(|t| t == "Deleted") && !texts.iter().any(|t| t == "Drill press"),
+        "the main window was rebuilt for the Delete inside its modal: {texts:?}"
+    );
+    assert!(
+        root.children.is_empty(),
+        "the question leaves with the rebuild that dropped it: {} window(s) still open",
+        root.children.len()
+    );
+}
