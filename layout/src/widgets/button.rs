@@ -2136,11 +2136,20 @@ mod autotest_generated {
 
             // Only the RESTING declarations: the theme appends hover, pressed
             // and focus rules on top of the container style, and those are not
-            // part of what the widget declared.
+            // part of what the widget declared. One resting declaration IS the
+            // theme's: the face's pointer fade (`decl::state_fade`, its
+            // unconditional half, d5cebf5a7), after the style - a link only
+            // underlines and has none.
+            let mut expected = container;
+            if ty != ButtonType::Link {
+                use crate::widgets::themes::decl;
+                let [fade, _pressed] = decl::state_fade(decl::BUTTON_FACE, decl::BUTTON_FADE_MS);
+                expected.push(fade.property);
+            }
             assert_eq!(
                 theme_probe::unconditional(&dom),
-                container,
-                "{ty:?}: the root inline style is not the container style"
+                expected,
+                "{ty:?}: the root inline style is not the container style (+ the theme's fade)"
             );
 
             let children = dom.children.as_ref();
