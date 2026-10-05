@@ -3151,6 +3151,19 @@ extern "C" fn on_grid_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     let shift = ks.shift_down();
     let ctrl = ks.primary_down();
+    if ctrl && !grid.view.is_editing() && matches!(key, VirtualKeyCode::C | VirtualKeyCode::X) {
+        // The engine hands Copy / Cut only to a contenteditable focus or a
+        // text selection, and the grid is neither: the grid's Focus(Copy /
+        // Cut) handlers never heard the shortcut. It is the grid's here, as
+        // in the DataTable; `prevent_default` vetoes the engine's own copy.
+        info.prevent_default();
+        let kind = if key == VirtualKeyCode::C {
+            CellGridEventKind::Copy
+        } else {
+            CellGridEventKind::Cut
+        };
+        return copy_selection(data, info, kind);
+    }
     let b = bounds_of(&grid, &geo);
     let event = if grid.view.is_editing() {
         edit_key(&grid, &b, key, shift)
