@@ -1523,13 +1523,16 @@ mod tests {
     }
 
     /// A transport that answers every recipient with what `answer` says and records the calls,
-    /// the messages and the port-25 probes (answered with `probe`).
+    /// the messages and the port-25 probes (answered with `probe`). Submission (`submit`)
+    /// answers the same way, or fails with `submit_failure`, and records each target.
     struct Fake {
         answer: Box<dyn FnMut(&str) -> RecipientStatus>,
         calls: Vec<(Option<(String, u16)>, Vec<String>)>,
         messages: Vec<Vec<u8>>,
         probe: Port25Probe,
         probes: usize,
+        submit_failure: Option<SubmitFailure>,
+        submits: Vec<(SubmitTarget, Vec<String>)>,
     }
 
     impl Fake {
@@ -1540,6 +1543,8 @@ mod tests {
                 messages: Vec::new(),
                 probe: Port25Probe::Unknown(String::from("this test does not probe")),
                 probes: 0,
+                submit_failure: None,
+                submits: Vec::new(),
             }
         }
     }
@@ -1567,6 +1572,27 @@ mod tests {
         fn probe_port_25(&mut self) -> Port25Probe {
             self.probes += 1;
             self.probe.clone()
+        }
+
+        fn submit(
+            &mut self,
+            target: &SubmitTarget,
+            _from: &str,
+            recipients: &[String],
+            message: &[u8],
+        ) -> Result<Vec<RecipientOutcome>, SubmitFailure> {
+            self.submits.push((target.clone(), recipients.to_vec()));
+            if let Some(failure) = &self.submit_failure {
+                return Err(failure.clone());
+            }
+            self.messages.push(message.to_vec());
+            Ok(recipients
+                .iter()
+                .map(|r| RecipientOutcome {
+                    address: r.clone(),
+                    status: (self.answer)(r),
+                })
+                .collect())
         }
     }
 
@@ -2593,6 +2619,282 @@ mod tests {
         assert!(PolicyList::load(&account::account_dir(&open_dir.folder(), ACCOUNT))
             .port25
             .is_some_and(|c| c.open));
+    }
+
+    // ---- submission: the account's own outgoing server, signed in (optional route) ----
+
+    /// Saves the account file with `host:port` as its outgoing server, user name `ada`.
+    fn submission_account(root: &DriveFolder, host: &str, port: u16, auth: account::AuthKind) {
+        account::save(
+            root,
+            &account::Account {
+                id: ACCOUNT.to_string(),
+                email: ACCOUNT.to_string(),
+                name: "Ada Lovelace".to_string(),
+                username: "ada".to_string(),
+                imap: account::Server {
+                    host: "imap.example.org".to_string(),
+                    port: 993,
+                },
+                smtp: account::Server {
+                    host: host.to_string(),
+                    port,
+                },
+                security: account::Security::Tls,
+                auth,
+                folder: None,
+            },
+        )
+        .unwrap();
+    }
+
+    /// Settings that submit through the account's server, with the sign-in secret in memory
+    /// (as the keyring hands it over) or without it (`None`: not read yet).
+    fn submission(secret: Option<&str>) -> SendSettings {
+        SendSettings {
+            route: SendRoute::Submission,
+            sign_in: secret.map(|s| Secret::new(s.to_string())),
+            ..SendSettings::default()
+        }
+    }
+
+    #[test]
+    fn submission_is_a_route_of_its_own_and_direct_stays_the_default() {
+        assert_eq!(SendSettings::default().route, SendRoute::Direct);
+        let settings = submission(Some("app-password-1234"));
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("\"route\":{\"kind\":\"submission\"}"), "{json}");
+        assert!(!json.contains("app-password-1234"), "the secret is never saved: {json}");
+        assert_eq!(
+            serde_json::from_str::<SendSettings>(&json).unwrap(),
+            SendSettings {
+                sign_in: None,
+                ..settings.clone()
+            }
+        );
+        let implicit = SendSettings {
+            tls: TlsPolicy::Implicit,
+            ..settings
+        };
+        let json = serde_json::to_string(&implicit).unwrap();
+        assert!(json.contains("\"tls\":\"implicit\""), "{json}");
+    }
+
+    #[test]
+    fn submission_signs_in_to_the_accounts_own_server_with_its_user_name_and_secret() {
+        let dir = TempDir::new("send");
+        submission_account(&dir.folder(), "smtp.example.org", 465, account::AuthKind::Password);
+        let mut fake = take_all();
+        let mut mail = mail();
+        mail.cc = vec!["cy@example.com".to_string()];
+        mail.bcc = vec!["dee@gmail.com".to_string()];
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &submission(Some("app-password-1234")),
+            &mail,
+            OCT_1,
+            &mut fake,
+        );
+        assert!(matches!(status, SendStatus::Sent { .. }), "{status:?}");
+        // One submission for everyone, no MX delivery, no port-25 probe.
+        assert!(fake.calls.is_empty(), "{:?}", fake.calls);
+        assert_eq!(fake.probes, 0);
+        assert_eq!(fake.submits.len(), 1);
+        let (target, recipients) = &fake.submits[0];
+        assert_eq!(target.host, "smtp.example.org");
+        assert_eq!(target.port, 465);
+        assert_eq!(target.security, SubmitSecurity::ImplicitTls);
+        assert_eq!(target.username, "ada");
+        assert_eq!(target.auth, account::AuthKind::Password);
+        assert_eq!(target.secret.expose(), "app-password-1234");
+        assert_eq!(target.helo, "example.org");
+        assert_eq!(
+            recipients,
+            &vec![
+                "ben@example.net".to_string(),
+                "cy@example.com".to_string(),
+                "dee@gmail.com".to_string()
+            ]
+        );
+        // gmail.com's shipped "needs a relay" is about direct delivery: submission is one.
+        assert_eq!(sent_bytes(&dir.0), fake.messages[0]);
+        // A token account signs in with its token, the same way.
+        let oauth_dir = TempDir::new("send");
+        submission_account(&oauth_dir.folder(), "smtp.office365.com", 587, account::AuthKind::Xoauth2);
+        let mut oauth = take_all();
+        send_mail_with(
+            &oauth_dir.folder(),
+            ACCOUNT,
+            &submission(Some("ya29.token")),
+            &mail,
+            OCT_1,
+            &mut oauth,
+        );
+        let (target, _) = &oauth.submits[0];
+        assert_eq!(target.security, SubmitSecurity::StartTls);
+        assert_eq!(target.auth, account::AuthKind::Xoauth2);
+        assert_eq!(target.secret.expose(), "ya29.token");
+    }
+
+    #[test]
+    fn submission_without_the_password_in_memory_waits_and_is_no_attempt() {
+        let dir = TempDir::new("send");
+        submission_account(&dir.folder(), "smtp.example.org", 587, account::AuthKind::Password);
+        let mut fake = take_all();
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &submission(None),
+            &mail(),
+            OCT_1,
+            &mut fake,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("AzMail/ada@example.org/imap"), "{reason}");
+        assert!(fake.submits.is_empty(), "no sign-in without a secret");
+        let entries = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!(entries[0].attempts, 0, "waiting for the password is no attempt");
+        assert_eq!(entries[0].next_attempt, OCT_1, "due as soon as the password is there");
+        // The next Send / Receive has the password: sent.
+        let results = retry_outbox_with(
+            &dir.folder(),
+            ACCOUNT,
+            &submission(Some("app-password-1234")),
+            false,
+            OCT_1,
+            &mut fake,
+        );
+        assert!(matches!(results[0].1, SendStatus::Sent { .. }), "{results:?}");
+        // No account file: waits too, and says so.
+        let lost = TempDir::new("send");
+        let status = send_mail_with(
+            &lost.folder(),
+            ACCOUNT,
+            &submission(Some("app-password-1234")),
+            &mail(),
+            OCT_1,
+            &mut take_all(),
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("account.json"), "{reason}");
+    }
+
+    #[test]
+    fn a_refused_sign_in_waits_for_the_user_and_an_unreachable_server_is_tried_again_later() {
+        let dir = TempDir::new("send");
+        submission_account(&dir.folder(), "smtp.example.org", 587, account::AuthKind::Password);
+        let mut refused = take_all();
+        refused.submit_failure = Some(SubmitFailure::Waits(String::from(
+            "smtp.example.org refused the sign-in (535 5.7.8 Username and Password not accepted)",
+        )));
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &submission(Some("wrong")),
+            &mail(),
+            OCT_1,
+            &mut refused,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("535 5.7.8"), "{reason}");
+        let entries = outbox_entries(&dir.folder(), ACCOUNT);
+        assert_eq!(entries[0].attempts, 0, "a refused sign-in is no attempt");
+        assert_eq!(entries[0].next_attempt, OCT_1, "due again once the password is new");
+        // The server cannot be reached: an ordinary attempt with its backoff.
+        let other = TempDir::new("send");
+        submission_account(&other.folder(), "smtp.example.org", 587, account::AuthKind::Password);
+        let mut down = take_all();
+        down.submit_failure = Some(SubmitFailure::Unreachable(String::from(
+            "could not connect to smtp.example.org port 587",
+        )));
+        let status = send_mail_with(
+            &other.folder(),
+            ACCOUNT,
+            &submission(Some("app-password-1234")),
+            &mail(),
+            OCT_1,
+            &mut down,
+        );
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("could not connect to smtp.example.org"), "{reason}");
+        let entries = outbox_entries(&other.folder(), ACCOUNT);
+        assert_eq!(entries[0].attempts, 1);
+        assert_eq!(entries[0].next_attempt, OCT_1 + 300, "an ordinary backoff");
+    }
+
+    #[test]
+    fn the_submission_servers_answer_per_recipient_counts_and_teaches_the_policy_list_nothing() {
+        let dir = TempDir::new("send");
+        submission_account(&dir.folder(), "smtp.example.org", 587, account::AuthKind::Password);
+        let mut fake = Fake::new(|address| {
+            if address.starts_with("cy@") {
+                RecipientStatus::Rejected {
+                    reply: Reply {
+                        code: 550,
+                        enhanced: Some("5.7.1".to_string()),
+                        text: "5.7.1 Client host [203.0.113.7] blocked using Spamhaus".to_string(),
+                    },
+                    server: "smtp.example.org".to_string(),
+                }
+            } else {
+                RecipientStatus::Accepted {
+                    server: "smtp.example.org".to_string(),
+                }
+            }
+        });
+        let mut mail = mail();
+        mail.cc = vec!["cy@example.com".to_string()];
+        let status = send_mail_with(
+            &dir.folder(),
+            ACCOUNT,
+            &submission(Some("app-password-1234")),
+            &mail,
+            OCT_1,
+            &mut fake,
+        );
+        let SendStatus::Failed { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("cy@example.com"), "{reason}");
+        assert!(reason.contains("other recipients got it"), "{reason}");
+        // The provider's server answered, not example.com's exchanger: nothing is learned.
+        let policy = PolicyList::load(&account::account_dir(&dir.folder(), ACCOUNT));
+        assert_eq!(policy.route_for("example.com"), DomainRoute::Direct);
+        assert!(policy.port25.is_none());
+    }
+
+    #[test]
+    fn submission_never_sends_a_password_unencrypted_to_another_computer() {
+        let dir = TempDir::new("send");
+        submission_account(&dir.folder(), "smtp.example.org", 587, account::AuthKind::Password);
+        let mut fake = take_all();
+        let plain = SendSettings {
+            tls: TlsPolicy::Off,
+            ..submission(Some("app-password-1234"))
+        };
+        let status = send_mail_with(&dir.folder(), ACCOUNT, &plain, &mail(), OCT_1, &mut fake);
+        let SendStatus::Queued { reason } = status.clone() else {
+            panic!("{status:?}");
+        };
+        assert!(reason.contains("encrypt"), "{reason}");
+        assert!(fake.submits.is_empty(), "nothing went out");
+        assert_eq!(outbox_entries(&dir.folder(), ACCOUNT)[0].attempts, 0);
+        // To a test server on this computer it may.
+        let local = TempDir::new("send");
+        submission_account(&local.folder(), "127.0.0.1", 2525, account::AuthKind::Password);
+        let mut fake = take_all();
+        let status = send_mail_with(&local.folder(), ACCOUNT, &plain, &mail(), OCT_1, &mut fake);
+        assert!(matches!(status, SendStatus::Sent { .. }), "{status:?}");
+        assert_eq!(fake.submits[0].0.security, SubmitSecurity::Plain);
     }
 
     // ---- the real client against a sink on this computer ----
