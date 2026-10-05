@@ -1947,6 +1947,27 @@ mod dom_tests {
     }
 
     #[test]
+    fn a_money_input_aligns_its_digits_to_the_right() {
+        use azul_css::props::{
+            property::{CssProperty, CssPropertyType},
+            style::StyleTextAlign,
+        };
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = sample().with_theme(theme).dom();
+            let field = tc::find(&dom, TEXT_INPUT_CONTAINER_CLASS).expect("the field");
+            for dark in [false, true] {
+                assert_eq!(
+                    tc::resolve(field, CssPropertyType::TextAlign, dark, None),
+                    Some(CssProperty::const_text_align(StyleTextAlign::Right)),
+                    "{} ({}): an amount's digits line up on the right, as in a ledger",
+                    theme.name(),
+                    if dark { "dark" } else { "light" }
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_field_carries_the_money_hooks() {
         let state = field_state(&sample().dom());
         assert!(state.on_text_input.as_ref().is_some(), "the keystroke rule");
