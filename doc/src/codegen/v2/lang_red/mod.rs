@@ -802,3 +802,87 @@ fn to_kebab(name: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{bug_classes::ir, c_layout::type_layout, config::CodegenConfig};
+
+    fn reds() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// The field lines of `Az<name>!: alias struct! [ ... ]`.
+    fn alias_fields(name: &str) -> Vec<&'static str> {
+        let head = format!("Az{}!: alias struct! [\n", name);
+        let out = reds();
+        let start = out.find(&head).unwrap_or_else(|| panic!("no {head}")) + head.len();
+        out[start..]
+            .lines()
+            .take_while(|l| l.trim() != "]")
+            .map(str::trim)
+            .collect()
+    }
+
+    /// Bytes one emitted field token occupies (Red/System on LP64).
+    fn token_size(line: &str) -> usize {
+        let tok = line
+            .split_once('[')
+            .and_then(|(_, r)| r.split_once(']'))
+            .map(|(t, _)| t.trim())
+            .unwrap_or_else(|| panic!("no type in `{line}`"));
+        match tok {
+            "byte!" => 1,
+            "integer!" | "float32!" | "logic!" => 4,
+            "float!" | "byte-ptr!" => 8,
+            value => {
+                let name = value
+                    .strip_suffix("! value")
+                    .and_then(|n| n.strip_prefix("Az"))
+                    .unwrap_or_else(|| panic!("unknown token `{value}`"));
+                type_layout(name, ir()).expect("layout").size
+            }
+        }
+    }
+
+    #[test]
+    fn a_bool_field_is_one_byte_not_a_32_bit_logic() {
+        let fields = alias_fields("FullWindowState");
+        assert!(fields.contains(&"window_focused [byte!]"), "{fields:?}");
+        let types = &reds()[..reds().find("#import [").unwrap()];
+        assert!(!types.contains("[logic!]"), "a struct field is still logic!");
+    }
+
+    #[test]
+    fn a_64_bit_integer_field_is_two_32_bit_halves() {
+        let s = ir()
+            .structs
+            .iter()
+            .find(|s| {
+                s.generic_params.is_empty() && s.fields.iter().any(|f| f.type_name == "u64")
+            })
+            .expect("a struct with a u64 field");
+        let f = s.fields.iter().find(|f| f.type_name == "u64").unwrap();
+        let fields = alias_fields(&s.name);
+        assert!(fields.contains(&format!("{} [integer!]", f.name).as_str()), "{fields:?}");
+        assert!(fields.contains(&format!("{}_hi [integer!]", f.name).as_str()), "{fields:?}");
+    }
+
+    #[test]
+    fn every_struct_alias_is_exactly_its_c_size() {
+        let mut wrong = Vec::new();
+        for s in &ir().structs {
+            if !super::should_emit_struct(s, &CodegenConfig::c_header()) {
+                continue;
+            }
+            let Some(layout) = type_layout(&s.name, ir()) else {
+                continue;
+            };
+            let size: usize = alias_fields(&s.name).iter().map(|l| token_size(l)).sum();
+            if size != layout.size {
+                wrong.push(format!("{}: {} bytes, C has {}", s.name, size, layout.size));
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+}
