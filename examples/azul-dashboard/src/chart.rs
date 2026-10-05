@@ -30,11 +30,6 @@ use azul::{
     widgets::{Chart, ChartKind, ChartPoint, ChartSelection, ChartSeries},
 };
 
-/// The charts' row (the app's `__azdashboard_` prefix).
-pub const CHARTS: AzString = AzString::from_const_str("__azdashboard_charts");
-/// The caption under the charts (what is selected).
-pub const CHARTS_CAPTION: AzString = AzString::from_const_str("__azdashboard_charts_caption");
-
 /// At most this many bars; the rest fold into "Other".
 pub const MAX_BARS: usize = 12;
 /// Each chart's height in px.
@@ -310,7 +305,7 @@ pub fn charts_dom(charts_ref: &RefAny, src: &dyn ChartSource, width: f32) -> Dom
 
     let text = caption(&charts, &value_name);
     Dom::create_div()
-        .with_class(CHARTS)
+        .with_class(crate::ids::CHARTS_ROW_CLASS)
         .with_child(
             Dom::create_div()
                 .with_css(ROW_CSS)
@@ -319,7 +314,7 @@ pub fn charts_dom(charts_ref: &RefAny, src: &dyn ChartSource, width: f32) -> Dom
         )
         .with_child(
             Dom::create_p_with_text(text.as_str())
-                .with_class(CHARTS_CAPTION)
+                .with_class(crate::ids::CHARTS_CAPTION)
                 .with_css(CAPTION_CSS),
         )
 }
