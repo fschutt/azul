@@ -11547,7 +11547,7 @@ fn nested_vertical_align(
         V::Baseline => Some(0.0),
         V::Sub => Some(-(font / 5.0 + 1.0)),
         V::Super => Some(font / 3.0 + 1.0),
-        V::Offset(raise) => Some(raise),
+        V::Offset(up) => Some(up),
         V::Top | V::Bottom | V::Middle | V::TextTop | V::TextBottom => None,
     };
     if matches!(own, V::Baseline) {
