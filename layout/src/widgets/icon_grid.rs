@@ -1289,6 +1289,14 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook) -> Dom {
         } else {
             item.name.clone()
         };
+        // `<grid id>-<index>`: what an app or a script finds the item by
+        // (the item's index, wherever it sits in view).
+        if !grid.id.as_str().is_empty() {
+            classes.push(azul_core::dom::IdOrClass::Id(AzString::from(alloc::format!(
+                "{}-{index}",
+                grid.id.as_str()
+            ))));
+        }
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_vec(classes))
