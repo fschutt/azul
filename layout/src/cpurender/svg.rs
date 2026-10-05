@@ -106,19 +106,46 @@ pub fn render_svg_to_imageref_painted(
 ) -> Result<ImageRef, String> {
     // Transparent background so whatever is behind shows through any gaps.
     let pixmap = rasterize_svg(svg_data, target_width, target_height, (0, 0, 0, 0), paint)?;
-    // The pixmap is AGG's PREMULTIPLIED output, and says so: labelled
-    // straight, the image load premultiplied it a second time and a
-    // translucent paint (`system:text` at 85%) came out darker than itself.
-    let rgba = pixmap.data().to_vec();
-    let raw = azul_core::resources::RawImage {
-        pixels: azul_core::resources::RawImageData::U8(rgba.into()),
-        width: target_width as usize,
-        height: target_height as usize,
+    ImageRef::new_rawimage(premultiplied_raw_image(&pixmap))
+        .ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
+}
+
+/// The rasterised document as an RGBA8 `RawImage` over an explicit backdrop
+/// (`None` = transparent, as [`render_svg_to_png_over`]): the pixels AGG
+/// drew, PREMULTIPLIED and labelled so, with no PNG encode / decode between
+/// the rasteriser and the caller.
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
+pub fn render_svg_to_raw_image_over(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    background: Option<(u8, u8, u8, u8)>,
+) -> Result<azul_core::resources::RawImage, String> {
+    let pixmap = rasterize_svg(
+        svg_data,
+        target_width,
+        target_height,
+        background.unwrap_or((0, 0, 0, 0)),
+        &SvgPaintContext::default(),
+    )?;
+    Ok(premultiplied_raw_image(&pixmap))
+}
+
+/// A rasterised pixmap as an RGBA8 `RawImage`. The pixmap is AGG's
+/// PREMULTIPLIED output, and the image says so: labelled straight, the
+/// image load premultiplied it a second time and a translucent paint
+/// (`system:text` at 85%) came out darker than itself.
+fn premultiplied_raw_image(pixmap: &AzulPixmap) -> azul_core::resources::RawImage {
+    azul_core::resources::RawImage {
+        pixels: azul_core::resources::RawImageData::U8(pixmap.data().to_vec().into()),
+        width: pixmap.width as usize,
+        height: pixmap.height as usize,
         premultiplied_alpha: true,
         data_format: azul_core::resources::RawImageFormat::RGBA8,
         tag: Vec::new().into(),
-    };
-    ImageRef::new_rawimage(raw).ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
+    }
 }
 
 /// Parse `svg_data`, find its `<svg>` root and hand it to `f`: the one

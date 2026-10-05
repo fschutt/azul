@@ -2454,8 +2454,6 @@ fn svg_render_size(s: &ParsedSvg, options: &SvgRenderOptions) -> (u32, u32) {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[must_use]
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
-    use azul_core::resources::RawImageData;
-
     let (target_width, target_height) = svg_render_size(s, &options);
 
     if target_width == 0 || target_height == 0 {
@@ -2469,29 +2467,15 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
         .background_color
         .into_option()
         .map(|c| (c.r, c.g, c.b, c.a));
-    let png_data = crate::cpurender::render_svg_to_png_over(
+    // The rasteriser's own pixels (premultiplied, labelled so): no PNG
+    // encode and decode in between.
+    crate::cpurender::render_svg_to_raw_image_over(
         s.svg_data.as_ref(),
         target_width,
         target_height,
         background,
     )
-    .ok()?;
-
-    // Decode PNG back to raw RGBA (TODO: render_svg_to_rgba to avoid PNG round-trip)
-    let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()?];
-    let info = reader.next_frame(&mut buf).ok()?;
-    buf.truncate(info.buffer_size());
-
-    Some(RawImage {
-        tag: Vec::new().into(),
-        pixels: RawImageData::U8(buf.into()),
-        width: info.width as usize,
-        height: info.height as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-    })
+    .ok()
 }
 
 /// `cpurender`-less stub: SVG rasterization needs the agg-rust pipeline, so
