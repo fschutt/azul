@@ -29,11 +29,13 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 
 - 3.12 cross-file impls: RED 496617312, GREEN 24e9719aa
 
+- 3.13 Vec<u8> / &mut [T] args: RED fc51dc297, GREEN 3bc192324, stale arm removed 2334ea0b3
+
 ## IN PROGRESS
-- 3.13 autofix add: &mut [T] and &Vec<u8> args (doc/src/autofix/function_diff.rs slice_arg_type)
+- 3.14 DEDUP upper_first x4 -> codegen/v2/mod.rs
 
 ## NEXT
-- 3.14 .. 3.16 in order
+- 3.15, 3.16, then the report scripts/FIX9_INPUT_2026_10_05.md
 
 ## Open questions
 (none)
