@@ -15,13 +15,15 @@
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
+//! - `pieces` (feature `azul`): the small DOM pieces every app's screens are
+//!   built from (text, block, flex column / row, buttons).
 //! - `ui` (feature `azul`): the settings page on azul's `ShellSettingsLayout`
 //!   (Appearance, Data, Shortcuts, About, plus the app's own sections), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
 //!   config (`--theme` / `--mode` over the settings file), the `--shot`
 //!   screenshot timer, and [`files`] jobs on an azul `Thread`.
 //!
-//! Everything but `ui` is plain Rust and tested without a window:
+//! Everything but `pieces` and `ui` is plain Rust and tested without a window:
 //! `cargo test -p azul-appkit`.
 
 pub mod about;
@@ -36,6 +38,8 @@ pub mod migrate;
 pub mod settings;
 pub mod shortcuts;
 
+#[cfg(feature = "azul")]
+pub mod pieces;
 #[cfg(feature = "azul")]
 pub mod ui;
 
