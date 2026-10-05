@@ -42,7 +42,7 @@ use crate::{
         check_box::{CheckBoxOnToggleCallbackType, CheckBoxState},
         dialog_kit::{
             self, DialogKitLook, BUTTON_BOX_BASE, BUTTON_BOX_CLASS, BUTTON_ROW_BASE, FIXED_BASE,
-            HELD_CLASS, ROW_MIDDLE_BASE, ROW_TOP_BASE, SCROLL_BOX_BASE, SPACER_BASE,
+            ROW_MIDDLE_BASE, ROW_TOP_BASE, SCROLL_BOX_BASE, SPACER_BASE,
         },
         info_bar::InfoBar,
         progressbar::ProgressBar,
@@ -314,15 +314,23 @@ fn report(
     })
 }
 
-/// A button of the row: `primary` or not, reporting `kind` at `index`, or
-/// inert when `enabled` is unset.
+/// Why a ProgressDialog's Cancel waits (`can_cancel` unset).
+const CANCEL_HELD_REASON: &str = "This task cannot be cancelled now.";
+/// Why a LoginDialog's Sign in waits (a field is empty).
+const SIGN_IN_HELD_REASON: &str = "Enter your user name and password.";
+/// Why a FindReplaceDialog's find and replace buttons wait (no text).
+const FIND_HELD_REASON: &str = "Type the text to find.";
+
+/// A button of the row: `primary` or not, reporting `kind` at `index`, or -
+/// `held` names why - disabled (the Button's own disabled state: it keeps
+/// its Tab stop and shows the reason on hover and on keyboard focus).
 #[allow(clippy::too_many_arguments)]
 fn button(
     label: &AzString,
     primary: bool,
     kind: StandardDialogEventKind,
     index: usize,
-    enabled: bool,
+    held: Option<&'static str>,
     on_event: &OptionStandardDialogOnEvent,
     theme: Option<UiTheme>,
     look: &DialogKitLook,
@@ -334,17 +342,20 @@ fn button(
         } else {
             ButtonType::Default
         },
-        enabled.then(|| {
-            (
-                report(on_event, kind, index, false),
-                on_button as ButtonOnClickCallbackType,
-            )
-        }),
-        None,
+        dialog_kit::RowAction::enabled_or(
+            held.is_none(),
+            || {
+                (
+                    report(on_event, kind, index, false),
+                    on_button as ButtonOnClickCallbackType,
+                )
+            },
+            AzString::from_const_str(held.unwrap_or("")),
+        ),
         theme,
-        (BUTTON_BOX_CLASS, HELD_CLASS),
+        BUTTON_BOX_CLASS,
         BUTTON_BOX_BASE,
-        (&look.button, &look.held),
+        &look.button,
     )
 }
 
@@ -590,7 +601,7 @@ fn build_message_box(m: MessageBox, look: &DialogKitLook) -> Dom {
                 i == m.default_button,
                 StandardDialogEventKind::Button,
                 i,
-                true,
+                None,
                 &m.on_event,
                 theme,
                 look,
@@ -792,7 +803,7 @@ fn build_about(a: AboutDialog, look: &DialogKitLook) -> Dom {
         true,
         StandardDialogEventKind::Button,
         0,
-        true,
+        None,
         &a.on_event,
         theme,
         look,
@@ -923,7 +934,7 @@ pub struct ProgressDialog {
     pub theme: OptionUiTheme,
     /// Whether the end is unknown (a spinner in the bar's place).
     pub indeterminate: bool,
-    /// Whether Cancel does anything (unset, it is inert).
+    /// Whether Cancel does anything (unset, it is disabled and says why).
     pub can_cancel: bool,
 }
 
@@ -1056,7 +1067,7 @@ fn build_progress_dialog(p: ProgressDialog, look: &DialogKitLook) -> Dom {
             false,
             StandardDialogEventKind::Cancel,
             0,
-            p.can_cancel,
+            (!p.can_cancel).then_some(CANCEL_HELD_REASON),
             &p.on_event,
             theme,
             look,
@@ -1283,7 +1294,7 @@ fn build_login(l: LoginDialog, look: &DialogKitLook) -> Dom {
             false,
             StandardDialogEventKind::Cancel,
             0,
-            true,
+            None,
             &l.on_event,
             theme,
             look
@@ -1293,7 +1304,7 @@ fn build_login(l: LoginDialog, look: &DialogKitLook) -> Dom {
             true,
             StandardDialogEventKind::Submit,
             0,
-            l.can_submit(),
+            (!l.can_submit()).then_some(SIGN_IN_HELD_REASON),
             &l.on_event,
             theme,
             look,
@@ -1422,7 +1433,8 @@ dialog_theme_and_dom!(
 
 fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
     let theme = dialog_kit::inner_theme(f.theme);
-    let can_find = !f.find.as_str().is_empty();
+    // Nothing to find: the find and replace buttons wait, and say why.
+    let find_held = f.find.as_str().is_empty().then_some(FIND_HELD_REASON);
     let mut content: Vec<Dom> = alloc::vec![field(
         &f.find_label,
         &f.find,
@@ -1472,7 +1484,7 @@ fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
             false,
             StandardDialogEventKind::FindPrevious,
             0,
-            can_find,
+            find_held,
             &f.on_event,
             theme,
             look,
@@ -1482,7 +1494,7 @@ fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
             true,
             StandardDialogEventKind::FindNext,
             0,
-            can_find,
+            find_held,
             &f.on_event,
             theme,
             look
@@ -1494,7 +1506,7 @@ fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
             false,
             StandardDialogEventKind::Replace,
             0,
-            can_find,
+            find_held,
             &f.on_event,
             theme,
             look,
@@ -1504,7 +1516,7 @@ fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
             false,
             StandardDialogEventKind::ReplaceAll,
             0,
-            can_find,
+            find_held,
             &f.on_event,
             theme,
             look,
@@ -1515,7 +1527,7 @@ fn build_find_replace(f: FindReplaceDialog, look: &DialogKitLook) -> Dom {
         false,
         StandardDialogEventKind::Cancel,
         0,
-        true,
+        None,
         &f.on_event,
         theme,
         look,

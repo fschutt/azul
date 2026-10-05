@@ -5689,9 +5689,6 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
         side_step,
         side_step_current,
         reason,
-        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
-            StyleOpacity::const_new(50),
-        ))],
         marker: None,
     }
 }
@@ -5859,9 +5856,6 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
         icon_question,
         buttons,
         button: decl::margin(0, 0, 0, 8).to_vec(),
-        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
-            StyleOpacity::const_new(50),
-        ))],
         notice,
         category_icon,
         marker: None,

@@ -8,7 +8,9 @@
 //! content (a `Dom` it hands in), hears every button and a click on the
 //! rail through ONE callback ([`WizardLayout::on_event`], a [`WizardEvent`]
 //! naming what was asked), and rebuilds. A Back on the first step and a
-//! Next the app forbade ([`WizardLayout::can_go_next`]) are inert. For
+//! Next the app forbade ([`WizardLayout::can_go_next`]) are disabled: they
+//! keep their Tab stop, run nothing and say why on hover and on keyboard
+//! focus (the Button's own disabled state). For
 //! assistive technology the layout is a group named "<title>: step i of n,
 //! <step>"; the buttons are named by their labels.
 //!
@@ -23,9 +25,11 @@
 //!
 //! A page's validation hook is [`WizardLayout::set_validation`]: a reason
 //! ("Accept the license agreement to continue.") holds Next - the button is
-//! inert, dimmed, announced unavailable and described by the reason, which
-//! the button row also shows. [`WizardLayout::can_go_back`] holds Back the
-//! same way (an installer's progress and finish pages).
+//! disabled, dimmed, announced unavailable and described by the reason,
+//! which it shows on hover and on keyboard focus and the button row also
+//! shows. [`WizardLayout::can_go_back`] holds Back the same way (an
+//! installer's progress and finish pages). A button held without the app's
+//! reason gives the layout's own ("Complete this page to continue.").
 //!
 //! Key types: [`WizardLayout`], [`WizardEvent`], [`WizardEventKind`],
 //! [`WizardLayoutStyle`], [`WizardLayoutSize`].
@@ -87,8 +91,15 @@ pub const SIDE_PANEL_CLASS: &str = "__azul-native-wizard-layout-side-panel";
 pub const SIDE_STEP_CLASS: &str = "__azul-native-wizard-layout-side-step";
 /// The class of the reason a held Next shows in the button row.
 pub const REASON_CLASS: &str = "__azul-native-wizard-layout-reason";
-/// Added to the box of a held button.
-pub const HELD_CLASS: &str = "__azul-native-wizard-layout-held";
+/// The class of a button's box in the button row.
+const BUTTON_BOX_CLASS: &str = "__azul-native-wizard-layout-button";
+
+/// Why Next (or Finish) is held when the app gave no reason.
+const NEXT_HELD_REASON: &str = "Complete this page to continue.";
+/// Why Back is held on the first step.
+const FIRST_STEP_REASON: &str = "This is the first step.";
+/// Why Back is held when the app holds it (`can_go_back` unset).
+const BACK_HELD_REASON: &str = "You cannot go back from this step.";
 
 /// What the user asked for.
 #[repr(C)]
@@ -239,7 +250,7 @@ pub struct WizardLayout {
     /// The frame's size: the host's, or a standard installer size.
     pub size: WizardLayoutSize,
     /// Whether Next (or Finish) does anything: unset while the page is not
-    /// valid yet, the button is inert.
+    /// valid yet, the button is disabled and says why.
     pub can_go_next: bool,
     /// Whether Back does anything (unset on an installer's progress and
     /// finish pages); Back on the first step never does.
@@ -278,10 +289,9 @@ pub(crate) struct WizardLayoutLook {
     pub side_step: Vec<CssPropertyWithConditions>,
     /// Added to the current step of the side panel.
     pub side_step_current: Vec<CssPropertyWithConditions>,
-    /// The reason Next is held, in the button row.
+    /// The reason Next is held, in the button row. (A held button is
+    /// dimmed by the Button alone: no box skin of its own.)
     pub reason: Vec<CssPropertyWithConditions>,
-    /// Added to the box of a held button (dimmed).
-    pub held: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the layout, if it has one.
     pub marker: Option<&'static str>,
 }
@@ -633,9 +643,10 @@ extern "C" fn on_rail_step(mut data: RefAny, info: CallbackInfo, state: StepperS
 /// subtitle?, content?], buttons]. Banner: layout [banner [text [step,
 /// subtitle?], glyph?], page [content?], buttons]. Side panel: layout [body
 /// [side panel [glyph?, steps], page [title, subtitle?, content?]],
-/// buttons]. Buttons: [cancel?, reason | spacer, back, next | finish]; an
-/// inert button has no click, takes no Tab stop, is announced unavailable
-/// and its box is dimmed (`look.held`). Every part is its base (the
+/// buttons]. Buttons: [cancel?, reason | spacer, back, next | finish]; a
+/// held button is the Button's own disabled state with its reason
+/// (`dialog_kit::row_button`): it keeps its Tab stop, runs nothing and says
+/// why on hover and on keyboard focus. Every part is its base (the
 /// structure), then the look's skin; the rail and the buttons are the
 /// toolkit's own widgets, pinned to the layout's theme (or following the
 /// app theme with it).
@@ -742,27 +753,35 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         WizardLayoutStyle::SidePanel => None,
     };
 
-    // The buttons: a button in its box; an inert one has no click, no Tab
-    // stop, is announced unavailable (a held Next described by the reason)
-    // and its box is dimmed.
+    // The buttons: a button in its box, with its click (`on_click`) or -
+    // held - disabled with `reason`: the Button's own disabled state (it
+    // keeps its Tab stop and says why on hover and on keyboard focus).
     let button = |label: AzString,
                   kind: ButtonType,
                   on_click: Option<ButtonOnClickCallbackType>,
-                  reason: Option<AzString>| {
+                  reason: AzString| {
+        use crate::widgets::dialog_kit::RowAction;
         crate::widgets::dialog_kit::row_button(
             label,
             kind,
-            on_click.map(|cb| (shared.clone(), cb)),
-            reason,
+            match on_click {
+                Some(cb) => RowAction::Click(shared.clone(), cb),
+                None => RowAction::Disabled(reason),
+            },
             theme,
-            ("__azul-native-wizard-layout-button", HELD_CLASS),
+            BUTTON_BOX_CLASS,
             WIZARD_LAYOUT_BUTTON_BASE,
-            (&look.button, &look.held),
+            &look.button,
         )
     };
     let mut buttons: Vec<Dom> = Vec::with_capacity(5);
     if !cancel_label.as_str().is_empty() {
-        buttons.push(button(cancel_label, ButtonType::Default, Some(on_cancel), None));
+        buttons.push(button(
+            cancel_label,
+            ButtonType::Default,
+            Some(on_cancel),
+            AzString::from_const_str(""),
+        ));
     }
     if next_held && !blocked_reason.as_str().is_empty() {
         // The reason takes the spacer's place, beside the held button.
@@ -781,18 +800,28 @@ pub(crate) fn build(wizard: WizardLayout, look: &WizardLayoutLook) -> Dom {
         back_label,
         ButtonType::Default,
         (current_step > 0 && can_go_back).then_some(on_back as ButtonOnClickCallbackType),
-        None,
+        AzString::from_const_str(if current_step == 0 {
+            FIRST_STEP_REASON
+        } else {
+            BACK_HELD_REASON
+        }),
     ));
     let (forward_label, forward) = if last {
         (finish_label, on_finish as ButtonOnClickCallbackType)
     } else {
         (next_label, on_next as ButtonOnClickCallbackType)
     };
+    // Held without the app's reason, Next still says why.
+    let next_reason = if blocked_reason.as_str().is_empty() {
+        AzString::from_const_str(NEXT_HELD_REASON)
+    } else {
+        blocked_reason
+    };
     buttons.push(button(
         forward_label,
         ButtonType::Primary,
         (!next_held).then_some(forward),
-        Some(blocked_reason),
+        next_reason,
     ));
     let buttons = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(BUTTONS_CLASS))

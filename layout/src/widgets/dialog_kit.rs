@@ -116,10 +116,9 @@ pub(crate) struct DialogKitLook {
     pub icon_question: Vec<CssPropertyWithConditions>,
     /// A dialog's button row: a strip under a hairline.
     pub buttons: Vec<CssPropertyWithConditions>,
-    /// The box around one button of a row (its spacing).
+    /// The box around one button of a row (its spacing). A disabled
+    /// button is dimmed by the Button alone ([`row_button`]).
     pub button: Vec<CssPropertyWithConditions>,
-    /// Added to the box of an inert button (dimmed).
-    pub held: Vec<CssPropertyWithConditions>,
     /// A notice in a button row ("Restart to apply some changes.").
     pub notice: Vec<CssPropertyWithConditions>,
     /// The glyph before a settings category's name.
@@ -182,7 +181,6 @@ pub(crate) fn follow_look(structure: UiTheme) -> DialogKitLook {
         icon_question,
         buttons,
         button,
-        held,
         notice,
         category_icon,
     )
@@ -254,58 +252,77 @@ pub(crate) const fn inner_theme(theme: OptionUiTheme) -> Option<UiTheme> {
     crate::widgets::shells::inner_theme(theme)
 }
 
-/// A button of a dialog's button row, in its box: with a click (`data`
-/// and `on_click`), or - with none - INERT: no click, no Tab stop,
-/// announced unavailable (described by `reason` when there is one), its box
-/// dimmed by the `held` skin. The one shape every dialog widget's buttons
-/// take (the wizard's Back / Next, a dialog's OK / Apply).
-#[allow(clippy::too_many_arguments)]
+/// What a button of a dialog's button row does: run its click, or -
+/// DISABLED - say why it cannot. A dialog button always carries its reason
+/// (user decision D1, 2026-10-05).
+pub(crate) enum RowAction {
+    /// The click: `on_click` with `data`.
+    Click(
+        azul_core::refany::RefAny,
+        crate::widgets::button::ButtonOnClickCallbackType,
+    ),
+    /// Disabled, and why ("There are no changes to apply."). An empty
+    /// reason is [`UNAVAILABLE_REASON`]: the Button reads an empty reason
+    /// as enabled.
+    Disabled(AzString),
+}
+
+impl RowAction {
+    /// The click (`data`, `on_click`) while `enabled`, else disabled
+    /// with `reason`.
+    #[must_use]
+    pub(crate) fn enabled_or(
+        enabled: bool,
+        click: impl FnOnce() -> (
+            azul_core::refany::RefAny,
+            crate::widgets::button::ButtonOnClickCallbackType,
+        ),
+        reason: AzString,
+    ) -> Self {
+        if enabled {
+            let (data, on_click) = click();
+            Self::Click(data, on_click)
+        } else {
+            Self::Disabled(reason)
+        }
+    }
+}
+
+/// The reason a disabled dialog button gives when its caller had none.
+pub const UNAVAILABLE_REASON: &str = "Not available right now.";
+
+/// A button of a dialog's button row, in its box (classed `box_class`,
+/// `base` then `skin`): with its click, or DISABLED - the Button's own
+/// disabled state (`Button::with_disabled`): it keeps its Tab stop, runs
+/// nothing, is announced unavailable and described by its reason, dimmed by
+/// the Button alone, and shows the reason on hover, on a click and on
+/// keyboard focus. The one shape every dialog widget's buttons take (the
+/// wizard's Back / Next, a dialog's OK / Apply).
 #[must_use]
 pub(crate) fn row_button(
     label: AzString,
     kind: crate::widgets::button::ButtonType,
-    click: Option<(
-        azul_core::refany::RefAny,
-        crate::widgets::button::ButtonOnClickCallbackType,
-    )>,
-    reason: Option<AzString>,
+    action: RowAction,
     theme: Option<UiTheme>,
-    classes: (&'static str, &'static str),
+    box_class: &'static str,
     base: &[CssPropertyWithConditions],
-    skins: (&[CssPropertyWithConditions], &[CssPropertyWithConditions]),
+    skin: &[CssPropertyWithConditions],
 ) -> Dom {
-    use azul_core::{
-        a11y::{AccessibilityInfo, AccessibilityState, AccessibilityStateVec},
-        dom::TabIndex,
+    let b = crate::widgets::button::Button::with_type(label, kind);
+    let mut b = match action {
+        RowAction::Click(data, on_click) => b.with_on_click(data, on_click),
+        RowAction::Disabled(reason) if reason.as_str().is_empty() => {
+            b.with_disabled(AzString::from_const_str(UNAVAILABLE_REASON))
+        }
+        RowAction::Disabled(reason) => b.with_disabled(reason),
     };
-    let inert = click.is_none();
-    let mut b = crate::widgets::button::Button::with_type(label, kind);
-    if let Some((data, on_click)) = click {
-        b = b.with_on_click(data, on_click);
-    }
     if let Some(theme) = theme {
         b = b.with_theme(theme);
     }
-    let mut dom = b.dom();
-    let mut ids: Vec<IdOrClass> = alloc::vec![Class(AzString::from_const_str(classes.0))];
-    let mut css = part(base, skins.0);
-    if inert {
-        dom.set_tab_index(TabIndex::NoKeyboardFocus);
-        dom = dom.with_accessibility_assign(AccessibilityInfo {
-            states: AccessibilityStateVec::from_vec(alloc::vec![AccessibilityState::Unavailable]),
-            description: reason.filter(|r| !r.as_str().is_empty()).into(),
-            ..Default::default()
-        });
-        ids.push(Class(AzString::from_const_str(classes.1)));
-        css = crate::widgets::themes::theme_blocks::stack_parts(
-            &css,
-            &CssPropertyWithConditionsVec::from_vec(skins.1.to_vec()),
-        );
-    }
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(ids))
-        .with_css_props(css)
-        .with_child(dom)
+        .with_ids_and_classes(class(box_class))
+        .with_css_props(part(base, skin))
+        .with_child(b.dom())
 }
 
 /// A checkbox row: the box (named by `label`) and the label beside it,
@@ -363,8 +380,6 @@ pub(crate) fn percent_text(percent: f32) -> AzString {
     AzString::from(alloc::format!("{p} %"))
 }
 
-/// The class an inert button's box takes in the kit's rows.
-pub const HELD_CLASS: &str = "__azul-native-dialog-kit-held";
 /// The class of a button's box in the kit's rows.
 pub const BUTTON_BOX_CLASS: &str = "__azul-native-dialog-kit-button";
 
@@ -608,12 +623,11 @@ mod dialog_kit_tests {
             let boxed = row_button(
                 AzString::from("Apply"),
                 ButtonType::Default,
-                None,
-                Some(AzString::from(reason)),
+                RowAction::Disabled(AzString::from(reason)),
                 Some(theme),
-                (BUTTON_BOX_CLASS, HELD_CLASS),
+                BUTTON_BOX_CLASS,
                 BUTTON_BOX_BASE,
-                (&look.button, &look.held),
+                &look.button,
             );
             assert!(
                 !boxed
@@ -663,6 +677,35 @@ mod dialog_kit_tests {
                 );
             }
         }
+    }
+
+    /// An empty reason would ENABLE the Button (its disabled state is "has a
+    /// reason"): a disabled row button without one still waits, and says
+    /// the kit's general reason.
+    #[test]
+    fn a_disabled_row_button_without_a_reason_still_waits_and_says_why() {
+        use crate::widgets::{
+            button::{ButtonType, BUTTON_DISABLED_CLASS},
+            themes::theme_checks as tc,
+        };
+        let boxed = row_button(
+            AzString::from("OK"),
+            ButtonType::Primary,
+            RowAction::Disabled(AzString::from_const_str("")),
+            Some(UiTheme::Flat),
+            BUTTON_BOX_CLASS,
+            BUTTON_BOX_BASE,
+            &[],
+        );
+        let button = &boxed.children.as_ref()[0];
+        assert!(tc::has_class(button, BUTTON_DISABLED_CLASS));
+        assert_eq!(
+            button
+                .root
+                .get_accessibility_info()
+                .and_then(|a| a.description.as_ref().map(|d| d.as_str().to_string())),
+            Some(String::from(UNAVAILABLE_REASON))
+        );
     }
 
     #[test]

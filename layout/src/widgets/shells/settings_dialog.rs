@@ -1322,9 +1322,12 @@ fn row(
         ]))
 }
 
+/// Why Apply waits: nothing changed yet.
+const APPLY_HELD_REASON: &str = "There are no changes to apply.";
+
 /// The button row: "Restore defaults", the restart notice (or a spacer),
-/// then - with Apply buttons - OK, Cancel and Apply (inert while nothing
-/// changed).
+/// then - with Apply buttons - OK, Cancel and Apply (disabled while nothing
+/// changed, saying why).
 fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKitLook) -> Dom {
     let data = RefAny::new(DialogRef {
         on_event: dialog.on_event.clone(),
@@ -1337,12 +1340,17 @@ fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKi
             dialog_kit::row_button(
                 label.clone(),
                 kind,
-                click.map(|cb| (data.clone(), cb)),
-                None,
+                match click {
+                    Some(cb) => dialog_kit::RowAction::Click(data.clone(), cb),
+                    // Only Apply ever waits.
+                    None => dialog_kit::RowAction::Disabled(AzString::from_const_str(
+                        APPLY_HELD_REASON,
+                    )),
+                },
                 inner,
-                (dialog_kit::BUTTON_BOX_CLASS, dialog_kit::HELD_CLASS),
+                dialog_kit::BUTTON_BOX_CLASS,
                 dialog_kit::BUTTON_BOX_BASE,
-                (&look.button, &look.held),
+                &look.button,
             )
         };
     use crate::widgets::button::{ButtonOnClickCallbackType as Cb, ButtonType};
@@ -1772,7 +1780,7 @@ mod settings_dialog_build_tests {
 
     use super::{settings_dialog_fixtures::dialog, *};
     use crate::widgets::{
-        dialog_kit::{HELD_CLASS, MARK_CLASS},
+        dialog_kit::MARK_CLASS,
         path_input::PATH_INPUT_CLASS,
         roving::test_support as rv,
         shells::settings_layout::{
