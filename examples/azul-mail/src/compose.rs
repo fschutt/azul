@@ -505,7 +505,7 @@ fn write_drafts_index(store: &MailStore, index: &[IndexEntry]) -> std::io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::TempDir;
+    use crate::testutil::{MailFolder, TempDir};
 
     fn original() -> MessageView {
         MessageView {

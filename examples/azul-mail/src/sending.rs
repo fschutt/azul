@@ -221,7 +221,7 @@ impl SendingForm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::TempDir;
+    use crate::testutil::{MailFolder, TempDir};
 
     fn smtp(host: &str, port: u16, tls: TlsPolicy) -> SendSettings {
         SendSettings {

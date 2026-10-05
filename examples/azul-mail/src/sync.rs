@@ -515,7 +515,7 @@ mod tests {
     use super::*;
     use crate::{
         store::{index_from_jsonl, index_key, message_key, state_key},
-        testutil::TempDir,
+        testutil::{MailFolder, TempDir},
     };
 
     /// 2026-09-30T08:42:00Z
