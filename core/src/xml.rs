@@ -375,25 +375,26 @@ impl Xml {
         // wide match). An explicit stack keeps memory on the heap; `depth` still
         // bounds how deep we descend so unbounded input can't grow the worklist
         // without limit.
+        //
+        // The stack pops LAST first, so children go on in REVERSE: the first
+        // child comes off next and the scan is the document's pre-order (it
+        // listed siblings last first). Text is never CSS by itself - a
+        // `<style>`'s text is scanned by its element (`scan_node`); scanning
+        // every text node made prose that says `url(...)` a resource and read
+        // each stylesheet twice.
         let mut stack: Vec<(&XmlNodeChild, usize)> = Vec::new();
-        for child in self.root.as_ref() {
+        for child in self.root.as_ref().iter().rev() {
             stack.push((child, 0));
         }
         while let Some((child, depth)) = stack.pop() {
-            match child {
-                XmlNodeChild::Text(text) => {
-                    // CSS @import / url() in text content (inside <style> tags).
-                    Self::extract_css_urls(text.as_str(), &mut resources);
+            if let XmlNodeChild::Element(node) = child {
+                if depth > MAX_XML_NESTING_DEPTH {
+                    // Deeper subtrees are simply not scanned.
+                    continue;
                 }
-                XmlNodeChild::Element(node) => {
-                    if depth > MAX_XML_NESTING_DEPTH {
-                        // Deeper subtrees are simply not scanned.
-                        continue;
-                    }
-                    Self::scan_node(node, &mut resources);
-                    for c in node.children.as_ref() {
-                        stack.push((c, depth + 1));
-                    }
+                Self::scan_node(node, &mut resources);
+                for c in node.children.as_ref().iter().rev() {
+                    stack.push((c, depth + 1));
                 }
             }
         }
@@ -5971,8 +5972,24 @@ fn str_to_dom_fast<'a>(
         Some(Css::from_string(style_text.into()))
     };
 
-    render_dom_from_body_node_fast(body_node, global_style, component_map, max_width)
-        .map_err(Into::into)
+    render_dom_from_body_node_fast(
+        &html_node,
+        body_node,
+        global_style,
+        component_map,
+        max_width,
+    )
+    .map_err(Into::into)
+}
+
+/// The root `Html` node of a loaded document: the `<html>` element's own
+/// attributes (its inline `style`, `lang`, `dir`, ids and classes) applied as
+/// every other element's are ([`apply_xml_node_attributes`]). Both loaders
+/// built a bare `Html` node and dropped them (WPT8 found (c)).
+fn html_root_node_data(html_node: &XmlNode) -> NodeData {
+    let mut node = NodeData::create_node(NodeType::Html);
+    apply_xml_node_attributes(&mut node, html_node, "html", false);
+    node
 }
 
 /// Parses XML nodes and returns a `Dom` with CSS stylesheets attached (but not applied).
@@ -6008,13 +6025,19 @@ pub fn str_to_dom_unstyled<'a>(
 
     // Wrap in proper HTML structure (NodeType is imported at module top)
     let root_node_type = body_dom.root.node_type.clone();
+    // The root carries the `<html>` element's own attributes.
+    let html_root = || {
+        let mut html = Dom::create_html();
+        html.root = html_root_node_data(&html_node);
+        html
+    };
 
     let mut full_dom = match root_node_type {
         NodeType::Html => body_dom,
-        NodeType::Body => Dom::create_html().with_child(body_dom),
+        NodeType::Body => html_root().with_child(body_dom),
         _ => {
             let body_wrapper = Dom::create_body().with_child(body_dom);
-            Dom::create_html().with_child(body_wrapper)
+            html_root().with_child(body_wrapper)
         }
     };
 
@@ -7000,18 +7023,17 @@ fn xml_node_to_fast_dom<'a>(
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would
                                    // break the C ABI/api.json
 fn render_dom_from_body_node_fast<'a>(
+    html_node: &XmlNode,
     body_node: &'a XmlNode,
     mut global_css: Option<Css>,
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
-    use crate::dom::{NodeData, NodeType};
-
     let mut builder = CompactDomBuilder::new();
 
     // Build the HTML > Body wrapper + body content in one pass
-    // Open <html>
-    builder.open_node(NodeData::create_node(NodeType::Html));
+    // Open <html>, with the element's own attributes
+    builder.open_node(html_root_node_data(html_node));
     // Open <body> (the body_node content goes inside)
     xml_node_to_fast_dom(body_node, component_map, false, &mut builder, 0)?;
     // Close <html>
@@ -7323,3 +7345,85 @@ mod entities;
 #[cfg(test)]
 #[path = "xml_test.rs"]
 mod xml_test;
+
+/// The `<html>` element's own attributes on the root node both loaders build
+/// (WPT8 found (c)).
+#[cfg(test)]
+mod html_root_attribute_tests {
+    use super::*;
+
+    /// `<html style="background: red"><body></body></html>`.
+    fn html_with_a_style() -> Vec<XmlNodeChild> {
+        let body = XmlNode {
+            node_type: "body".into(),
+            attributes: XmlAttributeMap::default(),
+            children: Vec::<XmlNodeChild>::new().into(),
+        };
+        let html = XmlNode {
+            node_type: "html".into(),
+            attributes: XmlAttributeMap::from(StringPairVec::from_vec(alloc::vec![AzStringPair {
+                key: AzString::from("style"),
+                value: AzString::from("background: red;"),
+            }])),
+            children: alloc::vec![XmlNodeChild::Element(body)].into(),
+        };
+        alloc::vec![XmlNodeChild::Element(html)]
+    }
+
+    #[test]
+    fn the_html_elements_style_attribute_reaches_the_root() {
+        let map = ComponentMap::with_builtin();
+
+        // The tree loader (`str_to_dom_unstyled`).
+        let dom = str_to_dom_unstyled(&html_with_a_style(), &map).expect("the markup parses");
+        assert!(
+            matches!(dom.root.node_type, NodeType::Html),
+            "the root is the html element"
+        );
+        assert!(
+            !dom.root.style.rules.as_ref().is_empty(),
+            "the html element's inline style is on the root (the tree loader built a bare Html)"
+        );
+
+        // The arena loader (`str_to_dom`).
+        let styled = str_to_dom(&html_with_a_style(), &map, None).expect("the markup parses");
+        let root = &styled.node_data.as_container()[crate::id::NodeId::ZERO];
+        assert!(
+            matches!(root.node_type, NodeType::Html),
+            "the root is the html element"
+        );
+        assert!(
+            !root.style.rules.as_ref().is_empty(),
+            "the html element's inline style is on the root (the arena loader built a bare Html)"
+        );
+    }
+}
+
+/// `Xml::scan_external_resources` (MAIL9's engine gap, SCANORDER).
+#[cfg(test)]
+mod scan_external_resources_tests {
+    use super::*;
+
+    #[test]
+    fn scan_external_resources_lists_resources_in_document_order_once_and_ignores_url_in_prose() {
+        // The worklist was a LIFO stack fed in order, so siblings came out
+        // last first; and every TEXT node was scanned as CSS, so prose that
+        // says `url(...)` became a resource and a `<style>` sheet was scanned
+        // twice (its text, then its element).
+        let xml = Xml::create_from_html(AzString::from(
+            "<html><body><img src=\"a.png\"><p>write url(prose.png) in CSS</p><img \
+             src=\"b.png\"><style>.x { background: url(c.png); }</style></body></html>",
+        ));
+        let urls: Vec<String> = xml
+            .scan_external_resources()
+            .as_ref()
+            .iter()
+            .map(|r| r.url.as_str().to_string())
+            .collect();
+        assert_eq!(
+            urls,
+            ["a.png", "b.png", "c.png"],
+            "document order, each once, nothing from prose"
+        );
+    }
+}

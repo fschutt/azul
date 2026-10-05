@@ -1027,10 +1027,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // element reports a min-content SMALLER than its true unbreakable width and
         // the flex/shrink-to-fit algorithm clips it.
         let mut constraints = UnifiedConstraints::default();
-        if let Some(dom_id) = tree
+        // An anonymous block has no DOM node: it inherits white-space and
+        // text-indent from its enclosing box, as `fc::layout_ifc` lays it
+        // out. Reading only the root's own node measured it as
+        // white-space: normal with no indent.
+        let ifc_root_is_anonymous = tree
             .get(LayoutNodeId::new(node_index))
-            .and_then(|n| n.dom_node_id)
-        {
+            .is_some_and(|n| n.dom_node_id.is_none());
+        if let Some(dom_id) = crate::solver3::fc::ifc_root_style_dom_id(tree, node_index) {
             use azul_css::props::style::text::StyleWhiteSpace;
 
             use crate::solver3::getters::{get_white_space_property, MultiValue};
@@ -1059,7 +1063,20 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 self.ctx.viewport_size,
                 true,
             );
-            constraints.text_indent = indent;
+            // An anonymous block indents only when it holds the container's
+            // first formatted line - the gate `fc::layout_ifc` uses, or the
+            // box is sized for an indent its layout never applies.
+            constraints.text_indent = if ifc_root_is_anonymous
+                && !each_line
+                && !crate::solver3::fc::anonymous_block_holds_the_first_line(
+                    tree,
+                    self.ctx.styled_dom,
+                    node_index,
+                ) {
+                0.0
+            } else {
+                indent
+            };
             constraints.text_indent_each_line = each_line;
             constraints.text_indent_hanging = hanging;
         }
@@ -1206,6 +1223,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // parent-child margins can escape (first/last child).
         let mut last_margin_main_end = 0.0f32;
         let mut is_first_child = true;
+        let mut marker_main_size = 0.0f32;
 
         for &child_index in tree.children(node_index) {
             if let Some(child_intrinsic) = child_intrinsics
@@ -1251,6 +1269,16 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 max_child_min_cross = max_child_min_cross.max(child_min_cross);
                 max_child_max_cross = max_child_max_cross.max(child_max_cross);
 
+                // A `::marker` with no line box to ride is laid out at the
+                // item's content start, out of the flow (`fc::layout_bfc`):
+                // the item is as tall as the taller of it and the blocks,
+                // never their sum. (One on a line contributes nothing at
+                // all: `calculate_intrinsic_recursive` zeroes it.)
+                if crate::solver3::fc::is_marker_box(tree, child_index) {
+                    marker_main_size = marker_main_size.max(child_border_box_main);
+                    continue;
+                }
+
                 // CSS 2.2 §8.3.1 margin collapsing for intrinsic sizing:
                 // - First child's margin-start can escape (don't add to total)
                 // - Between siblings: collapsed gap = max(prev_end, curr_start)
@@ -1272,6 +1300,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
         }
         // Last child's margin-end may escape — don't add it to total_main_size
+        let total_main_size = f32::max(total_main_size, marker_main_size);
 
         let (min_width, max_width, min_height, max_height) = match writing_mode {
             LayoutWritingMode::HorizontalTb => (
@@ -5253,5 +5282,132 @@ mod autotest_generated {
             let second = cvt(&dom, id, first.0, first.1);
             assert_eq!(first, second, "not a fixed point for {id:?}");
         }
+    }
+}
+
+/// The intrinsic sizes of an ANONYMOUS block that holds a container's inline
+/// content (CSS 2.2 s9.2.1.1): it has no DOM node of its own and inherits
+/// the container's style - its `text-indent` (only when it holds the
+/// container's first formatted line, CSS 2.1 s16.1 / CSS Text 3 s8.1) and
+/// its `white-space`. Font-free where a number is asserted (inline-blocks).
+#[cfg(test)]
+mod anonymous_ifc_intrinsic_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// `<body style="margin: 0">{child}</body>` laid out in an 800 x 600 window.
+    fn laid_out(child: Dom, fonts: FcFontCache) -> LayoutWindow {
+        let mut lw = LayoutWindow::new(fonts).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0;").with_child(child)),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the fixture lays out");
+        lw
+    }
+
+    /// The used border-box width of DOM node 1 (the body's child).
+    fn width_of_the_container(lw: &LayoutWindow) -> f32 {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the container is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the container has a size")
+            .width
+    }
+
+    fn inline_block(width: u32) -> Dom {
+        Dom::create_div().with_css(&format!(
+            "display: inline-block; width: {width}px; height: 10px;"
+        ))
+    }
+
+    #[test]
+    fn an_anonymous_block_that_starts_its_container_adds_the_indent_to_its_max_content() {
+        // `<div float text-indent: 40px>[10px]<div text-indent: 0>[10px]</div></div>`:
+        // the anonymous block around the first inline-block holds the
+        // container's first line - indented by 40px, so the float's
+        // max-content is 40 + 10. It was 10: the intrinsic scan never looked
+        // at the anonymous box's (inherited) text-indent.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("float: left; text-indent: 40px;")
+                .with_child(inline_block(10))
+                .with_child(
+                    Dom::create_div()
+                        .with_css("text-indent: 0;")
+                        .with_child(inline_block(10)),
+                ),
+            FcFontCache::default(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(
+            (w - 50.0).abs() < 0.5,
+            "40px indent + 10px content (Chrome 50): {w}"
+        );
+    }
+
+    #[test]
+    fn an_anonymous_block_after_a_nested_block_adds_no_indent_to_its_max_content() {
+        // `<div float text-indent: 40px><div text-indent: 0>[10px]</div>[30px]</div>`:
+        // the first formatted line is the nested block's, so the anonymous
+        // block after it is not indented (fc::layout_ifc, 64d3cb633) and its
+        // max-content is its 30px alone - the float is 30 wide, not 70.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("float: left; text-indent: 40px;")
+                .with_child(
+                    Dom::create_div()
+                        .with_css("text-indent: 0;")
+                        .with_child(inline_block(10)),
+                )
+                .with_child(inline_block(30)),
+            FcFontCache::default(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(
+            (w - 30.0).abs() < 0.5,
+            "no indent after the nested block (Chrome 30): {w}"
+        );
+    }
+
+    #[test]
+    fn an_anonymous_block_measures_its_min_content_with_its_containers_white_space() {
+        // `<div width: min-content; white-space: nowrap>[10px] [10px]<div></div></div>`:
+        // nowrap leaves the space no soft wrap opportunity, so the anonymous
+        // block's min-content is the whole line (10 + space + 10). It was
+        // 10: the scan measured the anonymous box as white-space: normal.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("width: min-content; white-space: nowrap;")
+                .with_child(inline_block(10))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" "))
+                .with_child(inline_block(10))
+                .with_child(Dom::create_div().with_css("height: 10px;")),
+            FcFontCache::build(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(w >= 19.5, "one unbreakable line of both inline-blocks: {w}");
     }
 }

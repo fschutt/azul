@@ -1498,16 +1498,25 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let (suppress_width, suppress_height) =
             self.should_suppress_cross_intrinsic(node_idx, &style);
 
+        // Force the cross size to Auto: taffy treats Auto size + Stretch
+        // alignment as a signal to fill the line. An AUTO min-size becomes 0
+        // there (a cross-axis `min-*: auto` has no content minimum); a
+        // DECLARED one stays - the stretched size is clamped by it again
+        // (CSS Flexbox 9.4 step 11, Chrome). It was zeroed too: a stretched
+        // flex-container item with `min-height: 22px` (every TextInput in a
+        // stretching row) came out as its 12px of content.
         if suppress_width {
-            // Force width to Auto and set min-width to 0 to allow stretching.
-            // Taffy treats Auto size + Stretch alignment as a signal to fill the container.
             style.size.width = Dimension::auto();
-            style.min_size.width = Dimension::length(0.0);
+            if style.min_size.width == Dimension::auto() {
+                style.min_size.width = Dimension::length(0.0);
+            }
         }
 
         if suppress_height {
             style.size.height = Dimension::auto();
-            style.min_size.height = Dimension::length(0.0);
+            if style.min_size.height == Dimension::auto() {
+                style.min_size.height = Dimension::length(0.0);
+            }
         }
 
         style

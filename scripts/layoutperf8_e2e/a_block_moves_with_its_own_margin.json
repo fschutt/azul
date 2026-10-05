@@ -1,7 +1,7 @@
 {
  "name": "a_block_moves_with_its_own_margin",
- "description": "LAYOUTPERF8 (latent bug B, NOT fixed - expected failure). A stylesheet change of a block child's own margin-left (0 -> 40px) must move it to x=40 (a fresh layout of the same page puts it there). On the wave-7 build it stays at x=0: a clean node is a CLONE that carries the box props (margins, padding, border) resolved from the OLD cascade, and the css-dirty channel only marks it dirty - it is re-solved with the stale margins, from its old slot. Flex items are not affected (taffy reads their styles fresh), which is why the AzWidgets switch knob moves. Proposed fix in scripts/LAYOUTPERF8_2026_10_03.md. Run: target/release/azul-doc e2e scripts/layoutperf8_e2e",
- "expect": "fail",
+ "description": "LAYOUTPERF8 latent bug B, fixed by FIX9 1.6. A stylesheet change of a block child's own margin-left (0 -> 40px) must move it to x=40 (a fresh layout of the same page puts it there). On the wave-7 build it stayed at x=0: a clean node is a CLONE that carries the box props (margins, padding, border) resolved from the OLD cascade, and the css-dirty channel only marked it dirty - it was re-solved with the stale margins, from its old slot. Now the reconcile builds a css-dirty node fresh and a Full-scope change is laid out by the parent. Run: target/release/azul-doc e2e scripts/layoutperf8_e2e",
+ "expect": "pass",
  "setup": {"window_width": 400, "window_height": 300, "dpi": 96},
  "steps": [
   {"op": "mount",

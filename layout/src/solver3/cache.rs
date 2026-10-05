@@ -915,6 +915,16 @@ pub struct ReconciliationResult {
     /// (a text node's `ifc_membership` names its IFC root); the reconcile
     /// re-points those through this map.
     pub carried_indices: HashMap<usize, usize>,
+    /// INPUT of the walk, set by [`reconcile_and_invalidate_restyled`]
+    /// before it starts: the DOM nodes whose own computed style moved in a
+    /// layout-affecting way this pass (the CSS diff's entries with a scope
+    /// above `RelayoutScope::None`). `reconcile_recursive` builds each of
+    /// them FRESH, as a `DirtyFlag::Layout` node: a clone carries the box
+    /// props (margins, padding, borders), computed style and formatting
+    /// context resolved from the OLD cascade, which no dirty mark refreshes
+    /// (LAYOUTPERF8 bug B: a block whose stylesheet margin changed kept the
+    /// old one).
+    pub css_relayout: BTreeSet<NodeId>,
 }
 
 impl ReconciliationResult {
@@ -992,9 +1002,40 @@ pub(crate) fn promote_layout_roots_to_containers(
         .collect()
 }
 
+/// The layout roots with no ancestor among them: a root's pass lays out its
+/// whole subtree, so a root below another one needs no pass of its own.
+/// `parent_of` yields a node's parent. The one cleanup for both producers of
+/// layout roots (the reconcile and the css-dirty fold of `layout_document`).
+pub(crate) fn outermost_layout_roots(
+    roots: &BTreeSet<usize>,
+    parent_of: impl Fn(usize) -> Option<usize>,
+) -> BTreeSet<usize> {
+    roots
+        .iter()
+        .copied()
+        .filter(|&idx| {
+            let mut current = parent_of(idx);
+            // A parent chain is at most as long as the tree; the bound
+            // keeps a corrupt (cyclic) chain from hanging the pass.
+            let mut guard = 0usize;
+            while let Some(p_idx) = current {
+                if roots.contains(&p_idx) {
+                    return false;
+                }
+                guard += 1;
+                if guard > 1 << 20 {
+                    break;
+                }
+                current = parent_of(p_idx);
+            }
+            true
+        })
+        .collect()
+}
+
 /// [`promote_layout_roots_to_containers`]' flex / grid / inline-level lift
 /// of one root.
-fn lift_to_slot_container(
+pub(crate) fn lift_to_slot_container(
     idx: usize,
     node: &impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
 ) -> usize {
@@ -1352,6 +1393,9 @@ fn layout_relevant_child_count(
     count
 }
 
+/// [`reconcile_and_invalidate_restyled`] without a CSS diff (the paged
+/// layout's reconcile).
+///
 /// # Errors
 ///
 /// Returns a `LayoutError` if layout reconciliation fails.
@@ -1359,13 +1403,36 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     cache: &LayoutCache,
     viewport: LogicalRect,
+    dom_diff_clean: Option<Vec<bool>>,
+) -> Result<(LayoutTree, ReconciliationResult)> {
+    reconcile_and_invalidate_restyled(ctx, cache, viewport, dom_diff_clean, &[])
+}
+
+/// Reconciles the new DOM against the cached tree. `css_dirty` is this
+/// pass's CSS diff (`layout_document`'s): a node whose own computed style
+/// moved in a layout-affecting way is built fresh
+/// ([`ReconciliationResult::css_relayout`]).
+///
+/// # Errors
+///
+/// Returns a `LayoutError` if layout reconciliation fails.
+pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    cache: &LayoutCache,
+    viewport: LogicalRect,
     // GRANULAR DIFF (see LayoutCache::dom_diff_clean) — taken by the
     // caller (this fn only has &cache) and moved in.
     dom_diff_clean: Option<Vec<bool>>,
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
 ) -> Result<(LayoutTree, ReconciliationResult)> {
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let mut recon_result = ReconciliationResult::default();
+    recon_result.css_relayout = css_dirty
+        .iter()
+        .filter(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None)
+        .map(|(node, _)| *node)
+        .collect();
     // A viewport SIZE change invalidates every VIEWPORT-DEPENDENT computed
     // size — and nothing else. The old code dropped the ENTIRE cached tree
     // here (`old_tree = None`), which made every node reconcile as brand-new
@@ -1445,22 +1512,9 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     recon_result.layout_roots = promoted_layout_roots;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
-    let final_layout_roots = recon_result
-        .layout_roots
-        .iter()
-        .filter(|&&idx| {
-            let mut current = new_tree_builder.get(idx).and_then(|n| n.parent);
-            while let Some(p_idx) = current {
-                if recon_result.layout_roots.contains(&p_idx) {
-                    return false;
-                }
-                current = new_tree_builder.get(p_idx).and_then(|n| n.parent);
-            }
-            true
-        })
-        .copied()
-        .collect();
-    recon_result.layout_roots = final_layout_roots;
+    recon_result.layout_roots = outermost_layout_roots(&recon_result.layout_roots, |idx| {
+        new_tree_builder.get(idx).and_then(|n| n.parent)
+    });
 
     new_tree_builder.apply_split_previews(ctx.content_overlay, ctx.styled_dom);
     let new_tree = new_tree_builder.build(root_idx);
@@ -2090,12 +2144,18 @@ pub fn reconcile_recursive(
     // styled state (:hover/:focus/:active variants). Content, callbacks and
     // attributes cannot, so a plain text edit still invalidates only its
     // own node and the incremental-edit path is untouched.
-    let own_style_changed = old_cold.is_none_or(|old_c| {
-        let old_fp = &old_c.node_data_fingerprint;
-        old_fp.inline_css_hash != new_fingerprint.inline_css_hash
-            || old_fp.ids_classes_hash != new_fingerprint.ids_classes_hash
-            || old_fp.state_hash != new_fingerprint.state_hash
-    });
+    //
+    // The CSS diff of this pass names the nodes whose computed style moved
+    // with the fingerprint untouched (another stylesheet, a dynamic
+    // selector): such a node is restyled too, and is built fresh below.
+    let css_relayout_here = recon.css_relayout.contains(&new_dom_id);
+    let own_style_changed = css_relayout_here
+        || old_cold.is_none_or(|old_c| {
+            let old_fp = &old_c.node_data_fingerprint;
+            old_fp.inline_css_hash != new_fingerprint.inline_css_hash
+                || old_fp.ids_classes_hash != new_fingerprint.ids_classes_hash
+                || old_fp.state_hash != new_fingerprint.state_hash
+        });
     let subtree_style_changed = ancestor_style_changed || own_style_changed;
 
     // An ancestor's restyle forces a REBUILD rather than a clone: the clone
@@ -2114,12 +2174,18 @@ pub fn reconcile_recursive(
     //   resize  33.59 / 35.19 / 33.01 ms
     //   cold   140.97 / 148.01 / 137.12 ms
     // i.e. the unrestricted form cost 4-5%; restricted to text it is flat.
-    let dirty_flag =
-        if ancestor_style_changed && matches!(node_data.get_node_type(), NodeType::Text(_)) {
-            DirtyFlag::Layout
-        } else {
-            dirty_flag
-        };
+    //
+    // A node the CSS diff restyled in a layout-affecting way is rebuilt
+    // fresh as well (`ReconciliationResult::css_relayout`): its clone would
+    // keep the box props, computed style and formatting context of the old
+    // cascade, and be re-solved with them.
+    let dirty_flag = if css_relayout_here
+        || (ancestor_style_changed && matches!(node_data.get_node_type(), NodeType::Text(_)))
+    {
+        DirtyFlag::Layout
+    } else {
+        dirty_flag
+    };
 
     let is_dirty = dirty_flag >= DirtyFlag::Paint;
 
@@ -3572,9 +3638,11 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             continue;
         }
         // A `::marker` box carries its LIST ITEM's DOM node, so an
-        // absolutely positioned item made its marker look positioned too;
-        // one that rides the item's first line is laid out with that line.
-        if fc::is_marker_on_a_line(tree, ctx.styled_dom, child_index) {
+        // absolutely positioned item made its marker look positioned too.
+        // Every marker is laid out by its item's flow: one that rides the
+        // item's first line with that line, one with no line box at the
+        // item's content start (`fc::layout_bfc`).
+        if fc::is_marker_box(tree, child_index) {
             continue;
         }
 

@@ -74,10 +74,9 @@ const DEFAULT_CH_WIDTH: f32 = 8.0;
 /// Approximate space character width as a fraction of `font_size`.
 const SPACE_WIDTH_RATIO: f32 = 0.5;
 
-/// CSS subscript baseline offset as fraction of line ascent (CSS Inline §3).
-const SUBSCRIPT_OFFSET_RATIO: f32 = 0.3;
-/// CSS superscript baseline offset as fraction of line ascent (CSS Inline §3).
-const SUPERSCRIPT_OFFSET_RATIO: f32 = 0.4;
+/// The CSS-initial font size (16px) as the default strut's: the parent font
+/// size `vertical-align: sub` / `super` shift by when no container set one.
+const DEFAULT_STRUT_FONT_SIZE: f32 = 16.0;
 
 /// Ruby annotation font size relative to the base, per the CSS UA stylesheet
 /// (`rt { font-size: 50% }`). Used to reserve placeholder width for the
@@ -2371,6 +2370,10 @@ pub struct UnifiedConstraints {
     // cap-height of the strut font (scaled to font_size), for
     // text-box-edge: cap trimming (CSS Inline 3 §6.1).
     pub strut_cap_height: f32,
+    // The block container's (the strut's) computed font size in px: the
+    // parent font size `vertical-align: sub` / `super` shift a box by
+    // (`baseline_shift`; Chrome: / 5 + 1 down, / 3 + 1 up).
+    pub strut_font_size: f32,
 
     // Width of '0' (zero) character in px, used for ch unit and tab-size.
     // Approximated as space_width from the first available font, or 0.5 * font_size fallback.
@@ -2479,6 +2482,7 @@ impl Default for UnifiedConstraints {
             strut_descent: DEFAULT_STRUT_DESCENT,
             strut_x_height: DEFAULT_X_HEIGHT,
             strut_cap_height: DEFAULT_CAP_HEIGHT,
+            strut_font_size: DEFAULT_STRUT_FONT_SIZE,
             ch_width: DEFAULT_CH_WIDTH,
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
@@ -2526,6 +2530,7 @@ impl Hash for UnifiedConstraints {
         (self.strut_ascent.round() as isize).hash(state);
         (self.strut_descent.round() as isize).hash(state);
         (self.strut_x_height.round() as isize).hash(state);
+        (self.strut_font_size.round() as isize).hash(state);
         (self.ch_width.round() as isize).hash(state);
         self.overflow.hash(state);
         self.segment_alignment.hash(state);
@@ -2571,6 +2576,7 @@ impl PartialEq for UnifiedConstraints {
             && round_eq(self.strut_ascent, other.strut_ascent)
             && round_eq(self.strut_descent, other.strut_descent)
             && round_eq(self.strut_x_height, other.strut_x_height)
+            && round_eq(self.strut_font_size, other.strut_font_size)
             && round_eq(self.ch_width, other.ch_width)
             && self.overflow == other.overflow
             && self.segment_alignment == other.segment_alignment
@@ -11154,9 +11160,8 @@ pub fn get_item_vertical_metrics(
 /// How far `vertical-align` moves a box's baseline DOWN from its line's
 /// baseline (negative = raised), for the alignments CSS 2.1 s10.8.1 measures
 /// from the parent's baseline; `None` for the line-relative `top` / `bottom`
-/// (aligned once the line box is known) and for `sub` / `super`, which
-/// `position_one_line` derives from the line's own ascent. `ascent` and
-/// `descent` are the box's own ([`get_item_vertical_metrics`]).
+/// (aligned once the line box is known). `ascent` and `descent` are the box's
+/// own ([`get_item_vertical_metrics`]).
 ///
 /// The ONE rule the line box (`calculate_line_metrics`) and the placement
 /// (`position_one_line`) share, so a box always sits inside the line box it
@@ -11183,9 +11188,15 @@ fn baseline_shift(
         VerticalAlign::TextBottom => Some(constraints.strut_descent - descent),
         // <length> / <percentage>: raise (positive) or lower (negative)
         VerticalAlign::Offset(offset) => Some(-offset),
-        VerticalAlign::Top | VerticalAlign::Bottom | VerticalAlign::Sub | VerticalAlign::Super => {
-            None
-        }
+        // +spec:font-metrics:aa21f7 - sub / super: "a proper position" for
+        // the parent's subscripts / superscripts - Chrome's (LayoutNG): the
+        // parent font size / 5 + 1px down, / 3 + 1px up. The parent is the
+        // block container here (its strut's font size). They were left to
+        // the placement as 0.3 / 0.4 of the LINE's ascent and never counted
+        // in the line box: a `<sup>` reached above its line.
+        VerticalAlign::Sub => Some(constraints.strut_font_size / 5.0 + 1.0),
+        VerticalAlign::Super => Some(-(constraints.strut_font_size / 3.0 + 1.0)),
+        VerticalAlign::Top | VerticalAlign::Bottom => None,
     }
 }
 
@@ -11397,6 +11408,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             ));
         }
 
+        // The paragraph starts in this fragment only when the cursor is at its
+        // start - the greedy path's `is_first_formatted_line` below. Read it
+        // before draining: a continuation fragment of a flow chain holds no
+        // first formatted line, so `text-indent` does not apply to its line 0.
+        let starts_paragraph = cursor.next_item_index == 0 && cursor.partial_remainder.is_empty();
         // Get the shaped items from the cursor
         let shaped_items: Vec<ShapedItem> = cursor.drain_remaining();
 
@@ -11417,6 +11433,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             fragment_constraints,
             hyphenator.as_ref(),
             fonts,
+            starts_paragraph,
         ));
     }
 
@@ -13010,19 +13027,17 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::Top => line_top_y + item_ascent,
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
-                // +spec:font-metrics:aa21f7 - sub: lower baseline to proper subscript position
-                VerticalAlign::Sub => line_baseline_y + line_ascent * SUBSCRIPT_OFFSET_RATIO,
-                // +spec:display-property:3b0e76 - baseline-shift super raises by ~1/3 font-size;
-                // top/bottom align to line box edges super: raise baseline to
-                // proper superscript position (~0.4em)
-                VerticalAlign::Super => line_baseline_y - line_ascent * SUPERSCRIPT_OFFSET_RATIO,
                 // +spec:font-metrics:70000d - middle: the box's midpoint at the parent's
                 // baseline raised by half its x-height; text-top / text-bottom: against the
                 // parent's content area (s10.6.1); <length> / <percentage>: raise or lower;
+                // +spec:display-property:3b0e76 - sub / super: the parent font size / 5 + 1
+                // down, / 3 + 1 up;
                 // +spec:display-property:8bf37e +spec:font-metrics:96bbd3 - baseline: the
                 // box's alphabetic baseline on the parent's. ONE rule with the line box
                 // (`baseline_shift`, also read by `calculate_line_metrics`).
-                VerticalAlign::Middle
+                VerticalAlign::Sub
+                | VerticalAlign::Super
+                | VerticalAlign::Middle
                 | VerticalAlign::TextTop
                 | VerticalAlign::TextBottom
                 | VerticalAlign::Offset(_)
@@ -17241,6 +17256,67 @@ mod autotest_generated {
             }),
         };
         assert_eq!(get_item_vertical_align(&img), Some(VerticalAlign::Top));
+    }
+
+    #[test]
+    fn a_superscript_rises_a_third_of_its_parents_font_size_and_grows_the_line() {
+        // Chrome (LayoutNG): `vertical-align: super` raises a box's baseline
+        // by its parent's font size / 3 + 1px, `sub` lowers it by / 5 + 1px,
+        // and the line box holds the shifted box (CSS 2.1 10.8.1). The
+        // parent is the default 16px here. Both were left to the placement
+        // (0.4 / 0.3 of the LINE's ascent) and the line box never counted
+        // the shift: a `<sup>` reached above its line.
+        let c = UnifiedConstraints::default();
+        let up = 16.0 / 3.0 + 1.0;
+        let down = 16.0 / 5.0 + 1.0;
+        let sup = baseline_shift(VerticalAlign::Super, 10.0, 0.0, &c)
+            .expect("super is a shift of the baseline");
+        assert!((sup + up).abs() < 0.01, "super raises by 16 / 3 + 1: {sup}");
+        let sub = baseline_shift(VerticalAlign::Sub, 10.0, 0.0, &c)
+            .expect("sub is a shift of the baseline");
+        assert!((sub - down).abs() < 0.01, "sub lowers by 16 / 5 + 1: {sub}");
+
+        // A 10px box (all above its baseline) in a line whose strut is
+        // 12 above / 4 below.
+        let boxed = |alignment| ShapedItem::Object {
+            source: ci(0, 0),
+            bounds: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            baseline_offset: 0.0,
+            content: InlineContent::Image(InlineImage {
+                source: ImageSource::Placeholder(Size::new(10.0, 10.0)),
+                intrinsic_size: Size::new(10.0, 10.0),
+                display_size: None,
+                baseline_offset: 0.0,
+                alignment,
+                object_fit: ObjectFit::Fill,
+            }),
+        };
+        let strut = (12.0, 4.0);
+        let (asc, desc) = calculate_line_metrics(
+            &[boxed(VerticalAlign::Super)],
+            VerticalAlign::Baseline,
+            &c,
+            strut,
+        );
+        assert!(
+            (asc - (10.0 + up)).abs() < 0.01 && (desc - 4.0).abs() < 0.01,
+            "the raised box grows the line above the strut: {asc} / {desc}"
+        );
+        let (asc, desc) = calculate_line_metrics(
+            &[boxed(VerticalAlign::Sub)],
+            VerticalAlign::Baseline,
+            &c,
+            strut,
+        );
+        assert!(
+            (asc - 12.0).abs() < 0.01 && (desc - down).abs() < 0.01,
+            "the lowered box grows the line below the strut: {asc} / {desc}"
+        );
     }
 
     // =====================================================================

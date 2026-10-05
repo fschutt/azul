@@ -809,7 +809,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.previous_sizes = t.nodes.iter().map(|n| n.used_size).collect();
         }
         let dom_diff_clean = cache.dom_diff_clean.take();
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, dom_diff_clean)?
+        // The CSS diff goes in too: a node it restyled is built fresh, with
+        // the new cascade's box props (LAYOUTPERF8 bug B).
+        cache::reconcile_and_invalidate_restyled(
+            &mut ctx_temp,
+            cache,
+            viewport,
+            dom_diff_clean,
+            css_dirty,
+        )?
     };
     // The reuse census, persisted where a test can read it — see the field
     // docs on LayoutCache for why this pair is the ONLY external observable
@@ -939,29 +947,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
-            let mut dom_to_tree: HashMap<NodeId, usize> =
-                HashMap::with_capacity(new_tree.nodes.len());
-            for (idx, node) in new_tree.nodes.iter().enumerate() {
-                if let Some(d) = node.dom_node_id {
-                    dom_to_tree.insert(d, idx);
-                }
-            }
-            let mut dirty_roots = std::collections::BTreeSet::new();
-            for (dom_id_dirty, scope) in css_dirty {
-                if *scope == azul_css::props::property::RelayoutScope::None {
-                    continue;
-                }
-                if let Some(&idx) = dom_to_tree.get(dom_id_dirty) {
-                    recon_result.intrinsic_dirty.insert(idx);
-                    dirty_roots.insert(idx);
-                }
-            }
-            // Same lift as the reconcile's own roots get: a flex item or an
-            // inline-level box is re-solved by its container, or its
-            // siblings keep the slots they had; a box in a multi-column
-            // flow by the multi-column container.
             let any_columns = multicol::dom_declares_columns(new_dom);
-            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, |idx| {
+            let node_of = |idx: usize| {
                 new_tree.nodes.get(idx).map(|n| {
                     (
                         n.parent,
@@ -969,8 +956,55 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         any_columns && multicol::is_multicol_box(new_dom, n.dom_node_id),
                     )
                 })
-            });
+            };
+            let mut dirty_roots = std::collections::BTreeSet::new();
+            for (dom_id_dirty, scope) in css_dirty {
+                if *scope == azul_css::props::property::RelayoutScope::None {
+                    continue;
+                }
+                // The element's own box: the FIRST layout node of its DOM
+                // node (a list item's `::marker` carries the item's id too,
+                // and a last-wins map named the marker).
+                let Some(idx) = new_tree
+                    .dom_to_layout
+                    .get(dom_id_dirty)
+                    .and_then(|v| v.first())
+                    .map(|id| id.index())
+                else {
+                    continue;
+                };
+                recon_result.intrinsic_dirty.insert(idx);
+                // A `Full` change (margins, position, float, display) moves
+                // a box of BLOCK flow in its parent's flow: the PARENT places
+                // it, so the parent is the root. Re-solved on its own, a
+                // block keeps the slot its parent's last pass gave it
+                // (LAYOUTPERF8 bug B). A flex / grid item or an inline-level
+                // box is lifted to its container below anyway.
+                let root = if *scope == azul_css::props::property::RelayoutScope::Full
+                    && cache::lift_to_slot_container(idx, &node_of) == idx
+                {
+                    new_tree
+                        .nodes
+                        .get(idx)
+                        .and_then(|n| n.parent)
+                        .unwrap_or(idx)
+                } else {
+                    idx
+                };
+                dirty_roots.insert(root);
+            }
+            // Same lift as the reconcile's own roots get: a flex item or an
+            // inline-level box is re-solved by its container, or its
+            // siblings keep the slots they had; a box in a multi-column
+            // flow by the multi-column container.
+            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, &node_of);
             recon_result.layout_roots.extend(promoted);
+            // A root below another one is laid out by that one's pass (the
+            // reconcile's own roots were cleaned the same way).
+            recon_result.layout_roots =
+                cache::outermost_layout_roots(&recon_result.layout_roots, |idx| {
+                    new_tree.nodes.get(idx).and_then(|n| n.parent)
+                });
         }
     }
 
@@ -1268,24 +1302,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     unsafe {
         crate::az_mark(0x60704_u32, (0x80u32));
     }
-    // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the
-    // HEAP-backed cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree).
-    // cache is the stable &mut arg (read correctly throughout), so cache.tree is NOT a
-    // deep-SP-relative stack local. At the sizing call we read BOTH: stack new_tree (expect
-    // 0=corrupted) vs heap cache.tree (expect 2 if path B sidesteps the SP-drift/wild-store).
-    // If heap=2, the full cache.tree refactor will fix it.
-    cache.tree = Some((*new_tree).clone());
-    // [az-diag g66] disambiguate the g65 heap=1: read BOTH right after the clone. 0x407C0 = stack
-    // new_tree.nodes.len() (source), 0x407C4 = clone cache.tree.nodes.len(). If src=2 & clone=1 →
-    // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do
-    // it). If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
-    unsafe {
-        crate::az_mark(0x607C0_u32, (new_tree.nodes.len() as u32));
-        crate::az_mark(
-            0x607C4_u32,
-            (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
-        );
-    }
+    // The new tree is stored into `cache.tree` once, after the pass (Step
+    // 3's write-back). A whole-tree CLONE used to be stored here as well -
+    // a wasm-lift diagnostic (g65 / g66) that nothing between here and the
+    // store reads - and cost a full LayoutTree copy per relayout. The old
+    // tree stays in the cache meanwhile; the two error returns below drop it
+    // (it no longer matches the remapped per-node caches).
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
     let mut calculated_positions = cache.calculated_positions.clone();
@@ -1336,22 +1358,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // proved it: 0x90 marker store → `brk #0x1` → no `bl
             // calculate_intrinsic_sizes` anywhere. (The prior "string absent ⇒ web_lift off" check
             // was wrong — panic_immediate_abort strips the message string.)
-            // [az-diag g65 PATH-B VALIDATION] 0x40748 = stack new_tree.nodes.len() (expect 0),
-            // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
-            unsafe {
-                crate::az_mark(0x60748_u32, (new_tree.nodes.len() as u32));
-                crate::az_mark(
-                    0x6074C_u32,
-                    (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
-                );
-            }
             cache.last_intrinsic_dirty = recon_result.intrinsic_dirty.len();
-            calculate_intrinsic_sizes(
+            if let Err(e) = calculate_intrinsic_sizes(
                 &mut ctx,
                 &mut new_tree,
                 text_cache,
                 &recon_result.intrinsic_dirty,
-            )?;
+            ) {
+                // The pass never stored its tree: the cached one is stale.
+                cache.tree = None;
+                return Err(e);
+            }
         }
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
@@ -1891,7 +1908,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         } else {
             cache.last_patch_move = None;
         }
-        display_list::generate_display_list_impl(
+        match display_list::generate_display_list_impl(
             &mut ctx,
             &new_tree,
             &calculated_positions,
@@ -1902,7 +1919,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             id_namespace,
             dom_id,
             patch,
-        )?
+        ) {
+            Ok(dl) => dl,
+            Err(e) => {
+                // The pass never stored its tree: the cached one is stale.
+                cache.tree = None;
+                return Err(e);
+            }
+        }
     };
     crate::probe::sample_phase_peak("rss:peak_during_display_list");
 

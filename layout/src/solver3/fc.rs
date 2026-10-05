@@ -1723,6 +1723,9 @@ fn layout_bfc<T: ParsedFontTrait>(
         };
     }
 
+    // The block size of a `::marker` laid out at the content start with no
+    // line box to ride (see the loop): the content box is at least this tall.
+    let mut marker_without_line_main = 0.0f32;
     for &child_index in &pos_children {
         // A token emitted while PLACING the previous child (break-descend /
         // resumed-child continuation) stops sibling consumption here — the
@@ -1879,6 +1882,31 @@ fn layout_bfc<T: ParsedFontTrait>(
             .get(LayoutNodeId::new(child_index))
             .ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
+
+        // A `::marker` still in this flow has no line box to ride (the ones
+        // on a line were filtered out of `pos_children`; `marker_line_host`
+        // is None: an empty item, a first block with no line in it, a
+        // table). Chrome lays it out at the item's content start, OUT of the
+        // flow - the first block starts where it starts - and the item is
+        // as tall as the taller of the two (LayoutNG's
+        // `PositionListMarkerWithoutLineBoxes`: "3 out of 4 impls" let it
+        // extend the block size, csswg-drafts#2418). It took a line of its
+        // own above the first block: `<li><div style="height: 50px">` was
+        // a line too tall. Checked before the position / float tests: the
+        // marker carries its LIST ITEM's DOM node, whose `position` and
+        // `float` are not the marker's.
+        if is_marker_box(tree, child_index) {
+            marker_without_line_main = marker_without_line_main.max(
+                child_node
+                    .used_size
+                    .map_or(0.0, |size| size.main(writing_mode)),
+            );
+            output.positions.insert(
+                child_index,
+                LogicalPosition::from_main_cross(0.0, 0.0, writing_mode),
+            );
+            continue;
+        }
 
         // +spec:floats:2cec1b - 'position' and 'float' determine the positioning algorithm
         // +spec:positioning:dccad6 - floats only apply to non-absolutely-positioned boxes
@@ -3531,6 +3559,10 @@ fn layout_bfc<T: ParsedFontTrait>(
         }
     }
 
+    // A list item is at least as tall as its marker laid out with no line
+    // box (the loop above; the taller of the two, never their sum).
+    content_box_height = content_box_height.max(marker_without_line_main);
+
     // A multi-column container is as tall as its tallest column (its
     // floats are in the columns too) and as wide as its columns reach.
     if let Some(extent) = multicol_extent {
@@ -4158,26 +4190,8 @@ fn layout_ifc<T: ParsedFontTrait>(
     // only the INHERITED properties are its own (§9.2.1.1): it has no
     // columns of the element's (see translate_to_text3_constraints).
     let ifc_root_is_anonymous = node.dom_node_id.is_none();
-    let ifc_root_dom_id = if let Some(id) = node.dom_node_id {
-        id
-    } else {
-        // Anonymous box - get DOM ID from parent or first child with DOM ID
-        let parent_dom_id = node
-            .parent
-            .and_then(|p| tree.get(LayoutNodeId::new(p)))
-            .and_then(|n| n.dom_node_id);
-
-        if let Some(id) = parent_dom_id {
-            id
-        } else {
-            // Try to find DOM ID from first child
-            tree.children(node_index)
-                .iter()
-                .filter_map(|&child_idx| tree.get(LayoutNodeId::new(child_idx)))
-                .find_map(|n| n.dom_node_id)
-                .ok_or(LayoutError::InvalidTree)?
-        }
-    };
+    let ifc_root_dom_id =
+        ifc_root_style_dom_id(tree, node_index).ok_or(LayoutError::InvalidTree)?;
 
     debug_ifc_layout!(ctx, "ifc_root_dom_id={:?}", ifc_root_dom_id);
 
@@ -4228,13 +4242,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 // node's entries in makes any cascade change invalidate.
                 let dom_id_opt = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id);
                 if let (Some(cc), Some(dom_id)) = (compact, dom_id_opt) {
-                    let i = dom_id.index();
-                    if let Some(t1) = cc.tier1_enums.get(i) {
-                        t1.hash(&mut h);
-                    }
-                    if let Some(t2) = cc.tier2b_text.get(i) {
-                        t2.font_family_hash.hash(&mut h);
-                    }
+                    hash_resolved_style(cc, dom_id.index(), &mut h);
                 }
             }
             idx.hash(&mut h);
@@ -4379,12 +4387,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     // it was (TEXT7's finding). `each-line` keeps its own rule.
     if ifc_root_is_anonymous
         && !text3_constraints.text_indent_each_line
-        && tree
-            .get(LayoutNodeId::new(node_index))
-            .and_then(|n| n.parent)
-            .is_some_and(|parent| {
-                first_in_flow_child(tree, ctx.styled_dom, parent) != Some(node_index)
-            })
+        && !anonymous_block_holds_the_first_line(tree, ctx.styled_dom, node_index)
     {
         text3_constraints.text_indent = 0.0;
     }
@@ -6074,6 +6077,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         strut_descent,
         strut_x_height,
         strut_cap_height,
+        // The parent font size `vertical-align: sub` / `super` shift by
+        // (text3 `baseline_shift`): the container's, as its runs carry it.
+        strut_font_size: root_style.font_size_px,
         ch_width: font_size * 0.5,
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise
@@ -11587,8 +11593,27 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 });
 
         let resolved_line_height = line_height.resolve(font_size, 0.0, 0.0, 0.0, 0);
-        let total_height =
-            resolved_line_height + padding_top + padding_bottom + border_top + border_bottom;
+        // CSS 2.2 10.8.1: an inline box with no glyphs holds a strut of its
+        // first available font - line-height tall, straddling the baseline
+        // like the strut of the line itself: that face's rounded A and D with
+        // the leading shared out (`LayoutFontMetrics::inline_box_px`, a
+        // glyph's own box). Its vertical padding and borders are no part of
+        // the line box (10.6.1 / 10.8.1). It was line-height + padding +
+        // borders tall and sat ON the baseline: `<span style="padding: 4px">`
+        // made its line 27.2px (Chrome 18).
+        let (strut_above, strut_below) = ctx
+            .font_manager
+            .first_available_font_metrics(&span_style.font_stack)
+            .filter(|m| m.units_per_em > 0)
+            .and_then(|m| m.inline_box_px(span_style.font_size_px, &span_style.line_height))
+            .unwrap_or_else(|| {
+                crate::text3::cache::split_leading(
+                    resolved_line_height,
+                    font_size * 0.8,
+                    font_size * 0.2,
+                )
+            });
+        let total_height = strut_above + strut_below;
         let total_width =
             margin_left + padding_left + border_left + border_right + padding_right + margin_right;
 
@@ -11622,7 +11647,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             },
             fill: None,
             stroke: None,
-            baseline_offset: 0.0,
+            // From the bottom edge: the strut's share below the baseline.
+            baseline_offset: strut_below,
             alignment: crate::solver3::getters::get_vertical_align_for_node(
                 ctx.styled_dom,
                 span_dom_id,
@@ -12183,12 +12209,121 @@ fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bo
     ) && get_float_property(styled_dom, Some(dom_id)) == LayoutFloat::None
 }
 
+/// Folds the RESOLVED style of DOM node `i` - every compact tier the inline
+/// collection reads - into the inline-collection key of `layout_ifc`: the
+/// tier-1 enums, the tier-2 dimensions (font size, and the box sizes and
+/// edges of inline boxes and atomic inlines, whose measured sizes the
+/// collection caches) and the whole tier-2b text block (font family,
+/// colour, line height, letter / word spacing, indent).
+///
+/// The node fingerprints cover a node's own data and inline CSS, not what an
+/// author STYLESHEET resolved onto it: the same DOM under another stylesheet
+/// (or an inherited value moved by an ancestor's restyle) compared equal on
+/// the tier-1 enums and the font family alone, and reused runs of the old
+/// font size and atomic inlines of the old size (FIX9 1.2, TEXT7 found (c)).
+/// The compact cache stores computed values (inherited ones included), so a
+/// change anywhere above reaches every node of the subtree here.
+fn hash_resolved_style<H: core::hash::Hasher>(
+    cc: &azul_css::compact_cache::CompactLayoutCache,
+    i: usize,
+    h: &mut H,
+) {
+    use core::hash::Hash;
+    if let Some(t1) = cc.tier1_enums.get(i) {
+        t1.hash(h);
+    }
+    if let Some(d) = cc.tier2_dims.get(i) {
+        (
+            d.width,
+            d.height,
+            d.min_width,
+            d.max_width,
+            d.min_height,
+            d.max_height,
+            d.flex_basis,
+            d.font_size,
+        )
+            .hash(h);
+        (
+            d.padding_top,
+            d.padding_right,
+            d.padding_bottom,
+            d.padding_left,
+            d.margin_top,
+            d.margin_right,
+            d.margin_bottom,
+            d.margin_left,
+        )
+            .hash(h);
+        (
+            d.border_top_width,
+            d.border_right_width,
+            d.border_bottom_width,
+            d.border_left_width,
+            d.top,
+            d.right,
+            d.bottom,
+            d.left,
+        )
+            .hash(h);
+        (d.flex_grow, d.flex_shrink, d.row_gap, d.column_gap).hash(h);
+    }
+    if let Some(t) = cc.tier2b_text.get(i) {
+        (
+            t.text_color,
+            t.font_family_hash,
+            t.line_height,
+            t.letter_spacing,
+            t.word_spacing,
+            t.text_indent,
+        )
+            .hash(h);
+    }
+}
+
 /// The first in-flow child box of `index` ([`is_in_flow_box`]).
 fn first_in_flow_child(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> Option<usize> {
     tree.children(index)
         .iter()
         .copied()
         .find(|&child| is_in_flow_box(tree, styled_dom, child))
+}
+
+/// The DOM node whose style an inline formatting context rooted at
+/// `ifc_root` resolves: its own, or - for an anonymous block, which has
+/// none and inherits from its enclosing box (CSS 2.2 s9.2.1.1) - its
+/// parent's, else its first child's that has one. The one rule for the
+/// IFC layout (`layout_ifc`) and its intrinsic sizes
+/// (`sizing::calculate_ifc_root_intrinsic_sizes`).
+pub(crate) fn ifc_root_style_dom_id(tree: &LayoutTree, ifc_root: usize) -> Option<NodeId> {
+    let node = tree.get(LayoutNodeId::new(ifc_root))?;
+    node.dom_node_id
+        .or_else(|| {
+            node.parent
+                .and_then(|p| tree.get(LayoutNodeId::new(p)))
+                .and_then(|n| n.dom_node_id)
+        })
+        .or_else(|| {
+            tree.children(ifc_root)
+                .iter()
+                .filter_map(|&child| tree.get(LayoutNodeId::new(child)))
+                .find_map(|n| n.dom_node_id)
+        })
+}
+
+/// Whether the anonymous block `index` holds its container's FIRST
+/// formatted line - the line `text-indent` indents (CSS 2.1 s16.1, CSS Text 3
+/// s8.1): only when it is the container's first in-flow box. The text after
+/// a nested block (`<div>first<div>..</div>after</div>`) is no first line
+/// (Chrome). The one gate for the IFC layout and its intrinsic sizes.
+pub(crate) fn anonymous_block_holds_the_first_line(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    index: usize,
+) -> bool {
+    tree.get(LayoutNodeId::new(index))
+        .and_then(|n| n.parent)
+        .is_none_or(|parent| first_in_flow_child(tree, styled_dom, parent) == Some(index))
 }
 
 /// The inline formatting context holding a list item's FIRST LINE BOX, the
@@ -15103,5 +15238,285 @@ mod autotest_generated {
         // 2000 globes + 2000 breaks (the trailing empty segment emits no Text item).
         assert_eq!(out.len(), 4_000);
         assert_eq!(text_of(&out[0]), Some("🌍"));
+    }
+}
+
+/// The formatting contexts of this file checked through a whole window
+/// layout (`LayoutWindow`, the product path).
+///
+/// The inline-collection cache of `layout_ifc` (`CachedInlineContent`, keyed
+/// by the IFC subtree's fingerprint) across a STYLESHEET-ONLY rebuild: the
+/// same DOM, the same classes, another stylesheet. The node fingerprints are
+/// all unchanged, so only the resolved values the key folds in can tell the
+/// collection is stale. The rebuild goes through the product path:
+/// `begin_reconciliation` (the CSS diff) then the layout pass.
+#[cfg(test)]
+mod window_layout_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        resources::RendererResources,
+        styled_dom::StyledDom,
+        task::Instant,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    fn styled(mut dom: Dom, css: &str) -> StyledDom {
+        let (css, _) = azul_css::parser2::new_from_str(css);
+        StyledDom::create(&mut dom, css)
+    }
+
+    fn lay_out(lw: &mut LayoutWindow, styled_dom: StyledDom) {
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+    }
+
+    /// The first page, then the same DOM under `second_css` - rebuilt as the
+    /// shell rebuilds (the CSS diff first) in the same window.
+    fn restyled(lw: &mut LayoutWindow, page: fn() -> Dom, first_css: &str, second_css: &str) {
+        lay_out(lw, styled(page(), first_css));
+        let mut next = styled(page(), second_css);
+        let _pending = lw.begin_reconciliation(DomId::ROOT_ID, &mut next, Instant::now());
+        lay_out(lw, next);
+    }
+
+    /// The used size of DOM node `node`.
+    fn size_of(lw: &LayoutWindow, node: usize) -> LogicalSize {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the node has a size")
+    }
+
+    /// The calculated position of DOM node `node`.
+    fn position_of(lw: &LayoutWindow, node: usize) -> LogicalPosition {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        *lr.calculated_positions
+            .get(index.index())
+            .expect("the node has a position")
+    }
+
+    /// `body(0) > div.p(1) > "Hello Hello Hello"(2)`.
+    fn paragraph() -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(
+                    Dom::create_span_with_text("Hello Hello Hello")
+                        .with_ids_and_classes(vec![IdOrClass::Class("s".into())].into()),
+                ),
+        )
+    }
+
+    #[test]
+    fn a_stylesheet_only_font_size_change_relays_out_its_text() {
+        // `body(0) > div.p(1) > span.s(2) > text(3)`. A fixed 20px line box,
+        // so the height counts the lines whatever the font: three words of
+        // 10px text fit one 200px line (about 80px), at 40px each word is
+        // about 100px wide and they wrap to 2 or 3 lines. The span's padding
+        // moves too: a font-size change alone is classified paint-only by
+        // `begin_reconciliation` (`relayout_scope(false)`, a round-2 note),
+        // the padding makes the span's restyle a layout one - lifted to the
+        // paragraph, whose cached collection kept the 10px runs.
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let base = "body { margin: 0; } .p { width: 200px; line-height: 20px; }";
+        restyled(
+            &mut lw,
+            paragraph,
+            &format!("{base} .s {{ font-size: 10px; padding-left: 0px; }}"),
+            &format!("{base} .s {{ font-size: 40px; padding-left: 1px; }}"),
+        );
+        let h = size_of(&lw, 1).height;
+        assert!(
+            h >= 39.5,
+            "40px words wrap the 200px paragraph to two lines or more (it kept the 10px runs \
+             of the cached collection: one line): {h}"
+        );
+    }
+
+    /// `body(0) > div.p(1) > [i.a(2)][i.b(3)]`, two inline-blocks on one line.
+    fn two_inline_blocks() -> Dom {
+        let ib = |class: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+        };
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(ib("a"))
+                .with_child(ib("b")),
+        )
+    }
+
+    #[test]
+    fn a_stylesheet_only_width_change_of_an_inline_block_moves_what_follows_it() {
+        // Font-free: the collection caches each atomic inline's measured
+        // size (`InlineShape`), so a stale key keeps the old 30px slot.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let base = "body { margin: 0; } .a, .b { display: inline-block; height: 10px; } .b { \
+                    width: 10px; }";
+        restyled(
+            &mut lw,
+            two_inline_blocks,
+            &format!("{base} .a {{ width: 30px; }}"),
+            &format!("{base} .a {{ width: 60px; }}"),
+        );
+        let a = size_of(&lw, 2).width;
+        assert!(
+            (a - 60.0).abs() < 0.5,
+            "the first inline-block is 60 wide now: {a}"
+        );
+        let b = position_of(&lw, 3).x;
+        assert!(
+            (b - 60.0).abs() < 0.5,
+            "the second inline-block starts after the 60px one: {b}"
+        );
+    }
+
+    /// `body(0) > div.ul(1) > div.li(2) > div.block(3)`: a list item whose
+    /// first child is a block with no line box in it.
+    fn a_list_item_whose_first_child_is_a_block() -> Dom {
+        let class = |c: &'static str| -> azul_core::dom::IdOrClassVec {
+            vec![IdOrClass::Class(c.into())].into()
+        };
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(class("ul"))
+                .with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(class("li"))
+                        .with_child(Dom::create_div().with_ids_and_classes(class("block"))),
+                ),
+        )
+    }
+
+    #[test]
+    fn a_list_item_without_a_line_box_is_as_tall_as_its_block() {
+        // `<li><div style="height: 50px"></div></li>`: no line box for the
+        // marker to ride (`marker_line_host` is None). Chrome places the
+        // marker at the item's content start, out of the flow, and the item
+        // is as tall as the taller of the two (LayoutNG's
+        // PositionListMarkerWithoutLineBoxes): 50. The marker took a 20px
+        // line of its own above the block: 70.
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                a_list_item_whose_first_child_is_a_block(),
+                "body { margin: 0; } .ul { margin: 0; padding-left: 40px; } .li { display: \
+                 list-item; list-style-type: disc; line-height: 20px; } .block { height: 50px; }",
+            ),
+        );
+        let li = size_of(&lw, 2).height;
+        assert!(
+            (li - 50.0).abs() < 0.5,
+            "the item is its block's 50px: {li}"
+        );
+        let item_top = position_of(&lw, 2).y;
+        let block_top = position_of(&lw, 3).y;
+        assert!(
+            (block_top - item_top).abs() < 0.5,
+            "the block starts at the item's top, no marker line above it: {block_top} vs \
+             {item_top}"
+        );
+    }
+
+    /// `body(0) > div.root(1) > [div.mover(2), div.after(3)]`.
+    fn a_block_above_a_block() -> Dom {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        Dom::create_body().with_child(
+            div("root")
+                .with_child(div("mover"))
+                .with_child(div("after")),
+        )
+    }
+
+    #[test]
+    fn a_block_moves_with_its_own_margin_after_a_restyle() {
+        // LAYOUTPERF8 bug B (scripts/layoutperf8_e2e/a_block_moves_with_its_own_margin.json):
+        // a stylesheet change of a block's own margin-left (0 -> 40px) moves
+        // it to x = 40, where a fresh layout of the page puts it. It stayed
+        // at 0: the node was a clean CLONE carrying the box props of the OLD
+        // cascade, the css-dirty channel only marked it dirty, and a dirty
+        // block root is re-solved in its old slot.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let base = "body { margin: 0; } .mover { width: 50px; height: 20px; } .after { height: \
+                    20px; }";
+        restyled(
+            &mut lw,
+            a_block_above_a_block,
+            &format!("{base} .mover {{ margin-left: 0px; }}"),
+            &format!("{base} .mover {{ margin-left: 40px; }}"),
+        );
+        let mover = position_of(&lw, 2);
+        assert!(
+            (mover.x - 40.0).abs() < 0.5,
+            "the block moved with its margin: {mover:?}"
+        );
+        let after = position_of(&lw, 3);
+        assert!(
+            after.x.abs() < 0.5 && (after.y - 20.0).abs() < 0.5,
+            "the block below stays in its slot: {after:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_inline_with_padding_is_as_tall_as_its_strut() {
+        // `body(0) > div.p(1) > span.e(2)`, the span empty and padded. CSS
+        // 2.2 10.8.1: an inline box with no glyphs holds a strut - it is
+        // line-height tall and straddles the baseline like the line's own
+        // strut; its vertical padding and borders do not count in the line
+        // box. Chrome: 18. It was a line-height + padding tall box sitting
+        // ON the baseline: 18 + 8 above the baseline plus the strut's
+        // descent below it (the brief's 27.2 with `line-height: normal`).
+        // Font-free: both struts take the 0.8em / 0.2em fallback split.
+        let page = || {
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                    .with_child(
+                        Dom::create_span()
+                            .with_ids_and_classes(vec![IdOrClass::Class("e".into())].into()),
+                    ),
+            )
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; } .p { font-size: 16px; line-height: 18px; } .e { padding: \
+                 4px; }",
+            ),
+        );
+        let h = size_of(&lw, 1).height;
+        assert!((h - 18.0).abs() < 0.5, "the line is its strut's 18px: {h}");
     }
 }
