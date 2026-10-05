@@ -128,7 +128,7 @@ impl Default for MoneyLocale {
 pub struct MoneyCurrency {
     /// The ISO 4217 code (`EUR`), what the addon shows.
     pub code: AzString,
-    /// The symbol (`€`), for [`MoneyInput::format_amount`].
+    /// The symbol (the euro sign, `$`), for [`MoneyInput::format_amount`].
     pub symbol: AzString,
     /// Digits after the decimal point (0 to 4).
     pub minor_digits: u8,
@@ -233,13 +233,13 @@ impl MoneyLocale {
         }
     }
 
-    /// `1.234,56`, `1.234,56 €` (German and most of continental Europe).
+    /// `1.234,56`, `1.234,56 EUR` (German and most of continental Europe).
     #[must_use]
     pub const fn de_de() -> Self {
         Self::create(',' as u32, '.' as u32, MoneySymbolPosition::After)
     }
 
-    /// `1 234,56 €` with a narrow no-break space (French).
+    /// `1 234,56 EUR` with a narrow no-break space (French).
     #[must_use]
     pub const fn fr_fr() -> Self {
         Self::create(',' as u32, NNBSP as u32, MoneySymbolPosition::After)
@@ -749,7 +749,7 @@ fn read_number(
 /// in `locale`: grouped, the decimal point and every decimal, a leading `-`
 /// for a negative amount (`-1.234,50`). With `symbol`, the currency on the
 /// locale's side of it, spaced by a no-break space where the locale spaces
-/// it (`1.234,50 €`, `$1,234.50`).
+/// it (`1.234,50 EUR`, `$1,234.50`).
 pub(crate) fn format_money(
     amount: i64,
     locale: &MoneyLocale,
@@ -1212,7 +1212,7 @@ impl MoneyInput {
     }
 
     /// `amount` minor units of `currency` as `locale` writes them, with the
-    /// currency's symbol on its side (`1.234,56 €`, `$1,234.56`): for a
+    /// currency's symbol on its side (`1.234,56 EUR`, `$1,234.56`): for a
     /// table, a label, a total.
     #[must_use]
     pub fn format_amount(amount: i64, currency: MoneyCurrency, locale: MoneyLocale) -> AzString {

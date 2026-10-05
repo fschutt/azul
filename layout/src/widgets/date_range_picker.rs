@@ -351,10 +351,10 @@ pub enum DateRangePickerEventKind {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DateRangePickerEvent {
-    /// The view after the action - the app stores it and rebuilds.
-    pub view: DateRangePickerView,
     /// What happened.
     pub kind: DateRangePickerEventKind,
+    /// The view after the action - the app stores it and rebuilds.
+    pub view: DateRangePickerView,
     /// The preset chosen (meaningful for `Preset`).
     pub preset: DateRangePreset,
 }

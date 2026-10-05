@@ -144,7 +144,7 @@ impl Drop for ParsedPdf {
 #[cfg(target_arch = "wasm32")]
 impl ParsedPdf {
     /// No PDF backend on wasm: an empty handle.
-    pub fn from_bytes(_bytes: &[u8]) -> Self {
+    pub fn create_from_bytes(_bytes: &[u8]) -> Self {
         ParsedPdf::default()
     }
     pub fn is_valid(&self) -> bool {

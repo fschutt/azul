@@ -19,7 +19,7 @@ use azul_css::U8Vec;
 use azul_layout::solver3::display_list::DisplayListItem;
 
 /// PDF -> page count, page sizes, page N as SVG, page text, outline (PDF9).
-mod parsed;
+pub mod parsed;
 pub use parsed::*;
 
 /// Say once per process that the `pdf` feature is compiled out. Every stub
@@ -330,10 +330,10 @@ impl Pdf {
 /// PDF bytes -> per-page SVG strings (see [`Pdf::to_svg_pages`]). Renders
 /// EVERY page: a viewer parses once with [`ParsedPdf`] and renders only the
 /// pages it shows. Same render path (`ParsedPdf::page_to_svg`); empty without
-/// the `pdf` feature (`ParsedPdf::from_bytes` announces that) or on a parse
+/// the `pdf` feature (`ParsedPdf::create_from_bytes` announces that) or on a parse
 /// failure.
 pub fn pdf_to_svg_pages(bytes: &[u8]) -> Vec<String> {
-    let pdf = ParsedPdf::from_bytes(bytes);
+    let pdf = ParsedPdf::create_from_bytes(bytes);
     (0..pdf.page_count())
         .filter_map(|index| pdf.page_to_svg(index).into_option())
         .map(azul_css::AzString::into_library_owned_string)

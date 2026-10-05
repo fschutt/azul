@@ -143,7 +143,7 @@ impl ParsedPdf {
     /// Bytes that are not a PDF give a handle with no pages whose
     /// `get_error` says why.
     #[must_use]
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    pub fn create_from_bytes(bytes: &[u8]) -> Self {
         #[cfg(feature = "pdf")]
         {
             Self::from_inner(engine::parse(bytes))
@@ -151,7 +151,7 @@ impl ParsedPdf {
         #[cfg(not(feature = "pdf"))]
         {
             let _ = bytes;
-            super::announce_pdf_stub("ParsedPdf::from_bytes");
+            super::announce_pdf_stub("ParsedPdf::create_from_bytes");
             Self::from_inner(Inner {
                 error: String::from("this build of azul has no PDF support (the `pdf` feature)"),
                 ..Inner::default()

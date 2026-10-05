@@ -51,7 +51,7 @@ fn close(a: f32, b: f32) -> bool {
 
 #[test]
 fn a_parsed_pdf_reports_its_page_count_and_page_sizes_in_points() {
-    let pdf = ParsedPdf::from_bytes(&two_pages());
+    let pdf = ParsedPdf::create_from_bytes(&two_pages());
     assert!(pdf.is_valid(), "error: {}", pdf.get_error().as_str());
     assert_eq!(pdf.page_count(), 2);
 
@@ -69,7 +69,7 @@ fn a_parsed_pdf_reports_its_page_count_and_page_sizes_in_points() {
 
 #[test]
 fn page_n_renders_as_a_standalone_svg_the_size_of_the_page() {
-    let pdf = ParsedPdf::from_bytes(&two_pages());
+    let pdf = ParsedPdf::create_from_bytes(&two_pages());
     let svg = pdf
         .page_to_svg(0)
         .into_option()
@@ -100,7 +100,7 @@ fn page_n_renders_as_a_standalone_svg_the_size_of_the_page() {
 
 #[test]
 fn a_page_past_the_end_has_no_svg_no_text_and_a_zero_size() {
-    let pdf = ParsedPdf::from_bytes(&two_pages());
+    let pdf = ParsedPdf::create_from_bytes(&two_pages());
     assert!(pdf.page_to_svg(2).is_none());
     assert!(pdf.page_to_svg(usize::MAX).is_none());
     assert_eq!(pdf.page_size(2), PdfPageSize::default());
@@ -109,7 +109,7 @@ fn a_page_past_the_end_has_no_svg_no_text_and_a_zero_size() {
 
 #[test]
 fn the_text_of_a_page_is_extracted_for_search() {
-    let pdf = ParsedPdf::from_bytes(&two_pages());
+    let pdf = ParsedPdf::create_from_bytes(&two_pages());
     let text: Vec<String> = pdf
         .page_text(0)
         .as_slice()
@@ -125,13 +125,13 @@ fn the_text_of_a_page_is_extracted_for_search() {
 
 #[test]
 fn the_document_title_comes_from_the_info_dictionary() {
-    let pdf = ParsedPdf::from_bytes(&two_pages());
+    let pdf = ParsedPdf::create_from_bytes(&two_pages());
     assert_eq!(pdf.get_title().as_str(), "PDF9 sample");
 }
 
 #[test]
 fn bytes_that_are_not_a_pdf_give_an_invalid_handle_with_an_error_and_no_pages() {
-    let pdf = ParsedPdf::from_bytes(b"this is not a PDF");
+    let pdf = ParsedPdf::create_from_bytes(b"this is not a PDF");
     assert!(!pdf.is_valid());
     assert!(
         !pdf.get_error().as_str().is_empty(),
@@ -140,7 +140,7 @@ fn bytes_that_are_not_a_pdf_give_an_invalid_handle_with_an_error_and_no_pages() 
     assert_eq!(pdf.page_count(), 0);
     assert!(pdf.page_to_svg(0).is_none());
 
-    let empty = ParsedPdf::from_bytes(&[]);
+    let empty = ParsedPdf::create_from_bytes(&[]);
     assert!(!empty.is_valid());
     assert_eq!(empty.page_count(), 0);
 }
@@ -159,7 +159,7 @@ fn a_default_handle_is_empty_and_safe_to_query() {
 
 #[test]
 fn clones_share_one_parse_and_outlive_the_original() {
-    let pdf = ParsedPdf::from_bytes(&two_pages());
+    let pdf = ParsedPdf::create_from_bytes(&two_pages());
     let copy = pdf.clone();
     assert_eq!(
         pdf.ptr, copy.ptr,
@@ -172,7 +172,7 @@ fn clones_share_one_parse_and_outlive_the_original() {
 
 #[test]
 fn a_parsed_pdf_can_be_read_from_another_thread() {
-    let pdf = ParsedPdf::from_bytes(&two_pages());
+    let pdf = ParsedPdf::create_from_bytes(&two_pages());
     let copy = pdf.clone();
     let count = std::thread::spawn(move || {
         let svg = copy.page_to_svg(1).into_option().map(|s| s.as_str().len());
@@ -196,7 +196,7 @@ fn the_outline_lists_the_bookmarks_in_document_order_with_zero_based_pages() {
     for i in 0..12 {
         doc.add_bookmark(&format!("Section {:02}", i + 1), i + 1);
     }
-    let pdf = ParsedPdf::from_bytes(&save(&doc));
+    let pdf = ParsedPdf::create_from_bytes(&save(&doc));
     assert!(pdf.is_valid(), "error: {}", pdf.get_error().as_str());
     assert_eq!(pdf.outline_count(), 12);
     for i in 0..12 {
@@ -218,7 +218,7 @@ fn the_outline_lists_the_bookmarks_in_document_order_with_zero_based_pages() {
 fn the_legacy_all_pages_call_and_the_handle_render_the_same_svg() {
     let bytes = two_pages();
     let all = super::pdf_to_svg_pages(&bytes);
-    let pdf = ParsedPdf::from_bytes(&bytes);
+    let pdf = ParsedPdf::create_from_bytes(&bytes);
     assert_eq!(all.len(), pdf.page_count());
     for (i, svg) in all.iter().enumerate() {
         let one = pdf.page_to_svg(i).into_option().expect("each page renders");
