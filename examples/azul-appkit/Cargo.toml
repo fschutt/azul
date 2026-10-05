@@ -24,6 +24,8 @@ publish = false
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 azul-storage = { path = "../azul-storage" }
+# In Cargo.lock (AzSheets, AzKeys, AzERP): the one CSV reader (`csv` module).
+csv = "1.4"
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
 
 [features]
