@@ -34,6 +34,10 @@ default = []
 # The apps turn it on; the unit tests of the plain modules need no libazul.
 azul = ["dep:azul"]
 
+[dev-dependencies]
+# The one temporary folder for tests (azul_storage::testing::TempDir).
+azul-storage = { path = "../azul-storage", features = ["testing"] }
+
 [lib]
 name = "azul_appkit"
 path = "src/lib.rs"

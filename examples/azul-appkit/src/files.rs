@@ -210,41 +210,10 @@ pub fn open_external(target: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-pub(crate) mod test_dir {
-    //! A fresh folder under the system's temporary folder, removed on drop.
-
-    use std::path::{Path, PathBuf};
-
-    pub struct TestDir(PathBuf);
-
-    impl TestDir {
-        pub fn new(name: &str) -> TestDir {
-            let dir = std::env::temp_dir().join(format!(
-                "azul-appkit-{name}-{}-{}",
-                std::process::id(),
-                crate::data::new_uuid()
-            ));
-            std::fs::create_dir_all(&dir).expect("a temporary folder");
-            TestDir(dir)
-        }
-
-        pub fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use azul_storage::LocalDrive;
 
-    use super::test_dir::TestDir;
+    use azul_storage::testing::TempDir;
     use super::*;
 
     fn put(key: &str, text: &str) -> FileJob {
@@ -256,7 +225,7 @@ mod tests {
 
     #[test]
     fn a_picked_file_outside_the_data_tree_is_read_by_name_and_its_folder_gets_no_manifest() {
-        let dir = TestDir::new("files-outside");
+        let dir = TempDir::new("files-outside");
         let file = dir.path().join("Report 2026.docx");
         std::fs::write(&file, b"PK").expect("the fixture");
         let (folder, job) = outside_read(&file).expect("a file name");
@@ -286,7 +255,7 @@ mod tests {
 
     #[test]
     fn a_written_file_reads_back_and_a_missing_one_is_none() {
-        let dir = TestDir::new("files-rw");
+        let dir = TempDir::new("files-rw");
         let drive = LocalDrive::new(dir.path());
         let out = run_jobs(
             &drive,
@@ -324,7 +293,7 @@ mod tests {
 
     #[test]
     fn get_all_reads_every_file_with_the_suffix_in_key_order() {
-        let dir = TestDir::new("files-all");
+        let dir = TempDir::new("files-all");
         let drive = LocalDrive::new(dir.path());
         run_jobs(
             &drive,
@@ -355,7 +324,7 @@ mod tests {
 
     #[test]
     fn get_all_of_a_folder_that_does_not_exist_yet_is_empty_not_an_error() {
-        let dir = TestDir::new("files-empty");
+        let dir = TempDir::new("files-empty");
         let drive = LocalDrive::new(dir.path());
         let out = run_job(
             &drive,
@@ -376,7 +345,7 @@ mod tests {
 
     #[test]
     fn deleting_removes_the_file_and_deleting_twice_is_fine() {
-        let dir = TestDir::new("files-delete");
+        let dir = TempDir::new("files-delete");
         let drive = LocalDrive::new(dir.path());
         let delete = || FileJob::Delete {
             key: "contacts/a.vcf".to_string(),
@@ -389,7 +358,7 @@ mod tests {
 
     #[test]
     fn a_key_that_leaves_the_root_is_refused_with_a_sentence() {
-        let dir = TestDir::new("files-bad");
+        let dir = TempDir::new("files-bad");
         let drive = LocalDrive::new(dir.path());
         let out = run_job(&drive, put("../escape.txt", "x"));
         let error = out.error().expect("refused");
@@ -403,7 +372,7 @@ mod tests {
         assert!(external_target("file:///etc/passwd").is_err());
         assert!(external_target("https://exa mple.org").is_err());
         assert!(external_target("").is_err());
-        let dir = TestDir::new("external-target");
+        let dir = TempDir::new("external-target");
         let path = dir.path().display().to_string();
         assert_eq!(external_target(&path), Ok(path.clone()));
         assert!(external_target(&format!("{path}/missing")).is_err());

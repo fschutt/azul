@@ -218,7 +218,7 @@ fn append_note(legacy: &Path, root: &Path, pass: &Migration) -> std::io::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::files::test_dir::TestDir;
+    use azul_storage::testing::TempDir;
 
     fn write(path: &Path, bytes: &[u8]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn the_apps_legacy_folder_moves_into_the_data_root() {
-        let os = TestDir::new("migrate-move");
+        let os = TempDir::new("migrate-move");
         let legacy = os.path().join("azul");
         write(&legacy.join("show/deck1/deck.json"), b"{\"deck\":1}");
         write(&legacy.join("show/deck1/media/a.png"), b"png");
@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn a_file_the_data_root_already_has_is_never_overwritten() {
-        let os = TestDir::new("migrate-keep");
+        let os = TempDir::new("migrate-keep");
         let legacy = os.path().join("azul");
         let root = root_of(os.path());
         write(&legacy.join("videocut/p1/project.json"), b"old");
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn running_it_again_changes_nothing() {
-        let os = TestDir::new("migrate-again");
+        let os = TempDir::new("migrate-again");
         let legacy = os.path().join("azul");
         let root = root_of(os.path());
         write(&legacy.join("show/d/deck.json"), b"1");
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn other_apps_folders_and_azuls_own_files_stay() {
-        let os = TestDir::new("migrate-others");
+        let os = TempDir::new("migrate-others");
         let legacy = os.path().join("azul");
         let root = root_of(os.path());
         write(&legacy.join("show/d/deck.json"), b"deck");
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn a_root_the_user_named_is_never_migrated_into() {
-        let os = TestDir::new("migrate-custom");
+        let os = TempDir::new("migrate-custom");
         let legacy = os.path().join("azul");
         write(&legacy.join("show/d/deck.json"), b"deck");
         let custom = os.path().join("elsewhere");
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn the_photo_and_notes_legacy_folders_move_too() {
-        let os = TestDir::new("migrate-photo-notes");
+        let os = TempDir::new("migrate-photo-notes");
         let root = root_of(os.path());
         write(&os.path().join("Azul/photo/u1/doc.json"), b"photo");
         write(&os.path().join("AzNotes/notes/Work/n1.md"), b"# note");
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn without_a_legacy_folder_nothing_is_touched() {
-        let os = TestDir::new("migrate-none");
+        let os = TempDir::new("migrate-none");
         let root = root_of(os.path());
         let done = migrate_app_data(os.path(), &root, "calculator");
         assert_eq!(done, Migration::default());
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn an_app_folder_that_is_not_one_name_is_refused() {
-        let os = TestDir::new("migrate-bad-name");
+        let os = TempDir::new("migrate-bad-name");
         let root = root_of(os.path());
         write(&os.path().join("azul/styles/x.css"), b"x");
         for bad in ["", "..", ".", "a/b", "/abs"] {

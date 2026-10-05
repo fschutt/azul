@@ -837,38 +837,13 @@ impl TransferQueue {
 #[cfg(test)]
 mod tests {
     use std::{
-        path::{Path, PathBuf},
+        path::PathBuf,
         sync::atomic::{AtomicBool, AtomicU32, Ordering},
     };
 
-    use azul_storage::{Drive, LocalDrive};
+    use azul_storage::{testing::TempDir, Drive, LocalDrive};
 
     use super::*;
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(what: &str) -> Self {
-            static COUNTER: AtomicU32 = AtomicU32::new(0);
-            let dir = std::env::temp_dir().join(format!(
-                "azdrive-{what}-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::SeqCst)
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            TempDir(dir)
-        }
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
 
     fn seeded(tmp: &TempDir) -> LocalDrive {
         let drive = LocalDrive::new(tmp.path().join("home"));
