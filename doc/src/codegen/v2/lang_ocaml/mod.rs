@@ -72,6 +72,7 @@
 //! dune).
 
 pub mod dune;
+pub mod fields;
 pub mod functions;
 pub mod managed;
 pub mod types;

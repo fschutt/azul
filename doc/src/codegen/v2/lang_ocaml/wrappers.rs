@@ -112,7 +112,7 @@ pub fn emit_idiomatic_module_interface_for(
         if !should_wrap(s, config) || !class_has_visible_methods(&s.name, ir) {
             continue;
         }
-        let plan = ClassPlan::build(s, ir, &records);
+        let plan = ClassPlan::build(s, ir, config, &records);
         plan.emit_interface(builder);
     }
 
@@ -169,7 +169,7 @@ pub fn emit_idiomatic_module_implementation_for(
         if !should_wrap(s, config) || !class_has_visible_methods(&s.name, ir) {
             continue;
         }
-        let plan = ClassPlan::build(s, ir, &records);
+        let plan = ClassPlan::build(s, ir, config, &records);
         plan.emit_implementation(builder);
     }
 
@@ -1309,10 +1309,17 @@ struct ClassPlan<'a> {
     methods: Vec<MethodPlan<'a>>,
     smart: Option<SmartCtor>,
     tags: Vec<TagHelper>,
+    /// `get_<field>` / `set_<field>` / `update_<field>` (see `fields`).
+    fields: Vec<super::fields::Accessor>,
 }
 
 impl<'a> ClassPlan<'a> {
-    fn build(s: &'a StructDef, ir: &'a CodegenIR, records: &BTreeSet<&str>) -> ClassPlan<'a> {
+    fn build(
+        s: &'a StructDef,
+        ir: &'a CodegenIR,
+        config: &CodegenConfig,
+        records: &BTreeSet<&str>,
+    ) -> ClassPlan<'a> {
         let methods: Vec<MethodPlan<'a>> = ir
             .functions_for_class(&s.name)
             .filter(|f| !f.kind.is_trait_function())
@@ -1341,6 +1348,19 @@ impl<'a> ClassPlan<'a> {
             taken.insert(fixed.to_string());
         }
         let tags = tag_helpers(s, ir, &taken);
+        // Field accessors come last: every api.json method and helper above
+        // keeps its name, an accessor that would shadow one is renamed.
+        for t in &tags {
+            taken.insert(t.name.clone());
+        }
+        let fields = super::fields::field_accessors(
+            s,
+            ir,
+            config,
+            records,
+            records.contains(s.name.as_str()),
+            &mut taken,
+        );
         ClassPlan {
             s,
             ir,
@@ -1351,6 +1371,7 @@ impl<'a> ClassPlan<'a> {
             methods,
             smart,
             tags,
+            fields,
         }
     }
 
@@ -1382,6 +1403,13 @@ impl<'a> ClassPlan<'a> {
         }
         for t in &self.tags {
             builder.line(&t.signature());
+        }
+        if !self.fields.is_empty() {
+            builder.line("(* Field accessors: get = an independent copy, set = release the old *)");
+            builder.line("(* value then move the new one in, update = edit nested fields in place. *)");
+        }
+        for a in &self.fields {
+            builder.line(&a.sig);
         }
         if is_refany_type(&s.name, ir) {
             for l in REFANY_INTERFACE.lines() {
@@ -1460,6 +1488,18 @@ impl<'a> ClassPlan<'a> {
         }
         for t in &self.tags {
             builder.line(&t.implementation());
+        }
+        for a in &self.fields {
+            for l in &a.body {
+                match l.strip_prefix('>') {
+                    Some(inner) => {
+                        builder.indent();
+                        builder.line(inner);
+                        builder.dedent();
+                    }
+                    None => builder.line(l),
+                }
+            }
         }
         if is_refany_type(&s.name, ir) {
             for l in REFANY_IMPLEMENTATION.lines() {

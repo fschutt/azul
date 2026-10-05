@@ -23,10 +23,18 @@ None = skipped: callbacks, callback wrappers, RefAny, pointers, generics, arrays
 - V: RED then fix (lang_v/fields.rs): `az_string_to_v(&s)` (copies, never consumes);
   methods `x.get_<f>()` / `x.set_<f>(v)` for Str/Heap fields (`mut` receiver = nested writes).
 
+- OCaml: RED then fix (lang_ocaml/fields.rs + ClassPlan): `get_<f>` / `set_<f>` / `update_<f>` in every
+  class module (`.mli` + `.ml`); records consumed on set (`disposed <- true`), deep-copied on get
+  (`make_<r> (<clone> ptr)`); `update_<f>` = working copy written back via Fun.protect (getf copies, so
+  nested writes need it). `azul_string_of_az` (non-consuming decode) in azul_managed.
+  `azul_<class>_with_layout` now calls `Az<LayoutCallback>_delete` on the default callback before setf.
+  Example examples/ocaml/hello_world.ml (included into the generated tree) sets title + size.
+
 ## IN PROGRESS
-- OCaml.
+- (none) - final review.
 
 ## NEXT
-- OCaml (+ with_layout leak).
+- Parent: cargo test -p azul-doc (field_access_tests in 5 langs + raw_field_access tests), regenerate,
+  compile the 5 hello-worlds.
 
 ## Open questions
