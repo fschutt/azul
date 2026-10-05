@@ -25,14 +25,16 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        Backstage, BackstageNavItem, ButtonType, CheckBoxState, DatePicker, DatePickerState,
-        DatePickerWeekStart,
-        OnTextInputReturn, Ribbon, RibbonAppButton, RibbonGroup, RibbonItem,
+        Backstage, BackstageNavItem, CheckBoxState, DatePicker, DatePickerState,
+        DatePickerWeekStart, OnTextInputReturn, Ribbon, RibbonAppButton, RibbonGroup, RibbonItem,
         RibbonTab, StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInputState,
         TextInputValid, Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask,
     },
 };
-use azul_appkit::ribbon::callback_button;
+use azul_appkit::{
+    pieces::{self, flex_row},
+    ribbon::callback_button,
+};
 use chrono::{Datelike, Duration, NaiveDate};
 
 use crate::{
@@ -439,29 +441,19 @@ fn note(text: &str) -> Dom {
         .with_css(format!("font-size: 12px; {SECONDARY} margin-top: 4px;"))
 }
 
+/// A line of a page: the kit's flex row, below the line before it.
 fn line(children: Vec<Dom>) -> Dom {
-    let mut row = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; margin-top: 8px;");
-    for c in children {
-        row.add_child(c);
-    }
-    row
+    flex_row("margin-top: 8px;", children)
 }
 
+/// The kit's button, with room after it (the buttons of a [`line`] sit side by side).
 fn button(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-        .with_css("margin-right: 8px;")
+    pieces::button(label, id, app, cb).with_css("margin-right: 8px;")
 }
 
+/// The kit's primary button, with room after it.
 fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::with_type(label, ButtonType::Primary)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-        .with_css("margin-right: 8px;")
+    pieces::primary(label, id, app, cb).with_css("margin-right: 8px;")
 }
 
 /// How the meeting links stand, in a sentence.
