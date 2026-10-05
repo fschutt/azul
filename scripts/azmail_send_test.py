@@ -27,6 +27,15 @@ Cases (each with a fresh AzMail folder and its own sink):
   port25        direct delivery to a closed local port with the port-25 probe pointed at it:
                 queued, send_policy.json records port25.open = false; a retry within the hour
                 knocks nowhere; --ignore-policy sends it to a sink
+  submission    (needs openssl) the optional signed-in route (lettre): the account's own
+                outgoing server from account.json, STARTTLS with a self-signed certificate,
+                AUTH PLAIN with the user name and the secret (from the environment); the
+                sink saw TLS and the sign-in; the mail in Sent; the secret in no output or file
+  submission-implicit (needs openssl) TLS from the first byte (--tls implicit, port 465's way)
+                and AUTH LOGIN (the only mechanism offered)
+  submission-xoauth2 (needs openssl) an OAuth account: XOAUTH2 with the token
+  submission-refused (needs openssl) a wrong password: queued with the server's 535, no
+                attempt counted, nothing stored; the retry with the right one: sent
 
 Usage (from the azul repository, after `cargo build --release -p AzMail --bin azmail-send`):
 
@@ -125,10 +134,12 @@ class Runner:
             env[var] = os.pathsep.join(libs + [env[var]] if env.get(var) else libs)
         self.env = env
 
-    def send(self, data, *args):
-        """Runs azmail-send; returns (exit code, the AZMAIL_SEND lines, all output)."""
+    def send(self, data, *args, env=None):
+        """Runs azmail-send (with `env` added to its environment); returns (exit code, the
+        AZMAIL_SEND lines, all output)."""
         cmd = self.prefix + [self.binary, '--data', data, '--account', ACCOUNT, *args]
-        proc = subprocess.run(cmd, env=self.env, capture_output=True, text=True, timeout=180)
+        proc = subprocess.run(cmd, env=dict(self.env, **(env or {})), capture_output=True,
+                              text=True, timeout=180)
         output = proc.stdout + proc.stderr
         lines = [l for l in proc.stdout.splitlines() if l.startswith('AZMAIL_SEND')]
         return proc.returncode, lines, output
@@ -504,6 +515,117 @@ def case_port25(run, work):
         sink.stop()
 
 
+# ---- submission: the optional signed-in route ----
+
+SECRET_VAR = 'AZMAIL_E2E_SUBMIT_SECRET'
+SECRET = 'app-password-e2e-7f3a'
+
+
+def write_account(data, port, auth='password'):
+    """The account file submission reads its outgoing server, user name and kind of secret
+    from (account.rs's format, version 1)."""
+    os.makedirs(account_dir(data), exist_ok=True)
+    account = {
+        'format': 'azmail.account', 'version': 1, 'email': ACCOUNT, 'username': 'ada',
+        'imap': {'host': '127.0.0.1', 'port': 993}, 'smtp': {'host': '127.0.0.1', 'port': port},
+        'security': 'tls', 'auth': auth,
+    }
+    with open(os.path.join(account_dir(data), 'account.json'), 'w', encoding='utf-8') as f:
+        json.dump(account, f, indent=2)
+
+
+def no_secret_anywhere(data, out, secret):
+    check(secret not in out, 'the secret is in the output')
+    for folder, _, files in os.walk(data):
+        for name in files:
+            with open(os.path.join(folder, name), 'rb') as f:
+                check(secret.encode() not in f.read(), f'the secret is in {name}')
+
+
+def submit_once(run, work, sink_args, send_args, auth='password', secret=SECRET):
+    """One mail through the submission route to a sink started with `sink_args`; returns
+    (data folder, sink, exit code, lines, output); the caller stops the sink."""
+    data = os.path.join(work, 'data')
+    sink = Sink(os.path.join(work, 'sink'), '--tls-selfsigned', *sink_args)
+    write_account(data, sink.port, auth)
+    code, lines, out = run.send(
+        data, '--submission', '--ca', sink.cert, '--password-env', SECRET_VAR, *send_args,
+        '--from', 'Ada Lovelace <ada@example.org>', '--to', 'ben@example.net',
+        '--bcc', 'dee@example.com', '--subject', 'signed in', '--text', 'through my provider',
+        env={SECRET_VAR: secret})
+    return data, sink, code, lines, out
+
+
+def check_submitted(data, sink, code, lines, out, mechanism):
+    check(code == 0 and lines and lines[0].startswith('AZMAIL_SEND sent '), out)
+    got = sink.messages()
+    check(len(got) == 1, got)
+    raw, envelope = got[0]
+    check(envelope['tls'] is True, envelope)
+    check(envelope['auth_user'] == 'ada' and envelope['auth_mechanism'] == mechanism, envelope)
+    check(envelope['rcpt_to'] == ['ben@example.net', 'dee@example.com'], envelope)
+    check(b'dee@example.com' not in raw, 'Bcc only in the envelope')
+    index = sent_index(data)
+    check(len(index) == 1, index)
+    with open(os.path.join(account_dir(data), index[0]['path']), 'rb') as f:
+        check(f.read() == raw, 'Sent keeps the bytes the server got')
+    check(outbox(data) == [], outbox(data))
+    no_secret_anywhere(data, out, SECRET)
+
+
+def case_submission(run, work):
+    data, sink, code, lines, out = submit_once(
+        run, work, ['--auth', f'ada={SECRET}', '--auth-mechs', 'PLAIN LOGIN'], [])
+    try:
+        check_submitted(data, sink, code, lines, out, 'PLAIN')
+    finally:
+        sink.stop()
+
+
+def case_submission_implicit(run, work):
+    data, sink, code, lines, out = submit_once(
+        run, work, ['--implicit-tls', '--auth', f'ada={SECRET}', '--auth-mechs', 'LOGIN'],
+        ['--tls', 'implicit'])
+    try:
+        check_submitted(data, sink, code, lines, out, 'LOGIN')
+    finally:
+        sink.stop()
+
+
+def case_submission_xoauth2(run, work):
+    data, sink, code, lines, out = submit_once(
+        run, work, ['--auth', f'ada={SECRET}', '--auth-mechs', 'PLAIN LOGIN XOAUTH2'], [],
+        auth='xoauth2')
+    try:
+        check_submitted(data, sink, code, lines, out, 'XOAUTH2')
+    finally:
+        sink.stop()
+
+
+def case_submission_refused(run, work):
+    wrong = 'wrong-password-e2e-91c2'
+    data, sink, code, lines, out = submit_once(
+        run, work, ['--auth', f'ada={SECRET}', '--auth-mechs', 'PLAIN LOGIN'], [], secret=wrong)
+    try:
+        check(code == 2 and lines and lines[0].startswith('AZMAIL_SEND queued '), out)
+        check('535' in lines[0], lines[0])
+        check(sink.messages() == [], 'nothing was handed over')
+        no_secret_anywhere(data, out, wrong)
+        files = outbox(data)
+        check(len(files) == 2 and files[1].endswith('.json'), files)
+        with open(os.path.join(account_dir(data), 'outbox', files[1]), encoding='utf-8') as f:
+            entry = json.load(f)
+        check(entry['state'] == 'queued' and entry['attempts'] == 0, entry)
+        # The password is new: the next Send / Receive sends it.
+        code, lines, out = run.send(data, '--retry', '--submission', '--ca', sink.cert,
+                                    '--password-env', SECRET_VAR, env={SECRET_VAR: SECRET})
+        check(code == 0 and len(lines) == 1 and ' sent ' in lines[0], out)
+        check(len(sink.messages()) == 1, 'the retry did not reach the server')
+        check(outbox(data) == [], outbox(data))
+    finally:
+        sink.stop()
+
+
 CASES = {
     'smtp': (case_smtp, None),
     'rejected': (case_rejected, None),
@@ -514,6 +636,10 @@ CASES = {
     'dkim': (case_dkim, 'openssl'),
     'dkim-generated': (case_dkim_generated, 'openssl'),
     'port25': (case_port25, None),
+    'submission': (case_submission, 'openssl'),
+    'submission-implicit': (case_submission_implicit, 'openssl'),
+    'submission-xoauth2': (case_submission_xoauth2, 'openssl'),
+    'submission-refused': (case_submission_refused, 'openssl'),
 }
 
 
