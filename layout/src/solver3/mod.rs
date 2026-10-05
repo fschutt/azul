@@ -809,7 +809,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.previous_sizes = t.nodes.iter().map(|n| n.used_size).collect();
         }
         let dom_diff_clean = cache.dom_diff_clean.take();
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, dom_diff_clean)?
+        // The CSS diff goes in too: a node it restyled is built fresh, with
+        // the new cascade's box props (LAYOUTPERF8 bug B).
+        cache::reconcile_and_invalidate_restyled(
+            &mut ctx_temp,
+            cache,
+            viewport,
+            dom_diff_clean,
+            css_dirty,
+        )?
     };
     // The reuse census, persisted where a test can read it — see the field
     // docs on LayoutCache for why this pair is the ONLY external observable
@@ -939,22 +947,37 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
-            let mut dom_to_tree: HashMap<NodeId, usize> =
-                HashMap::with_capacity(new_tree.nodes.len());
-            for (idx, node) in new_tree.nodes.iter().enumerate() {
-                if let Some(d) = node.dom_node_id {
-                    dom_to_tree.insert(d, idx);
-                }
-            }
             let mut dirty_roots = std::collections::BTreeSet::new();
             for (dom_id_dirty, scope) in css_dirty {
                 if *scope == azul_css::props::property::RelayoutScope::None {
                     continue;
                 }
-                if let Some(&idx) = dom_to_tree.get(dom_id_dirty) {
-                    recon_result.intrinsic_dirty.insert(idx);
-                    dirty_roots.insert(idx);
-                }
+                // The element's own box: the FIRST layout node of its DOM
+                // node (a list item's `::marker` carries the item's id too,
+                // and a last-wins map named the marker).
+                let Some(idx) = new_tree
+                    .dom_to_layout
+                    .get(dom_id_dirty)
+                    .and_then(|v| v.first())
+                    .map(|id| id.index())
+                else {
+                    continue;
+                };
+                recon_result.intrinsic_dirty.insert(idx);
+                // A `Full` change (margins, position, float, display) moves
+                // the box in its parent's flow: the PARENT places it, so the
+                // parent is the root. Re-solved on its own, a block keeps the
+                // slot its parent's last pass gave it (LAYOUTPERF8 bug B).
+                let root = if *scope == azul_css::props::property::RelayoutScope::Full {
+                    new_tree
+                        .nodes
+                        .get(idx)
+                        .and_then(|n| n.parent)
+                        .unwrap_or(idx)
+                } else {
+                    idx
+                };
+                dirty_roots.insert(root);
             }
             // Same lift as the reconcile's own roots get: a flex item or an
             // inline-level box is re-solved by its container, or its
@@ -971,6 +994,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 })
             });
             recon_result.layout_roots.extend(promoted);
+            // A root below another one is laid out by that one's pass (the
+            // reconcile's own roots were cleaned the same way).
+            recon_result.layout_roots =
+                cache::outermost_layout_roots(&recon_result.layout_roots, |idx| {
+                    new_tree.nodes.get(idx).and_then(|n| n.parent)
+                });
         }
     }
 
