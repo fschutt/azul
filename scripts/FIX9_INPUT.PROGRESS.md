@@ -27,12 +27,13 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 - 3.11 facade path: RED 75c8b609d, GREEN aa9b35f47; PdfPageSize module RED ef46711a1, GREEN ae7d583f2
   round-2 note: unified/capability.rs wasm stub needs scheduled_notifications() (3.9)
 
+- 3.12 cross-file impls: RED 496617312, GREEN 24e9719aa
+
 ## IN PROGRESS
-- 3.12 type index cross-file impl methods attached by NAME to every candidate (type_index.rs:1093-1105,
-  attach_methods_to_type)
+- 3.13 autofix add: &mut [T] and &Vec<u8> args (doc/src/autofix/function_diff.rs slice_arg_type)
 
 ## NEXT
-- 3.13 .. 3.16 in order
+- 3.14 .. 3.16 in order
 
 ## Open questions
 (none)
