@@ -15,9 +15,12 @@ No cargo. Report: scripts/FIX9_WIDGETS_2026_10_05.md.
 - 4.9 RED 0c8d84eec, GREEN 84f2a1ef3
 - 4.10 refactor 1db1f4517 (no RED)
 - 4.11 RED a809309aa, GREEN 0d13d1703
+- 4.12 refactor b4b7b3350 (no RED)
+- 4.13 RED a6a000f6c (RED by compile), GREEN ea917eadd
+- 4.14 refactor ec5bfb751 (decl.rs appended - outside Files line, item names it)
 
 ## IN PROGRESS
-- 4.12 timeline tick_label -> seek_bar::media_time
+- 4.15 hook() builders -> CoreCallbackData::create
 
 ## NEXT
 - 4.1 .. 4.18 in order, then the 4 suite failures, then the report.
