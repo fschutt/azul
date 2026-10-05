@@ -2632,6 +2632,15 @@ mod tests {
     }
 
     #[test]
+    fn a_tuple_structs_fields_are_valid_kotlin_property_names() {
+        // `_0` camel-cases to `0`, which is no Kotlin identifier (the
+        // generated Azul.kt did not compile).
+        let src = &wrapper_source("GetProgramBinaryReturn");
+        assert!(!src.contains("var 0:") && !src.contains("val 0:"), "{}", src);
+        assert!(src.contains("var _0:"), "{}", src);
+    }
+
+    #[test]
     fn a_bool_field_is_a_kotlin_boolean_property() {
         let src = &wrapper_source("WindowCreateOptions");
         let prop = member(src, "var sizeToContent: Boolean");
