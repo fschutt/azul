@@ -22,6 +22,14 @@
 7. New E-mail, a subject and a line, Save Draft: the draft is in mail/drafts; Discard closes;
 8. the password is in no file AzMail wrote and in none of its output.
 
+The submission phase (`--phase submission`, MAIL9 left 2) walks the Sending page's third choice:
+the sink is a submission server (`--auth`: MAIL needs a sign-in); after the wizard the account's
+own outgoing server (account.json `smtp`, which the wizard has no field for) is pointed at the sink
+and AzMail restarts on File > Account Settings; Sending: "Through my provider's server (sign in)",
+DKIM on, Create a key, Save; sending.json says `submission` with the key's public half; a new mail
+is sent, and the sink got it signed in as the account (PLAIN / LOGIN on the unencrypted test
+connection) with a DKIM-Signature of the account's domain and selector.
+
 Usage (from the azul repository, after building AzMail and a libazul with the debug server):
 
     python3 scripts/azmail_e2e.py [--bin target/release/AzMail] [--debug-port 8772]
@@ -115,6 +123,8 @@ class Run:
         self.password = 'pw-' + secrets.token_urlsafe(18)
         self.children = []
         self.debug = args.debug_port
+        # More switches for the SMTP sink (the submission phase makes it a submission server).
+        self.sink_args = []
 
     # -- processes --
 
@@ -252,26 +262,26 @@ class Run:
         self.imap_port = int(self.until('the IMAP server', lambda: (re.search(
             r'^IMAP_SERVER_PORT (\d+)$', self.output('server'), re.M) or [None, None])[1]))
         self.start('sink', [sys.executable, os.path.join(HERE, 'azmail_smtp_sink.py'), '0',
-                            self.sink_dir], {})
+                            self.sink_dir] + self.sink_args, {})
         self.smtp_port = int(self.until('the SMTP sink', lambda: (re.search(
             r'^AZMAIL_SINK_READY (\d+)$', self.output('sink'), re.M) or [None, None])[1]))
         log(f'IMAP 127.0.0.1:{self.imap_port}, SMTP sink 127.0.0.1:{self.smtp_port}')
 
-    def start_app(self):
+    def start_app(self, *app_args):
         binary = find_binary(self.args.bin)
-        log(f'AzMail: {binary}')
+        log(f'AzMail: {binary} {" ".join(app_args)}'.rstrip())
         env = {
             'AZ_BACKEND': 'headless',
             'AZ_DEBUG': str(self.debug),
             'AZMAIL_DATA': self.data,
             'AZMAIL_TEST_PASSWORD': self.password,
         }
-        command = [binary]
+        command = [binary, *app_args]
         if self.args.runner:
             command = [self.args.runner, '--cap-mb', '1500', '--seconds',
                        str(int(self.args.timeout) + 30), '--log',
                        self.runner_log('azmail'), '--', 'env'] + \
-                      [f'{k}={v}' for k, v in env.items()] + [binary]
+                      [f'{k}={v}' for k, v in env.items()] + [binary, *app_args]
         self.start('azmail', command, env)
 
     def add_account(self):
@@ -654,6 +664,187 @@ class SampleRun(Run):
             raise Failure(f'{len(self.failures)} check(s) failed: ' + '; '.join(self.failures))
 
 
+# ---- the submission phase (MAIL9 left 2): the Sending page's third choice and DKIM ----
+
+SUBMISSION_TO = 'ben@example.org'
+SUBMISSION_SUBJECT = 'The bulbs are in'
+SUBMISSION_LINE = 'The tulip bulbs came today.'
+
+
+class SubmissionRun(Run):
+    """Account Settings > Sending: "Through my provider's server (sign in)" and DKIM with a key
+    made in the editor, Save, then a new mail: the sink (a submission server) takes it only
+    after a sign-in, and it carries a DKIM-Signature of the account's domain."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        # A submission server: MAIL needs a sign-in with the account's user name (the address)
+        # and its password. Without a certificate the sink offers AUTH on the plain connection,
+        # which AzMail uses only for a server on this computer with STARTTLS off.
+        self.sink_args = ['--auth', f'{USER}={self.password}']
+
+    def stop_app(self):
+        """Stops AzMail; its output so far is kept aside (`*.1`), the next run's is its own."""
+        for name, child in self.children:
+            if name == 'azmail':
+                self.stop(child)
+        self.children = [(n, c) for n, c in self.children if n != 'azmail']
+        for path in (os.path.join(self.tmp, 'azmail.out'), os.path.join(self.tmp, 'azmail.err'),
+                     self.runner_log('azmail')):
+            if os.path.exists(path):
+                os.replace(path, path + '.1')
+
+    def output_all(self):
+        """Everything AzMail printed, both runs."""
+        text = ''
+        for path in (os.path.join(self.tmp, 'azmail.out.1'), os.path.join(self.tmp, 'azmail.err.1'),
+                     self.runner_log('azmail') + '.1'):
+            try:
+                with open(path, encoding='utf-8', errors='replace') as f:
+                    text += f.read()
+            except OSError:
+                pass
+        return text + self.output('azmail') + self.output('azmail', 'err')
+
+    def node_with_text(self, text, window=None):
+        """The index of the first node whose text is exactly `text` (in a 1-tuple: index 0 is
+        a node too), else None. `click(text=...)` takes the first node CONTAINING the text,
+        and a note can hold a button's word ("Save puts it into the system keyring")."""
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        for n in nodes:
+            if (n.get('text') or '').strip() == text and n.get('index') is not None:
+                return (n['index'],)
+        return None
+
+    def click_exact(self, text, window=None):
+        found = self.until(f'a node reading exactly "{text}"',
+                           lambda: self.node_with_text(text, window), limit=20)
+        self.must('click', window, node_id=found[0])
+        self.frame(window)
+
+    def point_outgoing_server_at_sink(self):
+        """The account's own outgoing server - account.json `smtp`, which the wizard fills from
+        the address (smtp.example.org:465) and has no field for - becomes the sink: AzMail is
+        stopped, the file changed, AzMail started again on File > Account Settings."""
+        self.stop_app()
+        path = os.path.join(self.data, ACCOUNT_ID, 'account.json')
+        with open(path, encoding='utf-8') as f:
+            account = json.load(f)
+        account['smtp'] = {'host': '127.0.0.1', 'port': self.smtp_port}
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(account, f, indent=2)
+            f.write('\n')
+        log(f'account.json: the outgoing server is the sink, 127.0.0.1:{self.smtp_port}')
+        self.start_app('--screen', 'settings')
+
+    def choose_submission_and_dkim(self):
+        self.until('File > Account Settings', lambda: self.node_with_text('Sending'))
+        self.click_exact('Sending')
+        self.until('the Sending section', lambda: self.shows('Send mail:'))
+        self.click("Through my provider's server (sign in)")
+        # The note names the account's own server: the patched account.json is the one in use.
+        self.until('the sign-in note naming the sink',
+                   lambda: self.shows(f'AzMail signs in to 127.0.0.1 port {self.smtp_port}'))
+        # STARTTLS stays off (the wizard turned it off): a sign-in without TLS only to a server
+        # on this computer.
+        self.click('Sign my mail with DKIM')
+        self.until('the DKIM fields', lambda: self.shows('Domain and selector:'))
+        self.click_id(PREFIX + 'dkim_create')
+        self.until('the DKIM key', lambda: re.search(r'^AZMAIL_DKIM_KEY_MADE$',
+                                                     self.output('azmail'), re.M), limit=60)
+        self.until('the DNS record to publish',
+                   lambda: self.shows("Publish this TXT record in your domain's DNS:"))
+        self.click_exact('Save')
+        saved = self.until('AZMAIL_ACCOUNT_SAVED', lambda: self.printed('AZMAIL_ACCOUNT_SAVED'))
+        log(f'Account Settings saved: {saved[-1]}')
+
+    def check_sending_file(self):
+        path = os.path.join(self.data, ACCOUNT_ID, 'sending.json')
+        with open(path, encoding='utf-8') as f:
+            sending = json.load(f)
+        route = sending.get('route') or {}
+        dkim = sending.get('dkim') or {}
+        if route.get('kind') != 'submission':
+            raise Failure(f'sending.json route is {route}')
+        if dkim.get('domain') != 'example.org' or not dkim.get('selector') \
+                or not dkim.get('public_key'):
+            raise Failure(f'sending.json dkim is {dkim}')
+        if 'PRIVATE KEY' in json.dumps(sending):
+            raise Failure('the DKIM private key is in sending.json')
+        self.selector = dkim['selector']
+        log(f'sending.json: route submission, DKIM d=example.org s={self.selector} '
+            '(the public half only)')
+
+    def send_new_mail(self):
+        self.until('the main window', lambda: self.shows('New E-mail'))
+        self.click('New E-mail')
+        opened = self.until('a new compose window', lambda: self.printed(
+            'AZMAIL_COMPOSE_OPEN', r'\S+ new'))
+        window = opened[-1].split()[0]
+        self.until('the new window', lambda: self.shows('Untitled - Message (HTML)', window))
+        self.type_into(PREFIX + 'compose_to', SUBMISSION_TO, window)
+        self.type_into(PREFIX + 'compose_subject', SUBMISSION_SUBJECT, window)
+        self._focus_editor(window)
+        self.must('text_input', window, text=SUBMISSION_LINE)
+        self.frame(window, 2)
+        self.until('the typed line in the editor', lambda: self.shows(SUBMISSION_LINE, window))
+        self.click_id(PREFIX + 'compose_send', window)
+        sent = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
+                                               if line.startswith(window + ' ')])
+        if sent[-1].split(' ', 2)[1] != 'sent':
+            raise Failure(f'the mail was not sent: {sent[-1]}')
+        log(f'sent: {sent[-1]}')
+
+    def check_signed_in_and_signed(self):
+        eml = os.path.join(self.sink_dir, '0001.eml')
+        self.until('the sink to store the mail', lambda: os.path.isfile(eml))
+        with open(os.path.join(self.sink_dir, '0001.json'), encoding='utf-8') as f:
+            envelope = json.load(f)
+        if envelope.get('auth_user') != USER:
+            raise Failure(f'the sink took the mail without the sign-in: {envelope}')
+        if envelope.get('auth_mechanism') not in ('PLAIN', 'LOGIN'):
+            raise Failure(f'signed in with {envelope.get("auth_mechanism")!r}, not a password')
+        if envelope.get('rcpt_to') != [SUBMISSION_TO]:
+            raise Failure(f'the envelope recipients are {envelope.get("rcpt_to")}')
+        with open(eml, 'rb') as f:
+            msg = email.message_from_bytes(f.read(), policy=email.policy.default)
+        if msg['From'] != f'{NAME} <{USER}>' or msg['Subject'] != SUBMISSION_SUBJECT:
+            raise Failure(f'From {msg["From"]!r}, Subject {msg["Subject"]!r}')
+        signature = re.sub(r'\s+', '', str(msg['DKIM-Signature'] or ''))
+        tags = dict(t.split('=', 1) for t in signature.split(';') if '=' in t)
+        if tags.get('d') != 'example.org' or tags.get('s') != self.selector or not tags.get('b'):
+            raise Failure(f'the DKIM-Signature is {msg["DKIM-Signature"]!r}')
+        if SUBMISSION_LINE not in msg.get_body(preferencelist=('plain',)).get_content():
+            raise Failure('the typed line is not in the text part')
+        log(f'the sink got it signed in as {USER} ({envelope["auth_mechanism"]}) with a '
+            f'DKIM-Signature d=example.org s={self.selector}')
+
+    def check_secret(self):
+        secret = self.password.encode()
+        for dirpath, _, files in os.walk(self.data):
+            for name in files:
+                with open(os.path.join(dirpath, name), 'rb') as f:
+                    if secret in f.read():
+                        raise Failure(f'the password is in {os.path.join(dirpath, name)}')
+        if secret in self.output_all().encode():
+            raise Failure("the password is in AzMail's output")
+        log('the password is in no file and no output (both runs)')
+
+    def run(self):
+        log(f'logs and data: {self.tmp}')
+        self.start_servers()
+        self.start_app()
+        self.add_account()
+        self.check_account_files()
+        self.point_outgoing_server_at_sink()
+        self.choose_submission_and_dkim()
+        self.check_sending_file()
+        self.send_new_mail()
+        self.check_signed_in_and_signed()
+        self.check_secret()
+
+
 def run_phase(cls, args, what):
     run = cls(args)
     passed = False
@@ -682,9 +873,11 @@ def main():
     parser.add_argument('--timeout', type=float, default=150)
     parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
     parser.add_argument('--keep-logs', action='store_true')
-    parser.add_argument('--phase', choices=('all', 'sample', 'account'), default='all',
+    parser.add_argument('--phase', choices=('all', 'sample', 'account', 'submission'),
+                        default='all',
                         help='sample: --sample, the look and the app-kit flows (no servers); '
-                             'account: the wizard, IMAP, SMTP')
+                             'account: the wizard, IMAP, SMTP; submission: Account Settings, '
+                             'Sending: the signed-in route and DKIM, a mail to the sink')
     args = parser.parse_args()
     passed = True
     if args.phase in ('all', 'sample'):
@@ -694,6 +887,9 @@ def main():
     if args.phase in ('all', 'account'):
         passed &= run_phase(Run, args, 'account, Send/Receive, reply window, send through SMTP, '
                                        'Sent, draft')
+    if args.phase in ('all', 'submission'):
+        passed &= run_phase(SubmissionRun, args, 'Sending: signed-in submission and DKIM, a mail '
+                                                 'to the sink signed in and signed')
     sys.exit(0 if passed else 1)
 
 
