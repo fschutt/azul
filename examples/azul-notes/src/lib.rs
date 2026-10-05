@@ -423,7 +423,7 @@ pub fn with_state(
 mod tests {
     use super::*;
 
-    fn values_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + '_ {
+    fn values_of<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |key| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_string())
     }
 
