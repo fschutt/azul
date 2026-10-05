@@ -452,6 +452,18 @@ fn emit_wrapper(
     builder.indent();
 
     builder.line("private var closed: Boolean = false");
+    // A field getter hands out a VIEW (a borrowed wrapper over a field inside
+    // another wrapper); `__parentOpen` is that wrapper's `__isOpen`. The
+    // lambda keeps the parent reachable (its Cleaner cannot free the memory
+    // under the view), and a view of a closed / moved parent refuses calls.
+    builder.line("/** Internal: for a view, whether the object it lives in is still open. */");
+    builder.line("internal var __parentOpen: (() -> Boolean)? = null");
+    builder.line(
+        "/** Internal: usable - not closed or moved, and (for a view) its parent neither. */",
+    );
+    builder.line(
+        "internal fun __isOpen(): Boolean = !closed && (__parentOpen?.invoke() ?: true)",
+    );
     builder.blank();
 
     // GC safety net (see AZUL_CLEANER above). The cleaning action is
@@ -672,8 +684,8 @@ fn emit_wrapper(
         builder.dedent();
         builder.line("}");
         builder.blank();
-        builder.line("/** Internal: its bytes may be copied out (not closed). */");
-        builder.line("internal fun __isMovable(): Boolean = !closed");
+        builder.line("/** Internal: its bytes may be moved out (not closed, not a view). */");
+        builder.line("internal fun __isMovable(): Boolean = !closed && __parentOpen == null");
     }
 
     builder.dedent();
@@ -1238,15 +1250,17 @@ fn emit_kt_az_string_conv(pre_call_lines: &mut Vec<String>, raw_name: &str) -> S
 /// same contract as the Java accessors (`lang_java::wrappers::FieldShape`
 /// decides the shape, so both JVM bindings agree):
 ///
-/// - `var <field>: T` - the getter returns an INDEPENDENT value
-///   (primitives / enums by value, the string decoded without freeing the
-///   field, heap-owning types deep-copied via `_clone`, plain data
-///   byte-copied); the setter releases the old value (`_delete`) and moves
-///   the new one in (a wrapper argument is consumed);
-/// - `edit<Field> { ... }` runs the block on a VIEW of the field (no copy)
-///   and returns `this`, so nested writes reach this object:
-///   `opts.editWindowState { title = "Hello" }`. (`opts.windowState.title =
-///   "x"` would only change a copy.)
+/// - `var <field>: T` - a wrapped class's field reads as a live VIEW, so
+///   `opts.windowState.title = "x"` changes `opts` (the view keeps `opts`
+///   reachable and refuses calls once it is closed); every other field reads
+///   as an independent value (primitives / enums by value, the string decoded
+///   without freeing the field, a heap-owning JNA value deep-copied via
+///   `_clone`, plain data byte-copied). The setter releases the old value
+///   (`_delete`) and stores the new one (an owned wrapper is consumed, a view
+///   deep-copied first);
+/// - `edit<Field> { ... }` runs the block on a view of the field and returns
+///   `this`, for chaining (and for plain JNA struct fields, whose Java fields
+///   only reach native memory on `write()`).
 ///
 /// An api.json method whose name equals the property's JVM getter / setter
 /// (`getText()`) wins: the property is not emitted, and the still-free half
@@ -1284,7 +1298,7 @@ fn emit_kt_field_accessors(
         "val __ov = Structure.newInstance({}::class.java, this.ptr) as {}; __ov.read()",
         ov_ty, ov_ty
     );
-    let closed_check = "check(!closed) { \"closed\" }";
+    let closed_check = "check(__isOpen()) { \"closed\" }";
 
     for f in &s.fields {
         let Some(shape) = field_shape(f, ir, config) else {
@@ -1326,22 +1340,17 @@ fn emit_kt_field_accessors(
                         .to_string(),
                 );
             }
-            FieldShape::Wrapper {
-                ty,
-                ffi,
-                native,
-                delete,
-                clone,
-            } => {
-                match (delete, clone) {
-                    (Some(_), Some(c)) => {
-                        get_body.push(format!("val __copy = {}.{}({})", native, c, fp));
-                    }
-                    _ => kt_byte_copy(&mut get_body, ffi, &fp),
-                }
+            FieldShape::Wrapper { ty, .. } => {
+                let ctor_args = if has_delete_function(ty, ir) {
+                    format!("{}, false", fp)
+                } else {
+                    fp.clone()
+                };
                 get_body.push(format!(
-                    "return {}(__copy.pointer)",
-                    kotlin_class_name(ty, ir)
+                    "return {}({}).also {{ it.__parentOpen = {{ this@{}.__isOpen() }} }}",
+                    kotlin_class_name(ty, ir),
+                    ctor_args,
+                    class_name
                 ));
             }
             FieldShape::Value {
@@ -1396,25 +1405,42 @@ fn emit_kt_field_accessors(
                 set_body.push("__fp.write(0, __nb, 0, __nb.size)".to_string());
             }
             FieldShape::Wrapper {
+                ty,
                 ffi,
                 native,
                 delete,
-                ..
+                clone,
             } => {
                 set_body.push(
-                    "check(v.__isMovable()) { \"argument is closed, already moved, or a borrowed \
-                     view - pass a copy\" }"
-                        .to_string(),
+                    "check(v.__isOpen()) { \"argument is closed or already moved\" }".to_string(),
                 );
                 set_body.push(format!("val __n = {}().size()", ffi));
-                set_body.push("val __nb = v.ptr.getByteArray(0, __n)".to_string());
+                // An owned wrapper is moved in; a view (or an engine-owned
+                // borrow) is stored as a deep copy - taken before the old
+                // value is released, so `o.x = o.x` stays sound.
+                set_body.push("val __move = v.__isMovable()".to_string());
+                let copy = match (delete, clone) {
+                    (None, _) => "v.ptr.getByteArray(0, __n)".to_string(),
+                    (Some(_), Some(c)) => {
+                        format!("{}.{}(v.ptr).pointer.getByteArray(0, __n)", native, c)
+                    }
+                    (Some(_), None) => format!(
+                        "throw IllegalStateException(\"a borrowed {} has no deep copy - pass an \
+                         owned value\")",
+                        kotlin_class_name(ty, ir)
+                    ),
+                };
+                set_body.push(format!(
+                    "val __nb = if (__move) v.ptr.getByteArray(0, __n) else {}",
+                    copy
+                ));
                 set_body.push(overlay.clone());
                 set_body.push(format!("val __fp = {}", fp));
                 if let Some(d) = delete {
                     set_body.push(format!("{}.{}(__fp)", native, d));
                 }
                 set_body.push("__fp.write(0, __nb, 0, __n)".to_string());
-                set_body.push("v.__consume()".to_string());
+                set_body.push("if (__move) v.__consume()".to_string());
             }
             FieldShape::Value { native, delete, .. } => {
                 set_body.push("v.write()".to_string());
@@ -1443,13 +1469,17 @@ fn emit_kt_field_accessors(
         let can_set = !taken.contains(&jvm_set);
         let prop_free = !taken.contains(&prop_plain);
         let prop = sanitize_kt_identifier(&prop_plain);
-        let copy_note = !matches!(shape, FieldShape::Prim { .. } | FieldShape::Enum { .. });
+        let copy_note = !matches!(
+            shape,
+            FieldShape::Prim { .. } | FieldShape::Enum { .. } | FieldShape::Wrapper { .. }
+        );
+        let view_note = matches!(shape, FieldShape::Wrapper { .. });
         let setter_note = match &shape {
             FieldShape::Prim { .. } | FieldShape::Enum { .. } => "",
             FieldShape::Str { .. } => " Writing releases the old string.",
             FieldShape::Wrapper { .. } => {
-                " Writing releases the old value and MOVES the assigned wrapper in (it is \
-                 closed afterwards - assign a copy to keep using it)."
+                " Writing releases the old value; an owned wrapper is MOVED in (closed \
+                 afterwards), a view - another object's field - is deep-copied."
             }
             FieldShape::Value { .. } => {
                 " Writing releases the old value and MOVES the native bytes of the assigned \
@@ -1474,6 +1504,13 @@ fn emit_kt_field_accessors(
 
         if can_get && prop_free {
             let mut head = format!("The `{}` field.", f.name);
+            if view_note {
+                head.push_str(&format!(
+                    " Reading returns a live VIEW, not a copy: `o.{}.x = ..` changes `o`. It is \
+                     valid while this object is open.",
+                    prop_plain
+                ));
+            }
             if copy_note {
                 head.push_str(&format!(
                     " Reading returns a COPY: changing it does not change this object - \
@@ -2260,7 +2297,7 @@ fn emit_instance_method(
         displayed_return
     ));
     builder.indent();
-    builder.line("check(!closed) { \"closed\" }");
+    builder.line("check(__isOpen()) { \"closed\" }");
 
     for stmt in &pre_call_lines {
         builder.line(stmt);

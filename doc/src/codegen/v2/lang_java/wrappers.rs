@@ -205,6 +205,30 @@ fn emit_wrapper_class(
         class_name, class_name, class_name
     ));
     builder.blank();
+    // A field getter hands out a VIEW: a borrowed wrapper over the field's
+    // bytes inside another wrapper. `parentOpen` is that wrapper's
+    // `__isOpen` - capturing it keeps the parent reachable (its finalizer
+    // cannot free the memory under the view), and once the parent is
+    // closed or moved the view refuses every call instead of reading
+    // freed memory.
+    builder.line("/** Internal: for a view, whether the object it lives in is still open. */");
+    builder.line("private java.util.function.BooleanSupplier __parentOpen;");
+    builder.line(&format!(
+        "/** Internal: a live view of a field inside another wrapper (see the field getters). */"
+    ));
+    builder.line(&format!(
+        "static {} __view(Pointer ptr, java.util.function.BooleanSupplier parentOpen) {{ {} w = \
+         new {}(ptr); w.owned = false; w.__parentOpen = parentOpen; return w; }}",
+        class_name, class_name, class_name
+    ));
+    builder.line(
+        "/** Internal: usable - not closed or moved, and (for a view) its parent neither. */",
+    );
+    builder.line(
+        "boolean __isOpen() { return !closed && ptr != null && (__parentOpen == null || \
+         __parentOpen.getAsBoolean()); }",
+    );
+    builder.blank();
 
     builder.line("/** Internal: raw pointer for use by sibling wrappers. */");
     builder.line("public Pointer rawPointer() { return ptr; }");
@@ -874,12 +898,10 @@ pub(crate) enum FieldShape {
 impl FieldShape {
     /// The type owns heap memory, but has no deep copy: a getter would have
     /// to alias the field (double free), so there is none.
+    /// A wrapper field's getter is a view (no copy needed); a heap-owning
+    /// plain value is deep-copied out, so it needs a `_clone`.
     pub(crate) fn has_getter(&self) -> bool {
-        !matches!(
-            self,
-            FieldShape::Wrapper { delete: Some(_), clone: None, .. }
-                | FieldShape::Value { delete: Some(_), clone: None, .. }
-        )
+        !matches!(self, FieldShape::Value { delete: Some(_), clone: None, .. })
     }
 
     /// An in-place `edit<Field>(...)` view: wrappers (their own setters keep
@@ -998,12 +1020,15 @@ pub(crate) fn field_pascal(name: &str) -> String {
 /// `get<Field>` / `set<Field>` / `edit<Field>` for every public field of a
 /// wrapped struct (the field-access contract, see [`FieldShape`]):
 ///
-/// - a getter returns an INDEPENDENT value: primitives and enums by value,
-///   the string decoded without freeing the field, heap-owning types as a
-///   deep copy (`_clone`), plain data as a byte copy. Changing the result
-///   does not change this object;
+/// - a getter of a wrapped class's field returns a live VIEW of it, so
+///   `opts.getWindowState().setTitle("x")` changes `opts`; the view keeps
+///   `opts` reachable and refuses calls once `opts` is closed. Every other
+///   getter returns an independent value: primitives and enums by value, the
+///   string decoded without freeing the field, a heap-owning JNA value as a
+///   deep copy (`_clone`), plain data as a byte copy;
 /// - a setter releases the field's old value (`_delete`, when the type has
-///   one), then moves the new value in - a wrapper argument is consumed;
+///   one), then stores the new one - an owned wrapper argument is moved in
+///   (consumed), a view is deep-copied first;
 /// - `edit<Field>(f)` hands `f` a VIEW of the field (no copy) and returns
 ///   `this`, so nested writes reach this object:
 ///   `opts.editWindowState(ws -> ws.setTitle("Hello"))`. The view is
@@ -1041,7 +1066,7 @@ fn emit_field_accessors(
         "{} __ov = Structure.newInstance({}.class, this.ptr); __ov.read();",
         ov_ty, ov_ty
     );
-    let closed_check = "if (closed) throw new IllegalStateException(\"closed\");";
+    let closed_check = "if (!__isOpen()) throw new IllegalStateException(\"closed\");";
 
     for f in &s.fields {
         let Some(shape) = field_shape(f, ir, config) else {
@@ -1078,7 +1103,14 @@ fn emit_field_accessors(
             for l in &field_doc {
                 builder.line(l);
             }
-            if !matches!(shape, FieldShape::Prim { .. } | FieldShape::Enum { .. }) {
+            if let FieldShape::Wrapper { .. } = &shape {
+                builder.line(" * <p>Returns a live VIEW of the field, not a copy: its setters write into");
+                builder.line(&format!(
+                    " * this object ({{@code o.get{}().setX(..)}} changes {{@code o}}). It is valid",
+                    pascal
+                ));
+                builder.line(" * while this object is open; storing it with a setter stores a deep copy.");
+            } else if !matches!(shape, FieldShape::Prim { .. } | FieldShape::Enum { .. }) {
                 builder.line(" * <p>Returns a COPY: changing it does not change this object. Write");
                 builder.line(&format!(
                     " * it back with {{@code set{}(...)}}{}.",
@@ -1115,25 +1147,11 @@ fn emit_field_accessors(
                          java.nio.charset.StandardCharsets.UTF_8);",
                     );
                 }
-                FieldShape::Wrapper {
-                    ty,
-                    ffi,
-                    native,
-                    clone,
-                    delete,
-                } => {
-                    match (delete, clone) {
-                        (Some(_), Some(c)) => {
-                            builder.line(&format!(
-                                "{}.ByValue __copy = {}.INSTANCE.{}({});",
-                                ffi, native, c, fp
-                            ));
-                        }
-                        _ => emit_java_byte_copy(builder, ffi, &fp),
-                    }
+                FieldShape::Wrapper { ty, .. } => {
                     builder.line(&format!(
-                        "return new {}(__copy.getPointer());",
-                        wrapper_class_name(ty)
+                        "return {}.__view({}, this::__isOpen);",
+                        wrapper_class_name(ty),
+                        fp
                     ));
                 }
                 FieldShape::Value {
@@ -1174,8 +1192,8 @@ fn emit_field_accessors(
                     FieldShape::Prim { .. } | FieldShape::Enum { .. } => "",
                     FieldShape::Str { .. } => " (the old string is released)",
                     FieldShape::Wrapper { .. } => {
-                        " (the old value is released; {@code v} is MOVED in and closed - pass \
-                         a copy to keep using it)"
+                        " (the old value is released; an owned {@code v} is MOVED in and closed, \
+                         a view - another object's field - is deep-copied)"
                     }
                     FieldShape::Value { .. } => {
                         " (the old value is released; the native bytes of {@code v} are MOVED \
@@ -1229,25 +1247,52 @@ fn emit_field_accessors(
                     builder.line("__fp.write(0, __nb, 0, __nb.length);");
                 }
                 FieldShape::Wrapper {
+                    ty,
                     ffi,
                     native,
                     delete,
-                    ..
+                    clone,
                 } => {
                     builder.line(
-                        "if (!v.__isMovable()) throw new IllegalStateException(\"argument is \
-                         closed, already moved, or a borrowed view - pass a copy\");",
+                        "if (!v.__isOpen()) throw new IllegalStateException(\"argument is \
+                         closed or already moved\");",
                     );
-                    builder.line("Pointer __vp = v.rawPointer();");
                     builder.line(&format!("int __n = new {}().size();", ffi));
-                    builder.line("byte[] __nb = __vp.getByteArray(0, __n);");
+                    // An owned wrapper is moved in; a view (or an engine-owned
+                    // borrow) is stored as a deep copy - before the old value
+                    // is released, so `o.setX(o.getX())` stays sound.
+                    builder.line("boolean __move = v.__isMovable();");
+                    builder.line("byte[] __nb;");
+                    builder.line("if (__move) {");
+                    builder.indent();
+                    builder.line("__nb = v.rawPointer().getByteArray(0, __n);");
+                    builder.dedent();
+                    builder.line("} else {");
+                    builder.indent();
+                    match (delete, clone) {
+                        (None, _) => builder.line("__nb = v.rawPointer().getByteArray(0, __n);"),
+                        (Some(_), Some(c)) => {
+                            builder.line(&format!(
+                                "{}.ByValue __c = {}.INSTANCE.{}(v.rawPointer());",
+                                ffi, native, c
+                            ));
+                            builder.line("__nb = __c.getPointer().getByteArray(0, __n);");
+                        }
+                        (Some(_), None) => builder.line(&format!(
+                            "throw new IllegalStateException(\"a borrowed {} has no deep copy - \
+                             pass an owned value\");",
+                            wrapper_class_name(ty)
+                        )),
+                    }
+                    builder.dedent();
+                    builder.line("}");
                     builder.line(&overlay);
                     builder.line(&format!("Pointer __fp = {};", fp));
                     if let Some(d) = delete {
                         builder.line(&format!("{}.INSTANCE.{}(__fp);", native, d));
                     }
                     builder.line("__fp.write(0, __nb, 0, __n);");
-                    builder.line("v.__consume();");
+                    builder.line("if (__move) v.__consume();");
                 }
                 FieldShape::Value { native, delete, .. } => {
                     builder.line("v.write();");
@@ -1688,13 +1733,9 @@ fn emit_close_method(
     // to the engine or to the enclosing object).
     builder.line(
         "/** Internal: its bytes may be moved out (not closed, not consumed, not a borrowed \
-         view of an owning value). */",
+         view). */",
     );
-    if has_delete {
-        builder.line("boolean __isMovable() { return !closed && ptr != null && owned; }");
-    } else {
-        builder.line("boolean __isMovable() { return !closed && ptr != null; }");
-    }
+    builder.line("boolean __isMovable() { return !closed && ptr != null && owned; }");
     builder.blank();
 
     if has_delete {
@@ -2133,7 +2174,7 @@ fn emit_wrapper_method(
     builder.indent();
 
     if !is_static {
-        builder.line("if (closed) throw new IllegalStateException(\"closed\");");
+        builder.line("if (!__isOpen()) throw new IllegalStateException(\"closed\");");
     }
 
     for stmt in &pre_call_lines {
