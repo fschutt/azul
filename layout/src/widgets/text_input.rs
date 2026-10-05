@@ -93,10 +93,9 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
-    // The UI size lives on the FIELD, not on the value line: the value `<p>`
-    // inherits it, so an app's `font-size` on the field (AzNotes' title) sizes
-    // the text as `<input style="font-size: 24px">` does in a browser.
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the field's 11 px is a DEFAULT (`field_font_default`),
+    // which an app's `font-size` on the field must beat - an inline
+    // declaration here beats every style the app gives the field.
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -207,7 +206,9 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the field's 11 px is a DEFAULT (`field_font_default`),
+    // which an app's `font-size` on the field must beat - an inline
+    // declaration here beats every style the app gives the field.
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -309,10 +310,9 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
-    // The UI size lives on the FIELD, not on the value line: the value `<p>`
-    // inherits it, so an app's `font-size` on the field (AzNotes' title) sizes
-    // the text as `<input style="font-size: 24px">` does in a browser.
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the field's 11 px is a DEFAULT (`field_font_default`),
+    // which an app's `font-size` on the field must beat - an inline
+    // declaration here beats every style the app gives the field.
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -1219,12 +1219,13 @@ impl TextInput {
         let name = self.name.clone();
         let a11y_name = self.accessibility_name.clone();
         let has_text = !self.text_input_state.inner.text.is_empty();
-        let container = match theme {
+        let mut container = match theme {
             crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::text_input(self),
             crate::widgets::themes::UiTheme::Flora => {
                 crate::widgets::themes::flora::text_input(self)
             }
         };
+        container.add_component_css(field_font_default());
         let mut container = with_kind_semantics(container, kind, name, a11y_name);
         if constrained {
             // The handlers paint the invalid ring in the THEME's colours, and
@@ -1239,6 +1240,45 @@ impl TextInput {
         } else {
             container
         }
+    }
+}
+
+/// The field's UI font size in px when the app gives it none.
+const TEXT_INPUT_FONT_SIZE_PX: isize = 11;
+
+/// The sheet every field carries: `.<container class> { font-size: 11px }` at
+/// `rule_priority::UA`, the field's DEFAULT size - declared the way a
+/// browser's UA sheet declares an `<input>`'s font, below every style the app
+/// gives the field.
+///
+/// It cannot be an inline declaration of the container: a node's inline
+/// style beats every selector-matched rule, `Dom::with_css`'s (the app's
+/// `.dom().with_css("font-size: 22px")`, AzNotes' title) included, so the
+/// field kept 11 px whatever its app said. The value `<p>` declares no size
+/// and inherits the field's, as `<input style="font-size: 24px">` sizes its
+/// value in a browser. The class selector keeps the rule on the container
+/// (a component sheet's selector matches in the owner's whole subtree).
+fn field_font_default() -> azul_css::css::Css {
+    use azul_css::css::{
+        rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock,
+    };
+    Css {
+        rules: alloc::vec![CssRuleBlock {
+            path: CssPath {
+                selectors: alloc::vec![CssPathSelector::Class(AzString::from_const_str(
+                    TEXT_INPUT_CONTAINER_CLASS,
+                ))]
+                .into(),
+            },
+            declarations: alloc::vec![CssDeclaration::Static(CssProperty::const_font_size(
+                StyleFontSize::const_px(TEXT_INPUT_FONT_SIZE_PX),
+            ))]
+            .into(),
+            conditions: Vec::new().into(),
+            priority: rule_priority::UA,
+        }]
+        .into(),
+        ..Css::default()
     }
 }
 
