@@ -1,14 +1,12 @@
 # R3-WIDGETS progress (wave 9 round 3) - branch wt/r3-widgets, base 6a39b7f1a
 
 ## DONE
-(none yet)
-
-## IN PROGRESS
-- reading the failing tests
+- d29767be2 the_macos_titlebar_lines_up_with_its_traffic_lights (3) + azul_widgets_demo_follows_the_theme (2):
+  TEST wrong (the demo uses the Titlebar widget since e22863a7a); page_frame rebuilt, demo-bar tests macOS-only.
+- 2e7f99692 a_text_field_takes_the_font_size_its_app_gives_it: CODE wrong; 11 px default moved to a UA-priority
+  component sheet (inline beat the app's Dom::with_css).
 
 ## NEXT
-- the_macos_titlebar_lines_up_with_its_traffic_lights (3) + azul_widgets_demo_follows_the_theme (2)
-- a_text_field_takes_the_font_size_its_app_gives_it
 - an_inline_date_picker_fits_its_pane
 - a_rich_text_editor_keeps_one_model_and_one_history
 - a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text
