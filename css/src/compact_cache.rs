@@ -1596,10 +1596,17 @@ impl Default for CompactNodeProps {
             margin_right: 0,
             margin_bottom: 0,
             margin_left: 0,
-            border_top_width: 0,
-            border_right_width: 0,
-            border_bottom_width: 0,
-            border_left_width: 0,
+            // ...except the border widths: an undeclared one is `initial`
+            // (`medium`), NOT 0 px. Its used value depends on the side's
+            // style (CSS Backgrounds 3 s4.3: 0 for none / hidden, else the
+            // width, else medium), so a side with a style and no width has a
+            // 3px border - which a 0 here, indistinguishable from a declared
+            // `0`, made impossible on the normal-state fast path (WPT
+            // border-top-width-medium; `getters::used_border_width`).
+            border_top_width: I16_INITIAL,
+            border_right_width: I16_INITIAL,
+            border_bottom_width: I16_INITIAL,
+            border_left_width: I16_INITIAL,
             top: I16_AUTO,
             right: I16_AUTO,
             bottom: I16_AUTO,
@@ -4678,8 +4685,13 @@ mod autotest_generated {
             assert_eq!(c.get_padding_right(i), Some(0.0));
             assert_eq!(c.get_padding_bottom(i), Some(0.0));
             assert_eq!(c.get_padding_left(i), Some(0.0));
-            assert_eq!(c.get_border_top_width(i), Some(0.0));
-            assert_eq!(c.get_border_left_width(i), Some(0.0));
+            // A border width is `initial` until declared: `medium` when the
+            // side has a style, 0 when it has none - the style decides, so
+            // no pixel value is stored (CSS Backgrounds 3 s4.3).
+            assert_eq!(c.get_border_top_width_raw(i), I16_INITIAL);
+            assert_eq!(c.get_border_left_width_raw(i), I16_INITIAL);
+            assert_eq!(c.get_border_top_width(i), None);
+            assert_eq!(c.get_border_left_width(i), None);
             // margin defaults to 0, NOT auto — centering must not kick in for free.
             assert_eq!(c.get_margin_top(i), Some(0.0));
             assert_eq!(c.get_margin_left(i), Some(0.0));
