@@ -2276,4 +2276,84 @@ mod client_pool_tests {
         get_three_times(&url, &HttpRequestConfig::default().with_timeout(5));
         assert_eq!(accepted.load(Ordering::SeqCst), 3);
     }
+
+    /// MAIL9: the resumable `http_get` ran the transfer inside the calling
+    /// callback, so a slow server froze the window for the whole request. It
+    /// returns at once; the answer resumes the callback on a later pump.
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn http_get_from_a_callback_returns_before_the_response_arrives() {
+        use std::{
+            sync::mpsc,
+            time::{Duration, Instant},
+        };
+
+        use azul_core::refany::RefAny;
+
+        extern "C" fn noop(
+            _: RefAny,
+            _: crate::callbacks::CallbackInfo,
+            _: RefAny,
+        ) -> azul_core::callbacks::Update {
+            azul_core::callbacks::Update::DoNothing
+        }
+
+        // A server that answers once the test says so - or after 3 s, so a
+        // blocking `http_get` fails the test instead of hanging it.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/", listener.local_addr().expect("addr"));
+        let (release, released) = mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            if !read_request_head(&mut reader) {
+                return;
+            }
+            let _ = released.recv_timeout(Duration::from_secs(3));
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            );
+        });
+
+        let started = Instant::now();
+        let id = HttpRequestConfig::default().with_timeout(10).http_get(
+            AzString::from(url),
+            RefAny::new(()),
+            crate::callbacks::ResumeCallback::create(noop),
+        );
+        let returned_after = started.elapsed();
+        let _ = release.send(());
+        assert!(
+            returned_after < Duration::from_secs(1),
+            "http_get held the calling callback for {returned_after:?}"
+        );
+
+        // The answer resumes on a later pump. (The queue is process-wide: a
+        // test elsewhere that drains it can take this entry - see the report.)
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let answer = loop {
+            if let Some(entry) = crate::request::take_completed()
+                .into_iter()
+                .find(|e| e.request_id == id)
+            {
+                break HttpGetResult::downcast(entry.result)
+                    .into_option()
+                    .expect("an HttpGetResult");
+            }
+            assert!(Instant::now() < deadline, "the answer never arrived");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        // An armed e2e mock store (another test's scenario) answers instead.
+        if !crate::request::mock::is_armed() {
+            match answer.result {
+                ResultHttpResponseHttpError::Ok(response) => {
+                    assert_eq!(response.status_code, 200);
+                    assert_eq!(response.body.as_ref(), b"ok");
+                }
+                ResultHttpResponseHttpError::Err(e) => panic!("{e:?}"),
+            }
+        }
+    }
 }
