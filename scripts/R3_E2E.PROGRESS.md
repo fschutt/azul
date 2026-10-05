@@ -20,8 +20,10 @@
     `a_percentage_height_measured_against_an_indefinite_height_is_auto`)
   - GREEN 09de0bfc7 (fc.rs `definite_or_auto`)
 
-## IN PROGRESS
 - final report scripts/R3_E2E_2026_10_05.md
 
+## IN PROGRESS
+- (none)
+
 ## NEXT
-- (none after the report)
+- (none - the parent builds and runs the commands in the report)
