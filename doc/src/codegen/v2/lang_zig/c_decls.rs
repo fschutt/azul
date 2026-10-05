@@ -152,7 +152,9 @@ pub fn pointer_to(inner: &str, is_const: bool) -> String {
     }
 }
 
-fn primitive(t: &str) -> Option<&'static str> {
+/// The Zig spelling of a C primitive as the `C` namespace declares it (so a
+/// field accessor's type matches the struct field exactly).
+pub(super) fn primitive(t: &str) -> Option<&'static str> {
     Some(match t {
         "bool" => "bool",
         "u8" | "c_uchar" | "c_char" => "u8",

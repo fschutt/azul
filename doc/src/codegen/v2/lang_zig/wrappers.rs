@@ -94,8 +94,8 @@ use std::collections::HashSet;
 use super::{
     super::{
         ir::{
-            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef,
-            FunctionKind, MonomorphizedKind, StructDef, TypeAliasDef, TypeCategory,
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, FunctionArg,
+            FunctionDef, FunctionKind, MonomorphizedKind, StructDef, TypeAliasDef, TypeCategory,
         },
         managed_host_invoker::shadow_callback_typedef,
     },
@@ -158,6 +158,24 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// How a user reaches a wrapper's fields, written once above the wrappers.
+const ZIG_FIELD_DOCS: &str = "\
+// Fields: `x.getField()` returns a copy - a scalar, a POD, a deep copy of a
+// heap-owning field (`deinit` it), or for a String field the bytes duplicated
+// into an allocator. `x.setField(v)` frees the old value, then moves `v` in
+// (`&wrapper` is flagged consumed, a `*const` pointer is deep-copied).
+// A getter returns a copy, so a nested field is read-modify-write:
+//     var ws = opts.getWindowState();
+//     defer ws.deinit(); // a no-op once ws is moved into opts below
+//     ws.setTitle(\"My App\");
+//     var size = ws.getSize();
+//     size.setDimensions(C.AzLogicalSize{ .width = 800, .height = 600 });
+//     ws.setSize(size);
+//     opts.setWindowState(&ws);
+// Setters need a mutable receiver, so writing into a getter's result
+// (`opts.getWindowState().setTitle(..)`) does not compile.
+";
+
 /// Generate the full wrapper section as a single Zig source string.
 ///
 /// The output begins with a separator banner and ends with a trailing
@@ -170,6 +188,8 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
         "// ============================================================================\n",
     );
     out.push_str("// Idiomatic wrappers (heap-owning types with `deinit()`).\n");
+    out.push_str("//\n");
+    out.push_str(ZIG_FIELD_DOCS);
     out.push_str(
         "// ============================================================================\n",
     );
@@ -472,6 +492,9 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
     // Trait entry points (PartialEq / PartialCmp / Cmp / Hash / Debug).
     emit_trait_methods(out, &s.name, &ffi_name, ctx.ir, &mut seen);
 
+    // Typed field accessors, so a field is reachable without `.inner`.
+    emit_field_accessors(out, ctx, s, &mut seen, &emitted_method_names);
+
     // Destructor.
     if delete_fn.is_some() {
         out.push_str("    /// Free the underlying native resources.\n");
@@ -486,6 +509,294 @@ fn emit_struct_wrapper(out: &mut String, ctx: &Ctx, s: &StructDef) {
     }
 
     out.push_str("};\n\n");
+}
+
+// ============================================================================
+// Field accessors: `getField()` / `setField(v)` on the wrapper structs
+// ============================================================================
+
+/// Does the wrapper struct for `s` get field accessors? Only the ordinary
+/// data classes: a String / Vec / Option wrapper has its own API over its
+/// representation, and a callback wrapper is set through the callback
+/// plumbing.
+fn gets_field_accessors(s: &StructDef) -> bool {
+    matches!(s.category, TypeCategory::Regular | TypeCategory::Recursive)
+        && s.callback_wrapper_info.is_none()
+        && s.generic_params.is_empty()
+}
+
+/// Is `t` a callback typedef, a callback wrapper, a RefAny, or an Option of
+/// one - a field the callback plumbing owns, never a field setter.
+fn is_callback_or_refany_field(ctx: &Ctx, t: &str) -> bool {
+    if t.contains("RefAny") || ctx.is_callback_typedef(t) {
+        return true;
+    }
+    if let Some(s) = ctx.ir.find_struct(t) {
+        if s.callback_wrapper_info.is_some()
+            || matches!(
+                s.category,
+                TypeCategory::RefAny
+                    | TypeCategory::CallbackDataPair
+                    | TypeCategory::CallbackTypedef
+                    | TypeCategory::DestructorOrClone
+            )
+        {
+            return true;
+        }
+    }
+    if let Some(e) = ctx.ir.find_enum(t) {
+        if matches!(
+            e.category,
+            TypeCategory::CallbackTypedef | TypeCategory::DestructorOrClone
+        ) {
+            return true;
+        }
+        if e.category == TypeCategory::Option {
+            if let Some(inner) = option_payload(ctx, t) {
+                return inner != t && is_callback_or_refany_field(ctx, &inner);
+            }
+        }
+    }
+    false
+}
+
+/// `window_state` -> `WindowState`.
+fn pascal_case(snake: &str) -> String {
+    snake
+        .split('_')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let mut c = p.chars();
+            match c.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect()
+}
+
+/// How a setter converts its argument into the field's C type: the same
+/// `_as*` helpers an owned method argument of that type goes through, so a
+/// field takes exactly what a method parameter of its type takes.
+fn field_setter_conv(ctx: &Ctx, ty: &str) -> ArgConv {
+    match ctx.category_of(ty) {
+        Some(TypeCategory::String) => return ArgConv::String,
+        Some(TypeCategory::Option) if ctx.has_c_fn(ty, "some") && ctx.has_c_fn(ty, "none") => {
+            return ArgConv::Option {
+                ty: ty.to_string(),
+                map: inner_map(ctx, option_payload(ctx, ty).as_deref()),
+            };
+        }
+        Some(TypeCategory::Vec) => {
+            if let Some(item) = vec_item_type(ctx, ty) {
+                if ctx.has_c_fn(ty, "create")
+                    && ctx.has_c_fn(ty, "copyFromPtr")
+                    && ctx.has_c_fn(ty, "fromItem")
+                {
+                    return ArgConv::Vec {
+                        ty: ty.to_string(),
+                        item: zig_c_type(&item),
+                        map: inner_map(ctx, Some(&item)),
+                    };
+                }
+            }
+        }
+        _ => {}
+    }
+    if ctx.has_wrapper(ty) {
+        return ArgConv::OwnedWrapper { ty: ty.to_string() };
+    }
+    ArgConv::Plain(zig_c_type(ty))
+}
+
+/// `getField` / `setField` for every public by-value field of a wrapper
+/// struct, so a field is reachable without touching `.inner`:
+///
+/// - a getter returns an INDEPENDENT value: a scalar; for a String field the
+///   bytes duplicated into the caller's allocator (the field is not
+///   consumed); a deep copy through `Az<T>_clone` for a heap-owning type (a
+///   fresh wrapper the caller `deinit`s; no `_clone` -> no getter, never a
+///   shallow copy); a plain copy for a POD;
+/// - a setter converts its argument first (a `*const` pointer to this very
+///   field is cloned before anything is freed), then frees the field's old
+///   value (`Az<T>_delete`, only when the type has one), then moves the new
+///   value in. The argument goes through the same `_as*` helper as an owned
+///   method argument: `&wrapper` is moved out and flagged `consumed`, a
+///   `*const` is deep-copied, a value is moved.
+///
+/// Getters take `*const Self` and return copies, setters take `*Self`: a
+/// write into a getter's result (`opts.getWindowState().setTitle(..)`) is a
+/// const-receiver compile error, never a silently dropped write.
+///
+/// A method of the same Zig name wins (`TextInputState.getText()`); the
+/// field keeps its other accessor. Callback, callback-wrapper, RefAny,
+/// pointer, array and generic fields get none.
+fn emit_field_accessors(
+    out: &mut String,
+    ctx: &Ctx,
+    s: &StructDef,
+    seen: &mut HashSet<String>,
+    reserved: &HashSet<String>,
+) {
+    if !gets_field_accessors(s) {
+        return;
+    }
+    for f in &s.fields {
+        emit_field_accessor_pair(out, ctx, f, seen, reserved);
+    }
+}
+
+fn emit_field_accessor_pair(
+    out: &mut String,
+    ctx: &Ctx,
+    f: &FieldDef,
+    seen: &mut HashSet<String>,
+    reserved: &HashSet<String>,
+) {
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return;
+    }
+    let t = f.type_name.trim();
+    if t.is_empty() || t.contains(|c: char| matches!(c, '<' | '[' | '*' | '&' | ' ')) {
+        return;
+    }
+    let field = format!("self.inner.{}", sanitize_identifier(&f.name));
+    let pascal = pascal_case(&f.name);
+    let value = renamed_param("value", reserved);
+
+    // (extra getter params, return type, body); `None`: no safe getter.
+    let mut getter: Option<(String, String, Vec<String>)> = None;
+    // (setter param type, conversion of `value` or `None` for a plain store,
+    // the `_delete` to run on the old value).
+    let setter: (String, Option<String>, Option<String>);
+
+    if let Some(prim) = super::c_decls::primitive(t) {
+        if matches!(prim, "anyopaque" | "void") {
+            return;
+        }
+        getter = Some((String::new(), prim.to_string(), vec![format!("return {field};")]));
+        setter = (prim.to_string(), None, None);
+    } else {
+        if is_callback_or_refany_field(ctx, t) {
+            return;
+        }
+        let st = ctx.ir.find_struct(t);
+        if st.is_some_and(|s| {
+            matches!(
+                s.category,
+                TypeCategory::VecRef | TypeCategory::Boxed | TypeCategory::GenericTemplate
+            ) || !s.generic_params.is_empty()
+        }) {
+            return;
+        }
+        let nameable = st.is_some()
+            || ctx.ir.find_enum(t).is_some_and(|e| e.generic_params.is_empty())
+            || ctx.ir.find_type_alias(t).is_some_and(|ta| {
+                ta.monomorphized_def.is_some()
+                    || !(ta.target.contains('<') || ta.target.contains('>'))
+            });
+        if !nameable {
+            return;
+        }
+        let delete = destructor_of(t, ctx.ir).map(|d| d.c_name.clone());
+        let has_clone = ctx
+            .ir
+            .functions_for_class(t)
+            .any(|g| g.kind == FunctionKind::DeepCopy);
+        let ffi = ffi_type_name(t);
+        let conv = field_setter_conv(ctx, t);
+
+        if matches!(conv, ArgConv::String) {
+            // No `_delete` for the string type: never overwrite it blind.
+            let Some(d) = delete else {
+                return;
+            };
+            let alloc = renamed_param("allocator", reserved);
+            getter = Some((
+                format!(", {alloc}: std.mem.Allocator"),
+                "![]u8".to_string(),
+                vec![
+                    format!("const _s = &{field};"),
+                    format!("if (_s.vec.len == 0) return {alloc}.alloc(u8, 0);"),
+                    format!("return {alloc}.dupe(u8, _s.vec.ptr[0.._s.vec.len]);"),
+                ],
+            ));
+            setter = (
+                "anytype".to_string(),
+                Some(conv.call_expr(ctx, &value)),
+                Some(d),
+            );
+        } else {
+            // The value a getter hands out: the field itself for a POD, a
+            // deep copy for a heap-owning type, nothing without a `_clone`.
+            let copied = match (&delete, has_clone) {
+                (None, _) => Some(field.clone()),
+                (Some(_), true) => Some(format!("C.{ffi}_clone(&{field})")),
+                (Some(_), false) => None,
+            };
+            if let Some(v) = copied {
+                getter = Some(if ctx.has_wrapper(t) {
+                    let w = sanitize_identifier(t);
+                    (String::new(), w.clone(), vec![format!("return {w}{{ .inner = {v} }};")])
+                } else {
+                    (String::new(), zig_c_type(t), vec![format!("return {v};")])
+                });
+            }
+            setter = match &conv {
+                ArgConv::Plain(ty) => (ty.clone(), None, delete),
+                _ => (
+                    "anytype".to_string(),
+                    Some(conv.call_expr(ctx, &value)),
+                    delete,
+                ),
+            };
+        }
+    }
+
+    let get_name = format!("get{pascal}");
+    if let Some((extra, ret, body)) = getter {
+        if !reserved.contains(&get_name) && seen.insert(get_name.clone()) {
+            out.push_str(&format!(
+                "    /// A copy of the `{}` field (deep-copied when it owns heap memory).\n",
+                f.name
+            ));
+            out.push_str(&format!(
+                "    pub fn {get_name}(self: *const Self{extra}) {ret} {{\n"
+            ));
+            for line in body {
+                out.push_str(&format!("        {line}\n"));
+            }
+            out.push_str("    }\n\n");
+        }
+    }
+
+    let set_name = format!("set{pascal}");
+    if !reserved.contains(&set_name) && seen.insert(set_name.clone()) {
+        let (param_ty, conv, delete) = setter;
+        out.push_str(&format!(
+            "    /// Replaces the `{}` field: the old value is freed, then `{}` is moved in.\n",
+            f.name, value
+        ));
+        out.push_str(&format!(
+            "    pub fn {set_name}(self: *Self, {value}: {param_ty}) void {{\n"
+        ));
+        match conv {
+            Some(expr) => {
+                out.push_str(&format!("        const _new = {expr};\n"));
+                if let Some(d) = delete {
+                    out.push_str(&format!("        C.{d}(&{field});\n"));
+                }
+                out.push_str(&format!("        {field} = _new;\n"));
+            }
+            None => {
+                if let Some(d) = delete {
+                    out.push_str(&format!("        C.{d}(&{field});\n"));
+                }
+                out.push_str(&format!("        {field} = {value};\n"));
+            }
+        }
+        out.push_str("    }\n\n");
+    }
 }
 
 // ============================================================================

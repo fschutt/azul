@@ -11,8 +11,15 @@ Worktree branch based on fix/input-bugs-2026-09-19 @ bc606e468. No compiling (pa
   (C++03: const String deep copy) / `T(Az<T>_clone(&f))` / POD copy; setter: `Az<T>_delete(&f)`
   then `f = value.release()`. C++11+ setters `&`-qualified, C++03 wrapper getters return const.
 
+- debdcbfcd C++ fix.
+- 394cf094b Zig RED test (`lang_zig/wrappers.rs` tests, real api.json).
+- Zig fix (this commit): `emit_field_accessors` in `lang_zig/wrappers.rs` (getX on `*const Self`
+  returns a copy: scalar / `![]u8` dup into an allocator for String / `W{ .inner = C.AzT_clone(&f) }`
+  / POD; setX on `*Self` converts via the method-arg `_as*` helper, then `C.AzT_delete(&f)`, then
+  stores). `c_decls::primitive` made `pub(super)`. FIELDS docs in the wrapper banner.
+
 ## IN PROGRESS
-- Zig: typed get/set on wrapper structs (lang_zig/wrappers.rs).
+- C: static inline helpers for heap-owning fields.
 
 ## NEXT
 - C: static inline get/set helpers for heap-owning fields (lang_c.rs has a helper section).
