@@ -23,15 +23,59 @@ pub struct Table {
 /// on a tie).
 #[must_use]
 pub fn separator(header_line: &str) -> u8 {
-    let _ = header_line;
-    unimplemented!()
+    let mut best = (b',', 0usize);
+    for sep in [b',', b';', b'\t'] {
+        let n = header_line.bytes().filter(|b| *b == sep).count();
+        if n > best.1 {
+            best = (sep, n);
+        }
+    }
+    best.0
 }
 
 /// Reads a CSV text; `Err` says why it is no table (no header row, a row the
 /// reader cannot read).
 pub fn read_table(text: &str) -> Result<Table, String> {
-    let _ = text;
-    unimplemented!()
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let first = text.lines().next().unwrap_or_default();
+    if first.trim().is_empty() {
+        return Err(String::from("The file is empty: it has no header row."));
+    }
+    let mut reader = ::csv::ReaderBuilder::new()
+        .has_headers(true)
+        .flexible(true)
+        .delimiter(separator(first))
+        .from_reader(text.as_bytes());
+    let headers: Vec<String> = reader
+        .headers()
+        .map_err(|e| format!("The header row cannot be read: {e}"))?
+        .iter()
+        .map(|h| h.trim().to_string())
+        .collect();
+    if headers.iter().all(String::is_empty) {
+        return Err(String::from("The file has no header row."));
+    }
+    let mut rows = Vec::new();
+    for (i, record) in reader.records().enumerate() {
+        let record = record.map_err(|e| format!("Row {} cannot be read: {e}", i + 2))?;
+        // A blank line is no row (the reader drops empty ones itself).
+        if record.len() == 1 && record[0].trim().is_empty() {
+            continue;
+        }
+        let mut row: Vec<String> = record.iter().map(one_line_break).collect();
+        row.resize(headers.len(), String::new());
+        rows.push(row);
+    }
+    Ok(Table { headers, rows })
+}
+
+/// A cell with each CRLF inside it as one line break.
+fn one_line_break(cell: &str) -> String {
+    if cell.contains('\r') {
+        cell.replace("\r\n", "\n")
+    } else {
+        cell.to_string()
+    }
 }
 
 #[cfg(test)]
