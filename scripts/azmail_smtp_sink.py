@@ -4,9 +4,12 @@
     python3 scripts/azmail_smtp_sink.py <port> <out_dir> [options]
 
 It speaks EHLO / HELO / MAIL / RCPT / DATA / RSET / NOOP / QUIT (RFC 5321, with the dot-stuffing
-of DATA undone), and STARTTLS when it has a certificate. For each message it writes
-`<out_dir>/<nnnn>.eml` (the bytes as a server stores them) and `<out_dir>/<nnnn>.json` (the
-envelope: helo, mail_from, rcpt_to, tls, bare_line_ends). `smtpd` left Python in 3.12, so this is
+of DATA undone), STARTTLS when it has a certificate, TLS from the first byte with
+--implicit-tls, and AUTH PLAIN / LOGIN / XOAUTH2 with --auth (a submission server: offered only
+on an encrypted connection when it has a certificate, as Gmail and Outlook do, and required
+before MAIL). For each message it writes `<out_dir>/<nnnn>.eml` (the bytes as a server stores
+them) and `<out_dir>/<nnnn>.json` (the envelope: helo, mail_from, rcpt_to, tls,
+bare_line_ends, auth_user, auth_mechanism - never the secret). `smtpd` left Python in 3.12, so this is
 a small socketserver one. Port 0 picks a free port. When it listens it prints
 `AZMAIL_SINK_READY <port>` (and `AZMAIL_SINK_CERT <pem>` with --tls-selfsigned), flushed, so a
 script can wait for it.
@@ -21,11 +24,17 @@ Options:
   --greeting REPLY          the greeting (default "220 azmail-sink ESMTP"); a 5xx greeting
                             closes every connection right after it
   --max-messages N          exit after N messages (default: run until killed)
+  --auth USER=SECRET        a submission server: take this sign-in (password or OAuth token);
+                            repeatable; MAIL needs a sign-in first
+  --auth-mechs "M ..."      the AUTH mechanisms offered (default "PLAIN LOGIN XOAUTH2")
+  --implicit-tls            TLS from the first byte (port 465's way) instead of STARTTLS
 
 Used by scripts/azmail_send_test.py (AzMail's send path) and by MAIL2's E2E (route = SMTP
 127.0.0.1:<port>).
 """
 import argparse
+import base64
+import binascii
 import json
 import os
 import socketserver
@@ -38,9 +47,14 @@ MAX_LINE = 1000 * 1000
 
 
 class Sink:
-    def __init__(self, out_dir, tls_context, rejects, data_reply, greeting, max_messages):
+    def __init__(self, out_dir, tls_context, rejects, data_reply, greeting, max_messages,
+                 accounts=None, mechanisms=(), implicit_tls=False):
         self.out_dir = out_dir
         self.tls_context = tls_context
+        # user -> secret; empty: no AUTH at all (a relay or an MX).
+        self.accounts = accounts or {}
+        self.mechanisms = list(mechanisms)
+        self.implicit_tls = implicit_tls
         self.rejects = rejects
         self.data_reply = data_reply
         self.greeting = greeting
@@ -71,6 +85,86 @@ class Handler(socketserver.StreamRequestHandler):
     def setup(self):
         super().setup()
         self.tls = False
+        self.auth_user = None
+        self.auth_mechanism = None
+
+    def start_tls(self):
+        """Wraps the connection in TLS (server side); False when the handshake failed."""
+        sink = self.server.sink
+        try:
+            tls_socket = sink.tls_context.wrap_socket(self.request, server_side=True)
+        except (ssl.SSLError, OSError) as e:
+            print(f'azmail-sink: TLS handshake failed: {e}', file=sys.stderr, flush=True)
+            return False
+        self.request = tls_socket
+        self.connection = tls_socket
+        self.rfile = tls_socket.makefile('rb')
+        self.wfile = tls_socket.makefile('wb')
+        self.tls = True
+        return True
+
+    def offers_auth(self):
+        sink = self.server.sink
+        return bool(sink.accounts) and (self.tls or sink.tls_context is None)
+
+    def authenticate(self, arg):
+        """AUTH <mechanism> [initial response]: PLAIN, LOGIN or XOAUTH2 (RFC 4954, 7628)."""
+        sink = self.server.sink
+        words = arg.split()
+        mechanism = words[0].upper() if words else ''
+        initial = words[1] if len(words) > 1 else None
+        if not self.offers_auth() or mechanism not in sink.mechanisms:
+            self.say('504 5.5.4 mechanism not offered')
+            return
+        if self.auth_user is not None:
+            self.say('503 5.5.1 already signed in')
+            return
+
+        def read_response():
+            raw = self.readline()
+            return raw.decode('ascii', 'replace').strip() if raw else None
+
+        def decode(text):
+            try:
+                return base64.b64decode(text or '', validate=True).decode('utf-8', 'replace')
+            except (binascii.Error, ValueError):
+                return None
+
+        user = secret = None
+        if mechanism == 'PLAIN':
+            if initial is None:
+                self.say('334 ')
+                initial = read_response()
+            decoded = decode(initial)
+            if decoded is not None and decoded.count('\0') == 2:
+                _, user, secret = decoded.split('\0')
+        elif mechanism == 'LOGIN':
+            # The user name may come along (`AUTH LOGIN <user>`, as Postfix and Dovecot take).
+            if initial is None:
+                self.say('334 ' + base64.b64encode(b'Username:').decode())
+                initial = read_response()
+            user = decode(initial)
+            self.say('334 ' + base64.b64encode(b'Password:').decode())
+            secret = decode(read_response())
+        elif mechanism == 'XOAUTH2':
+            if initial is None:
+                self.say('334 ')
+                initial = read_response()
+            decoded = decode(initial) or ''
+            fields = dict(f.split('=', 1) for f in decoded.split('\x01') if '=' in f)
+            user = fields.get('user')
+            auth = fields.get('auth', '')
+            secret = auth[len('Bearer '):] if auth.startswith('Bearer ') else None
+        if user is not None and secret is not None and sink.accounts.get(user) == secret:
+            self.auth_user, self.auth_mechanism = user, mechanism
+            self.say('235 2.7.0 Authentication successful')
+            return
+        if mechanism == 'XOAUTH2':
+            # Google's way: the error report as a challenge, the refusal after the empty line.
+            report = base64.b64encode(b'{"status":"401","schemes":"bearer"}').decode()
+            self.say('334 ' + report)
+            read_response()
+        self.say('535 5.7.8 Username and Password not accepted')
 
     def say(self, line):
         self.wfile.write(line.encode('utf-8', 'replace') + b'\r\n')
@@ -82,6 +176,8 @@ class Handler(socketserver.StreamRequestHandler):
 
     def handle(self):
         sink = self.server.sink
+        if sink.implicit_tls and not self.start_tls():
+            return
         self.say(sink.greeting)
         if not sink.greeting.startswith('2'):
             return
@@ -101,6 +197,8 @@ class Handler(socketserver.StreamRequestHandler):
                 caps = ['azmail-sink', '8BITMIME', 'SIZE 52428800']
                 if sink.tls_context is not None and not self.tls:
                     caps.append('STARTTLS')
+                if self.offers_auth():
+                    caps.append('AUTH ' + ' '.join(sink.mechanisms))
                 for cap in caps[:-1]:
                     self.say('250-' + cap)
                 self.say('250 ' + caps[-1])
@@ -113,18 +211,15 @@ class Handler(socketserver.StreamRequestHandler):
                     self.say('502 5.5.1 no TLS here')
                     continue
                 self.say('220 2.0.0 ready to start TLS')
-                try:
-                    tls_socket = sink.tls_context.wrap_socket(self.request, server_side=True)
-                except (ssl.SSLError, OSError) as e:
-                    print(f'azmail-sink: TLS handshake failed: {e}', file=sys.stderr, flush=True)
+                if not self.start_tls():
                     return
-                self.request = tls_socket
-                self.connection = tls_socket
-                self.rfile = tls_socket.makefile('rb')
-                self.wfile = tls_socket.makefile('wb')
-                self.tls = True
                 helo, mail_from, rcpt_to = '', None, []
+            elif verb == 'AUTH':
+                self.authenticate(arg)
             elif verb == 'MAIL':
+                if sink.accounts and self.auth_user is None:
+                    self.say('530 5.7.0 Authentication required')
+                    continue
                 if not arg.upper().startswith('FROM:'):
                     self.say('501 5.5.4 MAIL FROM:<address>')
                     continue
@@ -159,6 +254,8 @@ class Handler(socketserver.StreamRequestHandler):
                     'rcpt_to': rcpt_to,
                     'tls': self.tls,
                     'bare_line_ends': bare,
+                    'auth_user': self.auth_user,
+                    'auth_mechanism': self.auth_mechanism,
                     'received_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                 }
                 if sink.data_reply:
@@ -232,6 +329,9 @@ def main():
     ap.add_argument('--data-reply')
     ap.add_argument('--greeting', default='220 azmail-sink ESMTP')
     ap.add_argument('--max-messages', type=int, default=0)
+    ap.add_argument('--auth', action='append', default=[], metavar='USER=SECRET')
+    ap.add_argument('--auth-mechs', default='PLAIN LOGIN XOAUTH2')
+    ap.add_argument('--implicit-tls', action='store_true')
     args = ap.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -247,8 +347,15 @@ def main():
         address, _, reply = spec.partition('=')
         rejects[address.strip().lower()] = reply.strip() or '550 5.1.1 rejected'
 
+    accounts = {}
+    for spec in args.auth:
+        user, _, secret = spec.partition('=')
+        accounts[user] = secret
+    if args.implicit_tls and tls_context is None:
+        ap.error('--implicit-tls needs --cert/--key or --tls-selfsigned')
     sink = Sink(args.out_dir, tls_context, rejects, args.data_reply, args.greeting,
-                args.max_messages)
+                args.max_messages, accounts, args.auth_mechs.upper().split(),
+                args.implicit_tls)
     server = Server(('127.0.0.1', args.port), Handler)
     server.sink = sink
     port = server.server_address[1]
