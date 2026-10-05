@@ -57,6 +57,70 @@ def saved(app):
     return len(app.printed("AZERP_SAVED"))
 
 
+class InWindow:
+    """`app` with every op addressed to its window `window_id` (the envelope's `window_id`): a
+    `Modal` is a transient window of its own, its buttons are not in the main window's tree."""
+
+    def __init__(self, app, window_id):
+        self.app = app
+        self.window_id = window_id
+
+    def op(self, op, **params):
+        return self.app.op(op, window_id=self.window_id, **params)
+
+    def must(self, op, **params):
+        return self.app.must(op, window_id=self.window_id, **params)
+
+    def frame(self, n=1):
+        self.app.frame(n)
+
+    # The App's own input helpers, run through this window's `must` / `frame`.
+    click = e2e.App.click
+    text_input = e2e.App.text_input
+
+
+def modal_window(app):
+    """The open modal's window (the one window that is not the app's own)."""
+    def other():
+        windows = (app.value("list_windows") or {}).get("windows") or []
+        ids = [w.get("window_id") for w in windows if not w.get("is_default")]
+        return ids[0] if ids else None
+    return InWindow(app, app.until("the modal's window", other))
+
+
+def delete_asks_first(app, data_dir, key, out):
+    """4b: on the asset `key`'s page, Delete asks; Cancel keeps it, the question's Delete
+    removes its files and it leaves the register."""
+    asset_file = os.path.join(data_dir, *key.split("/"))
+    asked = app.after("the delete question", "AZERP_ASK_DELETE", r"\S+",
+                      lambda: app.click(selector="#__azerp_action-delete"))
+    if asked not in key:
+        raise Failure("Delete asked about %r, not the new asset (%s)" % (asked, key))
+    app.until("the question", lambda: app.has_id("__azerp_confirm-delete"))
+    question = modal_window(app)
+    question.frame(2)
+    removed = len(app.printed("AZERP_REMOVED"))
+    click_dialog_button(question, "Cancel")
+    app.until("the question gone after Cancel", lambda: not app.has_id("__azerp_confirm-delete"))
+    app.frame(2)
+    if len(app.printed("AZERP_REMOVED")) != removed or not os.path.exists(asset_file):
+        raise Failure("Cancel removed files: %s" % app.printed("AZERP_REMOVED")[removed:])
+    if not app.shows("Drill press"):
+        raise Failure("the asset's page is gone after Cancel")
+    app.after("the delete question again", "AZERP_ASK_DELETE", r"\S+",
+              lambda: app.click(selector="#__azerp_action-delete"))
+    app.until("the question again", lambda: app.has_id("__azerp_confirm-delete"))
+    click_dialog_button(modal_window(app), "Delete")
+    app.until("the asset's file removed", lambda: key in app.printed("AZERP_REMOVED"))
+    app.frame(2)
+    if os.path.exists(asset_file):
+        raise Failure("%s is still on disk after Delete" % key)
+    if app.has_id("__azerp_confirm-delete") or app.shows("Drill press"):
+        raise Failure("the deleted asset is still shown")
+    app.screenshot(os.path.join(out, "4b-deleted.png"))
+    app.log("Cancel kept %s, Delete removed it: %s" % (key, app.printed("AZERP_REMOVED")[removed:]))
+
+
 def body(args, logs, out):
     binary = e2e.find_binary("AzERP", args.bin, "AZERP_BIN")
     data_dir = os.path.join(logs, "data")
@@ -110,9 +174,11 @@ def body(args, logs, out):
         # ---- 3. check-out and check-in ----
         app.click(text="Overview")
         app.after("the check-out form", "AZERP_FORM", r"\S+", lambda: app.click(text="Check out"))
-        app.text_input("#__azerp_field-custodian", "Katherine Johnson")
+        # A modal form (`form_modal`) is a Modal: a transient window of its own.
+        form = modal_window(app)
+        form.text_input("#__azerp_field-custodian", "Katherine Johnson")
         before = saved(app)
-        app.click(selector="#__azerp_form-save")
+        form.click(selector="#__azerp_form-save")
         app.until("the check-out's files", lambda: saved(app) >= before + 2)
         app.frame(2)
         if not app.shows("Checked out") or not app.shows("Katherine Johnson"):
@@ -127,9 +193,10 @@ def body(args, logs, out):
 
         # ---- 4. maintenance ----
         app.after("the maintenance form", "AZERP_FORM", r"\S+", lambda: app.click(text="Log maintenance"))
-        app.text_input("#__azerp_field-description", "First service")
+        form = modal_window(app)
+        form.text_input("#__azerp_field-description", "First service")
         before = saved(app)
-        app.click(selector="#__azerp_form-save")
+        form.click(selector="#__azerp_form-save")
         app.until("the entry's file", lambda: saved(app) > before)
         if not app.last("AZERP_SAVED").startswith("erp/maintenance/"):
             raise Failure("the entry wrote %r" % app.last("AZERP_SAVED"))
@@ -140,32 +207,7 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "4-maintenance.png"))
 
         # ---- 4b. delete asks first: Cancel keeps the asset, Delete removes its files ----
-        asset_file = os.path.join(data_dir, *key.split("/"))
-        asked = app.after("the delete question", "AZERP_ASK_DELETE", r"\S+",
-                          lambda: app.click(selector="#__azerp_action-delete"))
-        if asked not in key:
-            raise Failure("Delete asked about %r, not the new asset (%s)" % (asked, key))
-        app.until("the question", lambda: app.has_id("__azerp_confirm-delete"))
-        app.screenshot(os.path.join(out, "4b-delete-question.png"))
-        removed = len(app.printed("AZERP_REMOVED"))
-        click_dialog_button(app, "Cancel")
-        app.until("the question gone after Cancel", lambda: not app.has_id("__azerp_confirm-delete"))
-        app.frame(2)
-        if len(app.printed("AZERP_REMOVED")) != removed or not os.path.exists(asset_file):
-            raise Failure("Cancel removed files: %s" % app.printed("AZERP_REMOVED")[removed:])
-        if not app.shows("Drill press"):
-            raise Failure("the asset's page is gone after Cancel")
-        app.after("the delete question again", "AZERP_ASK_DELETE", r"\S+",
-                  lambda: app.click(selector="#__azerp_action-delete"))
-        app.until("the question again", lambda: app.has_id("__azerp_confirm-delete"))
-        click_dialog_button(app, "Delete")
-        app.until("the asset's file removed", lambda: key in app.printed("AZERP_REMOVED"))
-        app.frame(2)
-        if os.path.exists(asset_file):
-            raise Failure("%s is still on disk after Delete" % key)
-        if app.has_id("__azerp_confirm-delete") or app.shows("Drill press"):
-            raise Failure("the deleted asset is still shown")
-        app.log("Cancel kept %s, Delete removed it: %s" % (key, app.printed("AZERP_REMOVED")[removed:]))
+        delete_asks_first(app, data_dir, key, out)
 
         # ---- 5. a wrong form ----
         app.click(text="Register")
