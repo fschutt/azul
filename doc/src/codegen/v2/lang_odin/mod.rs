@@ -389,3 +389,79 @@ pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &Codegen
     }
     true
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::{super::config::CodegenConfig, generate};
+
+    fn out() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("odin codegen")
+        })
+    }
+
+    /// The generated proc whose first line starts with `prefix`, up to its
+    /// closing brace.
+    fn proc_text(prefix: &str) -> String {
+        let start = out()
+            .lines()
+            .position(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", prefix));
+        out()
+            .lines()
+            .skip(start)
+            .take_while(|l| *l != "}")
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn the_window_title_is_read_without_consuming_it() {
+        let p = proc_text("FullWindowState_get_title :: proc(self: ^AzFullWindowState");
+        assert!(p.contains("az_string_to_odin(self.title"), "{}", p);
+        assert!(!p.contains("_delete"), "{}", p);
+    }
+
+    #[test]
+    fn setting_the_window_title_releases_the_old_string_then_stores_a_fresh_one() {
+        let p = proc_text("FullWindowState_set_title :: proc(self: ^AzFullWindowState, v: string)");
+        let fresh = p.find("az_string(v)").expect(&p);
+        let del = p.find("AzString_delete(&self.title)").expect(&p);
+        assert!(fresh < del, "{}", p);
+        assert!(p.contains("self.title = fresh"), "{}", p);
+    }
+
+    #[test]
+    fn the_window_state_getter_returns_a_deep_copy() {
+        let p = proc_text(
+            "WindowCreateOptions_get_window_state :: proc(self: ^AzWindowCreateOptions) -> AzFullWindowState",
+        );
+        assert!(p.contains("AzFullWindowState_clone(&self.window_state)"), "{}", p);
+    }
+
+    #[test]
+    fn setting_the_window_state_releases_the_old_one_then_takes_the_new_one() {
+        let p = proc_text(
+            "WindowCreateOptions_set_window_state :: proc(self: ^AzWindowCreateOptions, v: AzFullWindowState)",
+        );
+        let del = p.find("AzFullWindowState_delete(&self.window_state)").expect(&p);
+        let mv = p.find("self.window_state = v").expect(&p);
+        assert!(del < mv, "{}", p);
+    }
+
+    #[test]
+    fn the_text_input_text_is_settable_although_get_text_exists() {
+        let p = proc_text("TextInputState_set_text :: proc(self: ^AzTextInputState, v: AzU32Vec)");
+        assert!(p.contains("AzU32Vec_delete(&self.text)"), "{}", p);
+    }
+
+    #[test]
+    fn an_empty_odin_string_converts_without_a_nil_pointer() {
+        let p = proc_text("az_string :: proc(s: string) -> AzString");
+        assert!(p.contains("len(s) == 0"), "{}", p);
+    }
+}
