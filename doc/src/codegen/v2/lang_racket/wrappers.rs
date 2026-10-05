@@ -26,11 +26,18 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
-        ir::{CodegenIR, EnumDef, FunctionDef, FunctionKind, TypeCategory},
+        ir::{
+            CodegenIR, EnumDef, FieldDef, FieldRefKind, FunctionDef, FunctionKind, StructDef,
+            TypeCategory,
+        },
+        managed_host_invoker, managed_lang_helpers,
     },
-    idiomatic_class_name, kebab, sanitize_racket_ident,
+    c_name, field_ident,
+    functions::should_emit_function,
+    idiomatic_class_name, kebab, map_type_to_racket, sanitize_racket_ident,
 };
 
 pub fn generate_wrappers(
@@ -61,7 +68,205 @@ pub fn generate_wrappers(
         emit_enum_wrappers(builder, e, ir);
     }
 
+    builder.line(";; ----------------------------------------------------------------------------");
+    builder.line(";; Field accessors of the resource-owning structs (those with an Az*_delete).");
+    builder.line(";;");
+    builder.line(";;   (foo-field obj)           -- a String field as a Racket string (a copy);");
+    builder.line(";;                                any other field as define-cstruct gives it: a");
+    builder.line(";;                                struct field is a VIEW into obj, so nested");
+    builder.line(";;                                writes reach obj:");
+    builder.line(
+        ";;     (set-full-window-state-title! (window-create-options-window-state opts) \"Hi\")",
+    );
+    builder.line(";;   (foo-field-copy obj)      -- an independent deep copy (Az*_clone);");
+    builder.line(";;   (set-foo-field! obj v)    -- releases the old value (Az*_delete), then");
+    builder.line(";;                                stores v. v is MOVED in: do not delete or");
+    builder.line(";;                                reuse it (pass a fresh value or a -copy).");
+    builder.line(";;                                A String field also takes a Racket string.");
+    builder.line(";; ----------------------------------------------------------------------------");
+    builder.blank();
+    // Every procedure name the wrappers above defined: the module is one
+    // namespace, so an accessor never redefines one (a duplicate `define`
+    // fails to load) - the api.json method wins.
+    let mut taken = std::collections::BTreeSet::new();
+    for (name, category, generic_params) in ir
+        .structs
+        .iter()
+        .map(|s| (&s.name, s.category, &s.generic_params))
+        .chain(
+            ir.enums
+                .iter()
+                .map(|e| (&e.name, e.category, &e.generic_params)),
+        )
+    {
+        if !should_emit(name, category, generic_params, config) {
+            continue;
+        }
+        let class = idiomatic_class_name(name);
+        let funcs: Vec<&FunctionDef> = ir.functions_for_class(name).collect();
+        let has_new = funcs.iter().any(|f| f.method_name == "new");
+        for f in funcs.iter().filter(|f| !f.kind.is_trait_function()) {
+            taken.insert(public_name(&class, f, has_new));
+        }
+    }
+    for s in &ir.structs {
+        if !should_emit(&s.name, s.category, &s.generic_params, config)
+            || class_fn(&s.name, FunctionKind::Delete, ir, config).is_none()
+        {
+            continue;
+        }
+        emit_field_accessors(builder, s, ir, config, &mut taken);
+    }
+
     Ok(())
+}
+
+/// The raw binding (its C name) of `class`'s function of `kind`, when emitted.
+fn class_fn(
+    class: &str,
+    kind: FunctionKind,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<String> {
+    ir.functions_for_class(class.trim())
+        .find(|f| f.kind == kind && should_emit_function(f, ir, config))
+        .map(|f| f.c_name.clone())
+}
+
+/// How one field of a resource-owning struct is read and written.
+enum FieldShape {
+    /// A C scalar, a unit enum, or a struct/union that owns no heap memory:
+    /// define-cstruct's own accessor and mutator are the whole story.
+    Plain,
+    /// The String class: read as a Racket string; written from a Racket
+    /// string or an AzString after the old one is released.
+    Str { delete: String },
+    /// A heap-owning struct/union: read as define-cstruct's view, copied
+    /// with `_clone`, written after the old value is released.
+    Owning {
+        delete: String,
+        clone: Option<String>,
+    },
+}
+
+fn field_shape(f: &FieldDef, ir: &CodegenIR, config: &CodegenConfig) -> Option<FieldShape> {
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.contains('<') || t.starts_with('*') || t.starts_with('&') || t.starts_with('[') {
+        return None;
+    }
+    // Callbacks, their wrappers and the type-erased handle are wired up by
+    // the closure plumbing (register-callback / refany-create).
+    if managed_host_invoker::is_callback_wrapper(ir, t)
+        || managed_lang_helpers::is_refany_type(t, ir)
+        || ir.callback_typedefs.iter().any(|c| c.name.trim() == t)
+    {
+        return None;
+    }
+    let ct = map_type_to_racket(t, ir);
+    if ct == "_pointer" || ct == "_fpointer" || ct == "_void" {
+        return None;
+    }
+    let is_type =
+        ir.find_struct(t).is_some() || ir.find_enum(t).is_some() || ir.find_type_alias(t).is_some();
+    if is_type && !config.should_include_type(t) {
+        return None;
+    }
+    if !managed_lang_helpers::has_delete_function(t, ir) {
+        return Some(FieldShape::Plain);
+    }
+    // A heap-owning field without a reachable `_delete` cannot be replaced
+    // without leaking the old value: no accessor at all.
+    let delete = class_fn(t, FunctionKind::Delete, ir, config)?;
+    if ir
+        .find_struct(t)
+        .is_some_and(|s| s.category == TypeCategory::String)
+    {
+        return Some(FieldShape::Str { delete });
+    }
+    Some(FieldShape::Owning {
+        delete,
+        clone: class_fn(t, FunctionKind::DeepCopy, ir, config),
+    })
+}
+
+/// `(<class>-<field> obj)`, `(<class>-<field>-copy obj)` and
+/// `(set-<class>-<field>! obj v)` for the public by-value fields of one
+/// resource-owning struct.
+///
+/// - The getter of a String field decodes it without consuming it; any
+///   other getter is define-cstruct's own (a struct field is a view into
+///   `obj`, so `(set-...! (<class>-<field> obj) ...)` writes through).
+/// - `-copy` is an independent deep copy (`_clone`; none -> no `-copy`).
+/// - The setter releases the field's old value (`_delete` on its address,
+///   from the azul.h layout), then stores `v` - which is moved in.
+///
+/// An api.json method of the same name wins: the getter is skipped, the
+/// setter is still emitted.
+fn emit_field_accessors(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    taken: &mut std::collections::BTreeSet<String>,
+) {
+    let class = idiomatic_class_name(&s.name);
+    let cn = c_name(&s.name);
+    let Some(offsets) = c_layout::field_offsets(&s.fields, ir) else {
+        return;
+    };
+    let mut wrote = false;
+    for (f, off) in s.fields.iter().zip(offsets) {
+        let Some(shape) = field_shape(f, ir, config) else {
+            continue;
+        };
+        let field = field_ident(&f.name);
+        let accessor = format!("{}-{}", class, field);
+        let native_get = format!("({}-{} obj)", cn, field);
+        let native_set = format!("set-{}-{}!", cn, field);
+        let fp = format!("(ptr-add obj {})", off);
+        if let Some(d) = &f.doc {
+            builder.line(&format!(";; {}", d.replace(['\n', '\r'], " ")));
+        }
+        let getter = match &shape {
+            FieldShape::Str { .. } => format!("(azul-string->string {})", native_get),
+            FieldShape::Plain | FieldShape::Owning { .. } => native_get.clone(),
+        };
+        if taken.insert(accessor.clone()) {
+            builder.line(&format!("(define ({} obj)", accessor));
+            builder.line(&format!("  {})", getter));
+        }
+        if let FieldShape::Owning { clone: Some(c), .. } = &shape {
+            let copy = format!("{}-copy", accessor);
+            if taken.insert(copy.clone()) {
+                builder.line(&format!("(define ({} obj)", copy));
+                builder.line(&format!("  ({} {}))", c, fp));
+            }
+        }
+        let setter = format!("set-{}!", accessor);
+        if !taken.insert(setter.clone()) {
+            continue;
+        }
+        builder.line(&format!("(define ({} obj v)", setter));
+        match &shape {
+            FieldShape::Plain => builder.line(&format!("  ({} obj v))", native_set)),
+            FieldShape::Str { delete } => {
+                builder.line("  (define new (if (string? v) (string->azul-string v) v))");
+                builder.line(&format!("  ({} {})", delete, fp));
+                builder.line(&format!("  ({} obj new))", native_set));
+            }
+            FieldShape::Owning { delete, .. } => {
+                builder.line(&format!("  ({} {})", delete, fp));
+                builder.line(&format!("  ({} obj v))", native_set));
+            }
+        }
+        wrote = true;
+    }
+    if wrote {
+        builder.blank();
+    }
 }
 
 fn should_emit(
@@ -209,14 +414,19 @@ mod tests {
     #[test]
     fn the_title_getter_decodes_the_field_without_consuming_it() {
         let get = form("(define (full-window-state-title obj)");
-        assert!(get.contains("(azul-string->string (AzFullWindowState-title obj))"), "{get}");
+        assert!(
+            get.contains("(azul-string->string (AzFullWindowState-title obj))"),
+            "{get}"
+        );
     }
 
     #[test]
     fn the_title_setter_releases_the_old_string_before_storing_the_new_one() {
         let set = form("(define (set-full-window-state-title! obj v)");
         let delete = set.find("(AzString_delete (ptr-add obj ").expect(set);
-        let store = set.find("(set-AzFullWindowState-title! obj new)").expect(set);
+        let store = set
+            .find("(set-AzFullWindowState-title! obj new)")
+            .expect(set);
         assert!(delete < store, "{set}");
         assert!(set.contains("(string->azul-string v)"), "{set}");
     }
@@ -224,12 +434,24 @@ mod tests {
     #[test]
     fn the_window_state_is_a_view_with_a_deep_copy_and_a_releasing_setter() {
         let view = form("(define (window-create-options-window-state obj)");
-        assert!(view.contains("(AzWindowCreateOptions-window-state obj)"), "{view}");
+        assert!(
+            view.contains("(AzWindowCreateOptions-window-state obj)"),
+            "{view}"
+        );
         let copy = form("(define (window-create-options-window-state-copy obj)");
-        assert!(copy.contains("(AzFullWindowState_clone (ptr-add obj "), "{copy}");
+        assert!(
+            copy.contains("(AzFullWindowState_clone (ptr-add obj "),
+            "{copy}"
+        );
         let set = form("(define (set-window-create-options-window-state! obj v)");
-        assert!(set.contains("(AzFullWindowState_delete (ptr-add obj "), "{set}");
-        assert!(set.contains("(set-AzWindowCreateOptions-window-state! obj v)"), "{set}");
+        assert!(
+            set.contains("(AzFullWindowState_delete (ptr-add obj "),
+            "{set}"
+        );
+        assert!(
+            set.contains("(set-AzWindowCreateOptions-window-state! obj v)"),
+            "{set}"
+        );
     }
 
     #[test]

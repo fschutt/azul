@@ -25,6 +25,7 @@
 //!     framework drops the last clone.
 
 use super::super::{
+    c_layout,
     generator::CodeBuilder,
     ir::{CallbackTypedefDef, CodegenIR},
     managed_host_invoker::{has_return, host_invoker_kinds, to_kebab_case, wrapper_name},
@@ -151,17 +152,41 @@ pub fn emit_managed(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("  (and (not (= id 0)) (hash-ref azul-handles id #f)))");
     builder.blank();
 
-    emit_string_helpers(builder);
+    emit_string_helpers(builder, ir);
+}
+
+/// Where a String's UTF-8 bytes are described inside it: the byte offsets
+/// of its byte Vec's data pointer and `usize` length, read off the IR (the
+/// String class is found by category; its one field is that Vec).
+fn string_byte_offsets(ir: &CodegenIR) -> Option<(usize, usize)> {
+    let s = ir
+        .structs
+        .iter()
+        .find(|s| s.category == super::super::ir::TypeCategory::String)?;
+    let vec = s.fields.first()?;
+    let vec_off = *c_layout::field_offsets(&s.fields, ir)?.first()?;
+    let inner = ir.find_struct(vec.type_name.trim())?;
+    let offs = c_layout::field_offsets(&inner.fields, ir)?;
+    let ptr = inner.fields.iter().position(|f| {
+        f.ref_kind != super::super::ir::FieldRefKind::Owned || f.type_name.trim().starts_with('*')
+    })?;
+    let len = inner
+        .fields
+        .iter()
+        .position(|f| f.type_name.trim() == "usize")?;
+    Some((vec_off + offs[ptr], vec_off + offs[len]))
 }
 
 /// Typed `AzString` <-> Racket `string` interop, so callers don't hand-roll
 /// the byte plumbing (the counter example otherwise defines its own `az-str`).
 /// Mirrors the Ruby binding's `AzString#to_s` / auto-convert ergonomics.
 ///
-/// `AzString` is `{ vec: AzU8Vec }` and `AzU8Vec` is `{ ptr, len, cap, dtor }`;
-/// the `define-cstruct` layer emits the `AzString-vec` / `AzU8Vec-ptr` /
-/// `AzU8Vec-len` accessors these helpers read.
-fn emit_string_helpers(builder: &mut CodeBuilder) {
+/// The decoder reads the data pointer and length at their byte offsets (so
+/// any cpointer works: a String value, or a view of a String field) and
+/// copies the bytes with `memcpy` into a fresh byte string -
+/// `make-sized-byte-string` does not exist on Racket CS.
+fn emit_string_helpers(builder: &mut CodeBuilder, ir: &CodegenIR) {
+    let (ptr_off, len_off) = string_byte_offsets(ir).unwrap_or((0, 8));
     builder.line(";; ----------------------------------------------------------------------------");
     builder.line(";; Typed AzString <-> Racket string helpers.");
     builder.line(";; ----------------------------------------------------------------------------");
@@ -172,15 +197,22 @@ fn emit_string_helpers(builder: &mut CodeBuilder) {
     builder.line("  (define b (string->bytes/utf-8 s))");
     builder.line("  (AzString_fromUtf8 b (bytes-length b)))");
     builder.blank();
-    builder.line(";; Decode an AzString's wrapped UTF-8 bytes into a Racket string. Pass an");
-    builder.line(";; _AzString cstruct value (e.g. one returned by an Az*_toString call).");
+    builder.line(";; Decode an AzString's UTF-8 bytes into a Racket string. AZ is any pointer");
+    builder.line(";; to an AzString (a value, or a String field of a struct); it is only read.");
     builder.line("(define (azul-string->string az)");
-    builder.line("  (define vec (AzString-vec az))");
-    builder.line("  (define ptr (AzU8Vec-ptr vec))");
-    builder.line("  (define len (AzU8Vec-len vec))");
+    builder.line(&format!(
+        "  (define ptr (ptr-ref az _pointer 'abs {}))",
+        ptr_off
+    ));
+    builder.line(&format!(
+        "  (define len (ptr-ref az _uintptr 'abs {}))",
+        len_off
+    ));
     builder.line("  (if (or (not ptr) (= len 0))");
     builder.line("      \"\"");
-    builder.line("      (bytes->string/utf-8 (make-sized-byte-string ptr len))))");
+    builder.line("      (let ([b (make-bytes len)])");
+    builder.line("        (memcpy b ptr len)");
+    builder.line("        (bytes->string/utf-8 b #\\uFFFD))))");
     builder.blank();
 }
 
