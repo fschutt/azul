@@ -17,6 +17,7 @@
 //! The chart half reads the same [`DataSet`] (aggregate it over
 //! [`DataSet::orders`]).
 
+use azul::widgets::{MoneyCurrency, MoneyInput, MoneyLocale};
 use chrono::{Datelike, NaiveDate};
 
 /// The orders the dashboard shows.
@@ -587,21 +588,25 @@ pub fn parse_day(text: &str) -> Option<i32> {
     Some(date.num_days_from_ce() - EPOCH_FROM_CE)
 }
 
+/// `value` in units of `10^-decimals` with commas between the thousands and
+/// `decimals` decimals (`formatted(123_456, 2)` = `1,234.56`,
+/// `formatted(500_000, 0)` = `500,000`): azul's `MoneyInput::format_amount`
+/// without a symbol - the app's one grouping, for amounts and counts.
+#[must_use]
+pub fn formatted(value: i64, decimals: u8) -> String {
+    MoneyInput::format_amount(
+        value,
+        MoneyCurrency::create("", "", decimals),
+        MoneyLocale::en_us(),
+    )
+    .as_str()
+    .to_string()
+}
+
 /// An amount in cents with thousands separators: `1,234.50`, `-12.00`.
 #[must_use]
 pub fn money(cents: i64) -> String {
-    let sign = if cents < 0 { "-" } else { "" };
-    let abs = cents.unsigned_abs();
-    let units = abs / 100;
-    let digits = units.to_string();
-    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            grouped.push(',');
-        }
-        grouped.push(ch);
-    }
-    format!("{sign}{grouped}.{:02}", abs % 100)
+    formatted(cents, 2)
 }
 
 /// The cents of a typed amount (`1234.5`, `1,234.50`, `12`), else `None`.
