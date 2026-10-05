@@ -12,6 +12,7 @@ use azul::{
         SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
     },
+    menu::{Menu, MenuItem, StringMenuItem},
     option::OptionString,
     prelude::*,
     str::String as AzString,
@@ -297,7 +298,8 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
                     "font-size: 22px; font-family: monospace;",
                 ))
                 .with_child(button("Up", app, Action::CityUp(i)))
-                .with_child(button("Remove", app, Action::CityRemove(i))),
+                .with_child(button("Remove", app, Action::CityRemove(i)))
+                .with_context_menu(city_menu(app, i, s.cities.len())),
         );
     }
     let css = if wide {
@@ -310,6 +312,23 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
         .with_css(css)
         .with_child(face_panel)
         .with_child(list)
+}
+
+/// A city row's context menu: Move up (not the first), Move down (not the
+/// last), Remove.
+fn city_menu(app: &RefAny, i: usize, count: usize) -> Menu {
+    let item = |label: &str, action: Action| {
+        MenuItem::string(StringMenuItem::create(label).with_callback(act(app, action), actions::on_act))
+    };
+    let mut items = Vec::new();
+    if i > 0 {
+        items.push(item("Move up", Action::CityUp(i)));
+    }
+    if i + 1 < count {
+        items.push(item("Move down", Action::CityDown(i)));
+    }
+    items.push(item("Remove", Action::CityRemove(i)));
+    Menu::create(items)
 }
 
 // ==== Alarms ====

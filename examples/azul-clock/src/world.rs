@@ -166,8 +166,13 @@ pub fn sample_cities() -> Vec<City> {
 
 /// Moves city `i` one place down (`down`) or up - its menu's Move down / Move up:
 /// `false` when it cannot (the first up, the last down, no such city).
-pub fn step_city(_cities: &mut Vec<City>, _i: usize, _down: bool) -> bool {
-    false
+pub fn step_city(cities: &mut Vec<City>, i: usize, down: bool) -> bool {
+    let to = if down { i + 1 } else { i.wrapping_sub(1) };
+    if i >= cities.len() || to >= cities.len() {
+        return false;
+    }
+    cities.swap(i, to);
+    true
 }
 
 /// Moves the city at `from` to `to` (a drag, or the Up / Down keys).
