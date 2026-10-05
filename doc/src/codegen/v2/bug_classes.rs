@@ -1942,6 +1942,22 @@ fn referenced_symbols(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     (used, defined)
 }
 
+/// The ABI guard's MSVC load hook, `void (__cdecl *AzAbi_checkAtLoadEntry)(void)
+/// = AzAbi_checkAtLoad;`, is a function-pointer VARIABLE the C header defines
+/// itself; its `/include:` pragma quotes it. It was read as an import that
+/// libazul does not export (2026-10-05).
+#[test]
+fn a_function_pointer_variable_the_binding_defines_is_not_an_import() {
+    let (used, defined) = referenced_symbols(
+        "void (__cdecl *AzAbi_checkAtLoadEntry)(void) = AzAbi_checkAtLoad;\n\
+         #pragma comment(linker, \"/include:AzAbi_checkAtLoadEntry\")\n\
+         AzDom_clone(x);",
+    );
+    assert!(defined.contains("AzAbi_checkAtLoadEntry"), "{defined:?}");
+    let imports: BTreeSet<String> = used.difference(&defined).cloned().collect();
+    assert_eq!(imports, BTreeSet::from(["AzDom_clone".to_string()]));
+}
+
 /// A failure that names thousands of items is only actionable in full, but a
 /// panic message that long is unreadable. `AZ_BUG_CLASS_DUMP=<dir>` writes
 /// every offender to `<dir>/<what>-<lang>.txt` while the message stays a
