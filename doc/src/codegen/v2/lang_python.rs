@@ -4566,3 +4566,115 @@ fn to_snake_case(s: &str) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for Python:
+    //! a struct-typed field getter returns a copy that stays LINKED to its
+    //! parent, and every write to such a copy - a field setter or a `&mut self`
+    //! method - is written back through the link. So
+    //! `opts.window_state.title = "x"` reaches `opts` instead of changing a
+    //! temporary that is dropped right after.
+    use std::sync::OnceLock;
+
+    use super::*;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            PythonGenerator
+                .generate_python(super::super::bug_classes::ir(), &PythonConfig::python_extension())
+                .expect("python generates")
+        })
+    }
+
+    /// The `#[pymethods]` block of one class.
+    fn pymethods_of(class: &str) -> &'static str {
+        let out = output();
+        let head = format!("#[pymethods]\nimpl Az{} {{\n", class);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("no #[pymethods] block for {}", class));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").expect("block ends");
+        &rest[..end]
+    }
+
+    /// The one emitted fn whose signature starts with `fn {name}(`.
+    fn function_in(block: &str, name: &str) -> String {
+        let head = format!("fn {}(", name);
+        let start = block
+            .find(&head)
+            .unwrap_or_else(|| panic!("no fn {} in:\n{}", name, block));
+        let rest = &block[start..];
+        // An accessor is one line; a method ends at its closing brace.
+        let line_end = rest.find('\n').unwrap_or(rest.len());
+        if rest[..line_end].trim_end().ends_with('}') {
+            return rest[..line_end].to_string();
+        }
+        let end = rest.find("\n    }\n").map(|e| e + 6).unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    #[test]
+    fn a_struct_typed_field_getter_returns_a_deep_copy_linked_to_its_parent() {
+        let f = function_in(pymethods_of("WindowCreateOptions"), "__get_window_state");
+        assert!(f.contains("slf: &Bound<'_, Self>"), "{}", f);
+        assert!(f.contains("-> PyResult<Py<AzFullWindowState>>"), "{}", f);
+        assert!(f.contains(".inner.window_state.clone()"), "{}", f);
+        assert!(f.contains("__azul_link_parent("), "{}", f);
+        assert!(f.contains("\"window_state\""), "{}", f);
+    }
+
+    #[test]
+    fn a_string_field_setter_writes_the_new_value_back_into_the_parent() {
+        let f = function_in(pymethods_of("FullWindowState"), "__set_title");
+        assert!(f.contains("slf: &Bound<'_, Self>, value: String) -> PyResult<()>"), "{}", f);
+        assert!(f.contains(".inner.title = "), "{}", f);
+        assert!(f.contains("__azul_write_back(slf.as_any())"), "{}", f);
+    }
+
+    #[test]
+    fn a_bool_field_setter_writes_the_new_value_back_into_the_parent() {
+        let f = function_in(pymethods_of("CheckBoxState"), "__set_checked");
+        assert!(f.contains("slf: &Bound<'_, Self>, value: bool) -> PyResult<()>"), "{}", f);
+        assert!(f.contains("__azul_write_back(slf.as_any())"), "{}", f);
+    }
+
+    #[test]
+    fn a_struct_typed_field_setter_writes_the_new_value_back_into_the_parent() {
+        let f = function_in(pymethods_of("WindowCreateOptions"), "__set_window_state");
+        assert!(f.contains("value: AzFullWindowState) -> PyResult<()>"), "{}", f);
+        assert!(f.contains(".inner.window_state = value.inner"), "{}", f);
+        assert!(f.contains("__azul_write_back(slf.as_any())"), "{}", f);
+    }
+
+    #[test]
+    fn a_mut_self_method_writes_its_receiver_back_into_the_parent() {
+        let f = function_in(pymethods_of("RichFormats"), "set");
+        assert!(f.contains("mut __slf: PyRefMut<'_, Self>"), "{}", f);
+        assert!(f.contains("-> PyResult<()>"), "{}", f);
+        assert!(f.contains("core::mem::transmute(&mut __slf.inner)"), "{}", f);
+        assert!(f.contains("__azul_write_back("), "{}", f);
+        assert!(!f.contains("&mut self"), "{}", f);
+    }
+
+    #[test]
+    fn every_wrapper_class_has_a_dict_to_hold_its_parent_link() {
+        let out = output();
+        assert!(out.contains("#[pyclass(name = \"FullWindowState\", module = \"azul\", dict"));
+        assert!(out.contains("#[pyclass(name = \"WindowSize\", module = \"azul\", dict"));
+        let without_dict = out
+            .lines()
+            .filter(|l| l.starts_with("#[pyclass(") && !l.contains(", dict"))
+            .collect::<Vec<_>>();
+        assert!(without_dict.is_empty(), "{:#?}", without_dict);
+    }
+
+    #[test]
+    fn the_write_back_helpers_are_emitted_once() {
+        let out = output();
+        assert_eq!(out.matches("fn __azul_write_back(").count(), 1);
+        assert_eq!(out.matches("fn __azul_link_parent(").count(), 1);
+    }
+}
