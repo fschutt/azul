@@ -7323,3 +7323,56 @@ mod entities;
 #[cfg(test)]
 #[path = "xml_test.rs"]
 mod xml_test;
+
+/// The `<html>` element's own attributes on the root node both loaders build
+/// (WPT8 found (c)).
+#[cfg(test)]
+mod html_root_attribute_tests {
+    use super::*;
+
+    /// `<html style="background: red"><body></body></html>`.
+    fn html_with_a_style() -> Vec<XmlNodeChild> {
+        let body = XmlNode {
+            node_type: "body".into(),
+            attributes: XmlAttributeMap::default(),
+            children: Vec::<XmlNodeChild>::new().into(),
+        };
+        let html = XmlNode {
+            node_type: "html".into(),
+            attributes: XmlAttributeMap::from(StringPairVec::from_vec(alloc::vec![AzStringPair {
+                key: AzString::from("style"),
+                value: AzString::from("background: red;"),
+            }])),
+            children: alloc::vec![XmlNodeChild::Element(body)].into(),
+        };
+        alloc::vec![XmlNodeChild::Element(html)]
+    }
+
+    #[test]
+    fn the_html_elements_style_attribute_reaches_the_root() {
+        let map = ComponentMap::with_builtin();
+
+        // The tree loader (`str_to_dom_unstyled`).
+        let dom = str_to_dom_unstyled(&html_with_a_style(), &map).expect("the markup parses");
+        assert!(
+            matches!(dom.root.node_type, NodeType::Html),
+            "the root is the html element"
+        );
+        assert!(
+            !dom.root.style.rules.as_ref().is_empty(),
+            "the html element's inline style is on the root (the tree loader built a bare Html)"
+        );
+
+        // The arena loader (`str_to_dom`).
+        let styled = str_to_dom(&html_with_a_style(), &map, None).expect("the markup parses");
+        let root = &styled.node_data.as_container()[crate::id::NodeId::ZERO];
+        assert!(
+            matches!(root.node_type, NodeType::Html),
+            "the root is the html element"
+        );
+        assert!(
+            !root.style.rules.as_ref().is_empty(),
+            "the html element's inline style is on the root (the arena loader built a bare Html)"
+        );
+    }
+}
