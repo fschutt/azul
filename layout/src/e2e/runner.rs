@@ -7099,6 +7099,61 @@ mod tests {
         );
     }
 
+    /// Engine backlog 11: the runner closed a widget's popup on Escape only.
+    /// The real path (the dll's `dismiss_outside_on_press`) also closes an
+    /// `outside` popup on a fresh press anywhere but its anchor (the invoker
+    /// decides about a press on itself), so a scenario that clicks away from
+    /// an open picker saw it stay open.
+    #[test]
+    fn a_press_outside_a_popup_in_a_scenario_dismisses_it() {
+        use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+
+        // Tab to the swatch, Space opens its picker; then (or not) a press
+        // far from the swatch, on bare body.
+        let open_the_picker = |then_press_outside: bool| {
+            let mut dom = Dom::create_body().with_child(
+                ColorInput::create(color_from_hex("#ff5733").expect("a colour")).dom(),
+            );
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let mut steps = vec![
+                serde_json::json!({ "op": "wait_frame" }),
+                serde_json::json!({ "op": "key_down", "key": "Tab" }),
+                serde_json::json!({ "op": "key_up", "key": "Tab" }),
+                serde_json::json!({ "op": "key_down", "key": "Space" }),
+                serde_json::json!({ "op": "key_up", "key": "Space" }),
+                serde_json::json!({ "op": "wait_frame" }),
+            ];
+            if then_press_outside {
+                steps.push(serde_json::json!({ "op": "click", "x": 390.0, "y": 190.0 }));
+                steps.push(serde_json::json!({ "op": "wait_frame" }));
+            }
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "a_press_outside_closes_the_picker",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": steps
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            runner
+                .layout_window
+                .transient_windows
+                .forced_open_nodes()
+                .len()
+        };
+
+        assert_eq!(open_the_picker(false), 1, "premise: Space opened the picker");
+        assert_eq!(
+            open_the_picker(true),
+            0,
+            "the press outside the picker closed it"
+        );
+    }
+
     /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always
     /// shown) over 20 rows of 30px. Classic on purpose: whether an overlay
     /// bar or a `scrollbar-width: none` bar exists at all is the
