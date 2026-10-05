@@ -84,10 +84,15 @@ dumb as possible". Order now:
   check_submission); 017f399ed UI: Sending page choice + note, sign_in handed over (compose,
   Send / Receive)
 
+- 83325810c azmail-send --submission / --password-env / --tls implicit; 7ff89c136 sink AUTH +
+  implicit TLS (checked with smtplib); fd2b18317 E2E cases submission, submission-implicit,
+  submission-xoauth2, submission-refused (smtp / starttls / rejected still PASS against the
+  prebuilt base binary with the new sink). STEP 7a DONE.
+
 ## IN PROGRESS
-- Step 7a rest: azmail-send `--submission`, `--password-env VAR`, `--tls implicit`; python
-  sink `--auth user=secret`, `--auth-mechs`, `--implicit-tls`; azmail_send_test.py cases
-  submission (STARTTLS + PLAIN, self-signed CA), submission-implicit (LOGIN), submission-refused.
+- Step 7b: remote content (PLAN "REMOTE CONTENT"): read html.rs / ui_main.rs "Download
+  pictures" first, then RED tests for the pre-pass list (scan_external_resources -> the
+  fetch list: http(s) only, no tracking pixel, caps), GREEN, then the Thread fetch.
 
 ## MONDAY - exact next step
 - Step 7a (secondary route, lettre): auth.rs part DONE. NEXT: RED tests in `send.rs` (`SendRoute::Submission`
