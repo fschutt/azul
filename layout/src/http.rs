@@ -1216,12 +1216,16 @@ fn map_ureq_error(url: &str, e: &ureq::Error) -> HttpError {
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn decode_response(
     response: ureq::http::Response<ureq::Body>,
-    url: &str,
     config: &HttpRequestConfig,
 ) -> HttpResult<HttpResponse> {
     use std::io::Read;
 
+    use ureq::ResponseExt as _;
+
     let status_code = response.status().as_u16();
+    // Where the request ended: ureq follows redirects (up to 10) and records
+    // the last URI on the response.
+    let final_url = AzString::from(response.get_uri().to_string());
     let content_type = AzString::from(
         response
             .headers()
@@ -1272,7 +1276,7 @@ fn decode_response(
         content_type,
         content_length,
         headers: HttpHeaderVec::from_vec(headers),
-        final_url: AzString::from(url),
+        final_url,
     })
 }
 
@@ -1358,7 +1362,7 @@ pub fn http_request_with_config(
             .map_err(|e| map_ureq_error(url, &e))?
     };
 
-    decode_response(response, url, config)
+    decode_response(response, config)
 }
 
 /// Stub: `http` feature disabled.
