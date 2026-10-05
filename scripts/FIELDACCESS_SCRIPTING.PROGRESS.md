@@ -20,11 +20,17 @@ carrying them; skips Vec/String/RefAny/... container structs).
   _apply_opts(struct, opts, tn) releases old + deep-copies (_take) instead of aliasing;
   direct cdata field reads stay live views (references, never finalized)
 
+- PHP-FFI RED (test(php): RED - ...)
+- PHP-FFI fix: get_/set_<field>; views (`new W($this->ptr->f, $this)`, never freed); ?CData $ptr + $owner;
+  intoRaw(); by-value receivers go through intoRaw() (the old `$this->ptr = null` was a TypeError on a
+  non-nullable typed property); clone()/toString() lost the extra $instance; toString returns a PHP
+  string; Azul::str / Azul::readString
+
 ## IN PROGRESS
-- PHP-FFI
+- PHP ext
 
 ## NEXT
-- PHP ext, Perl
+- Perl
 
 ## Open questions
 - field_access.rs may duplicate helpers other groups wrote (unify at integration).

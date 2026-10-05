@@ -215,6 +215,43 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("return self::CDEF;");
     builder.dedent();
     builder.line("}");
+    builder.blank();
+
+    // String helpers the field accessors (and `toString()`) use.
+    builder.line("/**");
+    builder.line(" * A fresh AzString holding a copy of the PHP string's bytes (owned by whoever");
+    builder.line(" * it is moved into).");
+    builder.line(" */");
+    builder.line("public static function str(string $s): \\FFI\\CData");
+    builder.line("{");
+    builder.indent();
+    builder.line("$n = \\strlen($s);");
+    builder.line("$buf = self::lib()->new('uint8_t[' . \\max(1, $n) . ']');");
+    builder.line("if ($n > 0) {");
+    builder.indent();
+    builder.line("\\FFI::memcpy($buf, $s, $n);");
+    builder.dedent();
+    builder.line("}");
+    builder.line("return self::lib()->AzString_copyFromBytes($buf, 0, $n);");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+    builder.line("/**");
+    builder.line(" * The text of an AzString (a value or a field view), decoded into a PHP string.");
+    builder.line(" * The AzString is neither consumed nor freed.");
+    builder.line(" */");
+    builder.line("public static function readString(\\FFI\\CData $s): string");
+    builder.line("{");
+    builder.indent();
+    builder.line("$len = (int) $s->vec->len;");
+    builder.line("if ($len === 0 || \\FFI::isNull($s->vec->ptr)) {");
+    builder.indent();
+    builder.line("return '';");
+    builder.dedent();
+    builder.line("}");
+    builder.line("return \\FFI::string($s->vec->ptr, $len);");
+    builder.dedent();
+    builder.line("}");
 
     // Managed-FFI runtime helpers (host-invoker pattern). Added INSIDE the
     // Azul class so callers reach them as `Azul::registerCallback(...)` /

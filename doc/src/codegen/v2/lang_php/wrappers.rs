@@ -127,38 +127,9 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     out.push_str(&format!("final class {}\n", class));
     out.push_str("{\n");
 
-    // Storage: the raw FFI cdata. Type-hint to FFI\CData so static
-    // analysers understand the value, but we accept any cdata the user
-    // hands us at construction.
-    out.push_str("    /** @var \\FFI\\CData */\n");
-    out.push_str("    private \\FFI\\CData $ptr;\n\n");
-
-    // Internal raw constructor — wrapper classes consume an existing
-    // FFI cdata. Public callers should use `create()` / `default()` /
-    // other static factories below.
-    out.push_str("    /**\n");
-    out.push_str("     * Wrap an existing FFI cdata (takes ownership).\n");
-    out.push_str("     *\n");
-    out.push_str(&format!(
-        "     * @param \\FFI\\CData $ptr a value of FFI type `{}`\n",
-        c_name
-    ));
-    out.push_str("     */\n");
-    out.push_str("    public function __construct(\\FFI\\CData $ptr)\n");
-    out.push_str("    {\n");
-    out.push_str("        $this->ptr = $ptr;\n");
-    out.push_str("    }\n\n");
-
-    // Raw accessor for power users / cross-class FFI plumbing.
-    out.push_str("    /**\n");
-    out.push_str("     * Return the underlying FFI cdata. Use with care.\n");
-    out.push_str("     *\n");
-    out.push_str("     * @return \\FFI\\CData\n");
-    out.push_str("     */\n");
-    out.push_str("    public function raw(): \\FFI\\CData\n");
-    out.push_str("    {\n");
-    out.push_str("        return $this->ptr;\n");
-    out.push_str("    }\n\n");
+    // Storage, constructor, `raw()` and `intoRaw()` (shared with the
+    // union wrappers).
+    emit_storage(out, ir, &s.name, &c_name);
 
     // Methods. We emit:
     //   - Instance methods for Method / MethodMut.
@@ -197,6 +168,15 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
             }
         }
     }
+    // Typed field accessors `get_<field>()` / `set_<field>($value)`. An
+    // api.json method of the same name wins.
+    let mut taken: std::collections::BTreeSet<String> = funcs
+        .iter()
+        .map(|f| sanitize_php_identifier(&f.method_name).to_lowercase())
+        .collect();
+    if emit_field_accessors(out, ir, s, &mut taken) > 0 {
+        emitted_any_instance = true;
+    }
     if !emitted_any_instance {
         // PHP line comment to make the empty wrapper less surprising.
         out.push_str("    // (no instance methods)\n\n");
@@ -204,23 +184,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
 
     // Destructor — only emitted for types with an explicit `_delete`
     // function. Plain POD/Copy types have no native cleanup.
-    if has_delete {
-        out.push_str("    /**\n");
-        out.push_str(&format!(
-            "     * Free the underlying native resources by calling `{}_delete`.\n",
-            c_name
-        ));
-        out.push_str("     */\n");
-        out.push_str("    public function __destruct()\n");
-        out.push_str("    {\n");
-        out.push_str(&format!(
-            "        Azul::lib()->{}_delete(\\FFI::addr($this->ptr));\n",
-            c_name
-        ));
-        out.push_str("    }\n");
-    } else {
-        out.push_str("    // SKIPPED: no _delete C function — relying on PHP GC for the cdata.\n");
-    }
+    emit_destructor(out, has_delete, &c_name);
 
     out.push_str("}\n\n");
 }
@@ -246,30 +210,8 @@ fn emit_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     out.push_str(&format!("final class {}\n", class));
     out.push_str("{\n");
 
-    // Storage.
-    out.push_str("    /** @var \\FFI\\CData */\n");
-    out.push_str("    private \\FFI\\CData $ptr;\n\n");
-
-    out.push_str("    /**\n");
-    out.push_str(&format!(
-        "     * Wrap an existing FFI cdata (a `{}` value or pointer).\n",
-        c_name
-    ));
-    out.push_str("     */\n");
-    out.push_str("    public function __construct(\\FFI\\CData $ptr)\n");
-    out.push_str("    {\n");
-    out.push_str("        $this->ptr = $ptr;\n");
-    out.push_str("    }\n\n");
-
-    out.push_str("    /**\n");
-    out.push_str("     * Return the underlying FFI cdata. Use with care.\n");
-    out.push_str("     *\n");
-    out.push_str("     * @return \\FFI\\CData\n");
-    out.push_str("     */\n");
-    out.push_str("    public function raw(): \\FFI\\CData\n");
-    out.push_str("    {\n");
-    out.push_str("        return $this->ptr;\n");
-    out.push_str("    }\n\n");
+    // Storage, constructor, `raw()` and `intoRaw()`.
+    emit_storage(out, ir, &e.name, &c_name);
 
     // For union enums (data-bearing), surface a `tag()` accessor and
     // per-variant `is<Variant>()` / `payload<Variant>()` helpers. The
@@ -390,15 +332,114 @@ fn emit_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
         out.push_str("    // (no instance methods)\n\n");
     }
 
+    emit_destructor(out, has_delete, &c_name);
+
+    out.push_str("}\n\n");
+}
+
+// ============================================================================
+// Ownership: storage, moves, destruction
+// ============================================================================
+
+/// The wrapper's storage, constructor, `raw()` and `intoRaw()`.
+///
+/// A wrapper either OWNS its cdata (`$owner === null`; `__destruct` frees
+/// it) or is a VIEW of a field of another wrapper (`$owner` keeps that
+/// wrapper - and so the memory - alive; nothing is freed). `$ptr` is null
+/// once the value was moved out (a by-value call took it, or `intoRaw()`).
+fn emit_storage(out: &mut String, ir: &CodegenIR, type_name: &str, c_name: &str) {
+    out.push_str("    /** @var ?\\FFI\\CData the value; null once it was moved out */\n");
+    out.push_str("    private ?\\FFI\\CData $ptr;\n\n");
+    out.push_str("    /** @var ?object the wrapper whose field this is a view of (never freed here) */\n");
+    out.push_str("    private ?object $owner;\n\n");
+
+    out.push_str("    /**\n");
+    out.push_str("     * Wrap an existing FFI cdata. Without `$owner` the wrapper takes ownership;\n");
+    out.push_str("     * with it, the cdata is a field of `$owner` and stays owned by it.\n");
+    out.push_str("     *\n");
+    out.push_str(&format!(
+        "     * @param \\FFI\\CData $ptr a value of FFI type `{}`\n",
+        c_name
+    ));
+    out.push_str("     */\n");
+    out.push_str("    public function __construct(\\FFI\\CData $ptr, ?object $owner = null)\n");
+    out.push_str("    {\n");
+    out.push_str("        $this->ptr = $ptr;\n");
+    out.push_str("        $this->owner = $owner;\n");
+    out.push_str("    }\n\n");
+
+    out.push_str("    /**\n");
+    out.push_str("     * Return the underlying FFI cdata (still owned by this wrapper). Use with care.\n");
+    out.push_str("     *\n");
+    out.push_str("     * @return ?\\FFI\\CData\n");
+    out.push_str("     */\n");
+    out.push_str("    public function raw(): ?\\FFI\\CData\n");
+    out.push_str("    {\n");
+    out.push_str("        return $this->ptr;\n");
+    out.push_str("    }\n\n");
+
+    let delete = ir
+        .functions
+        .iter()
+        .find(|f| f.class_name == type_name && f.kind == FunctionKind::Delete);
+    let clone = ir
+        .functions
+        .iter()
+        .find(|f| f.class_name == type_name && f.kind == FunctionKind::DeepCopy);
+    out.push_str("    /**\n");
+    out.push_str("     * Move the value out, to hand it to something that takes it by value (a\n");
+    out.push_str("     * field setter): this wrapper no longer frees it. A field view hands out a\n");
+    out.push_str("     * copy instead, so its owner keeps the field.\n");
+    out.push_str("     */\n");
+    out.push_str("    public function intoRaw(): \\FFI\\CData\n");
+    out.push_str("    {\n");
+    out.push_str("        if ($this->ptr === null) {\n");
+    out.push_str(&format!(
+        "            throw new \\LogicException('{}: this value was moved');\n",
+        type_name
+    ));
+    out.push_str("        }\n");
+    out.push_str("        if ($this->owner !== null) {\n");
+    match (delete, clone) {
+        (_, Some(c)) => out.push_str(&format!(
+            "            return Azul::lib()->{}(\\FFI::addr($this->ptr));\n",
+            c.c_name
+        )),
+        (None, None) => {
+            out.push_str(&format!("            $c = Azul::lib()->new('{}');\n", c_name));
+            out.push_str("            \\FFI::memcpy($c, $this->ptr, \\FFI::sizeof($c));\n");
+            out.push_str("            return $c;\n");
+        }
+        (Some(_), None) => out.push_str(&format!(
+            "            throw new \\LogicException('{}: a field view has no deep copy; pass a fresh value');\n",
+            type_name
+        )),
+    }
+    out.push_str("        }\n");
+    out.push_str("        $p = $this->ptr;\n");
+    if delete.is_some() {
+        out.push_str("        $this->ptr = null;\n");
+    }
+    out.push_str("        return $p;\n");
+    out.push_str("    }\n\n");
+}
+
+/// `__destruct` for a type with a `_delete` export: frees an OWNED, not
+/// moved-out value - never a field view, never a moved-out wrapper.
+fn emit_destructor(out: &mut String, has_delete: bool, c_name: &str) {
     if has_delete {
         out.push_str("    /**\n");
         out.push_str(&format!(
-            "     * Free the underlying native resources by calling `{}_delete`.\n",
+            "     * Free the underlying native resources by calling `{}_delete` (not for a\n",
             c_name
         ));
+        out.push_str("     * field view, whose owner frees it, nor for a moved-out value).\n");
         out.push_str("     */\n");
         out.push_str("    public function __destruct()\n");
         out.push_str("    {\n");
+        out.push_str("        if ($this->ptr === null || $this->owner !== null) {\n");
+        out.push_str("            return;\n");
+        out.push_str("        }\n");
         out.push_str(&format!(
             "        Azul::lib()->{}_delete(\\FFI::addr($this->ptr));\n",
             c_name
@@ -407,8 +448,151 @@ fn emit_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     } else {
         out.push_str("    // SKIPPED: no _delete C function — relying on PHP GC for the cdata.\n");
     }
+}
 
-    out.push_str("}\n\n");
+// ============================================================================
+// Field access
+// ============================================================================
+
+/// The wrapper class a field of IR type `name` is viewed through, if one is
+/// emitted (a struct with exports of its own, or a tagged union).
+fn php_view_class(name: &str, ir: &CodegenIR) -> Option<String> {
+    if let Some(s) = ir.find_struct(name) {
+        return (should_emit_struct(s) && ir.functions_for_class(name).next().is_some())
+            .then(|| sanitize_class_name(name));
+    }
+    if let Some(e) = ir.find_enum(name) {
+        return (should_emit_enum(e) && e.is_union).then(|| sanitize_class_name(name));
+    }
+    None
+}
+
+/// `get_<field>()` / `set_<field>($value)` for every public field (the
+/// shared contract in `field_access`):
+///
+/// - scalars (`bool`, numbers, unit enums as `int`) read and write in place;
+/// - the String class reads as a PHP string (decoded, the field is not
+///   consumed); its setter takes a PHP string (copied into a fresh
+///   AzString) or an `AzString` wrapper (moved in);
+/// - a struct / union field reads as a LIVE VIEW - a wrapper over the
+///   parent's memory that is never freed and keeps the parent alive - so
+///   `$opts->get_window_state()->set_title('Hello')` changes `$opts`.
+///   `->clone()` copies a view out. A field type without a wrapper class
+///   reads as the raw FFI cdata view;
+/// - every setter of a heap-owning field releases the old value
+///   (`Az<T>_delete`) and then moves the new one in (`intoRaw()`: a wrapper
+///   is consumed, a view deep-copied).
+///
+/// Returns the number of methods emitted.
+fn emit_field_accessors(
+    out: &mut String,
+    ir: &CodegenIR,
+    s: &StructDef,
+    taken: &mut std::collections::BTreeSet<String>,
+) -> usize {
+    use super::super::field_access::{accessible_fields, FieldShape};
+    let config = super::super::config::CodegenConfig::c_header();
+    let mut n = 0;
+    for (f, shape) in accessible_fields(s, ir, &config) {
+        // The cdef spells fields the way azul.h does.
+        let key = super::super::lang_c::escape_cpp_keyword_for_c(&f.name);
+        let field = format!("$this->ptr->{}", key);
+        let doc = f
+            .doc
+            .as_deref()
+            .and_then(|d| d.lines().map(str::trim).find(|l| !l.is_empty()))
+            .map(phpdoc_escape);
+
+        // Getter.
+        let get = format!("get_{}", f.name);
+        let getter: (String, String) = match &shape {
+            FieldShape::Prim { is_bool: true, .. } => ("bool".into(), format!("return {};", field)),
+            FieldShape::Prim { ty, .. } if ty.starts_with('f') || ty.contains("float") || ty.contains("double") => {
+                ("float".into(), format!("return {};", field))
+            }
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => {
+                ("int".into(), format!("return {};", field))
+            }
+            FieldShape::Str { .. } => ("string".into(), format!("return Azul::readString({});", field)),
+            FieldShape::Value { name, .. } => match php_view_class(name, ir) {
+                Some(cls) => (cls.clone(), format!("return new {}({}, $this);", cls, field)),
+                None => ("\\FFI\\CData".into(), format!("return {};", field)),
+            },
+        };
+        if taken.insert(get.to_lowercase()) {
+            out.push_str("    /**\n");
+            match &shape {
+                FieldShape::Value { .. } => out.push_str(&format!(
+                    "     * A live view of the `{}` field: writes through it reach this value.\n",
+                    f.name
+                )),
+                _ => out.push_str(&format!("     * The `{}` field.\n", f.name)),
+            }
+            if let Some(d) = &doc {
+                out.push_str(&format!("     *\n     * {}\n", d));
+            }
+            out.push_str("     */\n");
+            out.push_str(&format!("    public function {}(): {}\n", get, getter.0));
+            out.push_str("    {\n");
+            out.push_str(&format!("        {}\n", getter.1));
+            out.push_str("    }\n\n");
+            n += 1;
+        }
+
+        // Setter.
+        let set = format!("set_{}", f.name);
+        if !taken.insert(set.to_lowercase()) {
+            continue;
+        }
+        let mut body: Vec<String> = Vec::new();
+        match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => {
+                body.push(format!("{} = $value;", field));
+            }
+            FieldShape::Str { name, delete } => {
+                let cls = sanitize_class_name(name);
+                body.push(format!(
+                    "$new = \\is_string($value) ? Azul::str($value) : ($value instanceof {} ? $value->intoRaw() : $value);",
+                    cls
+                ));
+                body.push(format!("Azul::lib()->{}(\\FFI::addr({}));", delete.c_name, field));
+                body.push(format!("{} = $new;", field));
+            }
+            FieldShape::Value { name, delete, .. } => {
+                match php_view_class(name, ir) {
+                    Some(cls) => body.push(format!(
+                        "$new = $value instanceof {} ? $value->intoRaw() : $value;",
+                        cls
+                    )),
+                    None => body.push("$new = $value;".to_string()),
+                }
+                if let Some(d) = delete {
+                    body.push(format!("Azul::lib()->{}(\\FFI::addr({}));", d.c_name, field));
+                }
+                body.push(format!("{} = $new;", field));
+            }
+        }
+        out.push_str("    /**\n");
+        match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => {
+                out.push_str(&format!("     * Set the `{}` field.\n", f.name))
+            }
+            _ => out.push_str(&format!(
+                "     * Replace the `{}` field: the old value is released, the new one moved in.\n",
+                f.name
+            )),
+        }
+        out.push_str("     */\n");
+        out.push_str(&format!("    public function {}($value): self\n", set));
+        out.push_str("    {\n");
+        for l in body {
+            out.push_str(&format!("        {}\n", l));
+        }
+        out.push_str("        return $this;\n");
+        out.push_str("    }\n\n");
+        n += 1;
+    }
+    n
 }
 
 // ============================================================================
@@ -452,8 +636,11 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
         .first()
         .map(|a| matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned))
         .unwrap_or(false);
+    // A by-value receiver is MOVED out through `intoRaw()`: the wrapper
+    // stops owning it (a field view hands over a copy instead, so its
+    // owner keeps the field).
     let self_expr = if self_by_value {
-        "$this->ptr"
+        "$this->intoRaw()"
     } else {
         "\\FFI::addr($this->ptr)"
     };
@@ -474,17 +661,6 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
 
     if f.return_type.is_none() {
         out.push_str(&format!("        {};\n", call));
-        // Consume-after-by-value: PHP's `__destruct` runs on refcount
-        // hitting 0 and calls `AzFoo_delete(\FFI::addr($this->ptr))`.
-        // After a by-value-consuming call Rust owns the bytes; null
-        // the pointer so __destruct's defined-check skips.
-        if self_by_value {
-            out.push_str("        $this->ptr = null;\n");
-        }
-    } else if self_by_value {
-        out.push_str(&format!("        $__ret = {};\n", call));
-        out.push_str("        $this->ptr = null;\n");
-        out.push_str("        return $__ret;\n");
     } else {
         out.push_str(&format!("        return {};\n", call));
     }
@@ -493,10 +669,18 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
 
 /// Variant of `emit_instance_method` that uses an idiomatic PHP method
 /// name (e.g. `clone`, `toString`) regardless of the C method name.
+///
+/// The derive exports take the receiver as their FIRST argument whatever
+/// api.json calls it (`instance`, not `self`), so it is dropped here rather
+/// than by name: `clone($instance)` passed the receiver twice. `clone`
+/// wraps the deep copy in a new owning wrapper; `toString` decodes the
+/// returned AzString into a PHP string and frees it.
 fn emit_instance_method_alias(out: &mut String, f: &FunctionDef, php_name: &str) {
-    let user_args = user_args(f);
+    let user_args: Vec<&super::super::ir::FunctionArg> = f.args.iter().skip(1).collect();
     let params = render_php_params(&user_args);
     let user_call_args = render_call_args(&user_args);
+    let returns_self = f.return_type.as_deref().map(str::trim) == Some(f.class_name.as_str());
+    let returns_string = f.kind == FunctionKind::DebugToString;
 
     out.push_str("    /**\n");
     out.push_str(&format!(
@@ -504,7 +688,14 @@ fn emit_instance_method_alias(out: &mut String, f: &FunctionDef, php_name: &str)
         f.c_name
     ));
     out.push_str("     */\n");
-    out.push_str(&format!("    public function {}({})\n", php_name, params));
+    let hint = if returns_string {
+        ": string"
+    } else if returns_self {
+        ": self"
+    } else {
+        ""
+    };
+    out.push_str(&format!("    public function {}({}){}\n", php_name, params, hint));
     out.push_str("    {\n");
 
     emit_callback_register_lines(out, &user_args);
@@ -521,6 +712,13 @@ fn emit_instance_method_alias(out: &mut String, f: &FunctionDef, php_name: &str)
 
     if f.return_type.is_none() {
         out.push_str(&format!("        {};\n", call));
+    } else if returns_string {
+        out.push_str(&format!("        $__s = {};\n", call));
+        out.push_str("        $__out = Azul::readString($__s);\n");
+        out.push_str("        Azul::lib()->AzString_delete(\\FFI::addr($__s));\n");
+        out.push_str("        return $__out;\n");
+    } else if returns_self {
+        out.push_str(&format!("        return new self({});\n", call));
     } else {
         out.push_str(&format!("        return {};\n", call));
     }
