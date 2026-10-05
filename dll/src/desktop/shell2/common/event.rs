@@ -4781,6 +4781,9 @@ pub trait PlatformWindow {
         let started = std::time::Instant::now();
 
         self.poll_transient_mailbox();
+        // Every layout pass ends with the accessibility pass; the refill below
+        // only runs when none did (`refill_a11y_tree_unless_refreshed`).
+        let a11y_updates_before = self.a11y_tree_updates();
         let mut result = self.regenerate_layout_once()?;
         let mut passes = 1usize;
 
@@ -4796,7 +4799,7 @@ pub trait PlatformWindow {
                 .is_some_and(|lw| lw.transient_docks_changed());
             let lifecycle_wants_pass = self.dispatch_pending_lifecycle_events();
             if !lifecycle_wants_pass && !docks_changed {
-                self.refill_a11y_tree_after_regeneration();
+                self.refill_a11y_tree_unless_refreshed(a11y_updates_before);
                 self.flush_a11y_tree_update();
                 // A rebuild is not animation time: a glide that ticked just
                 // before it resumes where it stood instead of jumping by the
@@ -4825,7 +4828,7 @@ pub trait PlatformWindow {
                 lw.frame_report.hit_depth_cap = true;
             }
         }
-        self.refill_a11y_tree_after_regeneration();
+        self.refill_a11y_tree_unless_refreshed(a11y_updates_before);
         self.flush_a11y_tree_update();
         if let Some(lw) = self.get_layout_window_mut() {
             lw.forget_animation_stall();
@@ -4843,6 +4846,25 @@ pub trait PlatformWindow {
             started.elapsed().as_secs_f64() * 1000.0
         );
         Ok(result)
+    }
+
+    /// How many accessibility passes the window's layout window ran so far
+    /// (`LayoutWindow::a11y_tree_updates`); `None` without one.
+    fn a11y_tree_updates(&self) -> Option<u64> {
+        self.get_layout_window().map(|lw| lw.a11y_tree_updates)
+    }
+
+    /// [`Self::refill_a11y_tree_after_regeneration`], only for a regeneration
+    /// that ran NO accessibility pass since `updates_before` (A11YPATCH8 left
+    /// 1). Every layout pass ends with `LayoutWindow::update_a11y_tree` (the
+    /// layout tail), so after one the tree is current and parked for the
+    /// flush that follows, and a second pass walked every exposed node for an
+    /// update that could only come back empty.
+    fn refill_a11y_tree_unless_refreshed(&mut self, updates_before: Option<u64>) {
+        let updates_now = self.a11y_tree_updates();
+        if updates_now.is_none() || updates_now == updates_before {
+            self.refill_a11y_tree_after_regeneration();
+        }
     }
 
     /// Rebuild the accessibility tree into `a11y_manager.last_tree_update`
