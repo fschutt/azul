@@ -1110,6 +1110,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         dom_lint_runs: _,
         // One small entry per laid-out DOM.
         dom_lint_stamps: _,
+        a11y_tree_updates: _,
         timers: _,
         threads: _,
         thread_owners: _,
@@ -2000,6 +2001,10 @@ pub struct LayoutWindow {
     /// again; a new generation, a re-rendered `VirtualView` child or any
     /// other arena is.
     dom_lint_stamps: BTreeMap<DomId, (usize, usize)>,
+    /// How many accessibility passes ran (`update_a11y_tree`, which every
+    /// layout pass ends with) - so a shell can tell whether the tree is
+    /// already current after a regeneration (A11YPATCH8).
+    pub a11y_tree_updates: u64,
     /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -2531,6 +2536,7 @@ impl LayoutWindow {
             seat_preedit_shaped: BTreeMap::new(),
             dom_lint_runs: 0,
             dom_lint_stamps: BTreeMap::new(),
+            a11y_tree_updates: 0,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
@@ -15966,6 +15972,7 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
         let _p = crate::probe::Probe::span("a11y_update_tree");
+        self.a11y_tree_updates = self.a11y_tree_updates.saturating_add(1);
         // The selection on the node a screen reader reads it on - the
         // session's editing host - in that node's text, every paragraph of it
         // (`accessible_selection`).
@@ -25572,6 +25579,8 @@ impl LayoutWindow {
             // A counter and DOM-keyed arena stamps, no node ids.
             dom_lint_runs: _,
             dom_lint_stamps: _,
+            // A counter.
+            a11y_tree_updates: _,
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
