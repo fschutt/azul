@@ -1,28 +1,29 @@
 //! A `form` / `form_modal` view as a form: one control per visible field
 //! ([`spec::FieldSpec`]: text, text area, a drop-down for a fixed list or a
-//! reference, a date picker for a day), the problems the last save named,
+//! reference, a date picker for a day, azul's MoneyInput for an amount), the
+//! problems the last save named,
 //! Save and Cancel (the view's `submit` / `cancel` actions). A `form` view
 //! is the RecordsShell's form pane; a `form_modal` view a modal over the page.
 //!
 //! A typed text goes into the draft without a rebuild; a choice rebuilds
 //! (a `condition` may show or hide a field: the declining rate).
 //!
-//! TODO(WIDGETS9B): MoneyInput for the amount fields, DateRangePicker where a
-//! filter takes days, ReferencePicker for the category / location fields
-//! (a DropDown of every record today).
+//! TODO(WIDGETS9B): DateRangePicker where a filter takes days,
+//! ReferencePicker for the category / location fields (a DropDown of every
+//! record today).
 
 use azul::{
     callbacks::{
         DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
-        ModalOnCloseCallbackType, TextAreaOnTextInputCallbackType,
-        TextInputOnTextInputCallbackType,
+        ModalOnCloseCallbackType, MoneyInputOnChangeCallbackType, MoneyInputOnCommitCallbackType,
+        TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType,
     },
     prelude::*,
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        DatePicker, DatePickerState, DropDown, Modal, ModalState, OnTextInputReturn, TextArea,
-        TextAreaState, TextInputState, TextInputValid,
+        DatePicker, DatePickerState, DropDown, Modal, ModalState, MoneyInput, MoneyInputState,
+        OnTextInputReturn, TextArea, TextAreaState, TextInputState, TextInputValid,
     },
 };
 use chrono::{Datelike, NaiveDate};
@@ -30,7 +31,7 @@ use chrono::{Datelike, NaiveDate};
 use super::{action_button, column, text, with_erp, Erp};
 use crate::{
     app::FormDraft,
-    ids, model,
+    ids, model, money,
     views::{
         rows,
         spec::{self, ActionKind, ActionSpec, FieldKind, FieldSpec},
@@ -187,8 +188,7 @@ fn control(s: &Erp, app: &RefAny, f: &FieldSpec, value: &str) -> Dom {
             None => text_input(app, f, value, "YYYY-MM-DD"),
         },
         FieldKind::Date => text_input(app, f, value, "YYYY-MM-DD"),
-        // TODO(WIDGETS9B): MoneyInput (amount + currency, minor units).
-        FieldKind::Decimal => text_input(app, f, value, "0.00"),
+        FieldKind::Decimal => money_input(app, f, value),
         FieldKind::Integer => text_input(app, f, value, "0"),
         FieldKind::Text | FieldKind::Password | FieldKind::Switch => text_input(app, f, value, ""),
     };
@@ -205,6 +205,31 @@ fn text_input(app: &RefAny, f: &FieldSpec, value: &str, placeholder: &str) -> Do
             on_text as TextInputOnTextInputCallbackType,
         )
         .dom()
+}
+
+/// An amount: azul's MoneyInput in the register's [`money::currency`] (it
+/// refuses a keystroke that can never make an amount; the bounds are the
+/// field's, in cents). The draft holds what the record files write
+/// (`"1596.64"`).
+fn money_input(app: &RefAny, f: &FieldSpec, value: &str) -> Dom {
+    let mut input = match money::parse_amount(value) {
+        Ok(cents) if !value.trim().is_empty() => MoneyInput::create(cents, money::currency()),
+        _ => MoneyInput::create_empty(money::currency()),
+    }
+    .with_locale(money::locale())
+    .with_show_currency(false)
+    .with_allow_negative(f.min.map_or(true, |min| min < 0))
+    .with_placeholder("0.00")
+    .with_accessibility_name(f.label.as_str())
+    .with_on_change(field_ref(app, f), on_money as MoneyInputOnChangeCallbackType)
+    .with_on_commit(field_ref(app, f), on_money as MoneyInputOnCommitCallbackType);
+    if let Some(min) = f.min {
+        input = input.with_min(min.saturating_mul(money::MINOR_PER_MAJOR));
+    }
+    if let Some(max) = f.max {
+        input = input.with_max(max.saturating_mul(money::MINOR_PER_MAJOR));
+    }
+    input.dom()
 }
 
 fn drop_down(app: &RefAny, f: &FieldSpec, choices: &[(String, String)], value: &str) -> Dom {
@@ -279,6 +304,25 @@ extern "C" fn on_area(
     let value = state.get_text().as_str().to_string();
     set_quietly(&mut app, &name, &value);
     keep()
+}
+
+/// An amount field changed (a keystroke) or was left (the canonical text): the
+/// draft takes the amount, or "" while the field is empty or not an amount
+/// yet (the save then says what is missing).
+extern "C" fn on_money(mut data: RefAny, _info: CallbackInfo, state: MoneyInputState) -> Update {
+    let Some((mut app, name)) = data
+        .downcast_ref::<FieldRef>()
+        .map(|f| (f.app.clone(), f.name.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let value = state
+        .amount
+        .into_option()
+        .map(money::file_amount)
+        .unwrap_or_default();
+    set_quietly(&mut app, &name, &value);
+    Update::DoNothing
 }
 
 extern "C" fn on_choice(mut data: RefAny, mut info: CallbackInfo, choice: usize) -> Update {
