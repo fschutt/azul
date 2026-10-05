@@ -10582,17 +10582,19 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         content_box_size
     );
 
-    // The box is measured from NO size, as in a fresh tree. What its
-    // `used_size` holds here is an earlier measurement - the previous pass's,
-    // on a node the reconcile carried over (`clone_node_from_old` keeps it),
-    // or this pass's under another constraint - and the layouts below read a
-    // set one as decided: a flex / grid container as its definite width
-    // (`layout_flex_grid`), a table as its width, a block as its children's
-    // containing block. An `inline-flex` button whose label grew was laid
-    // out at its OLD width and wrapped the new label onto a second line.
-    // The measurement sets it again below.
+    // The box's contents are laid out in the size just resolved for it - as
+    // `cache::calculate_layout_for_subtree` does for every other box (its
+    // "Phase 1.5"). What `used_size` held here was an earlier measurement -
+    // the previous pass's, on a node the reconcile carried over
+    // (`clone_node_from_old` keeps it), or this pass's under another
+    // constraint - and the layouts below read a set one as decided: a flex /
+    // grid container as its definite width (`layout_flex_grid`), a table as
+    // its width, a block as its children's containing block. An
+    // `inline-flex` button whose label grew was laid out at its OLD width and
+    // wrapped the new label onto a second line. The measured height is set
+    // below.
     if let Some(node) = tree.get_mut(LayoutNodeId::new(child_index)) {
-        node.used_size = None;
+        node.used_size = Some(tentative_size);
     }
 
     // To find its height and baseline, we must lay out its contents.
