@@ -31,11 +31,14 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 
 - 3.13 Vec<u8> / &mut [T] args: RED fc51dc297, GREEN 3bc192324, stale arm removed 2334ea0b3
 
+- 3.14 upper_first dedup: 87502fd22 (+ function_diff capitalize aliased)
+- 3.15 walker dedup: 48222245b (autotest/mod.rs third copy -> round 2)
+
 ## IN PROGRESS
-- 3.14 DEDUP upper_first x4 -> codegen/v2/mod.rs
+- 3.16 crash_mail -> micromail builder (layout/src/telemetry/crash_mail.rs)
 
 ## NEXT
-- 3.15, 3.16, then the report scripts/FIX9_INPUT_2026_10_05.md
+- the report scripts/FIX9_INPUT_2026_10_05.md
 
 ## Open questions
 (none)
