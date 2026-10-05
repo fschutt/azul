@@ -469,3 +469,87 @@ fn idiomatic_method_name(method_name: &str) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    fn generated() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            let ir = crate::codegen::v2::bug_classes::ir();
+            super::super::generate(ir, &CodegenConfig::c_header()).expect("freebasic codegen")
+        })
+    }
+
+    /// One member body, from its header line to the next `End <kind>`.
+    fn body_of(header: &str, kind: &str) -> &'static str {
+        let src = generated();
+        let start = src.find(header).unwrap_or_else(|| panic!("no `{}`", header));
+        let end = src[start..].find(&format!("End {}", kind)).expect("end of member");
+        &src[start..start + end]
+    }
+
+    #[test]
+    fn wrapper_methods_call_the_declared_c_symbol() {
+        let get = body_of("Function Azul.TextInputState.GetText () As AzString", "Function");
+        assert!(get.contains("AzTextInputState_getText(@this.raw)"), "{}", get);
+        assert!(!generated().contains("AzTextInputState_get_text("));
+    }
+
+    #[test]
+    fn clone_takes_no_extra_argument() {
+        assert!(generated().contains("Declare Function Clone () As AzTextInputState"));
+        let c = body_of("Function Azul.TextInputState.Clone () As AzTextInputState", "Function");
+        assert!(c.contains("AzTextInputState_clone(@this.raw)"), "{}", c);
+    }
+
+    #[test]
+    fn the_string_wrapper_is_not_named_after_the_reserved_word() {
+        assert!(!generated().contains("\n    Type String\n"));
+        assert!(generated().contains("\n    Type String_\n"));
+    }
+
+    #[test]
+    fn copying_a_wrapper_deep_copies_it_through_a_copy_constructor_and_let() {
+        let src = generated();
+        assert!(src.contains("Declare Constructor (ByRef other As FullWindowState)"));
+        assert!(src.contains("Declare Operator Let (ByRef other As FullWindowState)"));
+        let ctor = body_of("Constructor Azul.FullWindowState (ByRef other As Azul.FullWindowState)", "Constructor");
+        assert!(ctor.contains("this.raw = AzFullWindowState_clone(@other.raw)"), "{}", ctor);
+        let assign = body_of("Operator Azul.FullWindowState.Let (ByRef other As Azul.FullWindowState)", "Operator");
+        assert!(assign.contains("AzFullWindowState_delete(@this.raw)"), "{}", assign);
+    }
+
+    #[test]
+    fn the_window_title_is_a_string_property_that_releases_the_old_value() {
+        let src = generated();
+        assert!(src.contains("Declare Property Title () As String"));
+        assert!(src.contains("Declare Property Title (ByRef v As Const String)"));
+        let set = body_of("Property Azul.FullWindowState.Title (ByRef v As Const String)", "Property");
+        assert!(set.contains("AzString_delete(@this.raw.title)"), "{}", set);
+        let get = body_of("Property Azul.FullWindowState.Title () As String", "Property");
+        assert!(!get.contains("_delete"), "reading must not free the field:\n{}", get);
+    }
+
+    #[test]
+    fn the_window_state_property_deep_copies_and_consumes() {
+        let src = generated();
+        assert!(src.contains("Declare Property WindowState () As FullWindowState"));
+        let get = body_of("Property Azul.WindowCreateOptions.WindowState () As Azul.FullWindowState", "Property");
+        assert!(get.contains("AzFullWindowState_clone(@this.raw.window_state)"), "{}", get);
+        let set = body_of(
+            "Property Azul.WindowCreateOptions.WindowState (ByRef v As Azul.FullWindowState)",
+            "Property",
+        );
+        assert!(set.contains("v.TakeRaw()"), "the argument is consumed:\n{}", set);
+        assert!(set.contains("AzFullWindowState_delete(@this.raw.window_state)"), "{}", set);
+    }
+
+    #[test]
+    fn a_text_input_text_field_is_writable_even_though_get_text_is_a_method() {
+        assert!(generated().contains("Declare Property Text (ByRef v As U32Vec)"));
+    }
+}
