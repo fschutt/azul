@@ -117,4 +117,13 @@ impl PlatformCapability {
             ),
         }
     }
+    pub fn scheduled_notifications() -> PlatformCapability {
+        PlatformCapability {
+            available: false,
+            backend: AzString::from_const_str("none"),
+            reason: AzString::from_const_str(
+                "no scheduled notifications on wasm (no notification backend at all)",
+            ),
+        }
+    }
 }

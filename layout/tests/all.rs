@@ -927,3 +927,5 @@ mod system_ui_is_the_system_font_at_its_optical_size;
 mod an_svg_paints_any_css_colour_and_nests_its_transforms;
 #[path = "an_svg_renders_at_the_size_its_fit_asks_for.rs"]
 mod an_svg_renders_at_the_size_its_fit_asks_for;
+#[path = "a_zoomed_box_paints_its_border_corners_and_shadow_zoomed.rs"]
+mod a_zoomed_box_paints_its_border_corners_and_shadow_zoomed;
