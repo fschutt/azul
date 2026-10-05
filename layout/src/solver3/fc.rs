@@ -5197,6 +5197,68 @@ fn is_block_level_replaced<T: ParsedFontTrait>(
     matches!(node_data.get_node_type(), NodeType::Image(_))
 }
 
+/// The content language of DOM node `node` (HTML's "language of a node"):
+/// the nearest `lang` attribute on it or an ancestor (`xml:lang` lands as the
+/// same attribute, after `lang`, so the node's LAST one is read). `None`
+/// when no element states one, or the nearest says `lang=""` ("unknown").
+fn content_language(styled_dom: &StyledDom, node: NodeId) -> Option<&str> {
+    use azul_core::dom::{AttributeType, NodeData};
+
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data: &[NodeData] = styled_dom.node_data.as_ref();
+    let mut current = Some(node);
+    while let Some(id) = current {
+        let lang = node_data
+            .get(id.index())?
+            .attributes()
+            .as_ref()
+            .iter()
+            .rev()
+            .find_map(|a| match a {
+                AttributeType::Lang(tag) => Some(tag.as_str().trim()),
+                _ => None,
+            });
+        if let Some(tag) = lang {
+            return (!tag.is_empty()).then_some(tag);
+        }
+        current = hierarchy.get(id).and_then(|h| h.parent_id());
+    }
+    None
+}
+
+/// The hyphenation resource for BCP 47 language tag `tag` (`en`, `en-US`,
+/// `DE`): the tag's own, else its primary language subtag's (`en-AU` ->
+/// `en`, RFC 4647 lookup). Tags compare without case. `None` for a language
+/// without one (and in a build without `text_layout_hyphenation`). The one
+/// reading of a language tag, for `-azul-hyphenation-language` and `lang`.
+fn hyphenation_language_of_tag(tag: &str) -> Option<crate::text3::script::Language> {
+    #[cfg(feature = "text_layout_hyphenation")]
+    {
+        use hyphenation::Language;
+        let of = |tag: &str| match tag {
+            "en-us" | "en" => Some(Language::EnglishUS),
+            "en-gb" => Some(Language::EnglishGB),
+            "de-de" | "de" => Some(Language::German1996),
+            "fr-fr" | "fr" => Some(Language::French),
+            "es-es" | "es" => Some(Language::Spanish),
+            "it-it" | "it" => Some(Language::Italian),
+            "pt-pt" | "pt" => Some(Language::Portuguese),
+            "nl-nl" | "nl" => Some(Language::Dutch),
+            "pl-pl" | "pl" => Some(Language::Polish),
+            "ru-ru" | "ru" => Some(Language::Russian),
+            "zh-cn" | "zh" => Some(Language::Chinese),
+            _ => None,
+        };
+        let tag = tag.trim().to_ascii_lowercase();
+        of(tag.as_str()).or_else(|| tag.split('-').next().and_then(of))
+    }
+    #[cfg(not(feature = "text_layout_hyphenation"))]
+    {
+        let _ = tag;
+        None
+    }
+}
+
 /// Translates solver3 layout constraints into the text3 engine's unified constraints.
 #[allow(
     clippy::cast_possible_truncation,
@@ -5931,37 +5993,27 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     let exclusion_margin = exclusion_margin_base + shape_margin;
 
-    // Get hyphenation-language for language-specific hyphenation
-    let hyphenation_language = if dom_declared & DOM_HAS_HYPHENATION_LANGUAGE != 0 {
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_hyphenation_language(node_data, &id, node_state)
-            .and_then(|s| s.get_property())
-            .and_then(|hl| {
-                #[cfg(feature = "text_layout_hyphenation")]
-                {
-                    use hyphenation::{Language, Load};
-                    // Parse BCP 47 language code to hyphenation::Language
-                    match hl.inner.as_str() {
-                        "en-US" | "en" => Some(Language::EnglishUS),
-                        "de-DE" | "de" => Some(Language::German1996),
-                        "fr-FR" | "fr" => Some(Language::French),
-                        "es-ES" | "es" => Some(Language::Spanish),
-                        "it-IT" | "it" => Some(Language::Italian),
-                        "pt-PT" | "pt" => Some(Language::Portuguese),
-                        "nl-NL" | "nl" => Some(Language::Dutch),
-                        "pl-PL" | "pl" => Some(Language::Polish),
-                        "ru-RU" | "ru" => Some(Language::Russian),
-                        "zh-CN" | "zh" => Some(Language::Chinese),
-                        _ => None, // Unsupported language
-                    }
-                }
-                #[cfg(not(feature = "text_layout_hyphenation"))]
-                {
-                    None::<crate::text3::script::Language>
-                }
-            })
+    // The hyphenation language (CSS Text 3 5.4): azul's own
+    // `-azul-hyphenation-language` where it is set - an override - else the
+    // CONTENT LANGUAGE, the nearest `lang` attribute. It was the property
+    // alone: `<div lang="en" style="hyphens: auto">` was never hyphenated
+    // (pdfocr engine issue 3). Read only under `hyphens: auto`, the one use
+    // of it (text3's hyphenator), so a document that never asks for
+    // automatic hyphenation walks no ancestors and reads no property.
+    let hyphenation_language = if hyphenation == StyleHyphens::Auto {
+        let from_property = if dom_declared & DOM_HAS_HYPHENATION_LANGUAGE != 0 {
+            styled_dom
+                .css_property_cache
+                .ptr
+                .get_hyphenation_language(node_data, &id, node_state)
+                .and_then(|s| s.get_property())
+                .map(|hl| hyphenation_language_of_tag(hl.inner.as_str()))
+        } else {
+            None
+        };
+        from_property.unwrap_or_else(|| {
+            content_language(styled_dom, id).and_then(hyphenation_language_of_tag)
+        })
     } else {
         None
     };
