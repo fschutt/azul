@@ -721,16 +721,13 @@ impl DenseText {
         if i < line.clusters.0 || i >= line.clusters.1 {
             return None;
         }
-        let first_run = self.run_of(line.clusters.0)?;
+        // The run's own solved top (`DenseRun::y`): a `vertical-align`
+        // shift (sub / super / a length) moves a run off the line's
+        // baseline, which "the line's first top, baseline-aligned by the
+        // run ascents" could not express - every `<sup>` came back on the
+        // line (pdfocr's issue 1: the PDF drew sup / sub on the baseline).
         let my_run = self.run_of(i)?;
-        // Same run ⟹ bit-exact recorded value (no float round-trip).
-        let y = if core::ptr::eq(first_run, my_run) {
-            line.baseline_y
-        } else {
-            line.baseline_y + Self::resolved_run_ascent(first_run)
-                - Self::resolved_run_ascent(my_run)
-        };
-        Some((c.x, y, line.source_index as usize))
+        Some((c.x, my_run.y, line.source_index as usize))
     }
 
     /// (d6h) FULL sparse materialization: rebuild the `PositionedItem`
@@ -834,17 +831,11 @@ impl DenseText {
                     }),
                     position: Point {
                         x: c.x,
-                        // (d6h) Per-item y on mixed-size lines: the
-                        // record holds the line's FIRST item top;
-                        // baseline-align via run ascents. Same run ⟹
-                        // the recorded value bit-exactly.
-                        y: match self.run_of(line.clusters.0) {
-                            Some(fr) if !core::ptr::eq(fr, run) => {
-                                line.baseline_y + Self::resolved_run_ascent(fr)
-                                    - Self::resolved_run_ascent(run)
-                            }
-                            _ => line.baseline_y,
-                        },
+                        // The run's own solved top (`DenseRun::y`, the
+                        // builder splits runs where it changes): it carries
+                        // a `vertical-align` shift that baseline-aligning
+                        // the run to the line's first item dropped.
+                        y: run.y,
                     },
                     line_index: line.source_index as usize,
                 });
