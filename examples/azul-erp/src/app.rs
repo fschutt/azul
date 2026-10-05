@@ -494,13 +494,29 @@ impl State {
         }
     }
 
-    /// The Delete action: asks first (RED: it still deletes at once).
+    /// The Delete action: "Delete A-0001?" waits for an answer; nothing changes yet.
     pub fn ask_delete(&mut self, asset: &str) {
-        self.delete_asset(asset);
+        if self.book.get::<Asset>(asset).is_some() {
+            self.confirm_delete = Some(asset.to_string());
+        }
     }
 
-    /// The answer to "Delete ...?" (RED: not built yet).
-    pub fn answer_delete(&mut self, _yes: bool) {}
+    /// The answer to "Delete ...?": yes deletes the asset with its logs, no keeps them.
+    pub fn answer_delete(&mut self, yes: bool) {
+        if let Some(asset) = self.confirm_delete.take() {
+            if yes {
+                self.delete_asset(&asset);
+            }
+        }
+    }
+
+    /// The asset "Delete ...?" asks about: its number and name.
+    #[must_use]
+    pub fn delete_question(&self) -> Option<(String, String)> {
+        let id = self.confirm_delete.as_deref()?;
+        let a = self.book.get::<Asset>(id)?;
+        Some((a.number.clone(), a.name.clone()))
+    }
 
     /// Deletes the asset with its logs (their files too), back to the register.
     pub fn delete_asset(&mut self, asset: &str) {

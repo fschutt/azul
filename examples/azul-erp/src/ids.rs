@@ -35,6 +35,8 @@ names! {
     FORM_PROBLEMS = "form-problems";
     /// A `form_modal` view's modal.
     MODAL = "modal";
+    /// "Delete A-0001?": the question's modal.
+    CONFIRM_DELETE = "confirm-delete";
     /// A detail view: its header, its title, its status pill, its tabs.
     DETAIL = "detail";
     DETAIL_TITLE = "detail-title";

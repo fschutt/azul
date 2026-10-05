@@ -15,7 +15,8 @@
 //! when the records are in, `AZERP_PAGE <path>` after a navigation,
 //! `AZERP_FORM <view>` when a form opens, `AZERP_SAVED <key>` /
 //! `AZERP_REMOVED <key>` per file written, `AZERP_REFUSED <field>: <why>`
-//! for a form that was not saved, `AZERP_EXPORTED <key>`.
+//! for a form that was not saved, `AZERP_EXPORTED <key>`, `AZERP_ASK_DELETE <id>` when Delete
+//! asks "Delete A-0001?" (only its Delete button deletes).
 
 pub mod detail;
 pub mod form;
@@ -27,7 +28,7 @@ use std::path::PathBuf;
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CloseGuardDirtyCheckCallbackType, CloseGuardOnEventCallbackType,
-        TabOnClickCallbackType,
+        ModalOnCloseCallbackType, StandardDialogOnEventCallbackType, TabOnClickCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
@@ -35,7 +36,9 @@ use azul::{
     str::String as AzString,
     widgets::{
         Button, ButtonType, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
-        CloseGuardEventKind, DataTableView, StatusBar, StatusBarSegment, TabHeader, TabHeaderState,
+        CloseGuardEventKind, DataTableView, MessageBox, MessageBoxKind, Modal, ModalState,
+        StandardDialogEvent, StandardDialogEventKind, StatusBar, StatusBarSegment, TabHeader,
+        TabHeaderState,
     },
 };
 use azul_appkit::{
@@ -304,6 +307,9 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     if let Some(modal) = form::modal(s, &app) {
         column.add_child(modal);
     }
+    if let Some(question) = delete_question(s, &app) {
+        column.add_child(question);
+    }
     // A form with edits is not lost to the close button: the guard asks.
     let content = if s.state.form.is_some() {
         CloseGuard::create(column, "the open form")
@@ -322,6 +328,52 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app.clone(),
             on_key,
         )
+}
+
+/// "Delete A-0001?": azul's `MessageBox` (a question: Delete, Cancel - the default) in a
+/// `Modal`, while the state waits for the answer. Only Delete deletes.
+fn delete_question(s: &Erp, app: &RefAny) -> Option<Dom> {
+    let (number, name) = s.state.delete_question()?;
+    let message = MessageBox::create(
+        MessageBoxKind::Question,
+        format!("Delete {number}?"),
+        format!("{number} {name}, with its maintenance and check-out records."),
+    )
+    .with_detail("The files are removed from the data folder. This cannot be undone.")
+    .with_buttons(vec![AzString::from("Delete"), AzString::from("Cancel")], 1)
+    .with_on_event(app.clone(), on_delete_answer as StandardDialogOnEventCallbackType);
+    Some(
+        Modal::create(message.dom())
+            .with_title(crate::SPEC.name)
+            .with_open(true)
+            .with_on_close(app.clone(), on_delete_dismissed as ModalOnCloseCallbackType)
+            .dom()
+            .with_id(ids::CONFIRM_DELETE),
+    )
+}
+
+/// The answer to "Delete ...?": the first button deletes, any other keeps the asset.
+extern "C" fn on_delete_answer(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: StandardDialogEvent,
+) -> Update {
+    let yes = matches!(event.kind, StandardDialogEventKind::Button) && event.index == 0;
+    with_erp(&mut data, &mut info, |s, _info| {
+        s.state.answer_delete(yes);
+        if yes {
+            println!("AZERP_PAGE {}", s.state.page);
+        }
+    })
+}
+
+/// The question was closed (Escape, the close button): nothing is deleted.
+extern "C" fn on_delete_dismissed(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _state: ModalState,
+) -> Update {
+    with_erp(&mut data, &mut info, |s, _info| s.state.answer_delete(false))
 }
 
 /// The section tabs: the views' menu; the active one is the section the
@@ -471,8 +523,8 @@ fn run_action(s: &mut Erp, kind: &ActionKind, params: &Params) {
                 }
                 "check_in" => s.state.check_in(&id),
                 "delete" => {
-                    s.state.delete_asset(&id);
-                    println!("AZERP_PAGE {}", s.state.page);
+                    s.state.ask_delete(&id);
+                    println!("AZERP_ASK_DELETE {id}");
                 }
                 _ => s.state.notice = format!("\"{name}\" is not built yet."),
             }
