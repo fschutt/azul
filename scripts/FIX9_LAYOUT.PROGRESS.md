@@ -35,12 +35,14 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
 
 - 1.9 eafd79a34 (perf, no RED: clone + 2 marks removed; both error returns set cache.tree = None).
 
+- 1.10 RED dce418e18, GREEN 6d1841594 (xml.rs mod html_root_attribute_tests; html_root_node_data).
+
 ## IN PROGRESS
-1.10
+1.11
 
 ## NEXT
-1.10 RED the_html_elements_style_attribute_reaches_the_root (core/src/xml.rs ~6012 str_to_dom_unstyled,
-~7014 render_dom_from_body_node_fast)
+1.11 RED scan_external_resources_lists_resources_in_document_order_once_and_ignores_url_in_prose
+(core/src/xml.rs ~378-399 LIFO stack + Text arm)
 
 ## Open questions
 (none)
