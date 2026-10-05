@@ -969,14 +969,15 @@ impl RichTextDoc {
     }
 
     /// The canonical form: at least one block; runs merged; a block without
-    /// text without runs; a code block one plain run; headings 1..=6; a list
-    /// item at most one level deeper than the list item before it.
+    /// text without runs; a code block one plain run; headings 1..=6. A list
+    /// item keeps its level whatever comes before it (a Word paragraph or a
+    /// slide's point sets its own level; the HTML and Markdown writers nest
+    /// what their formats can).
     pub fn normalize(&mut self) {
         let mut blocks = self.take_blocks();
         if blocks.is_empty() {
             blocks.push(RichBlock::paragraph(""));
         }
-        let mut prev_indent: Option<u8> = None;
         for block in &mut blocks {
             let mut runs = block.runs_vec();
             match &mut block.kind {
@@ -994,14 +995,6 @@ impl RichTextDoc {
                 | RichBlockKind::PageBreak
                 | RichBlockKind::Table(_) => runs.clear(),
                 _ => {}
-            }
-            if block.kind.is_list() {
-                let max = prev_indent.map_or(0, |p| p.saturating_add(1));
-                let indent = block.kind.indent().min(max);
-                block.kind = block.kind.with_indent(indent);
-                prev_indent = Some(indent);
-            } else {
-                prev_indent = None;
             }
             normalize_runs(&mut runs);
             block.set_runs(runs);
@@ -1717,7 +1710,10 @@ impl RichTextDoc {
     }
 
     /// Indents (`delta > 0`) or outdents a list item; an outdent at level
-    /// 0 turns it into a paragraph. Returns whether it changed.
+    /// 0 turns it into a paragraph. An indent goes at most one level deeper
+    /// than the list item before (none: the first item does not indent) and
+    /// never lowers an item already deeper than that (a level a document
+    /// set). Returns whether it changed.
     pub fn indent(&mut self, index: usize, delta: i8) -> bool {
         let Some(block) = self.block(index) else {
             return false;
@@ -1738,7 +1734,7 @@ impl RichTextDoc {
             None => 0,
         };
         let next = if delta > 0 {
-            indent.saturating_add(1).min(max)
+            indent.saturating_add(1).min(max.max(indent))
         } else {
             indent - 1
         };
