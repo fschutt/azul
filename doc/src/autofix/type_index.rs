@@ -1120,13 +1120,17 @@ impl TypeIndex {
         // This handles cases where `impl SomeType` is in a different file than `struct SomeType`
         let cross_file_methods: Vec<_> = all_files
             .par_iter()
-            .filter_map(|(_, file_path)| parse_file_for_cross_file_methods(file_path).ok())
+            .filter_map(|(crate_name, file_path)| {
+                parse_file_for_cross_file_methods(file_path)
+                    .ok()
+                    .map(|methods| (crate_name.as_str(), methods))
+            })
             .collect();
 
         // Merge cross-file methods into existing types
-        for methods_map in cross_file_methods {
+        for (crate_name, methods_map) in cross_file_methods {
             for (type_name, methods) in methods_map {
-                index.attach_methods_to_type(&type_name, methods);
+                index.attach_methods_to_type(&type_name, crate_name, methods);
             }
         }
 
@@ -1141,15 +1145,29 @@ impl TypeIndex {
         Ok(index)
     }
 
-    /// Attach methods from cross-file impl blocks to existing types
-    fn attach_methods_to_type(&mut self, type_name: &str, methods: Vec<MethodDef>) {
+    /// Attach methods from cross-file impl blocks (found in a file of
+    /// `impl_crate`) to existing types. An inherent method only reaches the
+    /// candidates of its own crate (an inherent impl lives in its type's
+    /// crate); a trait impl's method reaches every candidate of the name.
+    fn attach_methods_to_type(
+        &mut self,
+        type_name: &str,
+        impl_crate: &str,
+        methods: Vec<MethodDef>,
+    ) {
         if let Some(candidates) = self.by_name.get_mut(type_name) {
             // Attach to all candidates (usually there's only one definition)
             for arc in candidates.iter_mut() {
+                let crate_of_type = arc.crate_name.clone();
+                let reaches =
+                    |m: &&MethodDef| m.from_trait.is_some() || crate_of_type == impl_crate;
+                if !methods.iter().any(|m| reaches(&m)) {
+                    continue;
+                }
                 // We need to get a mutable reference to the TypeDefinition
                 // Since we use Arc, we need to use Arc::make_mut
                 let typedef = Arc::make_mut(arc);
-                for method in &methods {
+                for method in methods.iter().filter(reaches) {
                     // Avoid duplicates by checking if method already exists
                     if !typedef.methods.iter().any(|m| m.name == method.name) {
                         typedef.methods.push(method.clone());
@@ -1960,7 +1978,43 @@ fn parse_file_for_cross_file_methods(
         all_methods.entry(type_name).or_default().extend(methods);
     }
 
+    // The impls of a type THIS file defines are not cross-file: phase 1
+    // attached them to the type if it is indexed - and if it is not (a
+    // module-private type, a wasm32 stub) they belong to that type, never to
+    // an indexed type that happens to share its name.
+    let defined = defined_type_names(&syntax_tree.items);
+    all_methods.retain(|type_name, _| !defined.contains(type_name));
+
     Ok(all_methods)
+}
+
+/// Every struct, enum, union and type alias `items` define, inline modules
+/// included, whatever their visibility and cfg.
+fn defined_type_names(items: &[Item]) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for item in items {
+        match item {
+            Item::Struct(s) => {
+                names.insert(s.ident.to_string());
+            }
+            Item::Enum(e) => {
+                names.insert(e.ident.to_string());
+            }
+            Item::Union(u) => {
+                names.insert(u.ident.to_string());
+            }
+            Item::Type(t) => {
+                names.insert(t.ident.to_string());
+            }
+            Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    names.extend(defined_type_names(inner));
+                }
+            }
+            _ => {}
+        }
+    }
+    names
 }
 
 /// Extract methods from `impl Trait for Type` blocks.
@@ -4491,7 +4545,7 @@ mod tests {
             is_public: true,
             from_trait: None,
         };
-        index.attach_methods_to_type("CallbackInfo", vec![method]);
+        index.attach_methods_to_type("CallbackInfo", "azul_layout", vec![method]);
 
         let by_path = index
             .get_by_path("azul_layout::callbacks::CallbackInfo")
