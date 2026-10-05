@@ -853,6 +853,15 @@ mod tests {
     }
 
     #[test]
+    fn a_control_character_in_a_paragraph_does_not_reach_the_html() {
+        // XML 1.0 cannot carry the C0 controls other than tab, line feed and
+        // carriage return, not even as a reference: a strict reader rejects
+        // the part that has one. The one markup encoder leaves them out.
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::paragraph("bell\u{7} and form\u{c}feed")]);
+        assert_eq!(doc_to_html(&doc), "<div>bell and formfeed</div>");
+    }
+
+    #[test]
     fn an_unsafe_link_is_written_as_its_text() {
         let doc = RichTextDoc::from_blocks(vec![RichBlock::new(
             RichBlockKind::Paragraph,
