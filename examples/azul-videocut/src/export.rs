@@ -19,8 +19,8 @@ use std::{
 };
 
 use azul::{
-    image::RawImageFormat,
-    vec::U8Vec,
+    image::{RawImage, RawImageFormat},
+    vec::{U8Vec, U8VecRef},
     video::{Mp4Muxer, VideoEncoder, VideoFrame},
 };
 
@@ -112,54 +112,31 @@ pub fn output_name(name: &str, format: OutputFormat) -> String {
 }
 
 /// RGBA8 to planar I420, BT.601 video range (Y 16..235, Cb / Cr 16..240),
-/// chroma averaged over each 2 x 2 block.
+/// chroma averaged over each 2 x 2 block: azul's one RGB -> YCbCr conversion
+/// (`RawImage::rgba_to_nv12` to NV12 Rec.601 video range) with its
+/// interleaved Cb,Cr pairs split into the two chroma planes. A picture
+/// shorter than its size is black.
 #[must_use]
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn rgba_to_i420(rgba: &[u8], width: u32, height: u32) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let (w, h) = (width as usize, height as usize);
-    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
-    let mut y = vec![0u8; w * h];
-    let mut u = vec![0u8; cw * ch];
-    let mut v = vec![0u8; cw * ch];
-    let px = |x: usize, yy: usize| -> (f32, f32, f32) {
-        let i = (yy * w + x) * 4;
-        (
-            f32::from(rgba.get(i).copied().unwrap_or(0)),
-            f32::from(rgba.get(i + 1).copied().unwrap_or(0)),
-            f32::from(rgba.get(i + 2).copied().unwrap_or(0)),
-        )
+    let luma = w * h;
+    let chroma = w.div_ceil(2) * h.div_ceil(2);
+    let nv12 = RawImage::rgba_to_nv12(
+        U8VecRef::from(rgba),
+        width,
+        height,
+        RawImageFormat::RGBA8,
+        RawImageFormat::NV12Rec601Video,
+    )
+    .into_option();
+    let Some(nv12) = nv12 else {
+        return (vec![16; luma], vec![128; chroma], vec![128; chroma]);
     };
-    for yy in 0..h {
-        for x in 0..w {
-            let (r, g, b) = px(x, yy);
-            y[yy * w + x] = (16.0 + (65.481 * r + 128.553 * g + 24.966 * b) / 255.0)
-                .round()
-                .clamp(0.0, 255.0) as u8;
-        }
-    }
-    for cy in 0..ch {
-        for cx in 0..cw {
-            let (mut r, mut g, mut b, mut n) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
-            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                let (x, yy) = (cx * 2 + dx, cy * 2 + dy);
-                if x < w && yy < h {
-                    let (pr, pg, pb) = px(x, yy);
-                    r += pr;
-                    g += pg;
-                    b += pb;
-                    n += 1.0;
-                }
-            }
-            let (r, g, b) = (r / n, g / n, b / n);
-            u[cy * cw + cx] = (128.0 + (-37.797 * r - 74.203 * g + 112.0 * b) / 255.0)
-                .round()
-                .clamp(0.0, 255.0) as u8;
-            v[cy * cw + cx] = (128.0 + (112.0 * r - 93.786 * g - 18.214 * b) / 255.0)
-                .round()
-                .clamp(0.0, 255.0) as u8;
-        }
-    }
-    (y, u, v)
+    let nv12 = nv12.as_slice();
+    let (y, uv) = nv12.split_at(luma.min(nv12.len()));
+    let u = uv.iter().step_by(2).copied().collect();
+    let v = uv.iter().skip(1).step_by(2).copied().collect();
+    (y.to_vec(), u, v)
 }
 
 /// The Y4M stream header for `width` x `height` at `fps`.
