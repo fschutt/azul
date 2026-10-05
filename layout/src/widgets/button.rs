@@ -2505,6 +2505,56 @@ mod disabled_and_toggled_tests {
         assert!(!enabled.is_disabled(), "an empty reason enables it");
     }
 
+    /// A keyboard user never hovers: a disabled button that takes the
+    /// focus (it keeps its Tab stop) shows its reason as the pointer's
+    /// hover does, and hides it when the focus leaves (user decision D1,
+    /// 2026-10-05: the reason on hover AND on keyboard focus).
+    #[test]
+    fn a_disabled_button_shows_its_reason_on_keyboard_focus_too() {
+        use azul_core::{
+            dom::{DomId, DomNodeId, NodeId},
+            events::FocusEventFilter,
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+
+        use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
+
+        let reason = "Select a file to delete";
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = Button::create(AzString::from("Delete"))
+                .with_disabled(AzString::from(reason))
+                .with_theme(theme)
+                .dom();
+            let events: Vec<EventFilter> =
+                dom.root.get_callbacks().as_ref().iter().map(|cb| cb.event).collect();
+            for wanted in [
+                EventFilter::Focus(FocusEventFilter::FocusReceived),
+                EventFilter::Focus(FocusEventFilter::FocusLost),
+            ] {
+                assert!(events.contains(&wanted), "{theme:?}: {wanted:?} on a disabled button");
+            }
+            let styled = StyledDom::create_from_dom(dom);
+            let root = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+            };
+            let (_, focused) = rv::fire(&styled, root, EventFilter::Focus(FocusEventFilter::FocusReceived))
+                .expect("the focus reaches a disabled button");
+            assert!(
+                focused
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::ShowTooltip { text, .. } if text.as_str() == reason)),
+                "{theme:?}: the focus shows the reason: {focused:?}"
+            );
+            let (_, left) = rv::fire(&styled, root, EventFilter::Focus(FocusEventFilter::FocusLost))
+                .expect("the focus leaves a disabled button");
+            assert!(
+                left.iter().any(|c| matches!(c, CallbackChange::HideTooltip)),
+                "{theme:?}: the reason goes with the focus: {left:?}"
+            );
+        }
+    }
+
     /// A toggle button (Bold, a calculator mode key) is announced pressed or
     /// not pressed (`aria-pressed`) and shows the pressed face while on - in
     /// both themes; switched off it looks like a plain button
