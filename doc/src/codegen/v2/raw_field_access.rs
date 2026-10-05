@@ -89,7 +89,7 @@ fn kind_fn<'a>(
 ) -> Option<&'a FunctionDef> {
     ir.functions
         .iter()
-        .find(|f| f.class_name == class && f.kind == kind && emitted(f))
+        .find(|f| f.class_name == class && f.kind == kind && emitted(*f))
 }
 
 fn has_kind_fn(ir: &CodegenIR, class: &str, kind: FunctionKind) -> bool {
@@ -138,7 +138,7 @@ fn owns_heap_depth(t: &str, ir: &CodegenIR, depth: usize) -> bool {
         ) {
             return true;
         }
-        return s.fields.iter().any(field_owns);
+        return s.fields.iter().any(&field_owns);
     }
     if let Some(e) = ir.find_enum(t) {
         return e.variants.iter().any(|v| match &v.kind {
@@ -148,14 +148,14 @@ fn owns_heap_depth(t: &str, ir: &CodegenIR, depth: usize) -> bool {
                 FieldRefKind::Boxed | FieldRefKind::OptionBoxed => true,
                 _ => false,
             }),
-            EnumVariantKind::Struct(fields) => fields.iter().any(field_owns),
+            EnumVariantKind::Struct(fields) => fields.iter().any(&field_owns),
         });
     }
     if let Some(a) = ir.find_type_alias(t) {
         return match &a.monomorphized_def {
             Some(m) => match &m.kind {
                 MonomorphizedKind::SimpleEnum { .. } => false,
-                MonomorphizedKind::Struct { fields } => fields.iter().any(field_owns),
+                MonomorphizedKind::Struct { fields } => fields.iter().any(&field_owns),
                 MonomorphizedKind::TaggedUnion { variants, .. } => variants.iter().any(|v| {
                     match (&v.payload_type, v.payload_ref_kind) {
                         (None, _) => false,
@@ -234,6 +234,19 @@ pub fn classify_field(
         return Some(RawFieldKind::Prim { is_bool: t == "bool" });
     }
     if !config.should_include_type(t) || is_callback_or_refany(t, ir, 0) {
+        return None;
+    }
+    // Types the raw bindings only model as an opaque word or a borrowed
+    // slice: nothing to copy out or move in.
+    let opaque = |c: TypeCategory| {
+        matches!(
+            c,
+            TypeCategory::Recursive | TypeCategory::GenericTemplate | TypeCategory::VecRef
+        )
+    };
+    if ir.find_struct(t).is_some_and(|s| opaque(s.category))
+        || ir.find_enum(t).is_some_and(|e| opaque(e.category))
+    {
         return None;
     }
     if ir

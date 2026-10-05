@@ -153,7 +153,7 @@ pub fn generate_field_accessors(
                 _ => None,
             };
             if let Some(body) = getter_body {
-                let name = pick(procs, "get");
+                let name = pick(&*procs, "get");
                 if !procs.has_receiver(&name, &st) {
                     let name = procs.unique(&name, &st);
                     let ret = if matches!(f.kind, RawFieldKind::Str { .. }) {
@@ -176,7 +176,7 @@ pub fn generate_field_accessors(
                 }
                 _ => continue,
             };
-            let name = pick(procs, "set");
+            let name = pick(&*procs, "set");
             if matches!(f.kind, RawFieldKind::Str { .. }) {
                 let n = procs.unique(&name, &format!("var {},string", st));
                 b.line(&format!("proc {}*(self: var {}, v: string) =", n, st));
