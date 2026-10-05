@@ -364,3 +364,23 @@ fn seek(data: &mut RefAny, target: impl FnOnce(f32, f32) -> f32) -> Update {
     card.seek_s = to;
     Update::RefreshDom
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status(position_s: f32, duration_s: f32) -> VideoStatus {
+        VideoStatus {
+            message: "".into(),
+            position_s,
+            duration_s,
+            phase: VideoPhase::Playing,
+        }
+    }
+
+    #[test]
+    fn a_video_past_an_hour_shows_its_hours() {
+        assert_eq!(time_text(&status(3725.0, 7322.0)), "1:02:05 / 2:02:02");
+        assert_eq!(time_text(&status(72.0, 562.0)), "1:12 / 9:22");
+    }
+}
