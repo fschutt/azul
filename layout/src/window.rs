@@ -1107,6 +1107,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         font_stacks_hash: _,
         preedit_shaped_node: _,
         seat_preedit_shaped: _,
+        dom_lint_runs: _,
         timers: _,
         threads: _,
         thread_owners: _,
@@ -1988,6 +1989,9 @@ pub struct LayoutWindow {
     /// Which node each non-primary seat's composition is spliced into
     /// (9b-ii-a-i-d-ii-c); the primary's is `preedit_shaped_node`.
     seat_preedit_shaped: BTreeMap<u64, (DomId, NodeId)>,
+    /// How many DOM lint passes ran (`dom_lint`'s four developer lints over
+    /// one DOM each) - observability for the "lint only what is new" rule.
+    pub dom_lint_runs: u64,
     /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -2517,6 +2521,7 @@ impl LayoutWindow {
             font_stacks_hash: 0,
             preedit_shaped_node: None,
             seat_preedit_shaped: BTreeMap::new(),
+            dom_lint_runs: 0,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
@@ -3033,6 +3038,7 @@ impl LayoutWindow {
         // unique finding per process; a correct app emits nothing.
         if result.is_ok() {
             for lr in self.layout_results.values() {
+                self.dom_lint_runs = self.dom_lint_runs.saturating_add(1);
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
@@ -25533,6 +25539,8 @@ impl LayoutWindow {
             font_stacks_hash: _,
             preedit_shaped_node: _,
             seat_preedit_shaped: _,
+            // A counter, no node ids.
+            dom_lint_runs: _,
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
