@@ -35,9 +35,10 @@
 //! 4. **`@enum` variant names are `Az`-prefixed** (`AzUpdate_RefreshDom`) because `@enum` injects
 //!    variant names into the enclosing module scope; prefixing avoids collisions between enums that
 //!    share a variant name (`None`, `Some`, …).
-//! 5. **`setfields` helper.** isbits structs are immutable, so nested field assignment
-//!    (`window.window_state.title = …`) is expressed as a functional update `setfields(x; field =
-//!    …)` that reconstructs the value via the default positional constructor.
+//! 5. **Field accessors.** isbits structs are immutable, so fields are written through a mutable
+//!    box (`Ref{AzT}`) or a `Ptr{AzT}` view: `get_<field>` / `set_<field>!` / `<field>_ptr`
+//!    (see [`fields`]) release the old value and deep-copy heap-owning reads. The older
+//!    `setfields(x; field = …)` functional update remains for plain-data fields only.
 //!
 //! # Build / link requirements
 //!
@@ -46,6 +47,7 @@
 //! (or points `AZUL_LIB` at its absolute path). The generated `azul.jl`
 //! is `include`d and `using .Azul`'d by the driver.
 
+pub mod fields;
 pub mod functions;
 pub mod types;
 
@@ -72,6 +74,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     functions::generate_aliases(&mut b, ir, config);
 
     emit_postlude(&mut b);
+    fields::generate_field_accessors(&mut b, ir, config);
 
     b.blank();
     b.line("export az_string, native_string, setfields");
@@ -133,8 +136,10 @@ fn emit_prelude(b: &mut CodeBuilder) {
     b.line("    setfields(x::T; field = value, ...) -> T");
     b.line("");
     b.line("Functional update for an immutable isbits struct: returns a copy of `x` with");
-    b.line("the named fields replaced. Used instead of field assignment (isbits structs");
-    b.line("are immutable) to customize e.g. `window.window_state.title`.");
+    b.line("the named fields replaced. For PLAIN-DATA fields only: it neither releases");
+    b.line("the replaced value nor copies the new one, so a string / vec / other");
+    b.line("heap-owning field set this way leaks the old value. Use the field accessors");
+    b.line("(`set_title!(window_state_ptr(opts), \"Hello\")`) for those.");
     b.line("\"\"\"");
     b.line("function setfields(x::T; kwargs...) where {T}");
     b.line("    names = fieldnames(T)");
@@ -147,6 +152,7 @@ fn emit_prelude(b: &mut CodeBuilder) {
     b.line("    return T(vals...)");
     b.line("end");
     b.blank();
+    fields::emit_helpers(b);
 }
 
 /// Emit helpers that reference generated `Az*` types in their signature.

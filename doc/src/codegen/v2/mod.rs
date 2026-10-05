@@ -111,6 +111,7 @@ pub mod lang_v;
 pub mod managed_host_invoker;
 pub mod managed_lang_helpers;
 pub mod module_plan;
+pub mod raw_field_access;
 pub mod rust;
 pub mod transmute_helpers; // New Rust generators (static/dynamic binding)
 
