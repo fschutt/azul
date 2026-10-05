@@ -1178,6 +1178,94 @@ mod semantic_and_a11y_lint_tests {
         azul_core::diagnostics::clear();
     }
 
+    /// How many recorded diagnostics contain `tag`.
+    fn printed(tag: &str) -> usize {
+        azul_core::diagnostics::recorded()
+            .iter()
+            .filter(|m| m.contains(tag))
+            .count()
+    }
+
+    /// A clickable div with a name and no role: one `[a11y-shape]` finding.
+    fn seek_control() -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_accessibility_name("Seek")
+                .with_callback(
+                    azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
+                    azul_core::refany::RefAny::new(()),
+                    crate::callbacks::Callback::from_ptr(noop_cb),
+                ),
+        )
+    }
+
+    /// The same finding is printed ONCE per process (ANIMFRAME8 s8): an app
+    /// renders the same shape again and again, the lints meet each new DOM,
+    /// and `diagnostics::emit` does no dedupe - `[a11y-shape]` printed its
+    /// lines on every pass, as the bare-text lint never did.
+    #[test]
+    fn the_same_a11y_shape_finding_is_printed_once_per_process() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        warn_a11y_shape(&styled(seek_control()));
+        warn_a11y_shape(&styled(seek_control()));
+        assert_eq!(
+            printed("[azul][a11y-shape]"),
+            1,
+            "the same finding twice is printed once: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// The same for the div-as-text lint.
+    #[test]
+    fn the_same_div_as_text_finding_is_printed_once_per_process() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = || styled(Dom::create_body().with_child(Dom::create_div_with_text("Mute")));
+        warn_div_used_as_text_container(&page());
+        warn_div_used_as_text_container(&page());
+        assert_eq!(
+            printed("[azul][div-as-text]"),
+            1,
+            "the same finding twice is printed once: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// The same for the unnamed-control lint.
+    #[test]
+    fn the_same_unnamed_control_finding_is_printed_once_per_process() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+        let page = || {
+            styled(
+                Dom::create_body().with_child(
+                    Dom::create_div()
+                        .with_child(Dom::create_span_with_text("\u{e161}"))
+                        .with_callback(
+                            azul_core::dom::EventFilter::Hover(
+                                azul_core::dom::HoverEventFilter::MouseUp,
+                            ),
+                            azul_core::refany::RefAny::new(()),
+                            crate::callbacks::Callback::from_ptr(noop_cb),
+                        ),
+                ),
+            )
+        };
+        warn_interactive_without_accessibility(&page());
+        warn_interactive_without_accessibility(&page());
+        assert_eq!(
+            printed("[azul][a11y] "),
+            1,
+            "the same finding twice is printed once: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
     extern "C" fn noop_cb(
         _: azul_core::refany::RefAny,
         _: crate::callbacks::CallbackInfo,
