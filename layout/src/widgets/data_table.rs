@@ -3947,3 +3947,37 @@ extern "C" fn on_table_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update
         DataTableEvent::create(DataTableEventKind::Scroll, next),
     )
 }
+
+/// A double-click on a column's edge fits the column (FIX9-WIDGETS 4.11);
+/// inline here, the widget's other tests live in `data_table_tests.rs`.
+#[cfg(test)]
+mod fit_tests {
+    use super::{fixtures::small, *};
+
+    #[test]
+    fn double_clicking_a_header_edge_fits_the_column_to_its_widest_text_in_view() {
+        let t = small();
+        assert!(geometry(&t).rows.len() >= 7, "a week of names is in view");
+        // Column 0 (Name): "Charlie" (7 characters) is its widest text in
+        // view; the title "Name" is shorter. The cell grid's estimate of a
+        // glyph, plus the cell's padding on both sides.
+        let expected = 7.0 * t.font_size * crate::widgets::cell_grid::SPILL_EM + 12.0;
+        let e = double_click(&t, Hit::HeaderEdge(0)).expect("an edge's double-click fits its column");
+        assert_eq!((e.kind, e.index), (DataTableEventKind::ResizeColumn, 0));
+        assert!((e.size - expected).abs() < 0.01, "{} px, expected {expected} px", e.size);
+        assert_eq!(e.view.drag.kind, DataTableDragKind::None, "no drag is left in flight");
+        let kept = t.clone().with_view(e.view.clone());
+        assert!(
+            (size_at(&column_sizes(&kept), 0, DEFAULT_COLUMN_PX) - e.size).abs() < 0.01,
+            "the view keeps the width"
+        );
+        // A column whose title is its widest text fits the title (and a
+        // sorted column's arrow): "Code \u{25B2}" (6) against "C0000" (5).
+        let mut view = t.view.clone();
+        view.click_sort(4, false);
+        let sorted = t.clone().with_view(view);
+        let e = double_click(&sorted, Hit::HeaderEdge(4)).expect("the Code column fits");
+        let expected = 6.0 * t.font_size * crate::widgets::cell_grid::SPILL_EM + 12.0;
+        assert!((e.size - expected).abs() < 0.01, "{} px, expected {expected} px", e.size);
+    }
+}
