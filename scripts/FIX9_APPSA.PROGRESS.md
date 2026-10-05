@@ -16,11 +16,14 @@
 - 5.8 photo a11y: ad6e643fb
 - 5.9 videocut rgba_to_nv12: 3d394bc64 (NEEDS api.json RawImage.rgba_to_nv12, see commit message)
 
+- 5.10 compose size: 2477632b6
+- 5.11 azmail_e2e submission phase: 613664985 (py_compile only; not run - memory held by a cargo test)
+
 ## IN PROGRESS
-5.10 mail compose attachment size -> DiskSpace::format_bytes
+5.12 sheets thousands grouping -> MoneyInput::format_amount
 
 ## NEXT
-5.10 -> 5.14 in order (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
+5.12 -> 5.14 in order (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
 
 ## Round-2 notes so far
 - AzKeys/Cargo.toml still lists csv (unused after 5.1): drop it.
