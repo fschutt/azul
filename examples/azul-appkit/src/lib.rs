@@ -17,6 +17,9 @@
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
 //! - `pieces` (feature `azul`): the small DOM pieces every app's screens are
 //!   built from (text, block, flex column / row, buttons).
+//! - `ribbon` (feature `azul`): the office apps' ribbon buttons, columns,
+//!   rows and groups (one builder; the app's command type implements
+//!   `RibbonCommand`).
 //! - `ui` (feature `azul`): the settings page on azul's `ShellSettingsLayout`
 //!   (Appearance, Data, Shortcuts, About, plus the app's own sections), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
@@ -40,6 +43,8 @@ pub mod shortcuts;
 
 #[cfg(feature = "azul")]
 pub mod pieces;
+#[cfg(feature = "azul")]
+pub mod ribbon;
 #[cfg(feature = "azul")]
 pub mod ui;
 
