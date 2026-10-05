@@ -164,6 +164,17 @@ pub fn sample_cities() -> Vec<City> {
         .collect()
 }
 
+/// Moves city `i` one place down (`down`) or up - its menu's Move down / Move up:
+/// `false` when it cannot (the first up, the last down, no such city).
+pub fn step_city(cities: &mut Vec<City>, i: usize, down: bool) -> bool {
+    let to = if down { i + 1 } else { i.wrapping_sub(1) };
+    if i >= cities.len() || to >= cities.len() {
+        return false;
+    }
+    cities.swap(i, to);
+    true
+}
+
 /// Moves the city at `from` to `to` (a drag, or the Up / Down keys).
 pub fn move_city(cities: &mut Vec<City>, from: usize, to: usize) {
     if from >= cities.len() {
@@ -275,6 +286,22 @@ mod tests {
         sorted.sort_unstable();
         assert_eq!(names, sorted, "by name");
         assert!(search("", 10).is_empty(), "an empty query offers nothing");
+    }
+
+    #[test]
+    fn a_city_steps_down_past_the_next_one_and_up_past_the_one_before() {
+        let mut cities = sample_cities();
+        assert!(step_city(&mut cities, 0, true), "Reykjavik moves down");
+        let names: Vec<&str> = cities.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["New York", "Reykjavik", "Tokyo", "Sydney"]);
+        assert!(step_city(&mut cities, 3, false), "Sydney moves up");
+        let names: Vec<&str> = cities.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["New York", "Reykjavik", "Sydney", "Tokyo"]);
+        assert!(!step_city(&mut cities, 3, true), "the last stays last");
+        assert!(!step_city(&mut cities, 0, false), "the first stays first");
+        assert!(!step_city(&mut cities, 9, true), "no such city");
+        let names: Vec<&str> = cities.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["New York", "Reykjavik", "Sydney", "Tokyo"]);
     }
 
     #[test]

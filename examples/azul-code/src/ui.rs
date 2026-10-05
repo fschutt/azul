@@ -7,7 +7,7 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CodeViewDataSourceCallbackType, CodeViewOnEventCallbackType,
         TabOnClickCallbackType, TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
-        TreeViewOnNodeClickCallbackType, TreeViewOnNodeToggleCallbackType,
+        ToolbarOnEventCallbackType, TreeViewOnNodeClickCallbackType, TreeViewOnNodeToggleCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
@@ -15,7 +15,8 @@ use azul::{
     str::String as AzString,
     widgets::{
         Button, CodeView, CodeViewEvent, CodeViewEventKind, OnTextInputReturn, StatusBar, StatusBarSegment,
-        TabHeader, TabHeaderState, TextInput, TextInputState, TextInputValid, TreeView, TreeViewNode,
+        TabHeader, TabHeaderState, TextInput, TextInputState, TextInputValid, Toolbar, ToolbarEvent,
+        ToolbarEventKind, ToolbarItem, TreeView, TreeViewNode,
     },
 };
 use azul_appkit::ui as kit;
@@ -83,18 +84,28 @@ pub fn column(children: Vec<Dom>) -> Dom {
 /// No workspace yet: what AzCode opens.
 fn welcome(app: &RefAny, st: &AppState) -> Dom {
     let detail = if st.notice.is_empty() {
-        "Start AzCode with a folder (AzCode ~/my-project) to edit its files, or open the sample: a small \
-         Rust crate and a file of 100,000 lines."
+        "Open a folder (Mod+O, or start AzCode with one: AzCode ~/my-project) to edit its files, or \
+         open the sample: a small Rust crate and a file of 100,000 lines."
             .to_string()
     } else {
         st.notice.clone()
     };
-    ShellEmptyState::create(AzString::from("AzCode"))
-        .with_icon(AzString::from("code"))
-        .with_detail(AzString::from(detail))
-        .with_action_label(AzString::from("Open the sample workspace"))
-        .with_on_action(app.clone(), on_open_sample as ButtonOnClickCallbackType)
-        .dom()
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; align-items: center; flex-grow: 1;")
+        .with_child(
+            ShellEmptyState::create(AzString::from("AzCode"))
+                .with_icon(AzString::from("code"))
+                .with_detail(AzString::from(detail))
+                .with_action_label(AzString::from("Open Folder..."))
+                .with_on_action(app.clone(), on_open_folder as ButtonOnClickCallbackType)
+                .dom(),
+        )
+        .with_child(
+            Button::create(AzString::from("Open the sample workspace"))
+                .with_on_click(app.clone(), on_open_sample as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::OPEN_SAMPLE),
+        )
         .with_id(ids::WELCOME)
 }
 
@@ -291,7 +302,9 @@ fn code_view(app: &RefAny, st: &AppState, doc: &Doc) -> Dom {
 }
 
 /// The find bar: the field, "3 of 14", previous / next, the toggles, and
-/// (Mod+H) the replace field with Replace / Replace all.
+/// (Mod+H) the replace field with Replace / Replace all - azul's `Toolbar`
+/// (the fields embedded, never in the "more" menu). Each tool's `id` is its
+/// DOM-id name from [`ids`]: what [`on_find_tool`] matches.
 fn find_bar(app: &RefAny, st: &AppState) -> Dom {
     let count = match (st.find.current, st.find.found.len()) {
         (_, 0) if st.find.query.is_empty() => String::new(),
@@ -299,48 +312,35 @@ fn find_bar(app: &RefAny, st: &AppState) -> Dom {
         (Some(i), n) => format!("{} of {n}", i + 1),
         (None, n) => format!("{n} results"),
     };
-    let mut bar = Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 4px 6px; flex-wrap: wrap;")
-        .with_child(find_input(app, st))
-        .with_child(text(&count).with_id(ids::FIND_COUNT))
-        .with_child(
-            Button::create(AzString::from("Previous"))
-                .with_on_click(app.clone(), on_find_previous as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::FIND_PREVIOUS),
-        )
-        .with_child(
-            Button::create(AzString::from("Next"))
-                .with_on_click(app.clone(), on_find_next as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::FIND_NEXT),
-        )
-        .with_child(toggles(app, st));
+    let mut items = vec![
+        ToolbarItem::create_custom(ids::FIND_INPUT, "Find", find_input(app, st), 220.0)
+            .with_never_overflow(true),
+        ToolbarItem::create_custom(ids::FIND_COUNT, "Results", text(&count).with_id(ids::FIND_COUNT), 90.0),
+        ToolbarItem::create_button(ids::FIND_PREVIOUS, "Previous", ""),
+        ToolbarItem::create_button(ids::FIND_NEXT, "Next", ""),
+        ToolbarItem::create_separator(),
+        ToolbarItem::create_toggle(ids::MATCH_CASE, "Aa", "", st.find.how.match_case).with_tooltip("Match case"),
+        ToolbarItem::create_toggle(ids::WHOLE_WORD, "Word", "", st.find.how.whole_word).with_tooltip("Whole word"),
+    ];
     if st.find.replace_open {
-        bar.add_child(
-            TextInput::create()
-                .with_text(AzString::from(st.find.replacement.as_str()))
-                .with_placeholder(AzString::from("Replace"))
-                .with_accessibility_name(AzString::from("Replace"))
-                .with_on_text_input(app.clone(), on_replace_text as TextInputOnTextInputCallbackType)
-                .dom()
-                .with_id(ids::REPLACE_INPUT),
-        );
-        bar.add_child(
-            Button::create(AzString::from("Replace"))
-                .with_on_click(app.clone(), on_replace_one as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::REPLACE_ONE),
-        );
-        bar.add_child(
-            Button::create(AzString::from("Replace all"))
-                .with_on_click(app.clone(), on_replace_all as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::REPLACE_ALL),
-        );
+        let replace = TextInput::create()
+            .with_text(AzString::from(st.find.replacement.as_str()))
+            .with_placeholder(AzString::from("Replace"))
+            .with_accessibility_name(AzString::from("Replace"))
+            .with_on_text_input(app.clone(), on_replace_text as TextInputOnTextInputCallbackType)
+            .dom()
+            .with_id(ids::REPLACE_INPUT);
+        items.push(ToolbarItem::create_separator());
+        items.push(ToolbarItem::create_custom(ids::REPLACE_INPUT, "Replace with", replace, 220.0).with_never_overflow(true));
+        items.push(ToolbarItem::create_button(ids::REPLACE_ONE, "Replace", ""));
+        items.push(ToolbarItem::create_button(ids::REPLACE_ALL, "Replace all", ""));
     }
-    // TODO(WIDGETS9A): Toolbar - the find bar's buttons as one toolbar.
-    bar.with_id(ids::FIND_BAR)
+    Toolbar::create("Find")
+        .with_items(items)
+        .with_available_width((st.window.0 * 0.8).max(200.0))
+        .with_on_event(app.clone(), on_find_tool as ToolbarOnEventCallbackType)
+        .dom()
+        .with_id(ids::FIND_BAR)
 }
 
 /// The go-to-line bar.
@@ -406,6 +406,11 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
             st.refresh_find();
         }
     })
+}
+
+extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
+    commands::ask_folder(&data);
+    Update::DoNothing
 }
 
 extern "C" fn on_open_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -524,6 +529,38 @@ extern "C" fn on_replace_text(mut data: RefAny, _info: CallbackInfo, state: Text
     OnTextInputReturn {
         update: Update::DoNothing,
         valid: TextInputValid::Yes,
+    }
+}
+
+/// A tool of the find bar: previous / next, replace / replace all, the
+/// match-case and whole-word toggles (the event carries the new state).
+extern "C" fn on_find_tool(mut data: RefAny, mut info: CallbackInfo, event: ToolbarEvent) -> Update {
+    let id = event.id.as_str();
+    match event.kind {
+        ToolbarEventKind::Toggle => with_state(&mut data, &mut info, |st, _, _| {
+            if id == ids::MATCH_CASE.as_str() {
+                st.find.how.match_case = event.pressed;
+            } else if id == ids::WHOLE_WORD.as_str() {
+                st.find.how.whole_word = event.pressed;
+            } else {
+                return;
+            }
+            st.refresh_find();
+        }),
+        ToolbarEventKind::Activate => {
+            if id == ids::FIND_PREVIOUS.as_str() {
+                on_find_previous(data, info)
+            } else if id == ids::FIND_NEXT.as_str() {
+                on_find_next(data, info)
+            } else if id == ids::REPLACE_ONE.as_str() {
+                on_replace_one(data, info)
+            } else if id == ids::REPLACE_ALL.as_str() {
+                on_replace_all(data, info)
+            } else {
+                Update::DoNothing
+            }
+        }
+        ToolbarEventKind::Choose => Update::DoNothing,
     }
 }
 

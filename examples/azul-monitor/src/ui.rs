@@ -14,15 +14,15 @@ use azul::{
         StandardDialogOnEventCallbackType, TabOnClickCallbackType,
         TextInputOnTextInputCallbackType, WriteBackCallbackType,
     },
-    css::PixelValue,
     option::OptionString,
     prelude::*,
     shells::{ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        Button, Chart, ChartKind, ChartPoint, ChartSeries, MessageBox, MessageBoxKind, Modal,
-        ModalState, OnTextInputReturn, ProgressBar, Segmented, SegmentedState, StandardDialogEvent,
+        Button, Chart, ChartKind, ChartPoint, ChartSeries, Gauge, GaugeBand, GaugeBandKind,
+        GaugeKind, MessageBox, MessageBoxKind, Modal, ModalState, OnTextInputReturn, Segmented,
+        SegmentedState, StandardDialogEvent,
         StandardDialogEventKind, StatusBar, StatusBarSegment, TabHeader, TabHeaderState, TextInput,
         TextInputState, TextInputValid,
     },
@@ -46,6 +46,24 @@ const HEADLINE: f32 = 22.0;
 pub const CARDS_HEIGHT: f32 = 132.0;
 /// The write-back tag of the history export.
 const EXPORT_TAG: u64 = 1;
+/// The space around a core's gauge, px.
+const CORE_GAP: f32 = 4.0;
+
+/// The largest core gauge (a diameter from 40 to 96 px) that fits `cores` of them into a box of
+/// `width` x `height` px (the smallest when even those do not fit: the box clips the rest).
+fn core_gauge_size(cores: usize, width: f32, height: f32) -> f32 {
+    let mut size = 96.0_f32;
+    while size > 40.0 {
+        let cell = size + 2.0 * CORE_GAP;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a few cells
+        let fits = (width / cell).floor().max(0.0) as usize * (height / cell).floor().max(0.0) as usize;
+        if fits >= cores {
+            break;
+        }
+        size -= 4.0;
+    }
+    size
+}
 
 // ==== Helpers ====
 
@@ -490,29 +508,26 @@ fn performance(app: &RefAny, w: f32, h: f32) -> Dom {
     let cores_w = (w - 3.0 * GAP - cpu_w).max(160.0);
     let third = ((w - 4.0 * GAP) / 3.0).max(160.0);
 
-    // TODO(WIDGETS9B): Gauge - one compact gauge per core instead of a bar.
+    // One compact ring gauge per core: warm from 70 %, hot from 90 %.
     let mut cores = Dom::create_div().with_id(ids::CORES).with_css(format!(
         "display: flex; flex-direction: row; flex-wrap: wrap; align-content: flex-start; width: \
          {cores_w}px; height: {row_h}px; overflow: hidden; margin-left: {GAP}px;"
     ));
-    let half = (cores_w / 2.0 - 8.0).max(70.0);
+    let size = core_gauge_size(m.cores.len(), cores_w, row_h);
     for (i, core) in m.cores.iter().enumerate() {
-        #[allow(clippy::cast_possible_truncation)] // a percent
-        let pct = core.latest().unwrap_or(0.0) as f32;
+        let pct = core.latest().filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 100.0);
         cores.add_child(
-            Dom::create_div()
+            Gauge::create(pct, 0.0, 100.0)
+                .with_kind(GaugeKind::Ring)
+                .with_size(size)
+                .with_thickness((size / 9.0).max(4.0))
+                .with_value_text(format_percent(pct))
+                .with_label(format!("Core {i}"))
+                .with_band(GaugeBand::create(70.0, 90.0, GaugeBandKind::Warn))
+                .with_band(GaugeBand::create(90.0, 100.0, GaugeBandKind::Bad))
+                .dom()
                 .with_class(ids::CORE)
-                .with_css(format!("width: {half}px; padding: 2px 4px;"))
-                .with_child(line(
-                    format!("Core {i}  {}", format_percent(f64::from(pct))),
-                    "font-size: 12px;",
-                ))
-                .with_child(
-                    ProgressBar::create(pct)
-                        .with_height(PixelValue::px(8.0))
-                        .with_accessibility_name(format!("Core {i}"))
-                        .dom(),
-                ),
+                .with_css(format!("margin: {CORE_GAP}px;")),
         );
     }
     let disk_top = rate_axis_top(&[&m.disk_read, &m.disk_write]);

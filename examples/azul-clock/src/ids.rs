@@ -59,8 +59,9 @@ names! {
     EDITOR_SAVE = "editor-save";
     // ---- timer ----
     TIMER_VIEW = "timer-view";
+    /// The time left: the ring (azul's Gauge) with the countdown in its centre. The ring
+    /// carries both names.
     TIMER_TIME = "timer-time";
-    /// The time left as a bar (TODO(WIDGETS9B): the Gauge's ring).
     TIMER_RING = "timer-ring";
     PRESETS = "presets";
     TIMERS = "timers";

@@ -6,7 +6,9 @@ use std::path::Path;
 
 use azul::{
     callbacks::{TimerCallbackInfo, TimerCallbackReturn},
+    dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
+    option::OptionString,
     prelude::*,
 };
 use azul_appkit::ui as kit;
@@ -61,6 +63,34 @@ pub fn open_workspace(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny, 
         app.clone(),
         on_drive_done,
     );
+}
+
+/// "Open Folder..." (the welcome screen, Mod+O): the OS folder dialog; the
+/// folder picked becomes the workspace ([`on_folder_picked`]).
+pub fn ask_folder(app: &RefAny) {
+    let _request = FileDialog::open_directory(
+        "Open a folder",
+        OptionString::None,
+        app.clone(),
+        on_folder_picked,
+    );
+}
+
+/// The folder dialog's answer: the folder becomes the workspace (a cancel
+/// changes nothing).
+extern "C" fn on_folder_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    let folder = std::path::PathBuf::from(path.inner.as_str());
+    println!("AZCODE_FOLDER {}", folder.display());
+    crate::ui::with_state(&mut data, &mut info, |st, info, app| {
+        st.sample = false;
+        open_workspace(st, info, app, folder_root(&folder));
+    })
 }
 
 /// The sample workspace (its files are written the first time).
@@ -147,9 +177,10 @@ pub fn save(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
     storage::spawn_drive_jobs(info, &root, jobs, app.clone(), on_drive_done);
 }
 
-/// The window's keys (after the kit's): Mod+S save, Mod+F find, Mod+H
-/// replace, Mod+G go to line, Mod+W close the tab, F3 / Shift+F3 the next /
-/// previous match, Escape closes the bars. `true` when the key was taken.
+/// The window's keys (after the kit's): Mod+O open a folder, Mod+S save,
+/// Mod+F find, Mod+H replace, Mod+G go to line, Mod+W close the tab, F3 /
+/// Shift+F3 the next / previous match, Escape closes the bars. `true` when
+/// the key was taken.
 pub fn handle_key(
     st: &mut AppState,
     info: &mut CallbackInfo,
@@ -159,6 +190,7 @@ pub fn handle_key(
     shift: bool,
 ) -> bool {
     match (key, primary) {
+        (VirtualKeyCode::O, true) => ask_folder(app),
         (VirtualKeyCode::S, true) => save(st, info, app),
         (VirtualKeyCode::F, true) => {
             st.find.open = true;

@@ -35,4 +35,10 @@ names! {
     LOADING = "loading";
     /// The block the charts go into (the RecordsShell's cards strip).
     CHARTS = "charts";
+
+    // ---- the chart half ----
+    /// The charts' row (class).
+    CHARTS_ROW_CLASS = "charts-row";
+    /// The caption under the charts (what is selected; class).
+    CHARTS_CAPTION = "charts-caption";
 }

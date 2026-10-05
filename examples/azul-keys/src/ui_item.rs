@@ -5,21 +5,20 @@ use zeroize::Zeroizing;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnRemoveCallbackType,
-        SegmentedOnChangeCallbackType, SliderOnValueChangeCallbackType, SwitchOnToggleCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, SegmentedOnChangeCallbackType,
+        SliderOnValueChangeCallbackType, SwitchOnToggleCallbackType,
         TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType,
-        TextInputOnVirtualKeyDownCallbackType,
+        TokenInputOnEventCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
-    dom::VirtualKeyCode,
     option::OptionFileTypeList,
     prelude::*,
     shells::ShellEmptyState,
     str::String as AzString,
     widgets::{
-        Avatar, AvatarSize, CheckBoxState, Chip, ChipState, OnTextInputReturn, Segmented,
-        SegmentedState, Slider, SliderState, Switch, SwitchState, TextArea, TextAreaState,
-        TextInputState, TextInputValid,
+        Avatar, AvatarSize, CheckBoxState, Chip, OnTextInputReturn, Segmented, SegmentedState,
+        Slider, SliderState, Switch, SwitchState, TextArea, TextAreaState, TextInputState,
+        TextInputValid, TokenInput, TokenInputEvent, Gauge, GaugeBand, GaugeBandKind, GaugeKind,
     },
 };
 
@@ -54,7 +53,7 @@ fn date(unix: u64) -> String {
 /// The reading pane for the session's reading.
 pub fn reading_pane(s: &KeysApp, session: &Session, app: &RefAny) -> Dom {
     match &session.reading {
-        Reading::Edit(form) => edit_view(form, app),
+        Reading::Edit(form) => edit_view(form, session, app),
         Reading::Generator => generator_view(session, app),
         Reading::Import(view) => import_view(view, app),
         Reading::Audit(filter) => audit_view(session, *filter, app),
@@ -209,7 +208,8 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
         let value = match Totp::parse(&item.totp) {
             Ok(totp) => {
                 let left = totp.remaining(t);
-                let used = (totp.period - left) as f32 / totp.period as f32 * 100.0;
+                #[allow(clippy::cast_precision_loss)] // seconds
+                let (left_s, period_s) = (left as f64, totp.period.max(1) as f64);
                 row(
                     "gap: 8px;",
                     vec![
@@ -218,10 +218,16 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                             text(group_code(&totp.code_at(t))),
                         )
                         .with_id(ids::ITEM_TOTP_CODE),
-                        // TODO(WIDGETS9B): Gauge - a draining ring in place of the bar.
-                        block("width: 60px;", ProgressBar::create(100.0 - used).dom())
+                        // A draining ring with the seconds left in it; the last five warn.
+                        Gauge::create(left_s, 0.0, period_s)
+                            .with_kind(GaugeKind::Ring)
+                            .with_size(40.0)
+                            .with_thickness(4.0)
+                            .with_value_text(format!("{left}"))
+                            .with_accessibility_name("Seconds until the next code")
+                            .with_band(GaugeBand::create(0.0, 5.0, GaugeBandKind::Warn))
+                            .dom()
                             .with_id(ids::ITEM_TOTP_RING),
-                        block("font-size: 12px; opacity: 0.7;", text(format!("{left} s"))),
                     ],
                 )
             }
@@ -490,7 +496,6 @@ enum EditField {
     CardNumber,
     CardExpiry,
     CardCode,
-    Tag,
     FieldName(usize),
     FieldValue(usize),
 }
@@ -518,7 +523,7 @@ fn edit_input(
     } else {
         TextInput::create()
     };
-    let mut input = input
+    input
         .with_text(value)
         .with_placeholder(placeholder)
         .with_accessibility_name(placeholder)
@@ -528,23 +533,15 @@ fn edit_input(
                 field,
             }),
             on_edit_text as TextInputOnTextInputCallbackType,
-        );
-    if field == EditField::Tag {
-        input = input.with_on_virtual_key_down(
-            RefAny::new(EditRef {
-                app: app.clone(),
-                field,
-            }),
-            on_tag_key as TextInputOnVirtualKeyDownCallbackType,
-        );
-    }
-    input.dom().with_id(id)
+        )
+        .dom()
+        .with_id(id)
 }
 
 /// The kinds a new item can be, in the order of the switch.
 const KIND_LABELS: [&str; 5] = ["Login", "Card", "Secure note", "Identity", "SSH key"];
 
-fn edit_view(form: &Form, app: &RefAny) -> Dom {
+fn edit_view(form: &Form, session: &Session, app: &RefAny) -> Dom {
     let d = &form.draft;
     let mut rows = vec![block(
         "font-size: 16px; font-weight: 600; padding-bottom: 8px;",
@@ -770,37 +767,27 @@ fn edit_view(form: &Form, app: &RefAny) -> Dom {
         "",
         icon_button("Add a field", "add", ids::EDIT_ADD_FIELD, app, on_field_add),
     ));
-    let mut chips: Vec<Dom> = d
-        .tags
-        .iter()
-        .enumerate()
-        .map(|(n, t)| {
-            Chip::create(t.as_str())
-                .with_removable(true)
-                .with_on_remove(
-                    RefAny::new(IndexRef {
-                        app: app.clone(),
-                        index: n,
-                    }),
-                    on_tag_remove as ChipOnRemoveCallbackType,
-                )
-                .dom()
-                .with_id(ids::edit_tag_chip(n))
-        })
+    // The tags: azul's TokenInput (the chips and the entry as one control), the vault's
+    // other tags as suggestions.
+    let tags: Vec<&str> = d.tags.iter().map(String::as_str).collect();
+    let vault_tags: Vec<String> = session
+        .open
+        .vault
+        .tags()
+        .into_iter()
+        .map(|(tag, _)| tag)
         .collect();
-    // TODO(WIDGETS9A): TokenInput - the chips and the field as one control.
-    chips.push(block(
-        "flex-grow: 1; min-width: 120px;",
-        edit_input(
-            app,
-            EditField::Tag,
-            &form.tag,
-            "Add a tag (Enter)",
-            false,
-            ids::EDIT_TAG,
-        ),
+    let known: Vec<&str> = vault_tags.iter().map(String::as_str).collect();
+    rows.push(form_row(
+        "Tags",
+        TokenInput::create(strs(&tags), "Tags")
+            .with_text(form.tag.as_str())
+            .with_placeholder("Add a tag (Enter)")
+            .with_suggestions(strs(&known))
+            .with_on_event(app.clone(), on_tags_event as TokenInputOnEventCallbackType)
+            .dom()
+            .with_id(ids::EDIT_TAG),
     ));
-    rows.push(form_row("Tags", row("gap: 4px; flex-wrap: wrap;", chips)));
     rows.push(form_row(
         "Notes",
         TextArea::create()
@@ -873,12 +860,6 @@ fn set_text(form: &mut Form, field: EditField, value: String) {
         EditField::CardNumber => d.card.number = value,
         EditField::CardExpiry => d.card.expiry = value,
         EditField::CardCode => d.card.code = value,
-        EditField::Tag => {
-            form.tag = value;
-            if form.tag.contains(',') {
-                form.commit_tag();
-            }
-        }
         EditField::FieldName(n) => {
             if let Some(f) = d.fields.get_mut(n) {
                 f.name = value;
@@ -906,37 +887,12 @@ extern "C" fn on_edit_text(
         return keep();
     };
     let value = Zeroizing::new(state.get_text().as_str().to_string());
-    let rebuild = matches!(field, EditField::Password | EditField::Totp)
-        || (field == EditField::Tag && value.contains(','));
+    let rebuild = matches!(field, EditField::Password | EditField::Totp);
     let update = with_form(&mut app, &mut info, |form, _| {
         set_text(form, field, value.to_string())
     });
     OnTextInputReturn {
         update: if rebuild { update } else { Update::DoNothing },
-        valid: TextInputValid::Yes,
-    }
-}
-
-/// Enter in the tag field adds the tag.
-extern "C" fn on_tag_key(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    _state: TextInputState,
-) -> OnTextInputReturn {
-    let enter = matches!(
-        info.get_current_keyboard_state()
-            .current_virtual_keycode
-            .into_option(),
-        Some(VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter)
-    );
-    if !enter {
-        return keep();
-    }
-    let Some(mut app) = data.downcast_ref::<EditRef>().map(|r| r.app.clone()) else {
-        return keep();
-    };
-    OnTextInputReturn {
-        update: with_form(&mut app, &mut info, |form, _| form.commit_tag()),
         valid: TextInputValid::Yes,
     }
 }
@@ -1025,17 +981,13 @@ extern "C" fn on_field_hidden(
     })
 }
 
-extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _state: ChipState) -> Update {
-    let Some((mut app, index)) = data
-        .downcast_ref::<IndexRef>()
-        .map(|r| (r.app.clone(), r.index))
-    else {
-        return Update::DoNothing;
-    };
-    with_form(&mut app, &mut info, |form, _| {
-        if index < form.draft.tags.len() {
-            form.draft.tags.remove(index);
-        }
+/// The tag field: every event carries the field's next state - the draft takes its tokens and
+/// the typed text (the window is rebuilt: the chips, the suggestions).
+extern "C" fn on_tags_event(mut data: RefAny, mut info: CallbackInfo, event: TokenInputEvent) -> Update {
+    let tokens: Vec<&str> = event.state.tokens.as_slice().iter().map(|t| t.as_str()).collect();
+    let typed = Zeroizing::new(event.state.text.as_str().to_string());
+    with_form(&mut data, &mut info, |form, _| {
+        take_tag_tokens(form, &tokens, &typed);
     })
 }
 
@@ -1709,4 +1661,35 @@ extern "C" fn on_audit_export(mut data: RefAny, mut info: CallbackInfo) -> Updat
         };
         jobs::spawn(info, app, &s.data_root, work);
     })
+}
+
+/// The tag field's state (its tokens and the typed text) into the draft: each token once, as
+/// `Item::add_tag` keeps it (no `#`, no case-folded twin); a chip removed in the field leaves
+/// the draft.
+fn take_tag_tokens(form: &mut Form, tokens: &[&str], typed: &str) {
+    form.draft.tags.clear();
+    for token in tokens {
+        form.draft.add_tag(token);
+    }
+    form.tag = typed.to_string();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tag_fields_tokens_become_the_drafts_tags_once_and_without_a_hash() {
+        let mut form = Form::new_item(Kind::Login, 0);
+        take_tag_tokens(&mut form, &["work", "#Work", " home "], "fi");
+        assert_eq!(form.draft.tags, vec!["work", "home"]);
+        assert_eq!(form.tag, "fi");
+        take_tag_tokens(&mut form, &["home"], "");
+        assert_eq!(
+            form.draft.tags,
+            vec!["home"],
+            "a chip removed in the field leaves the draft"
+        );
+        assert!(form.tag.is_empty());
+    }
 }

@@ -44,6 +44,7 @@ pub enum Action {
     CityAdd(String),
     CityRemove(usize),
     CityUp(usize),
+    CityDown(usize),
     /// Show a city's time on the face (`None` = here).
     FaceCity(Option<usize>),
     CloseCitySearch,
@@ -225,8 +226,12 @@ pub(crate) fn run(s: &mut ClockApp, info: &mut CallbackInfo, action: Action) {
             }
         }
         Action::CityUp(i) => {
-            if i > 0 && i < s.cities.len() {
-                world::move_city(&mut s.cities, i, i - 1);
+            if world::step_city(&mut s.cities, i, false) {
+                save_world(s);
+            }
+        }
+        Action::CityDown(i) => {
+            if world::step_city(&mut s.cities, i, true) {
                 save_world(s);
             }
         }

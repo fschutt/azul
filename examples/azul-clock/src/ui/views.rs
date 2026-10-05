@@ -12,13 +12,14 @@ use azul::{
         SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType,
         TimePickerOnChangeCallbackType,
     },
+    menu::{Menu, MenuItem, StringMenuItem},
     option::OptionString,
     prelude::*,
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, DatePickerWeekStart, DateRepeatPicker, DropDown, Modal, NumberInput, ProgressBar,
-        Segmented, Switch, TextInput, TimePicker,
+        ButtonType, DatePickerWeekStart, DateRepeatPicker, DropDown, Gauge, GaugeKind, Modal,
+        NumberInput, Segmented, Switch, TextInput, TimePicker,
     },
 };
 use azul_appkit::ui::{self as kit, AppSection};
@@ -297,7 +298,8 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
                     "font-size: 22px; font-family: monospace;",
                 ))
                 .with_child(button("Up", app, Action::CityUp(i)))
-                .with_child(button("Remove", app, Action::CityRemove(i))),
+                .with_child(button("Remove", app, Action::CityRemove(i)))
+                .with_context_menu(city_menu(app, i, s.cities.len())),
         );
     }
     let css = if wide {
@@ -310,6 +312,23 @@ fn world_view(s: &ClockApp, app: &RefAny, now: DateTime<Utc>, wide: bool) -> Dom
         .with_css(css)
         .with_child(face_panel)
         .with_child(list)
+}
+
+/// A city row's context menu: Move up (not the first), Move down (not the
+/// last), Remove.
+fn city_menu(app: &RefAny, i: usize, count: usize) -> Menu {
+    let item = |label: &str, action: Action| {
+        MenuItem::string(StringMenuItem::create(label).with_callback(act(app, action), actions::on_act))
+    };
+    let mut items = Vec::new();
+    if i > 0 {
+        items.push(item("Move up", Action::CityUp(i)));
+    }
+    if i + 1 < count {
+        items.push(item("Move down", Action::CityDown(i)));
+    }
+    items.push(item("Remove", Action::CityRemove(i)));
+    Menu::create(items)
 }
 
 // ==== Alarms ====
@@ -403,34 +422,27 @@ fn timer_view(s: &ClockApp, app: &RefAny) -> Dom {
             view.add_child(
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: column; align-items: center; row-gap: 8px; padding: 20px 16px;")
+                    // The ring drains with the time left; the countdown is in its centre,
+                    // "of 5:00 - Tea" under it.
                     .with_child(
-                        Dom::create_div()
+                        Gauge::create(f64::from(percent), 0.0, 100.0)
+                            .with_kind(GaugeKind::Ring)
+                            .with_size(240.0)
+                            .with_thickness(14.0)
+                            .with_value_text(fmt::countdown(t.remaining_ms(now)))
+                            .with_label(format!(
+                                "of {}{}",
+                                fmt::countdown(t.duration_ms),
+                                if t.label.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" - {}", t.label)
+                                }
+                            ))
+                            .with_accessibility_name("Time left")
+                            .dom()
                             .with_id(ids::TIMER_TIME)
-                            .with_css("font-size: 56px; font-weight: 600; font-family: monospace;")
-                            .with_child(text(&fmt::countdown(t.remaining_ms(now)))),
-                    )
-                    .with_child(line(
-                        &format!(
-                            "of {}{}",
-                            fmt::countdown(t.duration_ms),
-                            if t.label.is_empty() {
-                                String::new()
-                            } else {
-                                format!(" - {}", t.label)
-                            }
-                        ),
-                        SECONDARY,
-                    ))
-                    // TODO(WIDGETS9B): Gauge - the timer's ring with the time in its centre.
-                    .with_child(
-                        Dom::create_div()
-                            .with_css("width: 280px;")
-                            .with_child(
-                                ProgressBar::create(percent)
-                                    .with_accessibility_name("Time left")
-                                    .dom()
-                                    .with_id(ids::TIMER_RING),
-                            ),
+                            .with_id(ids::TIMER_RING),
                     )
                     .with_child(controls),
             );

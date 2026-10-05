@@ -1,38 +1,42 @@
 //! Amounts in integer minor units (cents): money is never a float here (the
 //! ERP README's "money is f64" is one of its bugs; MoneyInput's rule).
 //!
-//! - [`format_amount`]: `159664` -> `"1,596.64"` (what the tables show).
+//! - [`format_amount`]: `159664` -> `"1,596.64"` (what the tables show:
+//!   azul's `MoneyInput::format_amount` in [`currency`], no symbol).
 //! - [`file_amount`] / [`parse_file_amount`]: `"1596.64"` (what the record
 //!   files and the CSV export hold: no grouping, a point, two decimals).
 //! - [`parse_amount`]: what a user types or a CSV file holds - `1,596.64`,
 //!   `1.596,64`, `1596,64`, `EUR 1 596.64`, `-12`, `(12.50)` - into cents.
 //!
-//! TODO(WIDGETS9B): MoneyInput - the form's amount fields take azul's
-//! MoneyInput (locale-aware parsing in the widget) when it lands; the CSV
-//! import keeps [`parse_amount`].
+//! The form's amount fields are azul's `MoneyInput` in [`currency`] (the
+//! widget parses what is typed); the CSV import keeps [`parse_amount`].
+
+use azul::widgets::{MoneyCurrency, MoneyInput, MoneyLocale};
 
 /// Minor units per major unit (two decimals: EUR, USD, GBP, CHF, ...).
 pub const MINOR_PER_MAJOR: i64 = 100;
 
+/// The register's money for azul's `MoneyInput`: two decimals
+/// ([`MINOR_PER_MAJOR`]), no code and no symbol (the register keeps no
+/// currency; the tables show bare amounts).
+#[must_use]
+pub fn currency() -> MoneyCurrency {
+    MoneyCurrency::create("", "", 2)
+}
+
+/// How amounts are written: `1,596.64` (a point, a comma between thousands).
+#[must_use]
+pub fn locale() -> MoneyLocale {
+    MoneyLocale::en_us()
+}
+
 /// `cents` with thousands separators and two decimals: `"1,596.64"`,
-/// `"-0.50"`, `"0.00"`.
+/// `"-0.50"`, `"0.00"` (azul's `MoneyInput::format_amount`).
 #[must_use]
 pub fn format_amount(cents: i64) -> String {
-    let (major, minor) = split(cents);
-    let digits = major.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 4);
-    if cents < 0 {
-        out.push('-');
-    }
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out.push('.');
-    out.push_str(&format!("{minor:02}"));
-    out
+    MoneyInput::format_amount(cents, currency(), locale())
+        .as_str()
+        .to_string()
 }
 
 /// `cents` as the record files and the CSV export write it: `"1596.64"`,

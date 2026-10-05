@@ -75,18 +75,10 @@ pub fn columns() -> Vec<DataTableColumn> {
         .collect()
 }
 
-/// "500,000" - a count with thousands separators.
+/// "500,000" - a count with thousands separators ([`data::formatted`]).
 #[must_use]
 pub fn grouped(n: u32) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
+    data::formatted(i64::from(n), 0)
 }
 
 /// What the sort is, for the status bar ("Sales \u{25BC}, Region \u{25B2}").
