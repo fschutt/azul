@@ -1944,6 +1944,54 @@ mod icon_grid_tests {
         assert!(theme_checks::find(&dom, SCROLL_THUMB_CLASS).is_some());
     }
 
+    /// User decision D3 (2026-10-05): an item's extras (text lines under
+    /// the label, a placeholder tile) are OPTIONAL - an item that sets none
+    /// of them is built exactly as before: [thumb [glyph, badge?], label],
+    /// the thumb its bare base, the glyph in the look's icon ink.
+    #[test]
+    fn an_item_without_extras_renders_exactly_as_before() {
+        use crate::widgets::themes::decl;
+        for theme in checks::BOTH {
+            let dom = fixtures::sample().with_theme(theme).dom();
+            let look = look_for(OptionUiTheme::Some(theme));
+            let bare_thumb = Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_base(48.0)));
+            let glyph = Dom::create_icon(AzString::from("image")).with_css_props(part(
+                &[decl::simple(CssProperty::const_font_size(StyleFontSize::const_px(48)))],
+                &look.icon,
+            ));
+            let label = Dom::create_div().with_css_props(part(&label_base(), &look.label));
+            let items: Vec<&Dom> =
+                dom.children.as_ref().iter().filter(|c| theme_checks::has_class(c, ITEM_CLASS)).collect();
+            assert!(!items.is_empty());
+            for (index, item) in items.iter().enumerate() {
+                let kids = item.children.as_ref();
+                assert_eq!(kids.len(), 2, "{} item {index}: the thumb and the label, nothing else", theme.name());
+                assert!(theme_checks::has_class(&kids[0], THUMB_CLASS));
+                assert_eq!(
+                    kids[0].root.get_style(),
+                    bare_thumb.root.get_style(),
+                    "{} item {index}: the bare thumb",
+                    theme.name()
+                );
+                let in_thumb = kids[0].children.as_ref();
+                assert_eq!(in_thumb.len(), if index == 2 { 2 } else { 1 }, "the glyph (and item 2's badge)");
+                assert_eq!(
+                    in_thumb[0].root.get_style(),
+                    glyph.root.get_style(),
+                    "{} item {index}: the glyph in the icon ink",
+                    theme.name()
+                );
+                assert!(theme_checks::has_class(&kids[1], LABEL_CLASS));
+                assert_eq!(
+                    kids[1].root.get_style(),
+                    label.root.get_style(),
+                    "{} item {index}: the label",
+                    theme.name()
+                );
+            }
+        }
+    }
+
     /// An app's E2E clicks an item by its grid's id and its index
     /// (`#__azreader_book-0`), and so does the app's own code that looks an
     /// item up: every item node carries `<grid id>-<index>` as its DOM id -
