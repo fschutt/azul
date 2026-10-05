@@ -94,29 +94,17 @@ dumb as possible". Order now:
   inline_key); 7481b9593 RED / e4cd15f7e GREEN message::inline_pictures, pictures.rs
   (fetch_list, Budget, content_ids, inline_decodes)
 
-## IN PROGRESS
-- Step 7b UI: lib.rs open_message sanitizes with the mail's inline parts (sanitize_mail) and
-  keeps them in OpenMessage; ui_main.rs: a decode Thread for the shown cid: pictures (one
-  WriteBack per picture -> add_image_to_cache), "Download pictures" starts a download Thread
-  (download_bytes blocks the worker; the resume on the UI checks the Budget, stops the
-  thread past the total, hands the bytes to the decode Thread), the info bar names
-  RemoteContent::summary.
+- 35dda4874 picture Threads (cid: decode at open, download Thread + Budget, decode Thread ->
+  image cache); bfb6b5311 sync_e2e.py step 8 (pictures). STEP 7b DONE.
+- f72e4dab5 / 67cfae4b7 / b6fb6989b final report scripts/MAIL9_2026_10_03.md.
 
-## MONDAY - exact next step
-- Step 7a (secondary route, lettre): auth.rs part DONE. NEXT: RED tests in `send.rs` (`SendRoute::Submission`
-  `{"kind":"submission"}` = account.json's `smtp` server; `submission_security(host, port, tls)`: 465
-  implicit TLS, else STARTTLS required, `tls: off` only to a loopback host; `SendSettings::sign_in:
-  Option<Secret>` (serde skip); missing password / refused sign-in = waits (not counted, due at once);
-  `Transport::submit(&SubmitTarget, from, recipients, message) -> Result<Vec<RecipientOutcome>,
-  SubmitFailure>`; the Fake records submits). NOT the default route. Then GREEN with a new module
-  `src/submit.rs` (lettre `SmtpConnection`: connect with/without TLS, starttls, `auth(&[mechanism],
-  &Credentials)`, MAIL / RCPT per recipient / DATA via `commands::{Mail, Rcpt, Data}`, errors to micromail
-  `Reply`; install `rustls_rustcrypto::provider()` as the process default once), Cargo.toml `lettre =
-  { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider",
-  "webpki-roots"] }`; the Sending page's third choice "Through my provider's server (sign in)"; the sink
-  `scripts/azmail_smtp_sink.py` grows `--auth user=secret`, `--auth-mechs`, `--implicit-tls`; E2E cases.
-- Step 7b: remote content (PLAN MAIL9 "REMOTE CONTENT") - html.rs pre-pass from
-  `Xml::scan_external_resources`, fetch on a Thread with caps, `cid:` parts always shown.
+## IN PROGRESS
+- nothing. MAIL9 is done as briefed (fonts: engine gap FONTREG, listed only).
+
+## AFTER THE PARENT'S BUILD
+- Run the test commands in the report; fix what the compiler finds (the "least sure" list).
+- Left (report): fonts once the engine can register one at runtime; azmail_e2e.py phase for the
+  Sending page's third choice; an Outbox view; OAuth refresh.
 
 ## NEXT (exact, in order; each its own commit)
 1. DONE - sending.rs: RED tests then GREEN for the DKIM part of the form: `SendingForm` gets `dkim: bool`,
