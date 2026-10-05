@@ -6077,6 +6077,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         strut_descent,
         strut_x_height,
         strut_cap_height,
+        // The parent font size `vertical-align: sub` / `super` shift by
+        // (text3 `baseline_shift`): the container's, as its runs carry it.
+        strut_font_size: root_style.font_size_px,
         ch_width: font_size * 0.5,
         vertical_align,
         // +spec:inline-formatting-context:48ce44 - overflow-wrap property: break at otherwise

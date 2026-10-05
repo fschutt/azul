@@ -74,10 +74,9 @@ const DEFAULT_CH_WIDTH: f32 = 8.0;
 /// Approximate space character width as a fraction of `font_size`.
 const SPACE_WIDTH_RATIO: f32 = 0.5;
 
-/// CSS subscript baseline offset as fraction of line ascent (CSS Inline §3).
-const SUBSCRIPT_OFFSET_RATIO: f32 = 0.3;
-/// CSS superscript baseline offset as fraction of line ascent (CSS Inline §3).
-const SUPERSCRIPT_OFFSET_RATIO: f32 = 0.4;
+/// The CSS-initial font size (16px) as the default strut's: the parent font
+/// size `vertical-align: sub` / `super` shift by when no container set one.
+const DEFAULT_STRUT_FONT_SIZE: f32 = 16.0;
 
 /// Ruby annotation font size relative to the base, per the CSS UA stylesheet
 /// (`rt { font-size: 50% }`). Used to reserve placeholder width for the
@@ -2371,6 +2370,10 @@ pub struct UnifiedConstraints {
     // cap-height of the strut font (scaled to font_size), for
     // text-box-edge: cap trimming (CSS Inline 3 §6.1).
     pub strut_cap_height: f32,
+    // The block container's (the strut's) computed font size in px: the
+    // parent font size `vertical-align: sub` / `super` shift a box by
+    // (`baseline_shift`; Chrome: / 5 + 1 down, / 3 + 1 up).
+    pub strut_font_size: f32,
 
     // Width of '0' (zero) character in px, used for ch unit and tab-size.
     // Approximated as space_width from the first available font, or 0.5 * font_size fallback.
@@ -2479,6 +2482,7 @@ impl Default for UnifiedConstraints {
             strut_descent: DEFAULT_STRUT_DESCENT,
             strut_x_height: DEFAULT_X_HEIGHT,
             strut_cap_height: DEFAULT_CAP_HEIGHT,
+            strut_font_size: DEFAULT_STRUT_FONT_SIZE,
             ch_width: DEFAULT_CH_WIDTH,
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
@@ -2526,6 +2530,7 @@ impl Hash for UnifiedConstraints {
         (self.strut_ascent.round() as isize).hash(state);
         (self.strut_descent.round() as isize).hash(state);
         (self.strut_x_height.round() as isize).hash(state);
+        (self.strut_font_size.round() as isize).hash(state);
         (self.ch_width.round() as isize).hash(state);
         self.overflow.hash(state);
         self.segment_alignment.hash(state);
@@ -2571,6 +2576,7 @@ impl PartialEq for UnifiedConstraints {
             && round_eq(self.strut_ascent, other.strut_ascent)
             && round_eq(self.strut_descent, other.strut_descent)
             && round_eq(self.strut_x_height, other.strut_x_height)
+            && round_eq(self.strut_font_size, other.strut_font_size)
             && round_eq(self.ch_width, other.ch_width)
             && self.overflow == other.overflow
             && self.segment_alignment == other.segment_alignment
@@ -11154,9 +11160,8 @@ pub fn get_item_vertical_metrics(
 /// How far `vertical-align` moves a box's baseline DOWN from its line's
 /// baseline (negative = raised), for the alignments CSS 2.1 s10.8.1 measures
 /// from the parent's baseline; `None` for the line-relative `top` / `bottom`
-/// (aligned once the line box is known) and for `sub` / `super`, which
-/// `position_one_line` derives from the line's own ascent. `ascent` and
-/// `descent` are the box's own ([`get_item_vertical_metrics`]).
+/// (aligned once the line box is known). `ascent` and `descent` are the box's
+/// own ([`get_item_vertical_metrics`]).
 ///
 /// The ONE rule the line box (`calculate_line_metrics`) and the placement
 /// (`position_one_line`) share, so a box always sits inside the line box it
@@ -11183,9 +11188,15 @@ fn baseline_shift(
         VerticalAlign::TextBottom => Some(constraints.strut_descent - descent),
         // <length> / <percentage>: raise (positive) or lower (negative)
         VerticalAlign::Offset(offset) => Some(-offset),
-        VerticalAlign::Top | VerticalAlign::Bottom | VerticalAlign::Sub | VerticalAlign::Super => {
-            None
-        }
+        // +spec:font-metrics:aa21f7 - sub / super: "a proper position" for
+        // the parent's subscripts / superscripts - Chrome's (LayoutNG): the
+        // parent font size / 5 + 1px down, / 3 + 1px up. The parent is the
+        // block container here (its strut's font size). They were left to
+        // the placement as 0.3 / 0.4 of the LINE's ascent and never counted
+        // in the line box: a `<sup>` reached above its line.
+        VerticalAlign::Sub => Some(constraints.strut_font_size / 5.0 + 1.0),
+        VerticalAlign::Super => Some(-(constraints.strut_font_size / 3.0 + 1.0)),
+        VerticalAlign::Top | VerticalAlign::Bottom => None,
     }
 }
 
@@ -13016,19 +13027,17 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::Top => line_top_y + item_ascent,
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
-                // +spec:font-metrics:aa21f7 - sub: lower baseline to proper subscript position
-                VerticalAlign::Sub => line_baseline_y + line_ascent * SUBSCRIPT_OFFSET_RATIO,
-                // +spec:display-property:3b0e76 - baseline-shift super raises by ~1/3 font-size;
-                // top/bottom align to line box edges super: raise baseline to
-                // proper superscript position (~0.4em)
-                VerticalAlign::Super => line_baseline_y - line_ascent * SUPERSCRIPT_OFFSET_RATIO,
                 // +spec:font-metrics:70000d - middle: the box's midpoint at the parent's
                 // baseline raised by half its x-height; text-top / text-bottom: against the
                 // parent's content area (s10.6.1); <length> / <percentage>: raise or lower;
+                // +spec:display-property:3b0e76 - sub / super: the parent font size / 5 + 1
+                // down, / 3 + 1 up;
                 // +spec:display-property:8bf37e +spec:font-metrics:96bbd3 - baseline: the
                 // box's alphabetic baseline on the parent's. ONE rule with the line box
                 // (`baseline_shift`, also read by `calculate_line_metrics`).
-                VerticalAlign::Middle
+                VerticalAlign::Sub
+                | VerticalAlign::Super
+                | VerticalAlign::Middle
                 | VerticalAlign::TextTop
                 | VerticalAlign::TextBottom
                 | VerticalAlign::Offset(_)
