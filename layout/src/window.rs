@@ -6929,15 +6929,21 @@ impl LayoutWindow {
                 // new key no chain had shaped to nothing (SYSUI8).
                 //
                 // A specified size in viewport units (`5vw`) is a different
-                // used size in every window: when a node has one, the
+                // used size in every window: when the document has one, the
                 // viewport is a font requirement too (a resize re-collects
-                // the chains at the new optical size).
+                // the chains at the new optical size). The compact cache's
+                // font-size word cannot say so - the builder resolves every
+                // size to px (`resolve_font_size_to_px`; a `5vw` reads back
+                // as `5px` in any window) - so the gate is the document's
+                // viewport-unit flag, set from the declared values (font
+                // sizes included) at compact-build time: the one gate every
+                // viewport-keyed cache uses (`layout_ifc`, layout_document's
+                // Step 1.2).
                 let mut h: u64 = 0xcbf2_9ce4_8422_2325;
                 let mut mix = |v: u64| {
                     h = h.rotate_left(13) ^ v;
                     h = h.wrapping_mul(0x0100_0000_01b3);
                 };
-                let mut viewport_sized = false;
                 for (i, &fh) in cc.prev_font_hashes.iter().enumerate() {
                     mix(fh);
                     if i < cc.tier1_enums.len() {
@@ -6945,22 +6951,10 @@ impl LayoutWindow {
                         mix(cc.get_font_style(i) as u64);
                     }
                     if i < cc.tier2_dims.len() {
-                        let raw = cc.get_font_size_raw(i);
-                        mix(u64::from(raw));
-                        viewport_sized |= azul_css::compact_cache::decode_pixel_value_u32(raw)
-                            .is_some_and(|pv| {
-                                use azul_css::props::basic::SizeMetric;
-                                matches!(
-                                    pv.metric,
-                                    SizeMetric::Vw
-                                        | SizeMetric::Vh
-                                        | SizeMetric::Vmin
-                                        | SizeMetric::Vmax
-                                )
-                            });
+                        mix(u64::from(cc.get_font_size_raw(i)));
                     }
                 }
-                if viewport_sized {
+                if cc.uses_viewport_units {
                     mix(u64::from(viewport.size.width.to_bits()));
                     mix(u64::from(viewport.size.height.to_bits()));
                 }
