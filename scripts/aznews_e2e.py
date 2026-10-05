@@ -16,6 +16,10 @@
     6. Export writes news/exports/subscriptions-<time>.opml; Mark all as read; the settings
        page switches to Flora / Dark; screenshots on the way;
     7. a second run with --sample on another fresh folder: 42 feeds, 891 articles, 127 files.
+    8. a third run (--sample --screen feed, a fresh folder): the first feed's page; its name is
+       changed, then the window is closed: the subscription list is written first
+       (AZNEWS_SAVED news/subscriptions.opml) and the window closes by itself; AzNews starts
+       again on the same folder and shows the new name.
 
 AzNews' DOM ids carry its prefix `__aznews_` (examples/azul-news/src/ids.rs): `app.sel(stem)`.
 
@@ -31,6 +35,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import urllib.request
 
 import azlin_e2e as e2e
@@ -198,13 +203,77 @@ def sample_run(args, logs, out):
             shutil.rmtree(data_dir, ignore_errors=True)
 
 
+RENAMED = "E2E renamed"
+SUBSCRIPTIONS = "news/subscriptions.opml"
+
+
+def wait_exit(app, seconds=20):
+    """True once the app's process ended by itself within `seconds`."""
+    end = time.time() + seconds
+    while app.process.poll() is None and time.time() < end:
+        time.sleep(0.25)
+    return app.process.poll() is not None
+
+
+def rename_run(args, logs, out):
+    """8: a feed renamed on its page is written when the window closes, and read back."""
+    binary = e2e.find_binary("AzNews", args.bin, "AZNEWS_BIN")
+    data_dir = os.path.join(logs, "rename-data")
+    os.makedirs(data_dir, exist_ok=True)
+    app = e2e.App(TAG + "-rename", binary,
+                  ["--data-dir", data_dir, "--sample", "--screen", "feed", "--size", "1200x760"],
+                  args.debug_port, logs, args.timeout)
+    try:
+        app.expect_line("AZNEWS_LOADED", "42 891", "the sample library")
+        app.expect_line("AZNEWS_SAMPLE_WRITTEN", "127", "the sample's files")
+        app.until("the first feed's page", lambda: app.has(app.sel("feed-title")))
+        app.text_input(app.sel("feed-title"), RENAMED)
+        app.until("the new name on the page", lambda: app.shows(RENAMED))
+        saved = app.count("AZNEWS_SAVED", re.escape(SUBSCRIPTIONS))
+        # Close: the renamed list is written first, then the window closes by itself.
+        app.op("close")
+        if not wait_exit(app):
+            raise Failure("the window did not close after the subscription list was written")
+        if app.count("AZNEWS_SAVED", re.escape(SUBSCRIPTIONS)) <= saved:
+            raise Failure("the window closed without writing %s" % SUBSCRIPTIONS)
+        with open(os.path.join(data_dir, "news", "subscriptions.opml"), encoding="utf-8") as f:
+            if RENAMED not in f.read():
+                raise Failure("%s does not have the new name" % SUBSCRIPTIONS)
+        app.log("the close wrote the renamed feed first")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+
+    app = e2e.App(TAG + "-rename-2", binary,
+                  ["--data-dir", data_dir, "--screen", "feed", "--size", "1200x760"],
+                  args.debug_port, logs, args.timeout)
+    try:
+        app.expect_line("AZNEWS_LOADED", "42 891", "the library read back")
+        app.until("the new name after the restart", lambda: app.shows(RENAMED))
+        app.frame(2)
+        app.settle()
+        app.screenshot(os.path.join(out, "renamed-after-restart.png"))
+        app.log("PASS (rename)")
+        return True
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+        if not args.keep:
+            shutil.rmtree(data_dir, ignore_errors=True)
+
+
 def body(args, logs, out):
     server, site = feed_server.make_server(0)
     base = "http://127.0.0.1:%d" % server.server_port
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        return library_run(args, logs, out, base, site) and sample_run(args, logs, out)
+        return (library_run(args, logs, out, base, site) and sample_run(args, logs, out)
+                and rename_run(args, logs, out))
     finally:
         server.shutdown()
         server.server_close()
