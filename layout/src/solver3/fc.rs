@@ -15304,24 +15304,30 @@ mod window_layout_tests {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
-                    "Hello Hello Hello",
-                )),
+                .with_child(
+                    Dom::create_span_with_text("Hello Hello Hello")
+                        .with_ids_and_classes(vec![IdOrClass::Class("s".into())].into()),
+                ),
         )
     }
 
     #[test]
     fn a_stylesheet_only_font_size_change_relays_out_its_text() {
-        // A fixed 20px line box, so the height counts the lines whatever the
-        // font: three words of 10px text fit one 200px line (about 80px), at
-        // 40px each word is about 100px wide and they wrap to 2 or 3 lines.
+        // `body(0) > div.p(1) > span.s(2) > text(3)`. A fixed 20px line box,
+        // so the height counts the lines whatever the font: three words of
+        // 10px text fit one 200px line (about 80px), at 40px each word is
+        // about 100px wide and they wrap to 2 or 3 lines. The span's padding
+        // moves too: a font-size change alone is classified paint-only by
+        // `begin_reconciliation` (`relayout_scope(false)`, a round-2 note),
+        // the padding makes the span's restyle a layout one - lifted to the
+        // paragraph, whose cached collection kept the 10px runs.
         let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
         let base = "body { margin: 0; } .p { width: 200px; line-height: 20px; }";
         restyled(
             &mut lw,
             paragraph,
-            &format!("{base} .p {{ font-size: 10px; }}"),
-            &format!("{base} .p {{ font-size: 40px; }}"),
+            &format!("{base} .s {{ font-size: 10px; padding-left: 0px; }}"),
+            &format!("{base} .s {{ font-size: 40px; padding-left: 1px; }}"),
         );
         let h = size_of(&lw, 1).height;
         assert!(
