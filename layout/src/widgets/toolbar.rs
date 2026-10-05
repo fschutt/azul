@@ -1344,6 +1344,20 @@ mod toolbar_tests {
 
     type Log = Arc<Mutex<Vec<String>>>;
 
+    /// An app's E2E clicks a tool by its item's id (`#__azpdf_next`), and so
+    /// does the app's own code that looks a tool up: the tool node carries
+    /// the item's id as its DOM id (FIX9 APPSB R-1, 2026-10-05).
+    #[test]
+    fn a_tool_carries_its_items_id_as_its_dom_id() {
+        let dom = fixtures::sample().dom();
+        let nodes = theme_checks::nodes(&dom);
+        let found: Vec<&str> = ["share", "bold", "italic", "align"]
+            .into_iter()
+            .filter(|id| nodes.iter().any(|(_, n)| n.root.has_id(id)))
+            .collect();
+        assert_eq!(found, ["share", "bold", "italic", "align"]);
+    }
+
     extern "C" fn record(mut data: RefAny, _: CallbackInfo, e: ToolbarEvent) -> Update {
         if let Some(log) = data.downcast_ref::<Log>() {
             log.lock().expect("log").push(format!(
