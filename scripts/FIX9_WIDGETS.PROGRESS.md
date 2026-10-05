@@ -10,9 +10,11 @@ No cargo. Report: scripts/FIX9_WIDGETS_2026_10_05.md.
 - 4.4 RED bc1697854, GREEN 4bb2e7aae
 - 4.5 refactor f25d09b43 (button::styled_button; no RED)
 - 4.6 RED 9ddfb18ec, GREEN 4ee11ed29
+- 4.7 RED bad3f6692, GREEN 381a9c5fb
+- 4.8 RED 09ee9a125, GREEN 2d58a6847 (api: ReferencePickerEventKind::Clear)
 
 ## IN PROGRESS
-- 4.7 DateRangePicker presets roving + Shift+PageUp/Down
+- 4.9 CellGrid Ctrl+C / Ctrl+X
 
 ## NEXT
 - 4.1 .. 4.18 in order, then the 4 suite failures, then the report.
