@@ -19,11 +19,16 @@
 - 5.10 compose size: 2477632b6
 - 5.11 azmail_e2e submission phase: 613664985 (py_compile only; not run - memory held by a cargo test)
 
+- 5.12 sheets grouping: 700f2d9d8 (RED 1E+20), a27ac15f2 (GREEN)
+- 5.13 Toolbar: e0043426c (AzNotes format toolbar). AzContacts / AzReview NOT done: azcontacts_e2e.py and
+  azreview_e2e.py click their toolbar buttons by DOM id (#__azcontacts_toolbar-new, #__azreview_save) and the
+  Toolbar widget does not put an item's id on its tool (round 2: PKG 4 widget, or the scripts).
+
 ## IN PROGRESS
-5.12 sheets thousands grouping -> MoneyInput::format_amount
+5.14 TokenInput for AzTasks tags
 
 ## NEXT
-5.12 -> 5.14 in order (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
+5.14, then the report scripts/FIX9_APPSA_2026_10_05.md (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
 
 ## Round-2 notes so far
 - AzKeys/Cargo.toml still lists csv (unused after 5.1): drop it.
