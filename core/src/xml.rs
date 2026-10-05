@@ -7397,3 +7397,32 @@ mod html_root_attribute_tests {
         );
     }
 }
+
+/// `Xml::scan_external_resources` (MAIL9's engine gap, SCANORDER).
+#[cfg(test)]
+mod scan_external_resources_tests {
+    use super::*;
+
+    #[test]
+    fn scan_external_resources_lists_resources_in_document_order_once_and_ignores_url_in_prose() {
+        // The worklist was a LIFO stack fed in order, so siblings came out
+        // last first; and every TEXT node was scanned as CSS, so prose that
+        // says `url(...)` became a resource and a `<style>` sheet was scanned
+        // twice (its text, then its element).
+        let xml = Xml::create_from_html(AzString::from(
+            "<html><body><img src=\"a.png\"><p>write url(prose.png) in CSS</p><img \
+             src=\"b.png\"><style>.x { background: url(c.png); }</style></body></html>",
+        ));
+        let urls: Vec<String> = xml
+            .scan_external_resources()
+            .as_ref()
+            .iter()
+            .map(|r| r.url.as_str().to_string())
+            .collect();
+        assert_eq!(
+            urls,
+            ["a.png", "b.png", "c.png"],
+            "document order, each once, nothing from prose"
+        );
+    }
+}
