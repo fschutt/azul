@@ -9,6 +9,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use azul::widgets::{MoneyCurrency, MoneyInput, MoneyLocale};
+
 use crate::engine::{
     BorderPreset, CellAddr, CellArea, CellStyle, CellValue, CondLook, CondRule, ConditionalFormat, DefinedName,
     EngineError, FillTo,
@@ -235,27 +237,22 @@ fn format_number(n: f64, num_fmt: &str) -> String {
         }
         return format!("{n}");
     }
-    let fixed = format!("{:.*}", decimals, n.abs());
-    let (int_part, frac_part) = fixed.split_once('.').unwrap_or((fixed.as_str(), ""));
-    let int_part = if num_fmt.contains(',') {
-        let digits: Vec<char> = int_part.chars().collect();
-        let mut out = String::new();
-        for (i, c) in digits.iter().enumerate() {
-            if i > 0 && (digits.len() - i) % 3 == 0 {
-                out.push(',');
-            }
-            out.push(*c);
-        }
-        out
+    // azul's one number formatter (`MoneyInput::format_amount`, no symbol): the
+    // value in whole units of its last decimal, grouped when the format says `,`
+    // (at most four decimals: the formatter's limit).
+    let decimals = decimals.min(4);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let units = (n * 10_f64.powi(decimals as i32)).round() as i64;
+    let locale = if num_fmt.contains(',') {
+        MoneyLocale::en_us()
     } else {
-        int_part.to_string()
+        MoneyLocale::en_us().with_separators('.' as u32, 0)
     };
-    let sign = if n < 0.0 { "-" } else { "" };
-    if frac_part.is_empty() {
-        format!("{sign}{int_part}")
-    } else {
-        format!("{sign}{int_part}.{frac_part}")
-    }
+    #[allow(clippy::cast_possible_truncation)]
+    let currency = MoneyCurrency::create("", "", decimals as u8);
+    MoneyInput::format_amount(units, currency, locale)
+        .as_str()
+        .to_string()
 }
 
 /// The cells of `area` the fake walks (a whole-sheet area is cut down).

@@ -530,15 +530,9 @@ pub struct AppSection {
     pub content: Dom,
 }
 
-/// A run of text (an inline span).
-#[must_use]
-pub fn text<S: Into<AzString>>(content: S) -> Dom {
-    Dom::create_span_with_text(content)
-}
-
-fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
-}
+/// A run of text (an inline span); the kit's pieces are in [`crate::pieces`].
+pub use crate::pieces::text;
+use crate::pieces::{column, strs};
 
 /// A settings row: a label column and the control.
 #[must_use]
@@ -560,12 +554,6 @@ pub fn note(content: &str) -> Dom {
     Dom::create_div()
         .with_css("padding: 4px 0px; font-size: 12px; opacity: 0.75;")
         .with_child(text(content))
-}
-
-fn column(children: Vec<Dom>) -> Dom {
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
-        .with_children(DomVec::from_vec(children))
 }
 
 fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
@@ -594,12 +582,12 @@ fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
             "A --theme or --mode switch overrides these settings until the app restarts.",
         ));
     }
-    column(rows)
+    column("", rows)
 }
 
 fn data_section(k: &Kit) -> Dom {
     let folder = data::local_path(&k.data_root, k.about.app_folder);
-    column(vec![
+    column("", vec![
         row(
             "Data folder",
             Dom::create_div()
@@ -628,7 +616,7 @@ fn shortcuts_section(k: &Kit) -> Dom {
             ));
         }
     }
-    column(children).with_id("appkit-shortcuts")
+    column("", children).with_id("appkit-shortcuts")
 }
 
 fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
@@ -653,7 +641,7 @@ fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
                     .with_id("appkit-about-open"),
             ),
     );
-    column(children)
+    column("", children)
 }
 
 // ==== The About box: azul's standard AboutDialog in a Modal ====

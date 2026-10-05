@@ -45,6 +45,10 @@ pub(crate) mod xml;
 #[cfg(feature = "azul")]
 pub mod azul_transport;
 
+/// A temporary folder for tests: this crate's, and the apps' through the `testing` feature.
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
 #[cfg(test)]
 mod tests;
 

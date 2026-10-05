@@ -1585,7 +1585,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::{submit::SubmitSecurity, testutil::TempDir};
+    use crate::{submit::SubmitSecurity, testutil::{MailFolder, TempDir}};
 
     /// 2026-10-01T08:30:00Z
     const OCT_1: i64 = 1_790_843_400;

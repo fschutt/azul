@@ -7,7 +7,7 @@
 //! file's JSON at its key ([`crate::task::Task::key`], [`crate::task::task_to_json`]); AzTasks
 //! queues its writes, a To-Do bar puts one file at a time.
 
-use azul_storage::{Drive, DriveError, ListRequest};
+use azul_storage::{Drive, DriveError};
 use chrono::{NaiveDateTime, Timelike};
 
 use crate::task::{
@@ -40,17 +40,10 @@ pub struct Loaded {
 
 /// Every key under `prefix`, `page` keys per listing call.
 pub fn all_keys(drive: &dyn Drive, prefix: &str, page: u32) -> Result<Vec<String>, DriveError> {
-    let mut keys = Vec::new();
-    let mut request = ListRequest::recursive(prefix).with_max_keys(page);
-    loop {
-        let listed = drive.list(&request)?;
-        keys.extend(listed.objects.into_iter().map(|o| o.key));
-        match listed.next {
-            Some(token) => request = request.with_continuation(token),
-            None => break,
-        }
-    }
-    Ok(keys)
+    Ok(azul_storage::ops::list_all_paged(drive, prefix, page)?
+        .into_iter()
+        .map(|o| o.key)
+        .collect())
 }
 
 /// Reads every list, task and the settings. A file that cannot be read is named in `skipped`

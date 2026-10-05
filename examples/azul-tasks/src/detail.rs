@@ -12,14 +12,13 @@ use std::path::PathBuf;
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ChipOnClickCallbackType,
-        ChipOnRemoveCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
         DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
         DateRepeatPickerOnChangeCallbackType, SegmentedOnChangeCallbackType,
         SwitchOnToggleCallbackType, TextAreaOnFocusLostCallbackType,
         TextAreaOnTextInputCallbackType, TextInputOnFocusLostCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
-        TimePickerOnChangeCallbackType,
+        TimePickerOnChangeCallbackType, TokenInputOnEventCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
@@ -29,10 +28,10 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        ButtonType, CheckBoxState, Chip, ChipState, DatePicker, DatePickerState, DropDown,
-        OnTextInputReturn, DateRepeatPicker, DateRepeatRule, Segmented, SegmentedState, Switch,
-        SwitchState, TextArea, TextAreaState, TextInputState, TextInputValid, TimePicker,
-        TimePickerState,
+        ButtonType, CheckBoxState, DatePicker, DatePickerState, DropDown, OnTextInputReturn,
+        DateRepeatPicker, DateRepeatRule, Segmented, SegmentedState, Switch, SwitchState,
+        TextArea, TextAreaState, TextInputState, TextInputValid, TimePicker, TimePickerState,
+        TokenInput, TokenInputEvent, TokenInputEventKind, TokenInputState,
     },
 };
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
@@ -482,65 +481,39 @@ fn list_field(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
     )
 }
 
-/// The tags as removable chips, and "Add a tag".
+/// The tags: azul's `TokenInput` - the task's tags as chips with their "x", the typed
+/// text (Enter, Tab, `,` or `;` adds it), and the tags of the other tasks, the most used
+/// first, as the suggestions the typed text is matched against. An added or removed tag is
+/// written at once.
 fn tags(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
-    let mut row = Dom::create_div().with_id(ids::DETAIL_TAGS).with_css(FIELD).with_child(label("Tags"));
-    for (n, tag) in t.tags.iter().enumerate() {
-        row.add_child(
-            Chip::create(format!("#{tag}"))
-                .with_removable(true)
-                .with_on_remove(detail_ref(app, &t.id, n), on_tag_remove as ChipOnRemoveCallbackType)
-                .dom(),
-        );
+    let tokens = || StringVec::from_vec(t.tags.iter().map(|tag| AzString::from(tag.as_str())).collect());
+    let mut state = TokenInputState::create(tokens()).with_text(s.drafts.tag.as_str());
+    if let Some(active) = s.drafts.tag_active {
+        state = state.with_active(active);
     }
-    row.with_child(
-        TextInput::create()
-            .with_text(s.drafts.tag.as_str())
-            .with_placeholder("Add a tag")
-            .with_accessibility_name("Add a tag")
-            .with_on_text_input(app.clone(), on_tag_text as TextInputOnTextInputCallbackType)
-            .with_on_virtual_key_down(app.clone(), on_tag_key as TextInputOnVirtualKeyDownCallbackType)
-            .dom()
-            .with_id(ids::ADD_TAG)
-            .with_css("min-width: 120px;"),
-    )
-    .with_child(tag_suggestions(s, app, t))
+    let suggestions: Vec<AzString> = views::tag_suggestions(&s.tasks, t, usize::MAX)
+        .iter()
+        .map(|tag| AzString::from(tag.as_str()))
+        .collect();
+    Dom::create_div()
+        .with_id(ids::DETAIL_TAGS)
+        .with_css(FIELD)
+        .with_child(label("Tags"))
+        .with_child(
+            TokenInput::create(tokens(), "Tags")
+                .with_state(state)
+                .with_placeholder("Add a tag")
+                .with_suggestions(StringVec::from_vec(suggestions))
+                .with_max_suggestions(TAG_SUGGESTIONS)
+                .with_on_event(detail_ref(app, &t.id, 0), on_tags_event as TokenInputOnEventCallbackType)
+                .dom()
+                .with_id(ids::ADD_TAG)
+                .with_css("flex-grow: 1; min-width: 160px;"),
+        )
 }
 
 /// How many of the other tags the tag field offers.
 const TAG_SUGGESTIONS: usize = 6;
-
-/// The tags the user gives other tasks, the most used first, as chips a click adds - the
-/// suggestions a token field would show (azul has no TokenInput widget yet: chips, the field
-/// and these).
-fn tag_suggestions(s: &Tasks, app: &RefAny, t: &Task) -> Dom {
-    let mut row = Dom::create_div()
-        .with_id(ids::TAG_SUGGESTIONS)
-        .with_css("display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px;");
-    for tag in views::tag_suggestions(&s.tasks, t, TAG_SUGGESTIONS) {
-        row.add_child(
-            Chip::create(format!("+ #{tag}"))
-                .with_on_click(
-                    RefAny::new(TagRef {
-                        app: app.clone(),
-                        task: t.id.clone(),
-                        tag,
-                    }),
-                    on_tag_suggestion as ChipOnClickCallbackType,
-                )
-                .dom()
-                .with_class(ids::TAG_SUGGESTION_CLASS),
-        );
-    }
-    row
-}
-
-/// What a suggested tag's chip carries.
-struct TagRef {
-    app: RefAny,
-    task: String,
-    tag: String,
-}
 
 /// The files next to the task: open, remove, "Attach a file..." (or drop one here).
 fn attachments(app: &RefAny, t: &Task) -> Dom {
@@ -935,62 +908,41 @@ extern "C" fn on_list_change(mut data: RefAny, mut info: CallbackInfo, index: us
     })
 }
 
-extern "C" fn on_tag_remove(mut data: RefAny, mut info: CallbackInfo, _state: ChipState) -> Update {
-    with_task(&mut data, &mut info, |_info, _app, s, i, n| {
-        if n < s.tasks[i].tags.len() {
-            s.tasks[i].tags.remove(n);
+/// The tag field: an added or removed tag is written into the task at once (the event's
+/// tokens are the task's next tags, `Task::set_tags`); the typed text and the highlighted
+/// suggestion are kept in the drafts for the rebuild (the field's state is the app's).
+extern "C" fn on_tags_event(mut data: RefAny, mut info: CallbackInfo, event: TokenInputEvent) -> Update {
+    let text = event.state.text.as_str().to_string();
+    let active = event.state.active.into_option();
+    match event.kind {
+        TokenInputEventKind::Add | TokenInputEventKind::Remove => {
+            let tokens: Vec<String> = event
+                .state
+                .tokens
+                .as_slice()
+                .iter()
+                .map(|token| token.as_str().to_string())
+                .collect();
+            with_task(&mut data, &mut info, move |_info, _app, s, i, _| {
+                s.sync_drafts();
+                s.drafts.tag = text;
+                s.drafts.tag_active = active;
+                s.tasks[i].set_tags(tokens.iter().map(String::as_str));
+            })
         }
-    })
-}
-
-/// A click on a suggested tag adds it to the task.
-extern "C" fn on_tag_suggestion(mut data: RefAny, mut info: CallbackInfo, _state: ChipState) -> Update {
-    let Some((mut app, task, tag)) = data
-        .downcast_ref::<TagRef>()
-        .map(|r| (r.app.clone(), r.task.clone(), r.tag.clone()))
-    else {
-        return Update::DoNothing;
-    };
-    crate::with_tasks(&mut app, &mut info, |_info, _app, s| {
-        if let Some(i) = s.index_of(&task) {
-            if s.tasks[i].add_tag(&tag) {
-                s.save_task(i);
-            }
+        TokenInputEventKind::Text | TokenInputEventKind::Navigate | TokenInputEventKind::Refuse => {
+            let Some(mut app) = data.downcast_ref::<DetailRef>().map(|r| r.app.clone()) else {
+                return Update::DoNothing;
+            };
+            let Some(mut s) = app.downcast_mut::<Tasks>() else {
+                return Update::DoNothing;
+            };
+            s.sync_drafts();
+            s.drafts.tag = text;
+            s.drafts.tag_active = active;
+            Update::RefreshDom
         }
-    })
-}
-
-extern "C" fn on_tag_text(mut data: RefAny, _info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
-    if let Some(mut s) = data.downcast_mut::<Tasks>() {
-        s.sync_drafts();
-        s.drafts.tag = state.get_text().as_str().to_string();
-    }
-    KEEP
-}
-
-/// Enter adds the typed tags (split at commas and spaces) to the selected task.
-extern "C" fn on_tag_key(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
-    if !is_enter(key_of(&info)) {
-        return KEEP;
-    }
-    let text = state.get_text().as_str().to_string();
-    let update = crate::with_tasks(&mut data, &mut info, |info, _app, s| {
-        s.drafts.tag.clear();
-        ack_typing(info);
-        let Some(i) = s.selected_one() else {
-            return;
-        };
-        let mut changed = false;
-        for tag in text.split([',', ' ']) {
-            changed |= s.tasks[i].add_tag(tag);
-        }
-        if changed {
-            s.save_task(i);
-        }
-    });
-    OnTextInputReturn {
-        update,
-        valid: TextInputValid::Yes,
+        TokenInputEventKind::Open => Update::DoNothing,
     }
 }
 

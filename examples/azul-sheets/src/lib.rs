@@ -80,13 +80,16 @@ use azul::{
         CellGridCellKind, CellGridCellRef, CellGridCellStyle, CellGridEditMode, CellGridEvent,
         CellGridEventKind, CellGridHorizontalAlign, CellGridRange, CellGridSize,
         CellGridVerticalAlign, CellGridView, OnTextInputReturn, Ribbon, RibbonAppButton,
-        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, SliderState, StatusBar,
+        RibbonGroup, RibbonItem, RibbonTab, SliderState, StatusBar,
         FindReplaceDialog, StandardDialogEvent, StandardDialogEventKind, StatusBarSegment,
         StatusBarZoom, TextInput, TextInputState,
         TextInputValid, Titlebar,
     },
 };
-use azul_appkit::{ui as kit, AboutInfo, Shortcut};
+use azul_appkit::{
+    ribbon::{column, group, icon_button, large, row, small, toggle, RibbonCommand},
+    ui as kit, AboutInfo, Shortcut,
+};
 use azul_storage::{local::LocalDrive, Drive};
 
 pub use crate::args::Args;
@@ -1267,46 +1270,16 @@ struct ActionRef {
     action: Action,
 }
 
-fn action_button(app: &RefAny, icon: &str, label: &str, action: Action, toggled: bool) -> RibbonButton {
-    RibbonButton::create(AzString::from(icon), AzString::from(label))
-        .with_toggled(toggled)
-        .with_on_click(
-            RefAny::new(ActionRef {
-                app: app.clone(),
-                action,
-            }),
-            on_action as ButtonOnClickCallbackType,
-        )
-}
+/// Every ribbon button runs an [`Action`] through `on_action` (azul-appkit's ribbon
+/// builder).
+impl RibbonCommand for Action {
+    fn click_data(self, app: &RefAny) -> RefAny {
+        action_ref(app, self)
+    }
 
-fn large(app: &RefAny, icon: &str, label: &str, action: Action) -> RibbonItem {
-    RibbonItem::LargeButton(action_button(app, icon, label, action, false))
-}
-
-fn small(app: &RefAny, icon: &str, label: &str, action: Action) -> RibbonItem {
-    RibbonItem::SmallButton(action_button(app, icon, label, action, false))
-}
-
-fn toggle(app: &RefAny, icon: &str, label: &str, action: Action, on: bool) -> RibbonItem {
-    RibbonItem::SmallButton(action_button(app, icon, label, action, on))
-}
-
-fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(RibbonColumn::create().with_items(items))
-}
-
-fn row(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Row(RibbonRow::create().with_items(items))
-}
-
-/// An icon-only small button (Excel's Font / Alignment rows), named `name`
-/// for assistive technology.
-fn icon(app: &RefAny, icon: &str, name: &str, action: Action, on: bool) -> RibbonItem {
-    RibbonItem::SmallButton(action_button(app, icon, "", action, on).with_alt(AzString::from(name)))
-}
-
-fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    RibbonGroup::create(AzString::from(label)).with_items(items)
+    fn on_click() -> ButtonOnClickCallbackType {
+        on_action
+    }
 }
 
 /// A group whose launcher (the corner arrow) opens Format Cells on `tab`,
@@ -1349,8 +1322,8 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                         small(app, "content_cut", "Cut", Action::Cut),
                         small(app, "content_copy", "Copy", Action::Copy),
                         row(vec![
-                            icon(app, "undo", "Undo", Action::Undo, false),
-                            icon(app, "redo", "Redo", Action::Redo, false),
+                            icon_button(app, "undo", "Undo", Action::Undo, false),
+                            icon_button(app, "redo", "Redo", Action::Redo, false),
                         ]),
                     ]),
                 ],
@@ -1361,24 +1334,24 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                 "Font",
                 vec![column(vec![
                     row(vec![
-                        icon(app, "format_bold", "Bold", Action::Bold, style.bold),
-                        icon(app, "format_italic", "Italic", Action::Italic, style.italic),
-                        icon(app, "format_underlined", "Underline", Action::Underline, style.underline),
-                        icon(app, "format_strikethrough", "Strikethrough", Action::Strike, style.strike),
-                        icon(app, "text_increase", "Grow font", Action::Grow, false),
-                        icon(app, "text_decrease", "Shrink font", Action::Shrink, false),
+                        icon_button(app, "format_bold", "Bold", Action::Bold, style.bold),
+                        icon_button(app, "format_italic", "Italic", Action::Italic, style.italic),
+                        icon_button(app, "format_underlined", "Underline", Action::Underline, style.underline),
+                        icon_button(app, "format_strikethrough", "Strikethrough", Action::Strike, style.strike),
+                        icon_button(app, "text_increase", "Grow font", Action::Grow, false),
+                        icon_button(app, "text_decrease", "Shrink font", Action::Shrink, false),
                     ]),
                     row(vec![
-                        icon(app, "format_color_text", "Red text", Action::InkRed, false),
-                        icon(app, "format_color_reset", "Automatic text colour", Action::InkAuto, false),
-                        icon(app, "format_color_fill", "Yellow fill", Action::FillYellow, false),
-                        icon(app, "format_paint", "Green fill", Action::FillGreen, false),
-                        icon(app, "block", "No fill", Action::FillNone, false),
+                        icon_button(app, "format_color_text", "Red text", Action::InkRed, false),
+                        icon_button(app, "format_color_reset", "Automatic text colour", Action::InkAuto, false),
+                        icon_button(app, "format_color_fill", "Yellow fill", Action::FillYellow, false),
+                        icon_button(app, "format_paint", "Green fill", Action::FillGreen, false),
+                        icon_button(app, "block", "No fill", Action::FillNone, false),
                     ]),
                     row(vec![
-                        icon(app, "border_all", "All borders", Action::BordersAll, false),
-                        icon(app, "border_outer", "Outside borders", Action::BordersOutline, false),
-                        icon(app, "border_clear", "No borders", Action::BordersNone, false),
+                        icon_button(app, "border_all", "All borders", Action::BordersAll, false),
+                        icon_button(app, "border_outer", "Outside borders", Action::BordersOutline, false),
+                        icon_button(app, "border_clear", "No borders", Action::BordersNone, false),
                     ]),
                 ])],
             ),
@@ -1388,18 +1361,18 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                 "Alignment",
                 vec![column(vec![
                     row(vec![
-                        icon(app, "vertical_align_top", "Top", Action::AlignTop, style.v_align == VAlign::Top),
-                        icon(app, "vertical_align_center", "Middle", Action::AlignMiddle, style.v_align == VAlign::Center),
-                        icon(app, "vertical_align_bottom", "Bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
+                        icon_button(app, "vertical_align_top", "Top", Action::AlignTop, style.v_align == VAlign::Top),
+                        icon_button(app, "vertical_align_center", "Middle", Action::AlignMiddle, style.v_align == VAlign::Center),
+                        icon_button(app, "vertical_align_bottom", "Bottom", Action::AlignBottom, style.v_align == VAlign::Bottom),
                     ]),
                     row(vec![
-                        icon(app, "format_align_left", "Left", Action::AlignLeft, style.h_align == HAlign::Left),
-                        icon(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
-                        icon(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
+                        icon_button(app, "format_align_left", "Left", Action::AlignLeft, style.h_align == HAlign::Left),
+                        icon_button(app, "format_align_center", "Center", Action::AlignCenter, style.h_align == HAlign::Center),
+                        icon_button(app, "format_align_right", "Right", Action::AlignRight, style.h_align == HAlign::Right),
                     ]),
                     row(vec![
-                        icon(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap),
-                        icon(app, "merge_type", "Merge & Center", Action::MergeCenter, merged_here),
+                        icon_button(app, "wrap_text", "Wrap text", Action::Wrap, style.wrap),
+                        icon_button(app, "merge_type", "Merge & Center", Action::MergeCenter, merged_here),
                     ]),
                 ])],
             ),
@@ -1409,17 +1382,17 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                 "Number",
                 vec![column(vec![
                     row(vec![
-                        icon(app, "notes", "General", Action::FormatGeneral, false),
-                        icon(app, "pin", "Number", Action::FormatNumber, false),
-                        icon(app, "payments", "Currency", Action::FormatCurrency, false),
+                        icon_button(app, "notes", "General", Action::FormatGeneral, false),
+                        icon_button(app, "pin", "Number", Action::FormatNumber, false),
+                        icon_button(app, "payments", "Currency", Action::FormatCurrency, false),
                     ]),
                     row(vec![
-                        icon(app, "percent", "Percent", Action::FormatPercent, false),
-                        icon(app, "calendar_today", "Date", Action::FormatDate, false),
+                        icon_button(app, "percent", "Percent", Action::FormatPercent, false),
+                        icon_button(app, "calendar_today", "Date", Action::FormatDate, false),
                     ]),
                     row(vec![
-                        icon(app, "add", "More decimals", Action::DecimalMore, false),
-                        icon(app, "remove", "Fewer decimals", Action::DecimalLess, false),
+                        icon_button(app, "add", "More decimals", Action::DecimalMore, false),
+                        icon_button(app, "remove", "Fewer decimals", Action::DecimalLess, false),
                     ]),
                 ])],
             ),
@@ -1441,20 +1414,20 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                 "Cells",
                 vec![column(vec![
                     row(vec![
-                        icon(app, "table_rows", "Insert row", Action::InsertRow, false),
-                        icon(app, "view_column", "Insert column", Action::InsertColumn, false),
-                        icon(app, "add_box", "Insert sheet", Action::InsertSheet, false),
+                        icon_button(app, "table_rows", "Insert row", Action::InsertRow, false),
+                        icon_button(app, "view_column", "Insert column", Action::InsertColumn, false),
+                        icon_button(app, "add_box", "Insert sheet", Action::InsertSheet, false),
                     ]),
                     row(vec![
-                        icon(app, "delete_sweep", "Delete row", Action::DeleteRow, false),
-                        icon(app, "delete", "Delete column", Action::DeleteColumn, false),
-                        icon(app, "delete_forever", "Delete sheet", Action::DeleteSheet, false),
+                        icon_button(app, "delete_sweep", "Delete row", Action::DeleteRow, false),
+                        icon_button(app, "delete", "Delete column", Action::DeleteColumn, false),
+                        icon_button(app, "delete_forever", "Delete sheet", Action::DeleteSheet, false),
                     ]),
                     row(vec![
-                        icon(app, "drive_file_rename_outline", "Rename sheet", Action::RenameSheet, false),
-                        icon(app, "arrow_back", "Move sheet left", Action::SheetLeft, false),
-                        icon(app, "arrow_forward", "Move sheet right", Action::SheetRight, false),
-                        icon(app, "palette", "Tab color", Action::TabColor, false),
+                        icon_button(app, "drive_file_rename_outline", "Rename sheet", Action::RenameSheet, false),
+                        icon_button(app, "arrow_back", "Move sheet left", Action::SheetLeft, false),
+                        icon_button(app, "arrow_forward", "Move sheet right", Action::SheetRight, false),
+                        icon_button(app, "palette", "Tab color", Action::TabColor, false),
                     ]),
                 ])],
             ),
@@ -1466,10 +1439,10 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
                         small(app, "sort_by_alpha", "Sort A to Z", Action::SortAsc),
                         small(app, "filter_alt", "Filter", Action::Filter),
                         row(vec![
-                            icon(app, "arrow_downward", "Fill down", Action::FillDown, false),
-                            icon(app, "arrow_forward", "Fill right", Action::FillRight, false),
-                            icon(app, "backspace", "Clear contents", Action::ClearContents, false),
-                            icon(app, "find_replace", "Replace", Action::Replace, false),
+                            icon_button(app, "arrow_downward", "Fill down", Action::FillDown, false),
+                            icon_button(app, "arrow_forward", "Fill right", Action::FillRight, false),
+                            icon_button(app, "backspace", "Clear contents", Action::ClearContents, false),
+                            icon_button(app, "find_replace", "Replace", Action::Replace, false),
                         ]),
                     ]),
                     large(app, "search", "Find", Action::Find),

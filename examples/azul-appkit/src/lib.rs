@@ -4,6 +4,8 @@
 //!   `--theme`, `--mode`, `--shot`, `--sample`, `--data-dir`).
 //! - [`css`]: style sheets from outside the app (a book's, a mail's) read
 //!   rule by rule, for the app's own policy of what to keep.
+//! - [`csv`]: the one CSV reader (a header and its rows; the separator
+//!   guessed from the header line).
 //! - [`data`]: the per-user data layout - one folder per app under the data
 //!   root, keyed as the user's S3 bucket will be.
 //! - [`settings`]: `<app>/settings.json` (app theme, mode, the app's values).
@@ -13,18 +15,24 @@
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
+//! - `pieces` (feature `azul`): the small DOM pieces every app's screens are
+//!   built from (text, block, flex column / row, buttons).
+//! - `ribbon` (feature `azul`): the office apps' ribbon buttons, columns,
+//!   rows and groups (one builder; the app's command type implements
+//!   `RibbonCommand`).
 //! - `ui` (feature `azul`): the settings page on azul's `ShellSettingsLayout`
 //!   (Appearance, Data, Shortcuts, About, plus the app's own sections), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
 //!   config (`--theme` / `--mode` over the settings file), the `--shot`
 //!   screenshot timer, and [`files`] jobs on an azul `Thread`.
 //!
-//! Everything but `ui` is plain Rust and tested without a window:
+//! Everything but `pieces` and `ui` is plain Rust and tested without a window:
 //! `cargo test -p azul-appkit`.
 
 pub mod about;
 pub mod args;
 pub mod css;
+pub mod csv;
 pub mod data;
 pub mod files;
 pub mod find;
@@ -33,6 +41,10 @@ pub mod migrate;
 pub mod settings;
 pub mod shortcuts;
 
+#[cfg(feature = "azul")]
+pub mod pieces;
+#[cfg(feature = "azul")]
+pub mod ribbon;
 #[cfg(feature = "azul")]
 pub mod ui;
 

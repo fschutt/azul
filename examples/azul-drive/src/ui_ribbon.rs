@@ -13,10 +13,11 @@ use azul::{
     str::String as AzString,
     vec::RibbonGalleryCellVec,
     widgets::{
-        CheckBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
-        RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
+        CheckBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonGallery,
+        RibbonGalleryCell, RibbonItem, RibbonRow, RibbonTab,
     },
 };
+use azul_appkit::ribbon::{self as ribbon_kit, column, group, RibbonCommand};
 
 use crate::{
     actions::{self, action_ref, menu_item, on_action, why_not, Action, ActionRef, Toggle},
@@ -25,15 +26,26 @@ use crate::{
     with_state, DriveState,
 };
 
+/// Every ribbon button runs an [`Action`] through `on_action` (azul-appkit's ribbon
+/// builder).
+impl RibbonCommand for Action {
+    fn click_data(self, app: &RefAny) -> RefAny {
+        action_ref(app, self)
+    }
+
+    fn on_click() -> ButtonOnClickCallbackType {
+        on_action
+    }
+}
+
 /// A ribbon button running `action` (greyed with the reason when it cannot run).
 fn button(s: &DriveState, app: &RefAny, icon: &str, label: &str, action: Action) -> RibbonButton {
     let reason = why_not(s, &action);
-    let mut b = RibbonButton::create(AzString::from(icon), AzString::from(label))
-        .with_on_click(action_ref(app, action), on_action as ButtonOnClickCallbackType);
-    if let Some(reason) = reason {
-        b = b.with_disabled(AzString::from(reason));
+    let b = ribbon_kit::button(app, icon, label, action);
+    match reason {
+        Some(reason) => b.with_disabled(AzString::from(reason)),
+        None => b,
     }
-    b
 }
 
 /// A button that opens a menu.
@@ -43,12 +55,7 @@ fn menu_button(s: &DriveState, app: &RefAny, icon: &str, label: &str, action: Ac
 
 /// A button that is on or off.
 fn toggle_button(app: &RefAny, icon: &str, label: &str, which: Toggle, on: bool) -> RibbonButton {
-    RibbonButton::create(AzString::from(icon), AzString::from(label))
-        .with_toggled(on)
-        .with_on_click(
-            action_ref(app, Action::Toggle(which)),
-            on_action as ButtonOnClickCallbackType,
-        )
+    ribbon_kit::button(app, icon, label, Action::Toggle(which)).with_toggled(on)
 }
 
 /// A command AzDrive cannot do, greyed with the reason.
@@ -63,10 +70,6 @@ fn large(b: RibbonButton) -> RibbonItem {
 
 fn small(b: RibbonButton) -> RibbonItem {
     RibbonItem::SmallButton(b)
-}
-
-fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(RibbonColumn::create().with_items(items))
 }
 
 /// A check box with its label (Show/hide): both toggle `which`.
@@ -103,10 +106,6 @@ extern "C" fn on_check(mut data: RefAny, mut info: CallbackInfo, _state: CheckBo
     with_state(&mut app, &mut info, |info, app, s| {
         actions::run_action(info, app, s, action)
     })
-}
-
-fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    RibbonGroup::create(AzString::from(label)).with_items(items)
 }
 
 fn home_tab(s: &DriveState, app: &RefAny) -> RibbonTab {

@@ -274,6 +274,16 @@ impl Task {
         true
     }
 
+    /// The tags become `tokens` (a token field's, in its order): each without its `#`, once
+    /// (any case), the empty ones left out; `false` when that changed nothing.
+    pub fn set_tags<'a>(&mut self, tokens: impl IntoIterator<Item = &'a str>) -> bool {
+        let before = std::mem::take(&mut self.tags);
+        for token in tokens {
+            self.add_tag(token);
+        }
+        self.tags != before
+    }
+
     /// Removes `tag`; `false` when the task did not carry it.
     pub fn remove_tag(&mut self, tag: &str) -> bool {
         let tag = normalize_tag(tag).to_lowercase();
@@ -1553,6 +1563,18 @@ mod tests {
         assert_eq!(t.tags, vec!["Home"]);
         assert!(t.has_tag("#HOME"));
         assert!(t.remove_tag("home"));
+        assert!(t.tags.is_empty());
+    }
+
+    #[test]
+    fn a_token_fields_tokens_become_the_tags_in_order_once_without_their_hash() {
+        let mut t = Task::new(TASK.into(), LIST.into(), "x".into(), at(2026, 10, 1, 8, 0));
+        assert!(t.set_tags(["#home", "garden", "HOME", " ", "#Work "]));
+        assert_eq!(t.tags, vec!["home", "garden", "Work"]);
+        assert!(!t.set_tags(["home", "garden", "Work"]), "the same tags change nothing");
+        assert!(t.set_tags(["garden"]), "a removed token removes its tag");
+        assert_eq!(t.tags, vec!["garden"]);
+        assert!(t.set_tags([]));
         assert!(t.tags.is_empty());
     }
 

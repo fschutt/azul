@@ -562,24 +562,16 @@ pub extern "C" fn on_menu_save(data: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 pub extern "C" fn on_menu_reveal(mut data: RefAny, _: CallbackInfo) -> Update {
-    // The sessions' folder in the data tree (it exists after the first save).
-    let Some(dir) = data
-        .downcast_ref::<AppState>()
-        .map(|s| s.data_root.join(ABOUT.app_folder))
-    else {
-        return Update::DoNothing;
-    };
-    #[cfg(target_os = "macos")]
-    let _ = std::process::Command::new("open").arg(&dir).spawn();
-    #[cfg(target_os = "linux")]
-    let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
-    #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
-
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.status = format!("archives in {}", dir.display());
+    // The sessions' folder in the data tree (it exists after the first save), opened by the
+    // apps' one opener; what went wrong (no folder yet) is said in the status line.
+    let dir = s.data_root.join(ABOUT.app_folder);
+    s.status = match azul_appkit::files::open_external(&dir.to_string_lossy()) {
+        Ok(()) => format!("archives in {}", dir.display()),
+        Err(e) => e,
+    };
     Update::RefreshDom
 }
 

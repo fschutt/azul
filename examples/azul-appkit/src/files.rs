@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use azul_storage::{Drive, DriveError, ListRequest};
+use azul_storage::{Drive, DriveError};
 
 /// One thing to do in the data folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,20 +63,13 @@ impl FileOutcome {
     }
 }
 
-/// Every key under `prefix`, at any depth, in key order (all pages).
+/// Every key under `prefix`, at any depth, in key order (all pages: azul-storage's
+/// `ops::list_all`).
 pub fn list_all(drive: &dyn Drive, prefix: &str) -> Result<Vec<String>, DriveError> {
-    let mut keys = Vec::new();
-    let mut request = ListRequest::recursive(prefix);
-    // A drive that keeps answering with a token would loop forever: stop
-    // after far more pages than any folder of an app has.
-    for _ in 0..10_000 {
-        let page = drive.list(&request)?;
-        keys.extend(page.objects.into_iter().map(|o| o.key));
-        match page.next {
-            Some(token) => request = ListRequest::recursive(prefix).with_continuation(token),
-            None => break,
-        }
-    }
+    let mut keys: Vec<String> = azul_storage::ops::list_all(drive, prefix)?
+        .into_iter()
+        .map(|o| o.key)
+        .collect();
     keys.sort();
     Ok(keys)
 }
@@ -175,7 +168,7 @@ pub fn read_outside(path: &Path) -> Result<Vec<u8>, String> {
 pub fn external_target(target: &str) -> Result<String, String> {
     let t = target.trim();
     let lower = t.to_ascii_lowercase();
-    if lower.starts_with("http://") || lower.starts_with("https://") {
+    if is_web_address(t) {
         if t.chars().any(char::is_whitespace) {
             return Err(format!("\u{201c}{t}\u{201d} is not a web address."));
         }
@@ -190,13 +183,32 @@ pub fn external_target(target: &str) -> Result<String, String> {
     Err(format!("\u{201c}{t}\u{201d} cannot be opened."))
 }
 
-/// Opens a web address in the default browser, or a file / folder in its default app (`open` on
-/// macOS, `xdg-open` on Linux and the BSDs, `cmd /C start` on Windows) - see
+/// Whether `target` is a web address (`http:` / `https:`, any case).
+fn is_web_address(target: &str) -> bool {
+    let lower = target.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// Opens a web address in the default browser, or a file / folder in its default app - see
 /// [`external_target`] for what is passed on. Returns once the opener started.
-// TODO(engine): an azul API for this (a platform call, also for the web build); AzReview's
-// lib.rs opens its folder the same way.
+///
+/// A web address goes through azul's one opener, `Url::open` (feature `azul`). A file or a
+/// folder still through the system's opener here (`open` on macOS, `xdg-open` on Linux and the
+/// BSDs, `cmd /C start` on Windows) until azul exports the path variant of `Url::open` (wave 9,
+/// 3.5); then this calls it too.
 pub fn open_external(target: &str) -> Result<(), String> {
     let target = external_target(target)?;
+    #[cfg(feature = "azul")]
+    if is_web_address(&target) {
+        return match azul::url::Url::parse(target.as_str()).into_result() {
+            Ok(url) if url.open() => Ok(()),
+            Ok(_) => Err(format!("{target} could not be opened.")),
+            Err(e) => Err(format!(
+                "{target} is not a web address: {}",
+                e.message.as_str()
+            )),
+        };
+    }
     let mut command = if cfg!(target_os = "macos") {
         let mut c = std::process::Command::new("open");
         c.arg(&target);
@@ -217,41 +229,10 @@ pub fn open_external(target: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-pub(crate) mod test_dir {
-    //! A fresh folder under the system's temporary folder, removed on drop.
-
-    use std::path::{Path, PathBuf};
-
-    pub struct TestDir(PathBuf);
-
-    impl TestDir {
-        pub fn new(name: &str) -> TestDir {
-            let dir = std::env::temp_dir().join(format!(
-                "azul-appkit-{name}-{}-{}",
-                std::process::id(),
-                crate::data::new_uuid()
-            ));
-            std::fs::create_dir_all(&dir).expect("a temporary folder");
-            TestDir(dir)
-        }
-
-        pub fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use azul_storage::LocalDrive;
 
-    use super::test_dir::TestDir;
+    use azul_storage::testing::TempDir;
     use super::*;
 
     fn put(key: &str, text: &str) -> FileJob {
@@ -263,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_picked_file_outside_the_data_tree_is_read_by_name_and_its_folder_gets_no_manifest() {
-        let dir = TestDir::new("files-outside");
+        let dir = TempDir::new("files-outside");
         let file = dir.path().join("Report 2026.docx");
         std::fs::write(&file, b"PK").expect("the fixture");
         let (folder, job) = outside_read(&file).expect("a file name");
@@ -293,7 +274,7 @@ mod tests {
 
     #[test]
     fn a_written_file_reads_back_and_a_missing_one_is_none() {
-        let dir = TestDir::new("files-rw");
+        let dir = TempDir::new("files-rw");
         let drive = LocalDrive::new(dir.path());
         let out = run_jobs(
             &drive,
@@ -331,7 +312,7 @@ mod tests {
 
     #[test]
     fn get_all_reads_every_file_with_the_suffix_in_key_order() {
-        let dir = TestDir::new("files-all");
+        let dir = TempDir::new("files-all");
         let drive = LocalDrive::new(dir.path());
         run_jobs(
             &drive,
@@ -362,7 +343,7 @@ mod tests {
 
     #[test]
     fn get_all_of_a_folder_that_does_not_exist_yet_is_empty_not_an_error() {
-        let dir = TestDir::new("files-empty");
+        let dir = TempDir::new("files-empty");
         let drive = LocalDrive::new(dir.path());
         let out = run_job(
             &drive,
@@ -383,7 +364,7 @@ mod tests {
 
     #[test]
     fn deleting_removes_the_file_and_deleting_twice_is_fine() {
-        let dir = TestDir::new("files-delete");
+        let dir = TempDir::new("files-delete");
         let drive = LocalDrive::new(dir.path());
         let delete = || FileJob::Delete {
             key: "contacts/a.vcf".to_string(),
@@ -396,7 +377,7 @@ mod tests {
 
     #[test]
     fn a_key_that_leaves_the_root_is_refused_with_a_sentence() {
-        let dir = TestDir::new("files-bad");
+        let dir = TempDir::new("files-bad");
         let drive = LocalDrive::new(dir.path());
         let out = run_job(&drive, put("../escape.txt", "x"));
         let error = out.error().expect("refused");
@@ -410,7 +391,7 @@ mod tests {
         assert!(external_target("file:///etc/passwd").is_err());
         assert!(external_target("https://exa mple.org").is_err());
         assert!(external_target("").is_err());
-        let dir = TestDir::new("external-target");
+        let dir = TempDir::new("external-target");
         let path = dir.path().display().to_string();
         assert_eq!(external_target(&path), Ok(path.clone()));
         assert!(external_target(&format!("{path}/missing")).is_err());

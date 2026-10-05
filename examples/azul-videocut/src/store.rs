@@ -11,7 +11,7 @@
 //! `S3Drive` replaces it with no other change. Every call blocks, so the app
 //! makes them on an azul `Thread`, never in a callback.
 
-use azul_storage::{Drive, ListRequest};
+use azul_storage::Drive;
 
 use crate::model::Project;
 
@@ -76,23 +76,13 @@ pub fn load_project(drive: &dyn Drive, id: &str) -> Result<Project, String> {
 
 /// The ids of every project on `drive`.
 pub fn list_projects(drive: &dyn Drive) -> Result<Vec<String>, String> {
-    let mut ids = Vec::new();
-    let mut request = ListRequest::recursive(&format!("{APP_FOLDER}/"));
-    loop {
-        let page = drive
-            .list(&request)
-            .map_err(|e| format!("listing the projects failed: {e}"))?;
-        for o in &page.objects {
-            if let Some(id) = project_id_of(&o.key) {
-                ids.push(id.to_string());
-            }
-        }
-        match page.next {
-            Some(token) => request = request.with_continuation(token),
-            None => break,
-        }
-    }
-    Ok(ids)
+    let objects = azul_storage::ops::list_all(drive, &format!("{APP_FOLDER}/"))
+        .map_err(|e| format!("listing the projects failed: {e}"))?;
+    Ok(objects
+        .iter()
+        .filter_map(|o| project_id_of(&o.key))
+        .map(str::to_string)
+        .collect())
 }
 
 #[cfg(test)]

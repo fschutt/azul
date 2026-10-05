@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use azul_storage::{Drive, DriveError, ListRequest, ObjectInfo};
+use azul_storage::{Drive, DriveError, ObjectInfo};
 
 use crate::model;
 
@@ -129,22 +129,7 @@ pub enum Outcome {
 }
 
 /// Every object under `prefix`, all pages.
-pub fn list_all(drive: &dyn Drive, prefix: &str) -> Result<Vec<ObjectInfo>, DriveError> {
-    let mut out = Vec::new();
-    let mut next: Option<String> = None;
-    loop {
-        let mut request = ListRequest::recursive(prefix);
-        if let Some(token) = next.take() {
-            request = request.with_continuation(token);
-        }
-        let page = drive.list(&request)?;
-        out.extend(page.objects);
-        match page.next {
-            Some(token) => next = Some(token),
-            None => return Ok(out),
-        }
-    }
-}
+pub use azul_storage::ops::list_all;
 
 fn read_text(drive: &dyn Drive, info: &ObjectInfo) -> Result<FileText, String> {
     drive

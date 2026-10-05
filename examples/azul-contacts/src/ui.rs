@@ -46,7 +46,7 @@ use azul::{
         ShellNavigationPaneEventKind, ShellThemeAccent, ShellThemeScope,
     },
     str::String as AzString,
-    vec::{StringVec, StyledTextRunVec, U8VecRef},
+    vec::{StyledTextRunVec, U8VecRef},
     widgets::{
         Avatar, AvatarSize, ButtonType, CheckBoxState, Chip, ChipState, DatePicker, DatePickerState, DropDown,
         NumberInput, NumberInputState, OnTextInputReturn, Segmented,
@@ -58,6 +58,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
+    pieces::{block, button, column, flex_row, primary, strs, text},
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
 };
@@ -323,44 +324,6 @@ pub fn start() {
     App::create(RefAny::new(app), config).run(window);
 }
 
-// ==== Small pieces ====
-
-fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
-}
-
-fn text<S: Into<AzString>>(content: S) -> Dom {
-    Dom::create_span_with_text(content)
-}
-
-fn block(css: &str, child: Dom) -> Dom {
-    Dom::create_div().with_css(css).with_child(child)
-}
-
-fn column(css: &str, children: Vec<Dom>) -> Dom {
-    Dom::create_div()
-        .with_css(format!("display: flex; flex-direction: column; {css}"))
-        .with_children(DomVec::from_vec(children))
-}
-
-fn row(css: &str, children: Vec<Dom>) -> Dom {
-    Dom::create_div()
-        .with_css(format!("display: flex; flex-direction: row; align-items: center; {css}"))
-        .with_children(DomVec::from_vec(children))
-}
-
-fn button(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label).with_on_click(app.clone(), cb).dom().with_id(id)
-}
-
-fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
-        .with_button_type(ButtonType::Primary)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-}
-
 // ==== Navigation ====
 
 fn navigation(s: &ContactsApp, app: &RefAny) -> Dom {
@@ -432,7 +395,7 @@ fn contact_row(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
     if c.favorite {
         children.push(block("padding: 0px 6px; font-size: 13px;", text("\u{2605}")));
     }
-    row(
+    flex_row(
         &format!(
             "padding: 4px 8px; cursor: pointer; {}",
             if selected { "background-color: rgba(64, 128, 255, 0.18);" } else { "" }
@@ -530,12 +493,12 @@ fn list_pane(s: &ContactsApp, app: &RefAny) -> Dom {
                 list.add_child(contact_row(s, app, &s.book[i]));
             }
         }
-        row("flex-grow: 1; min-height: 0px; align-items: stretch;", vec![list, jump_bar(&present)])
+        flex_row("flex-grow: 1; min-height: 0px; align-items: stretch;", vec![list, jump_bar(&present)])
     };
     column(
         "flex-grow: 1; min-height: 0px;",
         vec![
-            row("padding: 6px 8px;", vec![block("flex-grow: 1; margin-right: 6px;", search), sort]),
+            flex_row("padding: 6px 8px;", vec![block("flex-grow: 1; margin-right: 6px;", search), sort]),
             heading,
             body,
         ],
@@ -545,7 +508,7 @@ fn list_pane(s: &ContactsApp, app: &RefAny) -> Dom {
 // ==== The card ====
 
 fn field_row(label: &str, value: Dom) -> Dom {
-    row(
+    flex_row(
         "align-items: flex-start; padding: 3px 0px;",
         vec![
             block("width: 96px; flex-shrink: 0; font-size: 12px; opacity: 0.7;", text(label)),
@@ -586,7 +549,7 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
             .with_id(ids::CARD_DELETE),
     );
     let mut children = vec![
-        row(
+        flex_row(
             "padding: 12px 0px;",
             vec![
                 avatar(s, c, AvatarSize::Large),
@@ -604,7 +567,7 @@ fn card_view(s: &ContactsApp, app: &RefAny, c: &Contact) -> Dom {
             .with_children(DomVec::from_vec(actions)),
     ];
     if s.confirm_delete {
-        children.push(row(
+        children.push(flex_row(
             "padding: 6px 0px;",
             vec![
                 block("padding-right: 8px;", text(format!("Delete {}? Its file goes too.", c.display_name()))),
@@ -781,7 +744,7 @@ fn labels_for(kind: RowKind) -> &'static [&'static str] {
 /// a button that starts one. Each sets the form's text (`DD.MM.YYYY` / `DD.MM.`).
 fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
     let Some(b) = Birthday::parse(&form.birthday_text) else {
-        return row(
+        return flex_row(
             "padding-top: 6px;",
             vec![button("Add a birthday", ids::EDIT_BIRTHDAY_ADD, app, on_birthday_add)],
         );
@@ -794,7 +757,7 @@ fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
             .dom()
             .with_id(ids::EDIT_BIRTHDAY_PICKER),
     ];
-    let mut side = vec![row(
+    let mut side = vec![flex_row(
         "gap: 6px; align-items: center;",
         vec![
             CheckBox::create(b.year.is_none())
@@ -807,7 +770,7 @@ fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
     )];
     if let Some(y) = b.year {
         // The calendar's arrows step months: a year decades back is typed.
-        side.push(row(
+        side.push(flex_row(
             "gap: 6px; align-items: center;",
             vec![
                 text("Year"),
@@ -820,13 +783,13 @@ fn birthday_picker(app: &RefAny, form: &Form) -> Dom {
         ));
     }
     controls.push(column("gap: 8px; padding-left: 12px;", side));
-    row("padding-top: 6px; align-items: flex-start;", controls)
+    flex_row("padding-top: 6px; align-items: flex-start;", controls)
 }
 
 fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
     let d = &form.draft;
     let mut children = Vec::new();
-    children.push(row(
+    children.push(flex_row(
         "padding: 10px 0px;",
         vec![
             block("font-size: 18px; font-weight: 600; flex-grow: 1;", text(if form.original.is_some() { "Edit contact" } else { "New contact" })),
@@ -842,9 +805,9 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         photo_row.push(button("Remove photo", ids::EDIT_PHOTO_REMOVE, app, on_photo_remove));
         photo_row.push(block("font-size: 12px; opacity: 0.75;", text("A photo is set.")));
     }
-    children.push(row("gap: 8px; padding-bottom: 6px;", photo_row));
+    children.push(flex_row("gap: 8px; padding-bottom: 6px;", photo_row));
     if form.confirm_discard {
-        children.push(row(
+        children.push(flex_row(
             "padding: 6px 0px;",
             vec![
                 block("padding-right: 8px;", text("Discard your changes?")),
@@ -863,7 +826,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
                 .with_id(ids::EDIT_PROBLEMS),
         );
     }
-    let pair = |a: Dom, b: Dom| row("gap: 6px; padding: 2px 0px;", vec![block("flex-grow: 1;", a), block("flex-grow: 1;", b)]);
+    let pair = |a: Dom, b: Dom| flex_row("gap: 6px; padding: 2px 0px;", vec![block("flex-grow: 1;", a), block("flex-grow: 1;", b)]);
     children.push(form_section(
         "Name",
         vec![
@@ -886,7 +849,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            row(
+            flex_row(
                 "gap: 6px; padding: 2px 0px;",
                 vec![
                     label_drop(app, RowKind::Phone, i, &PHONE_LABELS, &p.label, ids::edit_phone_label(i)),
@@ -903,7 +866,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         .iter()
         .enumerate()
         .map(|(i, e)| {
-            row(
+            flex_row(
                 "gap: 6px; padding: 2px 0px;",
                 vec![
                     label_drop(app, RowKind::Email, i, &EMAIL_LABELS, &e.label, ids::edit_email_label(i)),
@@ -917,7 +880,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
     children.push(form_section("Email", emails));
     let mut addresses: Vec<Dom> = Vec::new();
     for (i, a) in d.addresses.iter().enumerate() {
-        addresses.push(row(
+        addresses.push(flex_row(
             "gap: 6px; padding: 2px 0px;",
             vec![
                 label_drop(app, RowKind::Address, i, &ADDRESS_LABELS, &a.label, ids::edit_address_label(i)),
@@ -925,7 +888,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
                 remove_button(app, RowKind::Address, i, ids::edit_address_remove(i)),
             ],
         ));
-        addresses.push(row(
+        addresses.push(flex_row(
             "gap: 6px; padding: 2px 0px 6px 0px;",
             vec![
                 block("width: 90px;", input(app, FormField::Postcode(i), &a.postcode, "Postcode", ids::edit_postcode(i))),
@@ -961,7 +924,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; padding-bottom: 4px;")
                 .with_children(DomVec::from_vec(chips)),
-            row(
+            flex_row(
                 "gap: 6px;",
                 vec![
                     block("flex-grow: 1;", input(app, FormField::NewGroup, &form.new_group, "Add to a group", ids::EDIT_NEW_GROUP)),
@@ -975,7 +938,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
         .iter()
         .enumerate()
         .map(|(i, f)| {
-            row(
+            flex_row(
                 "gap: 6px; padding: 2px 0px;",
                 vec![
                     block("width: 140px;", input(app, FormField::CustomLabel(i), &f.label, "Field name", ids::edit_field_label(i))),
@@ -997,7 +960,7 @@ fn edit_view(s: &ContactsApp, app: &RefAny, form: &Form) -> Dom {
             .dom()
             .with_id(ids::EDIT_NOTES)],
     ));
-    children.push(row(
+    children.push(flex_row(
         "padding: 8px 0px;",
         vec![
             Switch::create(d.favorite)
@@ -1051,7 +1014,7 @@ fn csv_mapping(app: &RefAny, csv: &CsvImport) -> Dom {
             .find(|v| !v.is_empty())
             .unwrap_or("\u{2014}")
             .to_string();
-        rows.push(row(
+        rows.push(flex_row(
             "gap: 8px; padding: 2px 0px; font-size: 13px;",
             vec![
                 block("width: 140px; flex-shrink: 0;", text(header.as_str())),
@@ -1089,7 +1052,7 @@ fn preview_cell(grow: u32, css: &str) -> String {
 fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
     let mut children = vec![
         block("font-size: 18px; font-weight: 600; padding: 10px 0px;", text("Import contacts")),
-        row(
+        flex_row(
             "gap: 6px;",
             vec![
                 block("flex-grow: 1;", input(app, FormField::ImportPath, &st.path, "Path to a .vcf or .csv file", ids::IMPORT_PATH)),
@@ -1112,7 +1075,7 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
         let mut table = Vec::new();
         for (i, r) in st.rows.iter().enumerate() {
             let c = &r.contact;
-            table.push(row(
+            table.push(flex_row(
                 "gap: 8px; padding: 2px 0px; font-size: 13px;",
                 vec![
                     CheckBox::create(r.selected)
@@ -1128,7 +1091,7 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
             ));
         }
         children.push(column("", table).with_id(ids::IMPORT_ROWS));
-        children.push(row(
+        children.push(flex_row(
             "gap: 6px; padding-top: 10px;",
             vec![
                 block("", text("Add to group")),
@@ -1145,7 +1108,7 @@ fn import_view(s: &ContactsApp, app: &RefAny, st: &ImportState) -> Dom {
                  its columns mapped to the contact's fields). Nothing is imported before you press Import.",
             ),
         ));
-        children.push(row("padding-top: 8px;", vec![button("Cancel", ids::IMPORT_CANCEL, app, on_import_cancel)]));
+        children.push(flex_row("padding-top: 8px;", vec![button("Cancel", ids::IMPORT_CANCEL, app, on_import_cancel)]));
     }
     column("padding: 0px 16px 16px 16px; overflow-y: auto; flex-grow: 1; min-height: 0px;", children).with_id(ids::CONTACT_IMPORT)
 }
@@ -1181,7 +1144,7 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
     };
     let (a, b) = (&s.book[pair.a], &s.book[pair.b]);
     let pick_row = |label: &str, field: MergeField, pick: Pick, left: String, right: String, id: AzString| {
-        row(
+        flex_row(
             "gap: 8px; padding: 4px 0px;",
             vec![
                 block("width: 90px; font-size: 12px; opacity: 0.7;", text(label)),
@@ -1207,7 +1170,7 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
             .collect()
     };
     let children = vec![
-        row(
+        flex_row(
             "padding: 10px 0px; gap: 8px;",
             vec![
                 block("font-size: 18px; font-weight: 600; flex-grow: 1;", text(format!("Possible duplicates ({})", st.pairs.len()))),
@@ -1232,7 +1195,7 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
         pick_row("Birthday", MergeField::Birthday, st.plan.birthday, birthday(a), birthday(b), ids::MERGE_BIRTHDAY),
         pick_row("Photo", MergeField::Photo, st.plan.photo, photo(a), photo(b), ids::MERGE_PHOTO),
         pick_row("Notes", MergeField::Notes, st.plan.notes, a.notes.clone(), b.notes.clone(), ids::MERGE_NOTES),
-        row(
+        flex_row(
             "padding: 4px 0px 4px 98px;",
             vec![
                 Switch::create(st.plan.notes_both)
@@ -1244,14 +1207,14 @@ fn merge_view(s: &ContactsApp, app: &RefAny, st: &MergeState) -> Dom {
             ],
         ),
         block("padding: 8px 0px 2px 0px; font-size: 11px; font-weight: 700; opacity: 0.7;", text("KEPT FROM BOTH")),
-        row(
+        flex_row(
             "align-items: flex-start; gap: 16px;",
             vec![
                 block("flex-grow: 1; font-size: 12px;", lines(list(a))),
                 block("flex-grow: 1; font-size: 12px;", lines(list(b))),
             ],
         ),
-        row(
+        flex_row(
             "gap: 6px; padding-top: 12px;",
             vec![
                 block("flex-grow: 1;", Dom::create_div()),
@@ -1286,7 +1249,7 @@ fn toolbar(app: &RefAny) -> Dom {
     let tool = |label: &str, icon: &str, id: AzString, cb: ButtonOnClickCallbackType| {
         Button::create(label).with_icon(icon).with_on_click(app.clone(), cb).dom().with_id(id)
     };
-    row(
+    flex_row(
         "gap: 4px; padding: 4px 8px;",
         vec![
             tool("New", "person_add", ids::TOOLBAR_NEW, on_new),

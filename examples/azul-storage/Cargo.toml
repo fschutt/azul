@@ -32,6 +32,8 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 [features]
 default = []
 azul = ["dep:azul"]
+# `testing::TempDir` for the apps' tests (a dev-dependency turns it on).
+testing = []
 
 [lib]
 name = "azul_storage"

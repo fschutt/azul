@@ -12,7 +12,7 @@ use std::{
 
 use super::TempDir;
 use crate::{
-    ops::{exists, folder_exists, list_all},
+    ops::{exists, folder_exists, list_all, list_folder_all},
     transfer::copy_object,
     ByteRange, Drive, DriveError, ListPage, ListRequest, LocalDrive, ObjectInfo,
 };
@@ -180,6 +180,30 @@ fn list_all_follows_every_page_and_returns_every_object_under_the_prefix() {
     let keys: Vec<&str> = all.iter().map(|o| o.key.as_str()).collect();
     assert_eq!(keys, vec!["a/1", "a/2", "a/x/3", "a/x/y/4"]);
     assert_eq!(list_all(&bucket, "").unwrap().len(), 5);
+}
+
+#[test]
+fn list_folder_all_follows_every_page() {
+    // Pages of two entries: the level of `a/` is three pages.
+    let bucket = Bucket::with(&[
+        ("a/1", b"1"),
+        ("a/2", b"2"),
+        ("a/3", b"3"),
+        ("a/x/4", b"4"),
+        ("a/y/5", b"5"),
+        ("a/y/6", b"6"),
+        ("a/z/7", b"7"),
+        ("b/8", b"8"),
+    ]);
+    let level = list_folder_all(&bucket, "a/").unwrap();
+    let keys: Vec<&str> = level.objects.iter().map(|o| o.key.as_str()).collect();
+    assert_eq!(keys, vec!["a/1", "a/2", "a/3"], "only the objects directly in a/");
+    assert_eq!(level.folders, vec!["a/x/", "a/y/", "a/z/"]);
+    assert_eq!(level.next, None, "one page with everything");
+    let root = list_folder_all(&bucket, "").unwrap();
+    assert_eq!(root.folders, vec!["a/", "b/"]);
+    assert!(root.objects.is_empty());
+    assert!(list_folder_all(&bucket, "c/").unwrap().folders.is_empty());
 }
 
 #[test]

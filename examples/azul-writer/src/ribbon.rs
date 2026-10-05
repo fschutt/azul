@@ -13,10 +13,11 @@ use azul::{
     str::String as AzString,
     widgets::{
         RichAlign, RichBlockKind, RichCheck, RichFormat, RichTableSize, RichTextCommand,
-        RichTextEditorState, Ribbon, RibbonAppButton, RibbonButton, RibbonColumn, RibbonGallery,
-        RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
+        RichTextEditorState, Ribbon, RibbonAppButton, RibbonGallery, RibbonGalleryCell, RibbonItem,
+        RibbonTab,
     },
 };
+use azul_appkit::ribbon::{button, column, group, large, row, small, toggle, RibbonCommand};
 
 use crate::{
     app::{command, AppState, BackstagePage, Command, View, TABS},
@@ -27,33 +28,16 @@ fn s(text: &str) -> AzString {
     AzString::from(text)
 }
 
-fn button(app: &RefAny, icon: &str, label: &str, cmd: Command) -> RibbonButton {
-    RibbonButton::create(s(icon), s(label))
-        .with_on_click(command(app, cmd), on_command as ButtonOnClickCallbackType)
-}
+/// Every ribbon button runs a [`Command`] through [`on_command`] (azul-appkit's ribbon
+/// builder).
+impl RibbonCommand for Command {
+    fn click_data(self, app: &RefAny) -> RefAny {
+        command(app, self)
+    }
 
-fn large(app: &RefAny, icon: &str, label: &str, cmd: Command) -> RibbonItem {
-    RibbonItem::LargeButton(button(app, icon, label, cmd))
-}
-
-fn small(app: &RefAny, icon: &str, label: &str, cmd: Command) -> RibbonItem {
-    RibbonItem::SmallButton(button(app, icon, label, cmd))
-}
-
-fn toggle(app: &RefAny, icon: &str, label: &str, cmd: Command, on: bool) -> RibbonItem {
-    RibbonItem::SmallButton(button(app, icon, label, cmd).with_toggled(on))
-}
-
-fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(RibbonColumn::create().with_items(items))
-}
-
-fn row(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Row(RibbonRow::create().with_items(items))
-}
-
-fn group(label: &str, items: Vec<RibbonItem>) -> RibbonGroup {
-    RibbonGroup::create(s(label)).with_items(items)
+    fn on_click() -> ButtonOnClickCallbackType {
+        on_command
+    }
 }
 
 /// The paragraph styles of the gallery, in its order.

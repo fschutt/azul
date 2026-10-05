@@ -627,7 +627,12 @@ fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
     row.add_child(Dom::create_span_with_text("Attached:").with_css("font-size: 13px; margin-right: 8px;"));
     for (i, file) in c.attachments.iter().enumerate() {
         row.add_child(
-            Dom::create_span_with_text(format!("{} ({} KB)", file.name, (file.size + 1023) / 1024))
+            // azul's one byte-size format (the reading pane's attachments use it too).
+            Dom::create_span_with_text(format!(
+                "{} ({})",
+                file.name,
+                azul::file::DiskSpace::format_bytes(file.size)
+            ))
                 .with_css("font-size: 13px; margin-right: 4px;"),
         );
         row.add_child(

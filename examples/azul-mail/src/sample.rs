@@ -148,7 +148,7 @@ fn file_folder(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::TempDir;
+    use crate::testutil::{MailFolder, TempDir};
 
     #[test]
     fn the_sample_account_is_filed_like_a_synced_one_once() {
