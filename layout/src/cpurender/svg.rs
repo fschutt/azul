@@ -106,19 +106,46 @@ pub fn render_svg_to_imageref_painted(
 ) -> Result<ImageRef, String> {
     // Transparent background so whatever is behind shows through any gaps.
     let pixmap = rasterize_svg(svg_data, target_width, target_height, (0, 0, 0, 0), paint)?;
-    // The pixmap is AGG's PREMULTIPLIED output, and says so: labelled
-    // straight, the image load premultiplied it a second time and a
-    // translucent paint (`system:text` at 85%) came out darker than itself.
-    let rgba = pixmap.data().to_vec();
-    let raw = azul_core::resources::RawImage {
-        pixels: azul_core::resources::RawImageData::U8(rgba.into()),
-        width: target_width as usize,
-        height: target_height as usize,
+    ImageRef::new_rawimage(premultiplied_raw_image(&pixmap))
+        .ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
+}
+
+/// The rasterised document as an RGBA8 `RawImage` over an explicit backdrop
+/// (`None` = transparent, as [`render_svg_to_png_over`]): the pixels AGG
+/// drew, PREMULTIPLIED and labelled so, with no PNG encode / decode between
+/// the rasteriser and the caller.
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
+pub fn render_svg_to_raw_image_over(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    background: Option<(u8, u8, u8, u8)>,
+) -> Result<azul_core::resources::RawImage, String> {
+    let pixmap = rasterize_svg(
+        svg_data,
+        target_width,
+        target_height,
+        background.unwrap_or((0, 0, 0, 0)),
+        &SvgPaintContext::default(),
+    )?;
+    Ok(premultiplied_raw_image(&pixmap))
+}
+
+/// A rasterised pixmap as an RGBA8 `RawImage`. The pixmap is AGG's
+/// PREMULTIPLIED output, and the image says so: labelled straight, the
+/// image load premultiplied it a second time and a translucent paint
+/// (`system:text` at 85%) came out darker than itself.
+fn premultiplied_raw_image(pixmap: &AzulPixmap) -> azul_core::resources::RawImage {
+    azul_core::resources::RawImage {
+        pixels: azul_core::resources::RawImageData::U8(pixmap.data().to_vec().into()),
+        width: pixmap.width as usize,
+        height: pixmap.height as usize,
         premultiplied_alpha: true,
         data_format: azul_core::resources::RawImageFormat::RGBA8,
         tag: Vec::new().into(),
-    };
-    ImageRef::new_rawimage(raw).ok_or_else(|| "Failed to build ImageRef from pixmap".to_string())
+    }
 }
 
 /// Parse `svg_data`, find its `<svg>` root and hand it to `f`: the one
@@ -349,13 +376,144 @@ impl SvgPaintContext {
     }
 }
 
-/// Inherited SVG style (fill, stroke, stroke-width) that cascades from parent groups.
+/// Inherited SVG style (fill, stroke and the stroke's properties) that
+/// cascades from parent groups.
 #[cfg(all(feature = "std", feature = "xml"))]
 #[derive(Clone, Default)]
 struct SvgInheritedStyle {
     fill: Option<String>,   // None = not set (inherit default black)
     stroke: Option<String>, // None = not set (inherit default none)
     stroke_width: Option<f64>,
+    stroke_linecap: Option<String>,   // None = `butt`
+    stroke_linejoin: Option<String>,  // None = `miter`
+    stroke_miterlimit: Option<f64>,   // None = 4
+    stroke_dasharray: Option<String>, // None = `none` (a solid stroke)
+    stroke_dashoffset: Option<f64>,   // None = 0
+}
+
+/// How an SVG shape's outline is stroked (SVG 2 s13.5): the width, the
+/// caps, the joins and the dash pattern, each from the element or the
+/// groups it inherits from.
+#[cfg(all(feature = "std", feature = "xml"))]
+struct SvgStrokeStyle {
+    width: f64,
+    cap: agg_rust::math_stroke::LineCap,
+    join: agg_rust::math_stroke::LineJoin,
+    miter_limit: f64,
+    /// `(dash, gap)` pairs; empty = a solid stroke.
+    dashes: Vec<(f64, f64)>,
+    dash_offset: f64,
+}
+
+#[cfg(all(feature = "std", feature = "xml"))]
+impl SvgStrokeStyle {
+    /// The stroke of `node` under the inherited `style`.
+    fn of(node: &azul_core::xml::XmlNode, style: &SvgInheritedStyle) -> Self {
+        use agg_rust::math_stroke::{LineCap, LineJoin};
+        let number = |name: &str| {
+            presentation_property(node, name)
+                .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f64>().ok())
+                .filter(|v| v.is_finite())
+        };
+        let cap = match presentation_property(node, "stroke-linecap")
+            .or_else(|| style.stroke_linecap.clone())
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("round") => LineCap::Round,
+            Some("square") => LineCap::Square,
+            _ => LineCap::Butt,
+        };
+        let join = match presentation_property(node, "stroke-linejoin")
+            .or_else(|| style.stroke_linejoin.clone())
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("round") => LineJoin::Round,
+            Some("bevel") => LineJoin::Bevel,
+            // SVG 2's `miter-clip`: the miter cut off at the limit.
+            Some("miter-clip") => LineJoin::Miter,
+            // `miter` (and `arcs`, which falls back to it): a bevel once the
+            // miter exceeds the limit - AGG's "revert", made for SVG / PDF.
+            _ => LineJoin::MiterRevert,
+        };
+        let miter_limit = number("stroke-miterlimit")
+            .or(style.stroke_miterlimit)
+            .filter(|m| *m >= 1.0)
+            .unwrap_or(4.0);
+        let dashes = parse_svg_dash_array(
+            presentation_property(node, "stroke-dasharray")
+                .or_else(|| style.stroke_dasharray.clone())
+                .as_deref(),
+        );
+        Self {
+            width: number("stroke-width")
+                .or(style.stroke_width)
+                .unwrap_or(1.0),
+            cap,
+            join,
+            miter_limit,
+            dashes,
+            dash_offset: number("stroke-dashoffset")
+                .or(style.stroke_dashoffset)
+                .unwrap_or(0.0),
+        }
+    }
+
+    /// Set the width, caps and joins on an AGG stroker.
+    fn configure<VS: agg_rust::basics::VertexSource>(&self, stroke: &mut ConvStroke<VS>) {
+        stroke.set_width(self.width);
+        stroke.set_line_cap(self.cap);
+        stroke.set_line_join(self.join);
+        stroke.set_miter_limit(self.miter_limit);
+    }
+
+    /// The dash pattern on an AGG dasher, its offset folded into one period
+    /// (the dasher walks the offset dash by dash).
+    fn dash<VS: agg_rust::basics::VertexSource>(
+        &self,
+        dasher: &mut agg_rust::conv_dash::ConvDash<VS>,
+    ) {
+        let period: f64 = self.dashes.iter().map(|(d, g)| d + g).sum();
+        for &(dash, gap) in &self.dashes {
+            dasher.add_dash(dash, gap);
+        }
+        dasher.dash_start(self.dash_offset.rem_euclid(period));
+    }
+}
+
+/// `stroke-dasharray` as `(dash, gap)` pairs (SVG 2 s13.5.6): lengths
+/// separated by commas and / or spaces, an odd list repeated to make it even.
+/// EMPTY - a solid stroke - for `none`, a negative or unreadable entry, a
+/// pattern whose lengths sum to (almost) zero (the dasher would emit a vertex
+/// per period of nothing), or more pairs than AGG's dasher holds (16).
+#[cfg(all(feature = "std", feature = "xml"))]
+fn parse_svg_dash_array(value: Option<&str>) -> Vec<(f64, f64)> {
+    let Some(value) = value.map(str::trim) else {
+        return Vec::new();
+    };
+    if value.is_empty() || value == "none" {
+        return Vec::new();
+    }
+    let mut lengths = Vec::new();
+    for part in value.split(|c: char| c == ',' || c.is_whitespace()) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        match part.trim_end_matches("px").parse::<f64>() {
+            Ok(v) if v.is_finite() && v >= 0.0 => lengths.push(v),
+            _ => return Vec::new(),
+        }
+    }
+    if lengths.len() % 2 == 1 {
+        lengths.extend_from_within(..);
+    }
+    let period: f64 = lengths.iter().sum();
+    if period < 1e-3 || lengths.len() > 32 {
+        return Vec::new();
+    }
+    lengths.chunks_exact(2).map(|p| (p[0], p[1])).collect()
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
@@ -454,7 +612,6 @@ fn render_svg_group_inner(
     parent_color: Option<&str>,
     paint: &SvgPaintContext,
 ) {
-    use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::xml::XmlNodeChild;
 
     // A node's own transform maps its user space into its parent's: it
@@ -471,12 +628,23 @@ fn render_svg_group_inner(
         });
 
     // Inherit style from this group's attributes
+    let inherit = |name: &str, parent: &Option<String>| {
+        presentation_property(node, name).or_else(|| parent.clone())
+    };
+    let inherit_number = |name: &str, parent: Option<f64>| {
+        presentation_property(node, name)
+            .and_then(|s| s.trim().trim_end_matches("px").trim().parse().ok())
+            .or(parent)
+    };
     let group_style = SvgInheritedStyle {
-        fill: presentation_property(node, "fill").or_else(|| parent_style.fill.clone()),
-        stroke: presentation_property(node, "stroke").or_else(|| parent_style.stroke.clone()),
-        stroke_width: presentation_property(node, "stroke-width")
-            .and_then(|s| s.parse().ok())
-            .or(parent_style.stroke_width),
+        fill: inherit("fill", &parent_style.fill),
+        stroke: inherit("stroke", &parent_style.stroke),
+        stroke_width: inherit_number("stroke-width", parent_style.stroke_width),
+        stroke_linecap: inherit("stroke-linecap", &parent_style.stroke_linecap),
+        stroke_linejoin: inherit("stroke-linejoin", &parent_style.stroke_linejoin),
+        stroke_miterlimit: inherit_number("stroke-miterlimit", parent_style.stroke_miterlimit),
+        stroke_dasharray: inherit("stroke-dasharray", &parent_style.stroke_dasharray),
+        stroke_dashoffset: inherit_number("stroke-dashoffset", parent_style.stroke_dashoffset),
     };
     // `color`, the property `currentColor` reads, inherits like the paints.
     let group_color =
@@ -566,18 +734,22 @@ fn render_svg_group_inner(
                         .unwrap_or(1.0);
                     color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
 
-                    let stroke_width = presentation_property(child_node, "stroke-width")
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .or(group_style.stroke_width)
-                        .unwrap_or(1.0);
-
-                    let mut conv_stroke = ConvStroke::new(&mut curved);
-                    conv_stroke.set_width(stroke_width);
-                    conv_stroke.set_line_cap(LineCap::Round);
-                    conv_stroke.set_line_join(LineJoin::Round);
-
-                    let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
-                    agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    // The stroke in user space (dashed, then outlined),
+                    // then the element's transform.
+                    let stroke = SvgStrokeStyle::of(child_node, &group_style);
+                    if stroke.dashes.is_empty() {
+                        let mut conv_stroke = ConvStroke::new(&mut curved);
+                        stroke.configure(&mut conv_stroke);
+                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    } else {
+                        let mut dashed = agg_rust::conv_dash::ConvDash::new(&mut curved);
+                        stroke.dash(&mut dashed);
+                        let mut conv_stroke = ConvStroke::new(&mut dashed);
+                        stroke.configure(&mut conv_stroke);
+                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    }
                 }
             }
             _ => {
@@ -2408,8 +2580,7 @@ mod autotest_generated {
     fn render_svg_group_with_style_explicit_parent_style_is_used() {
         let style = SvgInheritedStyle {
             fill: Some("red".to_string()),
-            stroke: None,
-            stroke_width: None,
+            ..SvgInheritedStyle::default()
         };
         let svg = el_with(
             "svg",
@@ -2943,5 +3114,106 @@ mod autotest_generated {
         .expect("render");
         let size = img.get_size();
         assert_eq!((size.width as u32, size.height as u32), (4, 4));
+    }
+
+    /// The stroke properties of an SVG shape (SVG 2 s13.5): `stroke-linecap`
+    /// (default `butt`), `stroke-linejoin` (default `miter`, limit 4) and
+    /// `stroke-dasharray`. The CPU renderer drew every stroke with round caps,
+    /// round joins and no dashes (PDF9: a dashed line came out solid, a
+    /// square-ended one rounded).
+    #[test]
+    fn an_svg_stroke_takes_its_linecap_linejoin_and_dasharray() {
+        const WHITE: [u8; 4] = [255, 255, 255, 255];
+        const RED_PX: [u8; 4] = [255, 0, 0, 255];
+        let render = |child: XmlNode| {
+            let svg = el_with("svg", &[], vec![child]);
+            let mut p = pixmap(40, 40);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            p
+        };
+
+        // A 6px line from (10, 10) to (30, 10).
+        let line = |extra: &[(&'static str, &'static str)]| {
+            let mut a = vec![
+                ("x1", "10"),
+                ("y1", "10"),
+                ("x2", "30"),
+                ("y2", "10"),
+                ("stroke", "red"),
+                ("stroke-width", "6"),
+            ];
+            a.extend_from_slice(extra);
+            el("line", &a)
+        };
+        let p = render(line(&[]));
+        assert_eq!(
+            px(&p, 8, 10),
+            WHITE,
+            "a butt cap (the default) ends the stroke at its end point"
+        );
+        assert_eq!(px(&p, 12, 10), RED_PX, "the line itself");
+        let p = render(line(&[("stroke-linecap", "square")]));
+        assert_eq!(
+            px(&p, 7, 7),
+            RED_PX,
+            "a square cap extends the stroke by half its width, corners included"
+        );
+        let p = render(line(&[("stroke-linecap", "round")]));
+        assert_eq!(px(&p, 8, 10), RED_PX, "a round cap reaches past the end");
+        assert_ne!(px(&p, 7, 7), RED_PX, "but not into the corner");
+
+        // A 6px right angle with its corner at (5, 5): a miter fills the
+        // outer corner square [2, 5] x [2, 5]; a round or bevel join does not
+        // reach its corner pixel (2, 2).
+        let corner = |join: Option<&'static str>| {
+            let mut a = vec![
+                ("d", "M5 30 L5 5 L30 5"),
+                ("fill", "none"),
+                ("stroke", "red"),
+                ("stroke-width", "6"),
+            ];
+            if let Some(j) = join {
+                a.push(("stroke-linejoin", j));
+            }
+            el("path", &a)
+        };
+        assert_eq!(
+            px(&render(corner(None)), 2, 2),
+            RED_PX,
+            "a miter join (the default) fills the outer corner"
+        );
+        assert_ne!(
+            px(&render(corner(Some("round"))), 2, 2),
+            RED_PX,
+            "a round join cuts it"
+        );
+        assert_ne!(
+            px(&render(corner(Some("bevel"))), 2, 2),
+            RED_PX,
+            "a bevel join cuts it"
+        );
+
+        // A 4px dashed line, 5 on / 5 off from x = 0.
+        let dashed = |extra: &[(&'static str, &'static str)]| {
+            let mut a = vec![
+                ("x1", "0"),
+                ("y1", "10"),
+                ("x2", "40"),
+                ("y2", "10"),
+                ("stroke", "red"),
+                ("stroke-width", "4"),
+                ("stroke-dasharray", "5 5"),
+            ];
+            a.extend_from_slice(extra);
+            el("line", &a)
+        };
+        let p = render(dashed(&[]));
+        assert_eq!(px(&p, 2, 10), RED_PX, "the first dash");
+        assert_eq!(px(&p, 7, 10), WHITE, "the first gap");
+        assert_eq!(px(&p, 12, 10), RED_PX, "the second dash");
+        let p = render(dashed(&[("stroke-dashoffset", "5")]));
+        assert_eq!(px(&p, 2, 10), WHITE, "an offset of 5 starts with the gap");
+        assert_eq!(px(&p, 7, 10), RED_PX, "and the dash follows");
     }
 }

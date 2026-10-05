@@ -2454,8 +2454,6 @@ fn svg_render_size(s: &ParsedSvg, options: &SvgRenderOptions) -> (u32, u32) {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[must_use]
 pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> {
-    use azul_core::resources::RawImageData;
-
     let (target_width, target_height) = svg_render_size(s, &options);
 
     if target_width == 0 || target_height == 0 {
@@ -2469,29 +2467,15 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
         .background_color
         .into_option()
         .map(|c| (c.r, c.g, c.b, c.a));
-    let png_data = crate::cpurender::render_svg_to_png_over(
+    // The rasteriser's own pixels (premultiplied, labelled so): no PNG
+    // encode and decode in between.
+    crate::cpurender::render_svg_to_raw_image_over(
         s.svg_data.as_ref(),
         target_width,
         target_height,
         background,
     )
-    .ok()?;
-
-    // Decode PNG back to raw RGBA (TODO: render_svg_to_rgba to avoid PNG round-trip)
-    let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()?];
-    let info = reader.next_frame(&mut buf).ok()?;
-    buf.truncate(info.buffer_size());
-
-    Some(RawImage {
-        tag: Vec::new().into(),
-        pixels: RawImageData::U8(buf.into()),
-        width: info.width as usize,
-        height: info.height as usize,
-        premultiplied_alpha: false,
-        data_format: RawImageFormat::RGBA8,
-    })
+    .ok()
 }
 
 /// `cpurender`-less stub: SVG rasterization needs the agg-rust pipeline, so
@@ -4268,7 +4252,40 @@ mod autotest_generated {
         let img = p.render(opts).expect("a minimal <svg> must rasterize");
         assert_eq!((img.width, img.height), (8, 8));
         assert_eq!(img.data_format, RawImageFormat::RGBA8);
-        assert!(!img.premultiplied_alpha);
+        assert!(
+            img.premultiplied_alpha,
+            "the rasteriser's pixels are premultiplied, and the image says so"
+        );
+    }
+
+    /// `svg_render` hands back the pixels the rasteriser drew: AGG's
+    /// PREMULTIPLIED RGBA8, labelled so. It encoded them to a PNG and decoded
+    /// that back (a TODO), and the round trip labelled the premultiplied bytes
+    /// STRAIGHT: an image load premultiplied a translucent paint a second
+    /// time, darker than itself (PDF9 seen broken).
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn svg_render_returns_the_rasterised_pixels_without_a_png_round_trip() {
+        let svg = br#"<svg viewBox="0 0 4 4"><rect width="4" height="4" fill="red" fill-opacity="0.5"/></svg>"#;
+        let p = svg_parse(svg, SvgParseOptions::default()).expect("parse");
+        let opts = SvgRenderOptions {
+            target_size: OptionLayoutSize::Some(LayoutSize::new(4, 4)),
+            ..SvgRenderOptions::default()
+        };
+        let img = p.render(opts).expect("rasterize");
+        assert_eq!((img.width, img.height), (4, 4));
+        assert!(
+            img.premultiplied_alpha,
+            "AGG draws premultiplied pixels: the image is labelled premultiplied"
+        );
+        let RawImageData::U8(bytes) = &img.pixels else {
+            panic!("RGBA8 bytes");
+        };
+        let px = &bytes.as_ref()[0..4];
+        assert!(
+            (126..=128).contains(&px[3]) && px[0] == px[3] && px[1] == 0 && px[2] == 0,
+            "half-transparent red over a transparent backdrop, premultiplied: {px:?}"
+        );
     }
 
     #[cfg(feature = "cpurender")]

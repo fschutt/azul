@@ -118,6 +118,21 @@ pub fn get_element_font_size(
     resolve_font_size_slow(styled_dom, dom_id, node_state) * get_effective_zoom(styled_dom, dom_id)
 }
 
+/// [`get_element_font_size`] with the viewport units (`vw` / `vh` / `vmin` /
+/// `vmax`) of the node's and its ancestors' `font-size` resolved against
+/// `viewport` - the size the text is laid out in. (The plain getter resolves
+/// them against a zero viewport, to 0.)
+#[must_use]
+pub fn get_element_font_size_in_viewport(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> f32 {
+    resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, viewport)
+        * get_effective_zoom(styled_dom, dom_id)
+}
+
 // ==== CSS zoom (LAYOUT7) ====
 
 /// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
@@ -272,6 +287,121 @@ pub fn scale_length_for_zoom(
     }
 }
 
+/// CSS `zoom` for the lengths the RENDERER resolves by itself: a display-list
+/// item carries a border width, a corner radius or a shadow length as
+/// declared, and the painters resolve them with no font size and no zoom.
+/// In a zoomed subtree such a length is resolved here instead - an em against
+/// the node's (zoomed) font size, a rem against the root's - and scaled by
+/// [`scale_length_for_zoom`]; a percentage or a viewport length stays as it
+/// is (the painter resolves it against the already zoomed box).
+#[derive(Debug, Clone, Copy)]
+pub struct PaintZoom {
+    zoom: f32,
+    root_zoom: f32,
+    em: f32,
+    rem: f32,
+}
+
+impl PaintZoom {
+    /// The zoom of node `node_id`, `None` when it is 1 (its paint lengths
+    /// stay as declared; no font size is resolved then).
+    #[must_use]
+    pub fn of(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> Option<Self> {
+        let zoom = get_effective_zoom(styled_dom, node_id);
+        if (zoom - 1.0).abs() <= f32::EPSILON {
+            return None;
+        }
+        Some(Self {
+            zoom,
+            root_zoom: get_effective_zoom(styled_dom, NodeId::new(0)),
+            em: get_element_font_size(styled_dom, node_id, node_state),
+            rem: get_root_font_size(styled_dom, node_state),
+        })
+    }
+
+    /// `v` under this zoom, in px (a percentage / viewport length as it is).
+    #[must_use]
+    pub fn length(
+        &self,
+        v: azul_css::props::basic::pixel::PixelValue,
+    ) -> azul_css::props::basic::pixel::PixelValue {
+        use azul_css::props::basic::{pixel::PixelValue, SizeMetric};
+        match v.metric {
+            SizeMetric::Percent
+            | SizeMetric::Vw
+            | SizeMetric::Vh
+            | SizeMetric::Vmin
+            | SizeMetric::Vmax => v,
+            metric => PixelValue::px(scale_length_for_zoom(
+                metric,
+                v.to_pixels_internal(0.0, self.em, self.rem),
+                self.zoom,
+                self.root_zoom,
+            )),
+        }
+    }
+
+    /// Four corner radii under this zoom.
+    #[must_use]
+    pub fn border_radius(&self, r: StyleBorderRadius) -> StyleBorderRadius {
+        StyleBorderRadius {
+            top_left: self.length(r.top_left),
+            top_right: self.length(r.top_right),
+            bottom_right: self.length(r.bottom_right),
+            bottom_left: self.length(r.bottom_left),
+        }
+    }
+
+    /// The four border widths under this zoom (a side without a width keeps
+    /// none).
+    #[must_use]
+    pub fn border_widths(
+        &self,
+        w: crate::solver3::display_list::StyleBorderWidths,
+    ) -> crate::solver3::display_list::StyleBorderWidths {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::style::{
+                LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+                LayoutBorderTopWidth,
+            },
+        };
+        macro_rules! side {
+            ($v:expr, $Width:ident) => {
+                $v.map(|v| match v {
+                    CssPropertyValue::Exact(x) => CssPropertyValue::Exact($Width {
+                        inner: self.length(x.inner),
+                    }),
+                    other => other,
+                })
+            };
+        }
+        crate::solver3::display_list::StyleBorderWidths {
+            top: side!(w.top, LayoutBorderTopWidth),
+            right: side!(w.right, LayoutBorderRightWidth),
+            bottom: side!(w.bottom, LayoutBorderBottomWidth),
+            left: side!(w.left, LayoutBorderLeftWidth),
+        }
+    }
+
+    /// A box shadow's lengths under this zoom.
+    #[must_use]
+    pub fn box_shadow(
+        &self,
+        s: azul_css::props::style::box_shadow::StyleBoxShadow,
+    ) -> azul_css::props::style::box_shadow::StyleBoxShadow {
+        use azul_css::props::basic::pixel::PixelValueNoPercent;
+        let z = |v: PixelValueNoPercent| PixelValueNoPercent::from(self.length(v.inner));
+        azul_css::props::style::box_shadow::StyleBoxShadow {
+            offset_x: z(s.offset_x),
+            offset_y: z(s.offset_y),
+            blur_radius: z(s.blur_radius),
+            spread_radius: z(s.spread_radius),
+            ..s
+        }
+    }
+}
+
 /// Bottom-up single-pass resolve of every node's font-size.
 /// Parents are computed before children (DFS pre-order invariant
 /// on `NodeId::index()`), so `em` inherits via the parent's
@@ -415,6 +545,16 @@ fn resolve_font_size_slow(
     dom_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
+    resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, PhysicalSize::new(0.0, 0.0))
+}
+
+/// [`resolve_font_size_slow`] with viewport units resolved against `viewport`.
+fn resolve_font_size_slow_in_viewport(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> f32 {
     // ITERATIVE resolution (was unbounded self-recursion up the parent chain, which
     // stack-overflowed on deeply nested DOMs and was O(N*depth)). We walk `parent_id`
     // in a loop to collect the ancestor chain, then resolve top-down so each node's
@@ -441,6 +581,7 @@ fn resolve_font_size_slow(
             root_state,
             DEFAULT_FONT_SIZE,
             DEFAULT_FONT_SIZE,
+            viewport,
         )
     };
 
@@ -471,8 +612,14 @@ fn resolve_font_size_slow(
         } else {
             root_font_size
         };
-        resolved =
-            resolve_font_size_one(styled_dom, id, this_state, parent_font_size, this_root_fs);
+        resolved = resolve_font_size_one(
+            styled_dom,
+            id,
+            this_state,
+            parent_font_size,
+            this_root_fs,
+            viewport,
+        );
         parent_font_size = resolved;
     }
     resolved
@@ -481,13 +628,15 @@ fn resolve_font_size_slow(
 /// Resolves a single node's font-size given its already-resolved `parent_font_size`
 /// and `root_font_size`. Contains the per-node logic that the old recursive
 /// `resolve_font_size_slow` applied at each frame (computed-values px short-circuit,
-/// then a full cascade walk), with no recursion of its own.
+/// then a full cascade walk), with no recursion of its own. Viewport units
+/// resolve against `viewport`.
 fn resolve_font_size_one(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
     parent_font_size: f32,
     root_font_size: f32,
+    viewport: PhysicalSize,
 ) -> f32 {
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let cache = &styled_dom.css_property_cache.ptr;
@@ -516,7 +665,7 @@ fn resolve_font_size_one(
                 root_font_size,
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
-                viewport_size: PhysicalSize::new(0.0, 0.0),
+                viewport_size: viewport,
             };
             v.inner
                 .resolve_with_context(&context, PropertyContext::FontSize)
@@ -2018,14 +2167,17 @@ pub fn get_style_border_radius(
     use azul_css::props::basic::pixel::PixelValue;
     // FAST PATH: all four corners live in tier2_cold as i16 px × 10. The
     // common case (no rounded corners anywhere) reads four bytes and bails.
+    // The radii are paint lengths (the Border item carries them to the
+    // renderer): authored px, scaled by the node's CSS `zoom`.
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
             let idx = node_id.index();
+            let zoom = get_effective_zoom(styled_dom, node_id);
             let decode = |raw: i16| -> PixelValue {
                 if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     PixelValue::px(0.0)
                 } else {
-                    PixelValue::px(f32::from(raw) / 10.0)
+                    PixelValue::px(f32::from(raw) / 10.0 * zoom)
                 }
             };
             return StyleBorderRadius {
@@ -2070,11 +2222,15 @@ pub fn get_style_border_radius(
         .map(|v| v.inner)
         .unwrap_or_default();
 
-    StyleBorderRadius {
+    let radius = StyleBorderRadius {
         top_left,
         top_right,
         bottom_right,
         bottom_left,
+    };
+    match PaintZoom::of(styled_dom, node_id, node_state) {
+        Some(zoom) => zoom.border_radius(radius),
+        None => radius,
     }
 }
 
@@ -2103,13 +2259,16 @@ pub fn get_border_radius(
             let tr = cc.get_border_top_right_radius_raw(idx);
             let br = cc.get_border_bottom_right_radius_raw(idx);
             let bl = cc.get_border_bottom_left_radius_raw(idx);
-            // sentinel = "unset" = 0 px (no corner radius)
+            // sentinel = "unset" = 0 px (no corner radius). The cache holds
+            // authored px, an absolute length: CSS `zoom` scales it (1.0 and
+            // no memo read in an unzoomed document).
             let thresh = azul_css::compact_cache::I16_SENTINEL_THRESHOLD;
+            let zoom = get_effective_zoom(styled_dom, node_id);
             let decode = |raw: i16| -> f32 {
                 if raw >= thresh {
                     0.0
                 } else {
-                    f32::from(raw) / 10.0
+                    f32::from(raw) / 10.0 * zoom
                 }
             };
             return BorderRadius {
@@ -2174,19 +2333,21 @@ pub fn get_border_radius(
         .and_then(|br| br.get_property().copied())
         .unwrap_or_default();
 
+    // CSS `zoom`: an absolute radius scales by the effective zoom, an em or a
+    // percentage already follows the zoomed font size / box (`zoomed_length`).
+    let resolve = |v: azul_css::props::basic::pixel::PixelValue| -> f32 {
+        zoomed_length(
+            styled_dom,
+            node_id,
+            v.metric,
+            v.resolve_with_context(&context, PropertyContext::BorderRadius),
+        )
+    };
     BorderRadius {
-        top_left: top_left
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
-        top_right: top_right
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
-        bottom_right: bottom_right
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
-        bottom_left: bottom_left
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
+        top_left: resolve(top_left.inner),
+        top_right: resolve(top_right.inner),
+        bottom_right: resolve(bottom_right.inner),
+        bottom_left: resolve(bottom_left.inner),
     }
 }
 
@@ -2502,11 +2663,46 @@ fn background_contents_as_declared(
     }
 }
 
+/// The colour an ancestor's runtime USER OVERRIDE hands down to `dom_id`.
+///
+/// User overrides participate in inheritance: a colour transition writes its
+/// per-tick value as an override on the animated CONTAINER
+/// (`set_user_property_override_fast`), and the precomputed inherited tables
+/// (the compact cache, `computed_values`) cannot see it. Walk self -> root:
+/// the nearest override wins unless a closer node declares its OWN colour,
+/// which re-roots inheritance below it. Free when no node has an override.
+fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<ColorU> {
+    let cache = &styled_dom.css_property_cache.ptr;
+    if cache.user_overridden_properties.is_empty() {
+        return None;
+    }
+    let node_data = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let ty = azul_css::props::property::CssPropertyType::TextColor;
+    let mut cur = Some(dom_id);
+    while let Some(n) = cur {
+        if let Some(azul_css::props::property::CssProperty::TextColor(v)) =
+            cache.get_user_override(&n, &ty)
+        {
+            return v.get_property().map(|c| c.inner);
+        }
+        if n.index() < node_data.len() && cache.has_own_declaration(&node_data[n], &n, &ty) {
+            return None;
+        }
+        cur = hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+    }
+    None
+}
+
 /// The used `color` of `dom_id` - what its text paints in and what
 /// `currentcolor` means for it (a border without a colour of its own, CSS
-/// Backgrounds 3 s4.2). The one resolution of the property: the compact
-/// cache's inherited value, else the cascade, `system:` keywords resolved
-/// against the theme the cascade evaluated.
+/// Backgrounds 3 s4.2). The one resolution of the property, for the text
+/// painter and the border alike: an ancestor's runtime override (a colour
+/// transition, [`inherited_color_override`]), else the compact cache's
+/// inherited value, else the cascade, else the themed UA default;
+/// `system:` keywords resolved against the theme the cascade evaluated.
 #[allow(clippy::cast_possible_truncation)] // the packed 0xRRGGBBAA bytes
 #[must_use]
 pub fn get_used_text_color(
@@ -2515,7 +2711,7 @@ pub fn get_used_text_color(
     node_state: &StyledNodeState,
 ) -> ColorU {
     let cache = &styled_dom.css_property_cache.ptr;
-    let color_from_cache = {
+    let color_from_cache = inherited_color_override(styled_dom, dom_id).or_else(|| {
         // FAST PATH: compact cache for text color
         let mut fast_color = None;
         if node_state.is_normal() {
@@ -2539,7 +2735,7 @@ pub fn get_used_text_color(
                 .and_then(|v| v.get_property().copied())
                 .map(|v| v.inner)
         })
-    };
+    });
 
     // The UA's `color` default is THEMED and CASCADED (the root's
     // `cascaded_props`, every descendant's `computed_values`, the compact
@@ -2553,12 +2749,15 @@ pub fn get_used_text_color(
     let color = color_from_cache.unwrap_or_else(|| {
         debug_assert!(
             !cache.ua_applied,
-            "get_style_properties: node {} has no `color` in its resolved style although the UA \
+            "get_used_text_color: node {} has no `color` in its resolved style although the UA \
              pass ran — the themed root default did not reach it (theme-chain analysis \
              2026-09-12, R1)",
             dom_id.index()
         );
-        ColorU::BLACK
+        // The themed UA default of the SAME context the cascade evaluated
+        // this DOM against (black is invisible on a dark window).
+        let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_default();
+        azul_core::ua_css::evaluate_ua_root_text_color(&ctx).inner
     });
     // `color: system:<slot>` arrives as a token (inherited like any colour);
     // this is where it becomes the colour of the theme the cascade evaluated.
@@ -4629,6 +4828,26 @@ pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
+    collect_font_stacks_from_styled_dom_in_viewport(
+        styled_dom,
+        platform,
+        PhysicalSize::new(0.0, 0.0),
+    )
+}
+
+/// [`collect_font_stacks_from_styled_dom`] for text laid out in `viewport`:
+/// a chain's optical size is the text's USED font size, and a `font-size` in
+/// viewport units (`5vw`) is only known against the viewport - against a zero
+/// one it was 0 px, the text asked for its real size, missed the chain and
+/// was drawn by the fallback (SYSUI8 s8).
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use]
+pub fn collect_font_stacks_from_styled_dom_in_viewport(
+    styled_dom: &StyledDom,
+    platform: &azul_css::system::Platform,
+    viewport: PhysicalSize,
+) -> CollectedFontStacks {
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
     let mut font_refs: HashMap<usize, azul_css::props::basic::font::FontRef> = HashMap::new();
@@ -4739,9 +4958,9 @@ pub fn collect_font_stacks_from_styled_dom(
         // And on the optical size of the node's font size: a variable face
         // with an `opsz` axis (macOS's system font) is a different instance
         // per size, and each needs its chain resolved and its face loaded.
-        let optical_size = crate::text3::cache::optical_size_for(get_element_font_size(
-            styled_dom, dom_id, node_state,
-        ));
+        let optical_size = crate::text3::cache::optical_size_for(
+            get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport),
+        );
         let key = (
             fh,
             super::fc::convert_font_weight(weight) as u16,
@@ -5707,7 +5926,27 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     font_manager: &crate::text3::cache::FontManager<T>,
     platform: &azul_css::system::Platform,
 ) -> ResolvedFontChains {
-    let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
+    collect_and_resolve_font_chains_with_registration_in_viewport(
+        styled_dom,
+        fc_cache,
+        font_manager,
+        platform,
+        PhysicalSize::new(0.0, 0.0),
+    )
+}
+
+/// [`collect_and_resolve_font_chains_with_registration`] for text laid out in
+/// `viewport` (the chains' optical sizes of `vw` / `vh` font sizes:
+/// [`collect_font_stacks_from_styled_dom_in_viewport`]).
+#[must_use]
+pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    fc_cache: &FcFontCache,
+    font_manager: &crate::text3::cache::FontManager<T>,
+    platform: &azul_css::system::Platform,
+    viewport: PhysicalSize,
+) -> ResolvedFontChains {
+    let collected = collect_font_stacks_from_styled_dom_in_viewport(styled_dom, platform, viewport);
 
     // Register embedded FontRefs (from the same scan, no second pass)
     for font_ref in collected.font_refs.values() {
@@ -7595,6 +7834,14 @@ pub fn get_box_shadows(
     {
         if !shadows.contains(&shadow) {
             shadows.push(shadow);
+        }
+    }
+    // CSS `zoom` (LAYOUT7): a shadow's lengths are paint lengths.
+    if !shadows.is_empty() {
+        if let Some(zoom) = PaintZoom::of(styled_dom, node_id, node_state) {
+            for s in &mut shadows {
+                *s = zoom.box_shadow(*s);
+            }
         }
     }
     shadows
@@ -9802,7 +10049,14 @@ mod autotest_generated {
             (f32::MAX, f32::MIN),
             (-1.0, -1.0),
         ] {
-            let px = resolve_font_size_one(&sd, root, &st, parent, rootsz);
+            let px = resolve_font_size_one(
+                &sd,
+                root,
+                &st,
+                parent,
+                rootsz,
+                PhysicalSize::new(0.0, 0.0),
+            );
             assert_eq!(
                 px, DEFAULT_FONT_SIZE,
                 "an unstyled node ignores the context and falls back to the default \
@@ -10094,6 +10348,58 @@ mod autotest_generated {
         }
     }
 
+    /// CSS `zoom` scales every absolute length of the zoomed subtree (Chrome):
+    /// the corner radii and the box shadow too, not only the box's size. (azul
+    /// has no CSS `outline` property, so there is no outline length to zoom.)
+    #[test]
+    fn css_zoom_scales_border_radius_and_box_shadows() {
+        let sd = body_with_divs(
+            1,
+            "div { zoom: 2; border-radius: 6px; box-shadow: 1px 2px 3px 4px black; }",
+        );
+        let child = NodeId::new(1);
+        let element = PhysicalSizeImport {
+            width: 100.0,
+            height: 50.0,
+        };
+        let viewport = LogicalSize::new(800.0, 600.0);
+
+        // The compact-cache fast path (normal state) and the cascade (hover).
+        for st in [normal(), hovered()] {
+            let r = get_border_radius(&sd, child, &st, element, viewport);
+            for corner in [r.top_left, r.top_right, r.bottom_left, r.bottom_right] {
+                assert_eq!(corner, 12.0, "a 6px radius under zoom: 2 is 12px");
+            }
+        }
+
+        let shadows = get_box_shadows(&sd, child, &normal());
+        assert_eq!(shadows.len(), 1, "one distinct shadow");
+        let px = |v: &azul_css::props::basic::pixel::PixelValueNoPercent| {
+            v.inner.to_pixels_internal(0.0, 16.0, 16.0)
+        };
+        let s = shadows[0];
+        assert_eq!(
+            [
+                px(&s.offset_x),
+                px(&s.offset_y),
+                px(&s.blur_radius),
+                px(&s.spread_radius)
+            ],
+            [2.0, 4.0, 6.0, 8.0],
+            "a 1px 2px 3px 4px shadow under zoom: 2 is 2px 4px 6px 8px"
+        );
+
+        // An unzoomed sibling document keeps its lengths as they are.
+        let plain = body_with_divs(
+            1,
+            "div { border-radius: 6px; box-shadow: 1px 2px 3px 4px black; }",
+        );
+        let r = get_border_radius(&plain, child, &normal(), element, viewport);
+        assert_eq!(r.top_left, 6.0);
+        let s = get_box_shadows(&plain, child, &normal())[0];
+        assert_eq!(px(&s.spread_radius), 4.0);
+    }
+
     // =====================================================================
     // Smoke coverage for the remaining StyledDom getters
     // =====================================================================
@@ -10283,6 +10589,64 @@ mod autotest_generated {
             get_inline_border_info(&sd, id, &st, &info, PhysicalSize::new(f32::NAN, f32::NAN))
                 .expect("px borders do not depend on the viewport");
         assert!(nan_vp.top.is_finite() && nan_vp.padding_top.is_finite());
+    }
+
+    /// A border without a colour of its own is `currentcolor`: the colour the
+    /// node's text USES. A colour transition writes its per-tick value as a
+    /// user override on the animated node (`set_user_property_override_fast`:
+    /// no re-inheritance, no compact-cache patch), so a child sees it only
+    /// through the ancestor walk the text painter did (`live_color`) - the
+    /// border read the stale inherited colour (WPT8 found (f)).
+    #[test]
+    fn a_currentcolor_border_follows_an_animated_colour_on_its_parent() {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::{property::CssProperty, style::text::StyleTextColor},
+        };
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_class("p".into())
+                .with_child(Dom::create_div().with_class("c".into())),
+        );
+        let mut sd = StyledDom::create(&mut dom, parse(".p { color: red; } .c { border: 2px solid; }"));
+        let child = NodeId::new(2);
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let blue = ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        };
+        let top = |sd: &StyledDom| {
+            get_border_info(sd, child, &normal())
+                .colors
+                .top
+                .and_then(|c| c.get_property().copied())
+                .map(|c| c.inner)
+        };
+        assert_eq!(top(&sd), Some(red), "currentcolor is the inherited red");
+
+        sd.set_user_property_override_fast(
+            &NodeId::new(1),
+            &[CssProperty::TextColor(CssPropertyValue::Exact(
+                StyleTextColor { inner: blue },
+            ))],
+        );
+        assert_eq!(
+            get_used_text_color(&sd, child, &normal()),
+            blue,
+            "the child's used colour follows its parent's animated colour"
+        );
+        assert_eq!(
+            top(&sd),
+            Some(blue),
+            "and so does its currentcolor border"
+        );
     }
 
     #[test]

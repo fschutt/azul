@@ -1910,6 +1910,16 @@ impl IOSWindow {
         let Some(lw) = self.common.layout_window.as_ref() else {
             return;
         };
+        // The layout tail's accessibility pass (`LayoutWindow::update_a11y_tree`)
+        // diffs the tree against what was published and publishes NOTHING
+        // when nothing a screen reader can see changed: then the element
+        // list built from the last snapshot is still right, and rebuilding
+        // the whole snapshot after every regenerate was a full walk for
+        // nothing (A11YPATCH8 left 3). The first pass publishes the whole
+        // tree; an explicit `a11y_dirty` still rebuilds.
+        if !lw.a11y_manager.last_pass.published && !self.common.a11y_dirty {
+            return;
+        }
         let snapshot = lw.build_a11y_snapshot();
         let view = (&*self.ui_view as *const Object) as *mut Object;
         self.accessibility_adapter.update_snapshot(snapshot, view);

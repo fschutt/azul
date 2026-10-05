@@ -4211,24 +4211,21 @@ fn render_text_prerendered_lcd(
     };
     let lut = lcd_distribution_lut();
 
-    // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
+    // The run's clip, as WHOLE PIXELS: `text_run_clip` (the item clip_rect
+    // cut to the stack clip, device px) through `text_clip_pixel_box` - the
+    // very box the sweep and the grayscale path paint under, so a fractional
+    // clip cuts the tiles at the same pixel (this path used to snap the
+    // clip_rect OUTWARD on its own and paint one column / row more).
     // NOTE: `clip_rect` arrives ALREADY scroll-projected by the caller
     // (`text_clip = scroll_rect(clip_rect)` in the Text arm) — do not
     // subtract `scroll_offset` here again.
-    let cr = clip_rect;
-    let mut cx0 = (cr.origin.x * dpi_factor).floor() as i32;
-    let mut cy0 = (cr.origin.y * dpi_factor).floor() as i32;
-    let mut cx1 = ((cr.origin.x + cr.size.width) * dpi_factor).ceil() as i32;
-    let mut cy1 = ((cr.origin.y + cr.size.height) * dpi_factor).ceil() as i32;
-    if let Some(c) = clip {
-        cx0 = cx0.max(c.x as i32);
-        cy0 = cy0.max(c.y as i32);
-        cx1 = cx1.min((c.x + c.width) as i32);
-        cy1 = cy1.min((c.y + c.height) as i32);
-    }
-    if cx1 <= cx0 || cy1 <= cy0 {
+    let Some((bx0, by0, bx1, by1)) = text_run_clip(clip_rect, clip, dpi_factor)
+        .and_then(|c| text_clip_pixel_box(c, pixmap.width, pixmap.height))
+    else {
         return true; // fully clipped: nothing to paint, and nothing missed
-    }
+    };
+    // `clip_box_i`'s inclusive form, made exclusive for the tile copies.
+    let (cx0, cy0, cx1, cy1) = (bx0, by0, bx1 + 1, by1 + 1);
     // The same box, for the sweep the overlapping components take (pass
     // 2a): it used to get the STACK clip alone, so with no stack clip - or
     // one wider than the run's clip_rect - the overlapping glyphs of a run
@@ -5980,17 +5977,23 @@ pub fn render_component_preview(
     // --- Font resolution ---
     {
         use crate::{
-            solver3::getters::collect_and_resolve_font_chains_with_registration,
+            solver3::getters::collect_and_resolve_font_chains_with_registration_in_viewport,
             text3::default::PathLoader,
         };
 
         let platform = azul_css::system::Platform::current();
 
-        let chains = collect_and_resolve_font_chains_with_registration(
+        // The preview's text is laid out in `viewport`: a `vw` font size's
+        // chain is collected at the size the text asks for.
+        let chains = collect_and_resolve_font_chains_with_registration_in_viewport(
             styled_dom,
             &preview_font_manager.fc_cache,
             &preview_font_manager,
             &platform,
+            azul_css::props::basic::PhysicalSize::new(
+                viewport.size.width,
+                viewport.size.height,
+            ),
         );
         let loader = PathLoader::new();
         let _failed = preview_font_manager.load_missing_for_chains(&chains, |bytes, index| {
@@ -10774,6 +10777,100 @@ pub(super) mod lcd_pretile_tests {
             "pre-blended tiles diverge from the sweep on {diff} bytes — same pipeline must mean \
              same pixels (check FIR padding and tile placement)"
         );
+    }
+
+    /// A FRACTIONAL clip cuts tiled LCD text where it cuts the other text
+    /// paths (Engine backlog 5, FB3's "text clip twins"): the sweep and the
+    /// grayscale path paint the whole pixels `text_clip_pixel_box` gives
+    /// `text_run_clip`, while the tile path kept its own i32 box, snapped
+    /// OUTWARD from the clip_rect - a clip ending at x = 100.5 let the tiles
+    /// paint column 100, which the sweep leaves alone.
+    #[test]
+    fn a_fractional_clip_cuts_tiled_lcd_text_where_it_cuts_grayscale_text() {
+        let Some(font) = load_test_font() else {
+            eprintln!("no system test font — skipping");
+            return;
+        };
+        if !text_lcd_enabled() || lcd_linear_params().is_none() || !lcd_pretile_enabled() {
+            eprintln!("no LCD tile path in this configuration — skipping");
+            return;
+        }
+        let (rr, fm, font_hash) = rr_with(&font);
+        let font_size = 24.0;
+        let glyphs = shape(&font, "HHHHHHHHHHHHHHHHHHHH", font_size, 8.0, 40.0);
+        let bg = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let color = ColorU {
+            r: 20,
+            g: 20,
+            b: 20,
+            a: 255,
+        };
+        let proven = LogicalRect {
+            origin: LogicalPosition {
+                x: -10_000.0,
+                y: -10_000.0,
+            },
+            size: LogicalSize {
+                width: 20_000.0,
+                height: 20_000.0,
+            },
+        };
+        // Every right edge x + 0.5 across the run's middle (one of them lands
+        // in a stem), and a fractional bottom edge through the glyphs.
+        for right in 60..140u16 {
+            let clip_rect = LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize {
+                    width: f32::from(right) + 0.5,
+                    height: 35.5,
+                },
+            };
+            let paint = |uniform_bg| {
+                let mut pm = AzulPixmap::new(320, 60).unwrap();
+                pm.fill(bg.r, bg.g, bg.b, 255);
+                let mut gc = GlyphCache::new();
+                render_text_with_bg(
+                    &glyphs,
+                    font_hash,
+                    font_size,
+                    color,
+                    &mut pm,
+                    &clip_rect,
+                    None,
+                    &rr,
+                    &fm,
+                    1.0,
+                    &mut gc,
+                    (0.0, 0.0),
+                    false,
+                    uniform_bg,
+                );
+                pm
+            };
+            let sweep = paint(None);
+            let tiles = paint(Some((bg, proven.into())));
+            let diff: Vec<usize> = sweep
+                .data
+                .iter()
+                .zip(tiles.data.iter())
+                .enumerate()
+                .filter(|(_, (a, b))| a != b)
+                .map(|(i, _)| i / 4)
+                .collect();
+            assert!(
+                diff.is_empty(),
+                "clip right edge {right}.5, bottom 35.5: the tiles paint {} pixels the sweep does \
+                 not, first at ({}, {})",
+                diff.len(),
+                diff[0] % 320,
+                diff[0] / 320
+            );
+        }
     }
 }
 

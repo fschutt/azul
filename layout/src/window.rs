@@ -1107,6 +1107,10 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         font_stacks_hash: _,
         preedit_shaped_node: _,
         seat_preedit_shaped: _,
+        dom_lint_runs: _,
+        // One small entry per laid-out DOM.
+        dom_lint_stamps: _,
+        a11y_tree_updates: _,
         timers: _,
         threads: _,
         thread_owners: _,
@@ -1988,6 +1992,19 @@ pub struct LayoutWindow {
     /// Which node each non-primary seat's composition is spliced into
     /// (9b-ii-a-i-d-ii-c); the primary's is `preedit_shaped_node`.
     seat_preedit_shaped: BTreeMap<u64, (DomId, NodeId)>,
+    /// How many DOM lint passes ran (`dom_lint`'s four developer lints over
+    /// one DOM each) - observability for the "lint only what is new" rule.
+    pub dom_lint_runs: u64,
+    /// Per DOM, the arena (node data address, node count) the lints last
+    /// walked. A relayout of the SAME DOM - the retained `StyledDom` handed
+    /// back by value - keeps its arena and its findings, so it is not walked
+    /// again; a new generation, a re-rendered `VirtualView` child or any
+    /// other arena is.
+    dom_lint_stamps: BTreeMap<DomId, (usize, usize)>,
+    /// How many accessibility passes ran (`update_a11y_tree`, which every
+    /// layout pass ends with) - so a shell can tell whether the tree is
+    /// already current after a regeneration (A11YPATCH8).
+    pub a11y_tree_updates: u64,
     /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -2517,6 +2534,9 @@ impl LayoutWindow {
             font_stacks_hash: 0,
             preedit_shaped_node: None,
             seat_preedit_shaped: BTreeMap::new(),
+            dom_lint_runs: 0,
+            dom_lint_stamps: BTreeMap::new(),
+            a11y_tree_updates: 0,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
@@ -3031,13 +3051,35 @@ impl LayoutWindow {
         // block (azul does not auto-wrap them in anonymous blocks the way
         // browsers do — state on a text node is inert). One warning per
         // unique finding per process; a correct app emits nothing.
+        //
+        // Only over a DOM that is NEW to the lints (ANIMFRAME8 s8): the ROOT
+        // of a new generation, a child DOM its VirtualView re-rendered this
+        // pass (not in `kept_doms`), or an arena that is not the one linted
+        // last (the first layout; a DOM swapped in through the relayout
+        // entry). A relayout of the retained DOM - an animation frame, a
+        // resize, a restyle - walked all four lints again for findings that
+        // cannot have changed.
         if result.is_ok() {
-            for lr in self.layout_results.values() {
+            for (dom_id, lr) in &self.layout_results {
+                let arena = lr.styled_dom.node_data.as_ref();
+                let stamp = (arena.as_ptr() as usize, arena.len());
+                let rendered_now = if *dom_id == DomId::ROOT_ID {
+                    new_generation
+                } else {
+                    !kept_doms.contains(dom_id)
+                };
+                if !rendered_now && self.dom_lint_stamps.get(dom_id) == Some(&stamp) {
+                    continue;
+                }
+                self.dom_lint_stamps.insert(*dom_id, stamp);
+                self.dom_lint_runs = self.dom_lint_runs.saturating_add(1);
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
                 crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
             }
+            self.dom_lint_stamps
+                .retain(|dom_id, _| self.layout_results.contains_key(dom_id));
         }
 
         result
@@ -6834,7 +6876,7 @@ impl LayoutWindow {
         // This must happen BEFORE layout_document() is called
         {
             use crate::{
-                solver3::getters::collect_and_resolve_font_chains_with_registration,
+                solver3::getters::collect_and_resolve_font_chains_with_registration_in_viewport,
                 text3::default::PathLoader,
             };
 
@@ -6885,11 +6927,17 @@ impl LayoutWindow {
                 // the families alone a relayout that only changed sizes (a
                 // zoom) or weights kept the old chains, and the runs whose
                 // new key no chain had shaped to nothing (SYSUI8).
+                //
+                // A specified size in viewport units (`5vw`) is a different
+                // used size in every window: when a node has one, the
+                // viewport is a font requirement too (a resize re-collects
+                // the chains at the new optical size).
                 let mut h: u64 = 0xcbf2_9ce4_8422_2325;
                 let mut mix = |v: u64| {
                     h = h.rotate_left(13) ^ v;
                     h = h.wrapping_mul(0x0100_0000_01b3);
                 };
+                let mut viewport_sized = false;
                 for (i, &fh) in cc.prev_font_hashes.iter().enumerate() {
                     mix(fh);
                     if i < cc.tier1_enums.len() {
@@ -6897,8 +6945,24 @@ impl LayoutWindow {
                         mix(cc.get_font_style(i) as u64);
                     }
                     if i < cc.tier2_dims.len() {
-                        mix(u64::from(cc.get_font_size_raw(i)));
+                        let raw = cc.get_font_size_raw(i);
+                        mix(u64::from(raw));
+                        viewport_sized |= azul_css::compact_cache::decode_pixel_value_u32(raw)
+                            .is_some_and(|pv| {
+                                use azul_css::props::basic::SizeMetric;
+                                matches!(
+                                    pv.metric,
+                                    SizeMetric::Vw
+                                        | SizeMetric::Vh
+                                        | SizeMetric::Vmin
+                                        | SizeMetric::Vmax
+                                )
+                            });
                     }
+                }
+                if viewport_sized {
+                    mix(u64::from(viewport.size.width.to_bits()));
+                    mix(u64::from(viewport.size.height.to_bits()));
                 }
                 h
             });
@@ -6975,11 +7039,17 @@ impl LayoutWindow {
                 crate::probe::sample_peak_rss("rss:before_font_chain");
                 let mut chains = {
                     let _p = crate::probe::Probe::span("font_chain_resolve");
-                    collect_and_resolve_font_chains_with_registration(
+                    // The DOM's text is laid out in `viewport`: a `vw` font
+                    // size's chain is collected at the size the text asks for.
+                    collect_and_resolve_font_chains_with_registration_in_viewport(
                         &styled_dom,
                         &self.font_manager.fc_cache,
                         &self.font_manager,
                         &platform,
+                        azul_css::props::basic::PhysicalSize::new(
+                            viewport.size.width,
+                            viewport.size.height,
+                        ),
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after
@@ -7214,15 +7284,17 @@ impl LayoutWindow {
                 &previous_size,
             );
         }
-        // M12.7: in the headless web path the GPU cache is empty (sync skipped),
-        // and `.clone()` of an empty hashbrown table drives RawTable::clone's
-        // RawIterRange — which mis-lifts to wasm and loops forever. Use a fresh
-        // empty cache instead (geometry doesn't use it). Desktop unchanged.
-        let gpu_cache = if self.skip_gpu_sync {
-            GpuValueCache::default()
-        } else {
-            self.gpu_state_manager.get_or_create_cache(dom_id).clone()
-        };
+        // The GPU values this pass binds are BORROWED from the manager at the
+        // solve below (`gpu_cache_for_pass`): the whole cache - every key and
+        // value map of the DOM - used to be cloned here on every layout pass
+        // (ANIMFRAME8 s8). M12.7: the headless web path syncs no values and
+        // must not touch a hashbrown table (`.clone()` / a probe of an empty
+        // one mis-lifts to wasm and loops forever): it binds a fresh empty
+        // cache (geometry doesn't use it).
+        let empty_gpu_cache = GpuValueCache::default();
+        if !self.skip_gpu_sync {
+            let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
+        }
 
         // A tween in flight forces the caret solid: the framework suppresses
         // blinking while the caret / selection is animating (user directive).
@@ -7318,6 +7390,8 @@ impl LayoutWindow {
             // Snapshotted BEFORE the closure: it borrows `self` immutably and
             // the layout cache above is already borrowed mutably.
             let virtual_view_sizes = virtual_view_sizes_snapshot;
+            let gpu_cache = gpu_cache_for_pass(&self.gpu_state_manager, dom_id, self.skip_gpu_sync)
+                .unwrap_or(&empty_gpu_cache);
             solver3::layout_tree::with_transient_docks(docks, || {
                 solver3::layout_document(
                     layout_cache,
@@ -7329,7 +7403,7 @@ impl LayoutWindow {
                     &scroll_offsets,
                     &text_selections_map,
                     debug_messages,
-                    Some(&gpu_cache),
+                    Some(gpu_cache),
                     renderer_resources,
                     id_namespace,
                     dom_id,
@@ -7355,7 +7429,11 @@ impl LayoutWindow {
         // The key population this list binds (a cache hit inside
         // `layout_document` serves a list keyed on the same fingerprint).
         if dom_id == DomId::ROOT_ID {
-            self.root_display_list_gpu_fingerprint = Some(gpu_cache.dl_emission_fingerprint());
+            self.root_display_list_gpu_fingerprint = Some(
+                gpu_cache_for_pass(&self.gpu_state_manager, dom_id, self.skip_gpu_sync)
+                    .unwrap_or(&empty_gpu_cache)
+                    .dl_emission_fingerprint(),
+            );
         }
 
         // Hint the allocator to return freed pages after the layout pass
@@ -15167,6 +15245,52 @@ impl LayoutWindow {
                         }
                     }
 
+                    // The same GPU property path for `opacity`, once the
+                    // node's layer exists: the display list's `PushOpacity`
+                    // binds the node's CSS opacity key, both compositors read
+                    // its value live, so the step publishes the value and
+                    // nothing else. The compact cache - where the builder's
+                    // `get_opacity` and `synchronize` read opacity - follows
+                    // the shown value, so a list built mid-fade (or after it)
+                    // paints what is on screen. A node with no bound layer yet
+                    // (a fade starting at 1.0) changes the item list: it takes
+                    // the rebuild path below once, and the next frame is here.
+                    if tr.prop_type == azul_css::props::property::CssPropertyType::Opacity {
+                        let bound = cache.opacity_keys.get(&tr.node).is_some_and(|key| {
+                            result.display_list.items.iter().any(|item| {
+                                matches!(
+                                    item,
+                                    crate::solver3::display_list::DisplayListItem::PushOpacity {
+                                        opacity_key: Some(k),
+                                        ..
+                                    } if k == key
+                                )
+                            })
+                        });
+                        if bound {
+                            result.styled_dom.set_user_property_override_fast(
+                                &tr.node,
+                                core::slice::from_ref(&over),
+                            );
+                            if cache
+                                .refresh_opacity_value_of(&result.styled_dom, tr.node)
+                                .is_some()
+                            {
+                                if let azul_css::props::property::CssProperty::Opacity(v) = &shown {
+                                    if let Some(o) = v.get_property() {
+                                        patch_compact_opacity(
+                                            &mut result.styled_dom,
+                                            tr.node,
+                                            o.inner.normalized(),
+                                        );
+                                    }
+                                }
+                                gpu_values_moved = true;
+                                continue;
+                            }
+                        }
+                    }
+
                     // THE PATCH FAST PATH: colour-carrying paint transitions
                     // rewrite their display-list items in place — no cascade
                     // recompute, no DL rebuild. The from-match doubles as the
@@ -15848,6 +15972,7 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
         let _p = crate::probe::Probe::span("a11y_update_tree");
+        self.a11y_tree_updates = self.a11y_tree_updates.saturating_add(1);
         // The selection on the node a screen reader reads it on - the
         // session's editing host - in that node's text, every paragraph of it
         // (`accessible_selection`).
@@ -22494,8 +22619,12 @@ impl LayoutWindow {
             sync_css_gpu_values(&mut self.gpu_state_manager, dom_id, styled_dom, &size_of);
         }
 
-        // Get GPU cache for this DOM
-        let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
+        // The GPU cache of this DOM, BORROWED for the build (it was cloned
+        // whole on every display-list regeneration).
+        let empty_gpu_cache = GpuValueCache::default();
+        let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
+        let gpu_cache =
+            gpu_cache_for_pass(&self.gpu_state_manager, dom_id, false).unwrap_or(&empty_gpu_cache);
 
         // Get cursor state for display list generation. A tween in flight
         // forces the caret solid (blinking is suppressed while animating).
@@ -22568,11 +22697,14 @@ impl LayoutWindow {
             calculated_positions,
             &scroll_offsets,
             scroll_ids,
-            Some(&gpu_cache),
+            Some(gpu_cache),
             &self.renderer_resources,
             self.id_namespace,
             dom_id,
         );
+        // The key population the list binds, taken while the cache is still
+        // borrowed (the tween pass below needs `self` mutably).
+        let gpu_fingerprint = gpu_cache.dl_emission_fingerprint();
 
         // Restore the cache_map back to layout_cache
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
@@ -22633,8 +22765,7 @@ impl LayoutWindow {
                     layout_result.display_list = display_list.clone();
                 }
                 if dom_id == DomId::ROOT_ID {
-                    self.root_display_list_gpu_fingerprint =
-                        Some(gpu_cache.dl_emission_fingerprint());
+                    self.root_display_list_gpu_fingerprint = Some(gpu_fingerprint);
                 }
                 // PAINT dirt staged for this DOM is served: the list was just
                 // built from the styles it describes. A paint-scope tween
@@ -22686,7 +22817,7 @@ impl LayoutWindow {
                             *cached = (
                                 h,
                                 cached.1,
-                                gpu_cache.dl_emission_fingerprint(),
+                                gpu_fingerprint,
                                 solver3::scroll_geometry_fingerprint(&scroll_offsets),
                                 dl_input_fp,
                                 display_list,
@@ -25445,6 +25576,11 @@ impl LayoutWindow {
             font_stacks_hash: _,
             preedit_shaped_node: _,
             seat_preedit_shaped: _,
+            // A counter and DOM-keyed arena stamps, no node ids.
+            dom_lint_runs: _,
+            dom_lint_stamps: _,
+            // A counter.
+            a11y_tree_updates: _,
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
@@ -25544,6 +25680,16 @@ impl LayoutWindow {
         // the shell stops the OS timers from the manager's stop list.
         for timer_id in thread_owners.timers_to_stop() {
             timers.remove(timer_id);
+        }
+        // A timer ATTACHED to a node (`Timer.node_id`, what
+        // `get_attached_node_size` / `_position` read) follows its node: a
+        // node inserted before it moves its id, and a stale id reads another
+        // node's box. A timer of an unmounted node keeps running but loses
+        // its attachment (no id would be right).
+        for timer in timers.values_mut() {
+            if let Some(id) = timer.node_id.into_option() {
+                timer.node_id = map.resolve_dom_node_id(dom, id).into();
+            }
         }
 
         scroll_manager.remap_node_ids(dom, map);
@@ -28125,6 +28271,292 @@ mod autotest_generated {
         win
     }
 
+    /// Text sized in viewport units is drawn by its own font (SYSUI8 s8): the
+    /// font chains are keyed by the optical size of the text's USED font size,
+    /// and the collector resolved a `vw` size against a ZERO viewport - the
+    /// chain was collected for 0 px, the text asked for 40 px, missed, and was
+    /// drawn by the fallback.
+    #[test]
+    fn text_sized_in_viewport_units_is_drawn_by_its_own_font() {
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("font-size: 5vw;")
+                .with_child(Dom::create_text("Hi")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 800.0, 600.0);
+        let sizes: Vec<u16> = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .map(|k| k.optical_size)
+            .collect();
+        assert!(
+            sizes.contains(&40),
+            "5vw of an 800px window is 40px: the text's chain is collected at that optical size \
+             (collected: {sizes:?})"
+        );
+    }
+
+    /// ... and after a resize. The layout pass skips font resolution when the
+    /// DOM's font requirements are unchanged (family, weight, style and the
+    /// SPECIFIED size of every node), and `5vw` is the same specified size in
+    /// any window: the text, 20 px after the resize, kept only its 40 px chain.
+    #[test]
+    fn text_sized_in_viewport_units_keeps_its_own_font_after_a_resize() {
+        let dom = || {
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("font-size: 5vw;")
+                    .with_child(Dom::create_text("Hi")),
+            )
+        };
+        let mut win = laid_out(StyledDom::create_from_dom(dom()), 800.0, 600.0);
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(400.0, 600.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        win.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom()),
+            &ws,
+            &rr,
+            &sc,
+            &mut dbg,
+        )
+        .expect("the resized window lays out");
+        let sizes: Vec<u16> = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .map(|k| k.optical_size)
+            .collect();
+        assert!(
+            sizes.contains(&20),
+            "5vw of a 400px window is 20px: the resize collects the text's chain at that size \
+             (collected: {sizes:?})"
+        );
+    }
+
+    /// A timer attached to a node reads ITS node's box after a rebuild that
+    /// moves the node's id (THREADS8): `remap_node_ids` dropped the timers of
+    /// unmounted nodes but left `Timer.node_id` as it was, so a node inserted
+    /// before the attached one made the timer read its new neighbour
+    /// (`TimerCallbackInfo::get_attached_node_size`).
+    #[test]
+    fn a_timer_reads_its_own_nodes_size_after_a_node_is_inserted_before_it() {
+        let page = |inserted: bool| {
+            let mut body = Dom::create_body();
+            if inserted {
+                body = body.with_child(
+                    Dom::create_div()
+                        .with_id("inserted".into())
+                        .with_css("width: 10px; height: 10px;"),
+                );
+            }
+            StyledDom::create_from_dom(
+                body.with_child(
+                    Dom::create_div()
+                        .with_id("target".into())
+                        .with_css("width: 30px; height: 40px;"),
+                ),
+            )
+        };
+        let target_in = |win: &LayoutWindow| {
+            let sd = &win.layout_results[&DomId::ROOT_ID].styled_dom;
+            let node_data = sd.node_data.as_container();
+            let node = (0..node_data.len())
+                .map(NodeId::new)
+                .find(|n| {
+                    node_data[*n]
+                        .get_ids_and_classes()
+                        .iter()
+                        .any(|c| matches!(c.as_id(), Some(s) if s == "target"))
+                })
+                .expect("the target node");
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            }
+        };
+
+        let mut win = laid_out(page(false), 300.0, 200.0);
+        let target = target_in(&win);
+        assert_eq!(win.get_node_size(target), Some(size(30.0, 40.0)), "harness");
+        let timer_id = TimerId { id: 7 };
+        win.add_timer(
+            timer_id,
+            Timer {
+                node_id: Some(target).into(),
+                ..Timer::default()
+            },
+        );
+
+        // The app's next DOM, installed as the shells install one: the
+        // reconciliation, the layout, its completion.
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(300.0, 200.0);
+        let mut next = page(true);
+        let pending = win.begin_reconciliation(
+            DomId::ROOT_ID,
+            &mut next,
+            azul_core::task::Instant::now(),
+        );
+        win.layout_new_generation(
+            next,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the next DOM lays out");
+        win.finish_reconciliation(DomId::ROOT_ID, &pending);
+
+        let moved = target_in(&win);
+        assert_ne!(moved, target, "harness: the insertion moved the target's id");
+        let attached = win
+            .get_timer(&timer_id)
+            .and_then(|t| t.node_id.into_option())
+            .expect("the timer stays attached to its surviving node");
+        assert_eq!(attached, moved, "the timer follows its node to its new id");
+        assert_eq!(
+            win.get_node_size(attached),
+            Some(size(30.0, 40.0)),
+            "the timer reads its own node's 30 x 40 box, not the inserted 10 x 10 one"
+        );
+    }
+
+    /// The four DOM lints are developer warnings about the DOM's SHAPE. A
+    /// relayout of the same DOM - an animation frame, a resize, a restyle:
+    /// the shells' `incremental_relayout` hands the retained `StyledDom` back
+    /// - leaves every finding as it was, and used to walk the whole DOM four
+    /// times again on every pass (ANIMFRAME8 s8). A new DOM is linted.
+    #[test]
+    fn a_relayout_of_an_unchanged_dom_runs_no_dom_lint() {
+        let dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("width: 20px; height: 20px;"));
+        let mut win = laid_out(StyledDom::create_from_dom(dom), 300.0, 200.0);
+        let after_first = win.dom_lint_runs;
+        assert!(after_first >= 1, "the first layout lints its DOM");
+
+        // The shells' incremental relayout: the retained StyledDom, by value.
+        let retained = win
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .expect("laid out")
+            .styled_dom;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(320.0, 200.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        win.layout_and_generate_display_list(retained, &ws, &rr, &sc, &mut None)
+            .expect("the relayout");
+        assert_eq!(
+            win.dom_lint_runs, after_first,
+            "the relayout of the unchanged DOM runs no lint"
+        );
+
+        // The app's next DOM is linted.
+        let next = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_div()));
+        win.layout_new_generation(next, &ws, &rr, &sc, &mut None)
+            .expect("the new generation");
+        assert_eq!(
+            win.dom_lint_runs,
+            after_first + 1,
+            "a new generation is linted"
+        );
+    }
+
+    /// A CSS `opacity` tween is a GPU property after its first frame
+    /// (ANIMFRAME8 s8): the display list binds the node's CSS opacity key in
+    /// its `PushOpacity`, so a later frame publishes the new value in the GPU
+    /// value cache and owes a repaint - no restyle of the whole DOM's compact
+    /// cache, no display-list rebuild. (The first frame may rebuild: the
+    /// layer of a node fading from 1.0 does not exist yet.) Every frame used
+    /// to take the restyle path and rebuild the list.
+    #[test]
+    fn a_css_opacity_tween_frame_after_the_first_is_values_only() {
+        use azul_css::props::{
+            basic::PercentageValue,
+            property::{CssProperty, CssPropertyType},
+            style::StyleOpacity,
+        };
+        let dom = Dom::create_body().with_child(Dom::create_div().with_class("faded".into()).with_css(
+            "width: 20px; height: 20px; background: red; animation: opacity 150ms linear;",
+        ));
+        let mut win = laid_out(StyledDom::create_from_dom(dom), 300.0, 200.0);
+        let node = {
+            let sd = &win.layout_results[&DomId::ROOT_ID].styled_dom;
+            let node_data = sd.node_data.as_container();
+            (0..node_data.len())
+                .map(NodeId::new)
+                .find(|n| {
+                    node_data[*n]
+                        .get_ids_and_classes()
+                        .iter()
+                        .any(|c| matches!(c.as_class(), Some(s) if s == "faded"))
+                })
+                .expect("the faded node")
+        };
+        let _ = win.apply_content_change(crate::overlay::ContentChange::NodeCss {
+            dom_id: DomId::ROOT_ID,
+            node_id: node,
+            props: vec![CssProperty::const_opacity(StyleOpacity {
+                inner: PercentageValue::const_new(50),
+            })],
+            override_only: false,
+        });
+        assert!(
+            win.css_transitions
+                .iter()
+                .any(|t| t.node == node && t.prop_type == CssPropertyType::Opacity),
+            "harness: the opacity write seeds a tween, got {:?}",
+            win.css_transitions
+        );
+
+        // Frame 1, as the shells run it: a rebuild unless the tick patched.
+        let _ = win.tick_animations(0.016);
+        assert!(!win.take_transition_relayout(), "opacity moves no box");
+        if !win.take_transition_patched() && !win.animation_tick_is_values_only() {
+            win.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        }
+        let rebuilds = win.frame_report.dl_rebuilds;
+
+        let opacity_of = |win: &LayoutWindow| {
+            win.gpu_state_manager
+                .caches
+                .get(&DomId::ROOT_ID)
+                .and_then(|c| c.current_opacity_values.get(&node).copied())
+        };
+        let mut values = Vec::new();
+        for frame in 2..200 {
+            if win.css_transitions.is_empty() {
+                break;
+            }
+            let _ = win.tick_animations(0.016);
+            assert!(!win.take_transition_relayout(), "frame {frame}: opacity moves no box");
+            let repaint_only = win.take_transition_patched() || win.animation_tick_is_values_only();
+            assert!(
+                repaint_only,
+                "frame {frame}: the tick only moved the node's bound opacity - it owes a repaint, \
+                 not a display-list rebuild (pending css dirt: {:?})",
+                win.pending_css_dirty
+            );
+            values.push(opacity_of(&win).unwrap_or(f32::NAN));
+        }
+        assert!(
+            values.iter().any(|v| *v > 0.55 && *v < 0.95),
+            "the bound opacity passes between 1 and 0.5 mid-fade: {values:?}"
+        );
+        assert!(
+            (opacity_of(&win).unwrap_or(f32::NAN) - 0.5).abs() < 0.01,
+            "the settled fade binds 0.5: {values:?}"
+        );
+        assert_eq!(
+            win.frame_report.dl_rebuilds, rebuilds,
+            "the frames after the first rebuilt no display list"
+        );
+    }
+
     /// THE CLASS (azpaint pressure meter, 2026-08-29): a `VirtualView` child
     /// DOM was laid out against the WINDOW viewport, not the view's own
     /// bounds — a percent-width child of the returned root resolved against
@@ -29517,6 +29949,44 @@ fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType)
 /// (`getters::get_border_info`), not through the user override the lean
 /// channel writes; without this the next list built for any reason painted
 /// the side at the colour of the last full restyle.
+/// The GPU value cache a layout pass of `dom_id` binds, borrowed from the
+/// manager (`None`: bind an empty one - the headless web path, which syncs no
+/// values, or a DOM without a cache).
+fn gpu_cache_for_pass(
+    manager: &GpuStateManager,
+    dom_id: DomId,
+    skip_gpu_sync: bool,
+) -> Option<&GpuValueCache> {
+    if skip_gpu_sync {
+        None
+    } else {
+        manager.caches.get(&dom_id)
+    }
+}
+
+/// The compact cache's opacity byte of `node`, set to `opacity` (encoded as
+/// `core::compact` encodes it: x 254, 255 = unset): the lean override
+/// channel of an `opacity` tween does not rebuild the compact cache, and the
+/// display-list builder (`getters::get_opacity`) and
+/// `GpuValueCache::synchronize` read opacity there first.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=254
+fn patch_compact_opacity(styled_dom: &mut StyledDom, node: NodeId, opacity: f32) {
+    let Some(cold) = styled_dom
+        .get_css_property_cache_mut()
+        .compact_cache
+        .as_mut()
+        .and_then(|cc| cc.tier2_cold.get_mut(node.index()))
+    else {
+        return;
+    };
+    let o = if opacity.is_finite() {
+        opacity.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    cold.opacity = (o * 254.0).round() as u8;
+}
+
 fn patch_compact_border_color(
     styled_dom: &mut StyledDom,
     node: NodeId,

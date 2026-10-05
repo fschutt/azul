@@ -5158,11 +5158,24 @@ where
                     .zip(cache.anim_current_opacity_values.get(&dom_id))
                     .map(|(k, _)| *k)
             });
+            // A layer without an animation key binds the node's CSS opacity
+            // key (`GpuValueCache::synchronize` mints it from the cascade),
+            // so an `opacity` tween steps by value alone once its layer
+            // exists (`GpuValueCache::refresh_opacity_value_of`).
+            let css_opacity_key = || {
+                self.gpu_value_cache.and_then(|cache| {
+                    cache
+                        .opacity_keys
+                        .get(&dom_id)
+                        .zip(cache.current_opacity_values.get(&dom_id))
+                        .map(|(k, _)| *k)
+                })
+            };
             if opacity < 1.0 || anim_opacity_key.is_some() {
                 builder.push_item(DisplayListItem::PushOpacity {
                     bounds: node_bounds.into(),
                     opacity,
-                    opacity_key: anim_opacity_key,
+                    opacity_key: anim_opacity_key.or_else(css_opacity_key),
                 });
                 pushed_opacity = true;
             }
@@ -5801,7 +5814,14 @@ where
         };
         let view_box = self.enclosing_view_box(dom_id);
         #[cfg(feature = "cpurender")]
-        let mask = rasterize_svg_stroke_to_r8(&path, &paint_rect, view_box, width);
+        let mask = svg_mask_memo::get_or_rasterise(
+            svg_mask_memo::MaskKind::Stroke,
+            &path,
+            &paint_rect,
+            view_box,
+            width,
+            || rasterize_svg_stroke_to_r8(&path, &paint_rect, view_box, width),
+        );
         #[cfg(not(feature = "cpurender"))]
         let mask = None;
         builder.push_item(DisplayListItem::StrokedPath {
@@ -5922,12 +5942,18 @@ where
                 // nearest `<svg>` ancestor's viewBox. Without it a shape drawn
                 // at 16 units paints a sixteenth of a 256px slot.
                 let view_box = self.enclosing_view_box(dom_id);
-                rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box).is_some_and(
-                    |mask_image| {
-                        builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
-                        true
-                    },
+                svg_mask_memo::get_or_rasterise(
+                    svg_mask_memo::MaskKind::Clip,
+                    svg_clip,
+                    &paint_rect,
+                    view_box,
+                    0.0,
+                    || rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box),
                 )
+                .is_some_and(|mask_image| {
+                    builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
+                    true
+                })
             }
             #[cfg(not(feature = "cpurender"))]
             Some(azul_core::dom::SvgNodeData::Path(_)) => {
@@ -6462,9 +6488,18 @@ where
                 border_radius: padding_radius,
             });
         }
+        // The Border item carries the declared widths to the renderer, which
+        // resolves them with no zoom: in a zoomed subtree they are resolved
+        // here (the radii already are: `get_style_border_radius`). The
+        // cascade's `get_border_info` stays declared - the layout zooms it.
+        let widths = match super::getters::PaintZoom::of(self.ctx.styled_dom, dom_id, node_state)
+        {
+            Some(zoom) => zoom.border_widths(border_info.widths),
+            None => border_info.widths,
+        };
         builder.push_border(
             border_box,
-            border_info.widths,
+            widths,
             border_info.colors,
             border_info.styles,
             style_border_radius,
@@ -8690,85 +8725,19 @@ where
                 .and_then(|nid| {
                     let sd = self.ctx.styled_dom;
                     let styled_nodes = sd.styled_nodes.as_container();
-                    if nid.index() >= styled_nodes.len() {
-                        return None;
-                    }
-                    let cache = &sd.css_property_cache.ptr;
-                    let node_data = sd.node_data.as_container();
-                    // ANCESTOR USER OVERRIDES participate in inheritance: an
-                    // `animation: color ..` transition overrides `color` on a
-                    // CONTAINER, and the precomputed inherited tables cannot
-                    // see it — the text painted the stale colour (found by
-                    // the css_anim_perf_transition damage law: the "colour
-                    // transition" repainted nothing). Walk self -> root: the
-                    // nearest override wins unless a closer node declares its
-                    // OWN colour, which re-roots inheritance below it.
-                    let hierarchy = sd.node_hierarchy.as_container();
-                    let ty = azul_css::props::property::CssPropertyType::TextColor;
-                    let mut cur = Some(nid);
-                    while let Some(n) = cur {
-                        if let Some(azul_css::props::property::CssProperty::TextColor(v)) =
-                            cache.get_user_override(&n, &ty)
-                        {
-                            if let Some(c) = v.get_property() {
-                                return Some(c.inner);
-                            }
-                            break;
-                        }
-                        if n.index() < node_data.len()
-                            && cache.has_own_declaration(&node_data[n], &n, &ty)
-                        {
-                            break;
-                        }
-                        cur = hierarchy
-                            .get(n)
-                            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-                    }
-                    let node_state = &styled_nodes[nid].styled_node_state;
-                    // No declared `color` anywhere up the chain: the UA default
-                    // applies, and that default depends on the theme. Black is
-                    // right on a light window and invisible on a dark one. The
-                    // themed default is CASCADED (the root's `cascaded_props`,
-                    // every descendant's `computed_values`, the compact text
-                    // tier), so on a cascaded DOM `get_text_color` answers it
-                    // here; the fallback below re-derives it from the context
-                    // only for a DOM no UA pass has run on, and asserts that.
-                    Some(
-                        cache
-                            .get_text_color(&node_data[nid], &nid, node_state)
-                            .and_then(|c| c.get_property().copied())
-                            .unwrap_or_else(|| {
-                                debug_assert!(
-                                    !cache.ua_applied,
-                                    "live_color: node {} has no `color` in its resolved style \
-                                     although the UA pass ran — the themed root default did \
-                                     not reach it (theme-chain analysis 2026-09-12, R1)",
-                                    nid.index()
-                                );
-                                // The SAME context the cascade evaluated this
-                                // DOM against — which carries the window's own
-                                // theme — not a fresh system-only one: the two
-                                // used to disagree after an in-app theme switch,
-                                // leaving the widgets dark and the text black.
-                                let ctx = cache.dynamic_context.as_deref().cloned().unwrap_or_else(|| {
-                                    self.ctx.system_style.as_ref().map_or_else(
-                                        azul_css::dynamic_selector::DynamicSelectorContext::default,
-                                        |s| {
-                                            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
-                                        },
-                                    )
-                                });
-                                azul_core::ua_css::evaluate_ua_root_text_color(&ctx)
-                            })
-                            .inner,
-                    )
+                    // The one resolution of the used colour - the ancestors'
+                    // runtime overrides (a colour transition on a container),
+                    // the cascade, the themed UA default, `system:` tokens -
+                    // shared with `currentcolor` borders.
+                    styled_nodes.get(nid).map(|styled| {
+                        super::getters::get_used_text_color(sd, nid, &styled.styled_node_state)
+                    })
                 })
-                .unwrap_or(glyph_run.color);
-            // `color: system:<slot>` is a token until here: resolve it
-            // against the context the cascade evaluated, the same way the
-            // baked run colour was.
-            let live_color =
-                super::getters::system_colors_resolved(self.ctx.styled_dom, live_color);
+                // A run without a source node (a marker, synthesized
+                // content) keeps its baked colour, `system:` resolved.
+                .unwrap_or_else(|| {
+                    super::getters::system_colors_resolved(self.ctx.styled_dom, glyph_run.color)
+                });
             match &selection_recolour {
                 Some((rects, selected_color)) => {
                     // A glyph's `point` is its pen position ON THE BASELINE at
@@ -11816,6 +11785,187 @@ pub(crate) fn apply_clip_path(
     // Append PopClip at the end
     display_list.items.push(DisplayListItem::PopClip);
     display_list.node_mapping.push(None);
+}
+
+/// A bounded memo of the SVG masks the display-list builder rasterises
+/// (CHART7): every build used to rasterise every clip mask and stroke mask
+/// again - 2x-oversampled coverage per shape, per frame - for geometry that
+/// had not changed. A mask is a pure function of its inputs (the path, the
+/// box it is drawn into, the viewBox, the stroke width), so an unchanged
+/// shape gets its earlier `ImageRef` back (the same image id, so a
+/// renderer's image cache hits too).
+///
+/// Thread-local (display lists are built on the thread that lays out) and
+/// bounded by entries and by mask bytes: the least recently used mask goes.
+#[cfg(feature = "cpurender")]
+mod svg_mask_memo {
+    use std::{
+        cell::RefCell,
+        collections::HashMap,
+        hash::{Hash, Hasher},
+    };
+
+    use super::{ImageRef, LogicalRect};
+
+    /// At most this many masks ...
+    const MAX_ENTRIES: usize = 256;
+    /// ... holding at most this many mask bytes (R8: one per pixel).
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
+
+    /// Which rasteriser drew a mask.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub(super) enum MaskKind {
+        /// `rasterize_svg_clip_to_r8`: the shape's fill region.
+        Clip,
+        /// `rasterize_svg_stroke_to_r8`: its stroke.
+        Stroke,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct Key {
+        kind: MaskKind,
+        path: u64,
+        /// The paint rect's origin (only where the pixels depend on it) and
+        /// size, as f32 bits.
+        rect: [u32; 4],
+        view_box: Option<[u32; 4]>,
+        width: u32,
+    }
+
+    struct Entry {
+        image: ImageRef,
+        bytes: usize,
+        last_used: u64,
+    }
+
+    #[derive(Default)]
+    struct Memo {
+        entries: HashMap<Key, Entry>,
+        bytes: usize,
+        clock: u64,
+    }
+
+    thread_local! {
+        static MEMO: RefCell<Memo> = RefCell::new(Memo::default());
+    }
+
+    /// A 64-bit hash of every coordinate of `path`, by element.
+    fn path_hash(path: &azul_core::svg::SvgMultiPolygon) -> u64 {
+        use azul_core::svg::SvgPathElement;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let point = |p: &azul_css::props::basic::SvgPoint, h: &mut std::collections::hash_map::DefaultHasher| {
+            p.x.to_bits().hash(h);
+            p.y.to_bits().hash(h);
+        };
+        for ring in path.rings.as_ref() {
+            0xFFu8.hash(&mut h);
+            for item in ring.items.as_ref() {
+                match item {
+                    SvgPathElement::Line(l) => {
+                        0u8.hash(&mut h);
+                        point(&l.start, &mut h);
+                        point(&l.end, &mut h);
+                    }
+                    SvgPathElement::QuadraticCurve(q) => {
+                        1u8.hash(&mut h);
+                        point(&q.start, &mut h);
+                        point(&q.ctrl, &mut h);
+                        point(&q.end, &mut h);
+                    }
+                    SvgPathElement::CubicCurve(c) => {
+                        2u8.hash(&mut h);
+                        point(&c.start, &mut h);
+                        point(&c.ctrl_1, &mut h);
+                        point(&c.ctrl_2, &mut h);
+                        point(&c.end, &mut h);
+                    }
+                }
+            }
+        }
+        h.finish()
+    }
+
+    /// The mask of `kind` for these inputs: the memo's, else `rasterise()`'s
+    /// (remembered when it drew one).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a mask's pixel count
+    pub(super) fn get_or_rasterise(
+        kind: MaskKind,
+        path: &azul_core::svg::SvgMultiPolygon,
+        paint_rect: &LogicalRect,
+        view_box: Option<(f32, f32, f32, f32)>,
+        width: f32,
+        rasterise: impl FnOnce() -> Option<ImageRef>,
+    ) -> Option<ImageRef> {
+        // A clip WITHOUT a viewBox is drawn in window coordinates (the paint
+        // rect's origin is subtracted from the geometry); a stroke, and a
+        // clip in a viewBox, only see the box's size.
+        let origin = match (kind, view_box) {
+            (MaskKind::Clip, None) => [
+                paint_rect.origin.x.to_bits(),
+                paint_rect.origin.y.to_bits(),
+            ],
+            _ => [0, 0],
+        };
+        let key = Key {
+            kind,
+            path: path_hash(path),
+            rect: [
+                origin[0],
+                origin[1],
+                paint_rect.size.width.to_bits(),
+                paint_rect.size.height.to_bits(),
+            ],
+            view_box: view_box.map(|(x, y, w, h)| [x.to_bits(), y.to_bits(), w.to_bits(), h.to_bits()]),
+            width: width.to_bits(),
+        };
+        let hit = MEMO.with(|memo| {
+            let mut memo = memo.borrow_mut();
+            memo.clock += 1;
+            let clock = memo.clock;
+            memo.entries.get_mut(&key).map(|e| {
+                e.last_used = clock;
+                e.image.clone()
+            })
+        });
+        if hit.is_some() {
+            return hit;
+        }
+        let image = rasterise()?;
+        let size = image.get_size();
+        let bytes = (size.width.max(0.0) * size.height.max(0.0)) as usize;
+        if bytes > MAX_BYTES {
+            return Some(image);
+        }
+        MEMO.with(|memo| {
+            let mut memo = memo.borrow_mut();
+            while !memo.entries.is_empty()
+                && (memo.entries.len() >= MAX_ENTRIES || memo.bytes + bytes > MAX_BYTES)
+            {
+                let Some(oldest) = memo
+                    .entries
+                    .iter()
+                    .min_by_key(|(_, e)| e.last_used)
+                    .map(|(k, _)| *k)
+                else {
+                    break;
+                };
+                if let Some(gone) = memo.entries.remove(&oldest) {
+                    memo.bytes -= gone.bytes;
+                }
+            }
+            let last_used = memo.clock;
+            memo.bytes += bytes;
+            memo.entries.insert(
+                key,
+                Entry {
+                    image: image.clone(),
+                    bytes,
+                    last_used,
+                },
+            );
+        });
+        Some(image)
+    }
 }
 
 /// The STROKE of a path, rasterised as an R8 coverage mask over `paint_rect`.
@@ -15910,5 +16060,74 @@ mod tiled_mask_tests {
     fn a_mask_without_cpu_pixels_is_left_alone() {
         let null = ImageRef::null_image(4, 4, RawImageFormat::R8, Vec::new().into());
         assert!(tile_mask(&null, rect(0.0, 0.0, 2.0, 2.0), rect(0.0, 0.0, 20.0, 20.0)).is_none());
+    }
+}
+
+#[cfg(all(test, feature = "cpurender"))]
+mod svg_mask_memo_tests {
+    use azul_core::{dom::DomId, geom::LogicalSize, resources::RendererResources};
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The SVG masks of `document` laid out in a fresh 100 x 100 window:
+    /// (the clip masks of its shapes, the stroke masks of its strokes).
+    fn masks_of(document: &str) -> (Vec<ImageRef>, Vec<Option<ImageRef>>) {
+        let styled = crate::xml::parse_xml_to_styled_dom(document).expect("the document parses");
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(100.0, 100.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
+            .expect("the document lays out");
+        let dl = &lw
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list;
+        let mut clips = Vec::new();
+        let mut strokes = Vec::new();
+        for item in &dl.items {
+            match item {
+                DisplayListItem::PushImageMaskClip { mask_image, .. } => {
+                    clips.push(mask_image.clone());
+                }
+                DisplayListItem::StrokedPath { mask, .. } => strokes.push(mask.clone()),
+                _ => {}
+            }
+        }
+        (clips, strokes)
+    }
+
+    /// Every display-list build rasterised every SVG clip mask and stroke
+    /// mask again (CHART7): a chart's 2x-oversampled masks, per frame, for
+    /// geometry that had not changed. An unchanged shape in an unchanged box
+    /// gets the SAME mask image back.
+    #[test]
+    fn a_rebuilt_display_list_reuses_its_unchanged_svg_masks() {
+        let doc = "<html><head><style>body { margin: 0; }</style></head><body>\
+                   <svg viewBox=\"0 0 10 10\" width=\"40\" height=\"40\">\
+                   <path d=\"M0 0 L10 0 L10 10 Z\" fill=\"red\" stroke=\"blue\" \
+                   stroke-width=\"1\"/></svg></body></html>";
+        let (clips_a, strokes_a) = masks_of(doc);
+        let (clips_b, strokes_b) = masks_of(doc);
+        assert!(
+            !clips_a.is_empty(),
+            "the filled path paints through its clip mask"
+        );
+        assert!(
+            strokes_a.iter().any(Option::is_some),
+            "the stroke carries its mask"
+        );
+        assert_eq!(
+            clips_a, clips_b,
+            "the second build reuses the first build's clip mask images"
+        );
+        assert_eq!(strokes_a, strokes_b, "and its stroke mask images");
     }
 }

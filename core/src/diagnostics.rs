@@ -148,6 +148,55 @@ pub fn emit(message: String) {
     record(tagged);
 }
 
+/// Distinct [`emit_once`] keys remembered. Past this the tap is closed: one
+/// notice, then no new once-only finding is printed (a DOM that is wrong in a
+/// thousand ways has a handful of bugs, and the log must stay readable).
+#[cfg(feature = "std")]
+const MAX_ONCE_KEYS: usize = 1024;
+
+/// The [`emit_once`] keys emitted so far, and whether the cap was reached.
+#[cfg(feature = "std")]
+fn once_keys() -> &'static Mutex<(std::collections::BTreeSet<u64>, bool)> {
+    static ONCE: OnceLock<Mutex<(std::collections::BTreeSet<u64>, bool)>> = OnceLock::new();
+    ONCE.get_or_init(|| Mutex::new((std::collections::BTreeSet::new(), false)))
+}
+
+/// [`emit`] a diagnostic ONCE: `key` names the FINDING (the problem, not the
+/// pass that saw it - a lint keys it by what the node is and how it is
+/// selected), and a key already emitted prints nothing. A lint that runs after
+/// layout passes otherwise repeats its lines for as long as the app shows the
+/// shape. `message` is built only when it is printed. [`clear`] forgets the
+/// keys with the ring, so a test or an e2e step that clears sees a finding
+/// again. Returns whether the diagnostic was emitted.
+#[cfg(feature = "std")]
+pub fn emit_once(key: u64, message: impl FnOnce() -> String) -> bool {
+    let newly_capped = {
+        let Ok(mut once) = once_keys().lock() else {
+            return false; // a poisoned set must never take the app down
+        };
+        let (keys, capped) = &mut *once;
+        if *capped || keys.contains(&key) {
+            return false;
+        }
+        if keys.len() >= MAX_ONCE_KEYS {
+            *capped = true;
+            true
+        } else {
+            keys.insert(key);
+            false
+        }
+    };
+    if newly_capped {
+        emit(format!(
+            "[azul][diagnostics] {MAX_ONCE_KEYS} distinct findings reported - further findings \
+             are not printed"
+        ));
+        return false;
+    }
+    emit(message());
+    true
+}
+
 /// Record without printing — for the rare diagnostic that has already been
 /// printed by other means but should still be assertable.
 #[cfg(feature = "std")]
@@ -204,12 +253,22 @@ pub fn clear() {
     if let Ok(mut r) = ring().lock() {
         r.clear();
     }
+    // The once-only findings with it: a step that clears to observe a lint
+    // must see it fire again (`emit_once`).
+    if let Ok(mut once) = once_keys().lock() {
+        once.0.clear();
+        once.1 = false;
+    }
 }
 
 #[cfg(not(feature = "std"))]
 pub fn emit(_message: alloc::string::String) {}
 #[cfg(not(feature = "std"))]
 pub fn record(_message: alloc::string::String) {}
+#[cfg(not(feature = "std"))]
+pub fn emit_once(_key: u64, _message: impl FnOnce() -> alloc::string::String) -> bool {
+    false
+}
 #[cfg(not(feature = "std"))]
 #[must_use]
 pub fn recorded() -> alloc::vec::Vec<alloc::string::String> {

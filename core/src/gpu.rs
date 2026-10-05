@@ -172,7 +172,9 @@ impl GpuValueCache {
                 + self.transform_keys.len()
                 + self.h_transform_keys.len()
                 + self.scrollbar_v_opacity_keys.len()
-                + self.scrollbar_h_opacity_keys.len(),
+                + self.scrollbar_h_opacity_keys.len()
+                + self.opacity_keys.len()
+                + self.current_opacity_values.len(),
         );
         for (n, k) in &self.css_transform_keys {
             entries.push((0, n.index() as u64, k.id as u64));
@@ -205,6 +207,15 @@ impl GpuValueCache {
         }
         for n in self.anim_current_opacity_values.keys() {
             entries.push((9, n.index() as u64, 0));
+        }
+        // So does the CSS `opacity` channel: `PushOpacity` binds a node's CSS
+        // key when it has no animation key (an `opacity` tween then steps by
+        // value alone, `refresh_opacity_value_of`).
+        for (n, k) in &self.opacity_keys {
+            entries.push((10, n.index() as u64, k.id as u64));
+        }
+        for n in self.current_opacity_values.keys() {
+            entries.push((11, n.index() as u64, 0));
         }
         entries.sort_unstable();
         // FNV-1a over the sorted entry words. Hand-rolled because this file
@@ -443,6 +454,35 @@ impl GpuValueCache {
         };
         self.css_current_transform_values.insert(node_id, fresh);
         true
+    }
+
+    /// The `opacity` twin of [`Self::refresh_transform_value_of`]: re-read
+    /// `node`'s CSS `opacity` from the cascade (its user override first) and
+    /// publish it under the key it ALREADY has - the per-frame channel of an
+    /// `opacity` tween, read live by both compositors through the key the
+    /// display list's `PushOpacity` binds. Returns that key, or `None` and
+    /// changes nothing when the node has no key or no longer resolves to an
+    /// opacity (a change of the key population: only a display-list build
+    /// can show it).
+    pub fn refresh_opacity_value_of(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+    ) -> Option<OpacityKey> {
+        if node_id.index() >= styled_dom.node_data.len() {
+            return None;
+        }
+        let key = *self.opacity_keys.get(&node_id)?;
+        let node_data = &styled_dom.node_data.as_container()[node_id];
+        let state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+        let value = styled_dom
+            .get_css_property_cache()
+            .get_opacity(node_data, &node_id, state)?
+            .get_property()?
+            .inner
+            .normalized();
+        self.current_opacity_values.insert(node_id, value);
+        Some(key)
     }
 
     fn compute_transform_events(
