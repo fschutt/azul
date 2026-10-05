@@ -1383,6 +1383,27 @@ mod tests {
         assert_eq!(inner("<p style=\"\">t</p>"), "<p>t</p>");
     }
 
+    /// A `;` inside quotes (`content: ";"`, a font name) is part of its value: the declaration
+    /// is read whole (and dropped, as a value holding a `;` could end its declaration where
+    /// it is written out), never split into a half value with an open quote.
+    #[test]
+    fn a_semicolon_inside_quotes_never_splits_a_declaration_into_a_half_value() {
+        let s = sanitize(
+            "<style>.x { content: \";\"; font-family: \"Open;Sans\", serif; color: red }</style>\
+             <p class=x>t</p>",
+        );
+        let css = style_sheet(&s);
+        assert!(
+            css.contains(&format!(".__azmail_paper .{}x {{ color: red; }}", s.class_prefix)),
+            "{css}"
+        );
+        assert!(!css.contains("Open"), "no half font name: {css}");
+        assert_eq!(
+            inner("<span style=\"content: ';'; font-family: 'Open;Sans', serif; color: red\">t</span>"),
+            "<span style=\"color: red\">t</span>"
+        );
+    }
+
     #[test]
     fn legacy_tags_become_their_modern_twins() {
         assert_eq!(
