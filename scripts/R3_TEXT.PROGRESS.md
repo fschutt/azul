@@ -12,12 +12,11 @@
 - d31697263 css_zoom em (CODE: layout_bfc re-resolved box props AFTER Pass 1 sized the child)
 - 2c8051608 line-height vh after resize (CODE: cache_map slots kept across a viewport change)
 
-## IN PROGRESS
-- text_sized_in_viewport_units_keeps_its_own_font_after_a_resize (lib)
+- c62a0f5f0 text_sized_in_viewport_units_keeps_its_own_font_after_a_resize (CODE: signature gate read a px-resolved compact word)
+- 2fb0aab5b block_intrinsic_sizes_sanitize_nan_on_the_cross_axis (TEST: NaN now sanitized on the main axis too)
+- 2f4cb34f2 a_percentage_height_inline_block... (2) (CODE: layout_bfc's float re-layout offered a definite height)
 
-## NEXT
-- block_intrinsic_sizes_sanitize_nan_on_the_cross_axis (lib)
-- a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content (2)
+## IN PROGRESS
 - a_changed_inline_flex_box_behind_a_block_sibling_keeps_its_slot_and_widens (lib)
 - pdfocr issue 1 (coordinator): sup/sub/vertical-align on nested inline boxes - RED test of the
   repro shape + fix (runs take vertical-align from inline ancestors up to the IFC root)
