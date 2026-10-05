@@ -7200,6 +7200,65 @@ mod tests {
         );
     }
 
+    /// Engine backlog 10: the e2e protocol has no paste op, so no scenario can
+    /// drive a paste (the runner has no OS clipboard, and a Ctrl+V reads the
+    /// real one in the dll). `{"op": "paste", "text", "html"}` must run what a
+    /// user's paste runs: the `Paste` callbacks (their `prevent_default`
+    /// vetoes it), then `LayoutWindow::paste_clipboard_content` - so a rich
+    /// editor keeps the HTML's bold.
+    #[test]
+    #[ignore = "round 2 (FIX9-INPUT 3.8): the paste op needs a CallbackChange (layout/src/callbacks.rs) \
+                and its arm in the dll's apply_user_change (dll/src/desktop/shell2/common/event.rs)"]
+    fn a_scenarios_paste_op_pastes_bold_html_into_the_focused_editor() {
+        use azul_core::dom::IdOrClass;
+
+        let mut host = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("editor".into())].into())
+            .with_child(
+                Dom::create_p()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("foo")),
+            );
+        host.set_contenteditable(true);
+        let mut dom = Dom::create_body().with_child(host);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "paste_bold_html",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "focus_node", "selector": ".editor" },
+                { "op": "wait_frame" },
+                { "op": "paste", "text": "bold", "html": "<b>bold</b>" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        let edit = runner
+            .layout_window
+            .unsynced_text_edits()
+            .into_iter()
+            .find(|e| e.text.as_str().contains("bold"))
+            .expect("the paste reached the editor's text");
+        #[allow(clippy::cast_possible_truncation)]
+        let at = edit.text.as_str().find("bold").expect("pasted") as u32;
+        assert!(
+            edit.runs
+                .as_ref()
+                .iter()
+                .any(|r| r.formats.bold && r.start <= at && r.end >= at + 4),
+            "the pasted word is bold: {:?} in {:?}",
+            edit.runs,
+            edit.text
+        );
+    }
+
     /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always
     /// shown) over 20 rows of 30px. Classic on purpose: whether an overlay
     /// bar or a `scrollbar-width: none` bar exists at all is the
