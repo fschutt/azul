@@ -14,3 +14,9 @@
 - a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it
 - widget_lint_manifest_is_exhaustive
 - final report scripts/R3_WIDGETS_2026_10_05.md
+
+## STOPPED (big change, see report)
+- an_inline_date_picker_fits_its_pane: CODE wrong in the ENGINE (taffy_bridge compute_non_flex_layout answers a
+  flex item's ContentSize min-content query with its own `width` - own_definite_width injection + intrinsic
+  min_content_width clamped to `width` in sizing.rs - so a `width: 32px` item's automatic minimum size is 32,
+  never shrinks; Chrome: min(32, content min-content) = 15, cells shrink to 26). Widget is right per Chrome.
