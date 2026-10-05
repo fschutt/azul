@@ -79,12 +79,15 @@ dumb as possible". Order now:
   public_key); 94aa34021 RED send.rs submission route; d969b8140 RED submit.rs (lettre client)
   + the one scriptable SMTP sink in testutil.rs (send.rs's private sink removed)
 
+- d4e651d24 GREEN submission: submit.rs (lettre client), send.rs route, Cargo.toml lettre
+- e962686ac RED / ee00ebe5d GREEN sending.rs third route (ROUTE_CHOICES, choose_route,
+  check_submission); 017f399ed UI: Sending page choice + note, sign_in handed over (compose,
+  Send / Receive)
+
 ## IN PROGRESS
-- Step 7a GREEN: send.rs (SendRoute::Submission, SendSettings::sign_in, TlsPolicy::Implicit,
-  Transport::submit, attempt() branch, submit_target()), submit.rs (SubmitSecurity /
-  SubmitTarget / SubmitFailure / submission_security / submit via lettre), Cargo.toml lettre.
-  Then: sending.rs form choice + describe, ui wiring (sign_in from s.secrets), azmail-send
-  --submission, python sink AUTH / implicit TLS, E2E cases.
+- Step 7a rest: azmail-send `--submission`, `--password-env VAR`, `--tls implicit`; python
+  sink `--auth user=secret`, `--auth-mechs`, `--implicit-tls`; azmail_send_test.py cases
+  submission (STARTTLS + PLAIN, self-signed CA), submission-implicit (LOGIN), submission-refused.
 
 ## MONDAY - exact next step
 - Step 7a (secondary route, lettre): auth.rs part DONE. NEXT: RED tests in `send.rs` (`SendRoute::Submission`
