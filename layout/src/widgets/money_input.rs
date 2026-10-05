@@ -1311,6 +1311,25 @@ impl MoneyInput {
         self.text_input.set_on_text_input(data.clone(), on_input);
         let on_blur: TextInputOnFocusLostCallbackType = on_money_focus_lost;
         self.text_input.set_on_focus_lost(data, on_blur);
+        // An amount's digits line up on the right, as in a ledger: the
+        // TextInput's own `text-align: left` gives way (last wins). A caller
+        // who styled the field with an alignment of its own keeps it.
+        let caller_aligns = self.text_input.container_style.as_ref().is_some_and(|style| {
+            style
+                .as_slice()
+                .iter()
+                .any(|p| p.property.get_type() == azul_css::props::property::CssPropertyType::TextAlign)
+        });
+        if !caller_aligns {
+            let mut field_style = self.text_input.resolved_container_style().into_library_owned_vec();
+            field_style.push(CssPropertyWithConditions::simple(
+                azul_css::props::property::CssProperty::const_text_align(
+                    azul_css::props::style::StyleTextAlign::Right,
+                ),
+            ));
+            self.text_input
+                .set_container_style(CssPropertyWithConditionsVec::from_vec(field_style));
+        }
         let field = Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_vec(field_slot_base()))
             .with_child(self.text_input.dom());
