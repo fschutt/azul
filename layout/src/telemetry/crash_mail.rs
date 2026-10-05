@@ -571,6 +571,27 @@ mod smtp_sink_tests {
         );
     }
 
+    /// The problem reporter sends `screenshot.png` through the same pipe as
+    /// the crash dumps (dialogs/report_problem.rs). The hand-made MIME
+    /// labelled EVERY attachment `application/json`, so a mail client offered
+    /// the screenshot as a JSON file. Each part carries the media type of its
+    /// file.
+    #[test]
+    fn a_screenshot_attachment_goes_out_as_a_png() {
+        let (port, rx) = spawn_sink(false);
+        let attachments = vec![
+            ("report.txt".to_owned(), b"what happened".to_vec()),
+            ("screenshot.png".to_owned(), vec![0x89, b'P', b'N', b'G']),
+        ];
+        send_attachments(&contact(port), "see attached", &attachments)
+            .expect("the sink accepts the mail");
+        let message = session_of(&rx)
+            .message
+            .expect("the sink received a message");
+        assert!(message.contains("image/png"), "{message}");
+        assert!(message.contains("filename=\"screenshot.png\""), "{message}");
+    }
+
     /// The reporter dialog's text box yields `\n` line ends. micromail 0.1's
     /// `ensure_crlf` converted only a body that contains NO `\r\n` at all, and
     /// crash_mail's MIME framing always contains some, so the user's lines
