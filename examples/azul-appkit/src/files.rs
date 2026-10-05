@@ -168,7 +168,7 @@ pub fn read_outside(path: &Path) -> Result<Vec<u8>, String> {
 pub fn external_target(target: &str) -> Result<String, String> {
     let t = target.trim();
     let lower = t.to_ascii_lowercase();
-    if lower.starts_with("http://") || lower.starts_with("https://") {
+    if is_web_address(t) {
         if t.chars().any(char::is_whitespace) {
             return Err(format!("\u{201c}{t}\u{201d} is not a web address."));
         }
@@ -183,13 +183,32 @@ pub fn external_target(target: &str) -> Result<String, String> {
     Err(format!("\u{201c}{t}\u{201d} cannot be opened."))
 }
 
-/// Opens a web address in the default browser, or a file / folder in its default app (`open` on
-/// macOS, `xdg-open` on Linux and the BSDs, `cmd /C start` on Windows) - see
+/// Whether `target` is a web address (`http:` / `https:`, any case).
+fn is_web_address(target: &str) -> bool {
+    let lower = target.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// Opens a web address in the default browser, or a file / folder in its default app - see
 /// [`external_target`] for what is passed on. Returns once the opener started.
-// TODO(engine): an azul API for this (a platform call, also for the web build); AzReview's
-// lib.rs opens its folder the same way.
+///
+/// A web address goes through azul's one opener, `Url::open` (feature `azul`). A file or a
+/// folder still through the system's opener here (`open` on macOS, `xdg-open` on Linux and the
+/// BSDs, `cmd /C start` on Windows) until azul exports the path variant of `Url::open` (wave 9,
+/// 3.5); then this calls it too.
 pub fn open_external(target: &str) -> Result<(), String> {
     let target = external_target(target)?;
+    #[cfg(feature = "azul")]
+    if is_web_address(&target) {
+        return match azul::url::Url::parse(target.as_str()).into_result() {
+            Ok(url) if url.open() => Ok(()),
+            Ok(_) => Err(format!("{target} could not be opened.")),
+            Err(e) => Err(format!(
+                "{target} is not a web address: {}",
+                e.message.as_str()
+            )),
+        };
+    }
     let mut command = if cfg!(target_os = "macos") {
         let mut c = std::process::Command::new("open");
         c.arg(&target);
