@@ -93,7 +93,7 @@ pub enum FieldKind {
     Switch,
     /// A fixed list: `(value, label)`.
     Select(Vec<(String, String)>),
-    /// A record of the `api` path's kind (TODO(WIDGETS9B): ReferencePicker).
+    /// A record of the `api` path's kind (azul's ReferencePicker in the form).
     Reference(String),
 }
 

@@ -91,6 +91,9 @@ pub struct Erp {
     pub pending_import: Option<(String, String)>,
     /// The close guard asks "save the form?".
     pub asking: bool,
+    /// What is typed in a record field of the open form (its ReferencePicker
+    /// filters by it): `(field, text)`.
+    pub reference_query: Option<(String, String)>,
 }
 
 impl Erp {
@@ -110,6 +113,7 @@ impl Erp {
             sample,
             pending_import: None,
             asking: false,
+            reference_query: None,
         }
     }
 
@@ -280,6 +284,9 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = &mut *guard;
     if window.0 > 0.0 && window.1 > 0.0 {
         s.window = window;
+    }
+    if s.state.form.is_none() {
+        s.reference_query = None;
     }
     if s.table_page != s.state.page {
         s.table = DataTableView::create();

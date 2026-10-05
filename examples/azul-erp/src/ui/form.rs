@@ -1,29 +1,30 @@
 //! A `form` / `form_modal` view as a form: one control per visible field
-//! ([`spec::FieldSpec`]: text, text area, a drop-down for a fixed list or a
-//! reference, a date picker for a day, azul's MoneyInput for an amount), the
-//! problems the last save named,
+//! ([`spec::FieldSpec`]: text, text area, a drop-down for a fixed list,
+//! azul's ReferencePicker for a record (type to find it), a date picker for a
+//! day, azul's MoneyInput for an amount), the problems the last save named,
 //! Save and Cancel (the view's `submit` / `cancel` actions). A `form` view
 //! is the RecordsShell's form pane; a `form_modal` view a modal over the page.
 //!
 //! A typed text goes into the draft without a rebuild; a choice rebuilds
 //! (a `condition` may show or hide a field: the declining rate).
 //!
-//! TODO(WIDGETS9B): DateRangePicker where a filter takes days,
-//! ReferencePicker for the category / location fields (a DropDown of every
-//! record today).
+//! TODO(WIDGETS9B): DateRangePicker where a filter takes days.
 
 use azul::{
     callbacks::{
         DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
         ModalOnCloseCallbackType, MoneyInputOnChangeCallbackType, MoneyInputOnCommitCallbackType,
-        TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType,
+        ReferencePickerOnEventCallbackType, TextAreaOnTextInputCallbackType,
+        TextInputOnTextInputCallbackType,
     },
     prelude::*,
     str::String as AzString,
     vec::StringVec,
     widgets::{
         DatePicker, DatePickerState, DropDown, Modal, ModalState, MoneyInput, MoneyInputState,
-        OnTextInputReturn, TextArea, TextAreaState, TextInputState, TextInputValid,
+        OnTextInputReturn, ReferencePicker, ReferencePickerEvent, ReferencePickerEventKind,
+        ReferencePickerFilter, ReferencePickerItem, TextArea, TextAreaState, TextInputState,
+        TextInputValid,
     },
 };
 use chrono::{Datelike, NaiveDate};
@@ -179,9 +180,8 @@ fn control(s: &Erp, app: &RefAny, f: &FieldSpec, value: &str) -> Dom {
             .dom(),
         FieldKind::Select(choices) => drop_down(app, f, choices, value),
         FieldKind::Reference(source) => {
-            // TODO(WIDGETS9B): ReferencePicker (type to filter, "create new ...").
             let choices = rows::reference_choices(source, &s.state.book);
-            drop_down(app, f, &choices, value)
+            reference_picker(s, app, f, &choices, value)
         }
         FieldKind::Date if f.required => match model::parse_date(value) {
             Some(day) => date_picker(app, f, day),
@@ -250,6 +250,46 @@ fn drop_down(app: &RefAny, f: &FieldSpec, choices: &[(String, String)], value: &
             on_choice as DropDownOnChoiceChangeCallbackType,
         )
         .dom()
+}
+
+/// A record (a category, a location): azul's ReferencePicker over every
+/// record of the kind, filtered by what is typed. An item's id is its place in
+/// `choices` (the `(none)` choice at 0 is not listed: an emptied field is
+/// none). The typed text survives a rebuild ([`Erp::reference_query`]).
+fn reference_picker(
+    s: &Erp,
+    app: &RefAny,
+    f: &FieldSpec,
+    choices: &[(String, String)],
+    value: &str,
+) -> Dom {
+    let items: Vec<ReferencePickerItem> = choices
+        .iter()
+        .enumerate()
+        .filter(|(_, (id, _))| !id.is_empty())
+        .map(|(i, (_, label))| ReferencePickerItem::create(i as u64, label.as_str()))
+        .collect();
+    let mut picker = ReferencePicker::create(items)
+        .with_filter(ReferencePickerFilter::Local)
+        .with_placeholder(format!("Type to find a {}", f.label.to_lowercase()))
+        .with_accessibility_name(f.label.as_str())
+        .with_on_event(
+            RefAny::new(ChoiceRef {
+                app: app.clone(),
+                name: f.name.clone(),
+                values: choices.iter().map(|(v, _)| v.clone()).collect(),
+            }),
+            on_reference as ReferencePickerOnEventCallbackType,
+        );
+    if let Some(i) = choices.iter().position(|(v, _)| !v.is_empty() && v == value) {
+        picker = picker.with_selected(i as u64);
+    }
+    if let Some((field, query)) = &s.reference_query {
+        if *field == f.name {
+            picker = picker.with_query(query.as_str());
+        }
+    }
+    picker.dom()
 }
 
 fn date_picker(app: &RefAny, f: &FieldSpec, day: NaiveDate) -> Dom {
@@ -338,6 +378,43 @@ extern "C" fn on_choice(mut data: RefAny, mut info: CallbackInfo, choice: usize)
     with_erp(&mut app, &mut info, |s, _info| {
         s.state.set_value(&name, &value)
     })
+}
+
+/// A record field: a pick puts the record's id into the draft; a query is
+/// kept for the rebuild (the picker filters by it), and an emptied field is
+/// no record.
+extern "C" fn on_reference(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: ReferencePickerEvent,
+) -> Update {
+    let Some((mut app, name, values)) = data
+        .downcast_ref::<ChoiceRef>()
+        .map(|c| (c.app.clone(), c.name.clone(), c.values.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    let text = event.text.as_str().to_string();
+    match event.kind {
+        ReferencePickerEventKind::Pick => {
+            let value = usize::try_from(event.id)
+                .ok()
+                .and_then(|i| values.get(i))
+                .cloned()
+                .unwrap_or_default();
+            with_erp(&mut app, &mut info, |s, _info| {
+                s.reference_query = None;
+                s.state.set_value(&name, &value);
+            })
+        }
+        ReferencePickerEventKind::Query => with_erp(&mut app, &mut info, |s, _info| {
+            if text.trim().is_empty() {
+                s.state.set_value(&name, "");
+            }
+            s.reference_query = Some((name.clone(), text.clone()));
+        }),
+        _ => Update::DoNothing,
+    }
 }
 
 extern "C" fn on_date(mut data: RefAny, mut info: CallbackInfo, state: DatePickerState) -> Update {
