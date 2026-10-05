@@ -38,3 +38,5 @@ this checkout, not ours); apps lib: AzMonitor + AzNotes test helpers fixed (bc0b
 | R3-TEXT | aa29d62945e549b29 | wt/r3-text | scripts/R3_TEXT_2026_10_05.md | running |
 | R3-WIDGETS | aab70e6966f347921 | wt/r3-widgets | scripts/R3_WIDGETS_2026_10_05.md | running |
 | R3-FRAME | ae324df22d3899ae3 | wt/r3-frame | scripts/R3_FRAME_2026_10_05.md | running |
+| R3-E2E (Modal button does not rebuild the main window; AzNews / AzCode infinite-height box) | a280d19d436d15d59 | wt/r3-e2e | scripts/R3_E2E_2026_10_05.md | running |
+| R3-APPS (10 failing app lib tests) | a1902e84164760a94 | wt/r3-apps | scripts/R3_APPS_2026_10_05.md | running |
