@@ -12,8 +12,6 @@
 //! a lasting transform (`translate(-50%)`, a turned icon) grew a ghost
 //! wherever a damage rect touched its layout box.
 
-use std::collections::HashMap;
-
 use azul_core::{
     dom::{Dom, DomId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
@@ -51,6 +49,23 @@ fn laid_out(box_css: &str) -> LayoutWindow {
     lw
 }
 
+/// What every live CPU backend renders a frame with (the headless backend,
+/// the e2e CPU backend, a callback's screenshot): the window's LIVE GPU
+/// values. A CSS transform's matrix is computed before the solve from the
+/// PREVIOUS pass's sizes and refreshed against the laid-out box right after
+/// it (`GpuValueCache::refresh_transform_values`); the matrix baked into the
+/// display list is only the fallback for a key nothing published. On a
+/// first pass that fallback had no size, so `rotate()` turned about the
+/// corner (`transform-origin` 50% of nothing) - which is what this harness
+/// painted while it rendered with no values at all.
+fn live_state(lw: &LayoutWindow) -> cpurender::CpuRenderState {
+    cpurender::CpuRenderState::from_gpu_cache(
+        lw.gpu_state_manager.get_cache(DomId::ROOT_ID),
+        DomId::ROOT_ID,
+        &Default::default(),
+    )
+}
+
 /// The frame painted in full, through the layered compositor.
 fn composited(lw: &LayoutWindow) -> cpurender::AzulPixmap {
     let dl = &lw
@@ -60,9 +75,14 @@ fn composited(lw: &LayoutWindow) -> cpurender::AzulPixmap {
         .display_list;
     let rr = RendererResources::default();
     let mut glyph_cache = GlyphCache::new();
-    let render_state = cpurender::CpuRenderState::new(Default::default());
+    let render_state = live_state(lw);
     let mut compositor = cpurender::CompositorState::new(W, H);
-    compositor.allocate_layers_from_display_list(dl, 1.0, &HashMap::new(), &HashMap::new());
+    compositor.allocate_layers_from_display_list(
+        dl,
+        1.0,
+        &render_state.transforms,
+        &render_state.opacities,
+    );
     compositor
         .render_layers(
             dl,
@@ -89,7 +109,7 @@ fn repainted(lw: &LayoutWindow) -> cpurender::AzulPixmap {
         .display_list;
     let rr = RendererResources::default();
     let mut glyph_cache = GlyphCache::new();
-    let render_state = cpurender::CpuRenderState::new(Default::default());
+    let render_state = live_state(lw);
     let mut out = cpurender::AzulPixmap::new(W, H).expect("a pixmap");
     out.fill(128, 128, 128, 255);
     let whole = LogicalRect::new(
