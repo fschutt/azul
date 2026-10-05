@@ -445,15 +445,12 @@ fn emit_tagged_union(
                 if types.len() == 1 {
                     let (ty, ref_kind) = &types[0];
                     let (kt, default) = ref_kind_kt_field(ty, ref_kind, ir);
-                    builder.line(&format!("@JvmField var payload: {} = {}", kt, default));
+                    builder.line(&kt_jna_field("payload", &kt, &default));
                     field_names.push("\"payload\"".to_string());
                 } else {
                     for (i, (ty, ref_kind)) in types.iter().enumerate() {
                         let (kt, default) = ref_kind_kt_field(ty, ref_kind, ir);
-                        builder.line(&format!(
-                            "@JvmField var payload_{}: {} = {}",
-                            i, kt, default
-                        ));
+                        builder.line(&kt_jna_field(&format!("payload_{}", i), &kt, &default));
                         field_names.push(format!("\"payload_{}\"", i));
                     }
                 }
@@ -462,7 +459,7 @@ fn emit_tagged_union(
                 for f in fields {
                     let (kt, default) = ref_kind_kt_field(&f.type_name, &f.ref_kind, ir);
                     let fname = sanitize_kt_identifier(&f.name);
-                    builder.line(&format!("@JvmField var {}: {} = {}", fname, kt, default));
+                    builder.line(&kt_jna_field(&fname, &kt, &default));
                     field_names.push(format!("\"{}\"", f.name));
                 }
             }
@@ -495,10 +492,7 @@ fn emit_tagged_union(
     for v in &enum_def.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
         let field = sanitize_kt_identifier(&v.name);
-        builder.line(&format!(
-            "@JvmField var {}: {} = {}()",
-            field, variant_struct, variant_struct
-        ));
+        builder.line(&kt_jna_field(&field, &variant_struct, &format!("{}()", variant_struct)));
         field_names.push(format!("\"{}\"", v.name));
     }
     emit_field_order(builder, &field_names);
@@ -707,7 +701,7 @@ fn emit_monomorphized_alias(
                     // either. JNA reads the bytes when Union.read() runs,
                     // so just declare with a safe default for the type.
                     let init = default_for_kt_type_or_struct(&jt, ir);
-                    builder.line(&format!("@JvmField var payload: {} = {}", jt, init));
+                    builder.line(&kt_jna_field("payload", &jt, &init));
                     field_names.push("\"payload\"".to_string());
                 }
                 emit_kotlin_field_order_override(builder, &field_names);
@@ -736,10 +730,7 @@ fn emit_monomorphized_alias(
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
                 let f = sanitize_kt_identifier(&v.name);
-                builder.line(&format!(
-                    "@JvmField var {}: {} = {}()",
-                    f, variant_struct, variant_struct
-                ));
+                builder.line(&kt_jna_field(&f, &variant_struct, &format!("{}()", variant_struct)));
                 field_names.push(format!("\"{}\"", v.name));
             }
             emit_kotlin_field_order_override(builder, &field_names);
@@ -774,6 +765,22 @@ fn default_for_kt_type(jt: &str) -> &'static str {
 /// produces the right initializer per kind:
 /// - Plain Structure-flavoured (`AzFoo.ByValue` / `AzFoo`): `AzFoo()`
 /// - Unit enum (`AzFoo`): `AzFoo.values().first()`
+/// One field of a generated JNA `Structure` / `Union`. A nested struct or
+/// union field is `lateinit var` (a public, non-final JVM field JNA fills):
+/// JNA's `Structure` constructor already instantiates every such field, and
+/// a Kotlin `= AzFoo()` initializer - which runs AFTER the super constructor
+/// - would build each nested struct a second time at every level, which is
+/// exponential in the nesting depth (reading one bool of
+/// `WindowCreateOptions` took 115 ms). Primitives, enums and arrays keep
+/// their initializer.
+fn kt_jna_field(name: &str, kt: &str, default: &str) -> String {
+    if default == format!("{}()", kt) {
+        format!("lateinit var {}: {}", name, kt)
+    } else {
+        format!("@JvmField var {}: {} = {}", name, kt, default)
+    }
+}
+
 fn default_for_kt_type_or_struct(jt: &str, ir: &CodegenIR) -> String {
     let prim = default_for_kt_type(jt);
     if !prim.starts_with("/* default */") {
@@ -991,12 +998,7 @@ fn emit_struct_field(
     }
 
     let (kt, default) = ref_kind_kt_field(&f.type_name, &f.ref_kind, ir);
-    builder.line(&format!(
-        "@JvmField var {}: {} = {}",
-        sanitize_kt_identifier(&f.name),
-        kt,
-        default
-    ));
+    builder.line(&kt_jna_field(&sanitize_kt_identifier(&f.name), &kt, &default));
     field_names.push(format!("\"{}\"", f.name));
 }
 
@@ -1337,6 +1339,7 @@ mod tests {
         assert!(!code("import com.sun.jna.Library"), "{kt}");
         assert!(!code(".INSTANCE."), "{kt}");
     }
+
     /// A nested struct / union field is `lateinit`: JNA's `Structure`
     /// constructor instantiates it, and an `= AzFoo()` initializer built
     /// every nested struct again at every level (115 ms per field read of
