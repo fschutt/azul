@@ -56,6 +56,11 @@ base64 = "0.22"
 # The TXT lookup that checks the DKIM / DMARC / SPF records (the UDP resolver micromail's MX
 # lookup uses).
 microdns = "0.1"
+# Submission (submit.rs, the optional signed-in route): lettre's blocking SMTP client -
+# implicit TLS or STARTTLS, EHLO, AUTH PLAIN / LOGIN / XOAUTH2 - over rustls with the RustCrypto
+# provider above (installed as the process default) and the Mozilla roots. No message builder:
+# the message stays micromail's. New in the tree: lettre and email_address only.
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "rustls-no-provider", "webpki-roots"] }
 
 [lib]
 name = "azmail"

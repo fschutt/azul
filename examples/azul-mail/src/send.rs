@@ -18,7 +18,12 @@
 //!    signed mail passes the shipped defaults, not a learned refusal), and except while this
 //!    connection is known to block port 25 ([`Port25Check`]: when no exchanger of a domain can
 //!    even be connected to, a probe of big providers' exchangers tells which); `Smtp` hands
-//!    everything to one server (`host:port`, STARTTLS optional, no sign-in);
+//!    everything to one server (`host:port`, STARTTLS optional, no sign-in); `Submission`
+//!    (optional, never the default) signs in to the account's own outgoing server from
+//!    `account.json` with its user name and secret ([`SendSettings::sign_in`]) and hands
+//!    everything over there (`crate::submit`, lettre's client: implicit TLS on 465, STARTTLS
+//!    required elsewhere); a mail whose password is not in memory yet, or whose sign-in was
+//!    refused, waits for the user, due again at once;
 //! 5. files the result: when every recipient is done and at least one took it, the message as
 //!    it went out (signed) moves into the account's Sent folder in MAIL1's layout
 //!    (`mail/sent/<yyyy>/<mm>/<uid>.eml`, a line in `mail/sent/index.jsonl`, `state.json`), so
@@ -29,8 +34,9 @@
 //!    as Spamhaus PBL, no reverse DNS, SPF / DKIM / DMARC) - unless the 5xx names the address
 //!    itself, 5.1.x / 5.2.x. The relay fallback later reads where it is needed from there.
 //!
-//! The SMTP client, the MIME builder and DKIM are micromail's (the user's crate; the same
-//! client azul's crash mail uses), not AzMail's own.
+//! The MIME builder and DKIM are micromail's (the user's crate; the same client azul's crash
+//! mail uses), and so is the SMTP client of direct delivery and the relay; submission's signed-in
+//! client is lettre's (`crate::submit`). None of them is AzMail's own.
 //!
 //! Files next to `account.json` (`<AzMail folder>/<account>/`): `sending.json` (the
 //! [`SendSettings`], never a secret), `send_policy.json`, `outbox/`. The DKIM private key is
@@ -48,6 +54,7 @@ use crate::{
     folders::Role,
     message,
     store::{self, DriveFolder, FolderState, IndexEntry, MailStore},
+    submit::{SubmitFailure, SubmitTarget},
 };
 
 // ==== the interface AzMail's windows code against ====
@@ -88,6 +95,10 @@ pub enum SendRoute {
     Direct,
     /// Everything to one SMTP server (a relay; a test server on this computer).
     Smtp { host: String, port: u16 },
+    /// Everything to the account's own outgoing server (`smtp` in `account.json`), signed in
+    /// with the account's user name and secret ([`SendSettings::sign_in`]): an optional route
+    /// for a connection that cannot deliver directly; never the default.
+    Submission,
 }
 
 /// STARTTLS.
@@ -102,6 +113,9 @@ pub enum TlsPolicy {
     Required,
     /// Never ask for STARTTLS (a test server without TLS).
     Off,
+    /// TLS from the first byte on any port (submission; port 465 is always so). The routes
+    /// through micromail, which speaks STARTTLS only, take it as `Required`.
+    Implicit,
 }
 
 /// DKIM signing: the key's public half is published at `<selector>._domainkey.<domain>`.
@@ -144,6 +158,11 @@ pub struct SendSettings {
     /// The DKIM private key (PEM) read from the OS keyring by the caller. Never saved.
     #[serde(skip)]
     pub dkim_key: Option<Secret>,
+    /// The account's password, app password or OAuth token, for [`SendRoute::Submission`]:
+    /// read from the OS keyring by the caller (the secret the IMAP sync signs in with). Never
+    /// saved.
+    #[serde(skip)]
+    pub sign_in: Option<Secret>,
     /// Where the port-25 probe knocks (`host:port`); empty: [`PORT25_PROBE_HOSTS`]. Only a
     /// test points it somewhere else.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -170,7 +189,7 @@ pub fn send_mail(
     settings: &SendSettings,
     mail: &OutgoingMail,
 ) -> SendStatus {
-    let mut transport = Micromail { settings };
+    let mut transport = Network { settings };
     send_mail_with(
         root,
         account_id,
@@ -189,7 +208,7 @@ pub fn retry_outbox(
     settings: &SendSettings,
     force: bool,
 ) -> Vec<(String, SendStatus)> {
-    let mut transport = Micromail { settings };
+    let mut transport = Network { settings };
     retry_outbox_with(
         root,
         account_id,
@@ -832,14 +851,25 @@ pub(crate) trait Transport {
 
     /// Whether this connection reaches mail exchangers on port 25 at all.
     fn probe_port_25(&mut self) -> Port25Probe;
+
+    /// Signs in to the submission server and hands the message over: each recipient's
+    /// outcome, or why nothing was handed over.
+    fn submit(
+        &mut self,
+        target: &SubmitTarget,
+        from: &str,
+        recipients: &[String],
+        message: &[u8],
+    ) -> Result<Vec<RecipientOutcome>, SubmitFailure>;
 }
 
-/// The real transport: micromail.
-struct Micromail<'a> {
+/// The real transport: micromail for direct delivery and the relay, lettre
+/// (`crate::submit`) for submission.
+struct Network<'a> {
     settings: &'a SendSettings,
 }
 
-impl Transport for Micromail<'_> {
+impl Transport for Network<'_> {
     fn deliver(
         &mut self,
         relay: Option<(&str, u16)>,
@@ -874,6 +904,81 @@ impl Transport for Micromail<'_> {
         };
         probe_port_25(&hosts, PORT25_PROBE_TIMEOUT)
     }
+
+    fn submit(
+        &mut self,
+        target: &SubmitTarget,
+        from: &str,
+        recipients: &[String],
+        message: &[u8],
+    ) -> Result<Vec<RecipientOutcome>, SubmitFailure> {
+        crate::submit::submit(target, from, recipients, message)
+    }
+}
+
+/// The name this computer gives in `EHLO`: the settings' name, else the From address's domain.
+fn helo_name(settings: &SendSettings, from: &str) -> String {
+    if settings.helo_name.trim().is_empty() {
+        micromail::message::address_domain(from).unwrap_or_else(|| "localhost".to_string())
+    } else {
+        settings.helo_name.trim().to_string()
+    }
+}
+
+/// Where submission goes for the account: its outgoing server from `account.json`, its user
+/// name and kind of secret, the secret in memory, the protection by port
+/// ([`crate::submit::submission_security`]); or why the mail waits for the user.
+fn submit_target(
+    root: &DriveFolder,
+    account_id: &str,
+    settings: &SendSettings,
+    from: &str,
+) -> Result<SubmitTarget, String> {
+    let account = match account::load(root, account_id) {
+        Some(Ok(account)) => account,
+        Some(Err(why)) => {
+            return Err(format!(
+                "the account's settings ({}) cannot be read: {why}",
+                account::ACCOUNT_FILE
+            ))
+        }
+        None => {
+            return Err(format!(
+                "there are no account settings ({}) to sign in with",
+                account::ACCOUNT_FILE
+            ))
+        }
+    };
+    let host = account.smtp.host.trim().to_string();
+    let port = account.smtp.port;
+    if host.is_empty() || port == 0 {
+        return Err(String::from(
+            "the account has no outgoing (SMTP) server: enter it under Account Settings",
+        ));
+    }
+    let security = crate::submit::submission_security(&host, port, settings.tls)?;
+    let Some(secret) = settings.sign_in.clone().filter(|s| !s.is_empty()) else {
+        return Err(format!(
+            "waiting for the password to sign in to {host} (the system keyring's entry {} is \
+             read at the next Send / Receive)",
+            account::keyring_key(account_id)
+        ));
+    };
+    let username = if account.username.trim().is_empty() {
+        account.email.clone()
+    } else {
+        account.username.clone()
+    };
+    Ok(SubmitTarget {
+        host,
+        port,
+        security,
+        username,
+        auth: account.auth,
+        secret,
+        helo: helo_name(settings, from),
+        extra_ca_file: settings.extra_ca_file.clone(),
+    })
 }
 
 /// micromail's configuration for these settings.
@@ -882,15 +987,12 @@ fn micromail_config(
     from: &str,
     relay: Option<(&str, u16)>,
 ) -> Result<micromail::Config, String> {
-    let helo = if settings.helo_name.trim().is_empty() {
-        micromail::message::address_domain(from).unwrap_or_else(|| "localhost".to_string())
-    } else {
-        settings.helo_name.trim().to_string()
-    };
-    let mut config = micromail::Config::new(helo);
+    let mut config = micromail::Config::new(helo_name(settings, from));
     config = match settings.tls {
         TlsPolicy::Opportunistic => config.use_tls(true),
-        TlsPolicy::Required => config.use_tls(true).require_tls(true),
+        // micromail speaks STARTTLS only: implicit TLS (submission's) asks for encryption all
+        // the same.
+        TlsPolicy::Required | TlsPolicy::Implicit => config.use_tls(true).require_tls(true),
         TlsPolicy::Off => config.use_tls(false),
     };
     config = match relay {
@@ -1075,9 +1177,36 @@ fn attempt(
             };
         }
     };
+    let before = (entry.attempts, entry.last_attempt);
     entry.attempts += 1;
     entry.last_attempt = now;
     match &settings.route {
+        SendRoute::Submission => {
+            let failure = match submit_target(root, account_id, settings, &entry.from) {
+                Err(why) => Some(SubmitFailure::Waits(why)),
+                Ok(target) => match transport.submit(&target, &entry.from, &pending, &wire) {
+                    Ok(outcomes) => {
+                        record(entry, &outcomes);
+                        None
+                    }
+                    Err(failure) => Some(failure),
+                },
+            };
+            match failure {
+                None => {}
+                Some(SubmitFailure::Unreachable(why)) => hold_back(entry, &pending, &why),
+                Some(SubmitFailure::Waits(why)) => {
+                    // Waits for the user (the password, a refused sign-in, a setting): no
+                    // attempt, due again at once.
+                    (entry.attempts, entry.last_attempt) = before;
+                    hold_back(entry, &pending, &why);
+                    return Attempted {
+                        sent: None,
+                        waiting: true,
+                    };
+                }
+            }
+        }
         SendRoute::Smtp { host, port } => {
             let outcomes =
                 transport.deliver(Some((host.as_str(), *port)), &entry.from, &pending, &wire);
@@ -1456,7 +1585,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::testutil::TempDir;
+    use crate::{submit::SubmitSecurity, testutil::TempDir};
 
     /// 2026-10-01T08:30:00Z
     const OCT_1: i64 = 1_790_843_400;

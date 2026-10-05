@@ -24,10 +24,12 @@ pub const SUBMISSION_PORT: u16 = 587;
 pub fn describe(settings: &SendSettings) -> String {
     let route = match &settings.route {
         SendRoute::Direct => String::from("Direct delivery"),
+        SendRoute::Submission => String::from("Through my provider's server, signed in"),
         SendRoute::Smtp { host, port } => {
             let tls = match settings.tls {
                 TlsPolicy::Opportunistic => ", STARTTLS",
                 TlsPolicy::Required => ", STARTTLS required",
+                TlsPolicy::Implicit => ", TLS",
                 TlsPolicy::Off => "",
             };
             format!("SMTP {host}:{port}{tls}")
@@ -60,7 +62,7 @@ impl SendingForm {
     pub fn from_settings(settings: &SendSettings) -> SendingForm {
         let starttls = settings.tls != TlsPolicy::Off;
         let mut form = match &settings.route {
-            SendRoute::Direct => SendingForm {
+            SendRoute::Direct | SendRoute::Submission => SendingForm {
                 smtp: false,
                 host: String::new(),
                 port: SUBMISSION_PORT.to_string(),
