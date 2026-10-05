@@ -1,11 +1,11 @@
 ---
-slug: dashboard-tutorial
+slug: data/dashboard-tutorial
 title: "Tutorial: a dashboard over a big spreadsheet"
 language: en
-canonical_slug: dashboard-tutorial
+canonical_slug: data/dashboard-tutorial
 audience: external
 maturity: wip
-guide_order: 116
+guide_order: 213
 topic_only: false
 short_desc: Load a CSV or xlsx file, show it in a table, chart it with a line and a bar chart that follow the table's filter
 prerequisites: [widgets, events/callbacks]
