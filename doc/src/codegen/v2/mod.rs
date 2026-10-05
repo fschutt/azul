@@ -126,6 +126,18 @@ pub use rust::{RustDynamicGenerator, RustStaticGenerator};
 
 use crate::api::ApiData;
 
+/// `s` with its first character upper-cased (`mouseEvent` -> `MouseEvent`,
+/// `u32` -> `U32`): THE helper for every binding generator (Haskell, Swift,
+/// D and Go each carried a copy).
+#[must_use]
+pub fn upper_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 // ============================================================================
 // Helper: Build IR from ApiData
 // ============================================================================

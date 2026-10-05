@@ -35,6 +35,7 @@ use super::{
         managed_host_invoker::{
             callback_ctx_field, has_callback_wrapper_arg, layout_callback_factory_info,
         },
+        upper_first,
     },
     camel, escape,
     model::{pointee_swift, ClassInfo, EnumInfo, Field, Kind, Model, Prim, Shape, Ty, Variant},
@@ -3821,14 +3822,6 @@ fn case_names(variants: &[String]) -> Vec<String> {
 
 /// Swift member name for an api.json field name.
 /// `fromUtf16Le` -> `FromUtf16Le`, for a name built by prefixing another.
-fn upper_first(s: &str) -> String {
-    let mut ch = s.chars();
-    match ch.next() {
-        Some(f) => f.to_ascii_uppercase().to_string() + ch.as_str(),
-        None => String::new(),
-    }
-}
-
 fn member_name(field: &str) -> String {
     let mut n = camel(field);
     if n.is_empty() || n.starts_with(|c: char| c.is_ascii_digit()) {

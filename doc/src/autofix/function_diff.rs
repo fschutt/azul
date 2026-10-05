@@ -1004,14 +1004,8 @@ fn option_arg_ffi_type(inner: &str, source_ty: &str) -> Option<(String, Option<S
     ))
 }
 
-/// `u32` -> `U32`, `LayoutRect` stays.
-fn capitalize(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
-        None => String::new(),
-    }
-}
+// `u32` -> `U32`, `LayoutRect` stays (the codegen's one helper).
+use crate::codegen::v2::upper_first as capitalize;
 
 // // helper functions for list/add/remove
 //
