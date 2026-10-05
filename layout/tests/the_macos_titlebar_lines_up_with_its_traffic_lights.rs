@@ -303,40 +303,33 @@ fn the_macos_titlebar_has_no_fill_and_the_system_separator() {
 
 // ---------------------------------------------------------------------------
 // The AzWidgets demo draws its own bar under `WindowDecorations::NoTitle`:
-// AppKit keeps the 28pt band and the traffic lights, the demo draws the rest.
+// AppKit keeps the 28pt band and the traffic lights, the demo draws the rest
+// with azul's `Titlebar` widget (`Titlebar::create`, whose metrics are the
+// platform's: 28px and the traffic lights' room on macOS). Off macOS there
+// are no traffic lights to line up with and the widget takes that platform's
+// height, so these three run on macOS only.
 // ---------------------------------------------------------------------------
 
-/// The demo's titlebar as the demo builds it, laid out: `body > bar(1) >
-/// [title(2) > text(3), label(4) > text(5)]`, every node carrying the inline
+/// The demo's titlebar as the demo builds it, laid out in the demo's body:
+/// `body > bar(1) > title(2) > p(3) > text(4)`, the body carrying the inline
 /// style the demo's source gives it (read from the source, as the demo's
 /// theme tests read it).
+#[cfg(target_os = "macos")]
 fn demo_bar() -> LayoutWindow {
     let f = crate::azul_widgets_demo_follows_the_theme::page_frame();
-    let text = |s: &str| Dom::create_text_do_not_use_without_block_level_wrapper(s);
-    let root = Dom::create_body().with_css(&f.body).with_child(
-        Dom::create_div()
-            .with_css(&f.titlebar)
-            .with_child(
-                Dom::create_div()
-                    .with_css(&f.title)
-                    .with_child(text("Azul Widget Showcase")),
-            )
-            .with_child(
-                Dom::create_div()
-                    .with_css(&f.label)
-                    .with_child(text("custom titlebar")),
-            ),
-    );
+    let root = Dom::create_body()
+        .with_css(&f.body)
+        .with_child(f.titlebar());
     laid_out(root, Css::empty())
 }
 
+#[cfg(target_os = "macos")]
 const DEMO_BAR: NodeId = NodeId::new(1);
-/// The title's `div` holds its text directly, so it is the block of the line.
-const DEMO_TITLE: NodeId = NodeId::new(2);
 
 /// 38 is the unified-compact TOOLBAR height. The demo has no toolbar, so its
 /// traffic lights stay on the 28pt band's midline, 5px above the middle of a
 /// 38px bar.
+#[cfg(target_os = "macos")]
 #[test]
 fn the_demo_titlebar_is_28px_tall() {
     let lw = demo_bar();
@@ -350,10 +343,11 @@ fn the_demo_titlebar_is_28px_tall() {
 
 /// The demo's title is centred on the window, like AppKit's; it was left
 /// aligned after an 82px padding.
+#[cfg(target_os = "macos")]
 #[test]
 fn the_demo_title_is_centred_on_the_window() {
     let lw = demo_bar();
-    let x = text_run_centre_x(&lw, DEMO_TITLE);
+    let x = text_run_centre_x(&lw, title_line(&lw));
     assert!(
         (x - WINDOW_WIDTH / 2.0).abs() <= TOLERANCE,
         "the demo's title is centred at x = {x}, the window at {}",
@@ -361,10 +355,11 @@ fn the_demo_title_is_centred_on_the_window() {
     );
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn the_demo_title_sits_on_the_traffic_lights_line() {
     let lw = demo_bar();
-    let line = border_box(&lw, DEMO_TITLE);
+    let line = border_box(&lw, title_line(&lw));
     let y = centre_y(line);
     assert!(
         (y - TRAFFIC_LIGHT_CENTRE_Y).abs() <= TOLERANCE,

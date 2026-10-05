@@ -213,22 +213,30 @@ fn the_check_tells_a_themed_style_from_a_fixed_one() {
 // What the user READS: the page title and the titlebar title, in both themes.
 // ---------------------------------------------------------------------------
 
-/// The demo's own page frame, rebuilt from its source: `body > [titlebar >
-/// [title, label], scroll > heading]`, each node carrying the inline style
-/// the demo gives it. Located by the literals around it: the first
-/// `"Azul Widget Showcase"` is the heading's text (its style follows), the
-/// second the titlebar title's (the titlebar's style precedes it), and the
-/// label, body and scroll styles follow the `"custom titlebar"` label's text.
+/// The demo's own page frame, rebuilt from its source: `body > [titlebar,
+/// scroll > heading]`, the body, scroll and heading carrying the inline
+/// style the demo gives them, the titlebar azul's `Titlebar` widget built
+/// the way the demo builds it (`Titlebar::create(<title>).dom()`; the demo
+/// drew a hand-made copy of the bar until e22863a7a). Located by the
+/// literals around it: the first `"Azul Widget Showcase"` is the heading's
+/// text (its style follows), the second the titlebar's title, and the body
+/// and scroll styles follow the titlebar.
 ///
 /// Shared with `the_macos_titlebar_lines_up_with_its_traffic_lights`, which
 /// lays the demo's titlebar out.
 pub(crate) struct PageFrame {
     pub(crate) body: String,
-    pub(crate) titlebar: String,
+    /// The titlebar's title text.
     pub(crate) title: String,
-    pub(crate) label: String,
     pub(crate) scroll: String,
     pub(crate) heading: String,
+}
+
+impl PageFrame {
+    /// The demo's titlebar: the `Titlebar` widget with the demo's title.
+    pub(crate) fn titlebar(&self) -> azul_core::dom::Dom {
+        azul_layout::widgets::titlebar::Titlebar::create(self.title.as_str().into()).dom()
+    }
 }
 
 pub(crate) fn page_frame() -> PageFrame {
@@ -240,22 +248,21 @@ pub(crate) fn page_frame() -> PageFrame {
             .map(|(i, _)| i)
             .collect()
     };
-    let titles = at("Azul Widget Showcase");
+    const TITLE: &str = "Azul Widget Showcase";
+    let titles = at(TITLE);
     assert!(titles.len() >= 2, "premise: the heading and the titlebar title, got {titles:?}");
-    let label = *at("custom titlebar").first().expect("premise: the titlebar's label");
+    assert!(
+        DEMO.contains(&format!("Titlebar::create({TITLE:?}).dom()")),
+        "premise: the demo's titlebar is the Titlebar widget with the title {TITLE:?}"
+    );
     let frame = PageFrame {
         heading: lits[titles[0] + 1].clone(),
-        titlebar: lits[titles[1] - 1].clone(),
-        title: lits[titles[1] + 1].clone(),
-        label: lits[label + 1].clone(),
-        body: lits[label + 2].clone(),
-        scroll: lits[label + 3].clone(),
+        title: lits[titles[1]].clone(),
+        body: lits[titles[1] + 1].clone(),
+        scroll: lits[titles[1] + 2].clone(),
     };
     for (what, style, marker) in [
         ("heading", &frame.heading, "font-size"),
-        ("titlebar", &frame.titlebar, "app-region"),
-        ("title", &frame.title, "font-size"),
-        ("label", &frame.label, "no-drag"),
         ("body", &frame.body, "margin"),
         ("scroll", &frame.scroll, "overflow"),
     ] {
@@ -356,15 +363,11 @@ fn the_page_and_titlebar_titles_are_legible_in_both_themes() {
 
     let f = page_frame();
     let text = || Dom::create_text_do_not_use_without_block_level_wrapper("Azul Widget Showcase");
-    // body(0) > titlebar(1) > title(2) > text(3); body > scroll(4) >
-    // heading(5) > text(6)
+    // body(0) > titlebar(1) > title(2) > p(3) > text(4); body > scroll(5) >
+    // heading(6) > text(7)
     let dom = Dom::create_body()
         .with_css(&f.body)
-        .with_child(
-            Dom::create_div()
-                .with_css(&f.titlebar)
-                .with_child(Dom::create_div().with_css(&f.title).with_child(text())),
-        )
+        .with_child(f.titlebar())
         .with_child(
             Dom::create_div()
                 .with_css(&f.scroll)
@@ -379,7 +382,7 @@ fn the_page_and_titlebar_titles_are_legible_in_both_themes() {
         });
         let ctx = DynamicSelectorContext::from_system_style(&style).with_viewport(1024.0, 768.0);
         let sd = StyledDom::create_from_dom_with_context(dom.clone(), Some(ctx.clone()));
-        for (what, node) in [("titlebar title", 3), ("page heading", 6)] {
+        for (what, node) in [("titlebar title", 4), ("page heading", 7)] {
             let (ink, bg) = seen(&sd, NodeId::new(node), &ctx);
             let ratio = contrast(ink, bg);
             if ratio < 4.5 {
