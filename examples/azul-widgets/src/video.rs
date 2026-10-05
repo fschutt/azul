@@ -9,25 +9,24 @@
 //!
 //! Play and pause are the widget's `paused` flag and a seek is its
 //! `timestamp`: the card changes them and returns `RefreshDom`, and the
-//! widget passes the change on to its decoder when it is rebuilt.
+//! widget passes the change on to its decoder when it is rebuilt. The seek
+//! bar is azul's `SeekBar` (a press, a drag, the arrow keys), the times its
+//! media clock (`SeekBar::media_time`: `1:12`, `1:02:05`).
 
 use azul::{
-    dom::{AccessibilityInfo, AccessibilityRole, OnVideoStatusCallback, TabIndex, VirtualKeyCode},
+    callbacks::SeekBarOnSeekCallbackType,
+    dom::OnVideoStatusCallback,
     image::RawImageFormat,
-    option::{OptionCursorNodePosition, OptionLogicalRect, OptionVirtualKeyCode},
     prelude::*,
     url::Url,
     video::{VideoConfig, VideoPhase, VideoSource, VideoStatus},
-    widgets::{UiTheme, VideoWidget},
+    widgets::{SeekBar, SeekBarState, UiTheme, VideoWidget},
 };
 
 /// Big Buck Bunny: 10 s of 640 x 360 H.264 in an MP4, the clip
 /// `examples/c/video.c` plays.
 const BBB_HOST: &str = "test-videos.co.uk";
 const BBB_PATH: &str = "/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4";
-
-/// How far Left and Right on the focused seek bar move, in seconds.
-const SEEK_STEP_S: f32 = 1.0;
 
 // Every colour here is a `system:` colour, like the rest of the page: the
 // stage is the field surface, the play badge the desktop's accent, the notes
@@ -68,17 +67,8 @@ const TOGGLE_CSS: &str =
 const TOGGLE_ICON_CSS: &str = "font-size: 22px; color: system:button-text;";
 const TIME_CSS: &str =
     "font-size: 12px; color: system:secondary-text; font-family: system:monospace;";
-/// The seek bar: a track with the played part filled in, which a click (or
-/// an arrow key, once it has focus) moves. Taller than the track, so it is
-/// easy to hit.
-const SEEK_CSS: &str =
-    "flex-grow: 1; display: flex; flex-direction: column; justify-content: center; height: 24px; \
-     cursor: pointer;";
-const TRACK_CSS: &str =
-    "display: flex; flex-direction: row; height: 6px; border-radius: 3px; overflow: hidden; \
-     background-color: system:separator;";
-/// The played part; its width is appended per layout.
-const FILL_CSS: &str = "height: 6px; border-radius: 3px; background-color: system:accent;";
+/// The seek bar takes the rest of the row.
+const SEEK_CSS: &str = "flex-grow: 1;";
 
 /// What the card remembers between layouts.
 struct VideoCard {
@@ -186,34 +176,18 @@ pub fn card(state: &RefAny, theme: UiTheme) -> Dom {
 
     let time = Dom::create_span_with_text(time_text(&status)).with_css(TIME_CSS);
 
-    // The fill's width is concatenated, not formatted, so no style string in
-    // this file carries a placeholder (the theme check parses them all).
-    let played = format!("{:.2}", progress(&status) * 100.0);
-    let fill_css = [FILL_CSS, " width: ", played.as_str(), "%;"].concat();
-    // A seek bar IS a slider (the arrow keys move it), and its value is the
-    // position a screen reader reads out.
-    let mut seek_bar = Dom::create_div()
-        .with_css(SEEK_CSS)
-        .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(
-            AccessibilityInfo::named("Seek", AccessibilityRole::Slider)
-                .with_value(time_text(&status)),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(TRACK_CSS)
-                .with_child(Dom::create_div().with_css(fill_css.as_str())),
-        );
-    seek_bar.add_callback(
-        EventFilter::Hover(HoverEventFilter::Click),
-        state.clone(),
-        on_seek_click,
-    );
-    seek_bar.add_callback(
-        EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-        state.clone(),
-        on_seek_key,
-    );
+    // azul's SeekBar: a press seeks there, a drag scrubs (the card seeks once,
+    // on the release), the arrow keys step; its times are the row's label.
+    let seek_bar = SeekBar::create(
+        f64::from(finite_seconds(status.position_s)),
+        f64::from(finite_seconds(status.duration_s)),
+    )
+    .with_show_times(false)
+    .with_accessibility_name("Seek")
+    .with_theme(theme)
+    .with_on_seek(state.clone(), on_seek as SeekBarOnSeekCallbackType)
+    .dom()
+    .with_css(SEEK_CSS);
 
     let controls = Dom::create_div()
         .with_css(CONTROLS_CSS)
@@ -250,39 +224,28 @@ fn note(title: &str, detail: &str) -> Dom {
         .with_child(Dom::create_p_with_text(detail).with_css(NOTE_DETAIL_CSS))
 }
 
-/// How far through the video the position is, `0.0..=1.0`; `0.0` while the
-/// length is unknown.
-fn progress(status: &VideoStatus) -> f32 {
-    let p = if status.duration_s > 0.0 {
-        status.position_s / status.duration_s
-    } else {
-        0.0
-    };
-    if p.is_finite() {
-        p.clamp(0.0, 1.0)
+/// `seconds` when it is a time (finite, not negative), else `0.0`.
+fn finite_seconds(seconds: f32) -> f32 {
+    if seconds.is_finite() && seconds > 0.0 {
+        seconds
     } else {
         0.0
     }
 }
 
-/// `m:ss / m:ss`, with `-:--` for a length not known yet.
+/// `position / length` in the media clock (`1:12 / 9:22`, `1:02:05 / 2:02:02`),
+/// `--:--` for a length not known yet.
 fn time_text(status: &VideoStatus) -> String {
     let total = if status.duration_s > 0.0 {
-        clock(status.duration_s)
+        f64::from(status.duration_s)
     } else {
-        String::from("-:--")
+        f64::NAN
     };
-    format!("{} / {}", clock(status.position_s), total)
-}
-
-/// Seconds as `m:ss`.
-fn clock(seconds: f32) -> String {
-    let whole = if seconds.is_finite() && seconds > 0.0 {
-        seconds as u32
-    } else {
-        0
-    };
-    format!("{}:{:02}", whole / 60, whole % 60)
+    format!(
+        "{} / {}",
+        SeekBar::media_time(f64::from(finite_seconds(status.position_s))).as_str(),
+        SeekBar::media_time(total).as_str()
+    )
 }
 
 /// The widget reported where the video stands: keep it, and redraw.
@@ -311,30 +274,14 @@ extern "C" fn on_toggle(mut data: RefAny, _: CallbackInfo) -> Update {
     }
 }
 
-/// A click on the seek bar: jump to that point of the video.
-extern "C" fn on_seek_click(mut data: RefAny, info: CallbackInfo) -> Update {
-    let OptionCursorNodePosition::Some(cursor) = info.get_cursor_relative_to_node() else {
-        return Update::DoNothing;
-    };
-    let OptionLogicalRect::Some(rect) = info.get_hit_node_rect() else {
-        return Update::DoNothing;
-    };
-    if !(rect.size.width > 0.0) {
+/// The seek bar: a press or a key seeks; a drag seeks once, on the release.
+extern "C" fn on_seek(mut data: RefAny, _: CallbackInfo, state: SeekBarState) -> Update {
+    if state.dragging {
         return Update::DoNothing;
     }
-    let fraction = (cursor.x / rect.size.width).clamp(0.0, 1.0);
-    seek(&mut data, |_, duration| fraction * duration)
-}
-
-/// Left and Right on the focused seek bar: a step back or forward.
-extern "C" fn on_seek_key(mut data: RefAny, info: CallbackInfo) -> Update {
-    let keyboard = info.get_current_keyboard_state();
-    let step = match &keyboard.current_virtual_keycode {
-        OptionVirtualKeyCode::Some(VirtualKeyCode::Left) => -SEEK_STEP_S,
-        OptionVirtualKeyCode::Some(VirtualKeyCode::Right) => SEEK_STEP_S,
-        _ => return Update::DoNothing,
-    };
-    seek(&mut data, |position, _| position + step)
+    #[allow(clippy::cast_possible_truncation)] // seconds of a clip
+    let to = state.position_s as f32;
+    seek(&mut data, |_, _| to)
 }
 
 /// Ask the widget to seek to `target(position, duration)`, clamped into the
