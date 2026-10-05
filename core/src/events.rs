@@ -5113,6 +5113,17 @@ impl KeyboardShortcut {
             _ => return None,
         })
     }
+
+    /// The text-editing shortcut a key with `modifiers` is, under the
+    /// platform's conventions (`mac`: [`crate::window::mac_shortcut_conventions`]).
+    #[must_use]
+    pub const fn from_key_event(
+        vk: crate::window::VirtualKeyCode,
+        modifiers: KeyModifiers,
+        mac: bool,
+    ) -> Option<Self> {
+        Self::from_key(vk, modifiers.primary_down_for(mac), modifiers.shift)
+    }
 }
 
 /// Default input interpreter: standard desktop keybindings.
@@ -5765,3 +5776,107 @@ pub fn post_callback_filter_system_changes(
 #[cfg(test)]
 #[path = "events_test.rs"]
 mod events_test;
+
+#[cfg(test)]
+mod insert_key_shortcut_tests {
+    use super::*;
+    use crate::{
+        dom::{DomId, DomNodeId},
+        id::NodeId,
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+        window::{KeyboardState, VirtualKeyCode},
+    };
+
+    fn shift() -> KeyModifiers {
+        KeyModifiers {
+            shift: true,
+            ..KeyModifiers::default()
+        }
+    }
+
+    fn ctrl() -> KeyModifiers {
+        KeyModifiers {
+            ctrl: true,
+            ..KeyModifiers::default()
+        }
+    }
+
+    fn insert_down(modifiers: KeyModifiers) -> SyntheticEvent {
+        SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            focused(),
+            Instant::Tick(SystemTick::new(0)),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: VirtualKeyCode::Insert as u32,
+                modifiers,
+                ..Default::default()
+            }),
+        )
+    }
+
+    fn focused() -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: 0 },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        }
+    }
+
+    /// The CUA clipboard keys every Windows and Linux text field (and
+    /// terminal) knows: Shift+Insert pastes, Ctrl+Insert copies. A Mac
+    /// keyboard has no Insert key, and its conventions do not have them.
+    #[test]
+    fn shift_insert_pastes_and_ctrl_insert_copies_off_macos() {
+        use VirtualKeyCode::Insert;
+        assert_eq!(
+            KeyboardShortcut::from_key_event(Insert, shift(), false),
+            Some(KeyboardShortcut::Paste)
+        );
+        assert_eq!(
+            KeyboardShortcut::from_key_event(Insert, ctrl(), false),
+            Some(KeyboardShortcut::Copy)
+        );
+        // Insert alone, and Ctrl+Shift+Insert, are not clipboard keys.
+        assert_eq!(
+            KeyboardShortcut::from_key_event(Insert, KeyModifiers::default(), false),
+            None
+        );
+        let both = KeyModifiers {
+            shift: true,
+            ctrl: true,
+            ..KeyModifiers::default()
+        };
+        assert_eq!(KeyboardShortcut::from_key_event(Insert, both, false), None);
+        assert_eq!(KeyboardShortcut::from_key_event(Insert, shift(), true), None);
+        // The letter shortcuts are unchanged.
+        assert_eq!(
+            KeyboardShortcut::from_key_event(VirtualKeyCode::V, ctrl(), false),
+            Some(KeyboardShortcut::Paste)
+        );
+    }
+
+    /// TERM9: a terminal (a node that listens for paste, not a text field)
+    /// asks the engine for the paste chord - and off macOS Shift+Insert IS a
+    /// paste chord, so it becomes the engine's paste exactly like Ctrl+V.
+    #[test]
+    fn shift_insert_on_a_node_that_listens_for_paste_becomes_the_engines_paste() {
+        let kb = KeyboardState::default();
+        let action = handle_key_down_for(&insert_down(shift()), &kb, Some(focused()), false, false, true);
+        if crate::window::mac_shortcut_conventions() {
+            assert!(action.is_none(), "no Insert shortcuts under macOS conventions");
+        } else {
+            assert!(
+                matches!(
+                    action,
+                    Some(InternalEventAction::AddAndSkip(SystemChange::PasteFromClipboard))
+                ),
+                "Shift+Insert on a paste listener must be the engine's paste"
+            );
+        }
+        // Ctrl+Insert is Copy: a terminal's copy stays its own key (no
+        // selection, not editable).
+        let copy = handle_key_down_for(&insert_down(ctrl()), &kb, Some(focused()), false, false, true);
+        assert!(copy.is_none());
+    }
+}
