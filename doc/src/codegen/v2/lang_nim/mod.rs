@@ -503,3 +503,93 @@ impl ProcDedup {
 pub fn sanitize_comment(s: &str) -> String {
     s.replace(['\n', '\r'], " ")
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::{super::config::CodegenConfig, generate};
+
+    fn out() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("nim codegen")
+        })
+    }
+
+    /// The generated proc whose header starts with `prefix`, with its body
+    /// (the indented lines that follow).
+    fn proc_text(prefix: &str) -> String {
+        let lines: Vec<&str> = out().lines().collect();
+        let i = lines
+            .iter()
+            .position(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", prefix));
+        let mut text = lines[i].to_string();
+        for l in &lines[i + 1..] {
+            if !l.starts_with("  ") {
+                break;
+            }
+            text.push('\n');
+            text.push_str(l);
+        }
+        text
+    }
+
+    #[test]
+    fn the_window_title_is_read_without_consuming_it() {
+        let p = proc_text("proc getTitle*(self: AzFullWindowState): string");
+        assert!(p.contains("$self.title"), "{}", p);
+        assert!(!p.contains("_delete"), "{}", p);
+    }
+
+    #[test]
+    fn setting_the_window_title_releases_the_old_string_then_stores_a_fresh_one() {
+        let p = proc_text("proc setTitle*(self: var AzFullWindowState, v: string)");
+        let fresh = p.find("azString(v)").expect(&p);
+        let del = p.find("AzString_delete(addr self.title)").expect(&p);
+        assert!(fresh < del, "the new string is built before the old one is released:\n{}", p);
+        assert!(p.contains("self.title = "), "{}", p);
+    }
+
+    #[test]
+    fn the_window_state_getter_returns_a_deep_copy() {
+        let p = proc_text("proc getWindowState*(self: AzWindowCreateOptions): AzFullWindowState");
+        assert!(p.contains("AzFullWindowState_clone(unsafeAddr self.window_state)"), "{}", p);
+    }
+
+    #[test]
+    fn setting_the_window_state_releases_the_old_one_then_takes_the_new_one() {
+        let p = proc_text(
+            "proc setWindowState*(self: var AzWindowCreateOptions, v: AzFullWindowState)",
+        );
+        let del = p.find("AzFullWindowState_delete(addr self.window_state)").expect(&p);
+        let mv = p.find("self.window_state = v").expect(&p);
+        assert!(del < mv, "{}", p);
+    }
+
+    #[test]
+    fn the_text_input_text_is_settable_although_get_text_exists() {
+        // `getText` is the api.json method; the field accessor must not
+        // redefine it, but the field still gets a releasing setter.
+        let p = proc_text("proc setText*(self: var AzTextInputState, v: AzU32Vec)");
+        assert!(p.contains("AzU32Vec_delete(addr self.text)"), "{}", p);
+        assert!(!out().contains("proc getText*(self: AzTextInputState)"));
+    }
+
+    #[test]
+    fn tr_copies_the_key_instead_of_borrowing_the_nim_buffer() {
+        let p = proc_text("proc tr*(key: string): AzString");
+        assert!(p.contains("AzString_tr(azString(key))"), "{}", p);
+        assert!(!out().contains("key[0].addr"));
+    }
+
+    #[test]
+    fn an_empty_nim_string_converts_without_indexing_it() {
+        let p = proc_text("proc azString*(s: string): AzString");
+        let guard = p.find("s.len == 0").expect(&p);
+        let index = p.find("s[0]").expect(&p);
+        assert!(guard < index, "{}", p);
+    }
+}
