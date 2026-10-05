@@ -7453,6 +7453,15 @@ where
             // when overflow is hidden/scroll/auto, not to the full content size.
             let mut viewport_clip_rect = content_box_rect;
 
+            // `position: relative` on an inline box moves the runs of its
+            // text (CSS 2.2 9.4.3) - percentages against this content box,
+            // the IFC root's own box being the containing block.
+            let run_shifts = self.inline_run_shifts(
+                node_index,
+                &cached_layout.glyph_runs,
+                content_box_rect.size,
+            );
+
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
             // what fits in the viewport. Otherwise glyphs beyond the viewport are not rendered.
@@ -7533,6 +7542,27 @@ where
                     viewport_clip_rect.origin.y += ink.y;
                     viewport_clip_rect.size.height -= ink.y;
                 }
+                // The runs a relatively positioned inline box moves paint as
+                // far past that ink as it moved them (a visible axis only).
+                if let Some(shifts) = run_shifts.as_deref() {
+                    let (lo, hi) = shifts.iter().fold(
+                        (LogicalPosition::zero(), LogicalPosition::zero()),
+                        |(lo, hi), s| {
+                            (
+                                LogicalPosition::new(lo.x.min(s.x), lo.y.min(s.y)),
+                                LogicalPosition::new(hi.x.max(s.x), hi.y.max(s.y)),
+                            )
+                        },
+                    );
+                    if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                        viewport_clip_rect.origin.x += lo.x;
+                        viewport_clip_rect.size.width += hi.x - lo.x;
+                    }
+                    if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)) {
+                        viewport_clip_rect.origin.y += lo.y;
+                        viewport_clip_rect.size.height += hi.y - lo.y;
+                    }
+                }
             }
 
             // Check for text-shadow and wrap inline content with push/pop shadow
@@ -7570,6 +7600,7 @@ where
                 cached_layout.dense.as_deref(),
                 &cached_layout.payload,
                 &cached_layout.glyph_runs,
+                run_shifts.as_deref(),
                 node_index,
             );
 
@@ -8433,7 +8464,56 @@ where
         Ok(())
     }
 
+    /// How far `position: relative` moves each glyph run of the inline
+    /// layout of IFC root `node_index`, parallel to `glyph_runs`: the
+    /// `positioning::inline_relative_offset` of the run's text node, the
+    /// percentages against `cb_size` (the IFC root's content box). `None`
+    /// when no run moves - the common case, no allocation. The relative pass
+    /// moves boxes; the text of an inline box is painted from these runs and
+    /// the line layout, which it never reaches (pdfocr engine issue 2).
+    fn inline_run_shifts(
+        &self,
+        node_index: usize,
+        glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
+        cb_size: LogicalSize,
+    ) -> Option<Vec<LogicalPosition>> {
+        let ifc_root = super::fc::ifc_root_style_dom_id(self.positioned_tree.tree, node_index)?;
+        let mut shifts: Option<Vec<LogicalPosition>> = None;
+        // Consecutive runs of one text node (a line break, a font fallback)
+        // share its shift: resolved once.
+        let mut last: Option<(NodeId, LogicalPosition)> = None;
+        for (i, run) in glyph_runs.iter().enumerate() {
+            let Some(source) = run.source_node_id else {
+                continue;
+            };
+            let shift = match last {
+                Some((node, shift)) if node == source => shift,
+                _ => {
+                    let shift = super::positioning::inline_relative_offset(
+                        self.ctx.styled_dom,
+                        source,
+                        ifc_root,
+                        cb_size,
+                        self.ctx.viewport_size,
+                    );
+                    last = Some((source, shift));
+                    shift
+                }
+            };
+            if shift.x != 0.0 || shift.y != 0.0 {
+                shifts.get_or_insert_with(|| vec![LogicalPosition::zero(); glyph_runs.len()])[i] =
+                    shift;
+            }
+        }
+        shifts
+    }
+
     /// Converts the rich layout information from `text3` into drawing commands.
+    ///
+    /// `run_shifts` (parallel to `glyph_runs`, `None` when nothing moves):
+    /// how far `position: relative` on an inline box moves each run - its
+    /// background and border, its glyphs, its decorations and hit-test area,
+    /// and in a paged list the clusters of the `TextLayout` payload.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
@@ -8446,8 +8526,14 @@ where
         dense_view: Option<&crate::text3::dense::DenseText>,
         payload: &Arc<dyn std::any::Any + Send + Sync>,
         glyph_runs: &[crate::text3::glyphs::CompactGlyphRun],
+        run_shifts: Option<&[LogicalPosition]>,
         source_node_index: usize,
     ) {
+        let shift_of_run = |i: usize| {
+            run_shifts
+                .and_then(|s| s.get(i).copied())
+                .unwrap_or_else(LogicalPosition::zero)
+        };
         let _p = crate::probe::Probe::span("dl_inline_text");
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
@@ -8586,11 +8672,50 @@ where
             // the cached Arc, so ptr_eq still fires damage then. (A layout
             // with lines above its box is the one exception, see
             // `lines_above`: paged-only, a split multi-column paragraph.)
-            let (text_payload, text_bounds) = if lines_above {
-                let dy = layout_bounds.y;
-                let mut moved: UnifiedLayout = (**layout).clone();
+            //
+            // The other exception: the clusters a relatively positioned inline
+            // box moves (`run_shifts`), which the PDF bridge draws from here
+            // (it skips the `Text` runs of a shaped font) - moved in the copy
+            // as their runs are below. Its items are the sparse ones, expanded
+            // from the dense view when the stored form is the retirement
+            // sentinel.
+            let moved_nodes: Vec<(NodeId, LogicalPosition)> = run_shifts
+                .map(|shifts| {
+                    glyph_runs
+                        .iter()
+                        .zip(shifts)
+                        .filter_map(|(run, s)| {
+                            let node = run.source_node_id?;
+                            (s.x != 0.0 || s.y != 0.0).then_some((node, *s))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (text_payload, text_bounds) = if lines_above || !moved_nodes.is_empty() {
+                let dy = if lines_above { layout_bounds.y } else { 0.0 };
+                let mut moved = UnifiedLayout {
+                    items: if layout.items.is_empty() {
+                        dense_view
+                            .map(crate::text3::dense::DenseText::to_unified_items)
+                            .unwrap_or_default()
+                    } else {
+                        layout.items.clone()
+                    },
+                    overflow: layout.overflow.clone(),
+                };
                 for item in &mut moved.items {
                     item.position.y -= dy;
+                    let source = match &item.item {
+                        ShapedItem::Cluster(c) => c.source_node_id,
+                        _ => None,
+                    };
+                    let shift = source
+                        .and_then(|n| moved_nodes.iter().find(|(m, _)| *m == n))
+                        .map(|&(_, s)| s);
+                    if let Some(s) = shift {
+                        item.position.x += s.x;
+                        item.position.y += s.y;
+                    }
                 }
                 let moved: Arc<dyn std::any::Any + Send + Sync> = Arc::new(moved);
                 let origin =
@@ -8623,16 +8748,23 @@ where
 
         // FIRST PASS: Render backgrounds (solid colors, gradients) and borders for each glyph run
         // This must happen BEFORE rendering text so that backgrounds appear behind text.
-        for glyph_run in glyph_runs {
+        for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            // The run's origin: the IFC's content box, moved by the
+            // relatively positioned inline boxes around its text.
+            let shift = shift_of_run(i);
+            let run_origin = LogicalPosition::new(
+                container_rect.origin.x + shift.x,
+                container_rect.origin.y + shift.y,
+            );
             // Calculate the bounding box for this glyph run
             if let (Some(first_glyph), Some(last_glyph)) =
                 (glyph_run.glyphs.first(), glyph_run.glyphs.last())
             {
                 // Calculate run bounds from glyph positions
-                let run_start_x = container_rect.origin.x + first_glyph.point.x;
+                let run_start_x = run_origin.x + first_glyph.point.x;
                 // The pen AFTER the last glyph (`end_x`), not the last pen:
                 // a run's extent covers its last letter.
-                let run_end_x = container_rect.origin.x + glyph_run.end_x.max(last_glyph.point.x);
+                let run_end_x = run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
                 let run_width = (run_end_x - run_start_x).max(0.0);
 
                 // Skip if run has no width
@@ -8641,7 +8773,7 @@ where
                 }
 
                 // Approximate height based on font size (baseline is at glyph.point.y)
-                let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                let baseline_y = run_origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
                 let ascent = font_size * APPROX_ASCENT_RATIO;
 
@@ -8682,7 +8814,14 @@ where
         let selection_recolour = self.selection_recolour_for_ifc(source_node_index);
 
         // SECOND PASS: Render text runs
-        for glyph_run in glyph_runs {
+        for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            // The run's origin: the IFC's content box, moved by the
+            // relatively positioned inline boxes around its text.
+            let shift = shift_of_run(i);
+            let run_origin = LogicalPosition::new(
+                container_rect.origin.x + shift.x,
+                container_rect.origin.y + shift.y,
+            );
             // Clip text to the viewport-sized content box, not the full scroll
             // content area. This prevents text from overflowing outside the
             // container when overflow is hidden/scroll/auto.
@@ -8692,9 +8831,8 @@ where
             // relative to (0,0) of the IFC). (#25) The runs are stored
             // compact; this expansion builds the same Vec the pre-#25 code
             // built by copy-then-offset — construct instead of memcpy.
-            let offset_glyphs: Vec<GlyphInstance> = glyph_run
-                .glyphs
-                .to_vec_offset(container_rect.origin.x, container_rect.origin.y);
+            let offset_glyphs: Vec<GlyphInstance> =
+                glyph_run.glyphs.to_vec_offset(run_origin.x, run_origin.y);
 
             // Store only the font hash in the display list to keep it lean
             let uniform_bg = if glyph_run.background_content.is_empty() {
@@ -8749,12 +8887,15 @@ where
                     // hence the half-open x test. (A zero-advance mark sitting
                     // exactly on the right edge stays unselected; it is one
                     // combining mark at the very end of a selection.)
+                    // The selection rects are where the LINES put the text:
+                    // a moved run's glyph is tested where it was laid out.
                     let inside = |g: &GlyphInstance| {
+                        let (x, y) = (g.point.x - shift.x, g.point.y - shift.y);
                         rects.iter().any(|r| {
-                            g.point.x >= r.min_x() - 0.5
-                                && g.point.x < r.max_x() - 0.5
-                                && g.point.y >= r.min_y()
-                                && g.point.y <= r.max_y()
+                            x >= r.min_x() - 0.5
+                                && x < r.max_x() - 0.5
+                                && y >= r.min_y()
+                                && y <= r.max_y()
                         })
                     };
                     let (selected, normal): (Vec<GlyphInstance>, Vec<GlyphInstance>) =
@@ -8809,10 +8950,9 @@ where
                 if let (Some(first_glyph), Some(last_glyph)) =
                     (glyph_run.glyphs.first(), glyph_run.glyphs.last())
                 {
-                    let decoration_start_x = container_rect.origin.x + first_glyph.point.x;
+                    let decoration_start_x = run_origin.x + first_glyph.point.x;
                     // Under the last letter too (`end_x`: the pen after it).
-                    let decoration_end_x =
-                        container_rect.origin.x + glyph_run.end_x.max(last_glyph.point.x);
+                    let decoration_end_x = run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
                     let decoration_width = decoration_end_x - decoration_start_x;
 
                     // Use font metrics to determine decoration positions
@@ -8821,7 +8961,7 @@ where
                     let thickness = (font_size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
 
                     // Baseline is at glyph.point.y
-                    let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                    let baseline_y = run_origin.y + first_glyph.point.y;
 
                     if needs_underline {
                         // Underline is typically 10-15% below baseline
@@ -8864,7 +9004,14 @@ where
 
         // THIRD PASS: Generate hit-test areas for text runs
         // This enables cursor resolution directly on text nodes instead of their containers
-        for glyph_run in glyph_runs {
+        for (i, glyph_run) in glyph_runs.iter().enumerate() {
+            // The run's origin: the IFC's content box, moved by the
+            // relatively positioned inline boxes around its text.
+            let shift = shift_of_run(i);
+            let run_origin = LogicalPosition::new(
+                container_rect.origin.x + shift.x,
+                container_rect.origin.y + shift.y,
+            );
             // Only generate hit-test areas for runs with a source node id
             let Some(source_node_id) = glyph_run.source_node_id else {
                 continue;
@@ -8874,10 +9021,10 @@ where
             if let (Some(first_glyph), Some(last_glyph)) =
                 (glyph_run.glyphs.first(), glyph_run.glyphs.last())
             {
-                let run_start_x = container_rect.origin.x + first_glyph.point.x;
+                let run_start_x = run_origin.x + first_glyph.point.x;
                 // The pen AFTER the last glyph (`end_x`), not the last pen:
                 // a run's extent covers its last letter.
-                let run_end_x = container_rect.origin.x + glyph_run.end_x.max(last_glyph.point.x);
+                let run_end_x = run_origin.x + glyph_run.end_x.max(last_glyph.point.x);
                 let run_width = (run_end_x - run_start_x).max(0.0);
 
                 // Skip if run has no width
@@ -8886,7 +9033,7 @@ where
                 }
 
                 // Calculate run bounds using font metrics
-                let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                let baseline_y = run_origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
                 let ascent = font_size * APPROX_ASCENT_RATIO;
 
