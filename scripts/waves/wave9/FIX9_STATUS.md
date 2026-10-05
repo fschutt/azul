@@ -40,3 +40,10 @@ this checkout, not ours); apps lib: AzMonitor + AzNotes test helpers fixed (bc0b
 | R3-FRAME | ae324df22d3899ae3 | wt/r3-frame | scripts/R3_FRAME_2026_10_05.md | running |
 | R3-E2E (Modal button does not rebuild the main window; AzNews / AzCode infinite-height box) | a280d19d436d15d59 | wt/r3-e2e | scripts/R3_E2E_2026_10_05.md | running |
 | R3-APPS (10 failing app lib tests) | a1902e84164760a94 | wt/r3-apps | scripts/R3_APPS_2026_10_05.md | running |
+
+## pdfocr engine issues (2026-10-05 night; /Users/fschutt/Development/pdfocr/results/engine-issues/README.md + repro.zip)
+| Issue | Owner | Branch / worktree | Report |
+|---|---|---|---|
+| 1 sup / sub / vertical-align shrink but do not move (run takes vertical-align from the text node, not its inline ancestors) | R3-TEXT (aa29d62945e549b29, told) | wt/r3-text | scripts/R3_TEXT_2026_10_05.md "pdfocr issue 1" |
+| 2 position: relative on an inline span; 3 hyphens: auto ignores lang | PDFOCR-AZUL aa0807006e05d6a08 | wt/pdfocr-azul | scripts/PDFOCR_AZUL_2026_10_05.md |
+| 4 printpdf from_html_with_cache decodes every image for every page | PRINTPDF-IMAGES acbd8c219bb2cf6ce | ../printpdf-lazy-images, branch fix/html-images-decoded-per-page (from origin/azul-codegen-api 84dce8c) | PRINTPDF_IMAGES_REPORT.md there |
