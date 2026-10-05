@@ -39,12 +39,13 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
 
 - 1.11 RED 5634f0047, GREEN c7410153e (xml.rs mod scan_external_resources_tests; .rev() pushes, Text arm gone).
 
+- 1.12 RED 9a2a1f2da, GREEN e32c61cd6 (xml_attributes.rs mod tests; split_top_level).
+
 ## IN PROGRESS
-1.12
+(none)
 
 ## NEXT
-1.12 RED a_data_url_in_a_style_attribute_keeps_its_base64_payload (core/src/xml_attributes.rs ~526
-style.split(';') -> split_top_level)
+Done. Report: scripts/FIX9_LAYOUT_2026_10_05.md.
 
 ## Open questions
 (none)
