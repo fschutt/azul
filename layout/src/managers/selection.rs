@@ -466,18 +466,23 @@ mod autotest_generated {
         assert_eq!(html.matches('>').count(), 4, "{html}");
     }
 
+    /// The font family goes into the `style="..."` attribute through the one
+    /// attribute encoder (`azul_core::xml::html::encode_attribute`), so markup
+    /// in a family name stays text inside the attribute: no quote ends it, no
+    /// `<` / `>` opens a tag. (This test once pinned the raw interpolation as
+    /// a known injection; the encoder closed it.) A `;` is NOT an HTML
+    /// character and passes through: the family can still add CSS
+    /// declarations, which the style attribute contains.
     #[test]
-    fn to_html_font_family_is_interpolated_raw_into_the_style_attribute() {
-        // Characterization test (NOT an endorsement): unlike `text`, the font
-        // family is written into the `style="..."` attribute with no escaping
-        // or quoting, so a quote in the family name terminates the attribute.
-        // Live producers never populate `styled_runs`, so this is currently
-        // unreachable — but any future producer must sanitize the family name.
+    fn to_html_font_family_markup_is_escaped_into_the_style_attribute() {
         let html = content(vec![run("t", 10.0, Some("\"><img onerror=x>"))]).to_html();
         assert!(
-            html.contains("font-family: \"><img onerror=x>; "),
-            "escaping behaviour changed, re-check the injection note: {html}"
+            html.contains("font-family: &quot;&gt;&lt;img onerror=x&gt;; "),
+            "{html}"
         );
+        assert!(!html.contains("<img"), "{html}");
+        // The only tags are the wrapper div and the run's span.
+        assert_eq!(html.matches('<').count(), 4, "{html}");
     }
 
     // ---------------------------------------------------------------------
