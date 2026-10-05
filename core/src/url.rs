@@ -130,12 +130,21 @@ impl Url {
         self.scheme.as_str() == "http"
     }
 
-    /// Opens this URL in the system's default browser.
+    /// Opens this URL in the system's default browser. `true` once the
+    /// opener started (`false` where the platform has none).
     #[cfg(feature = "std")]
     pub fn open(&self) -> bool {
-        opener_command(self.href.as_str(), false, std::env::consts::OS).is_some_and(
-            |(program, args)| std::process::Command::new(program).args(args).spawn().is_ok(),
-        )
+        spawn_opener(self.href.as_str(), false)
+    }
+
+    /// Opens a file in its default app, or a folder in the file manager
+    /// (`open` on macOS, `xdg-open` on Linux and the BSDs, `explorer` on
+    /// Windows; the path is one argument, no shell parses it). `true` once
+    /// the opener started (`false` where the platform has none).
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn open_path(path: &str) -> bool {
+        spawn_opener(path, true)
     }
 
     /// Get the effective port (using default ports for http/https)
@@ -205,19 +214,44 @@ impl fmt::Display for Url {
 /// The program and arguments that hand `target` - a URL, or a file / folder
 /// path when `is_path` - to its default handler on `os`
 /// (`std::env::consts::OS`), or `None` where there is no opener.
+///
+/// The target is always ONE argument and no shell runs in between. Windows
+/// used `cmd /C start <url>`: cmd re-parses the line, so an `&` (every URL
+/// with two query parameters) ended the command, and a quoted first argument
+/// became the window title. A URL goes to `rundll32 url.dll,FileProtocolHandler`
+/// (the shell's URL handler, no command-line parsing of the URL); a path goes
+/// to `explorer`, which opens a file in its default app and a folder in a
+/// window. Elsewhere `open` (macOS) and `xdg-open` (Linux and the BSDs) take
+/// both.
 #[cfg(feature = "std")]
 fn opener_command<'a>(
     target: &'a str,
     is_path: bool,
     os: &str,
 ) -> Option<(&'static str, alloc::vec::Vec<&'a str>)> {
-    let _ = is_path;
     match os {
-        "windows" => Some(("cmd", alloc::vec!["/C", "start", target])),
+        "windows" if is_path => Some(("explorer", alloc::vec![target])),
+        "windows" => Some((
+            "rundll32",
+            alloc::vec!["url.dll,FileProtocolHandler", target],
+        )),
         "macos" => Some(("open", alloc::vec![target])),
-        "linux" => Some(("xdg-open", alloc::vec![target])),
+        "linux" | "freebsd" | "openbsd" | "netbsd" | "dragonfly" => {
+            Some(("xdg-open", alloc::vec![target]))
+        }
         _ => None,
     }
+}
+
+/// Spawns [`opener_command`] for this platform; `true` once it started.
+#[cfg(feature = "std")]
+fn spawn_opener(target: &str, is_path: bool) -> bool {
+    opener_command(target, is_path, std::env::consts::OS).is_some_and(|(program, args)| {
+        std::process::Command::new(program)
+            .args(args)
+            .spawn()
+            .is_ok()
+    })
 }
 
 #[cfg(test)]
