@@ -72,7 +72,7 @@ use azul_css::{
 };
 
 use super::{
-    button::{Button, OptionButtonOnClick},
+    button::{styled_button, OptionButtonOnClick},
     check_box::CheckBox,
     combobox::ComboBox,
     drop_down::DropDown,
@@ -1737,14 +1737,14 @@ pub struct RibbonStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub footer_spacer_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into the dialog-launcher [`Button`].
+    /// Container style injected into the dialog-launcher [`Button`](crate::widgets::button::Button).
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub launcher_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into the dialog-launcher [`Button`].
+    /// Icon style injected into the dialog-launcher [`Button`](crate::widgets::button::Button).
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
@@ -1772,42 +1772,42 @@ pub struct RibbonStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub separator_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into large-button [`Button`]s.
+    /// Container style injected into large-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub large_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into large-button [`Button`]s.
+    /// Icon style injected into large-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub large_icon_style: OptionCssPropertyWithConditionsVec,
-    /// Label style injected into large-button [`Button`]s.
+    /// Label style injected into large-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub large_label_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into small-button [`Button`]s.
+    /// Container style injected into small-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub small_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into small-button [`Button`]s.
+    /// Icon style injected into small-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub small_icon_style: OptionCssPropertyWithConditionsVec,
-    /// Label style injected into small-button [`Button`]s.
+    /// Label style injected into small-button [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
@@ -1940,14 +1940,14 @@ pub struct RibbonStyle {
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub mobile_group_list_item_selected_style: OptionCssPropertyWithConditionsVec,
-    /// Container style injected into the three spinner [`Button`]s.
+    /// Container style injected into the three spinner [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
     /// a real answer — "no properties at all" — which the pre-filled field could
     /// not express.
     pub gallery_spinner_button_style: OptionCssPropertyWithConditionsVec,
-    /// Icon style injected into the three spinner [`Button`]s.
+    /// Icon style injected into the three spinner [`Button`](crate::widgets::button::Button)s.
     ///
     /// `None` means "no opinion": the part is derived from [`Self::theme`] at
     /// render time. `Some` is an override the caller chose, and `Some(empty)` is
@@ -2687,7 +2687,7 @@ pub struct RibbonRow {
 }
 
 /// Declarative description of one ribbon button; expands to the existing
-/// [`Button`] widget with ribbon styles injected.
+/// [`Button`](crate::widgets::button::Button) widget with ribbon styles injected.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct RibbonButton {
@@ -3776,38 +3776,6 @@ fn merged_style(
     crate::widgets::themes::theme_blocks::stack_parts(base, extra)
 }
 
-/// Expands ribbon button config to the existing [`Button`] widget with the
-/// given part styles injected through `Button`'s public style fields, in the
-/// ribbon's theme (`theme`): the button is part of the ribbon's look, so it
-/// is built in that look, never left to follow on its own.
-fn styled_button(
-    icon: AzString,
-    label: AzString,
-    trailing_icon: AzString,
-    container_style: CssPropertyWithConditionsVec,
-    icon_style: CssPropertyWithConditionsVec,
-    label_style: CssPropertyWithConditionsVec,
-    trailing_icon_style: CssPropertyWithConditionsVec,
-    on_click: OptionButtonOnClick,
-    disabled_reason: AzString,
-    alt: AzString,
-    theme: UiTheme,
-) -> Dom {
-    let mut b = Button::create(label);
-    // An icon-only button's name ("Bold"); empty = the label names it.
-    b.alt = alt;
-    b.icon = icon;
-    b.trailing_icon = trailing_icon;
-    b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
-    b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
-    b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
-    b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
-    b.on_click = on_click;
-    b.disabled_reason = disabled_reason;
-    b.set_theme(theme);
-    b.dom()
-}
-
 /// Added to a disabled ribbon button ([`RibbonButton::disabled_reason`]),
 /// next to the Button's own `BUTTON_DISABLED_CLASS`: the disabled state
 /// itself (dimmed, inert, unavailable, the reason as tooltip) is the
@@ -3853,8 +3821,8 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
         rb.on_click,
         rb.disabled_reason,
         rb.alt,
-        theme,
-    );
+        OptionUiTheme::Some(theme),
+    ).dom();
     if disabled {
         dom.root.add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
     }
@@ -3977,8 +3945,8 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
             Some(l).into(),
             AzString::from_const_str(""),
             AzString::from_const_str("More options"),
-            theme,
-        ));
+            OptionUiTheme::Some(theme),
+        ).dom());
     }
     let footer = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_FOOTER))
@@ -4101,8 +4069,8 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
                 OptionButtonOnClick::None,
                 AzString::from_const_str(""),
                 AzString::from_const_str(["Previous row", "Next row", "More"][i]),
-                theme,
-            );
+                OptionUiTheme::Some(theme),
+            ).dom();
             // The third button is "More": it expands the panel.
             if i == 2 && b.expandable_gallery {
                 btn = btn.with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_MORE));

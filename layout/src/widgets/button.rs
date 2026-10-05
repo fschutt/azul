@@ -906,6 +906,44 @@ fn with_form_semantics(
         )
 }
 
+/// A [`Button`] dressed in a composite widget's look - the ribbon's and the
+/// toolbar's tool buttons (one builder; they were twins, WIDGETS9A s10):
+/// the label, the leading and trailing icon glyphs, the four part styles the
+/// composite decides, its click hook, its disabled reason (the Button drops a
+/// disabled command's click, dims it and says why) and its name (`alt`, for
+/// an icon-only button; empty = the label names it). Built in `theme`
+/// (`None`: it follows the app theme) - a composite pinned to a theme builds
+/// its buttons in that theme. The caller adds what is its own (a toggle, its
+/// classes, its keys) before and after `dom()`.
+pub(crate) fn styled_button(
+    icon: AzString,
+    label: AzString,
+    trailing_icon: AzString,
+    container_style: CssPropertyWithConditionsVec,
+    icon_style: CssPropertyWithConditionsVec,
+    label_style: CssPropertyWithConditionsVec,
+    trailing_icon_style: CssPropertyWithConditionsVec,
+    on_click: OptionButtonOnClick,
+    disabled_reason: AzString,
+    alt: AzString,
+    theme: crate::widgets::themes::OptionUiTheme,
+) -> Button {
+    let mut b = Button::create(label);
+    b.alt = alt;
+    b.icon = icon;
+    b.trailing_icon = trailing_icon;
+    b.container_style = OptionCssPropertyWithConditionsVec::Some(container_style);
+    b.icon_style = OptionCssPropertyWithConditionsVec::Some(icon_style);
+    b.label_style = OptionCssPropertyWithConditionsVec::Some(label_style);
+    b.trailing_icon_style = OptionCssPropertyWithConditionsVec::Some(trailing_icon_style);
+    b.on_click = on_click;
+    b.disabled_reason = disabled_reason;
+    if let Some(t) = theme.into_option() {
+        b.set_theme(t);
+    }
+    b
+}
+
 #[cfg(test)]
 mod autotest_generated {
     use std::collections::HashSet;
