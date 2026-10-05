@@ -223,6 +223,11 @@ impl<'a> ClassInfo<'a> {
             .map(|n| n.to_string())
             .collect();
         taken.insert(name.to_ascii_lowercase());
+        // A property named like a wrapper Type would hide that Type inside
+        // this one (`Declare Property Dom () As Dom`).
+        for t in targets {
+            taken.insert(wrapper_type_name(t).to_ascii_lowercase());
+        }
         for (_, m) in &methods {
             taken.insert(m.to_ascii_lowercase());
         }

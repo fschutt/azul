@@ -398,6 +398,11 @@ fn emit_field_properties(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenI
         taken.insert(idiomatic_method_name(&func.method_name).to_ascii_lowercase());
         taken.insert(format!("init{}", idiomatic_method_name(&func.method_name)).to_ascii_lowercase());
     }
+    // A property named like a class would hide that class inside this one
+    // (`Public Property Get Dom() As Dom`).
+    for c in &classes {
+        taken.insert(class_name_for(c).to_ascii_lowercase());
+    }
     for a in fa::accessible_fields(s, ir, config) {
         let comp = format!("m_raw.{}", sanitize_identifier(&a.field.name));
         let base = sanitize_identifier(&to_pascal_case(a.field.name.trim_start_matches('_')));
