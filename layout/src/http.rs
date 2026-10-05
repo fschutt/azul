@@ -397,6 +397,84 @@ fn mocked_download(url: &str) -> Option<ResultU8VecHttpError> {
     }
 }
 
+/// [`mocked_http`] as a reachability probe's `(reachable, error)`.
+#[cfg(feature = "text_layout")]
+fn mocked_reachable(url: &str) -> Option<(bool, Option<AzString>)> {
+    Some(match mocked_http(url)? {
+        ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
+        ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
+    })
+}
+
+/// What a resumable request answers when its worker thread could not start,
+/// or ended without an answer (it panicked).
+#[cfg(feature = "text_layout")]
+const LOST_TRANSFER: &str = "the request's worker thread ended without an answer";
+
+/// [`LOST_TRANSFER`] as the answer of `http_get` / `http_request` / `http_post`.
+#[cfg(feature = "text_layout")]
+fn lost_get_result() -> HttpGetResult {
+    HttpGetResult {
+        result: ResultHttpResponseHttpError::Err(HttpError::other(LOST_TRANSFER.into())),
+    }
+}
+
+/// Resumes `on_result` with the request's answer WITHOUT blocking the calling
+/// activation: the one way every resumable request of [`HttpRequestConfig`]
+/// runs.
+///
+/// `mocked` is the e2e mock store's answer (`mocked_http` / `mocked_download`):
+/// a canned answer, or the immediate "unmocked" error of a scripted run, is
+/// queued for the next pump right away - a scripted run stays deterministic.
+/// Otherwise, with a network transport (the `http` feature, not wasm32), the
+/// transfer runs on a worker thread and the request is deferred: the pump
+/// (which keeps ticking while `request::has_work()`) polls the thread's
+/// channel and resumes on the first poll after the answer. A thread that
+/// cannot start, or ends without an answer, resumes with `lost()`. Without a
+/// transport (no `http` feature; on wasm32 the web host services the queue)
+/// `transfer` runs here.
+#[cfg(feature = "text_layout")]
+fn resume_without_blocking<T: Send + 'static>(
+    data: azul_core::refany::RefAny,
+    on_result: crate::callbacks::ResumeCallback,
+    mocked: Option<T>,
+    transfer: impl FnOnce() -> T + Send + 'static,
+    lost: fn() -> T,
+) -> azul_core::task::RequestId {
+    if let Some(answer) = mocked {
+        return crate::request::complete(data, on_result, answer);
+    }
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    {
+        use std::sync::mpsc::{channel, TryRecvError};
+
+        let (answer_tx, answer_rx) = channel();
+        let spawned = std::thread::Builder::new()
+            .name("azul-http".into())
+            .spawn(move || {
+                // Fails only when the request was dropped unanswered.
+                let _ = answer_tx.send(transfer());
+            });
+        if spawned.is_err() {
+            return crate::request::complete(data, on_result, lost());
+        }
+        crate::request::defer(
+            data,
+            on_result,
+            alloc::boxed::Box::new(move || match answer_rx.try_recv() {
+                Ok(answer) => Some(azul_core::refany::RefAny::new(answer)),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => Some(azul_core::refany::RefAny::new(lost())),
+            }),
+        )
+    }
+    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
+    {
+        let _ = lost;
+        crate::request::complete(data, on_result, transfer())
+    }
+}
+
 impl HttpRequestConfig {
     /// Create a new config with default values
     #[must_use]
@@ -443,10 +521,11 @@ impl HttpRequestConfig {
     /// HTTP GET request using this configuration, resuming `on_result` with
     /// an [`HttpGetResult`].
     ///
-    /// Never blocks the calling activation in an observable way: on desktop
-    /// the request runs here (ureq is synchronous) and the callback runs
-    /// right after the current activation returns; on web `fetch()` runs and
-    /// the callback runs on a later task. `data` is handed back untouched.
+    /// Never blocks the calling activation: on desktop the transfer runs on a
+    /// worker thread and the callback runs on the first frame after the answer
+    /// arrives (under an armed e2e mock store the canned answer resumes right
+    /// after the current activation); on web `fetch()` runs and the callback
+    /// runs on a later task. `data` is handed back untouched.
     ///
     /// On web CORS applies and cannot be escaped: a target that does not
     /// send `Access-Control-Allow-Origin` fails with `HttpError::Other`
@@ -460,8 +539,16 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.http_get_blocking(url);
-        crate::request::complete(data, on_result, HttpGetResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_http(url.as_str()).map(|result| HttpGetResult { result }),
+            move || HttpGetResult {
+                result: config.http_get_blocking(url),
+            },
+            lost_get_result,
+        )
     }
 
     /// The synchronous transport behind [`Self::http_get`]. Not part of the
@@ -504,8 +591,16 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.http_request_blocking(method, url, body, content_type);
-        crate::request::complete(data, on_result, HttpGetResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_http(url.as_str()).map(|result| HttpGetResult { result }),
+            move || HttpGetResult {
+                result: config.http_request_blocking(method, url, body, content_type),
+            },
+            lost_get_result,
+        )
     }
 
     /// The synchronous transport behind [`Self::http_request`]; see
@@ -561,8 +656,16 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.http_post_blocking(url, body, content_type);
-        crate::request::complete(data, on_result, HttpGetResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_http(url.as_str()).map(|result| HttpGetResult { result }),
+            move || HttpGetResult {
+                result: config.http_post_blocking(url, body, content_type),
+            },
+            lost_get_result,
+        )
     }
 
     /// The synchronous transport behind [`Self::http_post`]; see
@@ -609,8 +712,18 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let result = self.download_bytes_blocking(url);
-        crate::request::complete(data, on_result, HttpBytesResult { result })
+        let config = self.clone();
+        resume_without_blocking(
+            data,
+            on_result,
+            mocked_download(url.as_str()).map(|result| HttpBytesResult { result }),
+            move || HttpBytesResult {
+                result: config.download_bytes_blocking(url),
+            },
+            || HttpBytesResult {
+                result: ResultU8VecHttpError::Err(HttpError::other(LOST_TRANSFER.into())),
+            },
+        )
     }
 
     /// The synchronous transport behind [`Self::download_bytes`]; see
@@ -652,13 +765,19 @@ impl HttpRequestConfig {
         data: azul_core::refany::RefAny,
         on_result: crate::callbacks::ResumeCallback,
     ) -> azul_core::task::RequestId {
-        let (reachable, error) = self.is_url_reachable_blocking(url);
-        crate::request::complete(
+        let config = self.clone();
+        let result = |(reachable, error): (bool, Option<AzString>)| HttpReachableResult {
+            reachable,
+            error: error.into(),
+        };
+        resume_without_blocking(
             data,
             on_result,
-            HttpReachableResult {
-                reachable,
-                error: error.into(),
+            mocked_reachable(url.as_str()).map(result),
+            move || result(config.is_url_reachable_blocking(url)),
+            || HttpReachableResult {
+                reachable: false,
+                error: azul_css::corety::OptionString::Some(LOST_TRANSFER.into()),
             },
         )
     }
@@ -669,11 +788,8 @@ impl HttpRequestConfig {
     #[must_use]
     pub fn is_url_reachable_blocking(&self, url: AzString) -> (bool, Option<AzString>) {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(url.as_str()) {
-            return match mocked {
-                ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
-                ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
-            };
+        if let Some(mocked) = mocked_reachable(url.as_str()) {
+            return mocked;
         }
         match http_request_with_config(HttpMethod::Head, url.as_str(), None, "", self) {
             Ok(response) => (response.is_success(), None),
@@ -687,11 +803,8 @@ impl HttpRequestConfig {
     #[must_use]
     pub fn is_url_reachable_blocking(&self, url: AzString) -> (bool, Option<AzString>) {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(url.as_str()) {
-            return match mocked {
-                ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
-                ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
-            };
+        if let Some(mocked) = mocked_reachable(url.as_str()) {
+            return mocked;
         }
         (
             false,
@@ -2089,8 +2202,9 @@ mod autotest_generated {
     }
 
     // The resumable form parks the answer in the runtime queue instead of
-    // returning it: the request id is valid and exactly one completion
-    // carrying the typed result struct is waiting to be delivered.
+    // returning it: the request id is valid and one completion carrying the
+    // typed result struct reaches the queue - on a later pump, once the
+    // worker thread has answered (`resume_without_blocking`).
     #[cfg(all(feature = "http", not(target_arch = "wasm32"), feature = "text_layout"))]
     #[test]
     fn resumable_requests_park_their_result_in_the_queue() {
@@ -2104,7 +2218,6 @@ mod autotest_generated {
             azul_core::callbacks::Update::DoNothing
         }
 
-        let _ = crate::request::take_completed();
         let cfg = HttpRequestConfig::new().with_timeout(1);
         let id = cfg.http_get(
             AzString::from("not a url"),
@@ -2112,10 +2225,18 @@ mod autotest_generated {
             crate::callbacks::ResumeCallback::create(noop),
         );
         assert!(id.is_valid());
-        let mut completed = crate::request::take_completed();
-        assert_eq!(completed.len(), 1);
-        let entry = completed.remove(0);
-        assert_eq!(entry.request_id, id);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let entry = loop {
+            let mut completed = crate::request::take_completed();
+            if let Some(at) = completed.iter().position(|e| e.request_id == id) {
+                break completed.remove(at);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the answer never reached the queue"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
         let answer = HttpGetResult::downcast(entry.result)
             .into_option()
             .expect("an HttpGetResult");
