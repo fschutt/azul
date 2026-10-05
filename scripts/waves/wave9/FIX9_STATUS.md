@@ -6,12 +6,16 @@ the EXISTING worktree (MONDAY_RESUME_2026_10_05.md "How to resume"). Worktrees: 
 
 | Task | Package | Agent id | Branch | Progress / report | State |
 |---|---|---|---|---|---|
-| FIX9-LAYOUT | PKG 1 ENGINE-LAYOUT-TEXT | aed040f92949d6540 | wt/fix9-layout | scripts/FIX9_LAYOUT.PROGRESS.md / _2026_10_05.md | running |
-| FIX9-PAINT | PKG 2 ENGINE-PAINT-FRAME-A11Y | a88eb9585f405aa19 | wt/fix9-paint | scripts/FIX9_PAINT.PROGRESS.md | running |
-| FIX9-INPUT | PKG 3 INPUT-IO + DLL + TOOLING | a99cddf42c4359914 | wt/fix9-input | scripts/FIX9_INPUT.PROGRESS.md | running |
+| FIX9-LAYOUT | PKG 1 ENGINE-LAYOUT-TEXT | aed040f92949d6540 | wt/fix9-layout | scripts/FIX9_LAYOUT_2026_10_05.md | DONE (12/12; merged; sub/super pins in text3_baseline_exact.rs / text3_regression_metrics.rs move on purpose; round 2: window.rs paint-only classification of font/text changes, paged layout + fast paths keep old tree, LAYOUTPERF8 bug C) |
+| FIX9-PAINT | PKG 2 ENGINE-PAINT-FRAME-A11Y | a88eb9585f405aa19 | wt/fix9-paint | scripts/FIX9_PAINT_2026_10_05.md | DONE (14/14; merged; inline-flex suite failure diagnosed, not fixed - solver3 reuse of cached measurements, bisect recipe in report; round 2: text3/paged_layout *_in_viewport, compact border-radius %, inline zoom) |
+| FIX9-INPUT | PKG 3 INPUT-IO + DLL + TOOLING | a99cddf42c4359914 | wt/fix9-input | scripts/FIX9_INPUT_2026_10_05.md | DONE (15/16 + selection test + gene2e; merged; 3.8 e2e paste op needs callbacks.rs + event.rs (round 2); verify 3.1 Cmd key-up on the Mac) |
 | FIX9-WIDGETS | PKG 4 WIDGETS | a82bcf5fe8377717a | wt/fix9-widgets | scripts/FIX9_WIDGETS_2026_10_05.md | DONE (17/18; 4.17 dialog-button disabled model needs a user decision; api: ReferencePickerEventKind::Clear; the 4 widget suite failures fixed) |
-| FIX9-APPSA | PKG 5 APPS-A | acbf919509a8261aa | wt/fix9-appsa | scripts/FIX9_APPSA.PROGRESS.md | running |
+| FIX9-APPSA | PKG 5 APPS-A | acbf919509a8261aa | wt/fix9-appsa | scripts/FIX9_APPSA_2026_10_05.md | DONE (12 full + 5.13/5.14 partial; merged; AzContacts/AzReview toolbars and AzMail To/Cc / AzCalendar attendees TokenInput left) |
 | FIX9-APPSB | PKG 6 APPS-B | a8beb815bbe185f30 | wt/fix9-appsb | scripts/FIX9_APPSB_2026_10_05.md | DONE (9/12; skipped AzReader IconGrid + links (files outside), ERP filter bar; integration: Toolbar items need their id as DOM id (R-1, toolbar.rs tool()), azerp_e2e.py:83 selector + "2,400.00" (R-2)) |
 
 Integration: merge_one.sh per branch, then the PARENT list in SMALL_FIXES.md (api.json from the reports, register new
 test files in all.rs, the 9 external path fixes, the AudioSink doc refresh), codegen, dylib + 35 apps, suites.
+
+2026-10-05 evening: ALL 6 MERGED (clean), api.json converged (887495ddd), dylib + 35 apps build, css goldens blessed,
+pushed fbdb57b4d. Integration extras: Toolbar items carry their id as DOM id (RED 47fadd43c / GREEN 6d5dae76f),
+azerp_e2e amount step, wasm scheduled_notifications stub, RawImage::rgba_to_nv12 C wrapper. Suites running.
