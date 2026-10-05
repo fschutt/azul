@@ -745,6 +745,26 @@ fn read_number(
     Ok(Number::Complete(magnitude))
 }
 
+/// `digits` (a whole number's ASCII digits, no sign) grouped by three from
+/// the right with `separator` between the groups ("1234567", `,` ->
+/// "1,234,567"); `None` leaves them ungrouped. The layout crate's one
+/// thousands grouping (the money input, the data table's counts, the
+/// chart's values).
+#[must_use]
+pub(crate) fn group_digits(digits: &str, separator: Option<char>) -> String {
+    let count = digits.chars().count();
+    let mut out = String::with_capacity(digits.len() + count / 3 * 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (count - i) % 3 == 0 {
+            if let Some(g) = separator {
+                out.push(g);
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// `amount` minor units of a currency with `minor_digits` decimals, written
 /// in `locale`: grouped, the decimal point and every decimal, a leading `-`
 /// for a negative amount (`-1.234,50`). With `symbol`, the currency on the
@@ -762,17 +782,7 @@ pub(crate) fn format_money(
     let scale = 10_u64.pow(minor);
     let (whole, fraction) = (magnitude / scale, magnitude % scale);
 
-    let digits = alloc::format!("{whole}");
-    let mut number = String::with_capacity(digits.len() * 2 + minor as usize + 1);
-    let lead = digits.len() % 3;
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (i + 3 - lead) % 3 == 0 {
-            if let Some(g) = locale.group() {
-                number.push(g);
-            }
-        }
-        number.push(c);
-    }
+    let mut number = group_digits(&alloc::format!("{whole}"), locale.group());
     if minor > 0 {
         number.push(locale.decimal());
         number.push_str(&alloc::format!(

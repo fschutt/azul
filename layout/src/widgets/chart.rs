@@ -1119,13 +1119,7 @@ fn group_thousands(text: &str) -> String {
     };
     let mut out = String::with_capacity(text.len() + int.len() / 3);
     out.push_str(sign);
-    let digits = int.as_bytes();
-    for (k, d) in digits.iter().enumerate() {
-        if k > 0 && (digits.len() - k) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(char::from(*d));
-    }
+    out.push_str(&crate::widgets::money_input::group_digits(int, Some(',')));
     out.push_str(frac);
     out
 }

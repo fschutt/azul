@@ -2356,15 +2356,7 @@ fn text_line(text: AzString) -> Dom {
 
 /// "12,345" - a count with thousands separators.
 pub(crate) fn grouped(n: u32) -> String {
-    let digits = alloc::format!("{n}");
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
+    crate::widgets::money_input::group_digits(&alloc::format!("{n}"), Some(','))
 }
 
 /// The header's label: the title, and for a sorted column its arrow (and
