@@ -65,12 +65,15 @@ use azul_css::{
     corety::{OptionU64, OptionUsize, U64Vec},
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
-        basic::StyleFontSize,
+        basic::{
+            color::{ColorU, OptionColorU},
+            StyleFontSize,
+        },
         layout::{LayoutAlignItems, LayoutBoxSizing, LayoutFlexDirection, LayoutPosition},
         property::CssProperty,
         style::StyleCursor,
     },
-    AzString,
+    AzString, StringVec,
 };
 
 use crate::{
@@ -100,6 +103,11 @@ pub(crate) const THUMB_CLASS: &str = "__azul-native-icon-grid-thumb";
 pub(crate) const LABEL_CLASS: &str = "__azul-native-icon-grid-label";
 /// An item's badge glyph.
 pub(crate) const BADGE_CLASS: &str = "__azul-native-icon-grid-badge";
+/// An extra line under an item's label ([`IconGridItem::lines`]).
+pub(crate) const LINE_CLASS: &str = "__azul-native-icon-grid-line";
+/// Added to the thumbnail's box while it is a placeholder tile
+/// ([`IconGridItem::placeholder`]).
+pub(crate) const PLACEHOLDER_CLASS: &str = "__azul-native-icon-grid-placeholder";
 /// The rubber band.
 pub(crate) const MARQUEE_CLASS: &str = "__azul-native-icon-grid-marquee";
 /// The scroll bar's track.
@@ -128,6 +136,14 @@ pub struct IconGridItem {
     pub badge: AzString,
     /// The thumbnail, once the app has it (it replaces the icon).
     pub image: OptionImageRef,
+    /// Extra lines under the label, in the secondary ink (an e-reader's
+    /// author and reading progress), or empty for none. The app gives the
+    /// cells the height they need (`IconGrid::with_cell_size`).
+    pub lines: StringVec,
+    /// The colour of the tile an item without a thumbnail shows its glyph
+    /// on (a book without a cover), the glyph in black or white, whichever
+    /// reads; `None`: the bare glyph. A thumbnail replaces the tile.
+    pub placeholder: OptionColorU,
 }
 
 impl IconGridItem {
@@ -140,6 +156,8 @@ impl IconGridItem {
             icon,
             badge: AzString::from_const_str(""),
             image: OptionImageRef::None,
+            lines: StringVec::from_const_slice(&[]),
+            placeholder: OptionColorU::None,
         }
     }
 
@@ -183,6 +201,31 @@ impl IconGridItem {
     #[must_use]
     pub fn with_name(mut self, name: AzString) -> Self {
         self.set_name(name);
+        self
+    }
+
+    /// The extra lines under the label ("Jane Austen", "42 %").
+    pub fn set_lines(&mut self, lines: StringVec) {
+        self.lines = lines;
+    }
+
+    /// [`Self::set_lines`] for the builder chain.
+    #[must_use]
+    pub fn with_lines(mut self, lines: StringVec) -> Self {
+        self.set_lines(lines);
+        self
+    }
+
+    /// The colour of the tile the glyph sits on while there is no
+    /// thumbnail.
+    pub fn set_placeholder(&mut self, color: ColorU) {
+        self.placeholder = OptionColorU::Some(color);
+    }
+
+    /// [`Self::set_placeholder`] for the builder chain.
+    #[must_use]
+    pub fn with_placeholder(mut self, color: ColorU) -> Self {
+        self.set_placeholder(color);
         self
     }
 }
@@ -1989,6 +2032,117 @@ mod icon_grid_tests {
                     theme.name()
                 );
             }
+        }
+    }
+
+    /// A shelf of 9 books: every third with two lines and a red tile, the
+    /// next with a yellow tile AND a cover, the next plain.
+    extern "C" fn books(_: RefAny, index: usize) -> IconGridItem {
+        let item = IconGridItem::create(AzString::from(format!("Book {index}")), AzString::from("menu_book"));
+        match index % 3 {
+            0 => item
+                .with_lines(StringVec::from_vec(vec![AzString::from("Jane Austen"), AzString::from("42 %")]))
+                .with_placeholder(ColorU::new(160, 40, 40, 255)),
+            1 => item.with_placeholder(ColorU::new(240, 220, 120, 255)).with_image(ImageRef::null_image(
+                2,
+                2,
+                azul_core::resources::RawImageFormat::RGBA8,
+                Vec::new(),
+            )),
+            _ => item,
+        }
+    }
+
+    fn shelf() -> IconGrid {
+        IconGrid::create(9, 400.0, 300.0)
+            .with_data_source(RefAny::new(()), books as IconGridDataSourceCallbackType)
+            .with_accessibility_name(AzString::from("Library"))
+    }
+
+    fn items_of(dom: &Dom) -> Vec<&Dom> {
+        dom.children.as_ref().iter().filter(|c| theme_checks::has_class(c, ITEM_CLASS)).collect()
+    }
+
+    /// The text of a `p > text` node.
+    fn text_of(node: &Dom) -> Option<String> {
+        match node.children.as_ref() {
+            [only] => match only.root.get_node_type() {
+                azul_core::dom::NodeType::Text(s) => Some(s.as_str().to_string()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// User decision D3 (2026-10-05): an item may carry extra lines under
+    /// its label (AzReader's author and reading progress), in order, in the
+    /// secondary ink, day and night; an item without lines shows none.
+    #[test]
+    fn an_item_shows_its_extra_lines_under_its_label_in_order() {
+        for theme in checks::BOTH {
+            let dom = shelf().with_theme(theme).dom();
+            let items = items_of(&dom);
+            let kids = items[0].children.as_ref();
+            assert_eq!(kids.len(), 4, "{}: the thumb, the label, two lines", theme.name());
+            let lines: Vec<Option<String>> = kids[2..].iter().map(text_of).collect();
+            assert_eq!(
+                lines,
+                vec![Some(String::from("Jane Austen")), Some(String::from("42 %"))],
+                "{}: the lines in order",
+                theme.name()
+            );
+            for line in &kids[2..] {
+                assert!(theme_checks::has_class(line, LINE_CLASS), "{}", theme.name());
+                for dark in [false, true] {
+                    let ink = theme_checks::text_color(line, dark);
+                    assert!(ink.is_some(), "{} (dark: {dark}): a line has its ink", theme.name());
+                    assert_ne!(
+                        ink,
+                        theme_checks::text_color(&kids[1], dark),
+                        "{} (dark: {dark}): a line is in the secondary ink, not the label's",
+                        theme.name()
+                    );
+                }
+            }
+            assert_eq!(items[2].children.as_ref().len(), 2, "{}: no lines, no line", theme.name());
+        }
+    }
+
+    /// User decision D3 (2026-10-05): an item without a picture may show its
+    /// glyph on a tile of its own colour (a book without a cover), the glyph
+    /// in black or white, whichever reads, day and night; a thumbnail
+    /// replaces the tile.
+    #[test]
+    fn an_item_without_a_picture_shows_its_glyph_on_its_placeholder_tile() {
+        let red = ColorU::new(160, 40, 40, 255);
+        for theme in checks::BOTH {
+            let dom = shelf().with_theme(theme).dom();
+            let items = items_of(&dom);
+            let tile = &items[0].children.as_ref()[0];
+            assert!(theme_checks::has_class(tile, THUMB_CLASS));
+            assert!(theme_checks::has_class(tile, PLACEHOLDER_CLASS), "{}: a tile", theme.name());
+            let glyph = &tile.children.as_ref()[0];
+            for dark in [false, true] {
+                assert_eq!(
+                    theme_checks::background(tile, dark).as_ref().and_then(theme_checks::bg_color),
+                    Some(red),
+                    "{} (dark: {dark}): the tile in the item's colour",
+                    theme.name()
+                );
+                assert_eq!(
+                    theme_checks::text_color(glyph, dark),
+                    Some(red.contrast_text()),
+                    "{} (dark: {dark}): the glyph reads on the tile",
+                    theme.name()
+                );
+            }
+            let covered = &items[1].children.as_ref()[0];
+            assert!(!theme_checks::has_class(covered, PLACEHOLDER_CLASS), "{}: a cover, no tile", theme.name());
+            assert!(matches!(
+                covered.children.as_ref()[0].root.get_node_type(),
+                azul_core::dom::NodeType::Image(_)
+            ));
+            assert_eq!(theme_checks::background(covered, false), None, "{}", theme.name());
         }
     }
 
