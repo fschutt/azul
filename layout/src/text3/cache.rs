@@ -11397,6 +11397,11 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             ));
         }
 
+        // The paragraph starts in this fragment only when the cursor is at its
+        // start - the greedy path's `is_first_formatted_line` below. Read it
+        // before draining: a continuation fragment of a flow chain holds no
+        // first formatted line, so `text-indent` does not apply to its line 0.
+        let starts_paragraph = cursor.next_item_index == 0 && cursor.partial_remainder.is_empty();
         // Get the shaped items from the cursor
         let shaped_items: Vec<ShapedItem> = cursor.drain_remaining();
 
@@ -11417,6 +11422,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             fragment_constraints,
             hyphenator.as_ref(),
             fonts,
+            starts_paragraph,
         ));
     }
 
