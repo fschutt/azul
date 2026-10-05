@@ -19,3 +19,11 @@ test files in all.rs, the 9 external path fixes, the AudioSink doc refresh), cod
 2026-10-05 evening: ALL 6 MERGED (clean), api.json converged (887495ddd), dylib + 35 apps build, css goldens blessed,
 pushed fbdb57b4d. Integration extras: Toolbar items carry their id as DOM id (RED 47fadd43c / GREEN 6d5dae76f),
 azerp_e2e amount step, wasm scheduled_notifications stub, RawImage::rgba_to_nv12 C wrapper. Suites running.
+
+## Round 2 (2026-10-05 evening; plan + user decisions D1-D4: scripts/waves/wave9/ROUND2.md, base 440991077)
+| Task | Agent id | Branch | Report | State |
+|---|---|---|---|---|
+| R2-INPUT (PKG R2-INPUT-IO-TOOLING + D2) | a794e0551d23a8ba8 | wt/r2-input | scripts/R2_INPUT_2026_10_05.md | running |
+| R2-WIDGETS (PKG R2-WIDGETS + D1 + D3) | add7791a3c9f3a36e | wt/r2-widgets | scripts/R2_WIDGETS_2026_10_05.md | running |
+| R2-APPS (PKG R2-APPS) | a1a907b790f2a870c | wt/r2-apps | scripts/R2_APPS_2026_10_05.md | running |
+| R2-ENGINE | the coordinator | - | - | with the slider regression (FIX9 1.6 confirmed by revert) and the RED tests that did not turn green |
