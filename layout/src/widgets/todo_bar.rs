@@ -434,7 +434,7 @@ impl ToDoBar {
 
     /// A day was picked.
     pub fn set_on_pick<C: Into<ToDoBarOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_pick = hook(data, cb);
+        self.on_pick = OptionToDoBarOnEvent::Some(ToDoBarOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_pick`] for the builder chain.
@@ -446,7 +446,7 @@ impl ToDoBar {
 
     /// A task was added, checked or opened.
     pub fn set_on_task<C: Into<ToDoBarOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_task = hook(data, cb);
+        self.on_task = OptionToDoBarOnEvent::Some(ToDoBarOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_task`] for the builder chain.
@@ -458,7 +458,7 @@ impl ToDoBar {
 
     /// An appointment was clicked.
     pub fn set_on_appointment<C: Into<ToDoBarOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_appointment = hook(data, cb);
+        self.on_appointment = OptionToDoBarOnEvent::Some(ToDoBarOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_appointment`] for the builder chain.
@@ -509,15 +509,6 @@ impl From<ToDoBar> for Dom {
     fn from(b: ToDoBar) -> Self {
         b.dom()
     }
-}
-
-/// `cb` on `data`, as an optional hook.
-fn hook<C: Into<ToDoBarOnEventCallback>>(data: RefAny, cb: C) -> OptionToDoBarOnEvent {
-    Some(ToDoBarOnEvent {
-        refany: data,
-        callback: cb.into(),
-    })
-    .into()
 }
 
 /// What every part of one bar shares: the app's hooks and the calendar's
