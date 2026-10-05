@@ -1015,6 +1015,11 @@ pub struct TypeIndex {
     /// The modules declared without `pub` (`azul_layout::cpurender::named`):
     /// a path through one does not name its type from another crate
     private_modules: std::collections::BTreeSet<String>,
+    /// The desktop modules an `azul_dll::unified` facade re-exports
+    /// (`azul_dll::desktop::extra::audio`): a path through one does not name
+    /// its type on every target (`azul_dll::desktop` is not built on wasm32);
+    /// the facade path does
+    facade_sources: std::collections::BTreeSet<String>,
     /// Errors encountered during indexing
     pub errors: Vec<String>,
 }
@@ -1070,11 +1075,25 @@ impl TypeIndex {
         // (TextRasterStyle, wave 6). azul_dll is left out: the generated code
         // lives in that crate, where its private modules are in reach.
         let public: std::collections::BTreeSet<&String> = facts.public.iter().collect();
-        index.private_modules = facts
+        let all_private: std::collections::BTreeSet<String> = facts
             .private
             .iter()
-            .filter(|m| !public.contains(m) && !m.starts_with("azul_dll::"))
+            .filter(|m| !public.contains(m))
             .cloned()
+            .collect();
+        index.private_modules = all_private
+            .iter()
+            .filter(|m| !m.starts_with("azul_dll::"))
+            .cloned()
+            .collect();
+        // azul_dll's own rule: `azul_dll::desktop` is not built on wasm32, so
+        // a type the `azul_dll::unified` facade re-exports is named by the
+        // facade (the 9 desktop externals of 2026-10-05).
+        index.facade_sources = facts
+            .reexports
+            .iter()
+            .filter(|r| is_facade(r))
+            .map(|r| r.from.clone())
             .collect();
         for mut typedef in parsed {
             let public = typedef
@@ -1085,6 +1104,13 @@ impl TypeIndex {
                     public_path(module, name, &index.private_modules, &facts.reexports, 0)
                 });
             if let Some(path) = public {
+                typedef.full_path = path;
+            }
+            let facaded = typedef
+                .full_path
+                .rsplit_once("::")
+                .and_then(|(module, name)| facade_path(module, name, &facts.reexports, &all_private));
+            if let Some(path) = facaded {
                 typedef.full_path = path;
             }
             index.add_type(typedef);
@@ -1277,8 +1303,12 @@ impl TypeIndex {
 
     /// The first private module on the way to `path` (a type or module
     /// path), if any: the path does not name its item from another crate.
+    /// A desktop module the `azul_dll::unified` facade re-exports counts:
+    /// the path does not name its item on every target (wasm32), the
+    /// facade path does.
     pub fn private_module_on(&self, path: &str) -> Option<String> {
         first_private_module(path, &self.private_modules)
+            .or_else(|| first_private_module(path, &self.facade_sources))
     }
 
     /// Record `module` as declared without `pub` (tests).
@@ -1845,6 +1875,61 @@ fn public_path(
         let (m, n) = full.rsplit_once("::")?;
         public_path(m, n, private, reexports, depth + 1)
     })
+}
+
+/// Is `r` an `azul_dll::unified` facade's glob of a desktop module
+/// (`pub use crate::desktop::extra::<m>::*;` in dll/src/unified/<m>.rs, off
+/// wasm32; the facade has wasm32 stubs of the same names)?
+fn is_facade(r: &Reexport) -> bool {
+    r.item.is_none() && r.at.starts_with("azul_dll::unified") && r.from.starts_with("azul_dll::desktop::")
+}
+
+/// The `azul_dll::unified` facade path of the type `module::name`: the
+/// shortest path a facade glob reaches it by - the type at the facade's
+/// source module itself (defined there, or re-exported there by a `pub use`
+/// of its module, by glob or by name: `unified::audio::AudioEncoder`), else
+/// through the public child modules on the way
+/// (`unified::video_codec::pipeline::DecodedVideo`). `None` when no facade
+/// reaches it: outside every facaded module, or behind a private child
+/// module (`private`: every module declared without `pub`).
+fn facade_path(
+    module: &str,
+    name: &str,
+    reexports: &[Reexport],
+    private: &std::collections::BTreeSet<String>,
+) -> Option<String> {
+    reexports
+        .iter()
+        .filter(|r| is_facade(r))
+        .filter_map(|facade| {
+            let source = facade.from.as_str();
+            let at_source = module == source
+                || reexports.iter().any(|r| {
+                    r.at == source
+                        && r.from == module
+                        && r.item.as_deref().map_or(true, |item| item == name)
+                });
+            let relative = if at_source {
+                name.to_string()
+            } else {
+                let tail = module.strip_prefix(source)?.strip_prefix("::")?;
+                let mut on_the_way = source.to_string();
+                for segment in tail.split("::") {
+                    on_the_way = format!("{on_the_way}::{segment}");
+                    if private.contains(&on_the_way) {
+                        return None;
+                    }
+                }
+                format!("{tail}::{name}")
+            };
+            Some(format!("{}::{relative}", facade.at))
+        })
+        .min_by(|a, b| {
+            a.matches("::")
+                .count()
+                .cmp(&b.matches("::").count())
+                .then_with(|| a.cmp(b))
+        })
 }
 
 /// Parse a file to extract impl blocks for cross-file method attachment.
