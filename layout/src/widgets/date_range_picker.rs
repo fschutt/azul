@@ -686,21 +686,43 @@ fn day_face(
     today: DatePickerState,
     faces: &crate::widgets::date_picker::CellFaces,
 ) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
-    // The faces are merged parts (both themes' blocks when the picker
-    // follows the app theme): a state part goes ON its base with
-    // `stack_parts`, never by appending (a themed base declaration would
-    // outrank a shared one appended after it).
-    use crate::widgets::themes::theme_blocks::stack_parts;
     let face = match shown {
         Some(r) if date == r.start || date == r.end => faces.selected.clone(),
-        Some(r) if r.contains(date) => stack_parts(&faces.other, &faces.in_range),
+        Some(r) if r.contains(date) => marked(&faces.other, &faces.in_range),
         _ => faces.other.clone(),
     };
     if date == today {
-        stack_parts(&face, &faces.today)
+        marked(&face, &faces.today)
     } else {
         face
     }
+}
+
+/// `mark` (a RESTING part: the range's wash, today's ring) on `face`, and
+/// the face's state declarations (`:hover`, `:active`, `:focus`) after it
+/// again. The faces are merged parts (both themes' blocks when the picker
+/// follows the app theme), so they stack with `stack_parts`, never by
+/// appending. A resting declaration stacked after a state one wins in that
+/// state too (the last match wins): the wash hid the hover face, and
+/// today's ring - a shadow in the slot the focus halo uses (`decl::shadow`)
+/// - hid the focus halo, so a focused today showed no focus. Re-stacked,
+/// the state wins in its state, as a CSS `:focus { box-shadow }` replaces
+/// the resting one.
+fn marked(
+    face: &azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+    mark: &azul_css::dynamic_selector::CssPropertyWithConditionsVec,
+) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
+    use crate::widgets::themes::theme_blocks::stack_parts;
+    let states: alloc::vec::Vec<azul_css::dynamic_selector::CssPropertyWithConditions> = face
+        .as_ref()
+        .iter()
+        .filter(|d| !d.pseudo_state_conditions().is_empty())
+        .cloned()
+        .collect();
+    stack_parts(
+        &stack_parts(face, mark),
+        &azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(states),
+    )
 }
 
 /// `n` px wide, never shrinking: the spacer opposite a header's one arrow.
