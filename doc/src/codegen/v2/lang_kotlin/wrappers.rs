@@ -2515,6 +2515,10 @@ mod tests {
 
     /// The wrapper classes `emit_wrapper` produces for `names`, built from
     /// the real api.json.
+    fn wrapper_source(name: &str) -> String {
+        wrapper_sources(&[name]).remove(0)
+    }
+
     fn wrapper_sources(names: &[&str]) -> Vec<String> {
         let api = crate::api::ApiData::from_str(
             &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
@@ -2551,7 +2555,7 @@ mod tests {
 
     #[test]
     fn the_title_property_decodes_the_string_without_freeing_it_and_its_setter_releases_the_old_one() {
-        let src = &wrapper_sources(&["FullWindowState"])[0];
+        let src = &wrapper_source("FullWindowState");
         let prop = member(src, "var title: kotlin.String");
         let (get, set) = prop.split_at(prop.find("set(v)").expect("a setter"));
         assert!(!get.contains("_delete"), "a getter must not free the field:\n{}", get);
@@ -2562,7 +2566,7 @@ mod tests {
 
     #[test]
     fn the_window_state_property_deep_copies_on_read_and_deletes_then_consumes_on_write() {
-        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let src = &wrapper_source("WindowCreateOptions");
         let prop = member(src, "var windowState: FullWindowState");
         let (get, set) = prop.split_at(prop.find("set(v)").expect("a setter"));
         assert!(get.contains("AzFullWindowState_clone("), "{}", get);
@@ -2573,7 +2577,7 @@ mod tests {
 
     #[test]
     fn a_bool_field_is_a_kotlin_boolean_property() {
-        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let src = &wrapper_source("WindowCreateOptions");
         let prop = member(src, "var sizeToContent: Boolean");
         assert!(prop.contains(".toInt() != 0"), "{}", prop);
         assert!(prop.contains("writeField(\"size_to_content\")"), "{}", prop);
@@ -2581,14 +2585,14 @@ mod tests {
 
     #[test]
     fn the_window_state_can_be_edited_in_place_so_nested_writes_reach_the_options() {
-        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let src = &wrapper_source("WindowCreateOptions");
         let edit = member(
             src,
             "fun editWindowState(block: FullWindowState.() -> Unit): WindowCreateOptions",
         );
         assert!(edit.contains("FullWindowState(__ov.window_state.pointer, false)"), "{}", edit);
         assert!(edit.contains("finally"), "the view is invalidated after the edit:\n{}", edit);
-        let fws = &wrapper_sources(&["FullWindowState"])[0];
+        let fws = &wrapper_source("FullWindowState");
         member(fws, "var size: AzWindowSize.ByValue");
         let edit_size = member(fws, "fun editSize(block: AzWindowSize.() -> Unit): FullWindowState");
         assert!(edit_size.contains(".write()"), "{}", edit_size);
@@ -2596,7 +2600,7 @@ mod tests {
 
     #[test]
     fn the_text_field_stays_writable_although_the_api_method_get_text_takes_the_jvm_getter_name() {
-        let src = &wrapper_sources(&["TextInputState"])[0];
+        let src = &wrapper_source("TextInputState");
         assert!(!src.contains("var text:") && !src.contains("val text:"), "{}", src);
         let set = member(src, "fun setText(v: U32Vec)");
         assert!(before(set, "AzU32Vec_delete(", ".write(0,"), "{}", set);

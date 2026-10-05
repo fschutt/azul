@@ -2631,6 +2631,10 @@ mod tests {
     /// The wrapper classes `emit_wrapper_class` produces for `names`, built
     /// from the real api.json (the field accessors are per-field, so a
     /// fixture would only re-state the generator).
+    fn wrapper_source(name: &str) -> String {
+        wrapper_sources(&[name]).remove(0)
+    }
+
     fn wrapper_sources(names: &[&str]) -> Vec<String> {
         let api = crate::api::ApiData::from_str(
             &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
@@ -2667,7 +2671,7 @@ mod tests {
 
     #[test]
     fn the_title_getter_decodes_the_string_without_freeing_it_and_the_setter_releases_the_old_one() {
-        let src = &wrapper_sources(&["FullWindowState"])[0];
+        let src = &wrapper_source("FullWindowState");
         let get = method(src, "public java.lang.String getTitle()");
         assert!(!get.contains("_delete"), "a getter must not free the field:\n{}", get);
         assert!(get.contains("StandardCharsets.UTF_8"), "{}", get);
@@ -2682,7 +2686,7 @@ mod tests {
 
     #[test]
     fn the_window_state_getter_deep_copies_and_the_setter_deletes_the_old_state_then_consumes_the_new_one() {
-        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let src = &wrapper_source("WindowCreateOptions");
         let get = method(src, "public FullWindowState getWindowState()");
         assert!(get.contains("AzFullWindowState_clone("), "{}", get);
         assert!(get.contains("return new FullWindowState("), "{}", get);
@@ -2693,7 +2697,7 @@ mod tests {
 
     #[test]
     fn a_bool_field_reads_and_writes_as_a_java_boolean() {
-        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let src = &wrapper_source("WindowCreateOptions");
         let get = method(src, "public boolean getSizeToContent()");
         assert!(get.contains("!= 0"), "{}", get);
         let set = method(src, "public void setSizeToContent(boolean v)");
@@ -2702,14 +2706,14 @@ mod tests {
 
     #[test]
     fn the_window_state_can_be_edited_in_place_so_nested_writes_reach_the_options() {
-        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let src = &wrapper_source("WindowCreateOptions");
         let edit = method(
             src,
             "public WindowCreateOptions editWindowState(java.util.function.Consumer<FullWindowState> f)",
         );
         assert!(edit.contains("FullWindowState.__borrow("), "{}", edit);
         assert!(edit.contains("finally"), "the view is invalidated after the edit:\n{}", edit);
-        let fws = &wrapper_sources(&["FullWindowState"])[0];
+        let fws = &wrapper_source("FullWindowState");
         method(fws, "public AzWindowSize.ByValue getSize()");
         method(fws, "public void setSize(AzWindowSize v)");
         let edit_size = method(
@@ -2721,7 +2725,7 @@ mod tests {
 
     #[test]
     fn the_text_field_stays_writable_although_the_api_method_get_text_takes_the_getter_name() {
-        let src = &wrapper_sources(&["TextInputState"])[0];
+        let src = &wrapper_source("TextInputState");
         assert_eq!(src.matches(" getText()").count(), 1, "only the api.json getText:\n{}", src);
         let set = method(src, "public void setText(U32Vec v)");
         assert!(before(set, "AzU32Vec_delete(", ".write(0,"), "{}", set);
