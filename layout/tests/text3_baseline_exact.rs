@@ -220,25 +220,37 @@ fn shifted(va: VerticalAlign) -> (f32, f32) {
 
 #[test]
 fn vertical_align_super_raises_glyph() {
-    // super shifts the baseline up by line_ascent*0.4. Both runs 20px => the
-    // shifted cluster top y is 0.4*16 = 6.4px ABOVE the baseline cluster top.
+    // super raises the baseline by the PARENT's font size / 3 + 1px (Chrome,
+    // LayoutNG's baseline shift; CSS 2.2 s10.8.1 leaves "a proper position"
+    // to the UA). The parent here is the block container, whose strut font
+    // size is the default 16px: 16 / 3 + 1 = 6.3333px. Both runs are 20px, so
+    // the shifted cluster's top is that far ABOVE the baseline cluster's top.
     let (y_base, y_super) = shifted(VerticalAlign::Super);
     assert!(
         y_super < y_base,
         "super must raise the glyph (smaller y): base {y_base}, super {y_super}"
     );
-    assert_px(y_base - y_super, 6.4, "super raise = line_ascent(16) * 0.4");
+    assert_px(
+        y_base - y_super,
+        16.0 / 3.0 + 1.0,
+        "super raise = parent font size(16) / 3 + 1",
+    );
 }
 
 #[test]
 fn vertical_align_sub_lowers_glyph() {
-    // sub shifts the baseline down by line_ascent*0.3 = 4.8px.
+    // sub lowers the baseline by the parent's font size / 5 + 1px (Chrome):
+    // 16 / 5 + 1 = 4.2px.
     let (y_base, y_sub) = shifted(VerticalAlign::Sub);
     assert!(
         y_sub > y_base,
         "sub must lower the glyph (larger y): base {y_base}, sub {y_sub}"
     );
-    assert_px(y_sub - y_base, 4.8, "sub lower = line_ascent(16) * 0.3");
+    assert_px(
+        y_sub - y_base,
+        16.0 / 5.0 + 1.0,
+        "sub lower = parent font size(16) / 5 + 1",
+    );
 }
 
 #[test]

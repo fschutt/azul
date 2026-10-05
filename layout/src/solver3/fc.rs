@@ -1477,6 +1477,49 @@ fn layout_bfc<T: ParsedFontTrait>(
         |columns| columns.geometry.width,
     );
 
+    // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
+    // +spec:box-model:66e123 - ...whose INLINE size is the basis in CSS3 (writing-modes-4 §7.2)
+    // The tree-build resolution used the VIEWPORT as a placeholder containing
+    // block (the real one is only known here), so every percentage margin or
+    // padding in block flow was viewport-based. Re-resolve each child's box
+    // props against this BFC's content box before any of them are read; the
+    // correct em/rem bases are re-derived from the cascade (the tree build
+    // resolved an em against the PARENT's font size - a `zoom: 2; font-size:
+    // 10px; padding: 1em` box had 16px of padding, not 20).
+    // BEFORE Pass 1: Pass 1 sizes every child with these props
+    // (`calculate_layout_for_subtree` -> `prepare_layout_context`) and Pass 2
+    // keeps that `used_size`; re-resolved after it, they moved the margins
+    // but never the size.
+    {
+        let root_fs = crate::solver3::layout_tree::get_root_font_size(ctx.styled_dom);
+        let flow_children: Vec<usize> = {
+            let shared: &LayoutTree = tree;
+            shared
+                .children(node_index)
+                .iter()
+                .copied()
+                .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
+                .collect()
+        };
+        for &child_index in &flow_children {
+            let Some(child_dom_id) = tree
+                .get(LayoutNodeId::new(child_index))
+                .and_then(|n| n.dom_node_id)
+            else {
+                continue;
+            };
+            let efs =
+                crate::solver3::layout_tree::get_element_font_size(ctx.styled_dom, child_dom_id);
+            tree.resolve_box_props(
+                child_index,
+                children_containing_block_size,
+                ctx.viewport_size,
+                efs,
+                root_fs,
+            );
+        }
+    }
+
     // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
     //
     // Inspired by Taffy's two-pass approach: first measure, then position.
@@ -1643,34 +1686,8 @@ fn layout_bfc<T: ParsedFontTrait>(
             .filter(|&child| !is_marker_on_a_line(shared, ctx.styled_dom, child))
             .collect()
     };
-
-    // +spec:width-calculation:bef810 - margin percentages resolve against the containing block
-    // +spec:box-model:66e123 - ...whose INLINE size is the basis in CSS3 (writing-modes-4 §7.2)
-    // The tree-build resolution used the VIEWPORT as a placeholder containing
-    // block (the real one is only known here), so every percentage margin or
-    // padding in block flow was viewport-based. Re-resolve each child's box
-    // props against this BFC's content box before any of them are read; the
-    // correct em/rem bases are re-derived from the cascade.
-    {
-        let root_fs = crate::solver3::layout_tree::get_root_font_size(ctx.styled_dom);
-        for &child_index in &pos_children {
-            let Some(child_dom_id) = tree
-                .get(LayoutNodeId::new(child_index))
-                .and_then(|n| n.dom_node_id)
-            else {
-                continue;
-            };
-            let efs =
-                crate::solver3::layout_tree::get_element_font_size(ctx.styled_dom, child_dom_id);
-            tree.resolve_box_props(
-                child_index,
-                children_containing_block_size,
-                ctx.viewport_size,
-                efs,
-                root_fs,
-            );
-        }
-    }
+    // (Each child's box props were re-resolved against this BFC's content
+    // box before Pass 1 - see there.)
 
     // K30b fragmentation state (inert when `constraints.fragmentainer` is
     // None — the continuous path). Resume = skip every finished sibling
@@ -3206,8 +3223,33 @@ fn layout_bfc<T: ParsedFontTrait>(
                     children_containing_block_size.height,
                 )
             } else {
-                // Block-level elements use their own content-box
-                child_node.box_props.inner_size(child_size, writing_mode)
+                // Block-level elements use their own content-box - its HEIGHT
+                // only where the height is the box's own, as the child's own
+                // layout offers its content (`cache::prepare_layout_context`):
+                // an auto-height box (or a percentage one computing to auto)
+                // has the height its content gives it, so its content sees
+                // an indefinite one (CSS 2.2 10.5) - or the containing
+                // block's, where the box forwards it. Pass 1's used height
+                // here is that content's own result: offered back as a
+                // definite height, a `height: 100%` inline-block on the
+                // body's line resolved against the body's line box (AzMail's
+                // paper 118 / 414 tall for content of 114 / 400).
+                let inner = child_node.box_props.inner_size(child_size, writing_mode);
+                let height_is_auto = tree.warm(LayoutNodeId::new(child_index)).is_none_or(|w| {
+                    crate::solver3::sizing::height_is_auto_for_children(
+                        &child_node.formatting_context,
+                        w.computed_style.height.as_ref(),
+                        children_containing_block_size.height.is_finite(),
+                    )
+                });
+                if !height_is_auto {
+                    inner
+                } else if crate::solver3::cache::forwards_containing_block_height(tree, child_index)
+                {
+                    LogicalSize::new(inner.width, children_containing_block_size.height)
+                } else {
+                    LogicalSize::new(inner.width, f32::INFINITY)
+                }
             };
 
             debug_info!(
@@ -10608,6 +10650,21 @@ fn measure_atomic_inline<T: ParsedFontTrait>(
         content_box_size
     );
 
+    // The box's contents are laid out in the size just resolved for it - as
+    // `cache::calculate_layout_for_subtree` does for every other box (its
+    // "Phase 1.5"). What `used_size` held here was an earlier measurement -
+    // the previous pass's, on a node the reconcile carried over
+    // (`clone_node_from_old` keeps it), or this pass's under another
+    // constraint - and the layouts below read a set one as decided: a flex /
+    // grid container as its definite width (`layout_flex_grid`), a table as
+    // its width, a block as its children's containing block. An
+    // `inline-flex` button whose label grew was laid out at its OLD width and
+    // wrapped the new label onto a second line. The measured height is set
+    // below.
+    if let Some(node) = tree.get_mut(LayoutNodeId::new(child_index)) {
+        node.used_size = Some(tentative_size);
+    }
+
     // To find its height and baseline, we must lay out its contents.
     let child_wm_ctx = super::geometry::WritingModeContext::new(
         writing_mode,
@@ -11530,6 +11587,46 @@ fn push_inline_image<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// The `vertical-align` the content of an inline box NESTED in another one is
+/// laid out with, relative to the IFC root's baseline - what text3 aligns
+/// every run and atomic inline against. CSS 2.2 s10.8.1 aligns a box against
+/// its PARENT inline box: `parent` is the enclosing box's alignment (already
+/// relative to the root), `parent_shift_font` the font size its own `sub` /
+/// `super` are measured against (its parent's), `own` the nested box's
+/// declared alignment and `own_shift_font` the enclosing box's font size
+/// (Chrome: the parent's font size / 5 + 1px down, / 3 + 1px up).
+///
+/// A baseline-aligned box sits on its parent's shifted baseline: it takes
+/// `parent` as it is (`<sup><i>1</i></sup>`, the footnote mark, sat on the
+/// line's baseline). The values measured from the parent's baseline (`sub`,
+/// `super`, a length) add up into one raise (a superscript of a superscript
+/// rises by both). The line- and content-area-relative values (`top`,
+/// `bottom`, `middle`, `text-top`, `text-bottom`) keep their own reading.
+fn nested_vertical_align(
+    parent: text3::cache::VerticalAlign,
+    parent_shift_font: f32,
+    own: text3::cache::VerticalAlign,
+    own_shift_font: f32,
+) -> text3::cache::VerticalAlign {
+    use text3::cache::VerticalAlign as V;
+    // How far `align` raises a box's baseline above its parent's (text3's
+    // `Offset` is such a raise), for the values measured from it.
+    let raise = |align: V, font: f32| match align {
+        V::Baseline => Some(0.0),
+        V::Sub => Some(-(font / 5.0 + 1.0)),
+        V::Super => Some(font / 3.0 + 1.0),
+        V::Offset(up) => Some(up),
+        V::Top | V::Bottom | V::Middle | V::TextTop | V::TextBottom => None,
+    };
+    if matches!(own, V::Baseline) {
+        return parent;
+    }
+    match (raise(parent, parent_shift_font), raise(own, own_shift_font)) {
+        (Some(p), Some(o)) => V::Offset(p + o),
+        _ => own,
+    }
+}
+
 // +spec:display-property:c05c53 - inlinifying boxes can't contain block-level boxes; children are
 // recursively inlinified it recursively inlinifies all of its in-flow children, so that no
 // block-level descendants break up the inline formatting context in which it participates.
@@ -11717,11 +11814,9 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             stroke: None,
             // From the bottom edge: the strut's share below the baseline.
             baseline_offset: strut_below,
-            alignment: crate::solver3::getters::get_vertical_align_for_node(
-                ctx.styled_dom,
-                span_dom_id,
-                PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-            ),
+            // The span's own, or - nested in a shifted box - the one its
+            // caller folded in (`nested_vertical_align`).
+            alignment: span_style.vertical_align,
             source_node_id: Some(span_dom_id),
         }));
 
@@ -11745,6 +11840,28 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             || parent_children.to_vec(),
             |&span_index| tree.children(span_index).to_vec(),
         );
+
+    // What a box nested in this span aligns by (`nested_vertical_align`):
+    // the span's alignment folded with its own. The font size this span's
+    // own `sub` / `super` was measured against is its parent's.
+    let span_shift_font = if matches!(
+        span_style.vertical_align,
+        text3::cache::VerticalAlign::Sub | text3::cache::VerticalAlign::Super
+    ) {
+        let span_state = ctx.styled_dom.styled_nodes.as_container()[span_dom_id].styled_node_state;
+        get_parent_font_size(ctx.styled_dom, span_dom_id, &span_state)
+    } else {
+        // Unread: only `sub` / `super` are measured against a font size.
+        0.0
+    };
+    let nested_align = |own: text3::cache::VerticalAlign| {
+        nested_vertical_align(
+            span_style.vertical_align,
+            span_shift_font,
+            own,
+            span_style.font_size_px,
+        )
+    };
 
     for &child_dom_id in &span_dom_children {
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
@@ -11829,12 +11946,14 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     "[collect_inline_span_recursive] Found nested inline span {:?}",
                     child_dom_id
                 );
-                let child_style = get_style_properties(
+                let mut child_style = get_style_properties(
                     ctx.styled_dom,
                     child_dom_id,
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                // It aligns against THIS span, not the line (CSS 2.2 s10.8.1).
+                child_style.vertical_align = nested_align(child_style.vertical_align);
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -11867,7 +11986,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     );
                     continue;
                 };
-                let shape = measure_atomic_inline(
+                let mut shape = measure_atomic_inline(
                     ctx,
                     tree,
                     text_cache,
@@ -11875,6 +11994,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     constraints,
                 )?;
+                // It aligns against THIS span, not the line (CSS 2.2 s10.8.1).
+                shape.alignment = nested_align(shape.alignment);
                 // For inline-block shapes, text3 uses the content array index as run_index
                 // and always item_index=0 for objects. We must match this when inserting into
                 // child_map.
@@ -11898,12 +12019,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     child_display
                 );
-                let child_style = get_style_properties(
+                let mut child_style = get_style_properties(
                     ctx.styled_dom,
                     child_dom_id,
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                child_style.vertical_align = nested_align(child_style.vertical_align);
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -15636,5 +15758,137 @@ mod window_layout_tests {
                 "the {name} fills the 600px body (Chrome 600): {h}"
             );
         }
+    }
+}
+
+/// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
+/// baseline - and a box nested in a shifted one rides its parent's shift
+/// (CSS 2.2 s10.8.1: a box aligns against its PARENT inline box; Chrome:
+/// the parent's font size / 3 + 1px up, / 5 + 1px down, each nested box
+/// adding its own). pdfocr's engine-issue report, issue 1 (the repro shape:
+/// `<p>Cock<sup>a</sup> and Job<span style="vertical-align: super;
+/// font-size: 0.6em">b</span> and x<sub>2</sub></p>`), plus the footnote
+/// mark of every book (`<sup><i>1</i></sup>`) and a superscript of a
+/// superscript. Font-independent: the shifts are measured between baselines.
+#[cfg(test)]
+mod vertical_align_of_nested_inline_boxes_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, text3::cache::ShapedItem, window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    fn text(s: &'static str) -> Dom {
+        Dom::create_text_do_not_use_without_block_level_wrapper(s)
+    }
+
+    /// `body(0) > p(1) > "Cock"(2) sup(3)>"a"(4) " and Job"(5)
+    /// span(6)>"b"(7) " and x"(8) sub(9)>"2"(10) " and n"(11)
+    /// sup(12)>i(13)>"1"(14) " and "(15) sup(16)>["x"(17) sup(18)>"y"(19)]`.
+    fn page() -> StyledDom {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p()
+                .with_child(text("Cock"))
+                .with_child(Dom::create_sup_with_text("a"))
+                .with_child(text(" and Job"))
+                .with_child(
+                    Dom::create_span_with_text("b")
+                        .with_css("vertical-align: super; font-size: 0.6em;"),
+                )
+                .with_child(text(" and x"))
+                .with_child(Dom::create_sub_with_text("2"))
+                .with_child(text(" and n"))
+                .with_child(Dom::create_sup().with_child(Dom::create_i().with_child(text("1"))))
+                .with_child(text(" and "))
+                .with_child(
+                    Dom::create_sup()
+                        .with_child(text("x"))
+                        .with_child(Dom::create_sup_with_text("y")),
+                ),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "body { margin: 0; font-size: 16px; } p { margin: 0; line-height: 40px; }",
+        );
+        StyledDom::create(&mut dom, css)
+    }
+
+    /// `(baseline y, font size)` of the first cluster of text node `node` in
+    /// the paragraph's line layout.
+    fn baseline_of(lw: &LayoutWindow, node: usize) -> (f32, f32) {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let p = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the paragraph is laid out");
+        let layout = lr
+            .layout_tree
+            .materialized_inline_layout_for_node(p.index())
+            .expect("the paragraph holds lines");
+        layout
+            .items
+            .iter()
+            .find_map(|it| match &it.item {
+                ShapedItem::Cluster(c) if c.source_node_id == Some(NodeId::new(node)) => {
+                    let (ascent, _) =
+                        crate::text3::cache::get_item_vertical_metrics_approx(&it.item);
+                    Some((it.position.y + ascent, c.style.font_size_px))
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("text node {node} is on the line"))
+    }
+
+    #[test]
+    fn sup_sub_and_vertical_align_super_shift_their_text_and_a_nested_box_rides_the_shift() {
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            page(),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+
+        let (base, _) = baseline_of(&lw, 2);
+        let up = 16.0 / 3.0 + 1.0;
+        let down = 16.0 / 5.0 + 1.0;
+        let near = |a: f32, b: f32| (a - b).abs() < 0.5;
+        for (node, what, expected) in [
+            (4, "<sup>a</sup>", base - up),
+            (7, "a span with vertical-align: super", base - up),
+            (10, "<sub>2</sub>", base + down),
+            (14, "the <i> inside a <sup> (a footnote mark)", base - up),
+            (17, "the outer <sup>'s own text", base - up),
+        ] {
+            let (y, _) = baseline_of(&lw, node);
+            assert!(
+                near(y, expected),
+                "{what}: its baseline is {y}, the line's {base}, expected {expected} (16px / 3 \
+                 + 1 up, / 5 + 1 down)"
+            );
+        }
+        // A superscript of a superscript: the outer one's shift plus its own,
+        // measured against the OUTER sup's font size (its parent).
+        let (_, outer_fs) = baseline_of(&lw, 17);
+        let (y, _) = baseline_of(&lw, 19);
+        let expected = base - up - (outer_fs / 3.0 + 1.0);
+        assert!(
+            near(y, expected),
+            "a <sup> in a <sup> rises by both shifts: its baseline is {y}, expected {expected} \
+             (the line's {base}, the outer sup's font {outer_fs}px)"
+        );
     }
 }

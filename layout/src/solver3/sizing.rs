@@ -4275,12 +4275,15 @@ mod autotest_generated {
             .calculate_block_intrinsic_sizes(&tree, 0, &[(1usize, nan)])
             .expect("valid tree");
         // The cross axis goes through `f32::max`, which drops NaN — so a NaN
-        // child cannot poison the parent's width. The main axis is a plain
-        // sum, so it does carry the NaN through (unreachable in practice:
-        // every measured/fallback intrinsic is finite).
+        // child cannot poison the parent's width. The main axis is a sum, but
+        // it ends in `max(blocks, marker)` (a list item is as tall as the
+        // taller of its blocks and a marker riding no line, FIX9 1.4), and
+        // that `f32::max` drops the NaN as well: a NaN child poisons neither
+        // axis.
         assert!(!r.min_content_width.is_nan() && r.min_content_width == 0.0);
         assert!(!r.max_content_width.is_nan() && r.max_content_width == 0.0);
-        assert!(r.min_content_height.is_nan());
+        assert!(!r.min_content_height.is_nan() && r.min_content_height == 0.0);
+        assert!(!r.max_content_height.is_nan() && r.max_content_height == 0.0);
     }
 
     #[test]

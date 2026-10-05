@@ -3383,7 +3383,11 @@ pub fn parse_css_property(
         CssPropertyType::BorderTopStyle |
         CssPropertyType::BorderRightStyle |
         CssPropertyType::BorderBottomStyle |
-        CssPropertyType::BorderLeftStyle
+        CssPropertyType::BorderLeftStyle |
+        // list-style-type: none means StyleListStyleType::None (no marker);
+        // as the CSS-wide `None` it read back as "no value" and the item got
+        // the initial disc
+        CssPropertyType::ListStyleType
     );
 
     Ok(match value {

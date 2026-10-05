@@ -1053,19 +1053,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // all away, and this keeps that for exactly the case the keys cannot
     // see. The resize fast path (`resize_only`) is left as it was. Same gate
     // as the inline-collection cache's viewport fold (`layout_ifc`).
-    if !resize_only && cache.viewport.is_some_and(|v| v.size != viewport.size) {
-        let doc_uses_viewport_units = new_dom
+    let viewport_units_moved = !resize_only
+        && cache.viewport.is_some_and(|v| v.size != viewport.size)
+        && new_dom
             .css_property_cache
             .ptr
             .compact_cache
             .as_ref()
             .is_none_or(|cc| cc.uses_viewport_units);
-        if doc_uses_viewport_units {
-            for node_idx in 0..new_tree.nodes.len() {
-                if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
-                    warm.taffy_cache.clear();
-                    warm.measured_content_sizes = (None, None);
-                }
+    if viewport_units_moved {
+        for node_idx in 0..new_tree.nodes.len() {
+            if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                warm.taffy_cache.clear();
+                warm.measured_content_sizes = (None, None);
             }
         }
     }
@@ -1187,6 +1187,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .copied(),
         &new_tree.nodes,
     );
+    // ...and EVERY node's size / layout slots when the viewport moved under a
+    // document that uses viewport units (the Step 1.2 gate): a slot is keyed
+    // by the box's available size, which a `vh` length does not move - a
+    // paragraph in an auto-height block sees the same 300 x indefinite after
+    // an 800 x 600 -> 800 x 800 resize, and its `line-height: 5vh` lines were
+    // served at their 30px pitch instead of laid out at 40px again.
+    if viewport_units_moved {
+        for entry in &mut cache_map.entries {
+            entry.clear();
+        }
+    }
 
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
