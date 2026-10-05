@@ -5115,14 +5115,35 @@ impl KeyboardShortcut {
     }
 
     /// The text-editing shortcut a key with `modifiers` is, under the
-    /// platform's conventions (`mac`: [`crate::window::mac_shortcut_conventions`]).
+    /// platform's conventions (`mac`: [`crate::window::mac_shortcut_conventions`]):
+    /// the primary-modifier letters of [`Self::from_key`], and off macOS the
+    /// CUA clipboard keys every Windows / Linux text field and terminal knows -
+    /// Shift+Insert pastes, Ctrl+Insert copies (exactly that modifier; a Mac
+    /// has no Insert key).
     #[must_use]
     pub const fn from_key_event(
         vk: crate::window::VirtualKeyCode,
         modifiers: KeyModifiers,
         mac: bool,
     ) -> Option<Self> {
-        Self::from_key(vk, modifiers.primary_down_for(mac), modifiers.shift)
+        if let Some(shortcut) = Self::from_key(vk, modifiers.primary_down_for(mac), modifiers.shift)
+        {
+            return Some(shortcut);
+        }
+        if mac || !matches!(vk, crate::window::VirtualKeyCode::Insert) {
+            return None;
+        }
+        let KeyModifiers {
+            shift,
+            ctrl,
+            alt,
+            meta,
+        } = modifiers;
+        match (shift, ctrl, alt, meta) {
+            (true, false, false, false) => Some(Self::Paste),
+            (false, true, false, false) => Some(Self::Copy),
+            _ => None,
+        }
     }
 }
 
@@ -5514,64 +5535,62 @@ fn handle_key_down_for(
     let vk_owned = VirtualKeyCode::from_u32(kbd.key_code)?;
     let vk = &vk_owned;
 
-    // Check keyboard shortcuts (primary+key) → emit specific SystemChange
-    // variants. Standard editing shortcuts are routed through the
-    // `KeyboardShortcut` enum, and a couple of additional Azul-specific
-    // primary-modifier combos are matched after.
-    if primary {
-        if let Some(shortcut) = KeyboardShortcut::from_key(*vk, primary, shift) {
-            // A second seat's shortcut acts on ITS caret (9b-ii-a-i-d-ii-b-i).
-            if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
-                return Some(InternalEventAction::AddAndSkip(
-                    SystemChange::SeatShortcut {
-                        seat_id: kbd.seat_id,
-                        target,
-                        shortcut,
-                    },
-                ));
-            }
-            // An editing shortcut is the engine's on a text-editing focus or
-            // while text is selected (something to copy); on any other focus
-            // (a button, a slider, a canvas) it is the app's key - claiming
-            // it swallowed AzCalculator's Ctrl/Cmd+C after a click on a
-            // keypad button, as it once did Backspace / Delete. A node that
-            // listens for paste (a terminal) asks for the paste chord: only
-            // the engine can read the clipboard for it. Its copy / cut /
-            // select all stay its keys (a terminal's Ctrl+C, Ctrl+A).
-            let asked_for =
-                focus_hears_paste && matches!(shortcut, KeyboardShortcut::Paste);
-            if !focus_is_editable && !has_selection && !asked_for {
-                return None;
-            }
-            let change = match shortcut {
-                KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
-                KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
-                KeyboardShortcut::Paste => SystemChange::PasteFromClipboard,
-                KeyboardShortcut::SelectAll => SystemChange::SelectAllText,
-                // Undo / Redo reach the callbacks: an editor that keeps its
-                // own history (the rich-text editor, a document app) takes
-                // them with `prevent_default`; otherwise the engine's text
-                // undo runs after the callbacks as the key's DEFAULT action
-                // (`DefaultAction::UndoTextEdit` / `RedoTextEdit`, decided in
-                // layout's `default_actions`) - the browser keydown model.
-                KeyboardShortcut::Undo | KeyboardShortcut::Redo => return None,
-            };
-            return Some(InternalEventAction::AddAndSkip(change));
-        }
-        if matches!(vk, VirtualKeyCode::D) {
-            // Ctrl+D adds a multi-cursor, which is the primary's alone
-            // (9b-ii-a-i-d-ii-b-i): a seat's passes through to callbacks.
-            if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
-                return None;
-            }
-            // Text editing: anywhere else Ctrl/Cmd+D is the app's key.
-            if !focus_is_editable {
-                return None;
-            }
+    // Check keyboard shortcuts (primary+key, and off macOS Shift/Ctrl+Insert)
+    // → emit specific SystemChange variants. Standard editing shortcuts are
+    // routed through the `KeyboardShortcut` enum, and a couple of additional
+    // Azul-specific primary-modifier combos are matched after.
+    if let Some(shortcut) = KeyboardShortcut::from_key_event(*vk, kbd.modifiers, mac_keys) {
+        // A second seat's shortcut acts on ITS caret (9b-ii-a-i-d-ii-b-i).
+        if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
             return Some(InternalEventAction::AddAndSkip(
-                SystemChange::SelectNextOccurrence { target },
+                SystemChange::SeatShortcut {
+                    seat_id: kbd.seat_id,
+                    target,
+                    shortcut,
+                },
             ));
         }
+        // An editing shortcut is the engine's on a text-editing focus or
+        // while text is selected (something to copy); on any other focus
+        // (a button, a slider, a canvas) it is the app's key - claiming
+        // it swallowed AzCalculator's Ctrl/Cmd+C after a click on a
+        // keypad button, as it once did Backspace / Delete. A node that
+        // listens for paste (a terminal) asks for the paste chord: only
+        // the engine can read the clipboard for it. Its copy / cut /
+        // select all stay its keys (a terminal's Ctrl+C, Ctrl+A).
+        let asked_for =
+            focus_hears_paste && matches!(shortcut, KeyboardShortcut::Paste);
+        if !focus_is_editable && !has_selection && !asked_for {
+            return None;
+        }
+        let change = match shortcut {
+            KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
+            KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
+            KeyboardShortcut::Paste => SystemChange::PasteFromClipboard,
+            KeyboardShortcut::SelectAll => SystemChange::SelectAllText,
+            // Undo / Redo reach the callbacks: an editor that keeps its
+            // own history (the rich-text editor, a document app) takes
+            // them with `prevent_default`; otherwise the engine's text
+            // undo runs after the callbacks as the key's DEFAULT action
+            // (`DefaultAction::UndoTextEdit` / `RedoTextEdit`, decided in
+            // layout's `default_actions`) - the browser keydown model.
+            KeyboardShortcut::Undo | KeyboardShortcut::Redo => return None,
+        };
+        return Some(InternalEventAction::AddAndSkip(change));
+    }
+    if primary && matches!(vk, VirtualKeyCode::D) {
+        // Ctrl+D adds a multi-cursor, which is the primary's alone
+        // (9b-ii-a-i-d-ii-b-i): a seat's passes through to callbacks.
+        if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
+            return None;
+        }
+        // Text editing: anywhere else Ctrl/Cmd+D is the app's key.
+        if !focus_is_editable {
+            return None;
+        }
+        return Some(InternalEventAction::AddAndSkip(
+            SystemChange::SelectNextOccurrence { target },
+        ));
     }
 
     // Unified: arrow keys, Home/End, Backspace/Delete all map to SelectionOp.
