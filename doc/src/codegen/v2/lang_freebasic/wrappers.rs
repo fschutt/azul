@@ -146,13 +146,13 @@ fn collect_wrapper_targets<'a>(ir: &'a CodegenIR, config: &CodegenConfig) -> Vec
         }
         for f in &s.fields {
             if let Some(dep) = by_name.get(f.type_name.trim()) {
-                visit(dep, by_name, done, out);
+                visit(*dep, by_name, done, out);
             }
         }
         out.push(s);
     }
     for s in &targets {
-        visit(s, &by_name, &mut done, &mut out);
+        visit(*s, &by_name, &mut done, &mut out);
     }
     out
 }
