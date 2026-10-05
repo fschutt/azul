@@ -16075,8 +16075,18 @@ mod svg_mask_memo_tests {
 
     /// The SVG masks of `document` laid out in a fresh 100 x 100 window:
     /// (the clip masks of its shapes, the stroke masks of its strokes).
+    ///
+    /// Through the TREE loader (`parse_xml` + `dom_from_parsed_xml`), the
+    /// one that turns an SVG shape into geometry, a fill and a stroke (core
+    /// `apply_xml_node_attributes`), as `layout/tests/svg_paint.rs` does.
+    /// The document loader (`parse_xml_to_styled_dom`, the arena path) builds
+    /// none of that: its `<path>` had no `SvgNodeData::Path`, so no mask was
+    /// ever drawn and the premise below failed.
     fn masks_of(document: &str) -> (Vec<ImageRef>, Vec<Option<ImageRef>>) {
-        let styled = crate::xml::parse_xml_to_styled_dom(document).expect("the document parses");
+        let parsed = crate::xml::parse_xml(document).expect("the document parses");
+        let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+            crate::xml::dom_from_parsed_xml(parsed),
+        );
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(100.0, 100.0);

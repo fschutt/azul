@@ -3376,7 +3376,14 @@ pub fn parse_css_property(
         CssPropertyType::TextDecoration | // text-decoration: none is a typed value
         CssPropertyType::OverscrollBehaviorX | // see the auto list above
         CssPropertyType::OverscrollBehaviorY |
-        CssPropertyType::ObjectFit // object-fit: none means StyleObjectFit::None
+        CssPropertyType::ObjectFit | // object-fit: none means StyleObjectFit::None
+        // border-*-style: none is BorderStyle::None. As the CSS-wide keyword
+        // it read back as "no value": the compact cache kept the style a
+        // lower layer set (a UA `inset`, a shorthand's `solid`).
+        CssPropertyType::BorderTopStyle |
+        CssPropertyType::BorderRightStyle |
+        CssPropertyType::BorderBottomStyle |
+        CssPropertyType::BorderLeftStyle
     );
 
     Ok(match value {
@@ -4018,7 +4025,17 @@ pub fn parse_combined_css_property(
     // so we must not intercept it here and let the specific parser handle it below.
     let has_typed_auto = matches!(key, Overflow);
     // `list-style: none` is the TYPE `none` (no marker), not the CSS keyword.
-    let has_typed_none = matches!(key, ListStyle);
+    // So is the `none` of a border: `border: none` is `border-style: none`
+    // with the initial width and colour (CSS Backgrounds 3 s4.4, what
+    // `parse_style_border` makes of it). Expanded as the CSS-wide keyword it
+    // set all twelve longhands to "no value": the compact cache kept the
+    // style a lower layer set (an `<hr>`'s UA `inset`) and read the width as
+    // undeclared - `medium` - so `border: none; border-top: 1px solid` drew
+    // a 1 + 3 px rule (Chrome 1).
+    let has_typed_none = matches!(
+        key,
+        ListStyle | Border | BorderTop | BorderRight | BorderBottom | BorderLeft | BorderStyle
+    );
 
     match value {
         "auto" if !has_typed_auto => return Ok(keys.into_iter().map(CssProperty::auto).collect()),
