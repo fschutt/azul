@@ -11,10 +11,10 @@
 - A8 AzCode F1 list Mod+O: RED a0157835f, GREEN 9f3bea1a1
 
 ## IN PROGRESS
-- A9 E2E steps: aznews (rename -> close -> relaunch), azcode (mock file_open + Mod+O), azerp (Delete ask)
+- A9 E2E steps: aznews DONE 988c43243 + 403fd1e01 (rename phase PASS vs prebuilt), azcode DONE 61235aefe (folder phase PASS vs prebuilt); azerp (Delete ask) next
 
 ## NEXT
-- A9 aznews_e2e.py first, then azcode_e2e.py, then azerp_e2e.py; then the report
+- A9 azerp_e2e.py (Delete -> AZERP_ASK_DELETE -> Delete gone; Cancel keeps); then the report
   scripts/R2_APPS_2026_10_05.md.
 
 ## Open questions
