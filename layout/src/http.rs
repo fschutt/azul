@@ -369,6 +369,7 @@ fn mocked_http(url: &str) -> Option<ResultHttpResponseHttpError> {
                 content_type: r.content_type,
                 content_length,
                 headers: HttpHeaderVec::from_const_slice(&[]),
+                final_url: AzString::from(url),
             }))
         }
         Answer::Mocked(MockHttp::Error(message)) => {
@@ -834,6 +835,10 @@ pub struct HttpResponse {
     pub content_length: u64,
     /// Response headers
     pub headers: HttpHeaderVec,
+    /// The URL this response came from: the requested URL, or where its
+    /// redirects ended (a feed or a page that moved). Resolve relative links
+    /// in the body against this, not against the requested URL.
+    pub final_url: AzString,
 }
 
 impl HttpResponse {
@@ -1211,6 +1216,7 @@ fn map_ureq_error(url: &str, e: &ureq::Error) -> HttpError {
 #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 fn decode_response(
     response: ureq::http::Response<ureq::Body>,
+    url: &str,
     config: &HttpRequestConfig,
 ) -> HttpResult<HttpResponse> {
     use std::io::Read;
@@ -1266,6 +1272,7 @@ fn decode_response(
         content_type,
         content_length,
         headers: HttpHeaderVec::from_vec(headers),
+        final_url: AzString::from(url),
     })
 }
 
@@ -1351,7 +1358,7 @@ pub fn http_request_with_config(
             .map_err(|e| map_ureq_error(url, &e))?
     };
 
-    decode_response(response, config)
+    decode_response(response, url, config)
 }
 
 /// Stub: `http` feature disabled.
@@ -1533,6 +1540,7 @@ mod tests {
             content_type: AzString::from(String::new()),
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
+            final_url: AzString::from(String::new()),
         };
         assert!(response.is_success());
         assert!(!response.is_redirect());
@@ -1577,6 +1585,7 @@ mod autotest_generated {
             content_type: AzString::from("application/octet-stream"),
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
+            final_url: AzString::from("http://example.com/"),
         }
     }
 
@@ -1587,6 +1596,7 @@ mod autotest_generated {
             content_type: AzString::from("text/plain"),
             content_length: 0,
             headers: HttpHeaderVec::from_const_slice(&[]),
+            final_url: AzString::from("http://example.com/"),
         }
     }
 
@@ -2269,7 +2279,7 @@ mod client_pool_tests {
                 let Ok(mut stream) = stream else { return };
                 counter.fetch_add(1, Ordering::SeqCst);
                 let mut reader = BufReader::new(stream.try_clone().expect("clone"));
-                while read_request_head(&mut reader) {
+                while read_request_head(&mut reader).is_some() {
                     let reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nok";
                     if stream.write_all(reply).is_err() {
                         break;
@@ -2280,14 +2290,17 @@ mod client_pool_tests {
         (url, accepted)
     }
 
-    /// Consume one request head; false once the client has closed the connection.
-    fn read_request_head(reader: &mut impl BufRead) -> bool {
+    /// Consume one request head and return its request line (`GET /path
+    /// HTTP/1.1`); `None` once the client has closed the connection.
+    fn read_request_head(reader: &mut impl BufRead) -> Option<String> {
+        let mut request_line = String::new();
         let mut line = String::new();
         loop {
             line.clear();
             match reader.read_line(&mut line) {
-                Ok(0) | Err(_) => return false,
-                Ok(_) if line == "\r\n" => return true,
+                Ok(0) | Err(_) => return None,
+                Ok(_) if line == "\r\n" => return Some(request_line),
+                Ok(_) if request_line.is_empty() => request_line = line.trim_end().to_string(),
                 Ok(_) => {}
             }
         }
@@ -2429,7 +2442,7 @@ mod client_pool_tests {
                 return;
             };
             let mut reader = BufReader::new(stream.try_clone().expect("clone"));
-            if !read_request_head(&mut reader) {
+            if read_request_head(&mut reader).is_none() {
                 return;
             }
             let _ = released.recv_timeout(Duration::from_secs(3));
@@ -2476,5 +2489,39 @@ mod client_pool_tests {
                 ResultHttpResponseHttpError::Err(e) => panic!("{e:?}"),
             }
         }
+    }
+
+    /// NEWS9: a feed that moved answers with a redirect; the reader follows it
+    /// and must learn where it ended - to resolve the feed's relative links
+    /// and to update the subscription.
+    #[test]
+    fn a_followed_redirect_reports_the_final_url() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                while let Some(request_line) = read_request_head(&mut reader) {
+                    let reply: &[u8] = if request_line.starts_with("GET /old ") {
+                        b"HTTP/1.1 301 Moved Permanently\r\nLocation: /new\r\nContent-Length: 0\r\n\r\n"
+                    } else {
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: text/plain\r\n\r\nok"
+                    };
+                    if stream.write_all(reply).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        let response = http_get_with_config(
+            &format!("{base}/old"),
+            &HttpRequestConfig::default().with_timeout(5),
+        )
+        .expect("GET");
+        assert_eq!(response.status_code, 200);
+        assert_eq!(response.body.as_ref(), b"ok");
+        assert_eq!(response.final_url.as_str(), format!("{base}/new"));
     }
 }
