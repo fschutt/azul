@@ -18,11 +18,14 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 
 - 3.7 runner outside press: RED e1264e068, GREEN 1c1e16713
 
+- 3.8 paste op: NOT doable in PKG 3 files (needs CallbackChange in callbacks.rs + dll event.rs arm).
+  RED committed #[ignore] d501b146b; design -> report round-2 note.
+
 ## IN PROGRESS
-- 3.8 e2e paste op (layout/src/e2e/full.rs DebugEvent + gene2e OP_POLICY)
+- 3.9 PlatformCapability::scheduled_notifications (dll/src/desktop/extra/capability.rs)
 
 ## NEXT
-- 3.9 .. 3.16 in order
+- 3.10 .. 3.16 in order
 
 ## Open questions
 (none)
