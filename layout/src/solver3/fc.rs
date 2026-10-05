@@ -11517,6 +11517,46 @@ fn push_inline_image<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// The `vertical-align` the content of an inline box NESTED in another one is
+/// laid out with, relative to the IFC root's baseline - what text3 aligns
+/// every run and atomic inline against. CSS 2.2 s10.8.1 aligns a box against
+/// its PARENT inline box: `parent` is the enclosing box's alignment (already
+/// relative to the root), `parent_shift_font` the font size its own `sub` /
+/// `super` are measured against (its parent's), `own` the nested box's
+/// declared alignment and `own_shift_font` the enclosing box's font size
+/// (Chrome: the parent's font size / 5 + 1px down, / 3 + 1px up).
+///
+/// A baseline-aligned box sits on its parent's shifted baseline: it takes
+/// `parent` as it is (`<sup><i>1</i></sup>`, the footnote mark, sat on the
+/// line's baseline). The values measured from the parent's baseline (`sub`,
+/// `super`, a length) add up into one raise (a superscript of a superscript
+/// rises by both). The line- and content-area-relative values (`top`,
+/// `bottom`, `middle`, `text-top`, `text-bottom`) keep their own reading.
+fn nested_vertical_align(
+    parent: text3::cache::VerticalAlign,
+    parent_shift_font: f32,
+    own: text3::cache::VerticalAlign,
+    own_shift_font: f32,
+) -> text3::cache::VerticalAlign {
+    use text3::cache::VerticalAlign as V;
+    // How far `align` raises a box's baseline above its parent's (text3's
+    // `Offset` is such a raise), for the values measured from it.
+    let raise = |align: V, font: f32| match align {
+        V::Baseline => Some(0.0),
+        V::Sub => Some(-(font / 5.0 + 1.0)),
+        V::Super => Some(font / 3.0 + 1.0),
+        V::Offset(raise) => Some(raise),
+        V::Top | V::Bottom | V::Middle | V::TextTop | V::TextBottom => None,
+    };
+    if matches!(own, V::Baseline) {
+        return parent;
+    }
+    match (raise(parent, parent_shift_font), raise(own, own_shift_font)) {
+        (Some(p), Some(o)) => V::Offset(p + o),
+        _ => own,
+    }
+}
+
 // +spec:display-property:c05c53 - inlinifying boxes can't contain block-level boxes; children are
 // recursively inlinified it recursively inlinifies all of its in-flow children, so that no
 // block-level descendants break up the inline formatting context in which it participates.
@@ -11704,11 +11744,9 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             stroke: None,
             // From the bottom edge: the strut's share below the baseline.
             baseline_offset: strut_below,
-            alignment: crate::solver3::getters::get_vertical_align_for_node(
-                ctx.styled_dom,
-                span_dom_id,
-                PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
-            ),
+            // The span's own, or - nested in a shifted box - the one its
+            // caller folded in (`nested_vertical_align`).
+            alignment: span_style.vertical_align,
             source_node_id: Some(span_dom_id),
         }));
 
@@ -11732,6 +11770,28 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
             || parent_children.to_vec(),
             |&span_index| tree.children(span_index).to_vec(),
         );
+
+    // What a box nested in this span aligns by (`nested_vertical_align`):
+    // the span's alignment folded with its own. The font size this span's
+    // own `sub` / `super` was measured against is its parent's.
+    let span_shift_font = if matches!(
+        span_style.vertical_align,
+        text3::cache::VerticalAlign::Sub | text3::cache::VerticalAlign::Super
+    ) {
+        let span_state = ctx.styled_dom.styled_nodes.as_container()[span_dom_id].styled_node_state;
+        get_parent_font_size(ctx.styled_dom, span_dom_id, &span_state)
+    } else {
+        // Unread: only `sub` / `super` are measured against a font size.
+        0.0
+    };
+    let nested_align = |own: text3::cache::VerticalAlign| {
+        nested_vertical_align(
+            span_style.vertical_align,
+            span_shift_font,
+            own,
+            span_style.font_size_px,
+        )
+    };
 
     for &child_dom_id in &span_dom_children {
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
@@ -11816,12 +11876,14 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     "[collect_inline_span_recursive] Found nested inline span {:?}",
                     child_dom_id
                 );
-                let child_style = get_style_properties(
+                let mut child_style = get_style_properties(
                     ctx.styled_dom,
                     child_dom_id,
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                // It aligns against THIS span, not the line (CSS 2.2 s10.8.1).
+                child_style.vertical_align = nested_align(child_style.vertical_align);
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -11854,7 +11916,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     );
                     continue;
                 };
-                let shape = measure_atomic_inline(
+                let mut shape = measure_atomic_inline(
                     ctx,
                     tree,
                     text_cache,
@@ -11862,6 +11924,8 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     constraints,
                 )?;
+                // It aligns against THIS span, not the line (CSS 2.2 s10.8.1).
+                shape.alignment = nested_align(shape.alignment);
                 // For inline-block shapes, text3 uses the content array index as run_index
                 // and always item_index=0 for objects. We must match this when inserting into
                 // child_map.
@@ -11885,12 +11949,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     child_display
                 );
-                let child_style = get_style_properties(
+                let mut child_style = get_style_properties(
                     ctx.styled_dom,
                     child_dom_id,
                     ctx.system_style.as_ref(),
                     PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
                 );
+                child_style.vertical_align = nested_align(child_style.vertical_align);
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
