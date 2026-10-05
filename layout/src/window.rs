@@ -28157,6 +28157,46 @@ mod autotest_generated {
         );
     }
 
+    /// ... and after a resize. The layout pass skips font resolution when the
+    /// DOM's font requirements are unchanged (family, weight, style and the
+    /// SPECIFIED size of every node), and `5vw` is the same specified size in
+    /// any window: the text, 20 px after the resize, kept only its 40 px chain.
+    #[test]
+    fn text_sized_in_viewport_units_keeps_its_own_font_after_a_resize() {
+        let dom = || {
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("font-size: 5vw;")
+                    .with_child(Dom::create_text("Hi")),
+            )
+        };
+        let mut win = laid_out(StyledDom::create_from_dom(dom()), 800.0, 600.0);
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(400.0, 600.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        win.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom()),
+            &ws,
+            &rr,
+            &sc,
+            &mut dbg,
+        )
+        .expect("the resized window lays out");
+        let sizes: Vec<u16> = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .map(|k| k.optical_size)
+            .collect();
+        assert!(
+            sizes.contains(&20),
+            "5vw of a 400px window is 20px: the resize collects the text's chain at that size \
+             (collected: {sizes:?})"
+        );
+    }
+
     /// THE CLASS (azpaint pressure meter, 2026-08-29): a `VirtualView` child
     /// DOM was laid out against the WINDOW viewport, not the view's own
     /// bounds — a percent-width child of the returned root resolved against
