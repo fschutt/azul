@@ -439,6 +439,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
                                         so its callback never runs - red on arrival")),
     ("key_up",                    None),
     ("text_input",                None),
+    // A user's paste with the content handed in (no OS clipboard): the
+    // focused node's Paste callbacks, then the engine's paste. Deterministic
+    // input, like text_input; it errors by name without a focused node.
+    ("paste",                     None),
     ("touch_start",               None),
     ("touch_move",                None),
     ("touch_end",                 None),

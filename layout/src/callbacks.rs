@@ -798,6 +798,17 @@ pub enum CallbackChange {
         target: DomNodeId,
         range: SelectionRange,
     },
+    /// Paste `content` into the focused node the way a user's paste does,
+    /// with the content handed in instead of read from the OS clipboard (the
+    /// e2e `paste` op: a scenario has no clipboard). The host stages it as the
+    /// paste content (`CallbackInfo::get_clipboard_content`), dispatches
+    /// `EventType::Paste` at the focus and, unless a callback called
+    /// `prevent_default`, runs the engine's paste
+    /// (`LayoutWindow::paste_clipboard_content`) - the dll's deferred
+    /// clipboard block for a Ctrl+V. Not FFI.
+    Paste {
+        content: ClipboardContent,
+    },
 
     // Hit Test Request (for Debug API)
     /// Request a hit test update at a specific position
@@ -7065,6 +7076,14 @@ impl CallbackInfo {
     /// The change is queued and will be applied after the callback returns.
     pub fn set_select_all_range(&mut self, target: DomNodeId, range: SelectionRange) {
         self.push_change(CallbackChange::SetSelectAllRange { target, range });
+    }
+
+    /// Paste `content` into the focused node after the callback returns, as a
+    /// user's paste would: the focused node's `Paste` callbacks run first (and
+    /// may `prevent_default` it), then the engine's paste. Test-facing - the
+    /// door of the e2e `paste` op (`CallbackChange::Paste`); not in api.json.
+    pub fn simulate_paste(&mut self, content: ClipboardContent) {
+        self.push_change(CallbackChange::Paste { content });
     }
 
     /// Request a hit test update at a specific position

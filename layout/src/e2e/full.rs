@@ -2506,6 +2506,18 @@ pub enum DebugEvent {
     TextInput {
         text: String,
     },
+    /// A user's paste into the focused node: `{"op": "paste", "text": "bold",
+    /// "html": "<b>bold</b>"}`. The content is handed in (a scenario has no OS
+    /// clipboard; a Ctrl+V in the dll reads the real one) and runs what a
+    /// paste runs - the focused node's `Paste` callbacks first (their
+    /// `prevent_default` vetoes it, `get_clipboard_content` reads it), then
+    /// the engine's paste, which keeps the HTML's formatting in a rich editor.
+    Paste {
+        text: String,
+        /// The HTML flavour, if the "source" offered one.
+        #[serde(default)]
+        html: Option<String>,
+    },
 
     // Touch Events — driven through FullWindowState.touch_state; the
     // state-diff event determination fires HoverEventFilter::TouchStart /
@@ -18651,6 +18663,35 @@ pub fn process_debug_event(
                 send_err(
                     request,
                     "No focused node - text input requires focus on contenteditable",
+                );
+            }
+        }
+
+        DebugEvent::Paste { text, html } => {
+            // A paste goes to the focus; without one there is nothing it
+            // could reach, and a scenario that pastes into nothing tests
+            // nothing - refuse it by name, as `text_input` does.
+            let has_focus = callback_info
+                .get_layout_window()
+                .focus_manager
+                .get_focused_node()
+                .is_some();
+            if has_focus {
+                // Applied after this callback returns, by the host's
+                // `CallbackChange::Paste` arm: stage the content, dispatch
+                // `Paste` at the focus, paste unless a callback vetoed it.
+                callback_info.simulate_paste(azul_layout::managers::selection::ClipboardContent {
+                    plain_text: text.clone().into(),
+                    styled_runs: azul_layout::managers::selection::StyledTextRunVec::from_vec(
+                        Vec::new(),
+                    ),
+                    html: html.clone().map(azul_css::AzString::from).into(),
+                });
+                send_ok(request, None, None);
+            } else {
+                send_err(
+                    request,
+                    "paste: no focused node - focus the editor first (focus_node)",
                 );
             }
         }

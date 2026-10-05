@@ -3353,6 +3353,10 @@ impl Runner {
                 self.unsupported("RemoveThread", "no thread pump")
             }
 
+            // The e2e `paste` op: the content is handed in, so no OS
+            // clipboard is needed - the rest is the dll's paste.
+            CallbackChange::Paste { content } => self.apply_paste(content),
+
             // No OS integration.
             CallbackChange::SetCopyContent { .. } => {
                 self.unsupported("SetCopyContent", "no OS clipboard")
@@ -3705,6 +3709,63 @@ impl Runner {
                 }
             }
         }
+    }
+
+    /// The `CallbackChange::Paste` arm - the same arm as the dll's
+    /// (`dll/src/desktop/shell2/common/event.rs::apply_user_change`), which is
+    /// the dll's deferred clipboard block for a Ctrl+V with the content handed
+    /// in: stage it as the paste content (what a `Paste` callback reads
+    /// through `get_clipboard_content`), dispatch `Paste` at the focus, and
+    /// unless a callback vetoed it run the engine's paste
+    /// (`LayoutWindow::paste_clipboard_content`) and land what it recorded.
+    /// The staged content is cleared afterwards either way.
+    fn apply_paste(
+        &mut self,
+        content: &azul_layout::managers::selection::ClipboardContent,
+    ) -> ProcessEventResult {
+        use azul_core::{
+            callbacks::Update,
+            events::{EventData, EventSource, EventType, SyntheticEvent},
+        };
+        use azul_layout::window::PasteOutcome;
+
+        let target = self
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .unwrap_or(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+            });
+        self.layout_window
+            .clipboard_manager
+            .set_paste_content(content.clone());
+        let now = self.now();
+        let paste_event = SyntheticEvent::new(
+            EventType::Paste,
+            EventSource::User,
+            target,
+            now,
+            EventData::None,
+        );
+        let (mut result, update, prevented, _) = self.dispatch_events_propagated(&[paste_event]);
+        if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        if !prevented {
+            result = result.max(match self.layout_window.paste_clipboard_content(content) {
+                PasteOutcome::Nothing => ProcessEventResult::DoNothing,
+                PasteOutcome::Text => ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+                PasteOutcome::Structural => ProcessEventResult::ShouldIncrementalRelayout,
+            });
+            // A plain paste RECORDS its text (`process_text_input`); a shell
+            // lands it with the rest of the pass, an op has no pass after it.
+            let landed = self.layout_window.apply_pending_text_and_reveal();
+            result = result.max(landed.event_result());
+        }
+        self.layout_window.clipboard_manager.clear_paste();
+        result
     }
 
     /// Port of `PlatformWindow::apply_capi_delete`
@@ -7207,8 +7268,6 @@ mod tests {
     /// vetoes it), then `LayoutWindow::paste_clipboard_content` - so a rich
     /// editor keeps the HTML's bold.
     #[test]
-    #[ignore = "round 2 (FIX9-INPUT 3.8): the paste op needs a CallbackChange (layout/src/callbacks.rs) \
-                and its arm in the dll's apply_user_change (dll/src/desktop/shell2/common/event.rs)"]
     fn a_scenarios_paste_op_pastes_bold_html_into_the_focused_editor() {
         use azul_core::dom::IdOrClass;
 

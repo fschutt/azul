@@ -7340,6 +7340,69 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::Paste { content } => {
+                // The e2e `paste` op (`CallbackInfo::simulate_paste`): the
+                // deferred clipboard block of `process_window_events` for a
+                // Ctrl+V, with the content handed in instead of read from the
+                // OS clipboard. Stage it (a `Paste` callback reads it through
+                // `get_clipboard_content`), dispatch `Paste` at the focus, and
+                // unless a callback vetoed it run the engine's paste and land
+                // what it recorded. The e2e runner's `apply_paste` is this arm.
+                use azul_layout::window::PasteOutcome;
+
+                let target = self
+                    .get_layout_window()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied())
+                    .unwrap_or(azul_core::dom::DomNodeId {
+                        dom: DomId { inner: 0 },
+                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+                    });
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.clipboard_manager.set_paste_content(content.clone());
+                }
+                let now = {
+                    #[cfg(feature = "std")]
+                    {
+                        azul_core::task::Instant::from(std::time::Instant::now())
+                    }
+                    #[cfg(not(feature = "std"))]
+                    {
+                        azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0))
+                    }
+                };
+                let paste_event = SyntheticEvent::new(
+                    azul_core::events::EventType::Paste,
+                    azul_core::events::EventSource::User,
+                    target,
+                    now,
+                    azul_core::events::EventData::None,
+                );
+                let (mut result, update, prevented, _) =
+                    self.dispatch_events_propagated(&[paste_event]);
+                if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                    result = result.max_self(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if !prevented {
+                        result = result.max(match lw.paste_clipboard_content(content) {
+                            PasteOutcome::Nothing => ProcessEventResult::DoNothing,
+                            PasteOutcome::Text => {
+                                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                            }
+                            PasteOutcome::Structural => {
+                                ProcessEventResult::ShouldIncrementalRelayout
+                            }
+                        });
+                        // A plain paste RECORDS its text; a Ctrl+V lands it
+                        // with the rest of its pass, an op has no pass after.
+                        let landed = lw.apply_pending_text_and_reveal();
+                        result = result.max(landed.event_result());
+                    }
+                    lw.clipboard_manager.clear_paste();
+                }
+                result
+            }
+
             // === Multi-Cursor ===
             CallbackChange::AddCursor {
                 dom_id,
