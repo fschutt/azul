@@ -13,7 +13,9 @@ None = skipped: callbacks, callback wrappers, RefAny, pointers, generics, arrays
   plain-data only; examples/julia/hello-world.jl uses the accessors).
 
 - Julia fix ce52ca6c9.
-- Nim: RED 3a-commit before the fix; fix = lang_nim/fields.rs: `azString` (empty-safe, copies), `$` (copies,
+- Odin: RED then fix (lang_odin/fields.rs): `az_string` / `az_string_to_odin` helpers;
+  `<Class>_get_<f>(&x)` / `<Class>_set_<f>(&x, v)` for Str/Heap fields (pointer receiver = nested writes).
+- Nim: RED 087cdf464, fix 6d4fd100f = lang_nim/fields.rs: `azString` (empty-safe, copies), `$` (copies,
   never consumes), `tr` = `AzString_tr(azString(key))` (no borrowed GC buffer, no `key[0]` on ""), and
   `get<F>` / `set<F>` for Str/Heap fields only (Prim/Pod stay direct fields). A name an api.json method
   owns for the same receiver (ProcDedup::has_receiver) falls back to `get<F>Field` / `set<F>Field`.
