@@ -69,6 +69,9 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
     // DERIVE_HELPER) and called from each type's metatype line.
     out.push_str(DERIVE_HELPER);
 
+    // What `:with{}` / `set_<field>()` need to know about every field.
+    emit_field_tables(&mut out, ir);
+
     // Unit-only enums become flat constant tables.
     out.push_str("-- ------------------------------------------------------------------\n");
     out.push_str("-- Unit-only enums (constant tables)\n");
@@ -314,10 +317,31 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     //   window.window_state.title = azul._az_string('...')
     // in favor of
     //   window:with({ window_state = { title = 'Hello World' } })
+    //
+    // The C type name tells `_apply_opts` each field's type (`azul._az_ft`),
+    // so a heap-owning field's old value is released and the new one is
+    // deep-copied in instead of aliased.
     out.push_str(&format!(
-        "    function {}_methods:with(opts) azul._apply_opts(self, opts); return self end\n",
-        class
+        "    function {}_methods:with(opts) azul._apply_opts(self, opts, '{}'); return self end\n",
+        class, c_name
     ));
+
+    // Typed accessors `get_<field>()` / `set_<field>(v)`. An api.json
+    // method of the same name wins (the field stays writable through
+    // `:with{}` and direct cdata access).
+    let mut taken: std::collections::BTreeSet<String> = funcs
+        .iter()
+        .map(|f| sanitize_lua_ident(&f.method_name))
+        .collect();
+    for n in ["with", "to_lua_string", "to_lua_array", "clone", "hash", "cmp", "partial_cmp", "toString"] {
+        taken.insert(n.to_string());
+    }
+    for func in &funcs {
+        if let Some((smart, _)) = super::super::managed_host_invoker::smart_callback_setter_info(func) {
+            taken.insert(smart);
+        }
+    }
+    let accessor_count = emit_field_accessors(out, ir, s, &mut taken);
 
     // AzString gets a `:to_lua_string()` method that decodes the
     // wrapped UTF-8 bytes into a Lua string. LuaJIT's `ffi.string`
@@ -425,7 +449,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // exports support (`__gc`, `__eq`, `__lt`, `__le`, `__tostring`,
     // `__len`), all built by `_az_derive`. A type with neither methods nor
     // derives has nothing to attach.
-    if method_count > 0 || !syms.is_empty() || is_vec {
+    if method_count > 0 || accessor_count > 0 || !syms.is_empty() || is_vec {
         emit_metatype(out, class, &c_name, &syms, is_vec, is_string);
     }
     out.push_str("end\n");
@@ -442,6 +466,151 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         }
     }
     out.push_str("}\n\n");
+}
+
+// ============================================================================
+// Field access
+// ============================================================================
+
+/// The C type name the cdef knows a field type by.
+fn lua_c_type(name: &str) -> String {
+    format!("Az{}", name.trim())
+}
+
+/// `get_<field>()` / `set_<field>(v)` on a struct's methods table (the
+/// shared contract in `field_access`). Direct cdata access stays: reading
+/// `opts.window_state` is a live VIEW (a reference cdata, never finalized),
+/// so `opts.window_state:set_title('x')` writes into `opts`. The accessors
+/// add what direct access cannot do safely:
+///
+/// - `get_<f>()`: an independent value - a Lua string for the String
+///   class (decoded, the field is not consumed), a deep copy armed with its
+///   finalizer for a heap-owning type, a plain copy for a POD struct;
+/// - `set_<f>(v)`: `azul._set_field` - a Lua string becomes a fresh
+///   AzString, any other value is deep-copied in (`azul._take`, so the
+///   caller's value is never aliased), and the field's old value is
+///   released first.
+///
+/// Returns the number of methods emitted.
+fn emit_field_accessors(
+    out: &mut String,
+    ir: &CodegenIR,
+    s: &StructDef,
+    taken: &mut std::collections::BTreeSet<String>,
+) -> usize {
+    use super::super::field_access::{accessible_fields, FieldShape};
+    let config = super::super::config::CodegenConfig::c_header();
+    let class = &s.name;
+    let mut n = 0;
+    for (f, shape) in accessible_fields(s, ir, &config) {
+        let key = super::super::lang_c::escape_cpp_keyword_for_c(&f.name);
+        let get = sanitize_lua_ident(&format!("get_{}", f.name));
+        let set = sanitize_lua_ident(&format!("set_{}", f.name));
+        let getter: Option<String> = match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => Some(format!("self.{}", key)),
+            FieldShape::Str { .. } => Some(format!("azul._read_string(self.{})", key)),
+            FieldShape::Value { delete: Some(d), clone: Some(c), .. } => Some(format!(
+                "ffi.gc(C.{}(self.{}), C.{})",
+                c.c_name, key, d.c_name
+            )),
+            FieldShape::Value { name, delete: None, .. } => {
+                Some(format!("ffi.new('{}', self.{})", lua_c_type(name), key))
+            }
+            // Heap-owning without a deep copy: a copy would be freed twice.
+            FieldShape::Value { .. } => None,
+        };
+        let setter = match &shape {
+            FieldShape::Prim { .. } | FieldShape::UnitEnum { .. } => format!("self.{} = v", key),
+            FieldShape::Str { name, .. } | FieldShape::Value { name, .. } => format!(
+                "azul._set_field(self, '{}', '{}', v)",
+                key,
+                lua_c_type(name)
+            ),
+        };
+        if let Some(body) = getter {
+            if taken.insert(get.clone()) {
+                out.push_str(&format!(
+                    "    function {}_methods:{}() return {} end\n",
+                    class, get, body
+                ));
+                n += 1;
+            }
+        }
+        if taken.insert(set.clone()) {
+            out.push_str(&format!(
+                "    function {}_methods:{}(v) {}; return self end\n",
+                class, set, setter
+            ));
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The runtime tables `azul._apply_opts` / `azul._set_field` / `azul._take`
+/// read: per struct, the C type of every String / struct / union field
+/// (`azul._az_ft.AzFullWindowState = { title = 'AzString', ... }`), and
+/// per type its `_delete` / `_clone` export. Emitted in chunks of small
+/// functions so the main chunk stays under the per-function constant limit.
+fn emit_field_tables(out: &mut String, ir: &CodegenIR) {
+    use super::super::field_access::{accessible_fields, FieldShape};
+    let config = super::super::config::CodegenConfig::c_header();
+    out.push_str("-- ------------------------------------------------------------------\n");
+    out.push_str("-- Field types (struct -> { field = C type }) and the _delete / _clone\n");
+    out.push_str("-- export of every heap-owning type: what :with{} and set_<field>() use\n");
+    out.push_str("-- to release a field's old value and deep-copy the new one in.\n");
+    out.push_str("-- ------------------------------------------------------------------\n");
+    out.push_str("azul._az_ft = {}\nazul._az_delete = {}\nazul._az_clone = {}\n");
+    let mut lines: Vec<String> = Vec::new();
+    for s in &ir.structs {
+        if !should_emit_struct(s) {
+            continue;
+        }
+        let entries: Vec<String> = accessible_fields(s, ir, &config)
+            .into_iter()
+            .filter_map(|(f, shape)| match shape {
+                FieldShape::Str { name, .. } | FieldShape::Value { name, .. } => Some(format!(
+                    "{} = '{}'",
+                    super::super::lang_c::escape_cpp_keyword_for_c(&f.name),
+                    lua_c_type(&name)
+                )),
+                _ => None,
+            })
+            .collect();
+        if !entries.is_empty() {
+            lines.push(format!(
+                "azul._az_ft.{} = {{ {} }}",
+                lua_c_type(&s.name),
+                entries.join(", ")
+            ));
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for f in &ir.functions {
+        let table = match f.kind {
+            FunctionKind::Delete => "_az_delete",
+            FunctionKind::DeepCopy => "_az_clone",
+            _ => continue,
+        };
+        if !seen.insert((table, f.class_name.clone())) {
+            continue;
+        }
+        lines.push(format!(
+            "azul.{}.{} = '{}'",
+            table,
+            lua_c_type(&f.class_name),
+            f.c_name
+        ));
+    }
+    for chunk in lines.chunks(200) {
+        out.push_str("do (function()\n");
+        for l in chunk {
+            out.push_str(l);
+            out.push('\n');
+        }
+        out.push_str("end)() end\n");
+    }
+    out.push('\n');
 }
 
 // ============================================================================
