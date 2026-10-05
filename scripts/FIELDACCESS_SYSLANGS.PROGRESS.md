@@ -7,34 +7,27 @@ No compiling (parent integrates).
 Shared: doc/src/codegen/v2/raw_field_access.rs - classifies each field (Prim / Str / Heap{delete, clone} / Pod;
 None = skipped: callbacks, callback wrappers, RefAny, pointers, generics, arrays, heap-without-_delete).
 
-## DONE
-- Julia: RED 477929b12; fix = next commit (raw_field_access.rs + lang_julia/fields.rs; generic
-  `get_<f>(x)` / `set_<f>!(x, v)` / `<f>_ptr(x)` on `Ref{AzT}` or `Ptr{AzT}` views; setfields doc'd as
-  plain-data only; examples/julia/hello-world.jl uses the accessors).
+## DONE (all five; nothing compiled - parent integrates)
+- Julia: RED 477929b12, fix ce52ca6c9 (raw_field_access.rs + lang_julia/fields.rs).
+- Nim: RED 087cdf464, fix 6d4fd100f (lang_nim/fields.rs; tr + azString + `$`).
+- Odin: RED 3e13d4768, fix 5e11f82b9 (lang_odin/fields.rs).
+- V: RED 947a16ed5, fix 9640c0a2f (lang_v/fields.rs).
+- OCaml: RED 857439b04, fix 1c7413cb1 (lang_ocaml/fields.rs, ClassPlan, managed.rs with_layout).
+- 088f00cce shared classifier skips opaque field types (Recursive / GenericTemplate / VecRef).
 
-- Julia fix ce52ca6c9.
-- Odin: RED then fix (lang_odin/fields.rs): `az_string` / `az_string_to_odin` helpers;
-  `<Class>_get_<f>(&x)` / `<Class>_set_<f>(&x, v)` for Str/Heap fields (pointer receiver = nested writes).
-- Nim: RED 087cdf464, fix 6d4fd100f = lang_nim/fields.rs: `azString` (empty-safe, copies), `$` (copies,
-  never consumes), `tr` = `AzString_tr(azString(key))` (no borrowed GC buffer, no `key[0]` on ""), and
-  `get<F>` / `set<F>` for Str/Heap fields only (Prim/Pod stay direct fields). A name an api.json method
-  owns for the same receiver (ProcDedup::has_receiver) falls back to `get<F>Field` / `set<F>Field`.
+## Case 3 (title + size) per language
+- Julia: `opts = Ref(AzWindowCreateOptions_create(cb)); GC.@preserve opts begin ws = window_state_ptr(opts);
+  set_title!(ws, "x"); set_dimensions!(size_ptr(ws), AzLogicalSize(400f0, 300f0)) end`
+- Nim: `opts.window_state.setTitle("x"); opts.window_state.size.dimensions = AzLogicalSize(width: 400, height: 300)`
+- Odin: `azul.FullWindowState_set_title(&opts.window_state, "x"); opts.window_state.size.dimensions = {400, 300}`
+- V: `opts.window_state.set_title('x'); opts.window_state.size.dimensions.width = 400`
+- OCaml: `WindowCreateOptions.update_window_state opts (fun ws -> FullWindowState.set_title ws "x";
+  FullWindowState.update_size ws (fun sz -> WindowSize.set_dimensions sz (LogicalSize.create 400. 300.)))`
 
-- V: RED then fix (lang_v/fields.rs): `az_string_to_v(&s)` (copies, never consumes);
-  methods `x.get_<f>()` / `x.set_<f>(v)` for Str/Heap fields (`mut` receiver = nested writes).
-
-- OCaml: RED then fix (lang_ocaml/fields.rs + ClassPlan): `get_<f>` / `set_<f>` / `update_<f>` in every
-  class module (`.mli` + `.ml`); records consumed on set (`disposed <- true`), deep-copied on get
-  (`make_<r> (<clone> ptr)`); `update_<f>` = working copy written back via Fun.protect (getf copies, so
-  nested writes need it). `azul_string_of_az` (non-consuming decode) in azul_managed.
-  `azul_<class>_with_layout` now calls `Az<LayoutCallback>_delete` on the default callback before setf.
-  Example examples/ocaml/hello_world.ml (included into the generated tree) sets title + size.
-
-## IN PROGRESS
-- (none) - final review.
-
-## NEXT
-- Parent: cargo test -p azul-doc (field_access_tests in 5 langs + raw_field_access tests), regenerate,
-  compile the 5 hello-worlds.
-
-## Open questions
+## Open questions / not done
+- Nim/Odin/V: Prim/Pod fields keep direct field access (safe: no heap); only Str/Heap get procs. Direct
+  assignment of a heap field still compiles (and leaks) - documented in the generated header comment.
+- Julia `setfields` kept, documented as plain-data only (it cannot release the old value).
+- Monomorphized struct aliases (PhysicalSizeU32, ...) get no accessors (all POD; direct access works).
+- OCaml raw (non-record) heap fields (Option*/tagged unions with _delete): get returns a clone the caller
+  must free (same as methods returning such values); no update_<f> for them.
