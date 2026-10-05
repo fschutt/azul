@@ -4400,6 +4400,59 @@ mod tests {
         assert!(index.resolve("Seen", None).is_some());
     }
 
+    /// Phase 2 attached the methods of every `impl X` block it found to EVERY
+    /// indexed type named X: it parses every file, the one defining a
+    /// module-private X too (the XML tree builder's `enum NodeData` lent its
+    /// helpers to `azul_core::dom::NodeData`), and an inherent impl in one
+    /// crate reached a type of that name in another - inherent impls live in
+    /// their type's crate (integration 2026-10-05). A cross-file impl of the
+    /// public type still attaches.
+    #[test]
+    fn a_private_types_impl_methods_stay_off_a_public_type_of_the_same_name() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("core/src/lib.rs", "pub mod dom;\npub mod dom_ext;\npub mod tree;\npub mod shared;\n");
+        write("core/src/dom.rs", "#[repr(C)] pub struct NodeData { pub a: u8 }\n");
+        write(
+            "core/src/dom_ext.rs",
+            "impl NodeData { pub fn public_method(&self) -> u8 { 0 } }\n",
+        );
+        write(
+            "core/src/tree.rs",
+            "enum NodeData { Document }\nimpl NodeData { pub fn private_helper(&self) -> u8 { 0 } }\n",
+        );
+        write("core/src/shared.rs", "#[repr(C)] pub struct Shared { pub a: u8 }\n");
+        write("layout/src/lib.rs", "pub mod a;\npub mod b;\n");
+        write("layout/src/a.rs", "#[repr(C)] pub struct Shared { pub b: u8 }\n");
+        write(
+            "layout/src/b.rs",
+            "impl Shared { pub fn layout_only(&self) -> u8 { 0 } }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let methods = |path: &str| -> Vec<String> {
+            index
+                .get_by_path(path)
+                .expect(path)
+                .methods
+                .iter()
+                .map(|m| m.name.clone())
+                .collect()
+        };
+        let node_data = methods("azul_core::dom::NodeData");
+        assert!(node_data.contains(&"public_method".to_string()), "{node_data:?}");
+        assert!(!node_data.contains(&"private_helper".to_string()), "{node_data:?}");
+        assert!(
+            !methods("azul_core::shared::Shared").contains(&"layout_only".to_string()),
+            "an inherent impl in azul_layout is not azul_core's"
+        );
+        assert!(methods("azul_layout::a::Shared").contains(&"layout_only".to_string()));
+    }
+
     /// A method in an `impl T` block of another file (`impl CallbackInfo` in
     /// widgets/form.rs, `impl RichTextDoc` in rich_text/html.rs) is attached
     /// to the type found by NAME, but the type found by PATH kept the old
