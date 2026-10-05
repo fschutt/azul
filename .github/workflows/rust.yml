@@ -822,6 +822,7 @@ jobs:
       - name: Run AzClock tests
       - name: Run AzReader tests
       - name: Run AzMusic tests
+      - name: Run AzCode tests
         env:
           AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
@@ -844,6 +845,8 @@ jobs:
           set -o pipefail
           cargo test -p AzPlayer --lib --no-fail-fast 2>&1 | tee azul-player-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-player-tests.txt
+          cargo test -p AzCode --lib --no-fail-fast 2>&1 | tee azul-code-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-code-tests.txt
 
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"

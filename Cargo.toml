@@ -32,6 +32,7 @@ members = [
     "examples/azul-reader", # AzReader: the e-reader (EPUB through azul's XML/HTML parser, paged layout, library, TOC, bookmarks; reader/books/<uuid>/...)
     "examples/azul-music", # AzMusic: the music player (library from a folder, gapless AudioPlayer, MediaControls / SeekBar / LevelMeter) on the S7 MediaShell
     "examples/azul-player", # AzPlayer: the video player (VideoWidget picture + AudioPlayer sound kept in step, controls, fullscreen, resume) on the S7 MediaShell
+    "examples/azul-code", # AzCode: the code editor (S8 DeveloperShell, CodeView over a piece table, syntect highlighting, file tree, tabs, find / replace)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css

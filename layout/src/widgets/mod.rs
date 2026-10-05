@@ -597,6 +597,14 @@ pub mod seek_bar;
 /// shuffle and repeat toggles, a volume slider - icon buttons named by what
 /// they do now, one `on_action` hook; see `media_controls.rs`.
 pub mod media_controls;
+/// Code view widget.
+///
+/// The editing surface of a code editor over as many lines as the app has
+/// (a million is the yardstick): only the lines in view are built, a gutter
+/// of line numbers, syntax colours from the app's spans, several cursors
+/// with selections, the keys and the pointer of a code editor; the app
+/// owns the text (edits come back as replacements). See `code_view.rs`.
+pub mod code_view;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -2014,6 +2022,8 @@ mod label_convention {
                 .with_accessibility_name("Level")
                 .dom(),
         ));
+        // The code view: a short function, the caret on its second line.
+        all.push(("code_view", super::code_view::fixtures::sample().dom()));
         all
     }
 
@@ -2404,6 +2414,8 @@ mod wheel_ownership {
                 // The terminal view scrolls its scrollback by whole lines
                 // (or reports the wheel to the program in it).
                 "terminal_view".to_string(),
+                // The code view scrolls by whole lines.
+                "code_view".to_string(),
             ],
             "a widget started listening for the wheel: a closed control must leave the gesture to \
              the page under it",
@@ -2994,6 +3006,9 @@ mod theme_contrast {
         // The terminal view: a developer window's surface (its rows are
         // drawn in the terminal palette inside its VirtualView).
         "terminal_view",
+        // The code view: an editing surface like the grid (its lines and
+        // their numbers on the view's own page).
+        "code_view",
     ];
 
     /// A widget added to the manifest must land in a group, or it is simply

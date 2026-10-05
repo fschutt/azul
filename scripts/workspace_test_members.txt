@@ -52,6 +52,7 @@ tested: AzClock              # dll_tests (alarm occurrences incl. DST, the timer
 tested: AzReader             # dll_tests (EPUB container / package / TOC, the content policy, pages and positions, the library files)
 tested: AzMusic              # dll_tests (the library, the play queue, playlists, the sample tones, the folder scan, the songs table)
 tested: AzPlayer             # dll_tests (the history and resume positions, the picture / sound sync rule, the controls' auto-hide)
+tested: AzCode               # dll_tests (the piece table, the incremental highlighter, find / replace, the workspace model)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

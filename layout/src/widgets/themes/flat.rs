@@ -6940,3 +6940,89 @@ pub(crate) fn waveform_look() -> crate::widgets::waveform::WaveformLook {
 pub fn waveform(w: crate::widgets::waveform::Waveform) -> Dom {
     crate::widgets::waveform::build(w, &waveform_look())
 }
+
+// ==== code_view ====
+//
+// The flat code view is the desktop's editor: the text in the OS monospace
+// face on the page white (flat's night page in the dark), the line numbers
+// in the muted ink behind a hairline, the caret's line on the faint
+// surface tone with its number in the ink, selections in the selection
+// blue, a thin grey scroll bar. The token inks are Visual Studio Code's
+// Light+ and Dark+ (keywords blue, strings red / salmon, comments green,
+// types teal), every one at least 4.5:1 on its page.
+
+/// The (day, night) ink of every `CodeTokenKind`, in declaration order.
+const CODE_VIEW_INKS: [(ColorU, ColorU); crate::widgets::code_view::CODE_TOKEN_KINDS] = [
+    // Plain
+    (LIGHT_INK, DARK_INK),
+    // Keyword
+    (ColorU::new(0, 0, 255, 255), ColorU::new(86, 156, 214, 255)),
+    // Type
+    (ColorU::new(38, 127, 153, 255), ColorU::new(78, 201, 176, 255)),
+    // Function
+    (ColorU::new(121, 94, 38, 255), ColorU::new(220, 220, 170, 255)),
+    // StringLiteral
+    (ColorU::new(163, 21, 21, 255), ColorU::new(206, 145, 120, 255)),
+    // Number
+    (ColorU::new(9, 134, 88, 255), ColorU::new(181, 206, 168, 255)),
+    // Comment
+    (ColorU::new(0, 128, 0, 255), ColorU::new(106, 153, 85, 255)),
+    // Constant
+    (ColorU::new(0, 112, 193, 255), ColorU::new(79, 193, 255, 255)),
+    // Macro
+    (ColorU::new(175, 0, 219, 255), ColorU::new(197, 134, 192, 255)),
+    // Attribute
+    (ColorU::new(128, 0, 0, 255), ColorU::new(215, 186, 125, 255)),
+    // Operator
+    (LIGHT_INK, ColorU::new(212, 212, 212, 255)),
+    // Punctuation
+    (LIGHT_INK, ColorU::new(212, 212, 212, 255)),
+    // Variable
+    (ColorU::new(0, 16, 128, 255), ColorU::new(156, 220, 254, 255)),
+    // Tag
+    (ColorU::new(128, 0, 0, 255), ColorU::new(86, 156, 214, 255)),
+    // Heading
+    (ColorU::new(0, 0, 128, 255), ColorU::new(86, 156, 214, 255)),
+    // Link
+    (ColorU::new(0, 102, 204, 255), ColorU::new(55, 148, 255, 255)),
+    // Invalid
+    (ColorU::new(205, 49, 49, 255), ColorU::new(244, 71, 71, 255)),
+];
+
+/// Flat's code-view look.
+#[must_use]
+pub(crate) fn code_view_look() -> crate::widgets::code_view::CodeViewLook {
+    use super::decl;
+
+    let mut view = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    view.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut gutter = decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1).to_vec();
+    gutter.extend(decl::border_right(1));
+    gutter.extend(decl::themed_border_right_color(LIGHT_SEP, DARK_SEP));
+
+    let mut thumb = decl::themed_fill(LIGHT_SOFT2, DARK_SOFT2).to_vec();
+    thumb.extend(decl::radius(4));
+
+    crate::widgets::code_view::CodeViewLook {
+        view,
+        gutter,
+        gutter_current: decl::themed_ink(LIGHT_INK, DARK_INK).to_vec(),
+        current_line: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        selection: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        caret: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
+        track: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        thumb,
+        tokens: CODE_VIEW_INKS
+            .iter()
+            .map(|(day, night)| decl::themed_ink(*day, *night).to_vec())
+            .collect(),
+        marker: None,
+    }
+}
+
+/// The flat code view.
+#[must_use]
+pub(crate) fn code_view(v: crate::widgets::code_view::CodeViewResolved) -> Dom {
+    crate::widgets::code_view::build(v, &code_view_look())
+}
