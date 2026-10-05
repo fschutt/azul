@@ -1250,8 +1250,33 @@ fn update_keyboard_state_of(
     keyboard_state.locks.caps_lock = modifiers.contains(NSEventModifierFlags::CapsLock);
 }
 
+/// The keys AppKit reports through `flagsChanged:` (the modifiers and Caps
+/// Lock): the keys `handle_flags_changed` maps, which always report their
+/// release.
+const FLAGS_CHANGED_KEYCODES: [u16; 9] = [
+    MACOS_KEYCODE_LSHIFT,
+    MACOS_KEYCODE_RSHIFT,
+    MACOS_KEYCODE_LCONTROL,
+    MACOS_KEYCODE_RCONTROL,
+    MACOS_KEYCODE_LALT,
+    MACOS_KEYCODE_RALT,
+    MACOS_KEYCODE_LWIN,
+    MACOS_KEYCODE_RWIN,
+    MACOS_KEYCODE_CAPSLOCK,
+];
+
 /// `flagsChanged:`'s change to the keyboard state: the one modifier key (or
 /// Caps Lock) whose state flipped.
+///
+/// When the LAST Cmd key comes up it also releases every other key still in
+/// the pressed set: AppKit sends no `keyUp:` for a key released while Cmd is
+/// held (NSApplication does not forward it to the key window), so after
+/// Cmd+<letter> that no menu item took, the letter would stay "held" until it
+/// was pressed again. Its key-up can no longer arrive, so this is the
+/// release; the pass `handle_flags_changed` runs dispatches it with the Cmd
+/// release (one state diff). The modifiers and Caps Lock stay: they report
+/// their own release here. A key the user still physically holds after
+/// letting go of Cmd is released too; its auto-repeat presses it again.
 fn flags_changed_keyboard_state(
     keyboard_state: &mut KeyboardState,
     keycode: u16,
@@ -1259,6 +1284,23 @@ fn flags_changed_keyboard_state(
     is_down: bool,
 ) {
     update_keyboard_state_of(keyboard_state, keycode, modifiers, is_down);
+
+    let cmd_released = !is_down && matches!(keycode, MACOS_KEYCODE_LWIN | MACOS_KEYCODE_RWIN);
+    if !cmd_released || keyboard_state.super_down() {
+        return;
+    }
+    let reports_its_release = |vk: &VirtualKeyCode| {
+        FLAGS_CHANGED_KEYCODES
+            .iter()
+            .any(|kc| convert_keycode(*kc) == Some(*vk))
+    };
+    let pressed = keyboard_state.pressed_virtual_keycodes.as_ref();
+    if pressed.iter().all(reports_its_release) {
+        return;
+    }
+    let kept: Vec<VirtualKeyCode> = pressed.iter().copied().filter(reports_its_release).collect();
+    keyboard_state.pressed_virtual_keycodes = azul_core::window::VirtualKeyCodeVec::from_vec(kept);
+    keyboard_state.sync_modifiers();
 }
 
 impl MacOSWindow {
