@@ -17,11 +17,15 @@ Branch wt/fix9-paint (fast-forwarded to b454da215). Brief: scripts/waves/wave9/S
 - 2.5 svg_render without PNG: RED d5c38eabd (also corrects the straight-alpha pin), GREEN 2b0d4e81e.
   New pub fn cpurender::render_svg_to_raw_image_over (Rust-only).
 
+- 2.6 SVG mask memo: RED 61e096fb5, GREEN 108450ea2 (thread-local LRU in display_list.rs).
+- 2.7 LCD tile clip: RED 09e16cdd4, GREEN ac1d92bae (text_clip_pixel_box(text_run_clip), not outward).
+
 ## IN PROGRESS
-2.6 SVG clip / stroke mask memo
+2.8 CSS opacity tween values-only
 
 ## NEXT
-2.6 RED, GREEN; then 2.7 .. 2.14, then the suite failure (window.rs inline-flex test).
+2.8 (borderline SMALL) - read display_list.rs PushOpacity (~5154), gpu.rs fingerprint (~164) and
+opacity sync (~580-654), window.rs css_transition_tick (~15159); then 2.9 .. 2.14, then the suite failure.
 
 ## Open questions
 (none)
