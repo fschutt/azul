@@ -1307,8 +1307,14 @@ fn emit_kt_field_accessors(
         // The JNA field: declared under its (keyword-escaped) api.json name;
         // `writeField` takes the plain name.
         let jf = sanitize_kt_identifier(&f.name);
-        let pascal = field_pascal(&f.name);
-        let prop_plain = snake_to_lower_camel(&f.name);
+        // A tuple struct's `_0` camel-cases to `0`, which is no Kotlin
+        // identifier: such a field keeps its own name (`_0`, JVM `get_0`).
+        let camel = snake_to_lower_camel(&f.name);
+        let (prop_plain, pascal) = if camel.is_empty() || camel.starts_with(|c: char| c.is_ascii_digit()) {
+            (f.name.clone(), f.name.clone())
+        } else {
+            (camel, field_pascal(&f.name))
+        };
         let fp = format!("__ov.{}.pointer", jf);
 
         let user_ty = match &shape {
