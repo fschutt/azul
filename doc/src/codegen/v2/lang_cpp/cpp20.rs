@@ -719,6 +719,8 @@ fn emit_class_declaration_cpp20_or_later(
         ));
     }
 
+    code.push_str(&generate_field_accessor_decls(struct_def, ir, config, gen.standard()));
+
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);
     }
@@ -1154,5 +1156,11 @@ fn generate_method_implementations_shared(
         }
     }
 
+    code.push_str(&generate_field_accessor_impls(
+        struct_def,
+        ir,
+        config,
+        dialect.standard(),
+    ));
     code.push_str(&generate_vec_from_std_vector_impl(struct_def, ir, config));
 }
