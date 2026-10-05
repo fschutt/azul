@@ -10,11 +10,14 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
   for every IFC" - actually it added NONE for any anonymous block (no dom id) and measured white-space normal;
   the "after a nested block" test is a pin, the RED is the first anonymous block + nowrap.
 
+- 1.2 RED f3134cb66, GREEN df8f3b7bd (fc.rs mod inline_collection_cache_tests; fc::hash_resolved_style).
+  Unverified symptom: parent runs the RED at f3134cb66; if it passes there, revert df8f3b7bd.
+
 ## IN PROGRESS
-1.2
+1.3
 
 ## NEXT
-1.2 RED a_stylesheet_only_font_size_change_relays_out_its_text (fc.rs fingerprint ~4210)
+1.3 RED a_balanced_continuation_fragment_is_not_indented (text3/cache.rs ~11400, knuth_plass.rs 478/579)
 
 ## Open questions
 (none)
