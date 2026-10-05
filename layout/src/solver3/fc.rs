@@ -15119,3 +15119,153 @@ mod autotest_generated {
         assert_eq!(text_of(&out[0]), Some("🌍"));
     }
 }
+
+/// The inline-collection cache of `layout_ifc` (`CachedInlineContent`, keyed
+/// by the IFC subtree's fingerprint) across a STYLESHEET-ONLY rebuild: the
+/// same DOM, the same classes, another stylesheet. The node fingerprints are
+/// all unchanged, so only the resolved values the key folds in can tell the
+/// collection is stale. The rebuild goes through the product path:
+/// `begin_reconciliation` (the CSS diff) then the layout pass.
+#[cfg(test)]
+mod inline_collection_cache_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+        task::Instant,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    fn styled(mut dom: Dom, css: &str) -> StyledDom {
+        let (css, _) = azul_css::parser2::new_from_str(css);
+        StyledDom::create(&mut dom, css)
+    }
+
+    fn lay_out(lw: &mut LayoutWindow, styled_dom: StyledDom) {
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+    }
+
+    /// The first page, then the same DOM under `second_css` - rebuilt as the
+    /// shell rebuilds (the CSS diff first) in the same window.
+    fn restyled(lw: &mut LayoutWindow, page: fn() -> Dom, first_css: &str, second_css: &str) {
+        lay_out(lw, styled(page(), first_css));
+        let mut next = styled(page(), second_css);
+        let _pending = lw.begin_reconciliation(DomId::ROOT_ID, &mut next, Instant::now());
+        lay_out(lw, next);
+    }
+
+    /// The used size of DOM node `node`.
+    fn size_of(lw: &LayoutWindow, node: usize) -> LogicalSize {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the node has a size")
+    }
+
+    /// The x of DOM node `node` (its calculated position).
+    fn x_of(lw: &LayoutWindow, node: usize) -> f32 {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        lr.calculated_positions
+            .get(index.index())
+            .expect("the node has a position")
+            .x
+    }
+
+    /// `body(0) > div.p(1) > "Hello Hello Hello"(2)`.
+    fn paragraph() -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Hello Hello Hello",
+                )),
+        )
+    }
+
+    #[test]
+    fn a_stylesheet_only_font_size_change_relays_out_its_text() {
+        // A fixed 20px line box, so the height counts the lines whatever the
+        // font: three words of 10px text fit one 200px line (about 80px), at
+        // 40px each word is about 100px wide and they wrap to 2 or 3 lines.
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let base = "body { margin: 0; } .p { width: 200px; line-height: 20px; }";
+        restyled(
+            &mut lw,
+            paragraph,
+            &format!("{base} .p {{ font-size: 10px; }}"),
+            &format!("{base} .p {{ font-size: 40px; }}"),
+        );
+        let h = size_of(&lw, 1).height;
+        assert!(
+            h >= 39.5,
+            "40px words wrap the 200px paragraph to two lines or more (it kept the 10px runs \
+             of the cached collection: one line): {h}"
+        );
+    }
+
+    /// `body(0) > div.p(1) > [i.a(2)][i.b(3)]`, two inline-blocks on one line.
+    fn two_inline_blocks() -> Dom {
+        let ib = |class: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(class.into())].into())
+        };
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                .with_child(ib("a"))
+                .with_child(ib("b")),
+        )
+    }
+
+    #[test]
+    fn a_stylesheet_only_width_change_of_an_inline_block_moves_what_follows_it() {
+        // Font-free: the collection caches each atomic inline's measured
+        // size (`InlineShape`), so a stale key keeps the old 30px slot.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let base = "body { margin: 0; } .a, .b { display: inline-block; height: 10px; } .b { \
+                    width: 10px; }";
+        restyled(
+            &mut lw,
+            two_inline_blocks,
+            &format!("{base} .a {{ width: 30px; }}"),
+            &format!("{base} .a {{ width: 60px; }}"),
+        );
+        let a = size_of(&lw, 2).width;
+        assert!(
+            (a - 60.0).abs() < 0.5,
+            "the first inline-block is 60 wide now: {a}"
+        );
+        let b = x_of(&lw, 3);
+        assert!(
+            (b - 60.0).abs() < 0.5,
+            "the second inline-block starts after the 60px one: {b}"
+        );
+    }
+}
