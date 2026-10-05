@@ -26,11 +26,15 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
 - 1.6 RED aaaa87196, GREEN 97b2a05c9 + 0edd94e79 (reconcile_and_invalidate_restyled + css_relayout;
   Step 1.15 Full -> parent for block flow; outermost_layout_roots; e2e json expect pass).
 
+- 1.7 RED c5e0b6a6d, GREEN 258df98cd (empty inline shape = strut via inline_box_px, baseline_offset below).
+  Paint note: an empty span's vertical padding is no longer in its painted shape (round-2 for display_list).
+
 ## IN PROGRESS
-1.7
+1.8
 
 ## NEXT
-1.7 RED an_empty_inline_with_padding_is_as_tall_as_its_strut (fc.rs ~11589 empty inline InlineShape)
+1.8 sub/super baseline_shift (text3/cache.rs ~11186 baseline_shift, ~13014 placement; strut_font_size on
+UnifiedConstraints, built in fc.rs ~5214 / ~5966)
 
 ## Open questions
 (none)
