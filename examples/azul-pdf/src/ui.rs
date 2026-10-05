@@ -10,13 +10,17 @@ use azul::{
     callbacks::{
         ButtonOnClickCallbackType, DropDownOnChoiceChangeCallbackType,
         SegmentedOnChangeCallbackType, TextInputOnVirtualKeyDownCallbackType,
+        ToolbarOnEventCallbackType,
     },
     image::ImageRef,
     prelude::*,
     shells::{DocumentShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::StringVec,
-    widgets::{DropDown, Segmented, StatusBar, StatusBarSegment},
+    widgets::{
+        DropDown, Segmented, StatusBar, StatusBarSegment, Toolbar, ToolbarEvent, ToolbarEventKind,
+        ToolbarItem,
+    },
 };
 use azul_appkit::ui as kit;
 
@@ -187,130 +191,103 @@ fn start_screen(s: &AppState, data: &RefAny) -> Dom {
 
 // ==== The toolbar ====
 
-/// A button with only an icon (the caller names it for screen readers).
-fn icon_button(icon: &str, data: &RefAny, cb: ButtonOnClickCallbackType) -> Button {
-    Button::create("")
-        .with_icon(icon)
-        .with_on_click(data.clone(), cb)
-}
-
-fn separator() -> Dom {
-    Dom::create_div().with_css(
-        "width: 1px; height: 20px; background: system:separator; margin: 0px 4px; flex-shrink: 0;",
-    )
-}
-
-// TODO(WIDGETS9A): Toolbar - this row becomes the shared Toolbar widget
-// (overflow into a "more" menu when the window is narrow).
+/// The toolbar: azul's `Toolbar` - Open, the page navigation (the page field
+/// and the page count are embedded controls), the zoom, the search field
+/// (never in the "more" menu) and the settings gear. Each tool's `id` is its
+/// DOM-id name from [`ids`]: what [`on_toolbar`] matches.
 fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     let count = s.doc.as_ref().map_or(0, crate::jobs::Doc::page_count);
     let page = s.current_page.min(count.saturating_sub(1));
-    let mut bar = Dom::create_div().with_id(ids::TOOLBAR).with_css(BAR);
-    bar.add_child(
-        Button::create("Open")
-            .with_icon("folder_open")
-            .with_on_click(data.clone(), crate::on_open as ButtonOnClickCallbackType)
-            .dom()
-            .with_id(ids::OPEN),
-    );
-    bar.add_child(separator());
 
-    let mut prev = icon_button("chevron_left", data, crate::on_prev);
+    let mut prev = ToolbarItem::create_button(ids::PREV, "Previous page", "chevron_left");
     if page == 0 {
         prev = prev.with_disabled("This is the first page");
     }
-    bar.add_child(
-        prev.dom()
-            .with_id(ids::PREV)
-            .with_accessibility_name("Previous page"),
-    );
-    bar.add_child(
-        Dom::create_div()
-            .with_css("width: 56px; flex-shrink: 0;")
-            .with_child(
-                TextInput::create()
-                    .with_text(format!("{}", page + 1).as_str())
-                    .with_accessibility_name("Page")
-                    .with_on_virtual_key_down(
-                        data.clone(),
-                        crate::on_page_field_key as TextInputOnVirtualKeyDownCallbackType,
-                    )
-                    .dom()
-                    .with_id(ids::PAGE_FIELD),
-            ),
-    );
-    bar.add_child(
-        Dom::create_span_with_text(format!("/ {count}").as_str())
-            .with_id(ids::PAGE_COUNT)
-            .with_css("font-size: 12px; color: system:secondary-text; flex-shrink: 0;"),
-    );
-    let mut next = icon_button("chevron_right", data, crate::on_next);
+    let mut next = ToolbarItem::create_button(ids::NEXT, "Next page", "chevron_right");
     if page + 1 >= count {
         next = next.with_disabled("This is the last page");
     }
-    bar.add_child(
-        next.dom()
-            .with_id(ids::NEXT)
-            .with_accessibility_name("Next page"),
-    );
-    bar.add_child(separator());
+    let page_field = TextInput::create()
+        .with_text(format!("{}", page + 1).as_str())
+        .with_accessibility_name("Page")
+        .with_on_virtual_key_down(
+            data.clone(),
+            crate::on_page_field_key as TextInputOnVirtualKeyDownCallbackType,
+        )
+        .dom()
+        .with_id(ids::PAGE_FIELD);
+    let page_count = Dom::create_span_with_text(format!("/ {count}").as_str())
+        .with_id(ids::PAGE_COUNT)
+        .with_css("font-size: 12px; color: system:secondary-text;");
 
-    bar.add_child(
-        icon_button("remove", data, crate::on_zoom_out)
-            .dom()
-            .with_id(ids::ZOOM_OUT)
-            .with_accessibility_name("Zoom out"),
-    );
     let choices = Zoom::choices();
     let labels: Vec<String> = choices.iter().map(|z| z.label()).collect();
     let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let selected = choices.iter().position(|z| *z == s.zoom).unwrap_or(0);
-    bar.add_child(
-        Dom::create_div()
-            .with_css("width: 110px; flex-shrink: 0;")
-            .with_child(
-                DropDown::create(strs(&label_refs))
-                    .with_selected(selected)
-                    .with_accessibility_name("Zoom")
-                    .with_on_choice_change(
-                        data.clone(),
-                        crate::on_zoom_choice as DropDownOnChoiceChangeCallbackType,
-                    )
-                    .dom()
-                    .with_id(ids::ZOOM),
-            ),
-    );
-    bar.add_child(
-        icon_button("add", data, crate::on_zoom_in)
-            .dom()
-            .with_id(ids::ZOOM_IN)
-            .with_accessibility_name("Zoom in"),
-    );
+    let zoom = DropDown::create(strs(&label_refs))
+        .with_selected(selected)
+        .with_accessibility_name("Zoom")
+        .with_on_choice_change(
+            data.clone(),
+            crate::on_zoom_choice as DropDownOnChoiceChangeCallbackType,
+        )
+        .dom()
+        .with_id(ids::ZOOM);
+    let search = TextInput::create_search()
+        .with_text(s.search.query.as_str())
+        .with_placeholder("Find in document")
+        .with_accessibility_name("Find in document")
+        .with_on_virtual_key_down(
+            data.clone(),
+            crate::on_search_key as TextInputOnVirtualKeyDownCallbackType,
+        )
+        .dom()
+        .with_id(ids::SEARCH_FIELD);
 
-    bar.add_child(Dom::create_div().with_css("flex-grow: 1;"));
-    bar.add_child(
-        Dom::create_div()
-            .with_css("width: 220px; flex-shrink: 1;")
-            .with_child(
-                TextInput::create_search()
-                    .with_text(s.search.query.as_str())
-                    .with_placeholder("Find in document")
-                    .with_accessibility_name("Find in document")
-                    .with_on_virtual_key_down(
-                        data.clone(),
-                        crate::on_search_key as TextInputOnVirtualKeyDownCallbackType,
-                    )
-                    .dom()
-                    .with_id(ids::SEARCH_FIELD),
-            ),
-    );
-    bar.add_child(
-        icon_button("settings", data, crate::on_settings_open)
-            .dom()
-            .with_id(ids::SETTINGS)
-            .with_accessibility_name("Settings"),
-    );
-    bar
+    let items = vec![
+        ToolbarItem::create_button(ids::OPEN, "Open", "folder_open").with_show_label(true),
+        ToolbarItem::create_separator(),
+        prev,
+        ToolbarItem::create_custom(ids::PAGE_FIELD, "Page", page_field, 56.0),
+        ToolbarItem::create_custom(ids::PAGE_COUNT, "Page count", page_count, 40.0),
+        next,
+        ToolbarItem::create_separator(),
+        ToolbarItem::create_button(ids::ZOOM_OUT, "Zoom out", "remove"),
+        ToolbarItem::create_custom(ids::ZOOM, "Zoom", zoom, 110.0),
+        ToolbarItem::create_button(ids::ZOOM_IN, "Zoom in", "add"),
+        ToolbarItem::create_spacer(),
+        ToolbarItem::create_custom(ids::SEARCH_FIELD, "Find in document", search, 220.0)
+            .with_never_overflow(true),
+        ToolbarItem::create_button(ids::SETTINGS, "Settings", "settings"),
+    ];
+    Toolbar::create("Document")
+        .with_items(items)
+        .with_on_event(data.clone(), on_toolbar as ToolbarOnEventCallbackType)
+        .dom()
+        .with_id(ids::TOOLBAR)
+}
+
+/// A tool was pressed: the tool's `id` names the command.
+extern "C" fn on_toolbar(data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+    if event.kind != ToolbarEventKind::Activate {
+        return Update::DoNothing;
+    }
+    let id = event.id.as_str();
+    if id == ids::OPEN.as_str() {
+        crate::on_open(data, info)
+    } else if id == ids::PREV.as_str() {
+        crate::on_prev(data, info)
+    } else if id == ids::NEXT.as_str() {
+        crate::on_next(data, info)
+    } else if id == ids::ZOOM_OUT.as_str() {
+        crate::on_zoom_out(data, info)
+    } else if id == ids::ZOOM_IN.as_str() {
+        crate::on_zoom_in(data, info)
+    } else if id == ids::SETTINGS.as_str() {
+        crate::on_settings_open(data, info)
+    } else {
+        Update::DoNothing
+    }
 }
 
 // ==== The page view ====
