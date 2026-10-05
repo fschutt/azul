@@ -108,11 +108,12 @@ pub fn styleBox() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_clear(C.AzLayoutClearValue{ .Exact = .{ .tag = 6, .payload = C.AzLayoutClear_Both } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_visibility(C.AzStyleVisibility_Hidden)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_opacity(C.AzStyleOpacity{ .inner = C.AzPercentageValue{ .number = C.AzFloatValue_create(50.0) } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_zoom(C.AzStyleZoomValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleZoom{ .inner = C.AzPercentageValue{ .number = C.AzFloatValue_create(150.0) } } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_cursor(C.AzStyleCursor_Pointer)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_objectFit(C.AzStyleObjectFitValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleObjectFit_Cover } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_objectPosition(C.AzStyleObjectPositionValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleObjectPosition{ .horizontal = C.AzBackgroundPositionHorizontal_center(), .vertical = C.AzBackgroundPositionVertical_top() } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_aspectRatio(C.AzStyleAspectRatioValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleAspectRatio_ratio(C.AzAspectRatioValue{ .width = 16000, .height = 9000 }) } })),
-    }, 40);
+    }, 41);
 }
 
 // CSS: .flex
@@ -252,6 +253,7 @@ pub fn styleEffects() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(&[_]C.AzStyleBackgroundPosition{ C.AzStyleBackgroundPosition{ .horizontal = C.AzBackgroundPositionHorizontal_center(), .vertical = C.AzBackgroundPositionVertical_center() } }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(&[_]C.AzStyleBackgroundSize{ C.AzStyleBackgroundSize_cover() }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(&[_]C.AzStyleBackgroundRepeat{ C.AzStyleBackgroundRepeat_NoRepeat }, 1))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClip_PaddingBox)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transform(C.AzStyleTransformVec_copyFromPtr(&[_]C.AzStyleTransform{ C.AzStyleTransform_rotate(C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(45.0) }) }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transformOrigin(C.AzStyleTransformOrigin{ .x = C.AzPixelValue_percent(50.0), .y = C.AzPixelValue_percent(50.0) })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_perspectiveOrigin(C.AzStylePerspectiveOrigin{ .x = C.AzPixelValue_px(10.0), .y = C.AzPixelValue_px(20.0) })),
@@ -259,7 +261,7 @@ pub fn styleEffects() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_filter(C.AzStyleFilterVecValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFilterVec_copyFromPtr(&[_]C.AzStyleFilter{ C.AzStyleFilter_blur(C.AzStyleBlur{ .width = C.AzPixelValue_px(2.0), .height = C.AzPixelValue_px(2.0) }) }, 1) } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backdropFilter(C.AzStyleFilterVecValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFilterVec_copyFromPtr(&[_]C.AzStyleFilter{ C.AzStyleFilter_grayscale(C.AzPercentageValue{ .number = C.AzFloatValue_create(50.0) }) }, 1) } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_mixBlendMode(C.AzStyleMixBlendModeValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleMixBlendMode_Multiply } })),
-    }, 11);
+    }, 12);
 }
 
 // CSS: .fragment

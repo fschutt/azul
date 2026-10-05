@@ -119,12 +119,13 @@ inline AzCssPropertyWithConditionsVec style_box() {
             AzCssPropertyWithConditions_simple(AzCssProperty_clear([]{ AzLayoutClearValue v{}; v.Exact = AzLayoutClearValueVariant_Exact{ AzLayoutClearValue_Tag_Exact, AzLayoutClear_Both }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_visibility(AzStyleVisibility_Hidden)),
             AzCssPropertyWithConditions_simple(AzCssProperty_opacity(AzStyleOpacity{ AzPercentageValue{ AzFloatValue_create(50.0f) } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_zoom([]{ AzStyleZoomValue v{}; v.Exact = AzStyleZoomValueVariant_Exact{ AzStyleZoomValue_Tag_Exact, AzStyleZoom{ AzPercentageValue{ AzFloatValue_create(150.0f) } } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_cursor(AzStyleCursor_Pointer)),
             AzCssPropertyWithConditions_simple(AzCssProperty_objectFit([]{ AzStyleObjectFitValue v{}; v.Exact = AzStyleObjectFitValueVariant_Exact{ AzStyleObjectFitValue_Tag_Exact, AzStyleObjectFit_Cover }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_objectPosition([]{ AzStyleObjectPositionValue v{}; v.Exact = AzStyleObjectPositionValueVariant_Exact{ AzStyleObjectPositionValue_Tag_Exact, AzStyleObjectPosition{ AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_top() } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_aspectRatio([]{ AzStyleAspectRatioValue v{}; v.Exact = AzStyleAspectRatioValueVariant_Exact{ AzStyleAspectRatioValue_Tag_Exact, AzStyleAspectRatio_ratio(AzAspectRatioValue{ 16000, 9000 }) }; return v; }())),
         }.data(),
-        40
+        41
     );
 }
 
@@ -281,6 +282,7 @@ inline AzCssPropertyWithConditionsVec style_effects() {
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(std::vector<AzStyleBackgroundPosition>{ AzStyleBackgroundPosition{ AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_center() } }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(std::vector<AzStyleBackgroundSize>{ AzStyleBackgroundSize_cover() }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(std::vector<AzStyleBackgroundRepeat>{ AzStyleBackgroundRepeat_NoRepeat }.data(), 1))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(AzStyleBackgroundClip_PaddingBox)),
             AzCssPropertyWithConditions_simple(AzCssProperty_transform(AzStyleTransformVec_copyFromPtr(std::vector<AzStyleTransform>{ AzStyleTransform_rotate(AzAngleValue{ AzAngleMetric_Degree, AzFloatValue_create(45.0f) }) }.data(), 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin(AzStyleTransformOrigin{ AzPixelValue_percent(50.0f), AzPixelValue_percent(50.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin(AzStylePerspectiveOrigin{ AzPixelValue_px(10.0f), AzPixelValue_px(20.0f) })),
@@ -289,7 +291,7 @@ inline AzCssPropertyWithConditionsVec style_effects() {
             AzCssPropertyWithConditions_simple(AzCssProperty_backdropFilter([]{ AzStyleFilterVecValue v{}; v.Exact = AzStyleFilterVecValueVariant_Exact{ AzStyleFilterVecValue_Tag_Exact, AzStyleFilterVec_copyFromPtr(std::vector<AzStyleFilter>{ AzStyleFilter_grayscale(AzPercentageValue{ AzFloatValue_create(50.0f) }) }.data(), 1) }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_mixBlendMode([]{ AzStyleMixBlendModeValue v{}; v.Exact = AzStyleMixBlendModeValueVariant_Exact{ AzStyleMixBlendModeValue_Tag_Exact, AzStyleMixBlendMode_Multiply }; return v; }())),
         }.data(),
-        11
+        12
     );
 }
 

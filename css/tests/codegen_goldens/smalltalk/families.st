@@ -97,6 +97,7 @@ dropped a value these bindings cannot build: the Smalltalk bindings define no cl
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleClipRectValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `LayoutWritingModeValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `LayoutClearValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleZoomValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleObjectFitValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleObjectPositionValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleAspectRatioValue` or its CssPropertyValue<T> payload"
@@ -233,6 +234,7 @@ AzulStyles class >> styleEffects [
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundPosition: (self vec: [ :p :n | AzulNative azStyleBackgroundPositionVecCopyFromPtr: p len: n ] of: AzStyleBackgroundPosition items: { (AzStyleBackgroundPosition new horizontal: (AzulNative azBackgroundPositionHorizontalCenter); vertical: (AzulNative azBackgroundPositionVerticalCenter); yourself) }))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundSize: (self vec: [ :p :n | AzulNative azStyleBackgroundSizeVecCopyFromPtr: p len: n ] of: AzStyleBackgroundSize items: { (AzulNative azStyleBackgroundSizeCover) }))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundRepeat: (self vec: [ :p :n | AzulNative azStyleBackgroundRepeatVecCopyFromPtr: p len: n ] of: AzStyleBackgroundRepeat items: { (AzStyleBackgroundRepeat NoRepeat) }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyBackgroundClip: (AzStyleBackgroundClip PaddingBox))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTransform: (self vec: [ :p :n | AzulNative azStyleTransformVecCopyFromPtr: p len: n ] of: AzStyleTransform items: { (AzulNative azStyleTransformRotate: (AzAngleValue new metric: (AzAngleMetric Degree); number: (AzulNative azFloatValueCreate: 45.0); yourself)) }))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTransformOrigin: (AzStyleTransformOrigin new x: (AzulNative azPixelValuePercent: 50.0); y: (AzulNative azPixelValuePercent: 50.0); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyPerspectiveOrigin: (AzStylePerspectiveOrigin new x: (AzulNative azPixelValuePx: 10.0); y: (AzulNative azPixelValuePx: 20.0); yourself))).

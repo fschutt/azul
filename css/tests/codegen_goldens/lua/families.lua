@@ -74,7 +74,7 @@ end
 
 -- CSS: .box
 function M.style_box()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[40]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[41]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_display(C.AzLayoutDisplay_Block)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_float(ffi.new('AzLayoutFloatValue', { Exact = { tag = 6, payload = C.AzLayoutFloat_Left } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_boxSizing(C.AzLayoutBoxSizing_BorderBox)),
@@ -111,11 +111,12 @@ function M.style_box()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_clear(ffi.new('AzLayoutClearValue', { Exact = { tag = 6, payload = C.AzLayoutClear_Both } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_visibility(C.AzStyleVisibility_Hidden)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_opacity(ffi.new('AzStyleOpacity', { inner = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(50.0) }) }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_zoom(ffi.new('AzStyleZoomValue', { Exact = { tag = 6, payload = ffi.new('AzStyleZoom', { inner = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(150.0) }) }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_cursor(C.AzStyleCursor_Pointer)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_objectFit(ffi.new('AzStyleObjectFitValue', { Exact = { tag = 6, payload = C.AzStyleObjectFit_Cover } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_objectPosition(ffi.new('AzStyleObjectPositionValue', { Exact = { tag = 6, payload = ffi.new('AzStyleObjectPosition', { horizontal = C.AzBackgroundPositionHorizontal_center(), vertical = C.AzBackgroundPositionVertical_top() }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_aspectRatio(ffi.new('AzStyleAspectRatioValue', { Exact = { tag = 6, payload = C.AzStyleAspectRatio_ratio(ffi.new('AzAspectRatioValue', { width = 16000, height = 9000 })) } }))),
-    }), 40)
+    }), 41)
 end
 
 -- CSS: .flex
@@ -268,11 +269,12 @@ end
 -- CSS: .effects
 -- dropped `text-shadow: 1px 1px 2px`: CssProperty::TextShadow holds a BoxOrStaticStyleBoxShadow (a pointer wrapper) and api.json has no constructor for it
 function M.style_effects()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[11]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[12]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundContent(C.AzStyleBackgroundContentVec_copyFromPtr(ffi.new('AzStyleBackgroundContent[1]', { C.AzStyleBackgroundContent_color(ffi.new('AzColorU', { r = 250, g = 250, b = 250, a = 255 })) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(ffi.new('AzStyleBackgroundPosition[1]', { ffi.new('AzStyleBackgroundPosition', { horizontal = C.AzBackgroundPositionHorizontal_center(), vertical = C.AzBackgroundPositionVertical_center() }) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(ffi.new('AzStyleBackgroundSize[1]', { C.AzStyleBackgroundSize_cover() }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(ffi.new('AzStyleBackgroundRepeat[1]', { C.AzStyleBackgroundRepeat_NoRepeat }), 1))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClip_PaddingBox)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transform(C.AzStyleTransformVec_copyFromPtr(ffi.new('AzStyleTransform[1]', { C.AzStyleTransform_rotate(ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(45.0) })) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transformOrigin(ffi.new('AzStyleTransformOrigin', { x = C.AzPixelValue_percent(50.0), y = C.AzPixelValue_percent(50.0) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_perspectiveOrigin(ffi.new('AzStylePerspectiveOrigin', { x = C.AzPixelValue_px(10.0), y = C.AzPixelValue_px(20.0) }))),
@@ -280,7 +282,7 @@ function M.style_effects()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_filter(ffi.new('AzStyleFilterVecValue', { Exact = { tag = 6, payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[1]', { C.AzStyleFilter_blur(ffi.new('AzStyleBlur', { width = C.AzPixelValue_px(2.0), height = C.AzPixelValue_px(2.0) })) }), 1) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backdropFilter(ffi.new('AzStyleFilterVecValue', { Exact = { tag = 6, payload = C.AzStyleFilterVec_copyFromPtr(ffi.new('AzStyleFilter[1]', { C.AzStyleFilter_grayscale(ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(50.0) })) }), 1) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_mixBlendMode(ffi.new('AzStyleMixBlendModeValue', { Exact = { tag = 6, payload = C.AzStyleMixBlendMode_Multiply } }))),
-    }), 11)
+    }), 12)
 end
 
 -- CSS: .fragment

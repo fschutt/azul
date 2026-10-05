@@ -98,6 +98,7 @@ styleBox = sequence
     (CssPropertyWithConditions.simple (T.CssProperty_Clear (T.LayoutClearValue_Exact T.LayoutClear_Both))),
     (CssPropertyWithConditions.simple (T.CssProperty_Visibility (T.StyleVisibilityValue_Exact T.StyleVisibility_Hidden))),
     (CssPropertyWithConditions.simple (T.CssProperty_Opacity (T.StyleOpacityValue_Exact (T.StyleOpacity (T.PercentageValue (T.FloatValue 50000)))))),
+    (CssPropertyWithConditions.simple (T.CssProperty_Zoom (T.StyleZoomValue_Exact (T.StyleZoom (T.PercentageValue (T.FloatValue 150000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_Cursor (T.StyleCursorValue_Exact T.StyleCursor_Pointer))),
     (CssPropertyWithConditions.simple (T.CssProperty_ObjectFit (T.StyleObjectFitValue_Exact T.StyleObjectFit_Cover))),
     (CssPropertyWithConditions.simple (T.CssProperty_ObjectPosition (T.StyleObjectPositionValue_Exact (T.StyleObjectPosition T.BackgroundPositionHorizontal_Center T.BackgroundPositionVertical_Top)))),
@@ -201,6 +202,7 @@ styleScroll = sequence
 styleEffects :: IO [CssPropertyWithConditions]
 styleEffects = sequence
   [
+    (CssPropertyWithConditions.simple (T.CssProperty_BackgroundClip (T.StyleBackgroundClipValue_Exact T.StyleBackgroundClip_PaddingBox))),
     (CssPropertyWithConditions.simple (T.CssProperty_TransformOrigin (T.StyleTransformOriginValue_Exact (T.StyleTransformOrigin (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)) (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_PerspectiveOrigin (T.StylePerspectiveOriginValue_Exact (T.StylePerspectiveOrigin (T.PixelValue T.SizeMetric_Px (T.FloatValue 10000)) (T.PixelValue T.SizeMetric_Px (T.FloatValue 20000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_BackfaceVisibility (T.StyleBackfaceVisibilityValue_Exact T.StyleBackfaceVisibility_Hidden))),

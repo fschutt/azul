@@ -76,6 +76,7 @@ sub style_text {
 # dropped a value these bindings cannot build: `StyleClipRectValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `LayoutWritingModeValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `LayoutClearValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleZoomValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleObjectFitValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleObjectPositionValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleAspectRatioValue` is a fake-layout record in the Perl bindings (tag + byte blob)
@@ -206,6 +207,7 @@ sub style_effects {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundPosition(Azul::FFI::AzStyleBackgroundPositionVec_fromItem(Azul::AzStyleBackgroundPosition->new(horizontal => ${ Azul::FFI::AzBackgroundPositionHorizontal_center() }, vertical => ${ Azul::FFI::AzBackgroundPositionVertical_center() })))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundSize(Azul::FFI::AzStyleBackgroundSizeVec_fromItem(Azul::FFI::AzStyleBackgroundSize_cover()))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundRepeat(Azul::FFI::AzStyleBackgroundRepeatVec_fromItem(Azul::AzStyleBackgroundRepeat::NoRepeat()))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_backgroundClip(Azul::AzStyleBackgroundClip::PaddingBox())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_transform(Azul::FFI::AzStyleTransformVec_fromItem(Azul::FFI::AzStyleTransform_rotate(Azul::AzAngleValue->new(metric => Azul::AzAngleMetric::Degree(), number => ${ Azul::FFI::AzFloatValue_create(45.0) }))))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_transformOrigin(Azul::AzStyleTransformOrigin->new(x => ${ Azul::FFI::AzPixelValue_percent(50.0) }, y => ${ Azul::FFI::AzPixelValue_percent(50.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_perspectiveOrigin(Azul::AzStylePerspectiveOrigin->new(x => ${ Azul::FFI::AzPixelValue_px(10.0) }, y => ${ Azul::FFI::AzPixelValue_px(20.0) }))),

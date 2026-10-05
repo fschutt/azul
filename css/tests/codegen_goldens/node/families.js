@@ -109,11 +109,12 @@ function styleBox() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_clear({ Exact: { tag: 6, payload: azul.LayoutClear.Both } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_visibility(azul.StyleVisibility.Hidden)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_opacity({ inner: { number: lib.AzFloatValue_create(50.0) } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_zoom({ Exact: { tag: 6, payload: { inner: { number: lib.AzFloatValue_create(150.0) } } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_cursor(azul.StyleCursor.Pointer)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_objectFit({ Exact: { tag: 6, payload: azul.StyleObjectFit.Cover } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_objectPosition({ Exact: { tag: 6, payload: { horizontal: lib.AzBackgroundPositionHorizontal_center(), vertical: lib.AzBackgroundPositionVertical_top() } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_aspectRatio({ Exact: { tag: 6, payload: lib.AzStyleAspectRatio_ratio({ width: 16000, height: 9000 }) } })),
-    ], 40));
+    ], 41));
 }
 
 // CSS: .flex
@@ -253,6 +254,7 @@ function styleEffects() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundPosition(lib.AzStyleBackgroundPositionVec_copyFromPtr([{ horizontal: lib.AzBackgroundPositionHorizontal_center(), vertical: lib.AzBackgroundPositionVertical_center() }], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundSize(lib.AzStyleBackgroundSizeVec_copyFromPtr([lib.AzStyleBackgroundSize_cover()], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundRepeat(lib.AzStyleBackgroundRepeatVec_copyFromPtr([azul.StyleBackgroundRepeat.NoRepeat], 1))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundClip(azul.StyleBackgroundClip.PaddingBox)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_transform(lib.AzStyleTransformVec_copyFromPtr([lib.AzStyleTransform_rotate({ metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(45.0) })], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_transformOrigin({ x: lib.AzPixelValue_percent(50.0), y: lib.AzPixelValue_percent(50.0) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_perspectiveOrigin({ x: lib.AzPixelValue_px(10.0), y: lib.AzPixelValue_px(20.0) })),
@@ -260,7 +262,7 @@ function styleEffects() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_filter({ Exact: { tag: 6, payload: lib.AzStyleFilterVec_copyFromPtr([lib.AzStyleFilter_blur({ width: lib.AzPixelValue_px(2.0), height: lib.AzPixelValue_px(2.0) })], 1) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backdropFilter({ Exact: { tag: 6, payload: lib.AzStyleFilterVec_copyFromPtr([lib.AzStyleFilter_grayscale({ number: lib.AzFloatValue_create(50.0) })], 1) } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_mixBlendMode({ Exact: { tag: 6, payload: azul.StyleMixBlendMode.Multiply } })),
-    ], 11));
+    ], 12));
 }
 
 // CSS: .fragment

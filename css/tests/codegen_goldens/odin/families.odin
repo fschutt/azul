@@ -113,11 +113,12 @@ style_box :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_clear(azul.AzLayoutClearValue{Exact = {tag = 6, payload = azul.AzLayoutClear.Both}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_visibility(azul.AzStyleVisibility.Hidden)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_opacity(azul.AzStyleOpacity{inner = azul.AzPercentageValue{number = azul.AzFloatValue_create(50.0)}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_zoom(azul.AzStyleZoomValue{Exact = {tag = 6, payload = azul.AzStyleZoom{inner = azul.AzPercentageValue{number = azul.AzFloatValue_create(150.0)}}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_cursor(azul.AzStyleCursor.Pointer)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_objectFit(azul.AzStyleObjectFitValue{Exact = {tag = 6, payload = azul.AzStyleObjectFit.Cover}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_objectPosition(azul.AzStyleObjectPositionValue{Exact = {tag = 6, payload = azul.AzStyleObjectPosition{horizontal = azul.AzBackgroundPositionHorizontal_center(), vertical = azul.AzBackgroundPositionVertical_top()}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_aspectRatio(azul.AzStyleAspectRatioValue{Exact = {tag = 6, payload = azul.AzStyleAspectRatio_ratio(azul.AzAspectRatioValue{width = 16000, height = 9000})}})),
-	}[0], 40)
+	}[0], 41)
 }
 
 // CSS: .flex
@@ -257,6 +258,7 @@ style_effects :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundPosition(azul.AzStyleBackgroundPositionVec_copyFromPtr(&[]azul.AzStyleBackgroundPosition{azul.AzStyleBackgroundPosition{horizontal = azul.AzBackgroundPositionHorizontal_center(), vertical = azul.AzBackgroundPositionVertical_center()}}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundSize(azul.AzStyleBackgroundSizeVec_copyFromPtr(&[]azul.AzStyleBackgroundSize{azul.AzStyleBackgroundSize_cover()}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundRepeat(azul.AzStyleBackgroundRepeatVec_copyFromPtr(&[]azul.AzStyleBackgroundRepeat{azul.AzStyleBackgroundRepeat.NoRepeat}[0], 1))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundClip(azul.AzStyleBackgroundClip.PaddingBox)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transform(azul.AzStyleTransformVec_copyFromPtr(&[]azul.AzStyleTransform{azul.AzStyleTransform_rotate(azul.AzAngleValue{metric = azul.AzAngleMetric.Degree, number = azul.AzFloatValue_create(45.0)})}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transformOrigin(azul.AzStyleTransformOrigin{x = azul.AzPixelValue_percent(50.0), y = azul.AzPixelValue_percent(50.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_perspectiveOrigin(azul.AzStylePerspectiveOrigin{x = azul.AzPixelValue_px(10.0), y = azul.AzPixelValue_px(20.0)})),
@@ -264,7 +266,7 @@ style_effects :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_filter(azul.AzStyleFilterVecValue{Exact = {tag = 6, payload = azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_blur(azul.AzStyleBlur{width = azul.AzPixelValue_px(2.0), height = azul.AzPixelValue_px(2.0)})}[0], 1)}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backdropFilter(azul.AzStyleFilterVecValue{Exact = {tag = 6, payload = azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_grayscale(azul.AzPercentageValue{number = azul.AzFloatValue_create(50.0)})}[0], 1)}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_mixBlendMode(azul.AzStyleMixBlendModeValue{Exact = {tag = 6, payload = azul.AzStyleMixBlendMode.Multiply}})),
-	}[0], 11)
+	}[0], 12)
 }
 
 // CSS: .fragment

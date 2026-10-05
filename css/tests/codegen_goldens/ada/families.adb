@@ -92,7 +92,7 @@ package body Styles is
 
    --  CSS: .box
    function Style_Box return Az_CssPropertyWithConditionsVec is
-      t1 : aliased array (0 .. 39) of Az_CssPropertyWithConditions;
+      t1 : aliased array (0 .. 40) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Display (Az_LayoutDisplay'(Block)));
       t1 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Float (Az_LayoutFloatValue'(Tag => Exact, Payload_Exact => Az_LayoutFloat'(Left))));
@@ -130,11 +130,12 @@ package body Styles is
       t1 (33) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Clear (Az_LayoutClearValue'(Tag => Exact, Payload_Exact => Az_LayoutClear'(Both))));
       t1 (34) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Visibility (Az_StyleVisibility'(Hidden)));
       t1 (35) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Opacity (Az_StyleOpacity'(Inner => Az_PercentageValue'(Number => Az_FloatValue_Create (50.0)))));
-      t1 (36) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Cursor (Az_StyleCursor'(Pointer)));
-      t1 (37) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Object_Fit (Az_StyleObjectFitValue'(Tag => Exact, Payload_Exact => Az_StyleObjectFit'(Cover))));
-      t1 (38) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Object_Position (Az_StyleObjectPositionValue'(Tag => Exact, Payload_Exact => Az_StyleObjectPosition'(Horizontal => Az_BackgroundPositionHorizontal_Center, Vertical => Az_BackgroundPositionVertical_Top))));
-      t1 (39) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Aspect_Ratio (Az_StyleAspectRatioValue'(Tag => Exact, Payload_Exact => Az_StyleAspectRatio_Ratio (Az_AspectRatioValue'(Width => 16000, Height => 9000)))));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 40);
+      t1 (36) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Zoom (Az_StyleZoomValue'(Tag => Exact, Payload_Exact => Az_StyleZoom'(Inner => Az_PercentageValue'(Number => Az_FloatValue_Create (150.0))))));
+      t1 (37) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Cursor (Az_StyleCursor'(Pointer)));
+      t1 (38) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Object_Fit (Az_StyleObjectFitValue'(Tag => Exact, Payload_Exact => Az_StyleObjectFit'(Cover))));
+      t1 (39) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Object_Position (Az_StyleObjectPositionValue'(Tag => Exact, Payload_Exact => Az_StyleObjectPosition'(Horizontal => Az_BackgroundPositionHorizontal_Center, Vertical => Az_BackgroundPositionVertical_Top))));
+      t1 (40) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Aspect_Ratio (Az_StyleAspectRatioValue'(Tag => Exact, Payload_Exact => Az_StyleAspectRatio_Ratio (Az_AspectRatioValue'(Width => 16000, Height => 9000)))));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 41);
    end Style_Box;
 
    --  CSS: .flex
@@ -249,7 +250,7 @@ package body Styles is
       t5 : aliased array (0 .. 0) of Az_StyleTransform;
       t6 : aliased array (0 .. 0) of Az_StyleFilter;
       t7 : aliased array (0 .. 0) of Az_StyleFilter;
-      t8 : aliased array (0 .. 10) of Az_CssPropertyWithConditions;
+      t8 : aliased array (0 .. 11) of Az_CssPropertyWithConditions;
    begin
       t1 (0) := Az_StyleBackgroundContent_Color (Az_ColorU'(R => 250, G => 250, B => 250, A => 255));
       t2 (0) := Az_StyleBackgroundPosition'(Horizontal => Az_BackgroundPositionHorizontal_Center, Vertical => Az_BackgroundPositionVertical_Center);
@@ -262,14 +263,15 @@ package body Styles is
       t8 (1) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Position (Az_StyleBackgroundPositionVec_Copy_From_Ptr (t2 (0)'Address, 1)));
       t8 (2) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Size (Az_StyleBackgroundSizeVec_Copy_From_Ptr (t3 (0)'Address, 1)));
       t8 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Repeat (Az_StyleBackgroundRepeatVec_Copy_From_Ptr (t4 (0)'Address, 1)));
-      t8 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform (Az_StyleTransformVec_Copy_From_Ptr (t5 (0)'Address, 1)));
-      t8 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform_Origin (Az_StyleTransformOrigin'(X => Az_PixelValue_Percent (50.0), Y => Az_PixelValue_Percent (50.0))));
-      t8 (6) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Perspective_Origin (Az_StylePerspectiveOrigin'(X => Az_PixelValue_Px (10.0), Y => Az_PixelValue_Px (20.0))));
-      t8 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backface_Visibility (Az_StyleBackfaceVisibility'(Hidden)));
-      t8 (8) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t6 (0)'Address, 1))));
-      t8 (9) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backdrop_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t7 (0)'Address, 1))));
-      t8 (10) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Mix_Blend_Mode (Az_StyleMixBlendModeValue'(Tag => Exact, Payload_Exact => Az_StyleMixBlendMode'(Multiply))));
-      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t8 (0)'Address, 11);
+      t8 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Background_Clip (Az_StyleBackgroundClip'(PaddingBox)));
+      t8 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform (Az_StyleTransformVec_Copy_From_Ptr (t5 (0)'Address, 1)));
+      t8 (6) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Transform_Origin (Az_StyleTransformOrigin'(X => Az_PixelValue_Percent (50.0), Y => Az_PixelValue_Percent (50.0))));
+      t8 (7) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Perspective_Origin (Az_StylePerspectiveOrigin'(X => Az_PixelValue_Px (10.0), Y => Az_PixelValue_Px (20.0))));
+      t8 (8) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backface_Visibility (Az_StyleBackfaceVisibility'(Hidden)));
+      t8 (9) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t6 (0)'Address, 1))));
+      t8 (10) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Backdrop_Filter (Az_StyleFilterVecValue'(Tag => Exact, Payload_Exact => Az_StyleFilterVec_Copy_From_Ptr (t7 (0)'Address, 1))));
+      t8 (11) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Mix_Blend_Mode (Az_StyleMixBlendModeValue'(Tag => Exact, Payload_Exact => Az_StyleMixBlendMode'(Multiply))));
+      return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t8 (0)'Address, 12);
    end Style_Effects;
 
    --  CSS: .fragment

@@ -109,11 +109,12 @@ func StyleBox() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_Clear(azul.AzLayoutClearValue_Exact(azul.LayoutClear_Both))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_visibility(azul.StyleVisibility_Hidden)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_opacity(azul.AzStyleOpacity{Inner: azul.AzPercentageValue{Number: azul.AzFloatValue_create(50.0)}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_Zoom(azul.AzStyleZoomValue_Exact(azul.AzStyleZoom{Inner: azul.AzPercentageValue{Number: azul.AzFloatValue_create(150.0)}}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_cursor(azul.StyleCursor_Pointer)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_ObjectFit(azul.AzStyleObjectFitValue_Exact(azul.StyleObjectFit_Cover))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_ObjectPosition(azul.AzStyleObjectPositionValue_Exact(azul.AzStyleObjectPosition{Horizontal: azul.AzBackgroundPositionHorizontal_Center(), Vertical: azul.AzBackgroundPositionVertical_Top()}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_AspectRatio(azul.AzStyleAspectRatioValue_Exact(azul.AzStyleAspectRatio_Ratio(azul.AzAspectRatioValue{Width: 16000, Height: 9000})))),
-	}[0], 40)
+	}[0], 41)
 }
 
 // CSS: .flex
@@ -244,6 +245,7 @@ func StyleEffects() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundPosition(azul.AzStyleBackgroundPositionVec_copyFromPtr(&[]azul.AzStyleBackgroundPosition{azul.AzStyleBackgroundPosition{Horizontal: azul.AzBackgroundPositionHorizontal_Center(), Vertical: azul.AzBackgroundPositionVertical_Center()}}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundSize(azul.AzStyleBackgroundSizeVec_copyFromPtr(&[]azul.AzStyleBackgroundSize{azul.AzStyleBackgroundSize_Cover()}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundRepeat(azul.AzStyleBackgroundRepeatVec_copyFromPtr(&[]azul.AzStyleBackgroundRepeat{azul.StyleBackgroundRepeat_NoRepeat}[0], 1))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundClip(azul.StyleBackgroundClip_PaddingBox)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transform(azul.AzStyleTransformVec_copyFromPtr(&[]azul.AzStyleTransform{azul.AzStyleTransform_Rotate(azul.AzAngleValue{Metric: azul.AngleMetric_Degree, Number: azul.AzFloatValue_create(45.0)})}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transformOrigin(azul.AzStyleTransformOrigin{X: azul.AzPixelValue_percent(50.0), Y: azul.AzPixelValue_percent(50.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_perspectiveOrigin(azul.AzStylePerspectiveOrigin{X: azul.AzPixelValue_px(10.0), Y: azul.AzPixelValue_px(20.0)})),
@@ -251,7 +253,7 @@ func StyleEffects() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_Filter(azul.AzStyleFilterVecValue_Exact(azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_Blur(azul.AzStyleBlur{Width: azul.AzPixelValue_px(2.0), Height: azul.AzPixelValue_px(2.0)})}[0], 1)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_BackdropFilter(azul.AzStyleFilterVecValue_Exact(azul.AzStyleFilterVec_copyFromPtr(&[]azul.AzStyleFilter{azul.AzStyleFilter_Grayscale(azul.AzPercentageValue{Number: azul.AzFloatValue_create(50.0)})}[0], 1)))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_MixBlendMode(azul.AzStyleMixBlendModeValue_Exact(azul.StyleMixBlendMode_Multiply))),
-	}[0], 11)
+	}[0], 12)
 }
 
 // CSS: .fragment
