@@ -8723,7 +8723,8 @@ impl TextShapingCache {
         let mut line_indent = text_indent_of_line(constraints, true, false);
         let mut word_indent = line_indent;
 
-        for item in oriented_items.iter() {
+        let scan_items: &[ShapedItem] = &oriented_items;
+        for (item_idx, item) in scan_items.iter().enumerate() {
             // A forced break (preserved LF, <br>) ends the current line. max-content
             // is the widest line BETWEEN forced breaks, not the running sum across
             // them — otherwise a white-space:pre block with newlines (or any <br>
@@ -8751,12 +8752,24 @@ impl TextShapingCache {
             // fold_line_width / get_item_measure_with_spacing (kerning,
             // letter-spacing, word-spacing included; see that function's doc
             // for why any other grouping re-introduces the one-word-wrap bug).
-            let adv = get_item_measure_with_spacing(item, scan_is_vertical).max(0.0);
+            // An inline box's start / end margin + border + padding are on the
+            // line too, where `position_one_line` puts them (the shared
+            // `inline_box_edge_advances`): a line never strips them, and they
+            // stick to the box's first / last word. Zero for unboxed text, so
+            // the shared fold is untouched there.
+            let (edge_start, edge_end) = inline_box_edge_advances(scan_items, item_idx);
+            let edges = edge_start + edge_end;
+            let adv =
+                (get_item_measure_with_spacing(item, scan_is_vertical).max(0.0) + edges).max(0.0);
             let removable_space = collapsing && is_collapsible_whitespace(item);
             if line_has_content || !removable_space {
                 total = fold_line_width(total, item, scan_is_vertical);
             }
-            if !removable_space {
+            let boxed = edges.abs() > 0.0;
+            if boxed {
+                total += edges;
+            }
+            if !removable_space || boxed {
                 line_has_content = true;
                 line_content = total;
             }
@@ -12970,44 +12983,12 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // dominant-baseline/vertical-align +spec:line-height:e2253a - vertical-align
         // positioning within line boxes
 
-        // Pre-compute inline margin/border/padding offsets at span boundaries.
-        // Only the FIRST cluster of each inline span gets the left advance, and
-        // only the LAST cluster the right one. We detect span boundaries by
-        // comparing Arc<StyleProperties> pointers between consecutive clusters.
+        // Pre-compute inline margin/border/padding offsets at span boundaries
+        // ([`inline_box_edge_advances`], the rule the intrinsic scan shares).
         let inline_offsets: Vec<(f32, f32)> = {
             let items_slice: &[ShapedItem] = &justified_segment_items;
-            items_slice
-                .iter()
-                .enumerate()
-                .map(|(idx, item)| {
-                    if let ShapedItem::Cluster(c) = item {
-                        if let Some(border) = c.style.border.as_ref() {
-                            if border.moves_the_pen() {
-                                let style_ptr = Arc::as_ptr(&c.style);
-                                let prev_same_span = idx > 0
-                                    && items_slice[idx - 1]
-                                        .as_cluster()
-                                        .is_some_and(|pc| Arc::as_ptr(&pc.style) == style_ptr);
-                                let next_same_span = idx + 1 < items_slice.len()
-                                    && items_slice[idx + 1]
-                                        .as_cluster()
-                                        .is_some_and(|nc| Arc::as_ptr(&nc.style) == style_ptr);
-                                let left = if prev_same_span {
-                                    0.0
-                                } else {
-                                    border.left_advance()
-                                };
-                                let right = if next_same_span {
-                                    0.0
-                                } else {
-                                    border.right_advance()
-                                };
-                                return (left, right);
-                            }
-                        }
-                    }
-                    (0.0, 0.0)
-                })
+            (0..items_slice.len())
+                .map(|idx| inline_box_edge_advances(items_slice, idx))
                 .collect()
         };
         for (inline_offset_idx, item) in justified_segment_items.into_iter().enumerate() {
@@ -13868,6 +13849,46 @@ pub fn get_item_measure_with_spacing(item: &ShapedItem, is_vertical: bool) -> f3
 #[must_use]
 pub fn fold_line_width(current: f32, item: &ShapedItem, is_vertical: bool) -> f32 {
     current + get_item_measure_with_spacing(item, is_vertical).max(0.0)
+}
+
+/// How far the inline box (`<span>`) around the cluster `items[idx]` moves
+/// the pen before and after it: its start margin + border + padding on the
+/// box's FIRST cluster, its end ones on its LAST (`InlineBorderInfo::
+/// left_advance` / `right_advance`), `(0, 0)` for every other item. A box
+/// is told apart from its neighbours by its runs' shared
+/// `Arc<StyleProperties>` (each inline box's text gets its own `Arc`,
+/// `fc::collect_inline_span_recursive` / `sizing::text_run_style`).
+///
+/// The ONE rule the placement (`position_one_line`) and the intrinsic scan
+/// (`measure_intrinsic_widths`) share: an inline box's padding widens its
+/// line, so it widens the max-content a float or an inline-block shrinks to
+/// (a float of `<span style="padding-left: 40px">Y</span>` is 40px wider
+/// than one of `<span>Y</span>`, as in Chrome).
+fn inline_box_edge_advances(items: &[ShapedItem], idx: usize) -> (f32, f32) {
+    let Some(ShapedItem::Cluster(c)) = items.get(idx) else {
+        return (0.0, 0.0);
+    };
+    let Some(border) = c.style.border.as_ref().filter(|b| b.moves_the_pen()) else {
+        return (0.0, 0.0);
+    };
+    let style_ptr = Arc::as_ptr(&c.style);
+    let same_span = |other: Option<&ShapedItem>| {
+        other
+            .and_then(ShapedItem::as_cluster)
+            .is_some_and(|o| Arc::as_ptr(&o.style) == style_ptr)
+    };
+    let prev = idx.checked_sub(1).and_then(|i| items.get(i));
+    let left = if same_span(prev) {
+        0.0
+    } else {
+        border.left_advance()
+    };
+    let right = if same_span(items.get(idx + 1)) {
+        0.0
+    } else {
+        border.right_advance()
+    };
+    (left, right)
 }
 
 /// Calculates the available horizontal segments for a line at a given vertical position,
