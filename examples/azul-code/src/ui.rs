@@ -84,18 +84,28 @@ pub fn column(children: Vec<Dom>) -> Dom {
 /// No workspace yet: what AzCode opens.
 fn welcome(app: &RefAny, st: &AppState) -> Dom {
     let detail = if st.notice.is_empty() {
-        "Start AzCode with a folder (AzCode ~/my-project) to edit its files, or open the sample: a small \
-         Rust crate and a file of 100,000 lines."
+        "Open a folder (Mod+O, or start AzCode with one: AzCode ~/my-project) to edit its files, or \
+         open the sample: a small Rust crate and a file of 100,000 lines."
             .to_string()
     } else {
         st.notice.clone()
     };
-    ShellEmptyState::create(AzString::from("AzCode"))
-        .with_icon(AzString::from("code"))
-        .with_detail(AzString::from(detail))
-        .with_action_label(AzString::from("Open the sample workspace"))
-        .with_on_action(app.clone(), on_open_sample as ButtonOnClickCallbackType)
-        .dom()
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; align-items: center; flex-grow: 1;")
+        .with_child(
+            ShellEmptyState::create(AzString::from("AzCode"))
+                .with_icon(AzString::from("code"))
+                .with_detail(AzString::from(detail))
+                .with_action_label(AzString::from("Open Folder..."))
+                .with_on_action(app.clone(), on_open_folder as ButtonOnClickCallbackType)
+                .dom(),
+        )
+        .with_child(
+            Button::create(AzString::from("Open the sample workspace"))
+                .with_on_click(app.clone(), on_open_sample as ButtonOnClickCallbackType)
+                .dom()
+                .with_id(ids::OPEN_SAMPLE),
+        )
         .with_id(ids::WELCOME)
 }
 
@@ -396,6 +406,11 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
             st.refresh_find();
         }
     })
+}
+
+extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
+    commands::ask_folder(&data);
+    Update::DoNothing
 }
 
 extern "C" fn on_open_sample(mut data: RefAny, mut info: CallbackInfo) -> Update {
