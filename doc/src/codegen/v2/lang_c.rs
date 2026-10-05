@@ -126,6 +126,49 @@ pub(crate) fn escape_cpp_keyword_for_c(name: &str) -> String {
     }
 }
 
+/// Is `t` a callback typedef, a callback wrapper, a RefAny, or an Option of
+/// one: a field the callback API wires up, never a field helper.
+fn is_callback_or_refany_field(t: &str, ir: &CodegenIR) -> bool {
+    if t.contains("RefAny") || ir.callback_typedefs.iter().any(|c| c.name == t) {
+        return true;
+    }
+    if let Some(s) = ir.find_struct(t) {
+        if s.callback_wrapper_info.is_some()
+            || matches!(
+                s.category,
+                TypeCategory::RefAny
+                    | TypeCategory::CallbackDataPair
+                    | TypeCategory::CallbackTypedef
+                    | TypeCategory::DestructorOrClone
+            )
+        {
+            return true;
+        }
+    }
+    if let Some(e) = ir.find_enum(t) {
+        if matches!(
+            e.category,
+            TypeCategory::CallbackTypedef | TypeCategory::DestructorOrClone
+        ) {
+            return true;
+        }
+        if e.category == TypeCategory::Option {
+            let payload = e
+                .variants
+                .iter()
+                .find(|v| v.name == "Some")
+                .and_then(|v| match &v.kind {
+                    EnumVariantKind::Tuple(items) => items.first().map(|(p, _)| p.clone()),
+                    _ => None,
+                });
+            if let Some(inner) = payload {
+                return inner != t && is_callback_or_refany_field(&inner, ir);
+            }
+        }
+    }
+    false
+}
+
 // ============================================================================
 // C Generator
 // ============================================================================
@@ -192,6 +235,9 @@ impl LanguageGenerator for CGenerator {
 
         // Union match helper functions
         self.generate_union_match_helpers(&mut builder, ir, config);
+
+        // Heap-owning field helpers (Az<T>_set<Field> / Az<T>_get<Field>)
+        self.generate_field_helpers(&mut builder, ir, config);
 
         // Vec_empty macros (must come before capi_patch which uses them)
         self.generate_vec_empty_macros(&mut builder, ir, config);
@@ -1538,6 +1584,126 @@ impl CGenerator {
                 builder.blank();
             }
         }
+    }
+
+    /// `static inline` helpers for the HEAP-OWNING fields of the plain data
+    /// structs: `Az<T>_set<Field>(&s, v)` frees the old value, then takes
+    /// ownership of `v`; `Az<T>_get<Field>(&s)` returns a deep copy through
+    /// `Az<F>_clone` (no `_clone` -> no getter, never a shallow copy).
+    ///
+    /// C keeps raw structs: a scalar or POD field is read and written
+    /// directly (`state.checked = true;`), and nothing here wraps those. A
+    /// heap-owning field is where raw access goes wrong - `opts.window_state
+    /// .title = AzString_fromUtf8(..)` leaks the old title, `AzString t =
+    /// opts.window_state.title;` aliases it (freeing both frees it twice) -
+    /// so those get the two operations raw syntax cannot express. Nested
+    /// fields compose through the pointer: `AzFullWindowState_setTitle(
+    /// &opts.window_state, title)`.
+    ///
+    /// Skipped: callback / callback-wrapper / RefAny fields (wired by the
+    /// callback API), pointer / array / generic fields, the representation
+    /// of String / Vec / Option wrappers, and any name an exported function
+    /// (or one of its `Byref` / `Struct` / `WithCtx` twins) already has.
+    fn generate_field_helpers(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        use std::collections::BTreeSet;
+
+        let mut exported: BTreeSet<String> = BTreeSet::new();
+        for f in &ir.functions {
+            for suffix in ["", "Byref", "Struct", "StructByref", "WithCtx", "WithCtxByref"] {
+                exported.insert(format!("{}{}", f.c_name, suffix));
+            }
+        }
+        let fn_of = |class: &str, kind: FunctionKind| -> Option<String> {
+            ir.functions
+                .iter()
+                .find(|f| f.class_name == class && f.kind == kind)
+                .map(|f| f.c_name.clone())
+        };
+        let pascal = |snake: &str| -> String {
+            snake
+                .split('_')
+                .filter(|p| !p.is_empty())
+                .map(|p| {
+                    let mut c = p.chars();
+                    match c.next() {
+                        Some(first) => first.to_uppercase().collect::<String>() + c.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect()
+        };
+
+        builder.line("/* Field helpers: Az<T>_set<Field>(&value, v) frees the field's old value,");
+        builder.line(" * then takes ownership of v; Az<T>_get<Field>(&value) returns a deep copy");
+        builder.line(" * (free it with its _delete). Only heap-owning fields have them - read and");
+        builder.line(" * write scalars and plain structs directly. Nested fields go through the");
+        builder.line(" * pointer: AzFullWindowState_setTitle(&opts.window_state, title); */");
+        builder.blank();
+
+        for s in &ir.structs {
+            if !config.should_include_type(&s.name)
+                || !matches!(s.category, TypeCategory::Regular | TypeCategory::Recursive)
+                || s.callback_wrapper_info.is_some()
+                || !s.generic_params.is_empty()
+            {
+                continue;
+            }
+            let owner = config.apply_prefix(&s.name);
+            for f in &s.fields {
+                if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+                    continue;
+                }
+                let t = f.type_name.trim();
+                if t.is_empty()
+                    || t.contains(|c: char| matches!(c, '<' | '[' | '*' | '&' | ' '))
+                    || !config.should_include_type(t)
+                    || is_callback_or_refany_field(t, ir)
+                {
+                    continue;
+                }
+                if ir.find_struct(t).is_some_and(|fs| {
+                    matches!(
+                        fs.category,
+                        TypeCategory::VecRef | TypeCategory::Boxed | TypeCategory::GenericTemplate
+                    )
+                }) {
+                    continue;
+                }
+                // Only heap-owning fields: plain ones are plain C.
+                let Some(delete) = fn_of(t, FunctionKind::Delete) else {
+                    continue;
+                };
+                let field_ty = config.apply_prefix(t);
+                let member = escape_cpp_keyword_for_c(&f.name);
+                let setter = format!("{}_set{}", owner, pascal(&f.name));
+                if !exported.contains(&setter) {
+                    builder.line(&format!(
+                        "static inline void {}({}* instance, {} value) {{",
+                        setter, owner, field_ty
+                    ));
+                    builder.line(&format!("    {}(&instance->{});", delete, member));
+                    builder.line(&format!("    instance->{} = value;", member));
+                    builder.line("}");
+                }
+                let getter = format!("{}_get{}", owner, pascal(&f.name));
+                if let Some(clone) = fn_of(t, FunctionKind::DeepCopy) {
+                    if !exported.contains(&getter) {
+                        builder.line(&format!(
+                            "static inline {} {}(const {}* instance) {{",
+                            field_ty, getter, owner
+                        ));
+                        builder.line(&format!("    return {}(&instance->{});", clone, member));
+                        builder.line("}");
+                    }
+                }
+            }
+        }
+        builder.blank();
     }
 
     /// Generate empty Vec initializer macros for all Vec types

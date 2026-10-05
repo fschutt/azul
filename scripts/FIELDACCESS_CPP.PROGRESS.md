@@ -18,11 +18,22 @@ Worktree branch based on fix/input-bugs-2026-09-19 @ bc606e468. No compiling (pa
   / POD; setX on `*Self` converts via the method-arg `_as*` helper, then `C.AzT_delete(&f)`, then
   stores). `c_decls::primitive` made `pub(super)`. FIELDS docs in the wrapper banner.
 
+- 40f4eb8bc Zig fix.
+- ddb4aae91 C RED test (`lang_c.rs::field_helper_tests`, real api.json).
+- C fix (this commit): `generate_field_helpers` in lang_c.rs, emitted after the union helpers
+  (lang_c already has a `static inline` helper section). Heap-owning fields only:
+  `Az<T>_set<Field>(T* instance, F value)` = `Az<F>_delete(&instance->f); instance->f = value;`,
+  `Az<T>_get<Field>(const T*)` = `Az<F>_clone(&instance->f)`. Scalars/PODs stay plain C fields.
+  Names already exported (incl. Byref/Struct/WithCtx twins) are skipped.
+
 ## IN PROGRESS
-- C: static inline helpers for heap-owning fields.
+- (none)
 
 ## NEXT
-- C: static inline get/set helpers for heap-owning fields (lang_c.rs has a helper section).
+- Parent: `cargo test -p azul-doc field_access` / `field_helper` (the three RED test modules),
+  regenerate target/codegen, compile azul03/11/14/17/20/23.hpp + azul.zig + azul.h.
 
 ## Open questions
-- (none)
+- C++ String getter returns `std::string` (C++11+) but `const String` in C++03 (no <string>).
+- Zig String getter takes an allocator (`![]u8`); a wrapper-returning variant was not added.
+- C++/Zig/C nested writes are read-modify-write (documented in the header/banner); no views.
