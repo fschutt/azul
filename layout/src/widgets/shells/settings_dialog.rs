@@ -23,7 +23,7 @@
 //! (macOS) a change takes effect at once and there are no buttons; with
 //! [`ShellSettingsApplyMode::ApplyButton`] (Windows) a changed setting is
 //! marked, and OK / Cancel / Apply commit or drop the changes (Apply is
-//! inert while nothing changed). "Restore defaults" resets the active
+//! disabled while nothing changed, and says so). "Restore defaults" resets the active
 //! category. When a setting that requires a restart took effect, the
 //! button row says "Restart to apply some changes."
 //!
