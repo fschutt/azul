@@ -1021,6 +1021,9 @@ fn tool(
     }
 
     let mut dom = b.dom();
+    if !item.id.as_str().is_empty() {
+        dom.root.add_id(item.id.clone());
+    }
     dom.add_class(AzString::from_const_str(ITEM_CLASS));
     if pressed {
         dom.add_class(AzString::from_const_str(ITEM_PRESSED_CLASS));
