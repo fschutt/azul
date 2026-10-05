@@ -529,6 +529,10 @@ pub(crate) static THUMBNAIL_ITEM_GRID_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Default)),
 ];
 
+/// The width of the rail's number column (column layout): three digits of
+/// the 12 px number or one 14 px badge, whichever is wider, fit in it.
+const NUMBER_COLUMN_WIDTH_PX: f32 = 24.0;
+
 /// The number column: the number over the badge.
 pub(crate) static THUMBNAIL_NUMBER_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
@@ -711,9 +715,18 @@ pub(crate) fn build(strip: ThumbnailStrip, look: &ThumbnailStripLook) -> Dom {
                     .with_css_props(part(&[], &look.badge)),
             );
         }
+        let mut number_css = crate::widgets::themes::decl::on_base(THUMBNAIL_NUMBER_BASE, &look.number);
+        if !grid {
+            // One column for every number and badge, as PowerPoint's rail
+            // has: sized by its content, a badge under the number (or a
+            // two-digit number) widened the column and pushed that item's
+            // preview right of the others'.
+            number_css.push(crate::widgets::themes::decl::px_width(NUMBER_COLUMN_WIDTH_PX));
+            number_css.push(crate::widgets::themes::decl::px_min_width(NUMBER_COLUMN_WIDTH_PX));
+        }
         let number = Dom::create_div()
             .with_class(AzString::from_const_str(NUMBER_CLASS))
-            .with_css_props(part(THUMBNAIL_NUMBER_BASE, &look.number))
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(number_css))
             .with_children(DomVec::from_vec(number_parts));
 
         let mut thumb_skin = look.thumb.clone();
