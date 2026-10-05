@@ -15,10 +15,10 @@
   Modal's transient window)
 
 ## IN PROGRESS
-- the report scripts/R2_APPS_2026_10_05.md
+- (none)
 
 ## NEXT
-- write + commit the report, then reply.
+- done: report scripts/R2_APPS_2026_10_05.md committed.
 
 ## Open questions
 (none)
