@@ -22,11 +22,17 @@ restored from HEAD before committing).
   root is not focusable and en-US refuses that text: script -> selector
   "#__azerp_field-acquisition_cost .__azul-native-text-input-container", text "2,400.00".
 - 6.7 AzDashboard grouping: 6a65ac9ea
+- 6.8 AzNews close-save + timer re-arm: 613081d51
+- 6.9 AzCode Open Folder: d5227af5f (no menu bar in AzCode: Mod+O; F1 list in lib.rs = round 2)
+- 6.10 SKIPPED (NOT SMALL in the Files line): the click hook sits in ui_reader.rs `spread()`
+  (no app there), Command / Target live in app.rs, exact anchors need a post-layout hook in the
+  reader UI - all outside the Files line. Plan in the report.
+- 6.11 AzClock city menu: RED f56e80a21, GREEN 94b948600
 
 ## IN PROGRESS
-- 6.8 AzNews (a) save on close (b) refresh timer re-arm
+- 6.12 AzWidgets video demo -> SeekBar + SeekBar::media_time (RED a_video_past_an_hour_shows_its_hours)
 
 ## NEXT
-- 6.9 .. 6.12 in order, then optional 6.4 AzMusic
+- optional 6.4 AzMusic, then the report scripts/FIX9_APPSB_2026_10_05.md
 
 ## Open questions
