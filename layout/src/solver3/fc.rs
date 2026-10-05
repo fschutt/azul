@@ -1723,6 +1723,9 @@ fn layout_bfc<T: ParsedFontTrait>(
         };
     }
 
+    // The block size of a `::marker` laid out at the content start with no
+    // line box to ride (see the loop): the content box is at least this tall.
+    let mut marker_without_line_main = 0.0f32;
     for &child_index in &pos_children {
         // A token emitted while PLACING the previous child (break-descend /
         // resumed-child continuation) stops sibling consumption here — the
@@ -1879,6 +1882,31 @@ fn layout_bfc<T: ParsedFontTrait>(
             .get(LayoutNodeId::new(child_index))
             .ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
+
+        // A `::marker` still in this flow has no line box to ride (the ones
+        // on a line were filtered out of `pos_children`; `marker_line_host`
+        // is None: an empty item, a first block with no line in it, a
+        // table). Chrome lays it out at the item's content start, OUT of the
+        // flow - the first block starts where it starts - and the item is
+        // as tall as the taller of the two (LayoutNG's
+        // `PositionListMarkerWithoutLineBoxes`: "3 out of 4 impls" let it
+        // extend the block size, csswg-drafts#2418). It took a line of its
+        // own above the first block: `<li><div style="height: 50px">` was
+        // a line too tall. Checked before the position / float tests: the
+        // marker carries its LIST ITEM's DOM node, whose `position` and
+        // `float` are not the marker's.
+        if is_marker_box(tree, child_index) {
+            marker_without_line_main = marker_without_line_main.max(
+                child_node
+                    .used_size
+                    .map_or(0.0, |size| size.main(writing_mode)),
+            );
+            output.positions.insert(
+                child_index,
+                LogicalPosition::from_main_cross(0.0, 0.0, writing_mode),
+            );
+            continue;
+        }
 
         // +spec:floats:2cec1b - 'position' and 'float' determine the positioning algorithm
         // +spec:positioning:dccad6 - floats only apply to non-absolutely-positioned boxes
@@ -3530,6 +3558,10 @@ fn layout_bfc<T: ParsedFontTrait>(
             }
         }
     }
+
+    // A list item is at least as tall as its marker laid out with no line
+    // box (the loop above; the taller of the two, never their sum).
+    content_box_height = content_box_height.max(marker_without_line_main);
 
     // A multi-column container is as tall as its tallest column (its
     // floats are in the columns too) and as wide as its columns reach.

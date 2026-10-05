@@ -3572,9 +3572,11 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             continue;
         }
         // A `::marker` box carries its LIST ITEM's DOM node, so an
-        // absolutely positioned item made its marker look positioned too;
-        // one that rides the item's first line is laid out with that line.
-        if fc::is_marker_on_a_line(tree, ctx.styled_dom, child_index) {
+        // absolutely positioned item made its marker look positioned too.
+        // Every marker is laid out by its item's flow: one that rides the
+        // item's first line with that line, one with no line box at the
+        // item's content start (`fc::layout_bfc`).
+        if fc::is_marker_box(tree, child_index) {
             continue;
         }
 

@@ -1223,6 +1223,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // parent-child margins can escape (first/last child).
         let mut last_margin_main_end = 0.0f32;
         let mut is_first_child = true;
+        let mut marker_main_size = 0.0f32;
 
         for &child_index in tree.children(node_index) {
             if let Some(child_intrinsic) = child_intrinsics
@@ -1268,6 +1269,16 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 max_child_min_cross = max_child_min_cross.max(child_min_cross);
                 max_child_max_cross = max_child_max_cross.max(child_max_cross);
 
+                // A `::marker` with no line box to ride is laid out at the
+                // item's content start, out of the flow (`fc::layout_bfc`):
+                // the item is as tall as the taller of it and the blocks,
+                // never their sum. (One on a line contributes nothing at
+                // all: `calculate_intrinsic_recursive` zeroes it.)
+                if crate::solver3::fc::is_marker_box(tree, child_index) {
+                    marker_main_size = marker_main_size.max(child_border_box_main);
+                    continue;
+                }
+
                 // CSS 2.2 §8.3.1 margin collapsing for intrinsic sizing:
                 // - First child's margin-start can escape (don't add to total)
                 // - Between siblings: collapsed gap = max(prev_end, curr_start)
@@ -1289,6 +1300,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
         }
         // Last child's margin-end may escape — don't add it to total_main_size
+        let total_main_size = f32::max(total_main_size, marker_main_size);
 
         let (min_width, max_width, min_height, max_height) = match writing_mode {
             LayoutWritingMode::HorizontalTb => (
