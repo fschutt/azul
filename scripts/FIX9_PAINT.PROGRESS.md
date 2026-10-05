@@ -36,11 +36,15 @@ Branch wt/fix9-paint (fast-forwarded to b454da215). Brief: scripts/waves/wave9/S
   (dll headless test), GREEN 522222fe6 (refill_a11y_tree_unless_refreshed).
 - 2.14 mobile snapshot only when published: 4753644c5 (no RED, mobile only).
 
+- SUITE FAILURE a_changed_inline_flex_box...: CODE wrong (test right); root cause in solver3 incremental
+  relayout (outside PKG 2) -> round 2, recipe in the report.
+- Report: scripts/FIX9_PAINT_2026_10_05.md.
+
 ## IN PROGRESS
-SUITE FAILURE: window::window_theme_context::a_changed_inline_flex_box_behind_a_block_sibling_keeps_its_slot_and_widens
+(none)
 
 ## NEXT
-Decide test vs code (window.rs ~31952 at the triage commit); then the report scripts/FIX9_PAINT_2026_10_05.md.
+(done - the parent integrates, registers the new layout/tests file, runs the suites)
 
 ## Open questions
 (none)
