@@ -14,13 +14,13 @@
   SizingOnly css change at the child; the scroll box parent kept its stale overflow / scrollbar). Root at parent.
 
 ## NEXT
-- a_short_list_in_a_shell_pane_fills_its_pane_from_the_top: AZ_TAFFY_DEBUG on the prebuilt suite binary shows
-  kd=(None,Some(inf)) / avail Definite(inf) reaching taffy (translate_taffy_size maps INF to Some(INF)).
-- a_short_list_in_a_shell_pane_fills_its_pane_from_the_top
-- final report scripts/R3_WIDGETS_2026_10_05.md
+- nothing: the report is scripts/R3_WIDGETS_2026_10_05.md
 
 ## STOPPED (big change, see report)
 - an_inline_date_picker_fits_its_pane: CODE wrong in the ENGINE (taffy_bridge compute_non_flex_layout answers a
   flex item's ContentSize min-content query with its own `width` - own_definite_width injection + intrinsic
   min_content_width clamped to `width` in sizing.rs - so a `width: 32px` item's automatic minimum size is 32,
   never shrinks; Chrome: min(32, content min-content) = 15, cells shrink to 26). Widget is right per Chrome.
+- a_short_list_in_a_shell_pane_fills_its_pane_from_the_top: two INF leaks into taffy (translate_taffy_size,
+  resolve_explicit_dimension_height) AND the test's html root is auto-height (Chrome: content-sized too); needs
+  the UA html { height: 100% } decision (core/src/ua_css.rs DIAG revert). See the report.
