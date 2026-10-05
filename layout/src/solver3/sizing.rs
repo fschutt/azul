@@ -5255,3 +5255,130 @@ mod autotest_generated {
         }
     }
 }
+
+/// The intrinsic sizes of an ANONYMOUS block that holds a container's inline
+/// content (CSS 2.2 s9.2.1.1): it has no DOM node of its own and inherits
+/// the container's style - its `text-indent` (only when it holds the
+/// container's first formatted line, CSS 2.1 s16.1 / CSS Text 3 s8.1) and
+/// its `white-space`. Font-free where a number is asserted (inline-blocks).
+#[cfg(test)]
+mod anonymous_ifc_intrinsic_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// `<body style="margin: 0">{child}</body>` laid out in an 800 x 600 window.
+    fn laid_out(child: Dom, fonts: FcFontCache) -> LayoutWindow {
+        let mut lw = LayoutWindow::new(fonts).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0;").with_child(child)),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the fixture lays out");
+        lw
+    }
+
+    /// The used border-box width of DOM node 1 (the body's child).
+    fn width_of_the_container(lw: &LayoutWindow) -> f32 {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the container is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the container has a size")
+            .width
+    }
+
+    fn inline_block(width: u32) -> Dom {
+        Dom::create_div().with_css(&format!(
+            "display: inline-block; width: {width}px; height: 10px;"
+        ))
+    }
+
+    #[test]
+    fn an_anonymous_block_that_starts_its_container_adds_the_indent_to_its_max_content() {
+        // `<div float text-indent: 40px>[10px]<div text-indent: 0>[10px]</div></div>`:
+        // the anonymous block around the first inline-block holds the
+        // container's first line - indented by 40px, so the float's
+        // max-content is 40 + 10. It was 10: the intrinsic scan never looked
+        // at the anonymous box's (inherited) text-indent.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("float: left; text-indent: 40px;")
+                .with_child(inline_block(10))
+                .with_child(
+                    Dom::create_div()
+                        .with_css("text-indent: 0;")
+                        .with_child(inline_block(10)),
+                ),
+            FcFontCache::default(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(
+            (w - 50.0).abs() < 0.5,
+            "40px indent + 10px content (Chrome 50): {w}"
+        );
+    }
+
+    #[test]
+    fn an_anonymous_block_after_a_nested_block_adds_no_indent_to_its_max_content() {
+        // `<div float text-indent: 40px><div text-indent: 0>[10px]</div>[30px]</div>`:
+        // the first formatted line is the nested block's, so the anonymous
+        // block after it is not indented (fc::layout_ifc, 64d3cb633) and its
+        // max-content is its 30px alone - the float is 30 wide, not 70.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("float: left; text-indent: 40px;")
+                .with_child(
+                    Dom::create_div()
+                        .with_css("text-indent: 0;")
+                        .with_child(inline_block(10)),
+                )
+                .with_child(inline_block(30)),
+            FcFontCache::default(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(
+            (w - 30.0).abs() < 0.5,
+            "no indent after the nested block (Chrome 30): {w}"
+        );
+    }
+
+    #[test]
+    fn an_anonymous_block_measures_its_min_content_with_its_containers_white_space() {
+        // `<div width: min-content; white-space: nowrap>[10px] [10px]<div></div></div>`:
+        // nowrap leaves the space no soft wrap opportunity, so the anonymous
+        // block's min-content is the whole line (10 + space + 10). It was
+        // 10: the scan measured the anonymous box as white-space: normal.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("width: min-content; white-space: nowrap;")
+                .with_child(inline_block(10))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" "))
+                .with_child(inline_block(10))
+                .with_child(Dom::create_div().with_css("height: 10px;")),
+            FcFontCache::build(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(w >= 19.5, "one unbreakable line of both inline-blocks: {w}");
+    }
+}
