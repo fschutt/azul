@@ -1297,3 +1297,153 @@ mod split_tests {
         assert!(!dom_ml.contains("azul_consume"), "generated code consumes typed records");
     }
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::{super::config::CodegenConfig, generate};
+
+    fn out() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("ocaml codegen")
+        })
+    }
+
+    fn indent(l: &str) -> usize {
+        l.len() - l.trim_start().len()
+    }
+
+    /// The first generated line whose trimmed text starts with `prefix`,
+    /// with the more-indented lines that follow it (its body).
+    fn block(prefix: &str) -> String {
+        let lines: Vec<&str> = out().lines().collect();
+        let i = lines
+            .iter()
+            .position(|l| l.trim_start().starts_with(prefix))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", prefix));
+        let base = indent(lines[i]);
+        let mut text = lines[i].trim().to_string();
+        for l in &lines[i + 1..] {
+            if l.trim().is_empty() || indent(l) <= base {
+                break;
+            }
+            text.push('\n');
+            text.push_str(l.trim());
+        }
+        text
+    }
+
+    fn in_order(text: &str, needles: &[&str]) {
+        let mut at = 0;
+        for n in needles {
+            let found = text[at..]
+                .find(n)
+                .unwrap_or_else(|| panic!("`{}` missing or out of order in:\n{}", n, text));
+            at += found + n.len();
+        }
+    }
+
+    #[test]
+    fn the_window_title_is_read_without_consuming_it() {
+        assert!(out().contains("val get_title : t -> string"));
+        let b = block("let get_title (self : t) : string =");
+        assert!(
+            b.contains("azul_string_of_az (Ctypes.getf self.raw az_full_window_state_field_title)"),
+            "{}",
+            b
+        );
+        assert!(!b.contains("_delete"), "{}", b);
+    }
+
+    #[test]
+    fn setting_the_window_title_releases_the_old_string_then_stores_a_fresh_one() {
+        assert!(out().contains("val set_title : t -> string -> unit"));
+        let b = block("let set_title (self : t) (v : string) : unit =");
+        in_order(
+            &b,
+            &[
+                "azul_az_string v",
+                "Ctypes.(addr self.raw |-> az_full_window_state_field_title)",
+                "azString_delete __fp",
+                "Ctypes.(__fp <-@ __new)",
+            ],
+        );
+    }
+
+    #[test]
+    fn the_window_state_getter_returns_a_deep_copy() {
+        assert!(out().contains("val get_window_state : t -> full_window_state"));
+        let b = block("let get_window_state (self : t) : full_window_state =");
+        assert!(
+            b.contains(
+                "make_full_window_state (azFullWindowState_clone Ctypes.(addr self.raw |-> \
+                 az_window_create_options_field_window_state))"
+            ),
+            "{}",
+            b
+        );
+    }
+
+    #[test]
+    fn setting_the_window_state_releases_the_old_one_then_consumes_the_new_one() {
+        assert!(out().contains("val set_window_state : t -> full_window_state -> unit"));
+        let b = block("let set_window_state (self : t) (v : full_window_state) : unit =");
+        in_order(
+            &b,
+            &[
+                "azFullWindowState_delete __fp",
+                "Ctypes.(__fp <-@ v.raw)",
+                "v.disposed <- true",
+            ],
+        );
+    }
+
+    #[test]
+    fn nested_writes_go_through_update_and_are_written_back() {
+        assert!(out().contains(
+            "val update_window_state : t -> (full_window_state -> unit) -> unit"
+        ));
+        let b = block("let update_window_state (self : t) (f : full_window_state -> unit) : unit =");
+        in_order(
+            &b,
+            &[
+                "Ctypes.(addr self.raw |-> az_window_create_options_field_window_state)",
+                "disposed = true",
+                "Fun.protect ~finally:(fun () -> Ctypes.(__fp <-@ __v.raw))",
+            ],
+        );
+        assert!(out().contains("val update_size : t -> (az_window_size Ctypes.structure -> unit) -> unit"));
+        assert!(out().contains("val set_dimensions : t -> az_logical_size Ctypes.structure -> unit"));
+    }
+
+    #[test]
+    fn a_checkbox_flag_reads_and_writes_as_a_bool_in_place() {
+        assert!(out().contains("val get_checked : t -> bool"));
+        assert!(out().contains("val set_checked : t -> bool -> unit"));
+        let b = block("let set_checked (self : t) (v : bool) : unit =");
+        assert!(b.contains("Ctypes.setf self az_check_box_state_field_checked v"), "{}", b);
+    }
+
+    #[test]
+    fn the_text_input_text_is_settable_although_get_text_exists() {
+        assert!(out().contains("val set_text : t -> u32_vec -> unit"));
+        assert!(!out().contains("val get_text : t -> u32_vec"));
+        let b = block("let set_text (self : t) (v : u32_vec) : unit =");
+        assert!(b.contains("azU32Vec_delete __fp"), "{}", b);
+    }
+
+    #[test]
+    fn with_layout_releases_the_default_layout_callback_before_overwriting_it() {
+        let b = block("let azul_window_create_options_with_layout");
+        in_order(
+            &b,
+            &[
+                "azLayoutCallback_delete Ctypes.(addr __lvl0 |-> az_full_window_state_field_layout_callback);",
+                "Ctypes.setf __lvl0 az_full_window_state_field_layout_callback cb;",
+            ],
+        );
+    }
+}
