@@ -288,6 +288,15 @@ mod tests {
         );
     }
 
+    /// Grouping goes through azul's money formatter, whose amounts are whole cents in an i64:
+    /// a sum beyond that is written as Excel's status bar writes it.
+    #[test]
+    fn a_status_bar_number_beyond_whole_cents_is_written_in_scientific_notation() {
+        assert_eq!(format_number(1e20), "1E+20");
+        assert_eq!(format_number(-2.5e19), "-2.5E+19");
+        assert_eq!(format_number(9e15), "9,000,000,000,000,000");
+    }
+
     #[test]
     fn the_status_bar_numbers_are_grouped_and_trimmed() {
         assert_eq!(format_number(1234.5), "1,234.5");
@@ -295,6 +304,7 @@ mod tests {
         assert_eq!(format_number(-0.25), "-0.25");
         assert_eq!(format_number(0.004), "0");
         assert_eq!(format_number(f64::NAN), "#NUM!");
+        assert_eq!(format_number(-1_234_567.891), "-1,234,567.89");
         let stats = SelectionStats {
             count: 4,
             numbers: 3,
