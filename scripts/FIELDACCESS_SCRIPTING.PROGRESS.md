@@ -31,11 +31,15 @@ carrying them; skips Vec/String/RefAny/... container structs).
   nonexistent Az<POD>_clone); class registration only for emitted classes; examples/php/hello-world.php
   sets title + size by read-modify-write (camelCase: getWindowState()...)
 
-## IN PROGRESS
-- Perl
+- Perl RED + fix: CONFIRMED the &self bug (wrappers passed the record object `$$self` to `opaque`
+  params = address of the Perl SV). Now pointer receivers/args/DESTROY get Azul::_addr (address of the
+  record bytes, un-COWed); by-value args go through Azul::_rec_arg and are consumed after the call.
+  get_/set_<field> on wrappers (heap types) and on record packages (POD) read/write the C bytes at
+  c_layout::field_offsets (new) - not through the record layouts (nested structs are string(N) blobs,
+  unions are tag+256 bytes, so their offsets are wrong).
 
 ## NEXT
-- final report
+- final report (examples/perl/hello-world.pl NOT changed: it uses raw Azul::FFI records)
 
 ## Open questions
 - field_access.rs may duplicate helpers other groups wrote (unify at integration).
