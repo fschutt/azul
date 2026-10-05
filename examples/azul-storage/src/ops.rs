@@ -3,7 +3,7 @@
 //! a file or a folder by copying, delete a folder by listing it. The [`Drive`]
 //! trait's default methods are these; a folder on disk does them natively.
 
-use crate::{Drive, DriveError, ListRequest, ObjectInfo, DEFAULT_PAGE_SIZE};
+use crate::{Drive, DriveError, ListPage, ListRequest, ObjectInfo, DEFAULT_PAGE_SIZE};
 
 /// Every object under `prefix`, at any depth, across all pages, in key order.
 /// Folder markers (keys ending in `/`) are objects too.
@@ -19,6 +19,14 @@ pub fn list_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<Vec<Object
         }
     }
     Ok(out)
+}
+
+/// One folder level - the folders and the objects directly in `prefix` - across all
+/// pages, in key order, as one page (`next` is `None`). The folder listings of the apps
+/// (a browser's folder, a mail account's folders, the workbooks of `sheets/`).
+pub fn list_folder_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<ListPage, DriveError> {
+    let _ = (drive, prefix);
+    unimplemented!()
 }
 
 /// Whether the object `key` is there.
