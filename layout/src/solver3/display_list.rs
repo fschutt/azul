@@ -5158,11 +5158,24 @@ where
                     .zip(cache.anim_current_opacity_values.get(&dom_id))
                     .map(|(k, _)| *k)
             });
+            // A layer without an animation key binds the node's CSS opacity
+            // key (`GpuValueCache::synchronize` mints it from the cascade),
+            // so an `opacity` tween steps by value alone once its layer
+            // exists (`GpuValueCache::refresh_opacity_value_of`).
+            let css_opacity_key = || {
+                self.gpu_value_cache.and_then(|cache| {
+                    cache
+                        .opacity_keys
+                        .get(&dom_id)
+                        .zip(cache.current_opacity_values.get(&dom_id))
+                        .map(|(k, _)| *k)
+                })
+            };
             if opacity < 1.0 || anim_opacity_key.is_some() {
                 builder.push_item(DisplayListItem::PushOpacity {
                     bounds: node_bounds.into(),
                     opacity,
-                    opacity_key: anim_opacity_key,
+                    opacity_key: anim_opacity_key.or_else(css_opacity_key),
                 });
                 pushed_opacity = true;
             }

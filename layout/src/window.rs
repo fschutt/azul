@@ -15195,6 +15195,52 @@ impl LayoutWindow {
                         }
                     }
 
+                    // The same GPU property path for `opacity`, once the
+                    // node's layer exists: the display list's `PushOpacity`
+                    // binds the node's CSS opacity key, both compositors read
+                    // its value live, so the step publishes the value and
+                    // nothing else. The compact cache - where the builder's
+                    // `get_opacity` and `synchronize` read opacity - follows
+                    // the shown value, so a list built mid-fade (or after it)
+                    // paints what is on screen. A node with no bound layer yet
+                    // (a fade starting at 1.0) changes the item list: it takes
+                    // the rebuild path below once, and the next frame is here.
+                    if tr.prop_type == azul_css::props::property::CssPropertyType::Opacity {
+                        let bound = cache.opacity_keys.get(&tr.node).is_some_and(|key| {
+                            result.display_list.items.iter().any(|item| {
+                                matches!(
+                                    item,
+                                    crate::solver3::display_list::DisplayListItem::PushOpacity {
+                                        opacity_key: Some(k),
+                                        ..
+                                    } if k == key
+                                )
+                            })
+                        });
+                        if bound {
+                            result.styled_dom.set_user_property_override_fast(
+                                &tr.node,
+                                core::slice::from_ref(&over),
+                            );
+                            if cache
+                                .refresh_opacity_value_of(&result.styled_dom, tr.node)
+                                .is_some()
+                            {
+                                if let azul_css::props::property::CssProperty::Opacity(v) = &shown {
+                                    if let Some(o) = v.get_property() {
+                                        patch_compact_opacity(
+                                            &mut result.styled_dom,
+                                            tr.node,
+                                            o.inner.normalized(),
+                                        );
+                                    }
+                                }
+                                gpu_values_moved = true;
+                                continue;
+                            }
+                        }
+                    }
+
                     // THE PATCH FAST PATH: colour-carrying paint transitions
                     // rewrite their display-list items in place — no cascade
                     // recompute, no DL rebuild. The from-match doubles as the
@@ -29702,6 +29748,29 @@ fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType)
 /// (`getters::get_border_info`), not through the user override the lean
 /// channel writes; without this the next list built for any reason painted
 /// the side at the colour of the last full restyle.
+/// The compact cache's opacity byte of `node`, set to `opacity` (encoded as
+/// `core::compact` encodes it: x 254, 255 = unset): the lean override
+/// channel of an `opacity` tween does not rebuild the compact cache, and the
+/// display-list builder (`getters::get_opacity`) and
+/// `GpuValueCache::synchronize` read opacity there first.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=254
+fn patch_compact_opacity(styled_dom: &mut StyledDom, node: NodeId, opacity: f32) {
+    let Some(cold) = styled_dom
+        .get_css_property_cache_mut()
+        .compact_cache
+        .as_mut()
+        .and_then(|cc| cc.tier2_cold.get_mut(node.index()))
+    else {
+        return;
+    };
+    let o = if opacity.is_finite() {
+        opacity.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    cold.opacity = (o * 254.0).round() as u8;
+}
+
 fn patch_compact_border_color(
     styled_dom: &mut StyledDom,
     node: NodeId,
