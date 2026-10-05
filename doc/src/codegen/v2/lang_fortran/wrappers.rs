@@ -1403,3 +1403,97 @@ fn emit_smart_factory(
     builder.blank();
     let _ = ctx;
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    /// `azul_api.f90` generated from the real api.json.
+    fn api() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            let ir = crate::codegen::v2::bug_classes::ir();
+            let all = super::super::generate(ir, &CodegenConfig::c_header()).expect("fortran codegen");
+            let mut cur = false;
+            let mut out = String::new();
+            for line in all.lines() {
+                if let Some(rest) = line.strip_prefix(super::super::FILE_MARKER) {
+                    cur = rest.trim_end_matches(super::super::END_MARKER).trim() == "azul_api.f90";
+                } else if cur {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+            out
+        })
+    }
+
+    /// One procedure, from `<kind> <name>(` to `end <kind> <name>`.
+    fn proc(kind: &str, name: &str) -> &'static str {
+        let src = api();
+        let start = src
+            .find(&format!("{} {}(", kind, name))
+            .unwrap_or_else(|| panic!("no {} {}", kind, name));
+        let end = src[start..]
+            .find(&format!("end {} {}", kind, name))
+            .expect("end of procedure");
+        &src[start..start + end]
+    }
+
+    #[test]
+    fn reading_a_string_with_azul_string_value_never_frees_it() {
+        let read = proc("function", "azul_string_value");
+        assert!(!read.contains("_delete"), "the reader must not free its argument:\n{}", read);
+        let take = proc("function", "azul_string_take");
+        assert!(take.contains("call az_string_delete("), "results are still consumed:\n{}", take);
+        assert!(api().contains("r = azul_string_take("), "String results go through the consuming reader");
+    }
+
+    #[test]
+    fn moving_a_wrapper_into_a_call_clears_its_owned_flag() {
+        let take = proc("function", "azul_take_full_window_state");
+        assert!(take.contains("class(full_window_state_t), target :: x"), "{}", take);
+        assert!(take.contains("x%owned = .false."), "{}", take);
+    }
+
+    #[test]
+    fn the_window_title_is_a_type_bound_getter_and_setter_that_release_the_old_string() {
+        assert!(api().contains("procedure :: get_title => full_window_state_get_title"));
+        assert!(api().contains("procedure :: set_title => full_window_state_set_title"));
+        let get = proc("function", "full_window_state_get_title");
+        assert!(get.contains("r = azul_string_value(self%raw%title)"), "{}", get);
+        let set = proc("subroutine", "full_window_state_set_title");
+        let del = set.find("call az_string_delete(c_loc(self%raw%title))").expect("old title released");
+        let put = set.find("self%raw%title = azul_string(v)").expect("new title stored");
+        assert!(del < put, "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_getter_deep_copies_and_the_setter_consumes_its_argument() {
+        let get = proc("function", "window_create_options_get_window_state");
+        assert!(get.contains("type(full_window_state_t) :: r"), "{}", get);
+        assert!(get.contains("r%raw = az_full_window_state_clone(c_loc(self%raw%window_state))"), "{}", get);
+        assert!(get.contains("r%owned = .true."), "{}", get);
+        let set = proc("subroutine", "window_create_options_set_window_state");
+        assert!(set.contains("azul_tmp = azul_take_full_window_state(v)"), "{}", set);
+        assert!(set.contains("call az_full_window_state_delete(c_loc(self%raw%window_state))"), "{}", set);
+        assert!(set.contains("self%raw%window_state = azul_tmp"), "{}", set);
+    }
+
+    #[test]
+    fn a_checkbox_checked_flag_is_a_logical_field() {
+        let get = proc("function", "check_box_state_get_checked");
+        assert!(get.contains("logical :: r"), "{}", get);
+        let set = proc("subroutine", "check_box_state_set_checked");
+        assert!(set.contains("self%raw%checked = logical(v, c_bool)"), "{}", set);
+    }
+
+    #[test]
+    fn a_text_input_text_field_is_writable_even_though_get_text_is_a_method() {
+        assert!(api().contains("procedure :: set_text => text_input_state_set_text"));
+        let set = proc("subroutine", "text_input_state_set_text");
+        assert!(set.contains("call az_u32_vec_delete(c_loc(self%raw%text))"), "{}", set);
+    }
+}
