@@ -1928,6 +1928,16 @@ mod label_convention {
             "rich_text_editor",
             super::rich_text_editor::fixtures::sample().dom(),
         ));
+        // The close guard around a window's content, asking its "Save
+        // changes?" question (a message box in a modal).
+        all.push((
+            "close_guard",
+            super::close_guard::CloseGuard::create(user_content(), AzString::from("Report"))
+                .with_title(AzString::from("Notes"))
+                .with_dirty(true)
+                .with_asking(true)
+                .dom(),
+        ));
         // The date repeat picker: weekly on two days, ending after ten times.
         all.push((
             "date_repeat_picker",
@@ -2896,6 +2906,8 @@ mod theme_contrast {
         "standard_dialogs (find / replace)",
         // The rich-text editor: a page of the user's own text.
         "rich_text_editor",
+        // The close guard: the window's content and the modal question over it.
+        "close_guard",
     ];
     /// Controls a user types into, picks from or toggles.
     const INPUTS: &[&str] = &[

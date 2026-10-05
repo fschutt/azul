@@ -69,6 +69,17 @@ const EXEMPT: &[(&str, &str)] = &[
         "single replaced node, zero create_text_* calls; screencap.rs pins children == 0",
     ),
     ("video", "single replaced node, zero create_text_* calls"),
+    (
+        "list_selection",
+        "the selection MODEL of a list (ListSelection: click / Ctrl / Shift rules over u64 keys): \
+         declares no widget type with a dom() and builds no DOM",
+    ),
+    (
+        "rich_text",
+        "the rich-text document MODEL (RichTextDoc, its edits, history and Markdown / HTML / \
+         plain-text forms; html.rs only READS a pasted DOM): no dom() of its own - the editor \
+         that renders it is registered as rich_text_editor",
+    ),
 ];
 
 /// Every `pub mod x;` / `mod x;` declared in `widgets/mod.rs`.
