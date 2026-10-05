@@ -4573,7 +4573,8 @@ mod autotest_generated {
             assert_eq!(ColorU::parse_hex(&c.to_hex()), Some(c), "{c:?}");
         }
         assert_eq!(ColorU::parse_hex("  FF5733 "), Some(opaque), "no '#', any case, trimmed");
-        assert_eq!(ColorU::parse_hex("#f53"), Some(opaque));
+        // Three digits double each one: #f53 is #ff5533 (CSS Color 4, 5.2).
+        assert_eq!(ColorU::parse_hex("#f53"), Some(ColorU::new_rgb(0xff, 0x55, 0x33)));
         assert_eq!(
             ColorU::parse_hex("#f538"),
             Some(ColorU {

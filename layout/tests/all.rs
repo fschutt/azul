@@ -916,6 +916,9 @@ mod a_layout_tween_frame_reuses_the_tree_and_patches_the_list;
 mod a_relayout_keeps_the_virtual_views_of_an_unchanged_host;
 #[path = "an_animation_frame_sends_assistive_technology_only_what_moved.rs"]
 mod an_animation_frame_sends_assistive_technology_only_what_moved;
+// Needs the `telemetry` feature (the profiler buffer it checks lives there):
+// cargo test -p azul-layout --features telemetry --test all a_frame_pump
+#[cfg(feature = "telemetry")]
 #[path = "a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report.rs"]
 mod a_frame_pump_leaves_the_cpu_profiles_spans_for_its_report;
 #[path = "system_ui_is_the_system_font_at_its_optical_size.rs"]

@@ -3049,12 +3049,18 @@ mod autotest_generated {
 
     #[test]
     fn collect_matching_callbacks_collects_nothing_once_immediate_stop_is_set() {
-        let mut result = PropagationResult::default();
+        let mut result = PathPropagationResult::default();
         let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
         callbacks.insert(
             NodeId::ZERO,
             vec![EventFilter::Hover(HoverEventFilter::MouseOver)],
         );
+        let filters_at = |at: DomNodeId| {
+            at.node
+                .into_crate_internal()
+                .and_then(|node| callbacks.get(&node))
+                .map(Vec::as_slice)
+        };
         let mut ev = SyntheticEvent::new(
             EventType::MouseOver,
             EventSource::User,
@@ -3065,15 +3071,15 @@ mod autotest_generated {
         ev.stop_immediate_propagation();
         collect_matching_callbacks(
             &ev,
-            NodeId::ZERO,
+            dnid(0, 0),
             EventPhase::Target,
-            &callbacks,
+            &filters_at,
             &mut result,
         );
         assert!(result.callbacks_to_invoke.is_empty());
 
         // A node with no registered callbacks is simply skipped.
-        let mut fresh = PropagationResult::default();
+        let mut fresh = PathPropagationResult::default();
         let clean = SyntheticEvent::new(
             EventType::MouseOver,
             EventSource::User,
@@ -3083,9 +3089,9 @@ mod autotest_generated {
         );
         collect_matching_callbacks(
             &clean,
-            NodeId::new(9),
+            dnid(0, 9),
             EventPhase::Target,
-            &callbacks,
+            &filters_at,
             &mut fresh,
         );
         assert!(fresh.callbacks_to_invoke.is_empty());
@@ -3093,8 +3099,8 @@ mod autotest_generated {
 
     #[test]
     fn propagate_phase_over_an_empty_iterator_only_sets_the_phase() {
-        let mut result = PropagationResult::default();
-        let callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        let mut result = PathPropagationResult::default();
+        let filters_at = |_: DomNodeId| -> Option<&[EventFilter]> { None };
         let mut ev = SyntheticEvent::new(
             EventType::MouseOver,
             EventSource::User,
@@ -3106,14 +3112,14 @@ mod autotest_generated {
             &mut ev,
             core::iter::empty(),
             EventPhase::Bubble,
-            &callbacks,
+            &filters_at,
             &mut result,
         );
         assert_eq!(ev.phase, EventPhase::Bubble);
         assert!(result.callbacks_to_invoke.is_empty());
 
         // propagate_target_phase resets phase + current_target to the target.
-        propagate_target_phase(&mut ev, NodeId::ZERO, &callbacks, &mut result);
+        propagate_target_phase(&mut ev, dnid(0, 0), &filters_at, &mut result);
         assert_eq!(ev.phase, EventPhase::Target);
         assert_eq!(ev.current_target, ev.target);
     }

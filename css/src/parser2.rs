@@ -4667,12 +4667,17 @@ mod autotest_generated {
             3,
             "colour, width and height survive, the mso- key is skipped: {declarations:?}"
         );
-        assert!(
-            warnings.iter().all(|w| !matches!(
-                w.warning,
-                CssParseWarnMsgInner::SkippedDeclaration { .. }
-            )),
-            "no declaration is skipped as a bad value: {warnings:?}"
+        let skipped: Vec<&str> = warnings
+            .iter()
+            .filter_map(|w| match w.warning {
+                CssParseWarnMsgInner::SkippedDeclaration { key, .. } => Some(key),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            skipped,
+            vec!["mso-line-height-rule"],
+            "only the unknown mso- key is skipped, no important value: {warnings:?}"
         );
 
         let km = key_map();

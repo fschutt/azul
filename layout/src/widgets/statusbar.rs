@@ -2257,7 +2257,7 @@ mod tests {
         let dom = StatusBar::new(segs(0))
             .with_zoom(StatusBarZoom::create(100.0, 10.0, 400.0))
             .dom();
-        assert!(named(&dom, "Zoom"), "the zoom slider names itself");
+        assert!(super::sync_tests::named(&dom, "Zoom"), "the zoom slider names itself");
     }
 
     /// AzShow and AzSheets zoom to 400 %, but the cluster's slider window was
@@ -2687,7 +2687,7 @@ mod sync_tests {
     }
 
     /// Whether any node of the tree is named `name` for assistive technology.
-    fn named(dom: &Dom, name: &str) -> bool {
+    pub(super) fn named(dom: &Dom, name: &str) -> bool {
         theme_checks::nodes(dom).into_iter().any(|(_, n)| {
             n.root
                 .get_accessibility_info()

@@ -1542,7 +1542,7 @@ mod dom_tests {
     use std::sync::{Arc, Mutex};
 
     use azul_core::{
-        dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType, TabIndex},
+        dom::{Dom, DomId, DomNodeId, EventFilter, HoverEventFilter, NodeType, TabIndex},
         id::NodeId,
         styled_dom::{NodeHierarchyItemId, StyledDom},
         window::VirtualKeyCode,

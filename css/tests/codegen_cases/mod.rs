@@ -113,6 +113,7 @@ pub const FAMILIES: &str = r#"
     clear: both;
     visibility: hidden;
     opacity: 0.5;
+    zoom: 150%;
     cursor: pointer;
     object-fit: cover;
     object-position: center top;
@@ -187,6 +188,7 @@ pub const FAMILIES: &str = r#"
     background-position: center;
     background-size: cover;
     background-repeat: no-repeat;
+    background-clip: padding-box;
     transform: rotate(45deg);
     transform-origin: 50% 50%;
     perspective-origin: 10px 20px;
