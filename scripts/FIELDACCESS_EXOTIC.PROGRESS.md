@@ -27,11 +27,18 @@ first per language; commit after every language.
   AzulApp>>run: double free), pointer args `azulBorrow:`; field accessors `<field>` (String ->
   Smalltalk String, heap value -> wrapped _clone, else UFFI copy) and `<field>:` (_delete then move).
 
+- COBOL (lang_cobol): RED 73a0923f6, fix (this commit). Records are byte-packed in COBOL, so
+  every field now sits at its azul.h offset with explicit FILLERs (c_layout::field_offsets) and
+  the record ends at the C size; tagged unions = tag at its C width + FILLER up to
+  payload_offset + PAYLOAD-ANCHOR PIC X(rest) (was a 4-byte tag + PIC X(64)); skipped types that
+  sit by value (Vec destructors, VecRefs) are exact-size FILLER blobs; usize/isize are
+  BINARY-DOUBLE [UNSIGNED] (was USAGE POINTER). Test parser now skips field doc comments.
+
 ## IN PROGRESS
-- COBOL (lang_cobol).
+- ALGOL 68 (lang_algol68).
 
 ## NEXT
-- ALGOL 68.
+- final report.
 
 ## Open questions
 (none yet)
