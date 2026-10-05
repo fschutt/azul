@@ -38,6 +38,20 @@
 //!    the model of the running callback / the current app as `data`.
 //! 7. Provides `function Release: TAz<TypeName>;` — detaches and returns the raw record,
 //!    transferring ownership to the caller (the destructor will no longer call `_delete`).
+//! 8. One `property <Field>` (read + write) per public by-value field (see [`field_props`]):
+//!    reading returns an independent value (`string` for the string class, decoded without
+//!    consuming the field; a NEW wrapper object holding a deep copy for heap-owning wrapped types
+//!    - the caller frees it; a plain copy otherwise), writing releases the old value and moves the
+//!    new one in (a wrapper argument is consumed and freed, like any by-value wrapper argument).
+//!    An api.json method of the same name keeps its name; the property becomes `<Field>Field`.
+//!    Nested fields are read-modify-write:
+//!
+//!    ```pascal
+//!    WS := Opts.WindowState;          { deep copy }
+//!    WS.Title := 'Hello';             { releases the old title }
+//!    Sz := WS.Size; Sz.dimensions.width := 800; WS.Size := Sz;
+//!    Opts.WindowState := WS;          { consumes (frees) WS }
+//!    ```
 //!
 //! All wrapper classes are forward-declared (`TDom = class;`) at the top of one `type` block that
 //! also holds the managed callback surface and the app helper (they reference each other).
@@ -53,6 +67,7 @@ use anyhow::Result;
 use super::{
     super::{
         config::CodegenConfig,
+        field_access_classic::{self as fa, AccessField, FieldKind},
         generator::CodeBuilder,
         ir::{ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory},
         managed_host_invoker::{host_invoker_kinds, smart_callback_setter_info, wrapper_name},
@@ -95,7 +110,7 @@ pub fn generate_wrapper_interface(
     managed::emit_callback_surface_types(builder, ir, &target_names);
 
     for s in &targets {
-        emit_wrapper_class_decl(builder, s, ir, &target_names);
+        emit_wrapper_class_decl(builder, s, ir, config, &target_names);
     }
 
     managed::emit_app_helper_types(builder, ir, config, &target_names);
@@ -113,7 +128,7 @@ pub fn generate_wrapper_implementation(
     let targets = collect_wrapper_targets(ir, config);
     let target_names: BTreeSet<String> = targets.iter().map(|s| s.name.clone()).collect();
     for s in &targets {
-        emit_wrapper_class_impl(builder, s, ir, &target_names);
+        emit_wrapper_class_impl(builder, s, ir, config, &target_names);
     }
     Ok(())
 }
@@ -258,11 +273,12 @@ fn emit_wrapper_class_decl(
     builder: &mut CodeBuilder,
     s: &StructDef,
     ir: &CodegenIR,
+    config: &CodegenConfig,
     targets: &BTreeSet<String>,
 ) {
     let class_name = pascal_class_name(&s.name);
     let raw_record = record_type_name(&s.name);
-    let members = class_member_names(ir, &s.name);
+    let members = class_member_names(ir, config, targets, s);
 
     if !s.doc.is_empty() {
         for d in &s.doc {
@@ -349,6 +365,183 @@ fn emit_wrapper_class_decl(
         }
     }
 
+    // Field properties: the accessors are protected, the property public.
+    let props = field_props(s, ir, config, targets);
+    if !props.is_empty() {
+        builder.dedent();
+        builder.line("protected");
+        builder.indent();
+        for p in &props {
+            if let Some(g) = &p.get {
+                builder.line(&format!("function {}: {};", g, p.ty));
+            }
+            builder.line(&format!("procedure {}({});", p.set, setter_param(p)));
+        }
+        builder.dedent();
+        builder.line("public");
+        builder.indent();
+        for p in &props {
+            match &p.get {
+                Some(g) => builder.line(&format!(
+                    "property {}: {} read {} write {};",
+                    p.prop, p.ty, g, p.set
+                )),
+                None => builder.line(&format!("property {}: {} write {};", p.prop, p.ty, p.set)),
+            }
+        }
+    }
+
+    builder.dedent();
+    builder.line("end;");
+    builder.blank();
+}
+
+/// One field property of a wrapper class.
+struct FieldProp<'a> {
+    /// The public property's name.
+    prop: String,
+    /// The protected reader (`None`: the value owns heap memory it cannot
+    /// deep-copy, so there is no safe getter).
+    get: Option<String>,
+    /// The protected writer.
+    set: String,
+    a: AccessField<'a>,
+    /// The property's Pascal type.
+    ty: String,
+    /// The field's type has a wrapper class (`ty` is that class).
+    wrapped: bool,
+}
+
+/// Every field property of `s`, named clear of the class's other members
+/// (case-insensitively; an api.json method keeps its name and the
+/// property becomes `<Field>Field`).
+fn field_props<'a>(
+    s: &'a StructDef,
+    ir: &'a CodegenIR,
+    config: &CodegenConfig,
+    targets: &BTreeSet<String>,
+) -> Vec<FieldProp<'a>> {
+    let mut taken = method_member_names(ir, &s.name);
+    // TObject's own members: shadowing one is a warning, and warnings fail the build.
+    for n in ["tostring", "equals", "gethashcode", "classname", "classtype", "dispatch"] {
+        taken.insert(n.to_string());
+    }
+    let mut out = Vec::new();
+    for a in fa::accessible_fields(s, ir, config) {
+        let wrapped = targets.contains(a.ty);
+        let ty = match a.kind {
+            FieldKind::Prim { is_bool: true } => "Boolean".to_string(),
+            FieldKind::Str { .. } => "string".to_string(),
+            FieldKind::Value { .. } if wrapped => pascal_class_name(a.ty),
+            _ => {
+                let t = map_type_to_pascal(a.ty, ir);
+                if t == "Pointer" || t == "PChar" || t.starts_with("array") {
+                    continue;
+                }
+                t
+            }
+        };
+        let base = sanitize_bare_identifier(&to_pascal_case(a.field.name.trim_start_matches('_')));
+        let prop = if taken.insert(base.to_ascii_lowercase()) {
+            base
+        } else {
+            super::unique_identifier(&format!("{}Field", base), "_", &mut taken)
+        };
+        let get = if a.kind.has_getter() {
+            Some(super::unique_identifier(&format!("FieldGet{}", prop), "_", &mut taken))
+        } else {
+            None
+        };
+        let set = super::unique_identifier(&format!("FieldSet{}", prop), "_", &mut taken);
+        out.push(FieldProp { prop, get, set, a, ty, wrapped });
+    }
+    out
+}
+
+/// The writer's parameter (a wrapper argument is consumed, so not `const`).
+fn setter_param(p: &FieldProp) -> String {
+    if p.wrapped {
+        format!("AValue: {}", p.ty)
+    } else {
+        format!("const AValue: {}", p.ty)
+    }
+}
+
+fn emit_field_prop_impls(builder: &mut CodeBuilder, class_name: &str, p: &FieldProp, ir: &CodegenIR) {
+    let fexpr = format!("FRaw.{}", sanitize_identifier(&p.a.field.name));
+    let clone = fa::clone_fn(ir, p.a.ty);
+    let delete = fa::delete_fn(ir, p.a.ty);
+    if let Some(g) = &p.get {
+        builder.line(&format!("function {}.{}: {};", class_name, g, p.ty));
+        builder.line("begin");
+        builder.indent();
+        match p.a.kind {
+            FieldKind::Str { .. } => builder.line(&format!("Result := azul_string_to({});", fexpr)),
+            FieldKind::Value { .. } => match (clone, p.wrapped) {
+                (Some(c), true) => builder.line(&format!(
+                    "Result := {}.Wrap({}(@{}));",
+                    p.ty, c.c_name, fexpr
+                )),
+                (None, true) => builder.line(&format!("Result := {}.Wrap({});", p.ty, fexpr)),
+                (Some(c), false) => builder.line(&format!("Result := {}(@{});", c.c_name, fexpr)),
+                (None, false) => builder.line(&format!("Result := {};", fexpr)),
+            },
+            _ => builder.line(&format!("Result := {};", fexpr)),
+        }
+        builder.dedent();
+        builder.line("end;");
+        builder.blank();
+    }
+    builder.line(&format!("procedure {}.{}({});", class_name, p.set, setter_param(p)));
+    let release = |builder: &mut CodeBuilder| {
+        if let Some(d) = delete {
+            builder.line(&format!("{}(@{});", d.c_name, fexpr));
+        }
+    };
+    match p.a.kind {
+        FieldKind::Str { .. } => {
+            builder.line(&format!("var nv: {};", record_type_name(p.a.ty)));
+            builder.line("begin");
+            builder.indent();
+            builder.line("nv := azul_string_from(AValue);");
+            release(builder);
+            builder.line(&format!("{} := nv;", fexpr));
+        }
+        FieldKind::Value { .. } if p.wrapped => {
+            builder.line(&format!("var nv: {};", record_type_name(p.a.ty)));
+            builder.line("begin");
+            builder.indent();
+            builder.line("if AValue.FOwned then");
+            builder.line("begin");
+            builder.line("  nv := AValue.FRaw;");
+            builder.line("  AValue.FOwned := False;");
+            builder.line("end");
+            builder.line("else");
+            match clone {
+                Some(c) => builder.line(&format!("  nv := {}(@AValue.FRaw);", c.c_name)),
+                None => builder.line(&format!(
+                    "  raise EAzulError.Create('{}.{}: the value is borrowed and has no deep copy');",
+                    class_name, p.prop
+                )),
+            }
+            release(builder);
+            builder.line(&format!("{} := nv;", fexpr));
+            builder.line("{ Consumed, like every by-value wrapper argument. }");
+            builder.line("AValue.Free;");
+        }
+        FieldKind::Value { .. } => {
+            // A raw record: the field takes over its heap memory.
+            builder.line("begin");
+            builder.indent();
+            release(builder);
+            builder.line(&format!("{} := AValue;", fexpr));
+        }
+        _ => {
+            builder.line("begin");
+            builder.indent();
+            builder.line(&format!("{} := AValue;", fexpr));
+        }
+    }
     builder.dedent();
     builder.line("end;");
     builder.blank();
@@ -461,11 +654,12 @@ fn emit_wrapper_class_impl(
     builder: &mut CodeBuilder,
     s: &StructDef,
     ir: &CodegenIR,
+    config: &CodegenConfig,
     targets: &BTreeSet<String>,
 ) {
     let class_name = pascal_class_name(&s.name);
     let ffi = ffi_type_name(&s.name);
-    let members = class_member_names(ir, &s.name);
+    let members = class_member_names(ir, config, targets, s);
 
     // Wrap(ARaw) constructor: take ownership of an already-built FFI record.
     builder.line(&format!(
@@ -543,6 +737,10 @@ fn emit_wrapper_class_impl(
         }
         let Some(sig) = smart_setter_sig(&kind, ir, targets) else { continue };
         emit_smart_setter_impl(builder, &class_name, &name, func, &sig, &kind);
+    }
+
+    for p in field_props(s, ir, config, targets) {
+        emit_field_prop_impls(builder, &class_name, &p, ir);
     }
 }
 
@@ -905,8 +1103,28 @@ fn fixed_member_names() -> BTreeSet<String> {
 }
 
 /// Every (case-insensitive) member name the wrapper class declares: the
-/// fixed ones plus one per surviving api.json method and smart setter.
-fn class_member_names(ir: &CodegenIR, class_name: &str) -> BTreeSet<String> {
+/// fixed ones, one per surviving api.json method and smart setter, and the
+/// field properties with their accessors.
+fn class_member_names(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    targets: &BTreeSet<String>,
+    s: &StructDef,
+) -> BTreeSet<String> {
+    let mut members = method_member_names(ir, &s.name);
+    for p in field_props(s, ir, config, targets) {
+        members.insert(p.prop.to_ascii_lowercase());
+        members.insert(p.set.to_ascii_lowercase());
+        if let Some(g) = &p.get {
+            members.insert(g.to_ascii_lowercase());
+        }
+    }
+    members
+}
+
+/// [`class_member_names`] without the field properties (what the
+/// properties themselves must steer clear of).
+fn method_member_names(ir: &CodegenIR, class_name: &str) -> BTreeSet<String> {
     let mut members = fixed_member_names();
     members.extend(
         constructor_pascal_names(ir, class_name)

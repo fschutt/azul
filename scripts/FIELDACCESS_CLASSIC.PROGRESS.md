@@ -36,11 +36,17 @@ Str / Value{delete, clone}), string copy fn + layout, all derived from the IR.
   User: `Set ws = opts.WindowState: ws.Title = "Hi": sz = ws.Size: sz.dimensions.width = 800:
   ws.Size = sz: Set opts.WindowState = ws`
 
+- Pascal: RED 077dd56a4, fix = the commit after it. Every T* wrapper class gets
+  `property <Field>: T read FieldGet<Field> write FieldSet<Field>` (protected accessors; method
+  names win -> `<Field>Field`); props join the member set so method params stay unique.
+  User: `WS := Opts.WindowState; WS.Title := 'Hi'; Sz := WS.Size; Sz.dimensions.width := 800;
+  WS.Size := Sz; Opts.WindowState := WS { consumes + frees WS }`
+
 ## IN PROGRESS
-- Pascal
+(none)
 
 ## NEXT
-- report.
+- parent: compile, regenerate target/codegen, run the RED tests (all five + field_access_classic).
 
 ## Open questions
 - VB6 stdcall vs cdecl: left as documented (wrappers.rs module doc + functions.rs). Not trivially
