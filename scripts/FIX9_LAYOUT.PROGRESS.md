@@ -13,11 +13,14 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
 - 1.2 RED f3134cb66, GREEN df8f3b7bd (fc.rs mod inline_collection_cache_tests; fc::hash_resolved_style).
   Unverified symptom: parent runs the RED at f3134cb66; if it passes there, revert df8f3b7bd.
 
+- 1.3 RED 07ef25280, GREEN 2f1e76da4 (knuth_plass tests; starts_paragraph param on kp_layout /
+  find_optimal_breakpoints / position_lines_from_breaks).
+
 ## IN PROGRESS
-1.3
+1.4
 
 ## NEXT
-1.3 RED a_balanced_continuation_fragment_is_not_indented (text3/cache.rs ~11400, knuth_plass.rs 478/579)
+1.4 RED a_list_item_without_a_line_box_is_as_tall_as_its_block (fc.rs marker_line_host ~12203)
 
 ## Open questions
 (none)
