@@ -8,8 +8,18 @@ use crate::{Drive, DriveError, ListPage, ListRequest, ObjectInfo, DEFAULT_PAGE_S
 /// Every object under `prefix`, at any depth, across all pages, in key order.
 /// Folder markers (keys ending in `/`) are objects too.
 pub fn list_all<D: Drive + ?Sized>(drive: &D, prefix: &str) -> Result<Vec<ObjectInfo>, DriveError> {
+    list_all_paged(drive, prefix, DEFAULT_PAGE_SIZE)
+}
+
+/// [`list_all`] with `page_size` keys per listing call (a test of the paging asks for small
+/// pages).
+pub fn list_all_paged<D: Drive + ?Sized>(
+    drive: &D,
+    prefix: &str,
+    page_size: u32,
+) -> Result<Vec<ObjectInfo>, DriveError> {
     let mut out = Vec::new();
-    let mut request = ListRequest::recursive(prefix).with_max_keys(DEFAULT_PAGE_SIZE);
+    let mut request = ListRequest::recursive(prefix).with_max_keys(page_size);
     loop {
         let page = drive.list(&request)?;
         out.extend(page.objects);
