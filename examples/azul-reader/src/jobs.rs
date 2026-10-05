@@ -352,27 +352,8 @@ pub fn take_done(msg: &mut RefAny) -> Option<Done> {
 mod tests {
     use super::*;
     use crate::epub::fixtures;
-
-    /// A fresh folder, removed on drop.
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(name: &str) -> TempDir {
-            let dir = std::env::temp_dir().join(format!(
-                "azreader-{name}-{}-{}",
-                std::process::id(),
-                azul_storage::ids::new_uuid()
-            ));
-            std::fs::create_dir_all(&dir).expect("a temporary folder");
-            TempDir(dir)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
+    // The one temporary folder for tests (a fresh folder, removed on drop).
+    use azul_storage::testing::TempDir;
 
     fn epub_bytes() -> Vec<u8> {
         let mut zip = azul::zip::Zip::create();

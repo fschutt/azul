@@ -76,7 +76,8 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: sample::APP_FOLDER,
 };
 
-pub const SHORTCUTS: [Shortcut; 14] = [
+pub const SHORTCUTS: [Shortcut; 15] = [
+    Shortcut::new("File", "Mod+O", "Open a folder"),
     Shortcut::new("File", "Mod+S", "Save every changed file"),
     Shortcut::new("File", "Mod+W", "Close the tab"),
     Shortcut::new("Find", "Mod+F", "Find in the file"),
@@ -221,4 +222,26 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::RefreshDom;
     }
     Update::DoNothing
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SHORTCUTS;
+
+    /// The keys `commands::handle_key` takes (Mod+O included: the welcome screen promises it);
+    /// the F1 list must show every one of them.
+    #[test]
+    fn the_shortcut_list_names_every_key_the_window_takes() {
+        let window_keys = [
+            "Mod+O", "Mod+S", "Mod+W", "Mod+F", "Mod+H", "Mod+G", "F3", "Escape",
+        ];
+        for key in window_keys {
+            assert!(
+                SHORTCUTS
+                    .iter()
+                    .any(|s| s.keys.split(" / ").any(|k| k == key)),
+                "the F1 list does not name {key}"
+            );
+        }
+    }
 }

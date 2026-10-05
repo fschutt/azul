@@ -65,6 +65,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
+    pieces::{block, button, column, flex_row, primary, strs, text},
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
 };
@@ -509,46 +510,8 @@ pub fn start() {
 
 // ==== Small pieces ====
 
-fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
-}
-
-fn text<S: Into<AzString>>(content: S) -> Dom {
-    Dom::create_span_with_text(content)
-}
-
-fn block(css: &str, child: Dom) -> Dom {
-    Dom::create_div().with_css(css).with_child(child)
-}
-
-fn column(css: &str, children: Vec<Dom>) -> Dom {
-    Dom::create_div()
-        .with_css(format!("display: flex; flex-direction: column; {css}"))
-        .with_children(DomVec::from_vec(children))
-}
-
-fn row(css: &str, children: Vec<Dom>) -> Dom {
-    Dom::create_div()
-        .with_css(format!(
-            "display: flex; flex-direction: row; align-items: center; {css}"
-        ))
-        .with_children(DomVec::from_vec(children))
-}
-
-fn button(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-}
-
-fn primary(label: &str, id: AzString, app: &RefAny, cb: ButtonOnClickCallbackType) -> Dom {
-    Button::create(label)
-        .with_button_type(ButtonType::Primary)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-}
+// `strs`, `text`, `block`, `column`, `flex_row`, `button` and `primary` are the shared
+// azul_appkit::pieces (imported above); only the text field is AzNews' own.
 
 fn input(
     value: &str,
@@ -759,7 +722,7 @@ fn article_row(
             if selected == Some(r) { "background-color: rgba(64, 128, 255, 0.18);" } else { "" }
         ),
         vec![
-            row("", head),
+            flex_row("", head),
             block("padding-left: 12px; font-size: 11px; opacity: 0.7;", text(meta)),
             block(
                 "padding-left: 12px; font-size: 12px; opacity: 0.8; max-height: 2.9em; overflow: hidden;",
@@ -859,7 +822,7 @@ fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
         out
     };
     let mut children = vec![
-        row(
+        flex_row(
             "padding: 6px 8px; gap: 6px;",
             vec![block("flex-grow: 1;", search), filter],
         ),
@@ -867,7 +830,7 @@ fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
     ];
     if s.confirm_mark_all {
         children.push(
-            row(
+            flex_row(
                 "padding: 6px 8px; gap: 6px; font-size: 12px;",
                 vec![
                     block(
@@ -901,7 +864,7 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
     let feed = &lib.feeds[r.feed];
     let item = &feed.items[r.item];
     let article = s.article_view(item);
-    let actions = row(
+    let actions = flex_row(
         "gap: 4px; padding: 4px 8px; flex-wrap: wrap;",
         vec![
             button("Previous", ids::READER_PREV, app, on_prev),
@@ -1018,7 +981,7 @@ fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
         ),
         kit::row(
             "Website or feed",
-            row(
+            flex_row(
                 "gap: 6px; flex-grow: 1;",
                 vec![
                     block(
@@ -1100,7 +1063,7 @@ fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
         ));
     }
     actions.push(button("Cancel", ids::ADD_CANCEL, app, on_leave));
-    children.push(row("gap: 6px; padding-top: 12px;", actions));
+    children.push(flex_row("gap: 6px; padding-top: 12px;", actions));
     column(
         "padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;",
         children,
@@ -1121,7 +1084,7 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
         ),
         kit::row(
             "File",
-            row(
+            flex_row(
                 "gap: 6px; flex-grow: 1;",
                 vec![
                     block(
@@ -1175,7 +1138,7 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
                 format!(" \u{b7} {}", r.sub.folder)
             };
             rows.add_child(
-                row(
+                flex_row(
                     "gap: 8px; padding: 3px 0px; font-size: 13px;",
                     vec![
                         check,
@@ -1202,7 +1165,7 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
         actions.push(primary("Import", ids::OPML_RUN, app, on_import_run));
     }
     actions.push(button("Cancel", ids::OPML_CANCEL, app, on_leave));
-    children.push(row("gap: 6px; padding-top: 12px;", actions));
+    children.push(flex_row("gap: 6px; padding-top: 12px;", actions));
     column(
         "padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;",
         children,
@@ -1284,7 +1247,7 @@ fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
             on_unsubscribe,
         ));
     }
-    children.push(row(
+    children.push(flex_row(
         "gap: 6px; padding-top: 12px; flex-wrap: wrap;",
         actions,
     ));

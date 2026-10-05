@@ -33,7 +33,7 @@ use azul::{
         DatePickerOnChangeCallbackType, DropDownOnChoiceChangeCallbackType,
         NumberInputOnValueChangeCallbackType, SegmentedOnChangeCallbackType,
         ShellNavigationPaneOnEventCallbackType, SwitchOnToggleCallbackType, TextAreaOnTextInputCallbackType,
-        TextInputOnTextInputCallbackType,
+        TextInputOnTextInputCallbackType, ToolbarOnEventCallbackType,
     },
     dialog::{FileDialog, FileOpenResult},
     dom::{ClipboardContent, DomNodeId, ScrollIntoViewOptions},
@@ -51,7 +51,8 @@ use azul::{
         Avatar, AvatarSize, ButtonType, CheckBoxState, Chip, ChipState, DatePicker, DatePickerState, DropDown,
         NumberInput, NumberInputState, OnTextInputReturn, Segmented,
         SegmentedState, StatusBar, StatusBarSegment, Switch, SwitchState, TextArea, TextAreaState,
-        TextInputState, TextInputValid, TreeViewNode,
+        TextInputState, TextInputValid, Toolbar, ToolbarEvent, ToolbarEventKind, ToolbarItem,
+        TreeViewNode,
     },
 };
 use azul_appkit::{
@@ -1245,21 +1246,50 @@ fn reading_pane(s: &ContactsApp, app: &RefAny) -> Dom {
     }
 }
 
+/// The toolbar in the ribbon row: azul's `Toolbar` (roving focus, the "more" menu). Each tool's
+/// `id` is its DOM-id name from [`ids`] (`__azcontacts_toolbar-*`, what the E2E clicks): what
+/// [`on_toolbar`] matches.
 fn toolbar(app: &RefAny) -> Dom {
-    let tool = |label: &str, icon: &str, id: AzString, cb: ButtonOnClickCallbackType| {
-        Button::create(label).with_icon(icon).with_on_click(app.clone(), cb).dom().with_id(id)
+    let tool = |id: AzString, label: &str, icon: &str| {
+        ToolbarItem::create_button(id, label, icon).with_show_label(true)
     };
-    flex_row(
-        "gap: 4px; padding: 4px 8px;",
-        vec![
-            tool("New", "person_add", ids::TOOLBAR_NEW, on_new),
-            tool("Import", "file_upload", ids::TOOLBAR_IMPORT, on_import_open),
-            tool("Export", "file_download", ids::TOOLBAR_EXPORT, on_export_view),
-            tool("Duplicates", "merge", ids::TOOLBAR_DUPLICATES, on_open_duplicates),
-            block("flex-grow: 1;", Dom::create_div()),
-            tool("Settings", "settings", ids::TOOLBAR_SETTINGS, on_open_settings),
-        ],
+    let items = vec![
+        tool(ids::TOOLBAR_NEW, "New", "person_add"),
+        tool(ids::TOOLBAR_IMPORT, "Import", "file_upload"),
+        tool(ids::TOOLBAR_EXPORT, "Export", "file_download"),
+        tool(ids::TOOLBAR_DUPLICATES, "Duplicates", "merge"),
+        ToolbarItem::create_spacer(),
+        tool(ids::TOOLBAR_SETTINGS, "Settings", "settings"),
+    ];
+    block(
+        "padding: 4px 8px;",
+        Toolbar::create("Contacts")
+            .with_items(items)
+            .with_on_event(app.clone(), on_toolbar as ToolbarOnEventCallbackType)
+            .dom(),
     )
+}
+
+/// A tool was pressed: the tool's `id` names the command.
+extern "C" fn on_toolbar(data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
+    if event.kind != ToolbarEventKind::Activate {
+        return Update::DoNothing;
+    }
+    let id = event.id.as_str();
+    let command: ButtonOnClickCallbackType = if id == ids::TOOLBAR_NEW.as_str() {
+        on_new
+    } else if id == ids::TOOLBAR_IMPORT.as_str() {
+        on_import_open
+    } else if id == ids::TOOLBAR_EXPORT.as_str() {
+        on_export_view
+    } else if id == ids::TOOLBAR_DUPLICATES.as_str() {
+        on_open_duplicates
+    } else if id == ids::TOOLBAR_SETTINGS.as_str() {
+        on_open_settings
+    } else {
+        return Update::DoNothing;
+    };
+    command(data, info)
 }
 
 fn status_bar(s: &ContactsApp, app: &RefAny) -> Dom {

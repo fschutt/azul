@@ -47,8 +47,6 @@ getrandom = "0.2"
 hmac = "0.12"
 sha1 = "0.10"
 sha2 = "0.10"
-# In Cargo.lock (AzSheets, ironcalc): the browsers' and password managers' CSV exports.
-csv = "1.4"
 
 [dev-dependencies]
 # The shared temporary folder for tests (azul_pim::testing::TempDir).

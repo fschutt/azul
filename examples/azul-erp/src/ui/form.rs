@@ -382,7 +382,7 @@ extern "C" fn on_choice(mut data: RefAny, mut info: CallbackInfo, choice: usize)
 
 /// A record field: a pick puts the record's id into the draft; a query is
 /// kept for the rebuild (the picker filters by it), and an emptied field is
-/// no record.
+/// no record - typed empty, or cleared with the picker's x.
 extern "C" fn on_reference(
     mut data: RefAny,
     mut info: CallbackInfo,
@@ -412,6 +412,10 @@ extern "C" fn on_reference(
                 s.state.set_value(&name, "");
             }
             s.reference_query = Some((name.clone(), text.clone()));
+        }),
+        ReferencePickerEventKind::Clear => with_erp(&mut app, &mut info, |s, _info| {
+            s.reference_query = None;
+            s.state.set_value(&name, "");
         }),
         _ => Update::DoNothing,
     }

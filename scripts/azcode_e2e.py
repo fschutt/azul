@@ -17,6 +17,10 @@ sample workspace (written on the first run into the data folder, code/sample/).
        90003 jumps there (the line shows; only the lines in view are in the tree), the
        colours arrive from the background walk; Ctrl/Cmd+End shows the last lines;
     6. a screenshot after each step, flat light; the mode switched to dark at the end.
+    7. OPEN FOLDER, a second run without --sample on a fresh data folder: the welcome screen;
+       the folder dialog answered by the debug server's mock store (`file_open`), Mod+O picks
+       a project folder (AZCODE_FOLDER <dir>), the explorer lists it (AZCODE_LISTED / 3) and
+       shows its entries.
 
 Usage (after building libazul with the debug server and AzCode; ONE app at a time,
 through scripts/waves/tools/run_capped.sh on the 8 GB Mac):
@@ -151,5 +155,57 @@ def body(args, logs, out):
         app.stop()
 
 
+# The project folder of step 7: a file of each kind and a folder (3 entries at the top).
+PROJECT = {
+    "Cargo.toml": "[package]\nname = \"picked\"\nversion = \"0.1.0\"\n",
+    "notes.md": "# Picked\n\nOpened with Mod+O.\n",
+    os.path.join("src", "lib.rs"): "pub fn picked() -> u32 {\n    7\n}\n",
+}
+
+
+def folder_run(args, logs, out):
+    """7: Mod+O opens the folder the (mocked) folder dialog answers."""
+    binary = e2e.find_binary("AzCode", args.bin, "AZCODE_BIN")
+    data_dir = os.path.join(logs, "data-folder")
+    os.makedirs(data_dir, exist_ok=True)
+    project = os.path.join(logs, "picked-project")
+    for name, text in PROJECT.items():
+        path = os.path.join(project, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+    app = e2e.App(TAG + "-folder", binary, ["--data-dir", data_dir, "--size", "1280x800",
+                                            "--theme", "flat", "--mode", "light"],
+                  args.debug_port, logs, args.timeout)
+    try:
+        app.until("the window", lambda: app.printed("AZCODE_READY", r".*"))
+        app.until("the welcome screen", lambda: app.has_id("__azcode_welcome"))
+        app.frame(2)
+        app.screenshot(os.path.join(out, "8-welcome.png"))
+        app.must("mock", set={"file_open": {"path": project}})
+        app.key("o", primary=True)
+        app.until("the picked folder", lambda: project in app.printed("AZCODE_FOLDER"))
+        app.until("the picked folder listed", lambda: listed(app, "/") == len(PROJECT))
+        app.frame(3)
+        for name in ("src", "Cargo.toml", "notes.md"):
+            if not app.shows(name):
+                raise Failure("the explorer does not show the picked folder's %s" % name)
+        if app.has_id("__azcode_welcome"):
+            raise Failure("the welcome screen is still shown after the folder opened")
+        app.must("wait_settled")
+        app.screenshot(os.path.join(out, "9-picked-folder.png"))
+        app.log("PASS (open folder)")
+        return True
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+
+
+def all_runs(args, logs, out):
+    return body(args, logs, out) and folder_run(args, logs, out)
+
+
 if __name__ == "__main__":
-    e2e.run(TAG, body, default_port=8791)
+    e2e.run(TAG, all_runs, default_port=8791)
