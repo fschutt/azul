@@ -51,6 +51,7 @@
 //! `v run .`. The generated `azul.v` is meant to live in an `azul/`
 //! subdirectory imported via `import azul`.
 
+pub mod fields;
 pub mod functions;
 pub mod types;
 
@@ -86,6 +87,8 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     types::generate_types(&mut b, ir, config, &mut emitted);
     functions::generate_externs(&mut b, ir, config);
+    fields::generate_string_helpers(&mut b, ir);
+    fields::generate_field_accessors(&mut b, ir, config);
 
     Ok(b.finish())
 }

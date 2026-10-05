@@ -20,10 +20,13 @@ None = skipped: callbacks, callback wrappers, RefAny, pointers, generics, arrays
   `get<F>` / `set<F>` for Str/Heap fields only (Prim/Pod stay direct fields). A name an api.json method
   owns for the same receiver (ProcDedup::has_receiver) falls back to `get<F>Field` / `set<F>Field`.
 
+- V: RED then fix (lang_v/fields.rs): `az_string_to_v(&s)` (copies, never consumes);
+  methods `x.get_<f>()` / `x.set_<f>(v)` for Str/Heap fields (`mut` receiver = nested writes).
+
 ## IN PROGRESS
-- Odin.
+- OCaml.
 
 ## NEXT
-- Odin, V, OCaml (+ with_layout leak).
+- OCaml (+ with_layout leak).
 
 ## Open questions
