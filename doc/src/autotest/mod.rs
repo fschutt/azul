@@ -212,7 +212,11 @@ fn collect_target_files(
         }
         let src_dir = project_root.join(src_rel);
         if src_dir.exists() {
-            collect_rust_files(&mut out, crate_name, &src_dir);
+            // The one Rust-file walker of the doc tools; the crate name is
+            // paired here.
+            let mut found = Vec::new();
+            crate::autofix::type_index::rust_files_under(&src_dir, &skips_path, &mut found);
+            out.extend(found.into_iter().map(|path| (crate_name.to_string(), path)));
         }
     }
 
@@ -233,48 +237,14 @@ fn collect_target_files(
     Ok(out)
 }
 
-/// Recursively collect `.rs` files under `dir`, skipping tests/examples/benches/build.rs
-/// (via [`should_exclude_path`]) and obvious generated/codegen output.
-fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir: &Path) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if should_exclude_path(&path) {
-            continue;
-        }
-        if path.is_dir() {
-            collect_rust_files(files, crate_name, &path);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            files.push((crate_name.to_string(), path));
-        }
-    }
-}
-
-/// Paths to exclude from scanning: tests, examples, benches, build scripts, and
-/// generated / codegen output. (Mirrors `autofix::module_map::should_exclude_path`
-/// plus a `codegen` directory exclusion — kept local since autofix is read-only here.)
-fn should_exclude_path(path: &Path) -> bool {
+/// What the scan skips: what the autofix index skips (tests, examples,
+/// benches, build scripts - `autofix::module_map::should_exclude_path`) plus
+/// generated / codegen output. A skipped directory is not entered.
+fn skips_path(path: &Path) -> bool {
     let s = path.to_string_lossy();
-    if s.contains("/tests/") || s.contains("/test/") {
-        return true;
-    }
-    if s.contains("/examples/") || s.contains("/example/") {
-        return true;
-    }
-    if s.contains("/benches/") || s.contains("/bench/") {
-        return true;
-    }
-    // Skip generated / codegen output directories.
-    if s.contains("/codegen/") || s.contains("/generated/") {
-        return true;
-    }
-    if s.ends_with("build.rs") {
-        return true;
-    }
-    false
+    crate::autofix::module_map::should_exclude_path(path)
+        || s.contains("/codegen/")
+        || s.contains("/generated/")
 }
 
 /// Infer the crate name for an absolute path by matching against the known src dirs.

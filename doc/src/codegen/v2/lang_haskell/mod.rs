@@ -72,9 +72,10 @@ use anyhow::Result;
 
 use super::config::CodegenConfig;
 use super::generator::CodeBuilder;
-use super::upper_first;
 use super::ir::CodegenIR;
 use super::module_plan::ModulePlan;
+// `lower_first` is reached by types.rs / wrappers.rs as `super::lower_first`.
+use super::{lower_first, upper_first};
 
 pub mod cshim;
 
@@ -1190,19 +1191,6 @@ fn is_haskell_reserved(s: &str) -> bool {
             | "where"
             | "_"
     )
-}
-
-fn lower_first(s: &str) -> String {
-    if s.is_empty() {
-        return String::new();
-    }
-    let mut out = String::with_capacity(s.len());
-    let first = s.chars().next().unwrap();
-    for c in first.to_lowercase() {
-        out.push(c);
-    }
-    out.push_str(&s[first.len_utf8()..]);
-    out
 }
 
 fn lower_first_word(s: &str) -> String {
