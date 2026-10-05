@@ -379,6 +379,25 @@ fn variant_struct_layout(tag: AbiLayout, padding: usize, members: &[AbiLayout]) 
     AbiLayout::new(align_to(off, align), align)
 }
 
+/// The byte offset of every field of struct `name`, in declaration order
+/// (the same model `fields_layout` sizes the struct with). `None` for an
+/// unknown / generic struct or a field whose layout is unknown.
+pub(crate) fn field_offsets(name: &str, ir: &CodegenIR) -> Option<Vec<(usize, AbiLayout)>> {
+    let s = ir.find_struct(name.trim())?;
+    if !s.generic_params.is_empty() {
+        return None;
+    }
+    let mut off = 0usize;
+    let mut out = Vec::with_capacity(s.fields.len());
+    for f in &s.fields {
+        let l = member_layout(&f.type_name, f.ref_kind, ir, 0)?;
+        off = align_to(off, l.align);
+        out.push((off, l));
+        off += l.size;
+    }
+    Some(out)
+}
+
 /// C struct layout over plain named fields.
 fn fields_layout<'a>(
     fields: impl Iterator<Item = &'a FieldDef>,

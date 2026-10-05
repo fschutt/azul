@@ -502,24 +502,28 @@ end
 -- with
 --   window:with({ window_state = { title = 'Hello World',
 --                  size = { dimensions = { width = 400.0 } } } })
--- The FFI lets us assign nested cdata struct fields directly
--- (`struct.field = value`); we only need to recurse into Lua tables and
--- auto-convert strings. Everything else (wrapper instances, enum
--- constants, numbers, booleans) direct-assigns — the FFI does the byte
--- copy. A cdata value byte-copied into a field is thereby OWNED by the
--- containing struct (Rust drops it with the struct), so its own finalizer
--- is detached like for any other consumed by-value argument.
-azul._apply_opts = function(struct, opts)
+-- `tn` is the C type of `struct` (every `:with` passes its own);
+-- `azul._az_ft[tn]` names the type of each String / struct / union field,
+-- so those go through `azul._set_field`: the old value is released and the
+-- new one deep-copied in (never aliased). Scalars (numbers, booleans, enum
+-- constants) direct-assign. Without a type name (a direct call with two
+-- arguments) the old behaviour stays: strings convert, a cdata value is
+-- byte-copied in and its finalizer detached.
+azul._apply_opts = function(struct, opts, tn)
     -- `opts` is always a plain Lua table; `not opts` is safe to falsy-
     -- check. We deliberately do NOT check `struct == nil`: cdata types
     -- with an __eq metamethod invoke it with `nil` as the second operand.
     if not opts then return end
+    local ft = tn and azul._az_ft[tn]
     for k, v in pairs(opts) do
         local t = type(v)
-        if t == 'string' then
+        local ftn = ft and ft[k]
+        if t == 'table' then
+            azul._apply_opts(struct[k], v, ftn)
+        elseif ftn then
+            azul._set_field(struct, k, ftn, v)
+        elseif t == 'string' then
             struct[k] = azul._az_string(v)
-        elseif t == 'table' then
-            azul._apply_opts(struct[k], v)
         else
             struct[k] = v
             azul._consume(v)
@@ -527,4 +531,127 @@ azul._apply_opts = function(struct, opts)
     end
 end
 
+-- The text of an AzString (a struct or a field view), decoded into a Lua
+-- string. The AzString is neither consumed nor freed.
+function azul._read_string(s)
+    if s.vec.ptr == nil or s.vec.len == 0 then return '' end
+    return ffi.string(s.vec.ptr, _tonum(s.vec.len))
+end
+
+-- The value to MOVE into a by-value slot of C type `tn`, never aliasing
+-- the caller's value: a heap-owning value is deep-copied (`_clone`; the
+-- caller keeps its own and its finalizer frees it), a POD value is copied
+-- by the assignment itself. A heap-owning type without a deep copy is
+-- taken over instead (its finalizer is detached).
+function azul._take(v, tn)
+    local clone = azul._az_clone[tn]
+    if clone then return C[clone](v) end
+    if azul._az_delete[tn] then azul._consume(v) end
+    return v
+end
+
+-- `struct[k] = v` for a field of C type `tn`: a Lua string becomes a fresh
+-- AzString, any other value goes through `_take`; the field's old value is
+-- released (`_delete`) before the new bytes are written.
+function azul._set_field(struct, k, tn, v)
+    local new
+    if type(v) == 'string' then
+        if tn ~= 'AzString' then
+            error('azul: field ' .. k .. ' is a ' .. tn .. ', not a string', 3)
+        end
+        new = azul._az_string(v)
+    else
+        new = azul._take(v, tn)
+    end
+    local del = azul._az_delete[tn]
+    if del then C[del](struct[k]) end
+    struct[k] = new
+end
+
 "#;
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::super::config::CodegenConfig;
+    use super::*;
+
+    /// `azul.lua` for the real api.json, generated once.
+    fn azul_lua() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("lua codegen")
+        })
+    }
+
+    /// The line that starts with `head` (after indentation).
+    fn line(head: &str) -> &'static str {
+        azul_lua()
+            .lines()
+            .map(str::trim_start)
+            .find(|l| l.starts_with(head))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", head))
+    }
+
+    /// A postlude helper: from `function <name>(` / `<name> = function(`
+    /// up to its closing top-level `end`.
+    fn helper(name: &str) -> &'static str {
+        let out = azul_lua();
+        let i = out
+            .find(&format!("function {}(", name))
+            .or_else(|| out.find(&format!("{} = function(", name)))
+            .unwrap_or_else(|| panic!("helper {} is missing", name));
+        let rest = &out[i..];
+        &rest[..rest.find("\nend\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn a_window_title_reads_as_a_lua_string_and_its_setter_releases_the_old_title() {
+        let get = line("function FullWindowState_methods:get_title()");
+        assert!(get.contains("azul._read_string(self.title)"), "{}", get);
+        let set = line("function FullWindowState_methods:set_title(v)");
+        assert!(set.contains("azul._set_field(self, 'title', 'AzString', v)"), "{}", set);
+        let sf = helper("azul._set_field");
+        assert!(sf.contains("C[del](struct[k])"), "the old value is released:\n{}", sf);
+        assert!(!helper("azul._read_string").contains("_delete"), "reading never frees");
+    }
+
+    #[test]
+    fn a_value_moved_into_a_field_is_deep_copied_never_aliased() {
+        let take = helper("azul._take");
+        assert!(take.contains("C[clone](v)"), "{}", take);
+        let set = line("function WindowCreateOptions_methods:set_window_state(v)");
+        assert!(set.contains("'AzFullWindowState'"), "{}", set);
+        let get = line("function WindowCreateOptions_methods:get_window_state()");
+        assert!(get.contains("C.AzFullWindowState_clone(self.window_state)"), "{}", get);
+        assert!(get.contains("ffi.gc("), "the copy is owned by the caller:\n{}", get);
+    }
+
+    #[test]
+    fn apply_opts_knows_each_field_type_and_releases_the_old_value() {
+        let with = line("function WindowCreateOptions_methods:with(opts)");
+        assert!(with.contains("azul._apply_opts(self, opts, 'AzWindowCreateOptions')"), "{}", with);
+        let apply = helper("azul._apply_opts");
+        assert!(apply.contains("azul._set_field(struct, k, ftn, v)"), "{}", apply);
+        let ft = line("azul._az_ft.AzFullWindowState = {");
+        assert!(ft.contains("title = 'AzString'"), "{}", ft);
+        assert!(ft.contains("size = 'AzWindowSize'"), "{}", ft);
+        assert!(!ft.contains("layout_callback"), "callbacks are not plain fields:\n{}", ft);
+        let wco = line("azul._az_ft.AzWindowCreateOptions = {");
+        assert!(wco.contains("window_state = 'AzFullWindowState'"), "{}", wco);
+    }
+
+    #[test]
+    fn a_bool_field_has_typed_accessors() {
+        assert!(line("function CheckBoxState_methods:set_checked(v)").contains("self.checked = v"));
+        assert!(line("function CheckBoxState_methods:get_checked()").contains("self.checked"));
+    }
+
+    #[test]
+    fn a_field_whose_getter_name_is_an_api_method_is_still_settable() {
+        let set = line("function TextInputState_methods:set_text(v)");
+        assert!(set.contains("'AzU32Vec'"), "{}", set);
+        let get = line("function TextInputState_methods:get_text(");
+        assert!(get.contains("AzTextInputState_getText"), "the api method wins:\n{}", get);
+    }
+}

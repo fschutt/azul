@@ -63,6 +63,7 @@ pub mod abi_guard;
 mod bug_classes;
 pub mod c_layout;
 pub mod config;
+pub mod field_access;
 pub mod conformance;
 pub mod field_access_classic;
 pub mod generator;
