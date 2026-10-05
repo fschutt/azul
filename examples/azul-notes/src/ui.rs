@@ -14,7 +14,7 @@ use azul::{
         ShellCommandPaletteOnQueryCallbackType, ShellCommandPaletteOnRunCallbackType,
         ShellNavigationPaneOnEventCallbackType, ShellOnPaneResizeCallbackType,
         StandardDialogOnEventCallbackType, TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
-        TextInputOnVirtualKeyDownCallbackType, Update,
+        TextInputOnVirtualKeyDownCallbackType, ToolbarOnEventCallbackType, Update,
     },
     css::{ColorU, DarkLightMode, EventFilter},
     dom::{Dom, VirtualKeyCode},
@@ -31,7 +31,8 @@ use azul::{
         SummaryListEventKind, SummaryListMark, SummaryRow, OnTextInputReturn, RichBlockKind,
         RichCheck, RichFormat, RichTextCommand, Segmented, SegmentedState, StatusBar,
         StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInput, TextInputState,
-        TextInputValid, Titlebar, TreeViewNode, Modal, ModalState, StandardDialogEvent,
+        TextInputValid, Titlebar, Toolbar, ToolbarEvent, ToolbarItem, TreeViewNode, Modal,
+        ModalState, StandardDialogEvent,
     },
     window::WindowEventFilter,
 };
@@ -783,12 +784,6 @@ enum Tool {
     Link,
 }
 
-/// The payload of a toolbar button.
-struct ToolRef {
-    app: RefAny,
-    tool: Tool,
-}
-
 /// The toolbar's buttons: `(id, icon, label, name, tool)`; a label shows as
 /// text when there is no icon.
 fn tools() -> Vec<(AzString, &'static str, &'static str, &'static str, Tool)> {
@@ -830,63 +825,60 @@ fn tools() -> Vec<(AzString, &'static str, &'static str, &'static str, Tool)> {
     ]
 }
 
-/// The formatting toolbar; the block kind and the formats at the caret
-/// show pressed.
+/// The formatting toolbar, azul's `Toolbar`: the block kind and the formats
+/// at the caret show pressed (toggles), the other tools are buttons; each
+/// tool's id is its `ids::TOOL_*` (what its event carries).
 fn toolbar(s: &AppState, app: &RefAny, look: &Look) -> Dom {
-    let mut row = Dom::create_div()
-        .with_id(ids::FORMAT_TOOLBAR)
-        .with_accessibility_name("Formatting")
-        .with_css(format!(
-            "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 4px 24px; \
-             border-bottom: 1px solid {}; flex-shrink: 0;",
-            look.line
-        ));
+    let mut items = Vec::new();
     for (id, icon, label, name, tool) in tools() {
         let divider = [ids::TOOL_H3, ids::TOOL_CODE, ids::TOOL_INDENT, ids::TOOL_CODEBLOCK].contains(&id);
         let pressed = match &tool {
-            Tool::Command(RichTextCommand::ToggleKind(kind)) => s.editor.is_current_kind(kind.clone()),
+            Tool::Command(RichTextCommand::ToggleKind(kind)) => Some(s.editor.is_current_kind(kind.clone())),
             Tool::Command(RichTextCommand::ToggleFormat(format)) => {
-                s.editor.is_current_format(format.clone())
+                Some(s.editor.is_current_format(format.clone()))
             }
-            Tool::Command(RichTextCommand::ToggleQuote) => s.editor.is_current_quoted(),
-            _ => false,
+            Tool::Command(RichTextCommand::ToggleQuote) => Some(s.editor.is_current_quoted()),
+            _ => None,
         };
-        let mut button = Button::create(label).with_on_click(
-            RefAny::new(ToolRef {
-                app: app.clone(),
-                tool,
-            }),
-            on_tool as ButtonOnClickCallbackType,
-        );
-        if !icon.is_empty() {
-            button = button.with_icon(icon);
-        }
-        if pressed {
-            button = button.with_button_type(ButtonType::Primary);
-        }
-        row.add_child(
-            button
-                .dom()
-                .with_id(id)
-                .with_accessibility_name(name)
-                .with_css("margin-right: 2px; margin-bottom: 2px;"),
-        );
+        // A tool without an icon shows its label (H1 - H3) and says its name as a
+        // tooltip; an icon-only tool is named by its label.
+        let shown = if icon.is_empty() { label } else { name };
+        let item = match pressed {
+            Some(on) => ToolbarItem::create_toggle(id, shown, icon, on),
+            None => ToolbarItem::create_button(id, shown, icon),
+        };
+        items.push(if icon.is_empty() { item.with_tooltip(name) } else { item });
         if divider {
-            row.add_child(Dom::create_div().with_css(format!(
-                "width: 1px; height: 20px; margin: 0px 6px; background: {};",
-                look.line
-            )));
+            items.push(ToolbarItem::create_separator());
         }
     }
-    row
+    Dom::create_div()
+        .with_id(ids::FORMAT_TOOLBAR)
+        .with_css(format!(
+            "padding: 4px 24px; border-bottom: 1px solid {}; flex-shrink: 0;",
+            look.line
+        ))
+        .with_child(
+            Toolbar::create("Formatting")
+                .with_items(items)
+                .with_on_event(app.clone(), on_tool_event as ToolbarOnEventCallbackType)
+                .dom(),
+        )
 }
 
-extern "C" fn on_tool(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (mut app, tool) = match data.downcast_ref::<ToolRef>() {
-        Some(t) => (t.app.clone(), t.tool.clone()),
-        None => return Update::DoNothing,
+/// A formatting tool was used (a button activated, a toggle switched): its
+/// command runs on the editor - a toggle's state is the editor's at the
+/// caret on the rebuild - and the caret goes back to the text (unless the
+/// link sheet opened).
+extern "C" fn on_tool_event(mut data: RefAny, mut info: CallbackInfo, event: ToolbarEvent) -> Update {
+    let Some(tool) = tools()
+        .into_iter()
+        .find(|t| t.0 == event.id)
+        .map(|t| t.4)
+    else {
+        return Update::DoNothing;
     };
-    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+    let Some(mut guard) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
     let s = &mut *guard;
