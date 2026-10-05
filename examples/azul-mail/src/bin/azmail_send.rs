@@ -5,7 +5,8 @@
 //! azmail-send --data <AzMail folder> --account <id> --from <addr> --to <addr> [--to ...]
 //!     [--cc <addr>]... [--bcc <addr>]... [--subject <text>] [--text <text>] [--html <html>]
 //!     [--attach <file>[=<mime type>]]... [--in-reply-to <id>] [--reference <id>]...
-//!     [--smtp <host:port> | --direct] [--direct-port <port>] [--tls opportunistic|required|off]
+//!     [--smtp <host:port> | --direct | --submission] [--password-env <VAR>]
+//!     [--direct-port <port>] [--tls opportunistic|required|off|implicit]
 //!     [--ca <pem file>] [--helo <name>] [--ignore-policy]
 //!     [--dkim-domain <d> --dkim-selector <s> --dkim-key <pem file>] [--save-settings]
 //!     [--dkim-generate <pem file>] [--port25-probe <host:port>]...
@@ -18,6 +19,10 @@
 //! `AZMAIL_DKIM_VALUE v=DKIM1; k=rsa; p=...` (the domain: `--dkim-domain`, else the From
 //! address's; the selector: `--dkim-selector`, else this month's). `--port25-probe` points the
 //! port-25 probe at a test address instead of the big providers' exchangers.
+//!
+//! `--submission` signs in to the account's own outgoing server (`smtp` in its `account.json`,
+//! with its user name and kind of secret); the secret comes from the environment variable
+//! `--password-env` names (never from the command line, where `ps` would show it).
 //!
 //! Without route options the account's `sending.json` is used. Prints one line per mail:
 //! `AZMAIL_SEND sent <message-id>`, `AZMAIL_SEND queued <reason>` or
@@ -37,8 +42,9 @@ fn usage(why: &str) -> ! {
     eprintln!(
         "usage: azmail-send --data <dir> --account <id> --from <addr> --to <addr> [--cc ..] \
          [--bcc ..] [--subject ..] [--text ..] [--html ..] [--attach file[=mime]] \
-         [--in-reply-to id] [--reference id] [--smtp host:port | --direct] [--direct-port n] \
-         [--tls opportunistic|required|off] [--ca pem] [--helo name] [--ignore-policy] \
+         [--in-reply-to id] [--reference id] [--smtp host:port | --direct | --submission] \
+         [--password-env VAR] [--direct-port n] [--tls opportunistic|required|off|implicit] \
+         [--ca pem] [--helo name] [--ignore-policy] \
          [--dkim-domain d --dkim-selector s --dkim-key pem] [--save-settings] | --retry [--force]"
     );
     std::process::exit(3);
@@ -69,6 +75,7 @@ fn main() {
     let mut dkim = DkimSettings::default();
     let mut dkim_generate: Option<PathBuf> = None;
     let mut port25_probe: Vec<String> = Vec::new();
+    let mut password_env: Option<String> = None;
     let mut retry = false;
     let mut force = false;
     let mut save = false;
@@ -127,6 +134,8 @@ fn main() {
                 });
             }
             "--direct" => route = Some(SendRoute::Direct),
+            "--submission" => route = Some(SendRoute::Submission),
+            "--password-env" => password_env = Some(value("--password-env")),
             "--direct-port" => {
                 direct_port = Some(
                     value("--direct-port")
@@ -139,7 +148,10 @@ fn main() {
                     "opportunistic" => TlsPolicy::Opportunistic,
                     "required" => TlsPolicy::Required,
                     "off" => TlsPolicy::Off,
-                    other => usage(&format!("--tls {other}: opportunistic, required or off")),
+                    "implicit" => TlsPolicy::Implicit,
+                    other => usage(&format!(
+                        "--tls {other}: opportunistic, required, off or implicit"
+                    )),
                 })
             }
             "--ca" => ca = Some(PathBuf::from(value("--ca"))),
@@ -183,6 +195,14 @@ fn main() {
     }
     if !port25_probe.is_empty() {
         settings.port25_probe = port25_probe;
+    }
+    if let Some(var) = password_env {
+        match std::env::var(&var) {
+            Ok(secret) if !secret.is_empty() => {
+                settings.sign_in = Some(azmail::account::Secret::new(secret))
+            }
+            _ => usage(&format!("the environment variable {var} holds no password")),
+        }
     }
     if let Some(path) = dkim_generate {
         let pair = azmail::dkim::generate_key().unwrap_or_else(|e| usage(&e));
