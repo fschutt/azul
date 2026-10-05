@@ -1508,7 +1508,7 @@ impl DataTable {
             viewport_height: 800.0,
             row_height: 26.0,
             header_height: 30.0,
-            font_size: 13.0,
+            font_size: DEFAULT_FONT_PX,
             row_count,
             frozen_columns: 0,
             theme: None.into(),
@@ -2205,9 +2205,16 @@ pub(crate) static DATA_TABLE_CELL_BASE: &[CssPropertyWithConditions] = &[
     simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
     simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-    simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(6))),
-    simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(6))),
+    simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(CELL_PADDING_X))),
+    simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(CELL_PADDING_X))),
 ];
+
+/// A cell's left (and right) padding, px: what a fitted column adds to its
+/// text on each side.
+pub(crate) const CELL_PADDING_X: isize = 6;
+
+/// The cells' font size unless the app sets one, px.
+pub(crate) const DEFAULT_FONT_PX: f32 = 13.0;
 
 /// A header: a cell that is clicked.
 pub(crate) static DATA_TABLE_HEADER_BASE: &[CssPropertyWithConditions] =
@@ -3509,28 +3516,73 @@ pub(crate) fn drag_end(t: &DataTable) -> Option<DataTableEvent> {
     next.drag = DataTableDrag::default();
     match drag.kind {
         DataTableDragKind::None => None,
-        DataTableDragKind::ResizeColumn => {
-            let mut widths: Vec<CellGridSize> = view
-                .widths
-                .as_slice()
-                .iter()
-                .copied()
-                .filter(|w| w.index != drag.column)
-                .collect();
-            widths.push(CellGridSize::create(drag.column, drag.size));
-            next.widths = CellGridSizeVec::from_vec(widths);
-            let mut e = DataTableEvent::create(DataTableEventKind::ResizeColumn, next);
-            e.index = drag.column;
-            e.size = drag.size;
-            Some(e)
-        }
+        DataTableDragKind::ResizeColumn => Some(resized(next, drag.column, drag.size)),
         _ => Some(DataTableEvent::create(DataTableEventKind::Drag, next)),
     }
 }
 
-/// What a double-click on `hit` does: edit an editable cell, open the row
-/// of any other.
+/// The `ResizeColumn` event that leaves column `column` `size` px wide in
+/// `next` (the view kept the width; a resize drag's release and an edge's
+/// double-click).
+fn resized(mut next: DataTableView, column: u32, size: f32) -> DataTableEvent {
+    let mut widths: Vec<CellGridSize> = next
+        .widths
+        .as_slice()
+        .iter()
+        .copied()
+        .filter(|w| w.index != column)
+        .collect();
+    widths.push(CellGridSize::create(column, size));
+    next.widths = CellGridSizeVec::from_vec(widths);
+    let mut e = DataTableEvent::create(DataTableEventKind::ResizeColumn, next);
+    e.index = column;
+    e.size = size;
+    e
+}
+
+/// The width that fits column `column` to its widest text IN VIEW - its
+/// header (with a sorted column's arrow) and its cells in the rows shown -
+/// reckoned as the cell grid's auto-fit is ([`crate::widgets::cell_grid::SPILL_EM`]
+/// of the font size per character: the table is built before its text is
+/// measured), plus the cell's padding; never under [`MIN_COLUMN_PX`].
+#[allow(clippy::cast_precision_loss)] // a text's length in characters
+pub(crate) fn fit_width(t: &DataTable, geo: &Geometry, column: u32) -> f32 {
+    let title = t.columns.get(column as usize).map_or("", |c| c.title.as_str());
+    let header = header_label(title, t.view.sort_of(column), t.view.sort.len());
+    let widest = geo
+        .rows
+        .iter()
+        .filter_map(|b| t.view.row_at(b.index, t.row_count).into_option())
+        .map(|row| {
+            cell_content(&t.data_source, DataTableCellRef::create(row, column))
+                .text
+                .as_str()
+                .chars()
+                .count()
+        })
+        .chain(core::iter::once(header.chars().count()))
+        .max()
+        .unwrap_or(0);
+    let font = if t.font_size.is_finite() && t.font_size > 0.0 {
+        t.font_size
+    } else {
+        DEFAULT_FONT_PX
+    };
+    (widest as f32 * font * crate::widgets::cell_grid::SPILL_EM + 2.0 * CELL_PADDING_X as f32)
+        .max(MIN_COLUMN_PX)
+}
+
+/// What a double-click on `hit` does: on a column's edge fit the column to
+/// its widest text in view (Excel, Explorer); edit an editable cell, open
+/// the row of any other.
 pub(crate) fn double_click(t: &DataTable, hit: Hit) -> Option<DataTableEvent> {
+    if let Hit::HeaderEdge(column) = hit {
+        let size = fit_width(t, &geometry(t), column);
+        let mut next = t.view.clone();
+        // The first click of the two grabbed the edge: no drag stays.
+        next.drag = DataTableDrag::default();
+        return Some(resized(next, column, size));
+    }
     let Hit::Cell(position, column) = hit else {
         return None;
     };
