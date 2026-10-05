@@ -990,6 +990,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_lang_attribute_lands_on_its_node_as_the_content_language() {
+        // CSS Text 3 5.4: `hyphens: auto` hyphenates in the CONTENT
+        // LANGUAGE, which markup states with `lang` (`xml:lang` in XML). The
+        // table had no entry for either, so every loader dropped `lang="en"`
+        // and nothing downstream could read it (pdfocr engine issue 3).
+        for name in ["lang", "LANG", "xml:lang"] {
+            assert_eq!(
+                setting_of("div", name, "en-GB").map(|(_, s)| s),
+                Some(NodeSetting::Attribute(AttributeType::Lang(AzString::from(
+                    "en-GB"
+                )))),
+                "`{name}=\"en-GB\"` on a div"
+            );
+        }
+    }
+
+    #[test]
     fn a_data_url_in_a_style_attribute_keeps_its_base64_payload() {
         // `style.split(';')` cut the declaration at the `;` inside
         // `url(data:image/png;base64,...)`: the background was dropped (SYSUI8).
