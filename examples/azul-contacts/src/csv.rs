@@ -3,9 +3,10 @@
 //! per row. Each column is MAPPED to a contact field; the mapping starts from the header's
 //! name (`guess`, the names both write), and the import preview lets the user change it.
 //!
-//! The file: RFC 4180 (fields in double quotes may hold the separator, line breaks and `""`
-//! for a quote), CRLF or LF, a leading byte-order mark dropped, the separator - comma,
-//! semicolon (Excel in many locales) or tab - the one the header line holds most of.
+//! The file is read by the Azlin apps' one CSV reader (`azul_appkit::csv`): RFC 4180 (fields
+//! in double quotes may hold the separator, line breaks and `""` for a quote), CRLF or LF, a
+//! leading byte-order mark dropped, the separator - comma, semicolon (Excel in many locales)
+//! or tab - the one the header line holds most of.
 
 use crate::contact::{Address, Birthday, Contact, Labeled};
 
@@ -100,86 +101,12 @@ impl Field {
 }
 
 /// A CSV file: its header and its rows (each as long as the header).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Table {
-    pub headers: Vec<String>,
-    pub rows: Vec<Vec<String>>,
-}
+pub use azul_appkit::csv::Table;
 
-/// Reads a CSV text; `Err` says why it is no table (no header, a quote left open).
+/// Reads a CSV text with the apps' one reader ([`azul_appkit::csv::read_table`]); `Err` says
+/// why it is no table (no header row).
 pub fn parse(text: &str) -> Result<Table, String> {
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let first = text.lines().next().unwrap_or_default();
-    if first.trim().is_empty() {
-        return Err(String::from("The file is empty: it has no header row."));
-    }
-    // The separator the header holds most of (a comma on a tie).
-    let sep = [',', ';', '\t']
-        .into_iter()
-        .fold((',', 0usize), |best, c| {
-            let n = first.matches(c).count();
-            if n > best.1 {
-                (c, n)
-            } else {
-                best
-            }
-        })
-        .0;
-    let mut records: Vec<Vec<String>> = Vec::new();
-    let mut record: Vec<String> = Vec::new();
-    let mut field = String::new();
-    let mut quoted = false;
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if quoted {
-            match c {
-                '"' if chars.peek() == Some(&'"') => {
-                    field.push('"');
-                    chars.next();
-                }
-                '"' => quoted = false,
-                // A CRLF inside a field is one line break.
-                '\r' if chars.peek() == Some(&'\n') => {}
-                _ => field.push(c),
-            }
-            continue;
-        }
-        match c {
-            '"' if field.is_empty() => quoted = true,
-            '\r' => {}
-            '\n' => {
-                record.push(std::mem::take(&mut field));
-                records.push(std::mem::take(&mut record));
-            }
-            c if c == sep => record.push(std::mem::take(&mut field)),
-            _ => field.push(c),
-        }
-    }
-    if quoted {
-        return Err(String::from(
-            "A quoted field is not closed: the file ends inside it.",
-        ));
-    }
-    if !field.is_empty() || !record.is_empty() {
-        record.push(field);
-        records.push(record);
-    }
-    let mut records = records.into_iter();
-    let headers: Vec<String> = records
-        .next()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|h| h.trim().to_string())
-        .collect();
-    let rows = records
-        // A blank line is no row.
-        .filter(|r| !(r.len() == 1 && r[0].trim().is_empty()))
-        .map(|mut r| {
-            r.resize(headers.len(), String::new());
-            r
-        })
-        .collect();
-    Ok(Table { headers, rows })
+    azul_appkit::csv::read_table(text)
 }
 
 /// The field a column named `header` most likely holds (Outlook's and Google's names, any
@@ -379,7 +306,9 @@ mod tests {
         let t = parse("Name\tEmail\r\nAda\tada@example.org").unwrap();
         assert_eq!(t.rows, [vec!["Ada", "ada@example.org"]]);
         assert!(parse("").is_err(), "no header");
-        assert!(parse("Name\n\"Ada").is_err(), "a quote left open");
+        // A quote left open reads to the end of the file (the csv crate does not report it).
+        let t = parse("Name\n\"Ada").unwrap();
+        assert_eq!(t.rows, [vec!["Ada"]]);
     }
 
     #[test]
