@@ -860,18 +860,39 @@ pub fn resolve_focus_target_in(
             Ok(FocusResolution::NotFound)
         }
 
+        // Programmatic focus by id. A node that can hold focus (tabindex -1
+        // included: focusable, just not tabbable) takes it. One that cannot -
+        // the wrapper an app named with `.with_id` around a widget's inner
+        // field (a search TextInput's row) - hands it to its first focusable
+        // descendant in document order, like HTML's `delegatesFocus`: the app
+        // can only name the root `dom()` returned, never the field inside.
+        // With no focusable descendant the node itself is focused, as before.
         Id(dom_node_id) => {
             let layout = ctx.get_layout(&dom_node_id.dom)?;
-            let is_valid = dom_node_id
+            let node_data = layout.styled_dom.node_data.as_container();
+            let Some(node) = dom_node_id
                 .node
                 .into_crate_internal()
-                .is_some_and(|n| layout.styled_dom.node_data.as_container().get(n).is_some());
-
-            if is_valid {
-                Ok(FocusResolution::Resolved(*dom_node_id))
-            } else {
-                Err(UpdateFocusWarning::FocusInvalidNodeId(dom_node_id.node))
+                .filter(|n| node_data.get(*n).is_some())
+            else {
+                return Err(UpdateFocusWarning::FocusInvalidNodeId(dom_node_id.node));
+            };
+            if node_data[node].is_focusable() {
+                return Ok(FocusResolution::Resolved(*dom_node_id));
             }
+            let hierarchy = layout.styled_dom.node_hierarchy.as_container();
+            let delegate = (node.index() + 1..node_data.len())
+                .map(NodeId::new)
+                // Pre-order: the subtree is contiguous, so the first node
+                // outside it ends the search.
+                .take_while(|d| d.get_nearest_matching_parent(&hierarchy, |p| p == node).is_some())
+                .find(|d| node_data[*d].is_focusable());
+            Ok(FocusResolution::Resolved(delegate.map_or(*dom_node_id, |d| {
+                DomNodeId {
+                    dom: dom_node_id.dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(d)),
+                }
+            })))
         }
 
         // MWA-C-focus_cursor: sequential navigation goes through the W3C tab
@@ -2163,29 +2184,49 @@ mod autotest_generated {
         );
     }
 
+    /// Programmatic focus by id: a focusable node takes it (tabindex=-1 too:
+    /// focusable, just not tabbable); one that cannot hold focus hands it to
+    /// its first focusable descendant (HTML's `delegatesFocus`), and keeps it
+    /// only when it has none.
     #[test]
-    fn resolve_focus_target_id_accepts_valid_but_unfocusable_node() {
-        // `Id` checks only that the node EXISTS — programmatic focus deliberately
-        // bypasses the focusability check (unlike `Path` and the tab order).
-        // Node 0 is the body and node 4 is tabindex=-1: both resolve.
+    fn resolve_focus_target_id_delegates_an_unfocusable_node_to_its_first_focusable_descendant() {
+        // 0 body { 1 div, 2 button, 3 tabindex=2, 4 tabindex=-1, ... }
         let results = window(vec![(dom(0), tab_fixture())]);
-        assert_eq!(
+        let resolve = |n| {
             resolve_focus_target(
-                &FocusTarget::Id(nid(0, 0)),
+                &FocusTarget::Id(nid(0, n)),
                 &results,
                 None,
-                &BTreeSet::new()
-            ),
-            Ok(FocusResolution::Resolved(nid(0, 0)))
+                &BTreeSet::new(),
+            )
+        };
+        // The body cannot hold focus: its first focusable descendant (the
+        // button, not the plain div before it) takes it.
+        assert_eq!(resolve(0), Ok(FocusResolution::Resolved(nid(0, 2))));
+        assert_eq!(resolve(4), Ok(FocusResolution::Resolved(nid(0, 4))));
+        // A plain div with no focusable descendant keeps the focus.
+        assert_eq!(resolve(1), Ok(FocusResolution::Resolved(nid(0, 1))));
+    }
+
+    /// The search for a delegate stays inside the named node's subtree: a
+    /// focusable node AFTER it in document order is not its descendant.
+    #[test]
+    fn resolve_focus_target_id_never_delegates_to_a_node_outside_the_subtree() {
+        // 0 body { 1 panel { 2 div }, 3 button }
+        let sd = StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_div().with_child(Dom::create_div()))
+                .with_child(Dom::create_node(NodeType::Button)),
         );
+        let results = window(vec![(dom(0), sd)]);
         assert_eq!(
             resolve_focus_target(
-                &FocusTarget::Id(nid(0, 4)),
+                &FocusTarget::Id(nid(0, 1)),
                 &results,
                 None,
                 &BTreeSet::new()
             ),
-            Ok(FocusResolution::Resolved(nid(0, 4)))
+            Ok(FocusResolution::Resolved(nid(0, 1)))
         );
     }
 
