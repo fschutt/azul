@@ -355,4 +355,24 @@ mod tests {
         assert_eq!(data::ROWS, 500_000);
         assert_eq!(data::COLUMNS.len(), 25);
     }
+
+    #[test]
+    fn every_class_and_id_of_the_dashboard_carries_the_one_azdash_prefix() {
+        // The second, longer prefix, spelled in halves so the test does not find itself.
+        let second_prefix = ["__azdash", "board_"].concat();
+        let sources = [
+            ("chart.rs", include_str!("chart.rs")),
+            ("data.rs", include_str!("data.rs")),
+            ("ids.rs", include_str!("ids.rs")),
+            ("lib.rs", include_str!("lib.rs")),
+            ("table.rs", include_str!("table.rs")),
+        ];
+        for (file, source) in sources {
+            assert!(
+                !source.contains(second_prefix.as_str()),
+                "{file} names a class or an id with {second_prefix}, not {}",
+                ids::PREFIX
+            );
+        }
+    }
 }
