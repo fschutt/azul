@@ -1793,6 +1793,45 @@ mod dom_tests {
     }
 
     #[test]
+    fn the_presets_are_one_tab_stop_and_arrows_walk_them() {
+        let (s, _) = styled(sample());
+        let presets = with_class(&s, DATE_RANGE_PRESET_CLASS);
+        let nodes = s.node_data.as_ref();
+        let stops: Vec<usize> = presets
+            .iter()
+            .copied()
+            .filter(|i| nodes[*i].get_tab_index() == Some(TabIndex::Auto))
+            .collect();
+        assert_eq!(stops, vec![presets[0]], "the first preset holds the presets' one Tab stop");
+        let walk = |from: usize, key: VirtualKeyCode| {
+            let (_, changes) = rv::press(&s, node(from), key, &[]).expect("a preset hears the arrows");
+            assert!(rv::prevented(&changes), "{key:?} is the presets'");
+            rv::focus_request(&changes)
+        };
+        let last = presets.len() - 1;
+        assert_eq!(walk(presets[0], VirtualKeyCode::Down), Some(node(presets[1])), "Down: the next");
+        assert_eq!(walk(presets[1], VirtualKeyCode::Up), Some(node(presets[0])), "Up: the one before");
+        assert_eq!(walk(presets[0], VirtualKeyCode::End), Some(node(presets[last])), "End: the last");
+        assert_eq!(walk(presets[last], VirtualKeyCode::Home), Some(node(presets[0])), "Home: the first");
+    }
+
+    #[test]
+    fn shift_page_down_turns_a_year() {
+        let turned = |key: VirtualKeyCode| {
+            let (s, log) = styled(sample());
+            let all = days(&s);
+            let (_, changes) =
+                rv::press(&s, node(all[0]), key, &[VirtualKeyCode::LShift]).expect("keys");
+            assert!(rv::prevented(&changes), "Shift+{key:?} is the picker's");
+            let last = log.lock().expect("log").last().copied().expect("an event");
+            assert_eq!(last.kind, DateRangePickerEventKind::Navigated);
+            (last.view.year, last.view.month)
+        };
+        assert_eq!(turned(VirtualKeyCode::PageDown), (2027, 3), "Shift+Page Down: a year on");
+        assert_eq!(turned(VirtualKeyCode::PageUp), (2025, 3), "Shift+Page Up: a year back");
+    }
+
+    #[test]
     fn a_preset_picks_its_span_and_shows_its_months() {
         let (s, log) = styled(empty());
         let presets = with_class(&s, DATE_RANGE_PRESET_CLASS);
