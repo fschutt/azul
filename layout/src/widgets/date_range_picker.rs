@@ -35,7 +35,10 @@
 //! KEYBOARD: the days of both months are ONE Tab stop; the arrows move the
 //! focus across both months (Left / Right a day, Up / Down a week, Home /
 //! End the week's ends), Enter or Space picks the focused day, Page Up /
-//! Down turn the months. The presets are buttons.
+//! Down turn the months, Shift+Page Up / Down a year. The presets are
+//! buttons and ONE Tab stop: Up / Down walk them, Home / End go to the
+//! ends; the stop rests on the preset whose span is picked (else the
+//! first).
 //!
 //! Key types: [`DateRangePicker`], [`DateRangePickerView`], [`DateRange`],
 //! [`DateRangePreset`], [`DateRangePickerEvent`].
@@ -953,11 +956,23 @@ impl DateRangePicker {
         // ---- the presets ----
         let mut row_kids: Vec<Dom> = Vec::with_capacity(2);
         if !self.presets.as_slice().is_empty() {
+            // The presets are ONE Tab stop (a roving group, the arrows walk
+            // them): the preset whose span is the range picked, else the first.
+            let week_start = self.week_start;
+            let picked = view.range.into_option();
+            let preset_stop = crate::widgets::roving::stop_index(
+                self.presets
+                    .as_slice()
+                    .iter()
+                    .position(|p| Some(p.range(today, week_start)) == picked),
+                self.presets.as_slice().len(),
+            );
             let items: Vec<Dom> = self
                 .presets
                 .as_slice()
                 .iter()
-                .map(|preset| {
+                .enumerate()
+                .map(|(position, preset)| {
                     let data = RefAny::new(PresetData {
                         preset: *preset,
                         shared: shared.clone(),
@@ -974,17 +989,27 @@ impl DateRangePicker {
                             v
                         }))
                         .with_callbacks(
-                            alloc::vec![CoreCallbackData {
-                                event: EventFilter::Hover(HoverEventFilter::Click),
-                                callback: CoreCallback {
-                                    cb: on_range_preset as usize,
-                                    ctx: OptionRefAny::None,
+                            alloc::vec![
+                                CoreCallbackData {
+                                    event: EventFilter::Hover(HoverEventFilter::Click),
+                                    callback: CoreCallback {
+                                        cb: on_range_preset as usize,
+                                        ctx: OptionRefAny::None,
+                                    },
+                                    refany: data.clone(),
                                 },
-                                refany: data,
-                            }]
+                                CoreCallbackData {
+                                    event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                                    callback: CoreCallback {
+                                        cb: on_range_preset_key as usize,
+                                        ctx: OptionRefAny::None,
+                                    },
+                                    refany: data,
+                                },
+                            ]
                             .into(),
                         )
-                        .with_tab_index(TabIndex::Auto)
+                        .with_tab_index(crate::widgets::roving::item_tab_index(position, preset_stop))
                         .with_accessibility_info(AccessibilityInfo {
                             role: AccessibilityRole::PushButton,
                             accessibility_name: OptionString::Some(AzString::from_const_str(
@@ -1175,7 +1200,21 @@ extern "C" fn on_range_day_hover(mut data: RefAny, mut info: CallbackInfo) -> Up
 extern "C" fn on_range_day_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::VirtualKeyCode as K;
 
-    let Some(key) = crate::widgets::roving::plain_key(&info.get_current_keyboard_state()) else {
+    let ks = info.get_current_keyboard_state();
+    // Shift+Page Up / Down turn a year - the one chord the days claim
+    // (`plain_key` leaves every chord to the OS and the app).
+    let year_turn = !(ks.alt_down() || ks.ctrl_down() || ks.super_down())
+        && ks.shift_down()
+        && matches!(
+            ks.current_virtual_keycode.into_option(),
+            Some(K::PageUp | K::PageDown)
+        );
+    let key = if year_turn {
+        ks.current_virtual_keycode.into_option()
+    } else {
+        crate::widgets::roving::plain_key(&ks)
+    };
+    let Some(key) = key else {
         return Update::DoNothing;
     };
     let cell = info.get_hit_node();
@@ -1190,10 +1229,11 @@ extern "C" fn on_range_day_key(mut data: RefAny, mut info: CallbackInfo) -> Upda
     };
     match key {
         K::PageUp | K::PageDown => {
+            let months = if year_turn { 12 } else { 1 };
             turn(
                 &mut shared,
                 &mut info,
-                if key == K::PageUp { -1 } else { 1 },
+                if key == K::PageUp { -months } else { months },
             );
             return report(
                 &mut shared,
@@ -1328,6 +1368,39 @@ extern "C" fn on_range_preset(mut data: RefAny, info: CallbackInfo) -> Update {
         s.view = DateRangePickerView::with_range(range);
     }
     report(&mut shared, info, DateRangePickerEventKind::Preset, preset)
+}
+
+/// The keys on a focused preset: the presets are ONE Tab stop (module
+/// docs), Up / Down walk them (the ends hold), Home / End go to the ends.
+/// Enter / Space are the click.
+extern "C" fn on_range_preset_key(_data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    use crate::widgets::roving::{self, Step};
+
+    let Some(key) = roving::plain_key(&info.get_current_keyboard_state()) else {
+        return Update::DoNothing;
+    };
+    let step = match key {
+        K::Up => Step::Previous,
+        K::Down => Step::Next,
+        K::Home => Step::First,
+        K::End => Step::Last,
+        _ => return Update::DoNothing,
+    };
+    let preset = info.get_hit_node();
+    let Some(column) = info.get_parent(preset) else {
+        return Update::DoNothing;
+    };
+    let items = roving::items_of(&info, column, DATE_RANGE_PRESET_CLASS);
+    let Some(current) = items.iter().position(|n| *n == preset) else {
+        return Update::DoNothing;
+    };
+    info.prevent_default();
+    if let Some(target) = roving::step_target(current, items.len(), step, false) {
+        roving::move_stop(&mut info, &items, target);
+    }
+    Update::DoNothing
 }
 
 #[cfg(test)]
