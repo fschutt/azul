@@ -4223,6 +4223,61 @@ mod tests {
         );
     }
 
+    /// `azul_dll::desktop` does not exist on wasm32; the `azul_dll::unified`
+    /// facade (`dll/src/unified/<m>.rs`: `pub use crate::desktop::extra::<m>::*;`
+    /// off wasm, stubs on wasm) is the path every target names. Nine api.json
+    /// externals pointed at desktop paths (AudioEncoder, Mp4Muxer, ParsedPdf,
+    /// ...; integration 2026-10-05) because the index named every azul_dll
+    /// type by its definition. A type the facade re-exports takes the facade
+    /// path - through a module's own `pub use` (`AudioEncoder`), defined at the
+    /// module (`AudioSink`), or in a public child module (`pipeline::Decoded`)
+    /// - and the desktop path counts as not nameable, so the scan fixes it. A
+    /// type the facade cannot reach (a private child) keeps its path.
+    #[test]
+    fn a_desktop_extra_type_reexported_by_the_unified_facade_takes_the_facade_path() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let write = |rel: &str, text: &str| {
+            let path = root.path().join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            fs::write(path, text).expect("written");
+        };
+        write("dll/src/lib.rs", "pub mod desktop;\npub mod unified;\n");
+        write("dll/src/desktop/mod.rs", "pub mod extra;\n");
+        write("dll/src/desktop/extra/mod.rs", "pub mod audio;\n");
+        write(
+            "dll/src/desktop/extra/audio/mod.rs",
+            "pub mod codec;\npub use codec::{AudioEncoder};\npub(crate) mod playback;\npub mod pipeline;\n\
+             #[repr(C)] pub struct AudioSink { pub ptr: *mut u8 }\n",
+        );
+        write("dll/src/desktop/extra/audio/codec.rs", "#[repr(C)] pub struct AudioEncoder { pub ptr: *mut u8 }\n");
+        write("dll/src/desktop/extra/audio/playback.rs", "#[repr(C)] pub struct Internal { pub a: u8 }\n");
+        write("dll/src/desktop/extra/audio/pipeline.rs", "#[repr(C)] pub struct Decoded { pub a: u8 }\n");
+        write("dll/src/unified/mod.rs", "pub mod audio;\n");
+        write(
+            "dll/src/unified/audio.rs",
+            "#[cfg(not(target_arch = \"wasm32\"))]\npub use crate::desktop::extra::audio::*;\n\
+             #[cfg(target_arch = \"wasm32\")]\n#[repr(C)] pub struct AudioSink { pub ptr: *mut u8 }\n",
+        );
+
+        let index = TypeIndex::build(root.path(), false).expect("index");
+        let path_of = |name: &str| index.resolve(name, None).expect(name).full_path.clone();
+
+        assert_eq!(path_of("AudioEncoder"), "azul_dll::unified::audio::AudioEncoder");
+        assert_eq!(path_of("AudioSink"), "azul_dll::unified::audio::AudioSink");
+        assert_eq!(path_of("Decoded"), "azul_dll::unified::audio::pipeline::Decoded");
+        assert_eq!(path_of("Internal"), "azul_dll::desktop::extra::audio::playback::Internal");
+
+        // The scan's path fix: the desktop path of a facaded type is not
+        // nameable on every target, its facade path is.
+        assert_eq!(
+            index
+                .private_module_on("azul_dll::desktop::extra::audio::codec::AudioEncoder")
+                .as_deref(),
+            Some("azul_dll::desktop::extra::audio")
+        );
+        assert_eq!(index.private_module_on("azul_dll::unified::audio::AudioEncoder"), None);
+    }
+
     /// A module-private type can never be part of the C API (the generated
     /// code lives in another module), but the index took it as one: the XML
     /// tree builder's `enum NodeData` (core/src/xml_html_tree.rs) was a
