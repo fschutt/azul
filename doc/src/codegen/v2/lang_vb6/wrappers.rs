@@ -424,3 +424,87 @@ fn format_arg_list(args: &[&FunctionArg], ir: &CodegenIR) -> String {
         .collect();
     parts.join(", ")
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    fn generated() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            let ir = crate::codegen::v2::bug_classes::ir();
+            super::super::generate(ir, &CodegenConfig::c_header()).expect("vb6 codegen")
+        })
+    }
+
+    /// The text of one emitted file.
+    fn file(name: &str) -> &'static str {
+        let src = generated();
+        let marker = format!("{}{}{}\n", super::super::FILE_MARKER, name, super::super::END_MARKER);
+        let start = src.find(&marker).unwrap_or_else(|| panic!("no file {}", name)) + marker.len();
+        let end = src[start..]
+            .find(super::super::FILE_MARKER)
+            .map_or(src.len(), |e| start + e);
+        &src[start..end]
+    }
+
+    /// One member, from its header to the next `End <kind>`.
+    fn member<'a>(src: &'a str, header: &str, kind: &str) -> &'a str {
+        let start = src.find(header).unwrap_or_else(|| panic!("no `{}`", header));
+        let end = src[start..].find(&format!("End {}", kind)).expect("end of member");
+        &src[start..start + end]
+    }
+
+    #[test]
+    fn no_class_module_is_named_after_a_keyword_or_a_vb6_global_object() {
+        let src = generated();
+        assert!(!src.contains("' ==FILE: String.cls =="), "String is a VB6 keyword");
+        assert!(!src.contains("' ==FILE: App.cls =="), "App shadows VB6's global App object");
+        assert!(file("AzulString.cls").contains("Attribute VB_Name = \"AzulString\""));
+        assert!(file("AzulApp.cls").contains("Attribute VB_Name = \"AzulApp\""));
+        assert!(file("Azul.vbp").contains("Class=AzulApp; AzulApp.cls"));
+    }
+
+    #[test]
+    fn the_window_title_is_a_string_property_that_releases_the_old_value() {
+        let cls = file("FullWindowState.cls");
+        let get = member(cls, "Public Property Get Title() As String", "Property");
+        assert!(!get.contains("_delete"), "reading must not free the field:\n{}", get);
+        let set = member(cls, "Public Property Let Title(ByVal v As String)", "Property");
+        assert!(set.contains("AzString_delete VarPtr(m_raw.title)"), "{}", set);
+        assert!(set.contains("m_raw.title = nv"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_property_deep_copies_and_consumes() {
+        let cls = file("WindowCreateOptions.cls");
+        let get = member(cls, "Public Property Get WindowState() As FullWindowState", "Property");
+        assert!(get.contains("VarPtr(m_raw.window_state)"), "{}", get);
+        assert!(get.contains("AzFullWindowState_clone"), "a deep copy:\n{}", get);
+        let set = member(cls, "Public Property Set WindowState(ByVal v As FullWindowState)", "Property");
+        assert!(set.contains("v.MoveRawInto VarPtr(nv)"), "the argument is consumed:\n{}", set);
+        assert!(set.contains("AzFullWindowState_delete VarPtr(m_raw.window_state)"), "{}", set);
+        let mv = member(file("FullWindowState.cls"), "Friend Sub MoveRawInto(ByVal dst As Long)", "Sub");
+        assert!(mv.contains("m_owned = False"), "{}", mv);
+    }
+
+    #[test]
+    fn a_plain_record_field_is_a_friend_property_copied_in_and_out() {
+        let cls = file("FullWindowState.cls");
+        let set = member(cls, "Friend Property Let Size(ByRef v As AzWindowSize)", "Property");
+        assert!(set.contains("m_raw.size = v"), "{}", set);
+        assert!(cls.contains("Friend Property Get Size() As AzWindowSize"));
+    }
+
+    #[test]
+    fn a_text_input_text_field_is_writable_even_though_get_text_is_a_method() {
+        assert!(file("TextInputState.cls").contains("Public Property Set Text(ByVal v As U32Vec)"));
+    }
+
+    #[test]
+    fn clone_takes_no_extra_argument() {
+        assert!(file("TextInputState.cls").contains("Public Function Clone() As AzTextInputState"));
+    }
+}
