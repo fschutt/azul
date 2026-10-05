@@ -8,7 +8,7 @@
 //! the user's data folder today, an `S3Drive` later), and blocks: the app
 //! calls these from an azul `Thread`, never from a callback.
 
-use azul_storage::{Drive, DriveError, ListRequest};
+use azul_storage::{Drive, DriveError};
 use serde::{Deserialize, Serialize};
 
 /// The folder of the workbooks under the data root.
@@ -113,24 +113,16 @@ pub fn load(drive: &dyn Drive, id: &str) -> Result<(Vec<u8>, Sidecar), DriveErro
 /// `modified`, else the file's date).
 pub fn list(drive: &dyn Drive) -> Result<Vec<(String, Sidecar)>, DriveError> {
     let prefix = format!("{DIR}/");
-    let mut request = ListRequest::folder(&prefix);
     let mut out = Vec::new();
-    loop {
-        let page = drive.list(&request)?;
-        for object in &page.objects {
-            let Some(id) = object.name().strip_suffix(".xlsx") else {
-                continue;
-            };
-            let mut sidecar = read_sidecar(drive, id)?;
-            if sidecar.modified == 0 {
-                sidecar.modified = object.modified.unwrap_or(0);
-            }
-            out.push((id.to_string(), sidecar));
+    for object in &azul_storage::ops::list_folder_all(drive, &prefix)?.objects {
+        let Some(id) = object.name().strip_suffix(".xlsx") else {
+            continue;
+        };
+        let mut sidecar = read_sidecar(drive, id)?;
+        if sidecar.modified == 0 {
+            sidecar.modified = object.modified.unwrap_or(0);
         }
-        match page.next {
-            Some(next) => request = ListRequest::folder(&prefix).with_continuation(next),
-            None => break,
-        }
+        out.push((id.to_string(), sidecar));
     }
     out.sort_by(|a, b| b.1.modified.cmp(&a.1.modified).then_with(|| a.0.cmp(&b.0)));
     Ok(out)

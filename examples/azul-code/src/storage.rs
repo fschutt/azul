@@ -14,7 +14,7 @@ use azul::{
     callbacks::{CallbackInfo, RefAny, WriteBackCallbackType},
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
 };
-use azul_storage::{key::last_segment, Drive, ListRequest, LocalDrive};
+use azul_storage::{key::last_segment, Drive, LocalDrive};
 
 use crate::{
     highlight::{HighlightJob, JobResult},
@@ -81,32 +81,24 @@ pub fn run_jobs(drive: &dyn Drive, prefix: &str, jobs: Vec<DriveJob>) -> Vec<Dri
 /// One folder level: its folders and files by name (every page).
 fn list(drive: &dyn Drive, prefix: &str, folder: String) -> DriveOutcome {
     let full = format!("{prefix}{folder}");
-    let mut folders = Vec::new();
-    let mut files = Vec::new();
-    let mut error = None;
-    let mut request = ListRequest::folder(&full);
-    // A drive that keeps answering with a token would loop forever.
-    for _ in 0..10_000 {
-        match drive.list(&request) {
-            Ok(page) => {
-                folders.extend(page.folders.iter().map(|f| last_segment(f).to_string()));
-                files.extend(
-                    page.objects
-                        .iter()
-                        .map(|o| last_segment(&o.key).to_string())
-                        .filter(|name| !name.is_empty()),
-                );
-                match page.next {
-                    Some(token) => request = ListRequest::folder(&full).with_continuation(token),
-                    None => break,
-                }
-            }
-            Err(e) => {
-                error = Some(e.to_string());
-                break;
-            }
-        }
-    }
+    let (folders, files, error): (Vec<String>, Vec<String>, Option<String>) =
+        match azul_storage::ops::list_folder_all(drive, &full) {
+            Ok(level) => (
+                level
+                    .folders
+                    .iter()
+                    .map(|f| last_segment(f).to_string())
+                    .collect(),
+                level
+                    .objects
+                    .iter()
+                    .map(|o| last_segment(&o.key).to_string())
+                    .filter(|name| !name.is_empty())
+                    .collect(),
+                None,
+            ),
+            Err(e) => (Vec::new(), Vec::new(), Some(e.to_string())),
+        };
     DriveOutcome::Listed {
         folder,
         folders,

@@ -22,7 +22,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use azul_storage::{Drive, DriveError, ListRequest, LocalDrive, ScopedDrive};
+use azul_storage::{Drive, DriveError, LocalDrive, ScopedDrive};
 use serde::{Deserialize, Serialize};
 
 /// The prefix of every synced folder.
@@ -261,21 +261,15 @@ impl MailStore {
             "" => String::new(),
             p => format!("{p}/"),
         };
-        let mut names = Vec::new();
-        let mut request = ListRequest::folder(&folder);
-        loop {
-            let Ok(page) = drive.list(&request) else {
-                break;
-            };
-            names.extend(page.folders.iter().filter_map(|f| {
+        let level = azul_storage::ops::list_folder_all(&drive, &folder).unwrap_or_default();
+        let mut names: Vec<String> = level
+            .folders
+            .iter()
+            .filter_map(|f| {
                 let name = f.strip_prefix(folder.as_str())?.trim_end_matches('/');
                 (!name.is_empty()).then(|| name.to_string())
-            }));
-            match page.next {
-                Some(token) => request = ListRequest::folder(&folder).with_continuation(token),
-                None => break,
-            }
-        }
+            })
+            .collect();
         names.sort();
         names.dedup();
         names
