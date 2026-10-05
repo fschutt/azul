@@ -28125,6 +28125,32 @@ mod autotest_generated {
         win
     }
 
+    /// Text sized in viewport units is drawn by its own font (SYSUI8 s8): the
+    /// font chains are keyed by the optical size of the text's USED font size,
+    /// and the collector resolved a `vw` size against a ZERO viewport - the
+    /// chain was collected for 0 px, the text asked for 40 px, missed, and was
+    /// drawn by the fallback.
+    #[test]
+    fn text_sized_in_viewport_units_is_drawn_by_its_own_font() {
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("font-size: 5vw;")
+                .with_child(Dom::create_text("Hi")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 800.0, 600.0);
+        let sizes: Vec<u16> = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .map(|k| k.optical_size)
+            .collect();
+        assert!(
+            sizes.contains(&40),
+            "5vw of an 800px window is 40px: the text's chain is collected at that optical size \
+             (collected: {sizes:?})"
+        );
+    }
+
     /// THE CLASS (azpaint pressure meter, 2026-08-29): a `VirtualView` child
     /// DOM was laid out against the WINDOW viewport, not the view's own
     /// bounds — a percent-width child of the returned root resolved against
