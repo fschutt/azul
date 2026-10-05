@@ -27,8 +27,8 @@ use super::{
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
-            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
-            StructDef, TypeCategory,
+            CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, StructDef,
+            TypeCategory,
         },
     },
     ffi_type_name, map_type_to_uffi, method_category_line, sanitize_identifier, PACKAGE_TYPES,
