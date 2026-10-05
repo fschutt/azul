@@ -48,6 +48,7 @@ use anyhow::Result;
 use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
 
 pub mod functions;
+pub mod fields;
 pub mod types;
 pub mod wrappers;
 
@@ -86,8 +87,10 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     wrappers::generate_wrappers(&mut builder, ir, config, &mut procs)?;
 
     builder.blank();
-    builder.line("template tr*(key: string): AzString =");
-    builder.line("  AzString(vec: AzU8Vec(ptr: cast[ptr uint8](key[0].addr), len: cast[uint](key.len), cap: 0, destructor: AzU8VecDestructor(NoDestructor: AzU8VecDestructorVariant_NoDestructor(tag: AzU8VecDestructor_Tag_NoDestructor)), flags: 1))");
+    // Native string helpers (`azString`, `$`, `tr`), then the field
+    // accessors that use them - Nim needs a proc declared before its use.
+    fields::generate_string_helpers(&mut builder, ir, &mut procs);
+    fields::generate_field_accessors(&mut builder, ir, config, &mut procs);
     builder.blank();
 
     Ok(builder.finish())
@@ -436,6 +439,12 @@ pub struct ProcDedup {
     /// proc it means rather than silently binding to the first same-named
     /// overload.
     externals: HashMap<String, String>,
+    /// `normalized_name|receiver` of every emitted proc, the receiver being
+    /// the first parameter's type without `var` - so a field accessor can
+    /// tell that an api.json method already owns its name for that type
+    /// (`getText(self: var AzTextInputState)`): overloads that differ only
+    /// in `var` are ambiguous.
+    receivers: HashSet<String>,
 }
 
 impl Default for ProcDedup {
@@ -450,6 +459,7 @@ impl ProcDedup {
             seen: HashSet::new(),
             type_names: HashSet::new(),
             externals: HashMap::new(),
+            receivers: HashSet::new(),
         }
     }
 
@@ -472,11 +482,21 @@ impl ProcDedup {
             if !self.type_names.contains(&norm)
                 && self.seen.insert(format!("{}|{}", norm, param_types))
             {
+                let recv = param_types.split(',').next().unwrap_or("");
+                let recv = recv.trim().trim_start_matches("var ").trim();
+                self.receivers.insert(format!("{}|{}", norm, recv));
                 return candidate;
             }
             n += 1;
             candidate = format!("{}_{}", name, n);
         }
+    }
+
+    /// Is `name` already a proc whose first parameter is `recv` (or
+    /// `var recv`)?
+    pub fn has_receiver(&self, name: &str, recv: &str) -> bool {
+        self.receivers
+            .contains(&format!("{}|{}", nim_normalize_ident(name), recv))
     }
 
     /// Like [`unique`], but for a raw external: also records the mapping from
