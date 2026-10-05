@@ -41,6 +41,23 @@
 //!   upcasts it (see [`super::managed::MODEL_OF`]).
 //! - Callback-wrapper arguments (`ButtonOnClickCallback`, ...) take a Fortran procedure matching
 //!   the kind's typed abstract interface (see [`super::managed`]).
+//! - Every public by-value field gets type-bound accessors `get_<field>` / `set_<field>` (see
+//!   [`FieldPlan`]): a getter returns an independent value (`character(:)` for strings, read
+//!   WITHOUT consuming the field; a deep copy through `_clone` for heap-owning values; a plain
+//!   copy otherwise), a setter releases the old value and moves the new one in (a wrapper
+//!   argument is consumed: its `owned` flag is cleared). An api.json method of the same name
+//!   wins over the accessor. Nested fields are read-modify-write:
+//!
+//!   ```fortran
+//!   ws = opts%get_window_state()      ! deep copy
+//!   call ws%set_title('Hello')        ! releases the old title
+//!   sz = ws%get_size()
+//!   call sz%set_dimensions(dims)
+//!   call ws%set_size(sz)
+//!   call opts%set_window_state(ws)    ! consumes ws
+//!   ```
+//! - `azul_string_value(s)` reads an `AzString` without touching it (safe on a field);
+//!   `azul_string_take(s)` reads AND frees it (what String results go through).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -54,6 +71,7 @@ use super::{
             ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, FieldRefKind, FunctionArg,
             FunctionDef, FunctionKind, StructDef, TypeCategory,
         },
+        field_access_classic::{self as fa, FieldKind},
         managed_host_invoker::{
             host_invoker_kinds, layout_callback_factory_info, to_snake_case, wrapper_name,
             LayoutCallbackFactoryInfo,
@@ -117,9 +135,23 @@ pub(crate) struct ClassPlan<'a> {
     /// `<snake>_t`
     pub wt: String,
     pub delete_name: String,
-    /// `azul_take_<snake>`, present when the class has a deep-copy fn.
+    /// `azul_take_<snake>`: hands the record to a consuming C parameter
+    /// (moved when owned - clearing `owned` - deep-copied when borrowed).
     pub take_name: Option<String>,
     pub procs: Vec<ProcPlan<'a>>,
+    pub fields: Vec<FieldPlan<'a>>,
+}
+
+/// The `get_<field>` / `set_<field>` pair of one public field.
+pub(crate) struct FieldPlan<'a> {
+    /// The raw component (`self%raw%<comp>`).
+    pub comp: String,
+    pub ty: &'a str,
+    pub kind: FieldKind<'a>,
+    /// `(binding, module procedure)`; `None` when no safe getter exists or
+    /// an api.json method already owns the binding name.
+    pub get: Option<(String, String)>,
+    pub set: Option<(String, String)>,
 }
 
 /// Everything the wrapper + managed emitters share: the wrapper set,
@@ -242,7 +274,7 @@ impl<'a> Ctx<'a> {
         for n in super::managed::reserved_names(self) {
             self.names.insert(n.to_lowercase());
         }
-        for n in [STRING_IN_HELPER, STRING_OUT_HELPER, "r", "self", "error_unit"] {
+        for n in [STRING_IN_HELPER, STRING_OUT_HELPER, STRING_TAKE_HELPER, "r", "self", "error_unit"] {
             self.names.insert(n.to_lowercase());
         }
     }
@@ -306,11 +338,7 @@ impl<'a> Ctx<'a> {
         for (s, wt) in structs.into_iter().zip(wts) {
             let snake = to_snake_case(&s.name);
             let delete_name = self.claim(&format!("{}_delete", snake));
-            let take_name = if self.clone.contains_key(&s.name) {
-                Some(self.claim(&format!("azul_take_{}", snake)))
-            } else {
-                None
-            };
+            let take_name = Some(self.claim(&format!("azul_take_{}", snake)));
             let factory = layout_callback_factory_info(s, self.ir);
             let mut bindings: BTreeSet<String> = ["raw", "owned", "delete"]
                 .iter()
@@ -360,6 +388,33 @@ impl<'a> Ctx<'a> {
                     smart,
                 });
             }
+            let mut fields = Vec::new();
+            for a in fa::accessible_fields(s, self.ir, self.config) {
+                if !self.field_supported(&a) {
+                    continue;
+                }
+                let raw_name = a.field.name.trim_start_matches('_');
+                let mut pair = |verb: &str| -> Option<(String, String)> {
+                    let b = truncate_identifier(&format!("{}_{}", verb, raw_name));
+                    if !bindings.insert(b.to_lowercase()) {
+                        return None;
+                    }
+                    let name = self.claim(&format!("{}_{}_{}", snake, verb, raw_name));
+                    Some((b, name))
+                };
+                let get = if a.kind.has_getter() { pair("get") } else { None };
+                let set = pair("set");
+                if get.is_none() && set.is_none() {
+                    continue;
+                }
+                fields.push(FieldPlan {
+                    comp: sanitize_identifier(&a.field.name),
+                    ty: a.ty,
+                    kind: a.kind,
+                    get,
+                    set,
+                });
+            }
             classes.push(ClassPlan {
                 s,
                 snake,
@@ -367,6 +422,7 @@ impl<'a> Ctx<'a> {
                 delete_name,
                 take_name,
                 procs,
+                fields,
             });
         }
         self.classes = classes;
@@ -394,6 +450,34 @@ impl<'a> Ctx<'a> {
             }
         }
         UserType::Raw(map_type_to_fortran(t, self.ir))
+    }
+
+    /// Can the accessor pair of `a` be spelled in Fortran at all?
+    fn field_supported(&self, a: &fa::AccessField) -> bool {
+        match a.kind {
+            FieldKind::Prim { .. } | FieldKind::UnitEnum => true,
+            FieldKind::Str { .. } => self.string.is_some(),
+            FieldKind::Value { .. } => {
+                self.wrappers.contains(a.ty)
+                    || map_type_to_fortran(a.ty, self.ir).starts_with("type(Az")
+            }
+        }
+    }
+
+    /// The deep copy of the record at `var` (which must be a `target`).
+    pub(crate) fn clone_call(&self, class: &str, var: &str) -> Option<String> {
+        let f = self.clone.get(class)?;
+        let alias = fortran_alias_for(&f.c_name);
+        let by_value = f
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
+        Some(if by_value {
+            format!("{}({})", alias, var)
+        } else {
+            format!("{}(c_loc({}))", alias, var)
+        })
     }
 
     pub(crate) fn class(&self, name: &str) -> Option<&ClassPlan<'a>> {
@@ -436,9 +520,13 @@ impl<'a> Ctx<'a> {
 
 /// Name of the public `character(len=*) -> type(AzString)` helper.
 pub(crate) const STRING_IN_HELPER: &str = "azul_string";
-/// Name of the public `type(AzString) -> character(:)` helper
-/// (consumes the AzString).
+/// Name of the public `type(AzString) -> character(:)` reader. It does NOT
+/// consume its argument, so it is safe on a struct field
+/// (`azul_string_value(opts%raw%window_state%title)`).
 pub(crate) const STRING_OUT_HELPER: &str = "azul_string_value";
+/// Name of the public `type(AzString) -> character(:)` helper that also
+/// frees the AzString: what an owned String RESULT goes through.
+pub(crate) const STRING_TAKE_HELPER: &str = "azul_string_take";
 
 fn find_string_class(ir: &CodegenIR) -> Option<StringClass> {
     for s in ir
@@ -674,12 +762,13 @@ pub(crate) fn plan_arg(ctx: &Ctx, owner: &str, a: &FunctionArg) -> (String, ArgP
                 .push(format!("class(*), intent(in), target :: {}", nm));
             plan.actual = format!("{}({})", super::managed::MODEL_OF, nm);
         }
+        // No `intent`: the call MOVES an owned wrapper, which clears its
+        // `owned` flag (so a later `delete` is a no-op, not a double free).
+        // An expression actual (`button%dom()`) still binds: Fortran passes
+        // a temporary.
         UserType::Wrapper(w) if owned => {
-            plan.decls.push(format!(
-                "type({}), intent(in), target :: {}",
-                ctx.wt(&w),
-                nm
-            ));
+            plan.decls
+                .push(format!("type({}), target :: {}", ctx.wt(&w), nm));
             plan.actual = ctx.take_expr(&w, &nm);
         }
         UserType::Wrapper(w) => {
@@ -725,7 +814,7 @@ pub(crate) fn plan_return(ctx: &Ctx, ret: &str) -> RetPlan {
         },
         UserType::Str => RetPlan {
             decl: "character(len=:), allocatable :: r".to_string(),
-            assign: vec![format!("r = {}({{}})", STRING_OUT_HELPER)],
+            assign: vec![format!("r = {}({{}})", STRING_TAKE_HELPER)],
         },
         UserType::Enum => RetPlan {
             decl: "integer :: r".to_string(),
@@ -791,11 +880,17 @@ pub(crate) fn generate_wrapper_decls(
     }
     builder.line(&format!("public :: {}", STRING_IN_HELPER));
     builder.line(&format!("public :: {}", STRING_OUT_HELPER));
+    builder.line(&format!("public :: {}", STRING_TAKE_HELPER));
     for c in &ctx.classes {
         builder.line(&split.marker(&c.s.name));
         builder.line(&format!("public :: {}", c.delete_name));
         for p in &c.procs {
             builder.line(&format!("public :: {}", p.name));
+        }
+        for f in &c.fields {
+            for (_, name) in f.get.iter().chain(f.set.iter()) {
+                builder.line(&format!("public :: {}", name));
+            }
         }
     }
     builder.blank();
@@ -823,6 +918,11 @@ fn emit_wrapper_type_decl(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
     for p in &c.procs {
         if let Some(b) = &p.binding {
             builder.line(&format!("procedure :: {} => {}", b, p.name));
+        }
+    }
+    for f in &c.fields {
+        for (b, name) in f.get.iter().chain(f.set.iter()) {
+            builder.line(&format!("procedure :: {} => {}", b, name));
         }
     }
     builder.dedent();
@@ -1091,6 +1191,9 @@ pub(crate) fn generate_wrapper_bodies(builder: &mut CodeBuilder, ctx: &Ctx) -> R
                 emit_factory(builder, ctx, p);
             }
         }
+        for f in &c.fields {
+            emit_field_accessors(builder, ctx, c, f);
+        }
     }
     Ok(())
 }
@@ -1116,32 +1219,44 @@ fn emit_string_helpers(builder: &mut CodeBuilder, ctx: &Ctx) {
     builder.line(&format!("end function {}", STRING_IN_HELPER));
     builder.blank();
 
+    // The reader: never frees, so it is safe on a field of a live struct.
     builder.line(&format!("function {}(s) result(r)", STRING_OUT_HELPER));
     builder.indent();
     builder.line(&format!("type({}), intent(in) :: s", az));
     builder.line("character(len=:), allocatable :: r");
-    builder.line(&format!("type({}), target :: tmp", az));
     builder.line("character(kind=c_char), pointer :: chars(:)");
     builder.line("integer :: n, i");
-    builder.line("tmp = s");
-    builder.line(&format!("n = int(tmp%{}%{})", st.vec_field, st.len_field));
+    builder.line(&format!("n = int(s%{}%{})", st.vec_field, st.len_field));
     builder.line("allocate(character(len=n) :: r)");
     builder.line("if (n > 0) then");
     builder.line(&format!(
-        "  call c_f_pointer(tmp%{}%{}, chars, [n])",
+        "  call c_f_pointer(s%{}%{}, chars, [n])",
         st.vec_field, st.ptr_field
     ));
     builder.line("  do i = 1, n");
     builder.line("    r(i:i) = chars(i)");
     builder.line("  end do");
     builder.line("end if");
+    builder.dedent();
+    builder.line(&format!("end function {}", STRING_OUT_HELPER));
+    builder.blank();
+
+    // The consuming reader, for an owned String result.
+    builder.line(&format!("function {}(s) result(r)", STRING_TAKE_HELPER));
+    builder.indent();
+    builder.line(&format!("type({}), intent(in) :: s", az));
+    builder.line("character(len=:), allocatable :: r");
+    builder.line(&format!("type({}), target :: tmp", az));
+    builder.line("tmp = s");
+    builder.line(&format!("r = {}(tmp)", STRING_OUT_HELPER));
     if let Some(del) = ctx.delete_call(&st.name, "tmp") {
         builder.line(&del);
     }
     builder.dedent();
-    builder.line(&format!("end function {}", STRING_OUT_HELPER));
+    builder.line(&format!("end function {}", STRING_TAKE_HELPER));
     builder.blank();
 }
+
 
 fn emit_delete(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
     builder.line(&format!("subroutine {}(self)", c.delete_name));
@@ -1157,33 +1272,136 @@ fn emit_delete(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
 }
 
 fn emit_take(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
-    let (Some(take), Some(clone)) = (&c.take_name, ctx.clone.get(&c.s.name)) else {
+    let Some(take) = &c.take_name else {
         return;
     };
-    let alias = fortran_alias_for(&clone.c_name);
-    let by_value = clone
-        .args
-        .first()
-        .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
-        .unwrap_or(false);
     builder.line(&format!("function {}(x) result(r)", take));
     builder.indent();
     // `class`, not `type`: the consuming call sites pass both plain
     // wrapper variables and the polymorphic `self` of a type-bound
-    // procedure.
-    builder.line(&format!("class({}), intent(in), target :: x", c.wt));
+    // procedure. No `intent`: moving clears `owned`, so the caller's
+    // wrapper can no longer free what the callee now owns.
+    builder.line(&format!("class({}), target :: x", c.wt));
     builder.line(&format!("type({}) :: r", ffi_type_name(&c.s.name)));
-    builder.line("if (x%owned) then");
-    builder.line("  r = x%raw");
-    builder.line("else");
-    if by_value {
-        builder.line(&format!("  r = {}(x%raw)", alias));
+    if !ctx.delete.contains_key(&c.s.name) {
+        // Plain data: nothing to own, a copy is the value.
+        builder.line("r = x%raw");
     } else {
-        builder.line(&format!("  r = {}(c_loc(x%raw))", alias));
+        builder.line("if (x%owned) then");
+        builder.line("  r = x%raw");
+        builder.line("  x%owned = .false.");
+        builder.line("else");
+        match ctx.clone_call(&c.s.name, "x%raw") {
+            Some(call) => builder.line(&format!("  r = {}", call)),
+            None => builder.line(&format!(
+                "  error stop '{}: a borrowed {} has no deep copy and cannot be moved'",
+                take, c.wt
+            )),
+        }
+        builder.line("end if");
     }
-    builder.line("end if");
     builder.dedent();
     builder.line(&format!("end function {}", take));
+    builder.blank();
+}
+
+/// `get_<field>` / `set_<field>` of one field (see [`FieldPlan`]).
+fn emit_field_accessors(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan, f: &FieldPlan) {
+    let fexpr = format!("self%raw%{}", f.comp);
+    let wrapped = ctx.wrappers.contains(f.ty);
+    if let Some((_, name)) = &f.get {
+        let (decl, body): (String, Vec<String>) = match f.kind {
+            FieldKind::Prim { is_bool: true } => {
+                ("logical :: r".into(), vec![format!("r = logical({})", fexpr)])
+            }
+            FieldKind::Prim { .. } => (
+                format!("{} :: r", map_type_to_fortran(f.ty, ctx.ir)),
+                vec![format!("r = {}", fexpr)],
+            ),
+            FieldKind::UnitEnum => ("integer :: r".into(), vec![format!("r = int({})", fexpr)]),
+            FieldKind::Str { .. } => (
+                "character(len=:), allocatable :: r".into(),
+                vec![format!("r = {}({})", STRING_OUT_HELPER, fexpr)],
+            ),
+            FieldKind::Value { .. } if wrapped => {
+                let raw = ctx.clone_call(f.ty, &fexpr).unwrap_or_else(|| fexpr.clone());
+                (
+                    format!("type({}) :: r", ctx.wt(f.ty)),
+                    vec![format!("r%raw = {}", raw), "r%owned = .true.".to_string()],
+                )
+            }
+            FieldKind::Value { .. } => (
+                format!("{} :: r", map_type_to_fortran(f.ty, ctx.ir)),
+                vec![format!(
+                    "r = {}",
+                    ctx.clone_call(f.ty, &fexpr).unwrap_or_else(|| fexpr.clone())
+                )],
+            ),
+        };
+        builder.line(&format!("function {}(self) result(r)", name));
+        builder.indent();
+        builder.line(&format!("class({}), intent(in), target :: self", c.wt));
+        builder.line(&decl);
+        for l in &body {
+            builder.line(l);
+        }
+        builder.dedent();
+        builder.line(&format!("end function {}", name));
+        builder.blank();
+    }
+    let Some((_, name)) = &f.set else { return };
+    let mut decls: Vec<String> = Vec::new();
+    let mut body: Vec<String> = Vec::new();
+    // Release the old value (only types with a `_delete` own anything).
+    let release = |body: &mut Vec<String>| {
+        if let Some(del) = ctx.delete_call(f.ty, &fexpr) {
+            body.push(del);
+        }
+    };
+    match f.kind {
+        FieldKind::Prim { is_bool: true } => {
+            decls.push("logical, intent(in) :: v".into());
+            body.push(format!("{} = logical(v, c_bool)", fexpr));
+        }
+        FieldKind::Prim { .. } => {
+            decls.push(format!("{}, intent(in) :: v", map_type_to_fortran(f.ty, ctx.ir)));
+            body.push(format!("{} = v", fexpr));
+        }
+        FieldKind::UnitEnum => {
+            decls.push("integer, intent(in) :: v".into());
+            body.push(format!("{} = int(v, c_int)", fexpr));
+        }
+        FieldKind::Str { .. } => {
+            decls.push("character(len=*), intent(in) :: v".into());
+            release(&mut body);
+            body.push(format!("{} = {}(v)", fexpr, STRING_IN_HELPER));
+        }
+        FieldKind::Value { .. } if wrapped => {
+            // Moved in: `azul_take_<y>` clears the argument's `owned`.
+            decls.push(format!("type({}), target :: v", ctx.wt(f.ty)));
+            decls.push(format!("type({}) :: azul_tmp", truncate_identifier(&ffi_type_name(f.ty))));
+            body.push(format!("azul_tmp = {}", ctx.take_expr(f.ty, "v")));
+            release(&mut body);
+            body.push(format!("{} = azul_tmp", fexpr));
+        }
+        FieldKind::Value { .. } => {
+            // A raw record: the field takes over its heap memory.
+            decls.push(format!("{}, intent(in) :: v", map_type_to_fortran(f.ty, ctx.ir)));
+            release(&mut body);
+            body.push(format!("{} = v", fexpr));
+        }
+    }
+    builder.line(&format!("subroutine {}(self, v)", name));
+    builder.indent();
+    builder.line(&format!("class({}), intent(inout), target :: self", c.wt));
+    for d in &decls {
+        builder.line(d);
+    }
+    for l in &body {
+        builder.line(l);
+    }
+    builder.dedent();
+    builder.line(&format!("end subroutine {}", name));
     builder.blank();
 }
 

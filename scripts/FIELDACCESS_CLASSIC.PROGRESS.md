@@ -12,10 +12,17 @@ Str / Value{delete, clone}), string copy fn + layout, all derived from the IR.
   User: `WS := Get_Window_State (Opts); Set_Title (WS, "Hi"); Sz := Get_Size (WS);
   Sz.Dimensions.Width := 800.0; Set_Size (WS, Sz); Set_Window_State (Opts, WS);`
 
+- Fortran: RED d6ab6bb35, fix = the commit after it. `azul_string_value` no longer frees (new
+  consuming `azul_string_take` for String results); `azul_take_<x>` exists for every class, has no
+  intent and clears `owned` on move (error stop when borrowed + no clone); owned wrapper args lost
+  `intent(in)`; type-bound `get_<f>`/`set_<f>` on every wrapper (method binding wins).
+  User: `ws = opts%get_window_state(); call ws%set_title('Hi'); sz = ws%get_size();
+  call sz%set_dimensions(d); call ws%set_size(sz); call opts%set_window_state(ws)`
+
 ## IN PROGRESS
-- Fortran
+- FreeBASIC
 
 ## NEXT
-- FreeBASIC, VB6, Pascal.
+- VB6, Pascal.
 
 ## Open questions
