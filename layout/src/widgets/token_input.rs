@@ -1730,6 +1730,76 @@ mod token_input_tests {
         );
     }
 
+    // ---- the refused look ----
+
+    extern "C" fn refuse_all(_: RefAny, _: CallbackInfo, _token: AzString) -> TokenInputVerdict {
+        TokenInputVerdict::create_refused(AzString::from_const_str("not an address"))
+    }
+
+    /// Every border override the handler wrote onto `node`, one list per write.
+    fn ring_writes_on(changes: &[crate::callbacks::CallbackChange], node: NodeId) -> Vec<Vec<CssProperty>> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                crate::callbacks::CallbackChange::OverrideNodeCssProperties { node_id, properties, .. }
+                    if *node_id == node =>
+                {
+                    Some(properties.as_ref().to_vec())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The entry of a flat field typed `text`, refusing every token when
+    /// `refuse` (else taking each as typed).
+    fn entry_typed(log: &Log, text: &str, refuse: bool) -> (StyledDom, NodeId) {
+        let mut input = field(log).with_text(s(text)).with_theme(UiTheme::Flat);
+        if refuse {
+            input = input.with_on_validate(RefAny::new(()), refuse_all as TokenInputOnValidateCallbackType);
+        }
+        let styled = StyledDom::create_from_dom(input.dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let entry = kids(&styled, field_node)[2];
+        assert!(has_class_at(&styled, entry, ENTRY_CLASS));
+        (styled, entry)
+    }
+
+    #[test]
+    fn a_refused_token_rings_the_entry_as_invalid() {
+        use crate::widgets::themes::flat;
+        let log = log();
+        let (styled, entry) = entry_typed(&log, "not-an-address", true);
+        let (_, changes) = rv::press(&styled, id(entry), K::Return, &[]).expect("the entry's key handler");
+        assert!(
+            logged(&log).iter().any(|l| l.starts_with("Refuse")),
+            "the token is refused: {:?}",
+            logged(&log)
+        );
+        let rings = ring_writes_on(&changes, entry);
+        assert_eq!(rings.len(), 1, "one ring write on the entry: {changes:?}");
+        assert!(
+            rings[0] == flat::text_input_invalid_ring(false) || rings[0] == flat::text_input_invalid_ring(true),
+            "the entry wears the text field's own invalid ring (:user-invalid): {:?}",
+            rings[0]
+        );
+    }
+
+    #[test]
+    fn an_accepted_token_takes_a_refusals_ring_away() {
+        let log = log();
+        let (styled, entry) = entry_typed(&log, "carol@x.org", false);
+        let (_, changes) = rv::press(&styled, id(entry), K::Return, &[]).expect("the entry's key handler");
+        assert!(logged(&log).iter().any(|l| l.starts_with("Add")), "{:?}", logged(&log));
+        let rings = ring_writes_on(&changes, entry);
+        assert_eq!(rings.len(), 1, "one ring removal on the entry: {changes:?}");
+        assert!(
+            rings[0].len() == 4 && rings[0].iter().all(CssProperty::is_initial),
+            "the ring is REMOVED (initial), so the resting border and the focus ring come back: {:?}",
+            rings[0]
+        );
+    }
+
     #[test]
     fn a_token_input_without_a_theme_follows_the_app_theme_and_declares_its_structure_once() {
         let log = log();
