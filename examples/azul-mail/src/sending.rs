@@ -3,7 +3,8 @@
 //! The settings themselves are SEND's (`send.rs`): `SendSettings::load` / `save` keep them in
 //! `<AzMail folder>/<account id>/sending.json` next to the account's `account.json`, with no
 //! secret in it. This module is only what the settings page shows and edits: the route (direct
-//! delivery to each receiver's mail server, or one SMTP server `host:port`) and STARTTLS
+//! delivery to each receiver's mail server - the default -, one SMTP server `host:port`, or -
+//! optional - the account's own outgoing server, signed in: [`ROUTE_CHOICES`]) and STARTTLS
 //! (`TlsPolicy`: on - opportunistic, or required when the file says so - or off, for a test
 //! server on this computer without TLS), and client-side DKIM ([`SendingForm::apply_dkim`]:
 //! on or off, the signing domain, the selector, the public half of the key `crate::dkim`
@@ -17,6 +18,25 @@ use crate::{
 
 /// The port the form proposes for an SMTP server (submission with STARTTLS).
 pub const SUBMISSION_PORT: u16 = 587;
+
+/// The page's route choices, in the order it shows them ([`SendingForm::route_index`]).
+pub const ROUTE_CHOICES: [&str; 3] = [
+    "Directly",
+    "Through an SMTP server",
+    "Through my provider's server (sign in)",
+];
+
+/// What is wrong with signing in to the account's outgoing server `host:port` with
+/// `settings`: a password never goes unencrypted to another computer. Only submission signs
+/// in; the other routes have nothing to check.
+pub fn check_submission(settings: &SendSettings, host: &str, port: u16) -> Result<(), String> {
+    match settings.route {
+        SendRoute::Submission => {
+            crate::submit::submission_security(host, port, settings.tls).map(|_| ())
+        }
+        SendRoute::Direct | SendRoute::Smtp { .. } => Ok(()),
+    }
+}
 
 /// One line for the status bar and the settings page: "Direct delivery" or "SMTP
 /// localhost:2525" (", STARTTLS" / ", STARTTLS required"), and ", DKIM-signed (<domain>)" for
@@ -44,8 +64,11 @@ pub fn describe(settings: &SendSettings) -> String {
 /// The "Sending" section's fields as typed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SendingForm {
-    /// "Through an SMTP server" is chosen (else direct delivery).
+    /// "Through an SMTP server" is chosen (else direct delivery, or submission).
     pub smtp: bool,
+    /// "Through my provider's server (sign in)" is chosen: the account's outgoing server,
+    /// signed in with its password or token.
+    pub submission: bool,
     pub host: String,
     pub port: String,
     pub starttls: bool,
@@ -64,6 +87,7 @@ impl SendingForm {
         let mut form = match &settings.route {
             SendRoute::Direct | SendRoute::Submission => SendingForm {
                 smtp: false,
+                submission: settings.route == SendRoute::Submission,
                 host: String::new(),
                 port: SUBMISSION_PORT.to_string(),
                 starttls,
@@ -140,6 +164,21 @@ impl SendingForm {
         })
     }
 
+    /// The chosen route as an index into [`ROUTE_CHOICES`].
+    pub fn route_index(&self) -> usize {
+        if self.submission {
+            2
+        } else {
+            usize::from(self.smtp)
+        }
+    }
+
+    /// Chooses the route at `index` of [`ROUTE_CHOICES`].
+    pub fn choose_route(&mut self, index: usize) {
+        self.smtp = index == 1;
+        self.submission = index == 2;
+    }
+
     /// `settings` with the form's route and STARTTLS choice (every other setting kept), or
     /// what is wrong with the form.
     pub fn apply(&self, settings: &SendSettings) -> Result<SendSettings, String> {
@@ -148,8 +187,14 @@ impl SendingForm {
             (false, _) => TlsPolicy::Off,
             // Ticked: STARTTLS when offered, or still required when the file said so.
             (true, TlsPolicy::Off) => TlsPolicy::Opportunistic,
+            // TLS from the first byte is submission's: the other routes speak STARTTLS.
+            (true, TlsPolicy::Implicit) if !self.submission => TlsPolicy::Opportunistic,
             (true, kept) => kept,
         };
+        if self.submission {
+            applied.route = SendRoute::Submission;
+            return Ok(applied);
+        }
         if !self.smtp {
             applied.route = SendRoute::Direct;
             return Ok(applied);
