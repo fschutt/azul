@@ -173,3 +173,140 @@ fn emit_wrapper_body(builder: &mut CodeBuilder, s: &StructDef) {
     builder.line("end Adjust;");
     builder.blank();
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    /// `(azul.ads, azul.adb)` generated from the real api.json.
+    fn generated() -> &'static (String, String) {
+        static OUT: OnceLock<(String, String)> = OnceLock::new();
+        OUT.get_or_init(|| {
+            let ir = crate::codegen::v2::bug_classes::ir();
+            let all = super::super::generate(ir, &CodegenConfig::c_header()).expect("ada codegen");
+            let (spec, body) = all.split_once(super::super::SPLIT_MARKER).expect("split marker");
+            (spec.to_string(), body.to_string())
+        })
+    }
+
+    /// The text of one subprogram body, from its header to its `end <Name>;`.
+    fn body_of<'a>(body: &'a str, header: &str, name: &str) -> &'a str {
+        let start = body.find(header).unwrap_or_else(|| panic!("no `{}` in the body", header));
+        let rest = &body[start..];
+        let end = rest.find(&format!("end {};", name)).expect("end of the subprogram");
+        &rest[..end]
+    }
+
+    #[test]
+    fn copying_a_wrapper_deep_copies_the_record_instead_of_leaving_the_copy_dangling() {
+        let (_, body) = generated();
+        let adjust = body_of(body, "overriding procedure Adjust   (Self : in out FullWindowState_T) is", "Adjust");
+        assert!(
+            adjust.contains("Self.Inner := Az_FullWindowState_Deep_Copy (Self.Inner'Address);"),
+            "{}",
+            adjust
+        );
+        assert!(!adjust.contains("Self.Owned := False;"), "{}", adjust);
+    }
+
+    #[test]
+    fn a_wrapper_without_a_deep_copy_cannot_be_copied_at_all() {
+        let (spec, _) = generated();
+        let ir = crate::codegen::v2::bug_classes::ir();
+        let no_clone = ["CameraWidget", "VideoWidget", "DomSplit"]
+            .into_iter()
+            .find(|n| spec.contains(&format!("type {}_T is new", n)))
+            .expect("a wrapped type without _clone");
+        assert!(crate::codegen::v2::field_access_classic::clone_fn(ir, no_clone).is_none());
+        assert!(
+            spec.contains(&format!(
+                "type {}_T is new Ada.Finalization.Limited_Controlled with record",
+                no_clone
+            )),
+            "{} must be limited",
+            no_clone
+        );
+    }
+
+    #[test]
+    fn the_window_title_reads_as_an_ada_string_and_its_setter_releases_the_old_string() {
+        let (spec, body) = generated();
+        assert!(spec.contains("package Fields is"), "accessors live in Azul.Fields");
+        assert!(spec.contains("function Get_Title (Self : FullWindowState_T) return Standard.String;"));
+        assert!(spec.contains(
+            "procedure Set_Title (Self : in out FullWindowState_T; Value : Standard.String);"
+        ));
+        let get = body_of(
+            body,
+            "function Get_Title (Self : FullWindowState_T) return Standard.String is",
+            "Get_Title",
+        );
+        assert!(get.contains("Self.Inner.Title"), "{}", get);
+        assert!(!get.contains("_Delete"), "reading must not free the field:\n{}", get);
+        let set = body_of(
+            body,
+            "procedure Set_Title (Self : in out FullWindowState_T; Value : Standard.String) is",
+            "Set_Title",
+        );
+        assert!(
+            set.contains("Az_String_Copy_From_Bytes (Value'Address, 0, Value'Length)"),
+            "{}",
+            set
+        );
+        assert!(set.contains("Az_String_Delete (Self.Inner.Title'Address);"), "{}", set);
+        assert!(set.contains("Self.Inner.Title := New_Value;"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_getter_deep_copies_and_its_setter_consumes_the_argument() {
+        let (spec, body) = generated();
+        assert!(spec.contains(
+            "function Get_Window_State (Self : WindowCreateOptions_T) return FullWindowState_T;"
+        ));
+        let get = body_of(
+            body,
+            "function Get_Window_State (Self : WindowCreateOptions_T) return FullWindowState_T is",
+            "Get_Window_State",
+        );
+        assert!(
+            get.contains("Az_FullWindowState_Deep_Copy (Self.Inner.Window_State'Address)"),
+            "{}",
+            get
+        );
+        let set = body_of(
+            body,
+            "procedure Set_Window_State (Self : in out WindowCreateOptions_T; Value : in out FullWindowState_T) is",
+            "Set_Window_State",
+        );
+        assert!(set.contains("Value.Owned := False;"), "the argument is consumed:\n{}", set);
+        assert!(
+            set.contains("Az_FullWindowState_Delete (Self.Inner.Window_State'Address);"),
+            "{}",
+            set
+        );
+    }
+
+    #[test]
+    fn the_window_size_is_a_plain_record_copy_in_both_directions() {
+        let (spec, body) = generated();
+        assert!(spec.contains("function Get_Size (Self : FullWindowState_T) return Az_WindowSize;"));
+        let set = body_of(
+            body,
+            "procedure Set_Size (Self : in out FullWindowState_T; Value : Az_WindowSize) is",
+            "Set_Size",
+        );
+        assert!(set.contains("Self.Inner.Size := Value;"), "{}", set);
+        assert!(!set.contains("_Delete"), "a POD has nothing to release:\n{}", set);
+    }
+
+    #[test]
+    fn a_text_input_text_field_is_writable_even_though_get_text_is_a_method() {
+        let (spec, _) = generated();
+        assert!(spec.contains(
+            "procedure Set_Text (Self : in out TextInputState_T; Value : in out U32Vec_T);"
+        ));
+        assert!(spec.contains("function Get_Text (Self : TextInputState_T) return U32Vec_T;"));
+    }
+}

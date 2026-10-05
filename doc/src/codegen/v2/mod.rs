@@ -64,6 +64,7 @@ mod bug_classes;
 pub mod c_layout;
 pub mod config;
 pub mod conformance;
+pub mod field_access_classic;
 pub mod generator;
 pub mod ir;
 pub mod ir_builder;
