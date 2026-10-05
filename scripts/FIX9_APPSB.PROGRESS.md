@@ -16,11 +16,17 @@ restored from HEAD before committing).
   + IconGrid items have no DOM id (azreader_e2e double-clicks #__azreader_book-0).
   AzMusic covers (optional): deferred to the end.
 - 6.5 Gauge: AzMonitor ace78760e, AzKeys TOTP 650b94268, AzClock timer 03a2b9d31
+- 6.6 AzERP: (c) RED 37eb5afc7 GREEN d1ebf8a7d; (d) cb493bebd; (a) 914006cfe; (b) 89d94bbb1;
+  (e) SKIPPED (borderline: Grid filter takes one (field, value); needs a predicate + state + test)
+  E2E NOTE (a): azerp_e2e types "2.400,00" into #__azerp_field-acquisition_cost - the MoneyInput
+  root is not focusable and en-US refuses that text: script -> selector
+  "#__azerp_field-acquisition_cost .__azul-native-text-input-container", text "2,400.00".
+- 6.7 AzDashboard grouping: 6a65ac9ea
 
 ## IN PROGRESS
-- 6.6 AzERP (a) MoneyInput (b) ReferencePicker (c) delete confirmation (d) format_amount (e) filter bar
+- 6.8 AzNews (a) save on close (b) refresh timer re-arm
 
 ## NEXT
-- 6.7 .. 6.12 in order, then optional 6.4 AzMusic
+- 6.9 .. 6.12 in order, then optional 6.4 AzMusic
 
 ## Open questions
