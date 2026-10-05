@@ -2944,4 +2944,105 @@ mod autotest_generated {
         let size = img.get_size();
         assert_eq!((size.width as u32, size.height as u32), (4, 4));
     }
+
+    /// The stroke properties of an SVG shape (SVG 2 s13.5): `stroke-linecap`
+    /// (default `butt`), `stroke-linejoin` (default `miter`, limit 4) and
+    /// `stroke-dasharray`. The CPU renderer drew every stroke with round caps,
+    /// round joins and no dashes (PDF9: a dashed line came out solid, a
+    /// square-ended one rounded).
+    #[test]
+    fn an_svg_stroke_takes_its_linecap_linejoin_and_dasharray() {
+        const WHITE: [u8; 4] = [255, 255, 255, 255];
+        const RED_PX: [u8; 4] = [255, 0, 0, 255];
+        let render = |child: XmlNode| {
+            let svg = el_with("svg", &[], vec![child]);
+            let mut p = pixmap(40, 40);
+            p.fill(255, 255, 255, 255);
+            render_svg_group(&svg, &mut p, &TransAffine::new());
+            p
+        };
+
+        // A 6px line from (10, 10) to (30, 10).
+        let line = |extra: &[(&'static str, &'static str)]| {
+            let mut a = vec![
+                ("x1", "10"),
+                ("y1", "10"),
+                ("x2", "30"),
+                ("y2", "10"),
+                ("stroke", "red"),
+                ("stroke-width", "6"),
+            ];
+            a.extend_from_slice(extra);
+            el("line", &a)
+        };
+        let p = render(line(&[]));
+        assert_eq!(
+            px(&p, 8, 10),
+            WHITE,
+            "a butt cap (the default) ends the stroke at its end point"
+        );
+        assert_eq!(px(&p, 12, 10), RED_PX, "the line itself");
+        let p = render(line(&[("stroke-linecap", "square")]));
+        assert_eq!(
+            px(&p, 7, 7),
+            RED_PX,
+            "a square cap extends the stroke by half its width, corners included"
+        );
+        let p = render(line(&[("stroke-linecap", "round")]));
+        assert_eq!(px(&p, 8, 10), RED_PX, "a round cap reaches past the end");
+        assert_ne!(px(&p, 7, 7), RED_PX, "but not into the corner");
+
+        // A 6px right angle with its corner at (5, 5): a miter fills the
+        // outer corner square [2, 5] x [2, 5]; a round or bevel join does not
+        // reach its corner pixel (2, 2).
+        let corner = |join: Option<&'static str>| {
+            let mut a = vec![
+                ("d", "M5 30 L5 5 L30 5"),
+                ("fill", "none"),
+                ("stroke", "red"),
+                ("stroke-width", "6"),
+            ];
+            if let Some(j) = join {
+                a.push(("stroke-linejoin", j));
+            }
+            el("path", &a)
+        };
+        assert_eq!(
+            px(&render(corner(None)), 2, 2),
+            RED_PX,
+            "a miter join (the default) fills the outer corner"
+        );
+        assert_ne!(
+            px(&render(corner(Some("round"))), 2, 2),
+            RED_PX,
+            "a round join cuts it"
+        );
+        assert_ne!(
+            px(&render(corner(Some("bevel"))), 2, 2),
+            RED_PX,
+            "a bevel join cuts it"
+        );
+
+        // A 4px dashed line, 5 on / 5 off from x = 0.
+        let dashed = |extra: &[(&'static str, &'static str)]| {
+            let mut a = vec![
+                ("x1", "0"),
+                ("y1", "10"),
+                ("x2", "40"),
+                ("y2", "10"),
+                ("stroke", "red"),
+                ("stroke-width", "4"),
+                ("stroke-dasharray", "5 5"),
+            ];
+            a.extend_from_slice(extra);
+            el("line", &a)
+        };
+        let p = render(dashed(&[]));
+        assert_eq!(px(&p, 2, 10), RED_PX, "the first dash");
+        assert_eq!(px(&p, 7, 10), WHITE, "the first gap");
+        assert_eq!(px(&p, 12, 10), RED_PX, "the second dash");
+        let p = render(dashed(&[("stroke-dashoffset", "5")]));
+        assert_eq!(px(&p, 2, 10), WHITE, "an offset of 5 starts with the gap");
+        assert_eq!(px(&p, 7, 10), RED_PX, "and the dash follows");
+    }
 }
