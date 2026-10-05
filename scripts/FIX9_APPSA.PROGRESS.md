@@ -12,11 +12,15 @@
   (appkit/notes/pim), 29849d33b (photo/videocut), 3fbcbc3e6 (code/mail/sheets)
 - 5.6 one TempDir: 566b2cd5b (storage testing + pim re-export), 14bc44b8a (mail), 45b9bdbe7 (appkit/drive)
 
+- 5.7 open with the OS: 9b26f73a5 (appkit open_external -> Url::open for web), 9ce3bb95b (review)
+- 5.8 photo a11y: ad6e643fb
+- 5.9 videocut rgba_to_nv12: 3d394bc64 (NEEDS api.json RawImage.rgba_to_nv12, see commit message)
+
 ## IN PROGRESS
-5.7 AzReview open with the OS through appkit open_external -> azul::Url::open
+5.10 mail compose attachment size -> DiskSpace::format_bytes
 
 ## NEXT
-5.7 -> 5.14 in order (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
+5.10 -> 5.14 in order (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
 
 ## Round-2 notes so far
 - AzKeys/Cargo.toml still lists csv (unused after 5.1): drop it.
@@ -27,5 +31,7 @@
 
 - AzReader jobs.rs:357 TempDir copy: needs `[dev-dependencies] azul-storage = { .., features = ["testing"] }` in
   examples/azul-reader/Cargo.toml (outside PKG 5), then `use azul_storage::testing::TempDir`.
+
+- appkit open_external: call azul's path variant of Url::open for files / folders once 3.5 names it.
 
 ## Open questions
