@@ -1936,6 +1936,51 @@ mod icon_grid_tests {
         assert!(theme_checks::find(&dom, SCROLL_THUMB_CLASS).is_some());
     }
 
+    /// An app's E2E clicks an item by its grid's id and its index
+    /// (`#__azreader_book-0`), and so does the app's own code that looks an
+    /// item up: every item node carries `<grid id>-<index>` as its DOM id -
+    /// the item's index, not its place in view. A grid with no id names no
+    /// item (FIX9 APPSB R-3, the gap the Toolbar had).
+    #[test]
+    fn an_icon_grid_item_carries_its_grids_id_and_its_index_as_its_dom_id() {
+        let (asked, log) = fresh();
+        let items_of = |dom: &Dom| -> Vec<Dom> {
+            dom.children
+                .as_ref()
+                .iter()
+                .filter(|c| theme_checks::has_class(c, ITEM_CLASS))
+                .cloned()
+                .collect()
+        };
+        // Scrolled one row down: items 4..16 in view.
+        let dom = grid(&asked, &log)
+            .with_id(AzString::from("books"))
+            .with_view(IconGridView::create().with_top_row(1))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let items = items_of(&dom);
+        assert_eq!(items.len(), 12);
+        for (n, item) in items.iter().enumerate() {
+            let want = format!("books-{}", n + 4);
+            assert!(item.root.has_id(&want), "the item in place {n} carries #{want}");
+        }
+        assert!(dom.root.has_id("books"), "the grid keeps its own id");
+
+        let bare = grid(&asked, &log)
+            .with_id(AzString::from_const_str(""))
+            .with_theme(UiTheme::Flat)
+            .dom();
+        assert!(
+            items_of(&bare).iter().all(|item| !item
+                .root
+                .get_ids_and_classes()
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, azul_core::dom::IdOrClass::Id(_)))),
+            "a grid with no id names no item"
+        );
+    }
+
     #[test]
     fn a_drag_out_carries_the_selected_indices_and_tells_the_app() {
         let (asked, log) = fresh();
