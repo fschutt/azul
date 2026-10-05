@@ -896,11 +896,11 @@ mod tests {
 
     #[test]
     fn the_filter_finds_a_name_or_a_user_in_any_case() {
-        let row = ProcRow::of(&proc(5102, "rust-analyzer", "felix", 0.0, 1), 1000, 1);
+        let row = ProcRow::of(&proc(5102, "rust-analyzer", "ada", 0.0, 1), 1000, 1);
         assert!(matches(&row, ""));
         assert!(matches(&row, "  "));
         assert!(matches(&row, "Analyzer"));
-        assert!(matches(&row, "FEL"));
+        assert!(matches(&row, "AD"));
         assert!(!matches(&row, "cargo"));
     }
 
@@ -1108,21 +1108,21 @@ mod tests {
             1000,
             vec![
                 proc(1, "systemd", "root", 0.0, 1),
-                proc(2, "cargo", "felix", 0.0, 1),
+                proc(2, "cargo", "ada", 0.0, 1),
             ],
         );
-        r.user = "felix".to_string();
+        r.user = "ada".to_string();
         m.apply(r);
-        assert_eq!(m.summary.user, "felix");
-        let root = m.shown_row(m.position_of(1).unwrap()).unwrap();
-        let mine = m.shown_row(m.position_of(2).unwrap()).unwrap();
-        assert!(m.summary.belongs_to_another_user(root));
-        assert!(!m.summary.belongs_to_another_user(mine));
+        assert_eq!(m.summary.user, "ada");
+        let root = m.shown_row(m.position_of(1).unwrap()).unwrap().clone();
+        let mine = m.shown_row(m.position_of(2).unwrap()).unwrap().clone();
+        assert!(m.summary.belongs_to_another_user(&root));
+        assert!(!m.summary.belongs_to_another_user(&mine));
         // Unknown users cannot be told apart: no warning.
         let nobody = ProcRow::default();
         assert!(!m.summary.belongs_to_another_user(&nobody));
         m.summary.user.clear();
-        assert!(!m.summary.belongs_to_another_user(root));
+        assert!(!m.summary.belongs_to_another_user(&root));
     }
 
     #[test]
