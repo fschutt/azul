@@ -12,9 +12,16 @@
 //!    extern when `m_owned` is True.
 //! 4. Surfaces every non-trait method as a `Public Function`/`Sub` delegating to the FFI symbol
 //!    with `m_raw` passed as the self-pointer.
+//! 5. One property per public by-value field (see [`emit_field_properties`]): getters return
+//!    independent values, setters release the old value and move the new one in; a class-typed
+//!    argument is consumed through `Friend Sub MoveRawInto`.
 //!
-//! User-facing class names drop the `Az` prefix:  `AzApp` → `App`,
-//! `AzWindow` → `Window`. Each lives in its own `.cls` file.
+//! User-facing class names drop the `Az` prefix:  `AzWindow` → `Window`;
+//! a name VB6 already owns (`String`, the global `App` object) becomes
+//! `AzulString` / `AzulApp`. Each lives in its own `.cls` file.
+//!
+//! Open question (not fixed here): VB6 `Declare` is stdcall, libazul's
+//! 32-bit exports are cdecl - see the note in [`super::functions`].
 //!
 //! # Class file shape
 //!
@@ -45,14 +52,22 @@ use anyhow::Result;
 use super::{
     super::{
         config::CodegenConfig,
+        field_access_classic::{self as fa, FieldKind},
         generator::CodeBuilder,
         ir::{
             ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
         },
     },
     functions::{arg_clause_and_type, call_lines, uses_byref_twin},
-    ffi_type_name, idiomatic_method_name, map_type_to_vb6, sanitize_comment, sanitize_identifier,
+    ffi_type_name, idiomatic_method_name, is_vb6_reserved, map_type_to_vb6, sanitize_comment,
+    sanitize_identifier, to_pascal_case,
 };
+
+/// `Azul.bas` helper: `AzString` -> VB6 `String` (UTF-8 decoded), NOT
+/// consuming its argument.
+const STRING_READ_HELPER: &str = "AzulStringRead";
+/// `Azul.bas` helper: VB6 `String` -> fresh `AzString` (UTF-8 encoded).
+const STRING_NEW_HELPER: &str = "AzulStringNew";
 
 // ============================================================================
 // Discovery
@@ -91,11 +106,105 @@ fn should_emit_wrapper(s: &StructDef, config: &CodegenConfig) -> bool {
 }
 
 /// Idiomatic class name — drop the `Az` prefix from the IR name.
-/// `App` -> `App`, `Window` -> `Window`. (The IR already strips
-/// `Az`; this keeps the helper symmetric with other generators
-/// in case the IR-level convention changes.)
+/// `Window` -> `Window`. A name VB6 already owns - a keyword (`String`) or
+/// one of the runtime's global objects (`App`, `Screen`, ...), which a
+/// class of that name would shadow project-wide - becomes `Azul<Name>`
+/// (`AzulString`, `AzulApp`).
 pub fn class_name_for(raw: &str) -> String {
-    raw.strip_prefix("Az").unwrap_or(raw).to_string()
+    let base = raw.strip_prefix("Az").unwrap_or(raw);
+    if is_vb6_reserved(base) || is_vb6_global_object(base) {
+        format!("Azul{}", base)
+    } else {
+        base.to_string()
+    }
+}
+
+/// VB6's predeclared global objects and runtime libraries: a class module
+/// with one of these names hides the built-in everywhere in the project.
+fn is_vb6_global_object(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    matches!( // allow-api-name: VB6 runtime globals, not API names.
+        lower.as_str(),
+        "app"
+            | "screen"
+            | "printer"
+            | "printers"
+            | "clipboard"
+            | "forms"
+            | "err"
+            | "debug"
+            | "licenses"
+            | "global"
+            | "vb"
+            | "vba"
+            | "collection"
+            | "form"
+            | "control"
+            | "object"
+    )
+}
+
+/// The kernel32 `Declare`s [`emit_string_helpers`] needs. VB6 only accepts
+/// a `Declare` in a module's declarations section (before the first
+/// procedure), hence a separate emitter.
+pub fn emit_string_helper_declares(builder: &mut CodeBuilder) {
+    builder.line("' UTF-8 conversions for the string-field helpers (AzulStringRead / New).");
+    builder.line("Private Declare Function MultiByteToWideChar Lib \"kernel32\" (ByVal CodePage As Long, ByVal dwFlags As Long, ByVal lpMultiByteStr As Long, ByVal cbMultiByte As Long, ByVal lpWideCharStr As Long, ByVal cchWideChar As Long) As Long");
+    builder.line("Private Declare Function WideCharToMultiByte Lib \"kernel32\" (ByVal CodePage As Long, ByVal dwFlags As Long, ByVal lpWideCharStr As Long, ByVal cchWideChar As Long, ByVal lpMultiByteStr As Long, ByVal cbMultiByte As Long, ByVal lpDefaultChar As Long, ByVal lpUsedDefaultChar As Long) As Long");
+    builder.blank();
+}
+
+/// `AzulStringRead` / `AzulStringNew` for `Azul.bas` (UTF-8 through
+/// kernel32's code-page conversions). Emits nothing when the IR lacks the
+/// string class's byte layout or its copying constructor.
+pub fn emit_string_helpers(builder: &mut CodeBuilder, ir: &CodegenIR) {
+    let (Some(st), Some(copy), Some((vec, ptr, len))) =
+        (fa::string_class(ir), fa::string_copy_fn(ir), fa::string_layout(ir))
+    else {
+        return;
+    };
+    let az = ffi_type_name(&st.name);
+    let (vec, ptr, len) = (sanitize_identifier(&vec), sanitize_identifier(&ptr), sanitize_identifier(&len));
+    builder.line("' --------------------------------------------------------------------");
+    builder.line("' String fields: UTF-8 <-> VB6 String. AzulStringRead never frees.");
+    builder.line("' --------------------------------------------------------------------");
+    builder.line(&format!("Public Function {}(ByRef s As {}) As String", STRING_READ_HELPER, az));
+    builder.indent();
+    builder.line("Dim n As Long, w As Long, r As String");
+    builder.line(&format!("n = s.{}.{}", vec, len));
+    builder.line("If n <= 0 Then Exit Function");
+    builder.line(&format!("w = MultiByteToWideChar(65001, 0, s.{}.{}, n, 0, 0)", vec, ptr));
+    builder.line("r = String$(w, vbNullChar)");
+    builder.line(&format!("MultiByteToWideChar 65001, 0, s.{}.{}, n, StrPtr(r), w", vec, ptr));
+    builder.line(&format!("{} = r", STRING_READ_HELPER));
+    builder.dedent();
+    builder.line("End Function");
+    builder.blank();
+    builder.line(&format!("Public Function {}(ByVal v As String) As {}", STRING_NEW_HELPER, az));
+    builder.indent();
+    builder.line(&format!("Dim n As Long, buf() As Byte, r As {}", az));
+    builder.line("n = WideCharToMultiByte(65001, 0, StrPtr(v), Len(v), 0, 0, 0, 0)");
+    builder.line("If n > 0 Then");
+    builder.indent();
+    builder.line("ReDim buf(0 To n - 1)");
+    builder.line("WideCharToMultiByte 65001, 0, StrPtr(v), Len(v), VarPtr(buf(0)), n, 0, 0");
+    let some: Vec<String> = ["VarPtr(buf(0))", "0", "n"].iter().map(|a| a.to_string()).collect();
+    for l in call_lines(copy, ir, &some, Some("r")) {
+        builder.line(&l);
+    }
+    builder.dedent();
+    builder.line("Else");
+    builder.indent();
+    let none: Vec<String> = ["0", "0", "0"].iter().map(|a| a.to_string()).collect();
+    for l in call_lines(copy, ir, &none, Some("r")) {
+        builder.line(&l);
+    }
+    builder.dedent();
+    builder.line("End If");
+    builder.line(&format!("{} = r", STRING_NEW_HELPER));
+    builder.dedent();
+    builder.line("End Function");
+    builder.blank();
 }
 
 // ============================================================================
@@ -205,7 +314,210 @@ pub fn emit_class_module(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) 
         emit_method(&mut builder, &raw_record, func, ir);
     }
 
+    emit_move_raw_into(&mut builder, s, ir);
+    emit_field_properties(&mut builder, s, ir, config);
+
     Ok(builder.finish())
+}
+
+/// `MoveRawInto`: hands the record to a consuming setter of another class
+/// (moved when owned - this object stops owning it - else deep-copied).
+/// `Friend`, so it never shows on the public surface.
+fn emit_move_raw_into(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+    builder.line("' MoveRawInto: write the record to dst; an owned record MOVES (this object");
+    builder.line("' no longer frees it), a borrowed one is deep-copied.");
+    builder.line("Friend Sub MoveRawInto(ByVal dst As Long)");
+    builder.indent();
+    builder.line("If m_owned Then");
+    builder.indent();
+    builder.line("CopyMemory ByVal dst, m_raw, LenB(m_raw)");
+    builder.line("m_owned = False");
+    builder.dedent();
+    builder.line("Else");
+    builder.indent();
+    match fa::clone_fn(ir, &s.name) {
+        Some(clone) => {
+            builder.line(&format!("Dim c_ As {}", ffi_type_name(&s.name)));
+            for l in call_lines(clone, ir, &["VarPtr(m_raw)".to_string()], Some("c_")) {
+                builder.line(&l);
+            }
+            builder.line("CopyMemory ByVal dst, c_, LenB(c_)");
+        }
+        None => builder.line(&format!(
+            "Err.Raise 5, \"{}\", \"a borrowed record without a deep copy cannot be moved\"",
+            class_name_for(&s.name)
+        )),
+    }
+    builder.dedent();
+    builder.line("End If");
+    builder.dedent();
+    builder.line("End Sub");
+    builder.blank();
+}
+
+/// One property per public by-value field (see the module docs).
+///
+/// - scalars, `Boolean` and `String` (decoded without consuming the field):
+///   `Public Property Get` / `Let`;
+/// - a field whose type has a class: `Public Property Get` (a new object
+///   holding a deep copy) / `Set` (consumes the argument via `MoveRawInto`);
+/// - unit enums and plain records: `Friend` (VB6 forbids standard-module
+///   types on a class's public surface), `Get` a copy / `Let` by reference.
+///
+/// Every setter releases the old value first. An api.json method of the
+/// same name keeps its name; the property becomes `<Field>Field`. Nested
+/// fields are read-modify-write:
+///
+/// ```text
+/// Dim ws As FullWindowState
+/// Set ws = opts.WindowState        ' deep copy
+/// ws.Title = "Hello"               ' releases the old title
+/// Dim sz As AzWindowSize
+/// sz = ws.Size: sz.dimensions.width = 800: ws.Size = sz
+/// Set opts.WindowState = ws        ' consumes ws
+/// ```
+fn emit_field_properties(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) {
+    let classes: BTreeSet<String> = collect_class_targets(ir, config)
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    let mut taken: BTreeSet<String> = [
+        "m_raw",
+        "m_owned",
+        "wrapraw",
+        "getrawptr",
+        "moverawinto",
+        "class_initialize",
+        "class_terminate",
+        "init",
+    ]
+    .iter()
+    .map(|n| n.to_string())
+    .collect();
+    for func in ir.functions_for_class(&s.name) {
+        taken.insert(idiomatic_method_name(&func.method_name).to_ascii_lowercase());
+        taken.insert(format!("init{}", idiomatic_method_name(&func.method_name)).to_ascii_lowercase());
+    }
+    for a in fa::accessible_fields(s, ir, config) {
+        let comp = format!("m_raw.{}", sanitize_identifier(&a.field.name));
+        let base = sanitize_identifier(&to_pascal_case(a.field.name.trim_start_matches('_')));
+        let name = if taken.contains(&base.to_ascii_lowercase()) {
+            format!("{}Field", base)
+        } else {
+            base
+        };
+        if !taken.insert(name.to_ascii_lowercase()) {
+            continue;
+        }
+        let release = |builder: &mut CodeBuilder| {
+            if let Some(d) = fa::delete_fn(ir, a.ty) {
+                for l in call_lines(d, ir, &[format!("VarPtr({})", comp)], None) {
+                    builder.line(&l);
+                }
+            }
+        };
+        let clone_into = |builder: &mut CodeBuilder, var: &str| -> bool {
+            match fa::clone_fn(ir, a.ty) {
+                Some(c) => {
+                    for l in call_lines(c, ir, &[format!("VarPtr({})", comp)], Some(var)) {
+                        builder.line(&l);
+                    }
+                    true
+                }
+                None => false,
+            }
+        };
+        match a.kind {
+            FieldKind::Prim { is_bool: true } => {
+                builder.line(&format!("Public Property Get {}() As Boolean", name));
+                builder.line(&format!("    {} = ({} <> 0)", name, comp));
+                builder.line("End Property");
+                builder.line(&format!("Public Property Let {}(ByVal v As Boolean)", name));
+                builder.line(&format!("    If v Then {} = 1 Else {} = 0", comp, comp));
+                builder.line("End Property");
+            }
+            FieldKind::Prim { .. } | FieldKind::UnitEnum => {
+                let vis = if matches!(a.kind, FieldKind::UnitEnum) { "Friend" } else { "Public" };
+                let ty = map_type_to_vb6(a.ty, ir);
+                if ty.is_empty() {
+                    continue;
+                }
+                builder.line(&format!("{} Property Get {}() As {}", vis, name, ty));
+                builder.line(&format!("    {} = {}", name, comp));
+                builder.line("End Property");
+                builder.line(&format!("{} Property Let {}(ByVal v As {})", vis, name, ty));
+                builder.line(&format!("    {} = v", comp));
+                builder.line("End Property");
+            }
+            FieldKind::Str { .. } => {
+                if fa::string_copy_fn(ir).is_none() || fa::string_layout(ir).is_none() {
+                    continue;
+                }
+                builder.line(&format!("Public Property Get {}() As String", name));
+                builder.line(&format!("    {} = {}({})", name, STRING_READ_HELPER, comp));
+                builder.line("End Property");
+                builder.line(&format!("Public Property Let {}(ByVal v As String)", name));
+                builder.indent();
+                builder.line(&format!("Dim nv As {}", ffi_type_name(a.ty)));
+                builder.line(&format!("nv = {}(v)", STRING_NEW_HELPER));
+                release(builder);
+                builder.line(&format!("{} = nv", comp));
+                builder.dedent();
+                builder.line("End Property");
+            }
+            FieldKind::Value { .. } if classes.contains(a.ty) => {
+                let cls = class_name_for(a.ty);
+                let raw = ffi_type_name(a.ty);
+                if fa::clone_fn(ir, a.ty).is_some() {
+                    builder.line(&format!("Public Property Get {}() As {}", name, cls));
+                    builder.indent();
+                    builder.line(&format!("Dim r_ As {}", raw));
+                    clone_into(builder, "r_");
+                    builder.line(&format!("Dim o_ As {}", cls));
+                    builder.line(&format!("Set o_ = New {}", cls));
+                    builder.line("o_.WrapRaw VarPtr(r_)");
+                    builder.line(&format!("Set {} = o_", name));
+                    builder.dedent();
+                    builder.line("End Property");
+                }
+                builder.line(&format!("Public Property Set {}(ByVal v As {})", name, cls));
+                builder.indent();
+                builder.line(&format!("Dim nv As {}", raw));
+                builder.line("v.MoveRawInto VarPtr(nv)");
+                release(builder);
+                builder.line(&format!("{} = nv", comp));
+                builder.dedent();
+                builder.line("End Property");
+            }
+            FieldKind::Value { delete, clone } => {
+                let raw = map_type_to_vb6(a.ty, ir);
+                if raw.is_empty() || raw == "Long" {
+                    continue;
+                }
+                if delete.is_none() || clone.is_some() {
+                    builder.line(&format!("Friend Property Get {}() As {}", name, raw));
+                    builder.indent();
+                    if delete.is_some() {
+                        builder.line(&format!("Dim r_ As {}", raw));
+                        clone_into(builder, "r_");
+                        builder.line(&format!("{} = r_", name));
+                    } else {
+                        builder.line(&format!("{} = {}", name, comp));
+                    }
+                    builder.dedent();
+                    builder.line("End Property");
+                }
+                // The field takes over the record's heap memory.
+                builder.line(&format!("Friend Property Let {}(ByRef v As {})", name, raw));
+                builder.indent();
+                release(builder);
+                builder.line(&format!("{} = v", comp));
+                builder.dedent();
+                builder.line("End Property");
+            }
+        }
+        builder.blank();
+    }
 }
 
 fn emit_preamble(builder: &mut CodeBuilder, class_name: &str) {
@@ -340,7 +652,9 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
     // `self` is a pointer (VarPtr(m_raw)); a consumed `self` (a builder
     // method taking the record by value) goes to the Byref twin as the
     // record itself, which the call then owns.
-    let receiver = func.args.iter().find(|a| func.is_receiver_arg(a));
+    // The receiver is the first argument of every self-taking kind,
+    // whatever api.json named it (`instance` for the deep copy).
+    let receiver = if takes_self { func.args.first() } else { None };
     let consumes_self = takes_self && receiver.is_some_and(|r| r.ref_kind == ArgRefKind::Owned);
     let mut call_args: Vec<String> = Vec::new();
     if takes_self && receiver.is_some() {
@@ -411,7 +725,15 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
 // ============================================================================
 
 fn visible_user_args(func: &FunctionDef) -> Vec<&FunctionArg> {
-    func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect()
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+    if takes_self {
+        func.args.iter().skip(1).collect()
+    } else {
+        func.args.iter().filter(|a| !func.is_receiver_arg(a)).collect()
+    }
 }
 
 fn format_arg_list(args: &[&FunctionArg], ir: &CodegenIR) -> String {

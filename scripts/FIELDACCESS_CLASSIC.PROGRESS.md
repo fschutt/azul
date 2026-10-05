@@ -28,10 +28,22 @@ Str / Value{delete, clone}), string copy fn + layout, all derived from the IR.
   User: `Dim ws As Azul.FullWindowState = opts.WindowState : ws.Title = "Hi" :
   Dim sz As AzWindowSize = ws.Size : sz.dimensions.width = 800 : ws.Size = sz : opts.WindowState = ws`
 
+- VB6: RED 73300a19e, fix = the commit after it. Class names that are VB6 keywords / runtime
+  globals become `Azul<Name>` (AzulString.cls, AzulApp.cls); receiver = first arg of
+  Method/MethodMut/DeepCopy (Clone() lost the extra arg); `Friend Sub MoveRawInto`; field
+  properties (Public for scalars/String/classes, Friend for UDT/enum types); Azul.bas gets
+  AzulStringRead (UTF-8, non-consuming) / AzulStringNew + kernel32 declares.
+  User: `Set ws = opts.WindowState: ws.Title = "Hi": sz = ws.Size: sz.dimensions.width = 800:
+  ws.Size = sz: Set opts.WindowState = ws`
+
 ## IN PROGRESS
-- VB6
+- Pascal
 
 ## NEXT
-- Pascal.
+- report.
 
 ## Open questions
+- VB6 stdcall vs cdecl: left as documented (wrappers.rs module doc + functions.rs). Not trivially
+  fixable in the generator: needs stdcall entry points in the 32-bit libazul.
+- VB6 existing `Public Function` methods returning/taking standard-module UDTs are likely rejected
+  by VB6 in a class module (same rule that made the new UDT properties `Friend`). Not changed.
