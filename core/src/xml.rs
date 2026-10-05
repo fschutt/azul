@@ -251,6 +251,9 @@ impl MimeTypeHint {
             "css" => "text/css",
             // Scripts
             "js" | "mjs" => "application/javascript",
+            // Data and text
+            "json" => "application/json",
+            "txt" => "text/plain",
             // Video
             "mp4" => "video/mp4",
             "webm" => "video/webm",

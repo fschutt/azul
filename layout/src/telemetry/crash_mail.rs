@@ -299,23 +299,18 @@ pub fn send_attachments(
     }
 }
 
-/// The media type of an attachment, by its file name: the crash dumps' and
-/// reports' JSON and the report's text, else the one extension table
-/// (`MimeTypeHint::from_extension`: the screenshot's PNG; anything unknown is
-/// `application/octet-stream`).
+/// The media type of an attachment, by its file name's extension: the one
+/// extension table (`MimeTypeHint::from_extension`, case-insensitive - the
+/// crash dumps' and reports' JSON, the report's text, the screenshot's PNG;
+/// anything unknown is `application/octet-stream`).
 fn attachment_type(file_name: &str) -> String {
     let extension = file_name
         .rsplit_once('.')
-        .map_or("", |(_, extension)| extension)
-        .to_ascii_lowercase();
-    match extension.as_str() {
-        "json" => "application/json".to_owned(),
-        "txt" => "text/plain".to_owned(),
-        other => azul_core::xml::MimeTypeHint::from_extension(other)
-            .inner
-            .as_str()
-            .to_owned(),
-    }
+        .map_or("", |(_, extension)| extension);
+    azul_core::xml::MimeTypeHint::from_extension(extension)
+        .inner
+        .as_str()
+        .to_owned()
 }
 
 #[cfg(test)]
