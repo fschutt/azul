@@ -1946,3 +1946,59 @@ impl CGenerator {
         builder.blank();
     }
 }
+
+#[cfg(test)]
+mod field_helper_tests {
+    /// The real azul.h, line endings folded to LF.
+    fn header() -> String {
+        let api = crate::api::ApiData::from_str(include_str!("../../../../api.json"))
+            .expect("api.json parses");
+        super::super::generate_c_header(&api)
+            .expect("azul.h generates")
+            .replace("\r\n", "\n")
+    }
+
+    /// C keeps raw structs - a scalar or POD field is read and written
+    /// directly - but a heap-owning field gets the two helpers raw access
+    /// cannot express safely: replace (free the old value, take the new one)
+    /// and copy (a deep copy the caller frees).
+    #[test]
+    fn a_heap_owning_c_field_gets_a_freeing_setter_and_a_deep_copy_getter() {
+        let h = header();
+        assert!(h.contains(
+            "static inline void AzFullWindowState_setTitle(AzFullWindowState* instance, AzString \
+             value) {\n    AzString_delete(&instance->title);\n    instance->title = value;\n}\n"
+        ));
+        assert!(h.contains(
+            "static inline AzString AzFullWindowState_getTitle(const AzFullWindowState* \
+             instance) {\n    return AzString_clone(&instance->title);\n}\n"
+        ));
+        assert!(h.contains(
+            "static inline void AzWindowCreateOptions_setWindowState(AzWindowCreateOptions* \
+             instance, AzFullWindowState value) {\n    \
+             AzFullWindowState_delete(&instance->window_state);\n    instance->window_state = \
+             value;\n}\n"
+        ));
+        assert!(h.contains(
+            "static inline AzFullWindowState AzWindowCreateOptions_getWindowState(const \
+             AzWindowCreateOptions* instance) {\n    return \
+             AzFullWindowState_clone(&instance->window_state);\n}\n"
+        ));
+    }
+
+    /// Scalars and PODs are plain C fields; callbacks are wired by the
+    /// callback API; an exported function of the same name wins.
+    #[test]
+    fn plain_callback_and_colliding_c_fields_get_no_helper() {
+        let h = header();
+        assert!(!h.contains("AzCheckBoxState_setChecked("));
+        assert!(!h.contains("AzFullWindowState_setSize("));
+        assert!(!h.contains("AzFullWindowState_setLayoutCallback("));
+        assert!(!h.contains("AzWindowCreateOptions_setCreateCallback("));
+        assert!(!h.contains("static inline AzU32Vec AzTextInputState_getText("));
+        assert!(h.contains(
+            "static inline void AzTextInputState_setText(AzTextInputState* instance, AzU32Vec \
+             value) {\n"
+        ));
+    }
+}
