@@ -1818,6 +1818,44 @@ mod icon_grid_tests {
         assert!(grid_key(&none, &geo, K::Escape, false, false).is_none(), "nothing to clear");
     }
 
+    extern "C" fn fruits(_: RefAny, index: usize) -> IconGridItem {
+        const NAMES: [&str; 6] = ["Apple", "banana", "Cherry", "avocado", "Blueberry", "apricot"];
+        IconGridItem::create(
+            AzString::from(NAMES.get(index).copied().unwrap_or("")),
+            AzString::from("description"),
+        )
+    }
+
+    #[test]
+    fn typing_a_letter_moves_the_focus_to_the_next_item_named_with_it() {
+        let (_, log) = fresh();
+        let g = IconGrid::create(6, 400.0, 300.0)
+            .with_data_source(RefAny::new(()), fruits as IconGridDataSourceCallbackType)
+            .with_on_event(RefAny::new(log.clone()), record as IconGridOnEventCallbackType);
+        let geo = geometry(&g);
+        let typed = |g: &IconGrid, k: K| grid_key(g, &geo, k, false, false).expect("a letter is the grid's");
+        let first = typed(&g, K::A);
+        assert_eq!(
+            (first.kind, first.index.into_option()),
+            (IconGridEventKind::Select, Some(0)),
+            "nothing focused: the first item named with A"
+        );
+        assert_eq!(selected(&first.view), vec![0]);
+        let next = typed(&g.clone().with_view(first.view), K::A);
+        assert_eq!(selected(&next.view), vec![3], "the NEXT one named with it, case folded");
+        assert_eq!(next.view.selection.focus.into_option(), Some(3), "the focus moves with it");
+        assert_eq!(selected(&typed(&g.clone().with_view(next.view), K::A).view), vec![5]);
+        let at5 = with_selection(g.clone(), &[5], 5);
+        assert_eq!(selected(&typed(&at5, K::A).view), vec![0], "past the last: around to the first");
+        assert_eq!(selected(&typed(&at5, K::B).view), vec![1]);
+        assert!(grid_key(&at5, &geo, K::Z, false, false).is_none(), "no item named with Z: nothing moves");
+        assert_eq!(
+            grid_key(&at5, &geo, K::A, false, true).map(|e| e.view.selection.keys.len()),
+            Some(6),
+            "Ctrl+A still selects all"
+        );
+    }
+
     // ---- the DOM ----
 
     fn id(n: NodeId) -> DomNodeId {
