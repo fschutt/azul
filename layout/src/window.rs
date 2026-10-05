@@ -28281,7 +28281,7 @@ mod autotest_generated {
         let dom = Dom::create_body().with_child(
             Dom::create_div()
                 .with_css("font-size: 5vw;")
-                .with_child(Dom::create_text("Hi")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hi")),
         );
         let win = laid_out(StyledDom::create_from_dom(dom), 800.0, 600.0);
         let sizes: Vec<u16> = win
@@ -28307,7 +28307,7 @@ mod autotest_generated {
             Dom::create_body().with_child(
                 Dom::create_div()
                     .with_css("font-size: 5vw;")
-                    .with_child(Dom::create_text("Hi")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hi")),
             )
         };
         let mut win = laid_out(StyledDom::create_from_dom(dom()), 800.0, 600.0);
