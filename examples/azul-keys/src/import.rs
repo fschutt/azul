@@ -1,7 +1,7 @@
 //! Import: the CSV files browsers and password managers export, and Bitwarden's JSON export.
 //!
-//! CSV (read with the `csv` crate: quotes, separators and line breaks in fields, a byte-order
-//! mark): the columns are found by their header names, so one reader takes
+//! CSV (read with the apps' one reader, `azul_appkit::csv`: quotes, separators and line breaks
+//! in fields, a byte-order mark): the columns are found by their header names, so one reader takes
 //! - Chrome / Edge / Brave / Opera: `name,url,username,password,note`
 //! - Firefox: `url,username,password,httpRealm,formActionOrigin,guid,timeCreated,timeLastUsed,
 //!   timePasswordChanged` (milliseconds)
@@ -224,37 +224,11 @@ fn millis(cell: &str) -> Option<u64> {
         .map(|ms| ms / 1000)
 }
 
-/// The separator a header line holds most of: comma, semicolon or tab (a comma on a tie).
-fn separator(header_line: &str) -> u8 {
-    let mut best = (b',', 0usize);
-    for sep in [b',', b';', b'\t'] {
-        let n = header_line.bytes().filter(|b| *b == sep).count();
-        if n > best.1 {
-            best = (sep, n);
-        }
-    }
-    best.0
-}
-
 /// The items of a CSV export; `Err` when the file is no table or has no column to import.
 pub fn import_csv(text: &str, now: u64) -> Result<Imported, String> {
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let first = text.lines().next().unwrap_or_default();
-    if first.trim().is_empty() {
-        return Err("The file is empty: it has no header row.".to_string());
-    }
-    let mut reader = csv::ReaderBuilder::new()
-        .has_headers(true)
-        .flexible(true)
-        .delimiter(separator(first))
-        .from_reader(text.as_bytes());
-    let headers: Vec<String> = reader
-        .headers()
-        .map_err(|e| format!("The header row cannot be read: {e}"))?
-        .iter()
-        .map(str::to_string)
-        .collect();
-    let columns = Columns::of(&headers);
+    let table = azul_appkit::csv::read_table(text)?;
+    let headers = &table.headers;
+    let columns = Columns::of(headers);
     if !columns.any() {
         return Err(
             "No column of this file is one AzKeys imports: it needs a header row naming \
@@ -262,20 +236,17 @@ pub fn import_csv(text: &str, now: u64) -> Result<Imported, String> {
                 .to_string(),
         );
     }
-    let format = detect(&headers);
+    let format = detect(headers);
     let mut items = Vec::new();
     let mut skipped = Vec::new();
-    for (n, record) in reader.records().enumerate() {
+    for (n, record) in table.rows.iter().enumerate() {
         // The row's number as a spreadsheet shows it: the header is row 1.
         let row = n + 2;
-        let record = match record {
-            Ok(r) => r,
-            Err(e) => {
-                skipped.push(format!("row {row}: cannot be read ({})", csv_problem(&e)));
-                continue;
-            }
+        let get = |c: Option<usize>| {
+            c.and_then(|i| record.get(i))
+                .map(|cell| cell.trim())
+                .unwrap_or("")
         };
-        let get = |c: Option<usize>| c.and_then(|i| record.get(i)).map(str::trim).unwrap_or("");
         let (title, url, username, password) = (
             get(columns.title),
             get(columns.url),
@@ -339,15 +310,6 @@ pub fn import_csv(text: &str, now: u64) -> Result<Imported, String> {
         items,
         skipped,
     })
-}
-
-/// What went wrong reading a CSV row, without the row's content.
-fn csv_problem(e: &csv::Error) -> String {
-    match e.kind() {
-        csv::ErrorKind::Utf8 { .. } => "it is not UTF-8 text".to_string(),
-        csv::ErrorKind::UnequalLengths { .. } => "it has another number of columns".to_string(),
-        _ => "a CSV error".to_string(),
-    }
 }
 
 /// A JSON value as text: a string as it is, a number or a bool written out, else "".
