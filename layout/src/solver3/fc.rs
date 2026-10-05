@@ -702,9 +702,9 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // This is CRITICAL for align-items: stretch to work correctly!
     // Taffy uses known_dimensions to calculate cross_axis_available_space for children.
     let (explicit_width, has_explicit_width) =
-        resolve_explicit_dimension_width(ctx, node, constraints);
+        definite_or_auto(resolve_explicit_dimension_width(ctx, node, constraints));
     let (explicit_height, has_explicit_height) =
-        resolve_explicit_dimension_height(ctx, node, constraints);
+        definite_or_auto(resolve_explicit_dimension_height(ctx, node, constraints));
 
     // FIX: For root nodes or nodes where the parent provides a definite size,
     // use the available_size as known_dimensions if no explicit CSS width/height is set.
@@ -977,6 +977,22 @@ fn border_box_to_content<T: ParsedFontTrait>(
         Axis::Height => bp.border.top + bp.border.bottom + bp.padding.top + bp.padding.bottom,
     };
     (resolved - adjustment).max(0.0)
+}
+
+/// An explicit size that came out non-finite is `auto`: it resolved a
+/// percentage (or a calc() with percent terms) against the INDEFINITE basis a
+/// measurement pass carries as `INFINITY` in `available_size` - a flex basis
+/// or a row's cross size measured on a block that holds a `height: 100%`
+/// flex container. CSS 2.2 10.5 / css-sizing-3 5.2.1: such a percentage
+/// behaves as `auto`, so the container is content-sized; handed to taffy as a
+/// known size, the infinity became the height of every box above it (the
+/// OfficeShell chain of AzNews / AzCode, blank screenshots). The same net
+/// `calculate_used_size_for_node` keeps for a non-finite width.
+fn definite_or_auto((size, explicit): (Option<f32>, bool)) -> (Option<f32>, bool) {
+    match size {
+        Some(px) if !px.is_finite() => (None, false),
+        _ => (size, explicit),
+    }
 }
 
 fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
