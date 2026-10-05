@@ -112,6 +112,8 @@ const TAG_LOAD: u64 = 1;
 const TAG_WRITE: u64 = 2;
 const TAG_SAMPLE: u64 = 3;
 const TAG_IMPORT_FILE: u64 = 4;
+/// The subscription list written on the way out: the window closes when it landed.
+const TAG_CLOSING: u64 = 5;
 
 /// Articles the list shows before "Show more".
 const LIST_PAGE: usize = 300;
@@ -374,8 +376,13 @@ pub struct NewsApp {
     pub confirm_mark_all: bool,
     /// "Unsubscribe?" is asked on the feed page.
     pub confirm_unsubscribe: bool,
-    /// The feed page changed the subscription list (written when the page is left).
+    /// The feed page changed the subscription list (written when the page is left, or when
+    /// the window is asked to close).
     pub list_dirty: bool,
+    /// The window waits for the subscription list to land before it closes.
+    pub closing: bool,
+    /// The "Refresh every ..." timer, while one runs.
+    pub refresh_timer: Option<TimerId>,
 }
 
 impl NewsApp {
@@ -414,6 +421,8 @@ impl NewsApp {
             confirm_mark_all: false,
             confirm_unsubscribe: false,
             list_dirty: false,
+            closing: false,
+            refresh_timer: None,
         }
     }
 
@@ -1555,6 +1564,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_accent(ShellThemeAccent::Clay)
         .body()
         .with_callback(
+            EventFilter::Window(WindowEventFilter::CloseRequested),
+            app.clone(),
+            on_close_requested,
+        )
+        .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             app,
             on_key,
@@ -1590,9 +1604,56 @@ fn save_state(s: &NewsApp, info: &mut CallbackInfo, app: &RefAny, feed: usize) {
 
 /// Writes the subscription list.
 fn save_list(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny) {
+    write_list(s, info, app, TAG_WRITE);
+}
+
+/// Writes the subscription list as a job of `tag`.
+fn write_list(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, tag: u64) {
     s.list_dirty = false;
     let job = store::subscriptions_job(&s.library);
-    write_files(s, info, app, vec![job], TAG_WRITE);
+    write_files(s, info, app, vec![job], tag);
+}
+
+/// (Re)starts the "Refresh every ..." timer for the setting: the running one stops, a new one
+/// starts unless the setting is off.
+fn arm_refresh_timer(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny) {
+    if let Some(id) = s.refresh_timer.take() {
+        info.remove_timer(id);
+    }
+    if s.settings.refresh_minutes == 0 {
+        return;
+    }
+    let every = u64::from(s.settings.refresh_minutes) * 60_000;
+    let timer = Timer::create(app.clone(), on_refresh_timer, info.get_system_time_fn())
+        .with_delay(Duration::System(SystemTimeDiff::from_millis(every)))
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(every)));
+    let id = TimerId::unique();
+    info.add_timer(id, timer);
+    s.refresh_timer = Some(id);
+}
+
+/// The window is asked to close (its close button, the app's own): a feed page's renamed
+/// title or folder is written when the page is left - so it is written now, and the window
+/// closes once the write landed ([`on_files_done`], `TAG_CLOSING`).
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let Some(mut guard) = data.downcast_mut::<NewsApp>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    if s.closing {
+        // The list is on its way: the window closes when it landed.
+        info.prevent_window_close();
+        return Update::DoNothing;
+    }
+    if !s.list_dirty {
+        return Update::DoNothing;
+    }
+    eprintln!("[aznews] the window closes once the subscription list is written");
+    s.closing = true;
+    info.prevent_window_close();
+    write_list(s, &mut info, &app, TAG_CLOSING);
+    Update::DoNothing
 }
 
 /// Refreshes the feeds at `feeds` on a Thread (the sample's documentation addresses are not
@@ -1675,9 +1736,10 @@ fn leave_form(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny) {
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
-    let Some(s) = data.downcast_ref::<NewsApp>() else {
+    let Some(mut guard) = data.downcast_mut::<NewsApp>() else {
         return Update::DoNothing;
     };
+    let s = &mut *guard;
     kit::on_window_created(&s.kit, &mut info);
     kit::spawn_file_jobs(
         &mut info,
@@ -1687,13 +1749,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         TAG_LOAD,
         on_files_done,
     );
-    if s.settings.refresh_minutes > 0 {
-        let every = u64::from(s.settings.refresh_minutes) * 60_000;
-        let timer = Timer::create(app.clone(), on_refresh_timer, info.get_system_time_fn())
-            .with_delay(Duration::System(SystemTimeDiff::from_millis(every)))
-            .with_interval(Duration::System(SystemTimeDiff::from_millis(every)));
-        info.add_timer(TimerId::unique(), timer);
-    }
+    arm_refresh_timer(s, &mut info, &app);
     Update::DoNothing
 }
 
@@ -1859,6 +1915,19 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
             }
             if failed > 0 {
                 s.notice = format!("{failed} file(s) could not be written - see the log");
+            }
+            if reply.tag == TAG_CLOSING && s.closing {
+                s.closing = false;
+                if failed == 0 {
+                    eprintln!("[aznews] the subscription list landed: the window closes");
+                    info.close_window();
+                } else {
+                    // Not lost without a word: the window stays and says so; the next close
+                    // quits without the list.
+                    s.notice = "The subscription list could not be written - see the log. \
+                                Close the window again to quit without it."
+                        .to_string();
+                }
             }
         }
     })
@@ -2651,10 +2720,12 @@ extern "C" fn on_set_refresh_every(
     mut info: CallbackInfo,
     state: SegmentedState,
 ) -> Update {
-    with_app(&mut data, &mut info, |s, info, _| {
+    with_app(&mut data, &mut info, |s, info, handle| {
         if let Some((_, minutes)) = REFRESH_EVERY.get(state.selected_index) {
             s.settings.refresh_minutes = *minutes;
             kit::set_value(&s.kit, info, "refresh_every", &minutes.to_string());
+            // The new interval takes effect now, not at the next start.
+            arm_refresh_timer(s, info, handle);
         }
     })
 }
