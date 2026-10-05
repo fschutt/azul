@@ -712,13 +712,6 @@ fn spacer(px: f32) -> azul_core::dom::Dom {
     )
 }
 
-/// A class list of one.
-fn one_class(name: &'static str) -> azul_core::dom::IdOrClassVec {
-    azul_core::dom::IdOrClassVec::from_vec(alloc::vec![azul_core::dom::IdOrClass::Class(
-        AzString::from_const_str(name)
-    )])
-}
-
 impl DateRangePicker {
     /// Renders the picker: the presets, the two months, the summary line -
     /// the calendars in the date picker's look, the rest in the theme's
@@ -885,7 +878,7 @@ impl DateRangePicker {
                     refany: data.clone(),
                 };
                 crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
-                    .with_ids_and_classes(one_class(DATE_RANGE_DAY_CLASS))
+                    .with_ids_and_classes(decl::classes(&[DATE_RANGE_DAY_CLASS]))
                     .with_css_props(day_face(date, shown, today, &faces))
                     .with_callbacks(
                         alloc::vec![
@@ -934,13 +927,13 @@ impl DateRangePicker {
             );
         }
         let months_row = Dom::create_div()
-            .with_ids_and_classes(one_class(DATE_RANGE_MONTHS_CLASS))
+            .with_ids_and_classes(decl::classes(&[DATE_RANGE_MONTHS_CLASS]))
             .with_css_props(CssPropertyWithConditionsVec::from_vec(flex_row(12)))
             .with_children(months.into());
 
         // ---- the summary: the range in words, a live region ----
         let summary = crate::widgets::widget_p_with_text(AzString::from(summary_text(&view, None)))
-            .with_ids_and_classes(one_class(DATE_RANGE_SUMMARY_CLASS))
+            .with_ids_and_classes(decl::classes(&[DATE_RANGE_SUMMARY_CLASS]))
             .with_css_props(part_of(skins, |s| s.summary.clone()))
             .with_accessibility_info(AccessibilityInfo {
                 role: AccessibilityRole::StaticText,
@@ -976,7 +969,7 @@ impl DateRangePicker {
                         shared: shared.clone(),
                     });
                     crate::widgets::widget_p_with_text(AzString::from_const_str(preset.label()))
-                        .with_ids_and_classes(one_class(DATE_RANGE_PRESET_CLASS))
+                        .with_ids_and_classes(decl::classes(&[DATE_RANGE_PRESET_CLASS]))
                         .with_css_props(part_of(skins, |s| {
                             let mut v = alloc::vec![decl::simple(
                                 azul_css::props::property::CssProperty::const_cursor(
@@ -1019,7 +1012,7 @@ impl DateRangePicker {
                 .collect();
             row_kids.push(
                 Dom::create_div()
-                    .with_ids_and_classes(one_class(DATE_RANGE_PRESETS_CLASS))
+                    .with_ids_and_classes(decl::classes(&[DATE_RANGE_PRESETS_CLASS]))
                     .with_css_props(part_of(skins, |s| {
                         let mut v = flex_column(2);
                         v.extend(s.presets.iter().cloned());
