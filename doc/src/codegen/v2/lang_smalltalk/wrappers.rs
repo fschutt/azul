@@ -455,3 +455,88 @@ fn to_pascal_local(s: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::{bug_classes::ir, config::CodegenConfig};
+
+    fn st() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// The text of the method (or class) starting with `head`, up to the
+    /// closing `]` at column 0.
+    fn method(head: &str) -> &'static str {
+        let out = st();
+        let start = out
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{head}` in Azul.st"));
+        let rest = &out[start..];
+        let end = rest.find("\n]").map_or(rest.len(), |e| e + 2);
+        &rest[..end]
+    }
+
+    #[test]
+    fn a_struct_layout_is_a_fields_desc_that_unified_ffi_reads() {
+        assert!(!st().contains("AzFullWindowState class >> fields ["));
+        let desc = method("AzFullWindowState class >> fieldsDesc [");
+        assert!(desc.contains("AzString title;"), "{desc}");
+        assert!(desc.contains("bool window_focused;"), "{desc}");
+    }
+
+    #[test]
+    fn struct_classes_compile_their_field_accessors_on_load() {
+        let init = method("AzFullWindowState class >> initialize [");
+        assert!(init.contains("self compileFields"), "{init}");
+    }
+
+    #[test]
+    fn the_title_getter_decodes_the_string_without_consuming_it() {
+        let get = method("AzulFullWindowState >> title [");
+        assert!(get.contains("^ AzulNative stringFromAzString: handle title"), "{get}");
+        let decode = method("AzulNative class >> stringFromAzString: anAzString [");
+        assert!(decode.contains("utf8Decoded"), "{decode}");
+    }
+
+    #[test]
+    fn the_title_setter_releases_the_old_string_then_stores_the_new_one() {
+        let set = method("AzulFullWindowState >> title: aValue [");
+        let delete = set.find("AzulNative azStringDelete: handle title.").expect(set);
+        let store = set.find("handle title: ").expect(set);
+        assert!(delete < store, "{set}");
+        assert!(set.contains("AzulNative azStringFrom: aValue"), "{set}");
+    }
+
+    #[test]
+    fn the_window_state_getter_deep_copies_and_the_setter_deletes_then_consumes() {
+        let get = method("AzulWindowCreateOptions >> windowState [");
+        assert!(
+            get.contains(
+                "^ AzulFullWindowState wrap: (AzulNative azFullWindowStateClone: handle window_state)"
+            ),
+            "{get}"
+        );
+        let set = method("AzulWindowCreateOptions >> windowState: aValue [");
+        assert!(
+            set.contains("AzulNative azFullWindowStateDelete: handle window_state."),
+            "{set}"
+        );
+        assert!(set.contains("(AzulNative azulMove: aValue)"), "{set}");
+    }
+
+    #[test]
+    fn running_the_app_consumes_the_window_options_so_their_finalizer_cannot_free_them_again() {
+        let run = method("AzulApp >> run: root_window [");
+        assert!(run.contains("(AzulNative azulMove: root_window)"), "{run}");
+        let mv = method("AzulNative class >> azulMove: aValue [");
+        assert!(mv.contains("azulConsume"), "{mv}");
+    }
+
+    #[test]
+    fn the_text_field_stays_writable_next_to_the_get_text_method() {
+        assert!(st().contains("AzulTextInputState >> getText ["));
+        let set = method("AzulTextInputState >> text: aValue [");
+        assert!(set.contains("AzulNative azU32VecDelete: handle text."), "{set}");
+    }
+}
