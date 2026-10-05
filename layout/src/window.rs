@@ -25619,6 +25619,16 @@ impl LayoutWindow {
         for timer_id in thread_owners.timers_to_stop() {
             timers.remove(timer_id);
         }
+        // A timer ATTACHED to a node (`Timer.node_id`, what
+        // `get_attached_node_size` / `_position` read) follows its node: a
+        // node inserted before it moves its id, and a stale id reads another
+        // node's box. A timer of an unmounted node keeps running but loses
+        // its attachment (no id would be right).
+        for timer in timers.values_mut() {
+            if let Some(id) = timer.node_id.into_option() {
+                timer.node_id = map.resolve_dom_node_id(dom, id).into();
+            }
+        }
 
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);
