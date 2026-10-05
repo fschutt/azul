@@ -2969,12 +2969,6 @@ impl LayoutWindow {
         // build.
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
 
-        // After successful layout, update the accessibility tree
-        #[cfg(feature = "a11y")]
-        if result.is_ok() {
-            self.update_a11y_tree();
-        }
-
         // PUBLISH BEFORE CONSUME. The reveal below clamps against
         // `ScrollManager`'s `content_rect`, and `find_scrollable_ancestor`
         // refuses a node that has no registered scroll state at all — but until
@@ -3018,6 +3012,19 @@ impl LayoutWindow {
             if self.scroll_focused_cursor_into_view() {
                 self.regenerate_display_list_for_dom(caret_dom);
             }
+        }
+
+        // After successful layout, update the accessibility tree - AFTER the
+        // scroll registration and the caret reveal above: a node's scroll
+        // surface (its actions, extents and offset) is read from the
+        // registered scroll states, which only the registration publishes and
+        // the reveal moves. Built before them, the tree described the
+        // PREVIOUS pass's scrolling: a page that grew past the window sent the
+        // screen reader a body that could not scroll, until some later pass
+        // happened to rebuild it.
+        #[cfg(feature = "a11y")]
+        if result.is_ok() {
+            self.update_a11y_tree();
         }
 
         // Every layout pass ends here — full rebuild, pre-cascade relayout,
