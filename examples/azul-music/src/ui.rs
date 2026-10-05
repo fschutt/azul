@@ -323,7 +323,7 @@ fn scroll_list(id: AzString, rows: Vec<Dom>) -> Dom {
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;",
         )
-        .with_children(rows.into())
+        .with_children(azul::vec::DomVec::from_vec(rows))
 }
 
 fn albums_list(app: &RefAny, library: &Library) -> Dom {

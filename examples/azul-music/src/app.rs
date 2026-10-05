@@ -182,7 +182,8 @@ impl Music {
 
     fn set_library(&mut self, library: Library) {
         let mut r = self.library.clone();
-        if let Some(mut l) = r.downcast_mut::<LibraryRef>() {
+        let guard = r.downcast_mut::<LibraryRef>();
+        if let Some(mut l) = guard {
             l.library = library;
         }
     }

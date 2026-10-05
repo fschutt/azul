@@ -559,12 +559,13 @@ pub extern "C" fn on_controls(
     let now = s.now_ms();
     s.controls.activity(now);
     let position = f64::from(s.status.position_s);
+    let duration = f64::from(s.status.duration_s);
     match event.action {
         MediaControlsAction::PlayPause => toggle(&mut s),
         MediaControlsAction::SkipBack => seek(&mut s, position - 15.0),
         MediaControlsAction::SkipForward => seek(&mut s, position + 30.0),
         MediaControlsAction::Previous => seek(&mut s, 0.0),
-        MediaControlsAction::Next => seek(&mut s, f64::from(s.status.duration_s)),
+        MediaControlsAction::Next => seek(&mut s, duration),
         MediaControlsAction::Volume => {
             set_volume(&mut s, event.value);
             return Update::DoNothing;

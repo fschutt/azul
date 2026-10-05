@@ -497,7 +497,8 @@ fn toggle_bookmark(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
 fn settings_changed(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
     {
         let mut kit_ref = st.kit.clone();
-        if let Some(mut k) = kit_ref.downcast_mut::<kit::Kit>() {
+        let kit = kit_ref.downcast_mut::<kit::Kit>();
+        if let Some(mut k) = kit {
             st.settings.write_to(&mut k.settings);
         }
     }

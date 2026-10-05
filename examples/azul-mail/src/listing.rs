@@ -31,6 +31,11 @@ pub fn flags_key(folder: &str) -> String {
 // Outlook's date groups: azul-pim's one, which AzNews' article list uses too.
 pub use azul_pim::dates::{date_group, DateGroup};
 
+/// Whether the server set `flag` (`\Seen`, `\Flagged`) on the message, in any case.
+fn has_flag(entry: &IndexEntry, flag: &str) -> bool {
+    entry.flags.iter().any(|f| f.eq_ignore_ascii_case(flag))
+}
+
 /// The calendar day of an RFC 3339 date in `tz`; `None` when it is not a date.
 pub fn local_day<Tz: TimeZone>(rfc3339: &str, tz: &Tz) -> Option<NaiveDate> {
     chrono::DateTime::parse_from_rfc3339(rfc3339.trim())
