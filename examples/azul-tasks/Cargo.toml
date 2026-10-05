@@ -23,8 +23,9 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-storage = { path = "../azul-storage" }
 # The PIM logic the Azlin apps share: dates, repeats, the task files (plain Rust, no new crates).
 azul-pim = { path = "../azul-pim" }
-# The appearance settings file every Azlin app keeps (theme, mode): the plain modules.
-azul-appkit = { path = "../azul-appkit" }
+# The appearance settings file every Azlin app keeps (theme, mode), and (feature `azul`) the
+# ribbon-button builder the office apps share.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The same features azul-layout and AzCalendar build chrono with (dates, the local time).

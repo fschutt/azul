@@ -19,12 +19,13 @@ use azul::{
     str::String as AzString,
     vec::StringVec,
     widgets::{
-        AlertKind, ButtonType, DropDown, InfoBar, Ribbon, RibbonAppButton, RibbonButton,
-        RibbonColumn, RibbonGroup, RibbonItem, RibbonTab, StatusBar, StatusBarSegment,
+        AlertKind, ButtonType, DropDown, InfoBar, Ribbon, RibbonAppButton, RibbonGroup,
+        RibbonItem, RibbonTab, StatusBar, StatusBarSegment,
         StatusBarSync, StatusBarSyncKind, Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind,
         ToDoTask,
     },
 };
+use azul_appkit::ribbon::{self as ribbon_kit, column, RibbonCommand};
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
 use crate::{
@@ -284,43 +285,32 @@ pub fn title_row() -> Dom {
     Titlebar::create("AzTasks").without_border_bottom().dom()
 }
 
-fn button(app: &RefAny, command: Command, toggled: bool) -> RibbonButton {
-    RibbonButton::create(command.icon(), command.label())
-        .with_toggled(toggled)
-        .with_on_click(
-            RefAny::new(CommandRef {
-                app: app.clone(),
-                command,
-            }),
-            on_command as ButtonOnClickCallbackType,
-        )
+/// Every ribbon button runs a [`Command`] through `on_command` (azul-appkit's ribbon
+/// builder).
+impl RibbonCommand for Command {
+    fn click_data(self, app: &RefAny) -> RefAny {
+        RefAny::new(CommandRef {
+            app: app.clone(),
+            command: self,
+        })
+    }
+
+    fn on_click() -> ButtonOnClickCallbackType {
+        on_command
+    }
 }
 
 fn large(app: &RefAny, command: Command) -> RibbonItem {
-    RibbonItem::LargeButton(button(app, command, false))
+    ribbon_kit::large(app, command.icon(), &command.label(), command)
 }
 
 fn small(app: &RefAny, command: Command, toggled: bool) -> RibbonItem {
-    RibbonItem::SmallButton(button(app, command, toggled))
-}
-
-fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(RibbonColumn::create().with_items(items))
+    ribbon_kit::toggle(app, command.icon(), &command.label(), command, toggled)
 }
 
 /// A short label for a toggled small button.
 fn labelled(app: &RefAny, command: Command, label: &str, toggled: bool) -> RibbonItem {
-    RibbonItem::SmallButton(
-        RibbonButton::create(command.icon(), label)
-            .with_toggled(toggled)
-            .with_on_click(
-                RefAny::new(CommandRef {
-                    app: app.clone(),
-                    command,
-                }),
-                on_command as ButtonOnClickCallbackType,
-            ),
-    )
+    ribbon_kit::toggle(app, command.icon(), label, command, toggled)
 }
 
 /// HOME (new, manage, arrange, move) and VIEW (sort, show, appearance); FILE opens the
