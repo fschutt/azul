@@ -95218,10 +95218,10 @@
                         ],
                         "struct_fields": [
                             {
-                                "undo": {
+                                "undo_stack": {
                                     "type": "RichTextDocVec"
                                 },
-                                "redo": {
+                                "redo_stack": {
                                     "type": "RichTextDocVec"
                                 },
                                 "limit": {

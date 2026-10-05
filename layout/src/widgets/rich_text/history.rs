@@ -29,9 +29,9 @@ pub enum RichEditGroup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RichTextHistory {
     /// The documents before each step, oldest first.
-    pub undo: RichTextDocVec,
+    pub undo_stack: RichTextDocVec,
     /// The documents an undo replaced, the most recently undone last.
-    pub redo: RichTextDocVec,
+    pub redo_stack: RichTextDocVec,
     /// At most this many undo steps are kept (the oldest go first).
     pub limit: usize,
     /// The group of the newest step (typing into one block merges).
@@ -49,8 +49,8 @@ impl RichTextHistory {
     #[must_use]
     pub fn create() -> Self {
         Self {
-            undo: RichTextDocVec::from_vec(alloc::vec::Vec::new()),
-            redo: RichTextDocVec::from_vec(alloc::vec::Vec::new()),
+            undo_stack: RichTextDocVec::from_vec(alloc::vec::Vec::new()),
+            redo_stack: RichTextDocVec::from_vec(alloc::vec::Vec::new()),
             limit: 200,
             group: RichEditGroup::None,
         }
@@ -66,15 +66,15 @@ impl RichTextHistory {
         if merges {
             return;
         }
-        let mut undo = core::mem::take(&mut self.undo).into_library_owned_vec();
+        let mut undo = core::mem::take(&mut self.undo_stack).into_library_owned_vec();
         undo.push(before.clone());
         let limit = self.limit.max(1);
         if undo.len() > limit {
             let excess = undo.len() - limit;
             undo = undo.split_off(excess);
         }
-        self.undo = RichTextDocVec::from_vec(undo);
-        self.redo = RichTextDocVec::from_vec(alloc::vec::Vec::new());
+        self.undo_stack = RichTextDocVec::from_vec(undo);
+        self.redo_stack = RichTextDocVec::from_vec(alloc::vec::Vec::new());
     }
 
     /// Ends the current group: the next step is a step of its own (the
@@ -86,25 +86,25 @@ impl RichTextHistory {
     /// Whether there is a step to undo.
     #[must_use]
     pub fn can_undo(&self) -> bool {
-        !self.undo.as_ref().is_empty()
+        !self.undo_stack.as_ref().is_empty()
     }
 
     /// Whether there is an undone step to redo.
     #[must_use]
     pub fn can_redo(&self) -> bool {
-        !self.redo.as_ref().is_empty()
+        !self.redo_stack.as_ref().is_empty()
     }
 
     /// Undoes the newest step: returns the document to show (`current`
     /// goes onto the redo list), or `None` with nothing to undo.
     pub fn undo(&mut self, current: &RichTextDoc) -> Option<RichTextDoc> {
-        let mut undo = core::mem::take(&mut self.undo).into_library_owned_vec();
+        let mut undo = core::mem::take(&mut self.undo_stack).into_library_owned_vec();
         let previous = undo.pop();
-        self.undo = RichTextDocVec::from_vec(undo);
+        self.undo_stack = RichTextDocVec::from_vec(undo);
         let previous = previous?;
-        let mut redo = core::mem::take(&mut self.redo).into_library_owned_vec();
+        let mut redo = core::mem::take(&mut self.redo_stack).into_library_owned_vec();
         redo.push(current.clone());
-        self.redo = RichTextDocVec::from_vec(redo);
+        self.redo_stack = RichTextDocVec::from_vec(redo);
         self.group = RichEditGroup::None;
         Some(previous)
     }
@@ -112,21 +112,21 @@ impl RichTextHistory {
     /// Redoes the newest undone step: returns the document to show
     /// (`current` goes back onto the undo list), or `None`.
     pub fn redo(&mut self, current: &RichTextDoc) -> Option<RichTextDoc> {
-        let mut redo = core::mem::take(&mut self.redo).into_library_owned_vec();
+        let mut redo = core::mem::take(&mut self.redo_stack).into_library_owned_vec();
         let next = redo.pop();
-        self.redo = RichTextDocVec::from_vec(redo);
+        self.redo_stack = RichTextDocVec::from_vec(redo);
         let next = next?;
-        let mut undo = core::mem::take(&mut self.undo).into_library_owned_vec();
+        let mut undo = core::mem::take(&mut self.undo_stack).into_library_owned_vec();
         undo.push(current.clone());
-        self.undo = RichTextDocVec::from_vec(undo);
+        self.undo_stack = RichTextDocVec::from_vec(undo);
         self.group = RichEditGroup::None;
         Some(next)
     }
 
     /// Forgets every step (a new document was loaded).
     pub fn clear(&mut self) {
-        self.undo = RichTextDocVec::from_vec(alloc::vec::Vec::new());
-        self.redo = RichTextDocVec::from_vec(alloc::vec::Vec::new());
+        self.undo_stack = RichTextDocVec::from_vec(alloc::vec::Vec::new());
+        self.redo_stack = RichTextDocVec::from_vec(alloc::vec::Vec::new());
         self.group = RichEditGroup::None;
     }
 }
@@ -146,7 +146,7 @@ mod tests {
         history.record(&doc(""), RichEditGroup::Typing(0));
         history.record(&doc("a"), RichEditGroup::Typing(0));
         history.record(&doc("ab"), RichEditGroup::Typing(0));
-        assert_eq!(history.undo.as_ref().len(), 1, "one step for the typing");
+        assert_eq!(history.undo_stack.as_ref().len(), 1, "one step for the typing");
         let back = history.undo(&doc("abc")).expect("a step to undo");
         assert_eq!(back, doc(""));
         assert!(!history.can_undo());
@@ -164,7 +164,7 @@ mod tests {
         history.record(&doc("a"), RichEditGroup::Typing(1));
         history.record(&doc("ab"), RichEditGroup::None);
         history.record(&doc("abc"), RichEditGroup::None);
-        assert_eq!(history.undo.as_ref().len(), 4);
+        assert_eq!(history.undo_stack.as_ref().len(), 4);
         let _ = history.undo(&doc("abcd"));
         assert!(history.can_redo());
         history.record(&doc("abc"), RichEditGroup::None);
@@ -173,7 +173,7 @@ mod tests {
         history.break_group();
         history.record(&doc("xy"), RichEditGroup::Typing(0));
         assert_eq!(
-            history.undo.as_ref().len(),
+            history.undo_stack.as_ref().len(),
             6,
             "a broken group starts a new step"
         );
@@ -186,8 +186,8 @@ mod tests {
         for i in 0..5 {
             history.record(&doc(&alloc::format!("{i}")), RichEditGroup::None);
         }
-        assert_eq!(history.undo.as_ref().len(), 3);
-        assert_eq!(history.undo.as_ref()[0], doc("2"), "the oldest went first");
+        assert_eq!(history.undo_stack.as_ref().len(), 3);
+        assert_eq!(history.undo_stack.as_ref()[0], doc("2"), "the oldest went first");
         assert_eq!(history.undo(&doc("5")), Some(doc("4")));
         assert_eq!(RichTextHistory::create().undo(&doc("a")), None);
     }
