@@ -963,14 +963,9 @@ pub(crate) fn drag_end(g: &IconGrid) -> Option<IconGridEvent> {
 /// The letter or digit `key` types, lower case: type-ahead matches case
 /// folded, so whether Shift is held does not matter.
 fn typed_letter(key: VirtualKeyCode) -> Option<char> {
-    // VirtualKeyCode: Key1..Key9 are 0..=8, Key0 is 9, A..Z are 10..=35.
-    let index = key as u32;
-    match index {
-        0..=8 => char::from_digit(index + 1, 10),
-        9 => Some('0'),
-        10..=35 => char::from_u32(u32::from(b'a') + index - 10),
-        _ => None,
-    }
+    crate::widgets::terminal_view::us_char(key, false)
+        .filter(u8::is_ascii_alphanumeric)
+        .map(char::from)
 }
 
 /// Does `label` start with `letter` (lower case), case folded?

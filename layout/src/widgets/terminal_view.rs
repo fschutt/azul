@@ -576,8 +576,10 @@ fn ctrl_byte(key: VirtualKeyCode) -> Option<u8> {
 }
 
 /// The character `key` types on a US layout (`shift`: a capital letter;
-/// a shifted digit or sign is the layout's, so `None`).
-fn us_char(key: VirtualKeyCode, shift: bool) -> Option<u8> {
+/// a shifted digit or sign is the layout's, so `None`). The one
+/// `VirtualKeyCode` -> character table of the widgets (the icon grid's
+/// type-ahead reads it too).
+pub(crate) fn us_char(key: VirtualKeyCode, shift: bool) -> Option<u8> {
     use VirtualKeyCode as K;
     let index = key as u32;
     if (10..=35).contains(&index) {
