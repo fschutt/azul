@@ -756,7 +756,7 @@ impl SummaryList {
 
     /// A row was clicked or reached with the keyboard.
     pub fn set_on_select<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_select = hook(data, cb);
+        self.on_select = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_select`] for the builder chain.
@@ -772,7 +772,7 @@ impl SummaryList {
 
     /// A row was double-clicked or Enter pressed on it.
     pub fn set_on_open<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_open = hook(data, cb);
+        self.on_open = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_open`] for the builder chain.
@@ -788,7 +788,7 @@ impl SummaryList {
 
     /// A row's flag was clicked.
     pub fn set_on_flag<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_flag = hook(data, cb);
+        self.on_flag = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_flag`] for the builder chain.
@@ -804,7 +804,7 @@ impl SummaryList {
 
     /// Delete was pressed on a row.
     pub fn set_on_delete<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_delete = hook(data, cb);
+        self.on_delete = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_delete`] for the builder chain.
@@ -820,7 +820,7 @@ impl SummaryList {
 
     /// The sort field or the direction toggle was clicked.
     pub fn set_on_sort<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_sort = hook(data, cb);
+        self.on_sort = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_sort`] for the builder chain.
@@ -836,7 +836,7 @@ impl SummaryList {
 
     /// The search box changed.
     pub fn set_on_search<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_search = hook(data, cb);
+        self.on_search = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_search`] for the builder chain.
@@ -852,7 +852,7 @@ impl SummaryList {
 
     /// A scope button was clicked.
     pub fn set_on_scope<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_scope = hook(data, cb);
+        self.on_scope = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_scope`] for the builder chain.
@@ -868,7 +868,7 @@ impl SummaryList {
 
     /// A scroll settled: the rows in view changed.
     pub fn set_on_scroll<C: Into<SummaryListOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_scroll = hook(data, cb);
+        self.on_scroll = OptionSummaryListOnEvent::Some(SummaryListOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_scroll`] for the builder chain.
@@ -919,15 +919,6 @@ impl From<SummaryList> for Dom {
     fn from(l: SummaryList) -> Self {
         l.dom()
     }
-}
-
-/// `cb` on `data`, as an optional hook.
-fn hook<C: Into<SummaryListOnEventCallback>>(data: RefAny, cb: C) -> OptionSummaryListOnEvent {
-    Some(SummaryListOnEvent {
-        refany: data,
-        callback: cb.into(),
-    })
-    .into()
 }
 
 /// What every part of one list shares: the app's hooks and the window.

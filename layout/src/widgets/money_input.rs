@@ -745,6 +745,26 @@ fn read_number(
     Ok(Number::Complete(magnitude))
 }
 
+/// `digits` (a whole number's ASCII digits, no sign) grouped by three from
+/// the right with `separator` between the groups ("1234567", `,` ->
+/// "1,234,567"); `None` leaves them ungrouped. The layout crate's one
+/// thousands grouping (the money input, the data table's counts, the
+/// chart's values).
+#[must_use]
+pub(crate) fn group_digits(digits: &str, separator: Option<char>) -> String {
+    let count = digits.chars().count();
+    let mut out = String::with_capacity(digits.len() + count / 3 * 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (count - i) % 3 == 0 {
+            if let Some(g) = separator {
+                out.push(g);
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// `amount` minor units of a currency with `minor_digits` decimals, written
 /// in `locale`: grouped, the decimal point and every decimal, a leading `-`
 /// for a negative amount (`-1.234,50`). With `symbol`, the currency on the
@@ -762,17 +782,7 @@ pub(crate) fn format_money(
     let scale = 10_u64.pow(minor);
     let (whole, fraction) = (magnitude / scale, magnitude % scale);
 
-    let digits = alloc::format!("{whole}");
-    let mut number = String::with_capacity(digits.len() * 2 + minor as usize + 1);
-    let lead = digits.len() % 3;
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (i + 3 - lead) % 3 == 0 {
-            if let Some(g) = locale.group() {
-                number.push(g);
-            }
-        }
-        number.push(c);
-    }
+    let mut number = group_digits(&alloc::format!("{whole}"), locale.group());
     if minor > 0 {
         number.push(locale.decimal());
         number.push_str(&alloc::format!(
@@ -1311,6 +1321,25 @@ impl MoneyInput {
         self.text_input.set_on_text_input(data.clone(), on_input);
         let on_blur: TextInputOnFocusLostCallbackType = on_money_focus_lost;
         self.text_input.set_on_focus_lost(data, on_blur);
+        // An amount's digits line up on the right, as in a ledger: the
+        // TextInput's own `text-align: left` gives way (last wins). A caller
+        // who styled the field with an alignment of its own keeps it.
+        let caller_aligns = self.text_input.container_style.as_ref().is_some_and(|style| {
+            style
+                .as_slice()
+                .iter()
+                .any(|p| p.property.get_type() == azul_css::props::property::CssPropertyType::TextAlign)
+        });
+        if !caller_aligns {
+            let mut field_style = self.text_input.resolved_container_style().into_library_owned_vec();
+            field_style.push(CssPropertyWithConditions::simple(
+                azul_css::props::property::CssProperty::const_text_align(
+                    azul_css::props::style::StyleTextAlign::Right,
+                ),
+            ));
+            self.text_input
+                .set_container_style(CssPropertyWithConditionsVec::from_vec(field_style));
+        }
         let field = Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_vec(field_slot_base()))
             .with_child(self.text_input.dom());
@@ -1607,6 +1636,17 @@ mod money_tests {
         );
         let ungrouped = MoneyLocale::en_us().with_separators('.' as u32, 0);
         assert_eq!(format_money(123_456, &ungrouped, 2, None), "1234.56");
+    }
+
+    #[test]
+    fn group_digits_groups_by_three_with_the_locales_separator() {
+        assert_eq!(group_digits("1234567", Some(',')), "1,234,567");
+        assert_eq!(group_digits("1234567", Some('.')), "1.234.567");
+        assert_eq!(group_digits("1234", Some('\u{2019}')), "1\u{2019}234");
+        assert_eq!(group_digits("123456", Some('\u{202f}')), "123\u{202f}456");
+        assert_eq!(group_digits("123", Some(',')), "123", "three digits: one group");
+        assert_eq!(group_digits("1234567", None), "1234567", "no separator: ungrouped");
+        assert_eq!(group_digits("", Some(',')), "");
     }
 
     #[test]
@@ -1944,6 +1984,27 @@ mod dom_tests {
         let mut typed = empty_dollars();
         typed.text_input.set_text(AzString::from_const_str("12,"));
         assert_eq!(field_state(&typed.dom()).inner.get_text(), "12,");
+    }
+
+    #[test]
+    fn a_money_input_aligns_its_digits_to_the_right() {
+        use azul_css::props::{
+            property::{CssProperty, CssPropertyType},
+            style::StyleTextAlign,
+        };
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = sample().with_theme(theme).dom();
+            let field = tc::find(&dom, TEXT_INPUT_CONTAINER_CLASS).expect("the field");
+            for dark in [false, true] {
+                assert_eq!(
+                    tc::resolve(field, CssPropertyType::TextAlign, dark, None),
+                    Some(CssProperty::const_text_align(StyleTextAlign::Right)),
+                    "{} ({}): an amount's digits line up on the right, as in a ledger",
+                    theme.name(),
+                    if dark { "dark" } else { "light" }
+                );
+            }
+        }
     }
 
     #[test]

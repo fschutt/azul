@@ -93,6 +93,10 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
+    // The UI size lives on the FIELD, not on the value line: the value `<p>`
+    // inherits it, so an app's `font-size` on the field (AzNotes' title) sizes
+    // the text as `<input style="font-size: 24px">` does in a browser.
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -305,6 +309,10 @@ pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
         TEXT_INPUT_MIN_HEIGHT_PX,
     ))),
+    // The UI size lives on the FIELD, not on the value line: the value `<p>`
+    // inherits it, so an app's `font-size` on the field (AzNotes' title) sizes
+    // the text as `<input style="font-size: 24px">` does in a browser.
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -434,7 +442,8 @@ pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the value inherits the field's (the container
+    // carries the 11 px default), so an app's size on the field reaches it.
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
@@ -473,7 +482,8 @@ pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the value inherits the field's (the container
+    // carries the 11 px default), so an app's size on the field reaches it.
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
@@ -512,7 +522,8 @@ pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    // No font size here: the value inherits the field's (the container
+    // carries the 11 px default), so an app's size on the field reaches it.
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
@@ -1703,7 +1714,7 @@ fn sync_live_looks(
 /// A value the APP hands in invalid is reported in the state (and FormData)
 /// at once but not painted until the user edits it or a form submit asks
 /// ([`mark_user_invalid`]) - the reason browsers added `:user-invalid`.
-fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bool) {
+pub(crate) fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bool) {
     let Some(node_id) = container.node.into_crate_internal() else {
         return;
     };

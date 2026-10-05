@@ -111,20 +111,10 @@ impl RichTextDoc {
 
 // ==== HTML ====
 
-/// `text` escaped for HTML (`&`, `<`, `>`, and `"` for attribute values).
-fn escape_html(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
+// Text and attribute values are written by THE markup encoder
+// (`azul_core::xml::html::encode_text` / `encode_attribute`): escaped, and
+// the characters XML 1.0 cannot carry left out.
+use azul_core::xml::html::{encode_attribute, encode_text};
 
 /// Whether a link may go into HTML: web and mail addresses only.
 #[must_use]
@@ -138,7 +128,7 @@ pub fn is_safe_link(link: &str) -> bool {
 /// A run as HTML: escaped, then `<code>`, `<s>`, `<u>`, `<i>`, `<b>` and
 /// the link around it, inside out.
 fn run_html(run: &RichRun) -> String {
-    let mut html = escape_html(run.as_str()).replace('\n', "<br>");
+    let mut html = encode_text(run.as_str()).replace('\n', "<br>");
     let f = run.formats;
     if f.code {
         html = format!("<code>{html}</code>");
@@ -156,7 +146,7 @@ fn run_html(run: &RichRun) -> String {
         html = format!("<b>{html}</b>");
     }
     if let Some(link) = run.link_str().filter(|l| is_safe_link(l)) {
-        html = format!("<a href=\"{}\">{html}</a>", escape_html(link.trim()));
+        html = format!("<a href=\"{}\">{html}</a>", encode_attribute(link.trim()));
     }
     html
 }
@@ -252,18 +242,18 @@ pub fn doc_to_html(doc: &RichTextDoc) -> String {
                 let class = if lang.as_str().is_empty() {
                     String::new()
                 } else {
-                    format!(" class=\"language-{}\"", escape_html(lang.as_str()))
+                    format!(" class=\"language-{}\"", encode_attribute(lang.as_str()))
                 };
                 out.push_str(&format!(
                     "<pre><code{class}>{}</code></pre>",
-                    escape_html(&block.flat())
+                    encode_text(&block.flat())
                 ));
             }
             RichBlockKind::Rule => out.push_str("<hr>"),
             RichBlockKind::Image(image) => out.push_str(&format!(
                 "<img src=\"{}\" alt=\"{}\">",
-                escape_html(image.src.as_str()),
-                escape_html(image.alt.as_str())
+                encode_attribute(image.src.as_str()),
+                encode_attribute(image.alt.as_str())
             )),
             RichBlockKind::PageBreak => {
                 out.push_str("<div style=\"break-after: page\"></div>");
@@ -276,7 +266,7 @@ pub fn doc_to_html(doc: &RichTextDoc) -> String {
                     for cell in row.cells.as_ref() {
                         out.push_str(&format!(
                             "<{cell_tag}>{}</{cell_tag}>",
-                            escape_html(cell.as_str())
+                            encode_text(cell.as_str())
                         ));
                     }
                     out.push_str("</tr>");
@@ -850,6 +840,15 @@ mod tests {
             html.contains("<table><tr><th>Q</th><th>Goal</th></tr><tr><td>Q4</td><td>Ship</td></tr></table>"),
             "{html}"
         );
+    }
+
+    #[test]
+    fn a_control_character_in_a_paragraph_does_not_reach_the_html() {
+        // XML 1.0 cannot carry the C0 controls other than tab, line feed and
+        // carriage return, not even as a reference: a strict reader rejects
+        // the part that has one. The one markup encoder leaves them out.
+        let doc = RichTextDoc::from_blocks(vec![RichBlock::paragraph("bell\u{7} and form\u{c}feed")]);
+        assert_eq!(doc_to_html(&doc), "<div>bell and formfeed</div>");
     }
 
     #[test]

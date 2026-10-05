@@ -65,7 +65,7 @@ use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole},
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        Dom, DomNodeId, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, SvgNodeData,
+        Dom, DomNodeId, EventFilter, HoverEventFilter, SvgNodeData,
         TabIndex,
     },
     events::FocusEventFilter,
@@ -1119,13 +1119,7 @@ fn group_thousands(text: &str) -> String {
     };
     let mut out = String::with_capacity(text.len() + int.len() / 3);
     out.push_str(sign);
-    let digits = int.as_bytes();
-    for (k, d) in digits.iter().enumerate() {
-        if k > 0 && (digits.len() - k) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(char::from(*d));
-    }
+    out.push_str(&crate::widgets::money_input::group_digits(int, Some(',')));
     out.push_str(frac);
     out
 }
@@ -2515,15 +2509,7 @@ const BOX_SWATCH: (f32, f32) = (10.0, 10.0);
 
 type Decl = CssPropertyWithConditions;
 
-/// One class list.
-fn classes(names: &[&'static str]) -> IdOrClassVec {
-    IdOrClassVec::from_vec(
-        names
-            .iter()
-            .map(|n| IdOrClass::Class(AzString::from_const_str(n)))
-            .collect(),
-    )
-}
+use crate::widgets::themes::decl::classes;
 
 /// Absolutely placed at `(left, top)`, `w` x `h` px.
 fn placed(left: f32, top: f32, w: f32, h: f32) -> Vec<Decl> {

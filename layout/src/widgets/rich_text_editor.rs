@@ -57,7 +57,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditions, impl_option, impl_option_inner, impl_vec,
+    dynamic_selector::CssPropertyWithConditions, impl_option, impl_vec,
     impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_mut, impl_vec_partialeq, AzString,
 };
 
@@ -982,10 +982,24 @@ fn run_dom(ctx: &RenderCtx<'_>, run: &RichRun) -> Dom {
 
 /// `node` with the runs of `block` as its children (none for an empty
 /// block: its min-height keeps its line).
-fn with_runs(mut node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock) -> Dom {
+fn with_runs(node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock) -> Dom {
+    with_runs_in(node, ctx, block, false)
+}
+
+/// [`with_runs`]; with `wrap_plain`, a plain run is a `span` around its text
+/// instead of the bare text node - for a block whose runs have a block box
+/// beside them (a check item's box): a bare text node next to a block-level
+/// sibling has no line box of its own (dom_lint). The span keeps the run's
+/// child index, and a span without run classes reads back as a plain run.
+fn with_runs_in(mut node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock, wrap_plain: bool) -> Dom {
     for run in block.runs.as_ref() {
         if !run.text.as_str().is_empty() {
-            node.add_child(run_dom(ctx, run));
+            let child = run_dom(ctx, run);
+            node.add_child(if wrap_plain && run.is_plain() {
+                Dom::create_span().with_child(child)
+            } else {
+                child
+            });
         }
     }
     node
@@ -1101,7 +1115,7 @@ fn block_dom(ctx: &RenderCtx<'_>, index: usize, block: &RichBlock) -> Dom {
             } else {
                 ""
             };
-            let item = with_runs(Dom::create_li(), ctx, block).with_css(&format!(
+            let item = with_runs_in(Dom::create_li(), ctx, block, true).with_css(&format!(
                 "{base} {quote_css} display: list-item; list-style-type: none; position: relative; \
                  padding-left: 28px; margin-left: {}px; margin-bottom: 2px; {checked_css}",
                 indent_px(check.indent) - 26.0 * em

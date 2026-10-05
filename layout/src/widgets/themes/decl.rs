@@ -982,3 +982,17 @@ pub(crate) const BUTTON_FACE: &[&str] = &[
 
 /// How long a button's face takes to follow the pointer.
 pub(crate) const BUTTON_FADE_MS: u32 = 120;
+
+// ==== class lists ====
+
+/// One class list: `names`, in order (the widgets that build a node's
+/// classes from static names - the chart, the timeline).
+#[must_use]
+pub(crate) fn classes(names: &[&'static str]) -> azul_core::dom::IdOrClassVec {
+    azul_core::dom::IdOrClassVec::from_vec(
+        names
+            .iter()
+            .map(|n| azul_core::dom::IdOrClass::Class(azul_css::AzString::from_const_str(*n)))
+            .collect(),
+    )
+}

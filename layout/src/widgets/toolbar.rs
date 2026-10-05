@@ -79,7 +79,7 @@ use azul_css::{
 use crate::{
     callbacks::CallbackInfo,
     widgets::{
-        button::{Button, ButtonOnClick, ButtonOnClickCallbackType},
+        button::{ButtonOnClick, ButtonOnClickCallbackType},
         roving::{self, Step},
         themes::{OptionUiTheme, UiTheme},
     },
@@ -976,8 +976,6 @@ fn tool(
     look: &ToolbarLook,
     theme: OptionUiTheme,
 ) -> Dom {
-    use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec as Style;
-
     use crate::widgets::button::{DisabledReason, OptionButtonOnClick};
 
     let shows_label = item.shows_label();
@@ -992,37 +990,34 @@ fn tool(
             &CssPropertyWithConditionsVec::from_vec(look.item_pressed.clone()),
         );
     }
-    let mut b = Button::create(if shows_label {
-        item.label.clone()
-    } else {
-        AzString::from_const_str("")
-    });
-    b.icon = item.icon.clone();
-    if !shows_label {
-        // An icon-only tool is named by its label.
-        b.alt = item.label.clone();
-    }
-    if item.kind == ToolbarItemKind::MenuButton {
-        b.trailing_icon = AzString::from_const_str("arrow_drop_down");
-    }
-    b.container_style = Style::Some(container);
-    b.icon_style = Style::Some(part(TOOLBAR_ICON_BASE, &look.icon));
-    b.label_style = Style::Some(part(&toolbar_label_base(), &look.label));
-    b.trailing_icon_style = Style::Some(part(TOOLBAR_ARROW_BASE, &look.arrow));
-    if item.kind == ToolbarItemKind::Toggle {
-        b.set_toggled(item.pressed);
-    }
-    b.disabled_reason = item.disabled_reason.clone();
+    let none = || AzString::from_const_str("");
     let data = RefAny::new(ItemData {
         index,
         shared: shared.clone(),
     });
-    b.on_click = OptionButtonOnClick::Some(ButtonOnClick::create(
-        data.clone(),
-        on_item_click as ButtonOnClickCallbackType,
-    ));
-    if let Some(t) = theme.into_option() {
-        b.set_theme(t);
+    let mut b = crate::widgets::button::styled_button(
+        item.icon.clone(),
+        if shows_label { item.label.clone() } else { none() },
+        if item.kind == ToolbarItemKind::MenuButton {
+            AzString::from_const_str("arrow_drop_down")
+        } else {
+            none()
+        },
+        container,
+        part(TOOLBAR_ICON_BASE, &look.icon),
+        part(&toolbar_label_base(), &look.label),
+        part(TOOLBAR_ARROW_BASE, &look.arrow),
+        OptionButtonOnClick::Some(ButtonOnClick::create(
+            data.clone(),
+            on_item_click as ButtonOnClickCallbackType,
+        )),
+        item.disabled_reason.clone(),
+        // An icon-only tool is named by its label.
+        if shows_label { none() } else { item.label.clone() },
+        theme,
+    );
+    if item.kind == ToolbarItemKind::Toggle {
+        b.set_toggled(item.pressed);
     }
 
     let mut dom = b.dom();

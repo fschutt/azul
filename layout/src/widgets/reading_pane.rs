@@ -409,7 +409,7 @@ impl ReadingPane {
 
     /// The sender line or the people line was clicked.
     pub fn set_on_link<C: Into<ReadingPaneOnEventCallback>>(&mut self, data: RefAny, cb: C) {
-        self.on_link = hook(data, cb);
+        self.on_link = OptionReadingPaneOnEvent::Some(ReadingPaneOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_link`] for the builder chain.
@@ -425,7 +425,7 @@ impl ReadingPane {
         data: RefAny,
         cb: C,
     ) {
-        self.on_load_images = hook(data, cb);
+        self.on_load_images = OptionReadingPaneOnEvent::Some(ReadingPaneOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_load_images`] for the builder chain.
@@ -445,7 +445,7 @@ impl ReadingPane {
         data: RefAny,
         cb: C,
     ) {
-        self.on_attachment = hook(data, cb);
+        self.on_attachment = OptionReadingPaneOnEvent::Some(ReadingPaneOnEvent::create(data, cb));
     }
 
     /// [`Self::set_on_attachment`] for the builder chain.
@@ -496,15 +496,6 @@ impl From<ReadingPane> for Dom {
     fn from(p: ReadingPane) -> Self {
         p.dom()
     }
-}
-
-/// `cb` on `data`, as an optional hook.
-fn hook<C: Into<ReadingPaneOnEventCallback>>(data: RefAny, cb: C) -> OptionReadingPaneOnEvent {
-    Some(ReadingPaneOnEvent {
-        refany: data,
-        callback: cb.into(),
-    })
-    .into()
 }
 
 /// What every part of one pane shares: the app's hooks and the texts they

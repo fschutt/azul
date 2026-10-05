@@ -39,7 +39,9 @@
 //! item or one row (Shift extends, Ctrl / Cmd moves the focus alone),
 //! Page Up / Down by a screen, Home / End to the ends, Ctrl+A selects all,
 //! Ctrl+Space toggles the focused item, Enter activates, the Menu key or
-//! Shift+F10 reports a context menu, Escape clears the selection.
+//! Shift+F10 reports a context menu, Escape clears the selection, a letter
+//! or digit selects the next item whose label starts with it (type-ahead,
+//! around the end; the data callback is asked until one matches).
 //!
 //! ACCESSIBILITY: the grid is a `List` that is `Multiselectable`, its value
 //! says how many items are selected; every item shown is a `ListItem` named
@@ -958,6 +960,28 @@ pub(crate) fn drag_end(g: &IconGrid) -> Option<IconGridEvent> {
     }
 }
 
+/// The letter or digit `key` types, lower case: type-ahead matches case
+/// folded, so whether Shift is held does not matter.
+fn typed_letter(key: VirtualKeyCode) -> Option<char> {
+    // VirtualKeyCode: Key1..Key9 are 0..=8, Key0 is 9, A..Z are 10..=35.
+    let index = key as u32;
+    match index {
+        0..=8 => char::from_digit(index + 1, 10),
+        9 => Some('0'),
+        10..=35 => char::from_u32(u32::from(b'a') + index - 10),
+        _ => None,
+    }
+}
+
+/// Does `label` start with `letter` (lower case), case folded?
+fn named_with(label: &str, letter: char) -> bool {
+    label
+        .trim_start()
+        .chars()
+        .next()
+        .is_some_and(|c| c.to_lowercase().next() == Some(letter))
+}
+
 /// What `key` does (`shift`, `ctrl` = the primary modifier).
 pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift: bool, ctrl: bool) -> Option<IconGridEvent> {
     use VirtualKeyCode as K;
@@ -995,6 +1019,23 @@ pub(crate) fn grid_key(g: &IconGrid, geo: &Geometry, key: VirtualKeyCode, shift:
         e.shift = shift;
         e.ctrl = ctrl;
         return Some(e);
+    }
+    if !ctrl {
+        if let Some(letter) = typed_letter(key) {
+            // Type-ahead (Explorer, Finder): the next item whose label
+            // starts with the letter, after the focused one, around the end.
+            let start = focus.map_or(0, |f| f + 1);
+            let target = (0..count).map(|i| (start + i) % count).find(|&i| {
+                let item = item_at(&g.data_source, usize::try_from(i).unwrap_or(0));
+                named_with(item.label.as_str(), letter)
+            })?;
+            let index = usize::try_from(target).unwrap_or(0);
+            next.selection.click(target);
+            reveal(&mut next, geo, index);
+            let mut e = IconGridEvent::create(IconGridEventKind::Select, next);
+            e.index = OptionUsize::Some(index);
+            return Some(e);
+        }
     }
     match key {
         K::A if ctrl => {
@@ -1816,6 +1857,44 @@ mod icon_grid_tests {
         assert!(selected(&cleared.view).is_empty());
         let none = with_selection(grid(&asked, &log), &[], 5);
         assert!(grid_key(&none, &geo, K::Escape, false, false).is_none(), "nothing to clear");
+    }
+
+    extern "C" fn fruits(_: RefAny, index: usize) -> IconGridItem {
+        const NAMES: [&str; 6] = ["Apple", "banana", "Cherry", "avocado", "Blueberry", "apricot"];
+        IconGridItem::create(
+            AzString::from(NAMES.get(index).copied().unwrap_or("")),
+            AzString::from("description"),
+        )
+    }
+
+    #[test]
+    fn typing_a_letter_moves_the_focus_to_the_next_item_named_with_it() {
+        let (_, log) = fresh();
+        let g = IconGrid::create(6, 400.0, 300.0)
+            .with_data_source(RefAny::new(()), fruits as IconGridDataSourceCallbackType)
+            .with_on_event(RefAny::new(log.clone()), record as IconGridOnEventCallbackType);
+        let geo = geometry(&g);
+        let typed = |g: &IconGrid, k: K| grid_key(g, &geo, k, false, false).expect("a letter is the grid's");
+        let first = typed(&g, K::A);
+        assert_eq!(
+            (first.kind, first.index.into_option()),
+            (IconGridEventKind::Select, Some(0)),
+            "nothing focused: the first item named with A"
+        );
+        assert_eq!(selected(&first.view), vec![0]);
+        let next = typed(&g.clone().with_view(first.view), K::A);
+        assert_eq!(selected(&next.view), vec![3], "the NEXT one named with it, case folded");
+        assert_eq!(next.view.selection.focus.into_option(), Some(3), "the focus moves with it");
+        assert_eq!(selected(&typed(&g.clone().with_view(next.view), K::A).view), vec![5]);
+        let at5 = with_selection(g.clone(), &[5], 5);
+        assert_eq!(selected(&typed(&at5, K::A).view), vec![0], "past the last: around to the first");
+        assert_eq!(selected(&typed(&at5, K::B).view), vec![1]);
+        assert!(grid_key(&at5, &geo, K::Z, false, false).is_none(), "no item named with Z: nothing moves");
+        assert_eq!(
+            grid_key(&at5, &geo, K::A, false, true).map(|e| e.view.selection.keys.len()),
+            Some(6),
+            "Ctrl+A still selects all"
+        );
     }
 
     // ---- the DOM ----

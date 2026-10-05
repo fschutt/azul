@@ -3045,14 +3045,7 @@ pub(crate) fn edit_key(
 ) -> Option<CellGridEvent> {
     use VirtualKeyCode as K;
     let view = &grid.view;
-    let mut chars: Vec<char> = view.edit_text.as_str().chars().collect();
-    let caret = (view.edit_cursor as usize).min(chars.len());
-    let edited = |chars: &[char], caret: usize| {
-        let mut next = view.clone();
-        next.edit_text = AzString::from(chars.iter().collect::<String>());
-        next.edit_cursor = caret as u32;
-        CellGridEvent::create(CellGridEventKind::EditText, next)
-    };
+    let caret = (view.edit_cursor as usize).min(view.edit_text.as_str().chars().count());
     let enter_mode = view.edit_mode == CellGridEditMode::Enter;
     let moved = |dir: Dir| commit_to(grid, b, b.step(view.active, dir));
     // Point mode (Enter mode, a formula waiting for a reference): an arrow
@@ -3077,24 +3070,16 @@ pub(crate) fn edit_key(
         K::Down if enter_mode => moved(Dir::Down),
         K::Left if enter_mode => moved(Dir::Left),
         K::Right if enter_mode => moved(Dir::Right),
-        K::Left => edited(&chars, caret.saturating_sub(1)),
-        K::Right => edited(&chars, (caret + 1).min(chars.len())),
-        K::Home => edited(&chars, 0),
-        K::End => edited(&chars, chars.len()),
-        K::Back => {
-            if caret == 0 {
-                return Some(edited(&chars, 0));
-            }
-            chars.remove(caret - 1);
-            edited(&chars, caret - 1)
+        // The caret and the deletions: the one-line editor's keys, shared
+        // with the data table's cell editor.
+        _ => {
+            let (text, caret) =
+                crate::widgets::data_table::line_edit(view.edit_text.as_str(), caret, key)?;
+            let mut next = view.clone();
+            next.edit_text = AzString::from(text);
+            next.edit_cursor = caret as u32;
+            CellGridEvent::create(CellGridEventKind::EditText, next)
         }
-        K::Delete => {
-            if caret < chars.len() {
-                chars.remove(caret);
-            }
-            edited(&chars, caret)
-        }
-        _ => return None,
     })
 }
 
@@ -3151,6 +3136,19 @@ extern "C" fn on_grid_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     let shift = ks.shift_down();
     let ctrl = ks.primary_down();
+    if ctrl && !grid.view.is_editing() && matches!(key, VirtualKeyCode::C | VirtualKeyCode::X) {
+        // The engine hands Copy / Cut only to a contenteditable focus or a
+        // text selection, and the grid is neither: the grid's Focus(Copy /
+        // Cut) handlers never heard the shortcut. It is the grid's here, as
+        // in the DataTable; `prevent_default` vetoes the engine's own copy.
+        info.prevent_default();
+        let kind = if key == VirtualKeyCode::C {
+            CellGridEventKind::Copy
+        } else {
+            CellGridEventKind::Cut
+        };
+        return copy_selection(data, info, kind);
+    }
     let b = bounds_of(&grid, &geo);
     let event = if grid.view.is_editing() {
         edit_key(&grid, &b, key, shift)
@@ -4028,6 +4026,28 @@ mod cell_grid_tests {
         let (_, changes) = rv::press(&styled, id(node), VirtualKeyCode::Q, &[])
             .expect("the handler runs");
         assert!(!rv::prevented(&changes), "a letter is not a key the grid takes (it is typed text)");
+    }
+
+    #[test]
+    fn ctrl_c_on_the_focused_grid_puts_the_range_on_the_clipboard() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(grid(&log).with_theme(UiTheme::Flat).dom());
+        let node = nodes_with(&styled, GRID_CLASS_NAME)[0];
+        let (primary, _) = rv::command_keys();
+        for (key, kind) in [
+            (VirtualKeyCode::C, CellGridEventKind::Copy),
+            (VirtualKeyCode::X, CellGridEventKind::Cut),
+        ] {
+            let (_, changes) = rv::press(&styled, id(node), key, &[primary]).expect("the grid hears keys");
+            assert!(rv::prevented(&changes), "{key:?}: the shortcut is the grid's");
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, crate::callbacks::CallbackChange::SetCopyContent { .. })),
+                "{key:?}: the range goes on the clipboard: {changes:?}"
+            );
+            assert_eq!(log.lock().expect("log").last().map(|e| e.kind), Some(kind));
+        }
     }
 
     #[test]

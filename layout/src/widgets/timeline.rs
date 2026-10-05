@@ -50,7 +50,7 @@ use alloc::{format, string::String, vec::Vec};
 use azul_core::{
     a11y::{AccessibilityInfo, AccessibilityRole, AccessibilityState, AccessibilityStateVec},
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClassVec, TabIndex},
+    dom::{Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, TabIndex},
     events::FocusEventFilter,
     refany::{OptionRefAny, RefAny},
     resources::{ImageRef, OptionImageRef},
@@ -1694,28 +1694,17 @@ pub(crate) static TIMELINE_SPACER_BASE: &[P] = &[no_shrink()];
 /// The scroll bar's track: the thumb is placed in it.
 pub(crate) static TIMELINE_SCROLL_TRACK_BASE: &[P] = &[position(LayoutPosition::Relative), grow(1)];
 
-fn classes(names: &[&'static str]) -> IdOrClassVec {
-    IdOrClassVec::from_vec(
-        names
-            .iter()
-            .map(|n| IdOrClass::Class(AzString::from_const_str(*n)))
-            .collect(),
-    )
-}
+use crate::widgets::themes::decl::classes;
 
-/// A ruler label: `M:SS` steps of seconds, `MM:SS:FF` steps of frames,
-/// `H:MM:SS` past the first hour.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+/// A ruler label: `MM:SS:FF` steps of frames in the first hour, else the
+/// media clock (`M:SS`, `H:MM:SS` past the first hour - the seek bar's
+/// [`crate::widgets::seek_bar::media_time`]).
 fn tick_label(t: f64, fps: f32, step: f64) -> String {
-    let full = timecode(t, fps);
-    let total = t.max(0.0).floor() as u64;
-    if total >= 3600 {
-        format!("{}:{:02}:{:02}", total / 3600, (total / 60) % 60, total % 60)
-    } else if step < 1.0 {
+    if step < 1.0 && t < 3600.0 {
         // "00:MM:SS:FF" without the hours.
-        String::from(&full[3..])
+        String::from(&timecode(t, fps)[3..])
     } else {
-        format!("{}:{:02}", total / 60, total % 60)
+        crate::widgets::seek_bar::media_time(t.max(0.0))
     }
 }
 

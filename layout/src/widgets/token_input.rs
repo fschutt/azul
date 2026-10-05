@@ -1101,6 +1101,14 @@ fn entry_in(info: &CallbackInfo, field: DomNodeId) -> Option<DomNodeId> {
     roving::items_of(info, field, ENTRY_CLASS).first().copied()
 }
 
+/// The entry's invalid look - the text field's own `:user-invalid` ring
+/// ([`crate::widgets::text_input::paint_invalid_ring`]): a refused token
+/// rings the entry, where its text stays to be fixed; whatever the user does
+/// in the entry next (an edit, an accepted token) takes the ring away.
+fn ring_entry(info: &mut CallbackInfo, entry: DomNodeId, refused: bool) {
+    crate::widgets::text_input::paint_invalid_ring(info, entry, refused);
+}
+
 /// Text typed into the entry: a separator in it commits what is before it
 /// (a pasted list: all of it); otherwise the app hears the new text.
 extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
@@ -1119,6 +1127,9 @@ extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: Tex
             }
             None => return keep(Update::DoNothing),
         };
+        // The user is fixing a refused token (or typing a new one).
+        let entry = info.get_hit_node();
+        ring_entry(&mut info, entry, false);
         let update = emit(&mut data, info, TokenInputEvent::create(TokenInputEventKind::Text, next));
         return keep(update);
     }
@@ -1135,6 +1146,7 @@ extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: Tex
         return keep(Update::DoNothing);
     };
     TextInput::set_text_in(&mut info, container, event.state.text.clone());
+    ring_entry(&mut info, container, event.kind == TokenInputEventKind::Refuse);
     let update = emit(&mut data, info, event);
     // The separator never reaches the line: the line is what is left typed.
     OnTextInputReturn {
@@ -1171,16 +1183,24 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
         EntryKey::CommitText => {
             let (mut parts, rest) = split_tokens(&text);
             parts.push(rest);
-            commit(&mut data, info, parts, String::new())
+            let event = commit(&mut data, info, parts, String::new());
+            if let Some(e) = &event {
+                ring_entry(&mut info, container, e.kind == TokenInputEventKind::Refuse);
+            }
+            event
         }
         EntryKey::CommitSuggestion(position) => {
             let pick = data
                 .downcast_ref::<TokenShared>()
                 .and_then(|s| s.shown.get(position).map(|t| String::from(t.as_str())));
-            match pick {
+            let event = match pick {
                 Some(pick) => commit(&mut data, info, alloc::vec![pick], String::new()),
                 None => None,
+            };
+            if let Some(e) = &event {
+                ring_entry(&mut info, container, e.kind == TokenInputEventKind::Refuse);
             }
+            event
         }
         EntryKey::RemoveLast => remove_event(&mut data, tokens.saturating_sub(1)),
         EntryKey::Navigate(to) => data.downcast_ref::<TokenShared>().map(|s| {
@@ -1341,7 +1361,12 @@ extern "C" fn on_option_click(mut data: RefAny, mut info: CallbackInfo) -> Updat
         TextInput::set_text_in(&mut info, entry, AzString::from_const_str(""));
     }
     match commit(&mut shared, info, alloc::vec![pick], String::new()) {
-        Some(event) => emit(&mut shared, info, event),
+        Some(event) => {
+            if let Some(entry) = entry {
+                ring_entry(&mut info, entry, event.kind == TokenInputEventKind::Refuse);
+            }
+            emit(&mut shared, info, event)
+        }
         None => Update::DoNothing,
     }
 }
@@ -1727,6 +1752,76 @@ mod token_input_tests {
             vec![String::from(
                 "Add 2 Albert <al@b.org> | alice@x.org,bob@y.org,Albert <al@b.org> |  | None"
             )]
+        );
+    }
+
+    // ---- the refused look ----
+
+    extern "C" fn refuse_all(_: RefAny, _: CallbackInfo, _token: AzString) -> TokenInputVerdict {
+        TokenInputVerdict::create_refused(AzString::from_const_str("not an address"))
+    }
+
+    /// Every border override the handler wrote onto `node`, one list per write.
+    fn ring_writes_on(changes: &[crate::callbacks::CallbackChange], node: NodeId) -> Vec<Vec<CssProperty>> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                crate::callbacks::CallbackChange::OverrideNodeCssProperties { node_id, properties, .. }
+                    if *node_id == node =>
+                {
+                    Some(properties.as_ref().to_vec())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The entry of a flat field typed `text`, refusing every token when
+    /// `refuse` (else taking each as typed).
+    fn entry_typed(log: &Log, text: &str, refuse: bool) -> (StyledDom, NodeId) {
+        let mut input = field(log).with_text(s(text)).with_theme(UiTheme::Flat);
+        if refuse {
+            input = input.with_on_validate(RefAny::new(()), refuse_all as TokenInputOnValidateCallbackType);
+        }
+        let styled = StyledDom::create_from_dom(input.dom());
+        let field_node = kids(&styled, NodeId::new(0))[0];
+        let entry = kids(&styled, field_node)[2];
+        assert!(has_class_at(&styled, entry, ENTRY_CLASS));
+        (styled, entry)
+    }
+
+    #[test]
+    fn a_refused_token_rings_the_entry_as_invalid() {
+        use crate::widgets::themes::flat;
+        let log = log();
+        let (styled, entry) = entry_typed(&log, "not-an-address", true);
+        let (_, changes) = rv::press(&styled, id(entry), K::Return, &[]).expect("the entry's key handler");
+        assert!(
+            logged(&log).iter().any(|l| l.starts_with("Refuse")),
+            "the token is refused: {:?}",
+            logged(&log)
+        );
+        let rings = ring_writes_on(&changes, entry);
+        assert_eq!(rings.len(), 1, "one ring write on the entry: {changes:?}");
+        assert!(
+            rings[0] == flat::text_input_invalid_ring(false) || rings[0] == flat::text_input_invalid_ring(true),
+            "the entry wears the text field's own invalid ring (:user-invalid): {:?}",
+            rings[0]
+        );
+    }
+
+    #[test]
+    fn an_accepted_token_takes_a_refusals_ring_away() {
+        let log = log();
+        let (styled, entry) = entry_typed(&log, "carol@x.org", false);
+        let (_, changes) = rv::press(&styled, id(entry), K::Return, &[]).expect("the entry's key handler");
+        assert!(logged(&log).iter().any(|l| l.starts_with("Add")), "{:?}", logged(&log));
+        let rings = ring_writes_on(&changes, entry);
+        assert_eq!(rings.len(), 1, "one ring removal on the entry: {changes:?}");
+        assert!(
+            rings[0].len() == 4 && rings[0].iter().all(CssProperty::is_initial),
+            "the ring is REMOVED (initial), so the resting border and the focus ring come back: {:?}",
+            rings[0]
         );
     }
 

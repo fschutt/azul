@@ -25,7 +25,7 @@
 //! THE APP OWNS THE STATE AND THE RECORDS: every action is a
 //! [`ReferencePickerEvent`] - `Query` (the text typed, after the debounce),
 //! `Pick` (a record: its id and label), `Create` (the "create" row: the text
-//! typed). The app stores what it needs and rebuilds: with the query it
+//! typed), `Clear` (the x the field shows while a record is picked). The app stores what it needs and rebuilds: with the query it
 //! typed ([`ReferencePicker::with_query`]) and either
 //!
 //! - [`ReferencePickerFilter::Local`]: ALL its records - the picker filters
@@ -72,6 +72,9 @@ use crate::{
 
 /// The class on the picker's root (the combobox's wrapper).
 pub const REFERENCE_PICKER_CLASS: &str = "__azul-native-reference-picker";
+
+/// The x in the field of a picker with a record picked: it clears the pick.
+pub const REFERENCE_PICKER_CLEAR_CLASS: &str = "__azul-native-reference-picker-clear";
 
 /// The records listed at most unless the app says otherwise.
 pub const DEFAULT_MAX_ROWS: usize = 50;
@@ -161,6 +164,9 @@ pub enum ReferencePickerEventKind {
     Pick,
     /// The "create" row was picked: `text` is what was typed.
     Create,
+    /// The x of a picked record was clicked: the app drops its selection
+    /// (and its query) and rebuilds. `text` empty, `id` 0.
+    Clear,
 }
 
 /// One action of the picker.
@@ -567,7 +573,7 @@ impl ReferencePicker {
             .with_text(AzString::from(text))
             .with_placeholder(self.placeholder.clone())
             .with_on_text_input(shared.clone(), on_text)
-            .with_on_select(shared, on_select);
+            .with_on_select(shared.clone(), on_select);
         if let Some(row) = selected_row {
             combo = combo.with_selected(row);
         }
@@ -582,8 +588,71 @@ impl ReferencePicker {
         }
         let mut dom = combo.dom();
         dom.add_class(AzString::from_const_str(REFERENCE_PICKER_CLASS));
+        if self.selected.is_some() {
+            // The x sits in the field between the text and the arrow (the
+            // combobox's field: [text, arrow]; its handlers find the text as
+            // the field's first child, which it stays).
+            let parts: &mut [Dom] = dom.children.as_mut();
+            if let Some(field) = parts.first_mut() {
+                let mut kids = core::mem::replace(
+                    &mut field.children,
+                    azul_core::dom::DomVec::from_const_slice(&[]),
+                )
+                .into_library_owned_vec();
+                kids.insert(kids.len().min(1), clear_button(shared));
+                field.children = azul_core::dom::DomVec::from_vec(kids);
+            }
+            dom.fixup_children_estimated();
+        }
         dom
     }
+}
+
+/// The x that clears a picked record: a button for the pointer (the keyboard
+/// clears by editing the field), named "Clear".
+fn clear_button(shared: RefAny) -> Dom {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityRole},
+        callbacks::CoreCallbackData,
+        dom::{EventFilter, HoverEventFilter, TabIndex},
+    };
+    use azul_css::{
+        dynamic_selector::CssPropertyWithConditionsVec,
+        props::{
+            layout::LayoutAlignSelf,
+            property::{CssProperty, LayoutAlignSelfValue},
+            style::StyleCursor,
+        },
+    };
+
+    use crate::widgets::themes::decl;
+
+    let mut style = alloc::vec![
+        decl::font_size(14),
+        decl::no_shrink(),
+        decl::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+        decl::simple(CssProperty::AlignSelf(LayoutAlignSelfValue::Exact(
+            LayoutAlignSelf::Center,
+        ))),
+    ];
+    style.extend(decl::margin(0, 2, 0, 2));
+    Dom::create_icon(AzString::from_const_str("close"))
+        .with_class(AzString::from_const_str(REFERENCE_PICKER_CLEAR_CLASS))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(style))
+        .with_tab_index(TabIndex::NoKeyboardFocus)
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::PushButton,
+            accessibility_name: OptionString::Some(AzString::from_const_str("Clear")),
+            ..Default::default()
+        })
+        .with_callbacks(
+            alloc::vec![CoreCallbackData::create(
+                EventFilter::Hover(HoverEventFilter::Click),
+                shared,
+                on_reference_clear as usize,
+            )]
+            .into(),
+        )
 }
 
 impl From<ReferencePicker> for Dom {
@@ -667,6 +736,32 @@ extern "C" fn on_reference_debounce(
     }
     let update = report_query(&mut data, *info.get_callback_info());
     TimerCallbackReturn::create(update, TerminateTimer::Terminate)
+}
+
+/// The x: the picked record is cleared - reported as `Clear`, a query still
+/// counting down dropped. The click ends here: the field under the x would
+/// toggle its list.
+extern "C" fn on_reference_clear(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    info.stop_propagation();
+    let pending = match data.downcast_mut::<ReferenceShared>() {
+        Some(mut s) => {
+            s.query.clear();
+            s.timer.take()
+        }
+        None => return Update::DoNothing,
+    };
+    if let Some(timer) = pending {
+        info.remove_timer(timer);
+    }
+    report(
+        &mut data,
+        info,
+        ReferencePickerEvent {
+            text: AzString::from_const_str(""),
+            id: 0,
+            kind: ReferencePickerEventKind::Clear,
+        },
+    )
 }
 
 /// An option was picked (a click, Enter on the active one): a record - its
@@ -1006,6 +1101,34 @@ mod dom_tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, ReferencePickerEventKind::Create);
         assert_eq!(events[0].text.as_str(), "acme");
+    }
+
+    /// The x button's class (`REFERENCE_PICKER_CLEAR_CLASS`).
+    const CLEAR: &str = "__azul-native-reference-picker-clear";
+
+    #[test]
+    fn a_picked_reference_clears_with_its_x_button() {
+        let nothing = ReferencePicker::create(customers()).dom();
+        assert!(tc::find(&nothing, CLEAR).is_none(), "nothing picked: no x");
+        let (s, log) = styled(ReferencePicker::create(customers()).with_selected(5));
+        let x = s
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| n.has_class(CLEAR))
+            .expect("a picked record shows an x");
+        let (_, changes) = rv::fire(&s, node(x), EventFilter::Hover(HoverEventFilter::Click))
+            .expect("the x takes the click");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(format!("{:?}", events[0].kind), "Clear");
+        assert_eq!((events[0].id, events[0].text.as_str()), (0, ""));
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, crate::callbacks::CallbackChange::StopPropagation)),
+            "the click ends at the x: the field under it does not toggle its list"
+        );
     }
 
     #[test]
