@@ -17,6 +17,11 @@ mod wire {
     pub struct Doc {
         #[serde(default)]
         pub body: Vec<Body>,
+        /// Set when the file could not be read - a container that is no zip,
+        /// an unreadable body part: `docx-parser` then answers an empty
+        /// placeholder document with this error instead of failing.
+        #[serde(default, rename = "parseError")]
+        pub parse_error: Option<String>,
     }
 
     #[derive(Deserialize, Debug)]
@@ -147,9 +152,18 @@ fn wire_block(p: &wire::Para) -> RichBlock {
     RichBlock::create(kind, wire_runs(&p.runs)).with_align(align)
 }
 
-/// The wire JSON of `docx-parser` as a document.
+/// The wire JSON of `docx-parser` as a document; a wire that says the file
+/// could not be read (`parseError`) is that error.
 pub fn from_docx_wire(json: &str) -> Result<RichTextDoc, String> {
     let doc: wire::Doc = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    from_wire(doc)
+}
+
+/// The deserialized wire as a document, or the file's read error.
+fn from_wire(doc: wire::Doc) -> Result<RichTextDoc, String> {
+    if let Some(broken) = doc.parse_error {
+        return Err(broken);
+    }
     let mut blocks: Vec<RichBlock> = Vec::new();
     for element in doc.body {
         match element {
@@ -196,12 +210,14 @@ pub fn from_docx_wire(json: &str) -> Result<RichTextDoc, String> {
     Ok(RichTextDoc::create_from_blocks(blocks))
 }
 
-/// A .docx file's bytes as a document: the wire format, else the Markdown
-/// `docx-parser` makes of it.
+/// A .docx file's bytes as a document: the wire format, else (a wire the
+/// deserializer refuses) the Markdown `docx-parser` makes of it. A file
+/// `docx-parser` could not read is an error, not an empty document (its
+/// Markdown is the same empty placeholder, so there is no fallback then).
 pub fn from_docx_bytes(data: &[u8]) -> Result<RichTextDoc, String> {
     let json = docx_parser::parse_docx_native(data)?;
-    match from_docx_wire(&json) {
-        Ok(doc) => Ok(doc),
+    match serde_json::from_str::<wire::Doc>(&json) {
+        Ok(doc) => from_wire(doc),
         Err(wire_err) => docx_parser::to_markdown_native(data)
             .map(|md| RichTextDoc::create_from_markdown(md.as_str()))
             .map_err(|md_err| format!("wire: {wire_err}; markdown: {md_err}")),
@@ -252,6 +268,16 @@ mod tests {
         assert_eq!(blocks[2].kind, RichBlockKind::Bullet(1), "the item keeps its level");
         assert_eq!(blocks[3].kind, RichBlockKind::PageBreak);
         assert_eq!(texts(&doc)[..3], ["Heading", "Body bold", "a bullet"]);
+    }
+
+    #[test]
+    fn a_wire_that_says_the_file_could_not_be_read_is_an_error() {
+        let json = r#"{"body":[],"parseError":"the container is no zip archive"}"#;
+        assert_eq!(
+            from_docx_wire(json).err().as_deref(),
+            Some("the container is no zip archive")
+        );
+        assert!(from_docx_bytes(b"not a zip").is_err(), "no empty document");
     }
 
     #[test]

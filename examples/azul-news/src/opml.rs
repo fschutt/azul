@@ -117,8 +117,9 @@ fn feed_outline(s: &Subscription, indent: &str) -> String {
     line
 }
 
-/// The subscriptions as an OPML 2.0 file named `title`: the feeds without a folder first, then
-/// each folder (in the order its first feed comes) with its feeds.
+/// The subscriptions as an OPML 2.0 file named `title`, in the list's order: a feed without a
+/// folder where it comes, a folder (with all its feeds) where its first feed comes. A list whose
+/// folders' feeds are together - every list [`parse`] returns - reads back in the same order.
 #[must_use]
 pub fn write(subscriptions: &[Subscription], title: &str) -> String {
     let mut out =
@@ -127,22 +128,23 @@ pub fn write(subscriptions: &[Subscription], title: &str) -> String {
         "  <head>\n    <title>{}</title>\n  </head>\n  <body>\n",
         Xml::encode_text(title).as_str()
     ));
-    for s in subscriptions.iter().filter(|s| s.folder.is_empty()) {
-        out.push_str(&feed_outline(s, "    "));
-    }
     let mut folders: Vec<&str> = Vec::new();
     for s in subscriptions {
-        if !s.folder.is_empty() && !folders.contains(&s.folder.as_str()) {
-            folders.push(&s.folder);
+        if s.folder.is_empty() {
+            out.push_str(&feed_outline(s, "    "));
+            continue;
         }
-    }
-    for folder in folders {
+        let folder = s.folder.as_str();
+        if folders.contains(&folder) {
+            continue;
+        }
+        folders.push(folder);
         out.push_str(&format!(
             "    <outline text=\"{f}\" title=\"{f}\">\n",
             f = attribute(folder)
         ));
-        for s in subscriptions.iter().filter(|s| s.folder == folder) {
-            out.push_str(&feed_outline(s, "      "));
+        for f in subscriptions.iter().filter(|f| f.folder == folder) {
+            out.push_str(&feed_outline(f, "      "));
         }
         out.push_str("    </outline>\n");
     }
@@ -213,6 +215,18 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("<title>T &amp; T</title>"), "{text}");
+        assert_eq!(parse(text.as_bytes()).expect("its own file"), subs);
+    }
+
+    #[test]
+    fn a_list_that_starts_with_a_folder_keeps_its_order() {
+        let subs = vec![
+            sub("id-1", "Rust Blog", "https://rust.example/feed", "Tech"),
+            sub("id-2", "Example Weekly", "https://example.org/feed/", ""),
+            sub("id-3", "Bread", "https://bread.example.net/feed", "Food"),
+            sub("id-4", "Top", "https://top.example/feed", ""),
+        ];
+        let text = write(&subs, "AzNews subscriptions");
         assert_eq!(parse(text.as_bytes()).expect("its own file"), subs);
     }
 

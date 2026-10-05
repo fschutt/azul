@@ -1,7 +1,7 @@
-//! The `--sample` vault (the plan's section 6): "Personal" with logins, cards, secure notes,
-//! identities and SSH keys - all names, addresses and secrets fictional - including a few weak,
-//! reused and old passwords and logins without a one-time code, so the audit has something to
-//! show. Its master password is [`SAMPLE_PASSWORD`]; the unlock screen says so for this vault.
+//! The `--sample` vault (the plan's section 6): "Personal" with logins, cards, identities,
+//! 4 SSH keys and 11 secure notes (61 items) - all names, addresses and secrets fictional -
+//! including a few weak, reused and old passwords and logins without a one-time code, so the
+//! audit has something to show. Its master password is [`SAMPLE_PASSWORD`]; the unlock screen says so for this vault.
 
 use crate::vault::{Card, Field, Item, Kind, Vault};
 
@@ -213,6 +213,24 @@ pub fn sample_vault(now: u64) -> Vault {
         ("Safe combination", "Left 10, right 20, left 30 (sample)"),
         ("Insurance numbers", "Home: H-0000\nCar: C-0000"),
         ("Bike lock", "4 digits: 0000 (sample)"),
+        ("Alarm code", "Front door panel: 0000 (sample)"),
+        (
+            "Software licence",
+            "Photo editor (example)\nKey: AAAA-BBBB-CCCC-DDDD (sample)",
+        ),
+        ("Gym locker", "Locker 12, code 0000 (sample)"),
+        (
+            "Emergency contacts",
+            "Jonas Lind: +46 70 000 00 01\nLund clinic (example): +46 46 000 00 00",
+        ),
+        (
+            "Backup passphrase",
+            "For the external disk: correct horse battery staple (sample)",
+        ),
+        (
+            "Passport renewal",
+            "Expires 2030-05 (sample); book an appointment six months before.",
+        ),
     ];
     for (n, (title, text)) in notes.iter().enumerate() {
         let mut note = Item::new(Kind::Note, title, now - (10 + n as u64 * 33) * DAY);

@@ -969,14 +969,15 @@ impl RichTextDoc {
     }
 
     /// The canonical form: at least one block; runs merged; a block without
-    /// text without runs; a code block one plain run; headings 1..=6; a list
-    /// item at most one level deeper than the list item before it.
+    /// text without runs; a code block one plain run; headings 1..=6. A list
+    /// item keeps its level whatever comes before it (a Word paragraph or a
+    /// slide's point sets its own level; the HTML and Markdown writers nest
+    /// what their formats can).
     pub fn normalize(&mut self) {
         let mut blocks = self.take_blocks();
         if blocks.is_empty() {
             blocks.push(RichBlock::paragraph(""));
         }
-        let mut prev_indent: Option<u8> = None;
         for block in &mut blocks {
             let mut runs = block.runs_vec();
             match &mut block.kind {
@@ -994,14 +995,6 @@ impl RichTextDoc {
                 | RichBlockKind::PageBreak
                 | RichBlockKind::Table(_) => runs.clear(),
                 _ => {}
-            }
-            if block.kind.is_list() {
-                let max = prev_indent.map_or(0, |p| p.saturating_add(1));
-                let indent = block.kind.indent().min(max);
-                block.kind = block.kind.with_indent(indent);
-                prev_indent = Some(indent);
-            } else {
-                prev_indent = None;
             }
             normalize_runs(&mut runs);
             block.set_runs(runs);
@@ -1717,7 +1710,10 @@ impl RichTextDoc {
     }
 
     /// Indents (`delta > 0`) or outdents a list item; an outdent at level
-    /// 0 turns it into a paragraph. Returns whether it changed.
+    /// 0 turns it into a paragraph. An indent goes at most one level deeper
+    /// than the list item before (none: the first item does not indent) and
+    /// never lowers an item already deeper than that (a level a document
+    /// set). Returns whether it changed.
     pub fn indent(&mut self, index: usize, delta: i8) -> bool {
         let Some(block) = self.block(index) else {
             return false;
@@ -1738,7 +1734,7 @@ impl RichTextDoc {
             None => 0,
         };
         let next = if delta > 0 {
-            indent.saturating_add(1).min(max)
+            indent.saturating_add(1).min(max.max(indent))
         } else {
             indent - 1
         };
@@ -2191,7 +2187,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_clamps_orphan_indents_and_keeps_one_block() {
+    fn normalize_keeps_one_block_and_every_list_items_level() {
         let mut doc = RichTextDoc {
             blocks: RichBlockVec::from_vec(Vec::new()),
         };
@@ -2201,9 +2197,47 @@ mod tests {
             RichBlock::paragraph("p"),
             RichBlock::text(RichBlockKind::Bullet(3), "deep"),
             RichBlock::text(RichBlockKind::Bullet(4), "deeper"),
+            RichBlock::text(RichBlockKind::Numbered(0), "top"),
+            RichBlock::text(RichBlockKind::Numbered(2), "skips a level"),
         ]);
-        assert_eq!(doc.blocks()[1].kind, RichBlockKind::Bullet(0));
-        assert_eq!(doc.blocks()[2].kind, RichBlockKind::Bullet(1));
+        assert_eq!(
+            kinds(&doc),
+            vec![
+                RichBlockKind::Paragraph,
+                RichBlockKind::Bullet(3),
+                RichBlockKind::Bullet(4),
+                RichBlockKind::Numbered(0),
+                RichBlockKind::Numbered(2),
+            ]
+        );
+    }
+
+    /// A Word document or a slide sets each paragraph's list level by itself:
+    /// a level-1 bullet right after a body paragraph (a .docx `w:ilvl="1"`, a
+    /// slide's indented point under a plain line) stays at level 1 - the
+    /// shared model holds AzWriter's and AzShow's text, not only Markdown's
+    /// nested lists. Indenting such an item never moves it out.
+    #[test]
+    fn a_list_item_after_a_paragraph_keeps_its_level_as_word_and_slides_set_it() {
+        let mut doc = RichTextDoc::from_blocks(vec![
+            RichBlock::paragraph("Intro"),
+            RichBlock::text(RichBlockKind::Bullet(1), "a point"),
+            RichBlock::paragraph("Next"),
+            RichBlock::text(RichBlockKind::Numbered(3), "a deep step"),
+        ]);
+        assert_eq!(doc.blocks()[1].kind, RichBlockKind::Bullet(1));
+        assert_eq!(doc.blocks()[3].kind, RichBlockKind::Numbered(3));
+        assert!(
+            !doc.indent(1, 1),
+            "the first item of a list does not indent"
+        );
+        assert_eq!(
+            doc.blocks()[1].kind,
+            RichBlockKind::Bullet(1),
+            "nor move out"
+        );
+        assert!(doc.indent(3, -1));
+        assert_eq!(doc.blocks()[3].kind, RichBlockKind::Numbered(2));
     }
 
     #[test]
