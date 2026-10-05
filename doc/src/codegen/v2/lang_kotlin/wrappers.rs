@@ -2139,3 +2139,98 @@ pub(crate) fn kdoc_escape(s: &str) -> String {
         .replace('{', "&#123;")
         .replace('}', "&#125;")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The wrapper classes `emit_wrapper` produces for `names`, built from
+    /// the real api.json.
+    fn wrapper_sources(names: &[&str]) -> Vec<String> {
+        let api = crate::api::ApiData::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
+        )
+        .unwrap();
+        let ir = super::super::super::build_ir_from_api(&api).unwrap();
+        let config = CodegenConfig::c_header();
+        let app = app_factory_info(&ir);
+        names
+            .iter()
+            .map(|n| {
+                let s = ir.find_struct(n).unwrap_or_else(|| panic!("{} in api.json", n));
+                let mut b = CodeBuilder::new(&config.indent);
+                emit_wrapper(&mut b, s, &ir, app.as_ref(), &config);
+                b.finish()
+            })
+            .collect()
+    }
+
+    /// The member whose declaration contains `sig`, up to the blank line
+    /// that follows it.
+    fn member<'a>(src: &'a str, sig: &str) -> &'a str {
+        let start = src.find(sig).unwrap_or_else(|| panic!("no `{}` in:\n{}", sig, src));
+        let end = src[start..].find("\n\n").map(|e| e + start).unwrap_or(src.len());
+        &src[start..end]
+    }
+
+    fn before(body: &str, first: &str, second: &str) -> bool {
+        match (body.find(first), body.find(second)) {
+            (Some(a), Some(b)) => a < b,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn the_title_property_decodes_the_string_without_freeing_it_and_its_setter_releases_the_old_one() {
+        let src = &wrapper_sources(&["FullWindowState"])[0];
+        let prop = member(src, "var title: kotlin.String");
+        let (get, set) = prop.split_at(prop.find("set(v)").expect("a setter"));
+        assert!(!get.contains("_delete"), "a getter must not free the field:\n{}", get);
+        assert!(get.contains("Charsets.UTF_8"), "{}", get);
+        assert!(set.contains("AzString_fromUtf8"), "{}", set);
+        assert!(before(set, "AzString_delete(", ".write(0,"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_property_deep_copies_on_read_and_deletes_then_consumes_on_write() {
+        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let prop = member(src, "var windowState: FullWindowState");
+        let (get, set) = prop.split_at(prop.find("set(v)").expect("a setter"));
+        assert!(get.contains("AzFullWindowState_clone("), "{}", get);
+        assert!(get.contains("FullWindowState(__copy.pointer)"), "{}", get);
+        assert!(before(set, "AzFullWindowState_delete(", ".write(0,"), "{}", set);
+        assert!(set.contains("v.__consume()"), "the argument is moved in:\n{}", set);
+    }
+
+    #[test]
+    fn a_bool_field_is_a_kotlin_boolean_property() {
+        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let prop = member(src, "var sizeToContent: Boolean");
+        assert!(prop.contains(".toInt() != 0"), "{}", prop);
+        assert!(prop.contains("writeField(\"size_to_content\")"), "{}", prop);
+    }
+
+    #[test]
+    fn the_window_state_can_be_edited_in_place_so_nested_writes_reach_the_options() {
+        let src = &wrapper_sources(&["WindowCreateOptions"])[0];
+        let edit = member(
+            src,
+            "fun editWindowState(block: FullWindowState.() -> Unit): WindowCreateOptions",
+        );
+        assert!(edit.contains("FullWindowState(__ov.window_state.pointer, false)"), "{}", edit);
+        assert!(edit.contains("finally"), "the view is invalidated after the edit:\n{}", edit);
+        let fws = &wrapper_sources(&["FullWindowState"])[0];
+        member(fws, "var size: AzWindowSize.ByValue");
+        let edit_size = member(fws, "fun editSize(block: AzWindowSize.() -> Unit): FullWindowState");
+        assert!(edit_size.contains(".write()"), "{}", edit_size);
+    }
+
+    #[test]
+    fn the_text_field_stays_writable_although_the_api_method_get_text_takes_the_jvm_getter_name() {
+        let src = &wrapper_sources(&["TextInputState"])[0];
+        assert!(!src.contains("var text:") && !src.contains("val text:"), "{}", src);
+        let set = member(src, "fun setText(v: U32Vec)");
+        assert!(before(set, "AzU32Vec_delete(", ".write(0,"), "{}", set);
+        assert!(set.contains("v.__consume()"), "{}", set);
+    }
+}
