@@ -17,7 +17,7 @@
 
 use std::collections::HashSet;
 
-use azul_storage::{Drive, ListRequest};
+use azul_storage::{ops, Drive};
 use serde::{Deserialize, Serialize};
 
 use crate::raster::{
@@ -246,19 +246,13 @@ pub fn save(drive: &dyn Drive, uuid: &str, name: &str, doc: &Document, encode: E
     let json = serde_json::to_vec_pretty(&doc_to_file(doc, name)).map_err(|e| e.to_string())?;
     drive.put(&doc_key(uuid), &json).map_err(|e| e.to_string())?;
     saved.bytes += json.len() as u64;
-    // Tiles of an older save that this one no longer has.
-    let mut request = ListRequest::recursive(&layers_prefix(uuid));
-    loop {
-        let page = drive.list(&request).map_err(|e| e.to_string())?;
-        for object in &page.objects {
-            if !written.contains(&object.key) {
-                drive.delete(&object.key).map_err(|e| e.to_string())?;
-                saved.deleted += 1;
-            }
-        }
-        match page.next {
-            Some(token) => request = request.with_continuation(token),
-            None => break,
+    // Tiles of an older save that this one no longer has (listed whole first: no deletes
+    // between the pages of a listing).
+    let objects = ops::list_all(drive, &layers_prefix(uuid)).map_err(|e| e.to_string())?;
+    for object in &objects {
+        if !written.contains(&object.key) {
+            drive.delete(&object.key).map_err(|e| e.to_string())?;
+            saved.deleted += 1;
         }
     }
     Ok(saved)
@@ -291,32 +285,25 @@ pub struct DocEntry {
 /// Every document under `photo/`, newest first.
 pub fn list(drive: &dyn Drive) -> Result<Vec<DocEntry>, String> {
     let mut out = Vec::new();
-    let mut request = ListRequest::folder(PREFIX);
-    loop {
-        let page = drive.list(&request).map_err(|e| e.to_string())?;
-        for folder in &page.folders {
-            let uuid = folder.trim_start_matches(PREFIX).trim_end_matches('/').to_string();
-            let Ok(info) = drive.head(&doc_key(&uuid)) else {
-                continue;
-            };
-            let Ok(json) = drive.get(&doc_key(&uuid)) else {
-                continue;
-            };
-            let Ok(file) = serde_json::from_slice::<DocFile>(&json) else {
-                continue;
-            };
-            out.push(DocEntry {
-                uuid,
-                name: file.name,
-                width: file.width,
-                height: file.height,
-                modified: info.modified,
-            });
-        }
-        match page.next {
-            Some(token) => request = request.with_continuation(token),
-            None => break,
-        }
+    let level = ops::list_folder_all(drive, PREFIX).map_err(|e| e.to_string())?;
+    for folder in &level.folders {
+        let uuid = folder.trim_start_matches(PREFIX).trim_end_matches('/').to_string();
+        let Ok(info) = drive.head(&doc_key(&uuid)) else {
+            continue;
+        };
+        let Ok(json) = drive.get(&doc_key(&uuid)) else {
+            continue;
+        };
+        let Ok(file) = serde_json::from_slice::<DocFile>(&json) else {
+            continue;
+        };
+        out.push(DocEntry {
+            uuid,
+            name: file.name,
+            width: file.width,
+            height: file.height,
+            modified: info.modified,
+        });
     }
     out.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
     Ok(out)
