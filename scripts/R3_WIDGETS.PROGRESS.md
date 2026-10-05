@@ -8,11 +8,15 @@
 - 659cdc482 a_rich_text_editor_keeps_one_model_and_one_history (pages): TEST wrong (never focused a page).
 - 48b260343 a_rich_text_editor_sets_its_line_height_and_scales_its_indents_with_its_text: TEST wrong (orphan
   Bullet(1) normalized to Bullet(0)).
+- ea8a64ba8 widget_lint_manifest_is_exhaustive: close_guard registered (+ CONTAINERS group), list_selection /
+  rich_text exempt (models, no DOM).
+- 34066733f a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it: CODE wrong (Step 1.15 rooted a
+  SizingOnly css change at the child; the scroll box parent kept its stale overflow / scrollbar). Root at parent.
 
 ## NEXT
+- a_short_list_in_a_shell_pane_fills_its_pane_from_the_top: AZ_TAFFY_DEBUG on the prebuilt suite binary shows
+  kd=(None,Some(inf)) / avail Definite(inf) reaching taffy (translate_taffy_size maps INF to Some(INF)).
 - a_short_list_in_a_shell_pane_fills_its_pane_from_the_top
-- a_grown_scroll_box_paints_its_thumb_from_the_layout_that_grew_it
-- widget_lint_manifest_is_exhaustive
 - final report scripts/R3_WIDGETS_2026_10_05.md
 
 ## STOPPED (big change, see report)
