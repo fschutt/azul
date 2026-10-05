@@ -65,7 +65,7 @@
 use anyhow::Result;
 
 use super::{
-    c_layout::type_layout,
+    c_layout::{self, type_layout},
     config::CodegenConfig,
     generator::CodeBuilder,
     ir::{
@@ -224,22 +224,103 @@ fn emit_struct_alias(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
 
 /// `Az<name>!: alias struct! [..]` over plain C fields (a struct or a
 /// monomorphized struct alias).
+///
+/// Every field sits at its azul.h offset (`c_layout::field_offsets`):
+/// Red/System has no 16-bit or 64-bit integer and only a 32-bit `logic!`,
+/// so a `bool` is one `byte!`, an `i16`/`u16` two `byte!`s (`name`,
+/// `name_1`, little-endian), an `i64`/`u64` two `integer!`s (`name` = low
+/// half, `name_hi`) - and since those are less aligned than the C type,
+/// explicit `_pN [byte!]` fields fill the gaps C's alignment leaves and the
+/// tail up to the C size. Every emitted field is then exactly as aligned as
+/// Red/System wants it, so its own layout adds no padding.
 fn emit_fields_alias(b: &mut CodeBuilder, name: &str, fields: &[FieldDef], ir: &CodegenIR) {
     b.line(&format!("Az{}!: alias struct! [", name));
     b.indent();
     if fields.is_empty() {
-        // Red/System has no zero-field struct; give it one padding word so
-        // the alias is valid. A truly empty C struct is 0 bytes, but the Az
-        // API has no zero-sized by-value types in practice.
-        b.line("_pad [integer!]        ;; placeholder (no public fields)");
+        // Red/System has no zero-field struct; azul.h gives an empty struct
+        // a one-byte dummy member, so does this alias.
+        b.line("_pad [byte!]        ;; placeholder (no public fields)");
     }
-    for f in fields {
-        let ty = field_type_token(&f.type_name, f.ref_kind, ir);
-        b.line(&format!("{} [{}]", sanitize_ident(&f.name), ty));
+    let offsets = c_layout::field_offsets(fields, ir);
+    let total = type_layout(name, ir).map(|l| l.size);
+    let mut cur = 0usize;
+    let mut pad = 0usize;
+    let mut fill = |b: &mut CodeBuilder, cur: &mut usize, to: usize| {
+        while *cur < to {
+            b.line(&format!("_p{} [byte!]", pad));
+            pad += 1;
+            *cur += 1;
+        }
+    };
+    for (i, f) in fields.iter().enumerate() {
+        let tokens = field_tokens(&sanitize_ident(&f.name), &f.type_name, f.ref_kind, ir);
+        if let Some(off) = offsets.as_ref().map(|o| o[i]) {
+            fill(b, &mut cur, off);
+            cur = off;
+        }
+        for (field, ty) in &tokens {
+            b.line(&format!("{} [{}]", field, ty));
+        }
+        cur += member_size(&f.type_name, f.ref_kind, ir).unwrap_or(0);
+    }
+    if let (Some(total), Some(_)) = (total, offsets.as_ref()) {
+        if !fields.is_empty() {
+            fill(b, &mut cur, total);
+        }
     }
     b.dedent();
     b.line("]");
     b.blank();
+}
+
+/// The C size of one field (a pointer for every non-owned ref kind).
+fn member_size(
+    type_name: &str,
+    ref_kind: super::ir::FieldRefKind,
+    ir: &CodegenIR,
+) -> Option<usize> {
+    match ref_kind {
+        super::ir::FieldRefKind::Owned => type_layout(type_name, ir).map(|l| l.size),
+        _ => Some(8),
+    }
+}
+
+/// The C primitive a type name stands for, through simple type aliases
+/// (`GLuint` -> `u32`).
+fn primitive_of<'a>(t: &'a str, ir: &'a CodegenIR) -> &'a str {
+    let mut t = t.trim();
+    for _ in 0..8 {
+        match ir.find_type_alias(t) {
+            Some(ta) if ta.monomorphized_def.is_none() => t = ta.target.trim(),
+            _ => break,
+        }
+    }
+    t
+}
+
+/// The `name [type]` field(s) one C field becomes (see [`emit_fields_alias`]).
+fn field_tokens(
+    name: &str,
+    type_name: &str,
+    ref_kind: super::ir::FieldRefKind,
+    ir: &CodegenIR,
+) -> Vec<(String, String)> {
+    let one = |ty: &str| vec![(name.to_string(), ty.to_string())];
+    if ref_kind != super::ir::FieldRefKind::Owned {
+        return one("byte-ptr!");
+    }
+    match primitive_of(type_name, ir) {
+        "bool" | "GLboolean" => one("byte!"),
+        "i16" | "u16" => vec![
+            (name.to_string(), "byte!".to_string()),
+            (format!("{}_1", name), "byte!".to_string()),
+        ],
+        "i64" | "u64" | "GLint64" | "GLuint64" => vec![
+            (name.to_string(), "integer!".to_string()),
+            (format!("{}_hi", name), "integer!".to_string()),
+        ],
+        _ => one(&field_type_token(type_name, ref_kind, ir)),
+    }
 }
 
 /// A tagged union (a data-carrying enum or a monomorphized alias) as an
@@ -850,7 +931,10 @@ mod tests {
         let fields = alias_fields("FullWindowState");
         assert!(fields.contains(&"window_focused [byte!]"), "{fields:?}");
         let types = &reds()[..reds().find("#import [").unwrap()];
-        assert!(!types.contains("[logic!]"), "a struct field is still logic!");
+        assert!(
+            !types.contains("[logic!]"),
+            "a struct field is still logic!"
+        );
     }
 
     #[test]
@@ -858,14 +942,18 @@ mod tests {
         let s = ir()
             .structs
             .iter()
-            .find(|s| {
-                s.generic_params.is_empty() && s.fields.iter().any(|f| f.type_name == "u64")
-            })
+            .find(|s| s.generic_params.is_empty() && s.fields.iter().any(|f| f.type_name == "u64"))
             .expect("a struct with a u64 field");
         let f = s.fields.iter().find(|f| f.type_name == "u64").unwrap();
         let fields = alias_fields(&s.name);
-        assert!(fields.contains(&format!("{} [integer!]", f.name).as_str()), "{fields:?}");
-        assert!(fields.contains(&format!("{}_hi [integer!]", f.name).as_str()), "{fields:?}");
+        assert!(
+            fields.contains(&format!("{} [integer!]", f.name).as_str()),
+            "{fields:?}"
+        );
+        assert!(
+            fields.contains(&format!("{}_hi [integer!]", f.name).as_str()),
+            "{fields:?}"
+        );
     }
 
     #[test]

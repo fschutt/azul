@@ -15,11 +15,16 @@ first per language; commit after every language.
   view], (<class>-<field>-copy obj) [_clone], (set-<class>-<field>! obj v) [_delete at
   (ptr-add obj <azul.h offset>) then store]. Example uses set-full-window-state-title!.
 
+- Red (lang_red): RED ac07a3981, fix (this commit). Struct fields: bool -> byte!, i16/u16 -> two
+  byte! (name, name_1), i64/u64 -> two integer! (name, name_hi), explicit _pN [byte!] padding to
+  the azul.h offsets and size (c_layout::field_offsets / type_layout). Argument/return mapping
+  unchanged (bool args/returns are still logic!).
+
 ## IN PROGRESS
-- Red (lang_red).
+- Smalltalk (lang_smalltalk).
 
 ## NEXT
-- Smalltalk, COBOL, ALGOL 68.
+- COBOL, ALGOL 68.
 
 ## Open questions
 (none yet)
