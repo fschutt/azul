@@ -1027,10 +1027,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // element reports a min-content SMALLER than its true unbreakable width and
         // the flex/shrink-to-fit algorithm clips it.
         let mut constraints = UnifiedConstraints::default();
-        if let Some(dom_id) = tree
+        // An anonymous block has no DOM node: it inherits white-space and
+        // text-indent from its enclosing box, as `fc::layout_ifc` lays it
+        // out. Reading only the root's own node measured it as
+        // white-space: normal with no indent.
+        let ifc_root_is_anonymous = tree
             .get(LayoutNodeId::new(node_index))
-            .and_then(|n| n.dom_node_id)
-        {
+            .is_some_and(|n| n.dom_node_id.is_none());
+        if let Some(dom_id) = crate::solver3::fc::ifc_root_style_dom_id(tree, node_index) {
             use azul_css::props::style::text::StyleWhiteSpace;
 
             use crate::solver3::getters::{get_white_space_property, MultiValue};
@@ -1059,7 +1063,20 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 self.ctx.viewport_size,
                 true,
             );
-            constraints.text_indent = indent;
+            // An anonymous block indents only when it holds the container's
+            // first formatted line - the gate `fc::layout_ifc` uses, or the
+            // box is sized for an indent its layout never applies.
+            constraints.text_indent = if ifc_root_is_anonymous
+                && !each_line
+                && !crate::solver3::fc::anonymous_block_holds_the_first_line(
+                    tree,
+                    self.ctx.styled_dom,
+                    node_index,
+                ) {
+                0.0
+            } else {
+                indent
+            };
             constraints.text_indent_each_line = each_line;
             constraints.text_indent_hanging = hanging;
         }

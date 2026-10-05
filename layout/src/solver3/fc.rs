@@ -4158,26 +4158,8 @@ fn layout_ifc<T: ParsedFontTrait>(
     // only the INHERITED properties are its own (§9.2.1.1): it has no
     // columns of the element's (see translate_to_text3_constraints).
     let ifc_root_is_anonymous = node.dom_node_id.is_none();
-    let ifc_root_dom_id = if let Some(id) = node.dom_node_id {
-        id
-    } else {
-        // Anonymous box - get DOM ID from parent or first child with DOM ID
-        let parent_dom_id = node
-            .parent
-            .and_then(|p| tree.get(LayoutNodeId::new(p)))
-            .and_then(|n| n.dom_node_id);
-
-        if let Some(id) = parent_dom_id {
-            id
-        } else {
-            // Try to find DOM ID from first child
-            tree.children(node_index)
-                .iter()
-                .filter_map(|&child_idx| tree.get(LayoutNodeId::new(child_idx)))
-                .find_map(|n| n.dom_node_id)
-                .ok_or(LayoutError::InvalidTree)?
-        }
-    };
+    let ifc_root_dom_id =
+        ifc_root_style_dom_id(tree, node_index).ok_or(LayoutError::InvalidTree)?;
 
     debug_ifc_layout!(ctx, "ifc_root_dom_id={:?}", ifc_root_dom_id);
 
@@ -4379,12 +4361,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     // it was (TEXT7's finding). `each-line` keeps its own rule.
     if ifc_root_is_anonymous
         && !text3_constraints.text_indent_each_line
-        && tree
-            .get(LayoutNodeId::new(node_index))
-            .and_then(|n| n.parent)
-            .is_some_and(|parent| {
-                first_in_flow_child(tree, ctx.styled_dom, parent) != Some(node_index)
-            })
+        && !anonymous_block_holds_the_first_line(tree, ctx.styled_dom, node_index)
     {
         text3_constraints.text_indent = 0.0;
     }
@@ -12189,6 +12166,43 @@ fn first_in_flow_child(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) 
         .iter()
         .copied()
         .find(|&child| is_in_flow_box(tree, styled_dom, child))
+}
+
+/// The DOM node whose style an inline formatting context rooted at
+/// `ifc_root` resolves: its own, or - for an anonymous block, which has
+/// none and inherits from its enclosing box (CSS 2.2 s9.2.1.1) - its
+/// parent's, else its first child's that has one. The one rule for the
+/// IFC layout (`layout_ifc`) and its intrinsic sizes
+/// (`sizing::calculate_ifc_root_intrinsic_sizes`).
+pub(crate) fn ifc_root_style_dom_id(tree: &LayoutTree, ifc_root: usize) -> Option<NodeId> {
+    let node = tree.get(LayoutNodeId::new(ifc_root))?;
+    node.dom_node_id
+        .or_else(|| {
+            node.parent
+                .and_then(|p| tree.get(LayoutNodeId::new(p)))
+                .and_then(|n| n.dom_node_id)
+        })
+        .or_else(|| {
+            tree.children(ifc_root)
+                .iter()
+                .filter_map(|&child| tree.get(LayoutNodeId::new(child)))
+                .find_map(|n| n.dom_node_id)
+        })
+}
+
+/// Whether the anonymous block `index` holds its container's FIRST
+/// formatted line - the line `text-indent` indents (CSS 2.1 s16.1, CSS Text 3
+/// s8.1): only when it is the container's first in-flow box. The text after
+/// a nested block (`<div>first<div>..</div>after</div>`) is no first line
+/// (Chrome). The one gate for the IFC layout and its intrinsic sizes.
+pub(crate) fn anonymous_block_holds_the_first_line(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    index: usize,
+) -> bool {
+    tree.get(LayoutNodeId::new(index))
+        .and_then(|n| n.parent)
+        .is_none_or(|parent| first_in_flow_child(tree, styled_dom, parent) == Some(index))
 }
 
 /// The inline formatting context holding a list item's FIRST LINE BOX, the
