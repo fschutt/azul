@@ -47,7 +47,7 @@ use azul_css::{
 
 use crate::widgets::{
     chart::{ChartColor, OptionChartColor},
-    themes::{OptionUiTheme, UiTheme},
+    themes::{decl, OptionUiTheme, UiTheme},
 };
 
 // ---- classes ----
@@ -633,16 +633,6 @@ fn wash(color: ChartColor) -> Vec<CssPropertyWithConditions> {
 
 // ==== the DOM ====
 
-/// One class list.
-fn class_list(names: &[&'static str]) -> IdOrClassVec {
-    IdOrClassVec::from_vec(
-        names
-            .iter()
-            .map(|n| IdOrClass::Class(AzString::from_const_str(n)))
-            .collect(),
-    )
-}
-
 /// One arc of the dial: a node over the dial with the ring segment between
 /// two fractions of the range as its path.
 fn arc_node(
@@ -666,7 +656,7 @@ fn arc_node(
         angle_at(kind, span.1),
     );
     Dom::create_div()
-        .with_ids_and_classes(class_list(&[class]))
+        .with_ids_and_classes(decl::classes(&[class]))
         .with_css_props(style)
         .with_svg_data(SvgNodeData::Path(SvgMultiPolygon::create(
             SvgPathVec::from_vec(alloc::vec![path]),
@@ -676,7 +666,7 @@ fn arc_node(
 /// A widget-owned text line with `class` and `style`.
 fn text_line(text: AzString, class: &'static str, style: CssPropertyWithConditionsVec) -> Dom {
     crate::widgets::widget_p_with_text(text)
-        .with_ids_and_classes(class_list(&[class]))
+        .with_ids_and_classes(decl::classes(&[class]))
         .with_css_props(style)
 }
 
@@ -841,7 +831,7 @@ impl Gauge {
         );
 
         let dial = Dom::create_div()
-            .with_ids_and_classes(class_list(&[GAUGE_DIAL_CLASS]))
+            .with_ids_and_classes(decl::classes(&[GAUGE_DIAL_CLASS]))
             .with_css_props(CssPropertyWithConditionsVec::from_vec(alloc::vec![
                 decl::position(LayoutPosition::Relative),
                 decl::px_width(size),
@@ -905,7 +895,7 @@ impl Gauge {
                 if let Some((f0, f1)) = band_span(band, self.min, self.max) {
                     bar_kids.push(
                         Dom::create_div()
-                            .with_ids_and_classes(class_list(&[GAUGE_BAND_CLASS]))
+                            .with_ids_and_classes(decl::classes(&[GAUGE_BAND_CLASS]))
                             .with_css_props(part_of(skins, |s| {
                                 let mut v = placed(f0 * width, (f1 - f0) * width);
                                 v.extend(wash(s.band_color(band)));
@@ -919,7 +909,7 @@ impl Gauge {
         if f > 0.0 {
             bar_kids.push(
                 Dom::create_div()
-                    .with_ids_and_classes(class_list(&[GAUGE_VALUE_CLASS]))
+                    .with_ids_and_classes(decl::classes(&[GAUGE_VALUE_CLASS]))
                     .with_css_props(part_of(skins, |s| {
                         let mut v = placed(0.0, f * width);
                         v.extend(decl::radius(corner));
@@ -929,7 +919,7 @@ impl Gauge {
             );
         }
         let bar = Dom::create_div()
-            .with_ids_and_classes(class_list(&[GAUGE_BAR_CLASS, GAUGE_TRACK_CLASS]))
+            .with_ids_and_classes(decl::classes(&[GAUGE_BAR_CLASS, GAUGE_TRACK_CLASS]))
             .with_css_props(part_of(skins, |s| {
                 let mut v = alloc::vec![
                     decl::position(LayoutPosition::Relative),

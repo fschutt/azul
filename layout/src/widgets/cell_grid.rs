@@ -3171,16 +3171,16 @@ extern "C" fn on_grid_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) fn typed(view: &CellGridView, text: &str) -> CellGridEvent {
     if view.is_editing() {
-        let mut chars: Vec<char> = view.edit_text.as_str().chars().collect();
-        let caret = (view.edit_cursor as usize).min(chars.len());
-        let insert: Vec<char> = text.chars().collect();
-        let n = insert.len();
-        for (i, ch) in insert.into_iter().enumerate() {
-            chars.insert(caret + i, ch);
-        }
+        // The one-line editor's insert, shared with the data table's cell
+        // editor.
+        let (edited, caret) = crate::widgets::data_table::insert_at(
+            view.edit_text.as_str(),
+            view.edit_cursor as usize,
+            text,
+        );
         let mut next = view.clone();
-        next.edit_text = AzString::from(chars.iter().collect::<String>());
-        next.edit_cursor = (caret + n) as u32;
+        next.edit_text = AzString::from(edited);
+        next.edit_cursor = caret as u32;
         CellGridEvent::create(CellGridEventKind::EditText, next)
     } else {
         CellGridEvent::create(

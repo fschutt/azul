@@ -5689,9 +5689,6 @@ pub(crate) fn wizard_layout_look() -> crate::widgets::wizard_layout::WizardLayou
         side_step,
         side_step_current,
         reason,
-        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
-            StyleOpacity::const_new(50),
-        ))],
         marker: None,
     }
 }
@@ -5859,9 +5856,6 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
         icon_question,
         buttons,
         button: decl::margin(0, 0, 0, 8).to_vec(),
-        held: vec![CssPropertyWithConditions::simple(CssProperty::const_opacity(
-            StyleOpacity::const_new(50),
-        ))],
         notice,
         category_icon,
         marker: None,
@@ -7025,4 +7019,24 @@ pub(crate) fn code_view_look() -> crate::widgets::code_view::CodeViewLook {
 #[must_use]
 pub(crate) fn code_view(v: crate::widgets::code_view::CodeViewResolved) -> Dom {
     crate::widgets::code_view::build(v, &code_view_look())
+}
+
+// ==== icon_grid (item extras) ====
+//
+// The OPTIONAL extras of a flat icon-grid item (user decision D3,
+// 2026-10-05): its extra lines under the label in Explorer's secondary ink
+// one size down (the dialogs' hint ink), and the placeholder tile's corners
+// at the item's own radius - the item gives the tile its colour.
+
+/// Flat's skin for an icon-grid item's extras.
+#[must_use]
+pub(crate) fn icon_grid_extras_look() -> crate::widgets::icon_grid::IconGridExtrasLook {
+    use super::decl;
+
+    let mut line = vec![decl::font_size(11)];
+    line.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    crate::widgets::icon_grid::IconGridExtrasLook {
+        line,
+        placeholder: decl::radius(2).to_vec(),
+    }
 }

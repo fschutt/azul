@@ -792,7 +792,30 @@ pub(crate) extern "C" fn show_disabled_reason(mut data: RefAny, mut info: Callba
     Update::DoNothing
 }
 
-/// The pointer left a disabled button.
+/// A disabled button took the keyboard focus: say why, under the button (a
+/// keyboard user's pointer may be anywhere, so the reason does not follow
+/// it).
+pub(crate) extern "C" fn show_disabled_reason_on_focus(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
+    let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
+    if let Some(reason) = reason {
+        match info.get_hit_node_rect() {
+            Some(rect) => info.show_tooltip_at(
+                reason,
+                azul_core::geom::LogicalPosition::new(
+                    rect.origin.x,
+                    rect.origin.y + rect.size.height,
+                ),
+            ),
+            None => info.show_tooltip(reason),
+        }
+    }
+    Update::DoNothing
+}
+
+/// The pointer (or the keyboard focus) left a disabled button.
 pub(crate) extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
     info.hide_tooltip();
     Update::DoNothing
@@ -834,11 +857,13 @@ fn add_accessibility_state(dom: &mut Dom, state: azul_core::a11y::AccessibilityS
 
 /// Marks a built button disabled: [`BUTTON_DISABLED_CLASS`], the
 /// unavailable state with `reason` as its description, and the callbacks
-/// that show the reason on hover and click.
+/// that show the reason on hover, on click and on keyboard focus (it keeps
+/// its Tab stop, and a keyboard user never hovers).
 pub(crate) fn mark_disabled(dom: &mut Dom, reason: AzString) {
     use azul_core::{
         callbacks::CoreCallback,
         dom::{EventFilter, HoverEventFilter},
+        events::FocusEventFilter,
         refany::OptionRefAny,
     };
     dom.root.add_class(AzString::from_const_str(BUTTON_DISABLED_CLASS));
@@ -849,12 +874,17 @@ pub(crate) fn mark_disabled(dom: &mut Dom, reason: AzString) {
     }
     let mut callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
     for (event, cb) in [
-        (HoverEventFilter::MouseEnter, show_disabled_reason as usize),
-        (HoverEventFilter::Click, show_disabled_reason as usize),
-        (HoverEventFilter::MouseLeave, hide_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::MouseEnter), show_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::Click), show_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::MouseLeave), hide_disabled_reason as usize),
+        (
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+            show_disabled_reason_on_focus as usize,
+        ),
+        (EventFilter::Focus(FocusEventFilter::FocusLost), hide_disabled_reason as usize),
     ] {
         callbacks.push(CoreCallbackData {
-            event: EventFilter::Hover(event),
+            event,
             callback: CoreCallback {
                 cb,
                 ctx: OptionRefAny::None,
@@ -2503,6 +2533,56 @@ mod disabled_and_toggled_tests {
         }
         let enabled = Button::create(AzString::from("Delete")).with_disabled(AzString::from(""));
         assert!(!enabled.is_disabled(), "an empty reason enables it");
+    }
+
+    /// A keyboard user never hovers: a disabled button that takes the
+    /// focus (it keeps its Tab stop) shows its reason as the pointer's
+    /// hover does, and hides it when the focus leaves (user decision D1,
+    /// 2026-10-05: the reason on hover AND on keyboard focus).
+    #[test]
+    fn a_disabled_button_shows_its_reason_on_keyboard_focus_too() {
+        use azul_core::{
+            dom::{DomId, DomNodeId, NodeId},
+            events::FocusEventFilter,
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+
+        use crate::{callbacks::CallbackChange, widgets::roving::test_support as rv};
+
+        let reason = "Select a file to delete";
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = Button::create(AzString::from("Delete"))
+                .with_disabled(AzString::from(reason))
+                .with_theme(theme)
+                .dom();
+            let events: Vec<EventFilter> =
+                dom.root.get_callbacks().as_ref().iter().map(|cb| cb.event).collect();
+            for wanted in [
+                EventFilter::Focus(FocusEventFilter::FocusReceived),
+                EventFilter::Focus(FocusEventFilter::FocusLost),
+            ] {
+                assert!(events.contains(&wanted), "{theme:?}: {wanted:?} on a disabled button");
+            }
+            let styled = StyledDom::create_from_dom(dom);
+            let root = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+            };
+            let (_, focused) = rv::fire(&styled, root, EventFilter::Focus(FocusEventFilter::FocusReceived))
+                .expect("the focus reaches a disabled button");
+            assert!(
+                focused
+                    .iter()
+                    .any(|c| matches!(c, CallbackChange::ShowTooltip { text, .. } if text.as_str() == reason)),
+                "{theme:?}: the focus shows the reason: {focused:?}"
+            );
+            let (_, left) = rv::fire(&styled, root, EventFilter::Focus(FocusEventFilter::FocusLost))
+                .expect("the focus leaves a disabled button");
+            assert!(
+                left.iter().any(|c| matches!(c, CallbackChange::HideTooltip)),
+                "{theme:?}: the reason goes with the focus: {left:?}"
+            );
+        }
     }
 
     /// A toggle button (Bold, a calculator mode key) is announced pressed or

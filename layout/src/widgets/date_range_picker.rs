@@ -686,6 +686,9 @@ fn day_face(
     today: DatePickerState,
     faces: &crate::widgets::date_picker::CellFaces,
 ) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
+    // A resting mark goes on with the date picker's one rule: the face's
+    // states stay on top of it (`date_picker::marked`).
+    use crate::widgets::date_picker::marked;
     let face = match shown {
         Some(r) if date == r.start || date == r.end => faces.selected.clone(),
         Some(r) if r.contains(date) => marked(&faces.other, &faces.in_range),
@@ -698,33 +701,6 @@ fn day_face(
     }
 }
 
-/// `mark` (a RESTING part: the range's wash, today's ring) on `face`, and
-/// the face's state declarations (`:hover`, `:active`, `:focus`) after it
-/// again. The faces are merged parts (both themes' blocks when the picker
-/// follows the app theme), so they stack with `stack_parts`, never by
-/// appending. A resting declaration stacked after a state one wins in that
-/// state too (the last match wins): the wash hid the hover face, and
-/// today's ring - a shadow in the slot the focus halo uses (`decl::shadow`)
-/// - hid the focus halo, so a focused today showed no focus. Re-stacked,
-/// the state wins in its state, as a CSS `:focus { box-shadow }` replaces
-/// the resting one.
-fn marked(
-    face: &azul_css::dynamic_selector::CssPropertyWithConditionsVec,
-    mark: &azul_css::dynamic_selector::CssPropertyWithConditionsVec,
-) -> azul_css::dynamic_selector::CssPropertyWithConditionsVec {
-    use crate::widgets::themes::theme_blocks::stack_parts;
-    let states: alloc::vec::Vec<azul_css::dynamic_selector::CssPropertyWithConditions> = face
-        .as_ref()
-        .iter()
-        .filter(|d| !d.pseudo_state_conditions().is_empty())
-        .cloned()
-        .collect();
-    stack_parts(
-        &stack_parts(face, mark),
-        &azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(states),
-    )
-}
-
 /// `n` px wide, never shrinking: the spacer opposite a header's one arrow.
 fn spacer(px: f32) -> azul_core::dom::Dom {
     use crate::widgets::themes::decl;
@@ -734,13 +710,6 @@ fn spacer(px: f32) -> azul_core::dom::Dom {
             decl::no_shrink(),
         ]),
     )
-}
-
-/// A class list of one.
-fn one_class(name: &'static str) -> azul_core::dom::IdOrClassVec {
-    azul_core::dom::IdOrClassVec::from_vec(alloc::vec![azul_core::dom::IdOrClass::Class(
-        AzString::from_const_str(name)
-    )])
 }
 
 impl DateRangePicker {
@@ -909,7 +878,7 @@ impl DateRangePicker {
                     refany: data.clone(),
                 };
                 crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
-                    .with_ids_and_classes(one_class(DATE_RANGE_DAY_CLASS))
+                    .with_ids_and_classes(decl::classes(&[DATE_RANGE_DAY_CLASS]))
                     .with_css_props(day_face(date, shown, today, &faces))
                     .with_callbacks(
                         alloc::vec![
@@ -958,13 +927,13 @@ impl DateRangePicker {
             );
         }
         let months_row = Dom::create_div()
-            .with_ids_and_classes(one_class(DATE_RANGE_MONTHS_CLASS))
+            .with_ids_and_classes(decl::classes(&[DATE_RANGE_MONTHS_CLASS]))
             .with_css_props(CssPropertyWithConditionsVec::from_vec(flex_row(12)))
             .with_children(months.into());
 
         // ---- the summary: the range in words, a live region ----
         let summary = crate::widgets::widget_p_with_text(AzString::from(summary_text(&view, None)))
-            .with_ids_and_classes(one_class(DATE_RANGE_SUMMARY_CLASS))
+            .with_ids_and_classes(decl::classes(&[DATE_RANGE_SUMMARY_CLASS]))
             .with_css_props(part_of(skins, |s| s.summary.clone()))
             .with_accessibility_info(AccessibilityInfo {
                 role: AccessibilityRole::StaticText,
@@ -1000,7 +969,7 @@ impl DateRangePicker {
                         shared: shared.clone(),
                     });
                     crate::widgets::widget_p_with_text(AzString::from_const_str(preset.label()))
-                        .with_ids_and_classes(one_class(DATE_RANGE_PRESET_CLASS))
+                        .with_ids_and_classes(decl::classes(&[DATE_RANGE_PRESET_CLASS]))
                         .with_css_props(part_of(skins, |s| {
                             let mut v = alloc::vec![decl::simple(
                                 azul_css::props::property::CssProperty::const_cursor(
@@ -1043,7 +1012,7 @@ impl DateRangePicker {
                 .collect();
             row_kids.push(
                 Dom::create_div()
-                    .with_ids_and_classes(one_class(DATE_RANGE_PRESETS_CLASS))
+                    .with_ids_and_classes(decl::classes(&[DATE_RANGE_PRESETS_CLASS]))
                     .with_css_props(part_of(skins, |s| {
                         let mut v = flex_column(2);
                         v.extend(s.presets.iter().cloned());

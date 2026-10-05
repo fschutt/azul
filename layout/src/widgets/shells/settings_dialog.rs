@@ -23,7 +23,7 @@
 //! (macOS) a change takes effect at once and there are no buttons; with
 //! [`ShellSettingsApplyMode::ApplyButton`] (Windows) a changed setting is
 //! marked, and OK / Cancel / Apply commit or drop the changes (Apply is
-//! inert while nothing changed). "Restore defaults" resets the active
+//! disabled while nothing changed, and says so). "Restore defaults" resets the active
 //! category. When a setting that requires a restart took effect, the
 //! button row says "Restart to apply some changes."
 //!
@@ -1322,9 +1322,12 @@ fn row(
         ]))
 }
 
+/// Why Apply waits: nothing changed yet.
+const APPLY_HELD_REASON: &str = "There are no changes to apply.";
+
 /// The button row: "Restore defaults", the restart notice (or a spacer),
-/// then - with Apply buttons - OK, Cancel and Apply (inert while nothing
-/// changed).
+/// then - with Apply buttons - OK, Cancel and Apply (disabled while nothing
+/// changed, saying why).
 fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKitLook) -> Dom {
     let data = RefAny::new(DialogRef {
         on_event: dialog.on_event.clone(),
@@ -1337,12 +1340,17 @@ fn buttons(dialog: &ShellSettingsDialog, inner: Option<UiTheme>, look: &DialogKi
             dialog_kit::row_button(
                 label.clone(),
                 kind,
-                click.map(|cb| (data.clone(), cb)),
-                None,
+                match click {
+                    Some(cb) => dialog_kit::RowAction::Click(data.clone(), cb),
+                    // Only Apply ever waits.
+                    None => dialog_kit::RowAction::Disabled(AzString::from_const_str(
+                        APPLY_HELD_REASON,
+                    )),
+                },
                 inner,
-                (dialog_kit::BUTTON_BOX_CLASS, dialog_kit::HELD_CLASS),
+                dialog_kit::BUTTON_BOX_CLASS,
                 dialog_kit::BUTTON_BOX_BASE,
-                (&look.button, &look.held),
+                &look.button,
             )
         };
     use crate::widgets::button::{ButtonOnClickCallbackType as Cb, ButtonType};
@@ -1772,7 +1780,7 @@ mod settings_dialog_build_tests {
 
     use super::{settings_dialog_fixtures::dialog, *};
     use crate::widgets::{
-        dialog_kit::{HELD_CLASS, MARK_CLASS},
+        dialog_kit::MARK_CLASS,
         path_input::PATH_INPUT_CLASS,
         roving::test_support as rv,
         shells::settings_layout::{
@@ -1959,10 +1967,17 @@ mod settings_dialog_build_tests {
             texts(footer),
             vec!["Restore defaults", "OK", "Cancel", "Apply"]
         );
-        assert_eq!(
-            tc::find_all(footer, HELD_CLASS).len(),
-            1,
-            "Apply is inert while nothing changed"
+        // User decision D1 (2026-10-05): Apply is the Button's own disabled
+        // state while nothing changed - it keeps its Tab stop and says why.
+        let held = tc::find_all(footer, crate::widgets::button::BUTTON_DISABLED_CLASS);
+        assert_eq!(held.len(), 1, "Apply waits while nothing changed");
+        assert!(
+            held[0]
+                .root
+                .get_accessibility_info()
+                .and_then(|a| a.description.as_ref().map(|d| !d.as_str().is_empty()))
+                .unwrap_or(false),
+            "a waiting Apply says why"
         );
         assert!(tc::find(&fresh, SETTING_MODIFIED_CLASS).is_none());
 
@@ -1979,7 +1994,10 @@ mod settings_dialog_build_tests {
         );
         assert!(tc::find(rows[1], SETTING_MODIFIED_CLASS).is_none());
         let footer = tc::find(&dom, FOOTER_CLASS).expect("the button row");
-        assert!(tc::find_all(footer, HELD_CLASS).is_empty(), "Apply goes");
+        assert!(
+            tc::find_all(footer, crate::widgets::button::BUTTON_DISABLED_CLASS).is_empty(),
+            "Apply goes"
+        );
     }
 
     #[test]
