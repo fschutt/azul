@@ -9,9 +9,10 @@
 //! writes one asset's depreciation schedule.
 //!
 //! The import reads what spreadsheets and other asset registers write
-//! ([`parse`]: RFC 4180 through the `csv` crate, a leading byte-order mark
-//! dropped, the separator - comma, semicolon or tab - the one the header
-//! line holds most of). Each column is MAPPED to a field: the mapping starts
+//! ([`parse`]: the apps' one CSV reader, `azul_appkit::csv`: RFC 4180
+//! through the `csv` crate, a leading byte-order mark dropped, the separator
+//! (comma, semicolon or tab) the one the header line holds most of). Each
+//! column is MAPPED to a field: the mapping starts
 //! from the header's name ([`guess`]: the ERP names, English labels, German
 //! headers like `Inventarnummer` / `Anschaffungskosten` / `Nutzungsdauer`)
 //! and the import screen lets the user change it. [`import_assets`] turns
@@ -396,43 +397,14 @@ impl Table {
     }
 }
 
-/// Reads a CSV text; `Err` says why it is no table.
+/// Reads a CSV text with the apps' one reader ([`azul_appkit::csv::read_table`]); `Err` says
+/// why it is no table.
 pub fn parse(text: &str) -> Result<Table, String> {
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    if text.trim().is_empty() {
-        return Err("The file is empty.".to_string());
-    }
-    // The separator the header line holds most of (a comma on a tie).
-    let first = text.lines().next().unwrap_or("");
-    let count = |d: u8| first.bytes().filter(|b| *b == d).count();
-    let mut delimiter = b',';
-    for d in [b';', b'\t'] {
-        if count(d) > count(delimiter) {
-            delimiter = d;
-        }
-    }
-    let mut reader = csv::ReaderBuilder::new()
-        .delimiter(delimiter)
-        .has_headers(true)
-        .flexible(true)
-        .from_reader(text.as_bytes());
-    let headers: Vec<String> = reader
-        .headers()
-        .map_err(|e| format!("The header row could not be read: {e}"))?
-        .iter()
-        .map(|h| h.trim().to_string())
-        .collect();
-    if headers.iter().all(String::is_empty) {
-        return Err("The file has no header row.".to_string());
-    }
-    let mut rows = Vec::new();
-    for (i, record) in reader.records().enumerate() {
-        let record = record.map_err(|e| format!("Row {} could not be read: {e}", i + 2))?;
-        let mut row: Vec<String> = record.iter().map(str::to_string).collect();
-        row.resize(headers.len(), String::new());
-        rows.push(row);
-    }
-    Ok(Table { headers, rows })
+    let table = azul_appkit::csv::read_table(text)?;
+    Ok(Table {
+        headers: table.headers,
+        rows: table.rows,
+    })
 }
 
 /// A CSV writer with RFC 4180 line ends.
