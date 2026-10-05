@@ -1101,6 +1101,14 @@ fn entry_in(info: &CallbackInfo, field: DomNodeId) -> Option<DomNodeId> {
     roving::items_of(info, field, ENTRY_CLASS).first().copied()
 }
 
+/// The entry's invalid look - the text field's own `:user-invalid` ring
+/// ([`crate::widgets::text_input::paint_invalid_ring`]): a refused token
+/// rings the entry, where its text stays to be fixed; whatever the user does
+/// in the entry next (an edit, an accepted token) takes the ring away.
+fn ring_entry(info: &mut CallbackInfo, entry: DomNodeId, refused: bool) {
+    crate::widgets::text_input::paint_invalid_ring(info, entry, refused);
+}
+
 /// Text typed into the entry: a separator in it commits what is before it
 /// (a pasted list: all of it); otherwise the app hears the new text.
 extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: TextInputState) -> OnTextInputReturn {
@@ -1119,6 +1127,9 @@ extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: Tex
             }
             None => return keep(Update::DoNothing),
         };
+        // The user is fixing a refused token (or typing a new one).
+        let entry = info.get_hit_node();
+        ring_entry(&mut info, entry, false);
         let update = emit(&mut data, info, TokenInputEvent::create(TokenInputEventKind::Text, next));
         return keep(update);
     }
@@ -1135,6 +1146,7 @@ extern "C" fn on_entry_text(mut data: RefAny, mut info: CallbackInfo, state: Tex
         return keep(Update::DoNothing);
     };
     TextInput::set_text_in(&mut info, container, event.state.text.clone());
+    ring_entry(&mut info, container, event.kind == TokenInputEventKind::Refuse);
     let update = emit(&mut data, info, event);
     // The separator never reaches the line: the line is what is left typed.
     OnTextInputReturn {
@@ -1171,16 +1183,24 @@ extern "C" fn on_entry_key(mut data: RefAny, mut info: CallbackInfo, state: Text
         EntryKey::CommitText => {
             let (mut parts, rest) = split_tokens(&text);
             parts.push(rest);
-            commit(&mut data, info, parts, String::new())
+            let event = commit(&mut data, info, parts, String::new());
+            if let Some(e) = &event {
+                ring_entry(&mut info, container, e.kind == TokenInputEventKind::Refuse);
+            }
+            event
         }
         EntryKey::CommitSuggestion(position) => {
             let pick = data
                 .downcast_ref::<TokenShared>()
                 .and_then(|s| s.shown.get(position).map(|t| String::from(t.as_str())));
-            match pick {
+            let event = match pick {
                 Some(pick) => commit(&mut data, info, alloc::vec![pick], String::new()),
                 None => None,
+            };
+            if let Some(e) = &event {
+                ring_entry(&mut info, container, e.kind == TokenInputEventKind::Refuse);
             }
+            event
         }
         EntryKey::RemoveLast => remove_event(&mut data, tokens.saturating_sub(1)),
         EntryKey::Navigate(to) => data.downcast_ref::<TokenShared>().map(|s| {
@@ -1341,7 +1361,12 @@ extern "C" fn on_option_click(mut data: RefAny, mut info: CallbackInfo) -> Updat
         TextInput::set_text_in(&mut info, entry, AzString::from_const_str(""));
     }
     match commit(&mut shared, info, alloc::vec![pick], String::new()) {
-        Some(event) => emit(&mut shared, info, event),
+        Some(event) => {
+            if let Some(entry) = entry {
+                ring_entry(&mut info, entry, event.kind == TokenInputEventKind::Refuse);
+            }
+            emit(&mut shared, info, event)
+        }
         None => Update::DoNothing,
     }
 }

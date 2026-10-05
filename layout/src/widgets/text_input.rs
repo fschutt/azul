@@ -1714,7 +1714,7 @@ fn sync_live_looks(
 /// A value the APP hands in invalid is reported in the state (and FormData)
 /// at once but not painted until the user edits it or a form submit asks
 /// ([`mark_user_invalid`]) - the reason browsers added `:user-invalid`.
-fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bool) {
+pub(crate) fn paint_invalid_ring(info: &mut CallbackInfo, container: DomNodeId, invalid: bool) {
     let Some(node_id) = container.node.into_crate_internal() else {
         return;
     };
