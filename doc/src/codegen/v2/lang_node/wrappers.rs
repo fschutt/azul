@@ -43,6 +43,12 @@
 //!   (`body.addChild(a).addChild(b)`).
 //! - A by-value return whose type has a wrapper class is wrapped (`new Dom(_ret)`); the caller owns
 //!   it. Option/Result returns are unwrapped inline (see `emit_node_option_result_body`).
+//! - Fields ([`emit_field_accessors`]): a scalar reads/writes in place, a string decodes on read,
+//!   a struct / union reads as a VIEW (`_fieldView`) that writes through to the parent, so
+//!   `opts.windowState.title = 'x'` changes `opts`. Every non-scalar write (setter or
+//!   `with(opts)`) goes through `_setField`: the field's old value is released with its
+//!   `_delete`, then the new value is moved in (wrapper consumed). A view moved into a call by
+//!   value hands over a deep copy (`_moveArg`), never the parent's bytes.
 //!
 //! ## FinalizationRegistry caveat
 //!
@@ -63,15 +69,17 @@ use super::{
     super::{
         generator::CodeBuilder,
         ir::{
-            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionArg, FunctionDef,
-            FunctionKind, MonomorphizedKind, MonomorphizedTypeDef, StructDef, TypeAliasDef,
-            TypeCategory,
+            ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, FunctionArg,
+            FunctionDef, FunctionKind, MonomorphizedKind, MonomorphizedTypeDef, StructDef,
+            TypeAliasDef, TypeCategory,
         },
         managed_host_invoker::{
-            layout_callback_factory_info, smart_callback_setter_info, LayoutCallbackFactoryInfo,
+            is_callback_wrapper, layout_callback_factory_info, smart_callback_setter_info,
+            LayoutCallbackFactoryInfo,
         },
     },
-    ffi_type_name, is_refany_type, js_arg_name, js_method_name, sanitize_export_name,
+    ffi_type_name, is_refany_type, js_arg_name, js_method_name, map_type_to_koffi,
+    sanitize_export_name,
     sanitize_js_identifier, string_struct,
 };
 
@@ -112,10 +120,14 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     // the now-transferred pointers — a double free. Calling this with a
     // non-wrapper value (primitive, plain koffi struct value, undefined)
     // is a no-op.
+    // A field VIEW (see `_fieldView`) owns nothing: what crossed was a
+    // deep copy (`_moveArg`), so the view stays valid and is left alone.
     b.line("// Mark a wrapper instance as moved into the C side: its finalizer must");
-    b.line("// never run on the transferred bytes. No-op for non-wrapper values.");
+    b.line("// never run on the transferred bytes. No-op for non-wrapper values and");
+    b.line("// for field views (what moved was a deep copy, see `_moveArg`).");
     b.line("function _consume(val) {");
     b.indent();
+    b.line("if (val && typeof val === 'object' && val._view === true) return;");
     b.line("if (val && typeof val === 'object' && val.constructor &&");
     b.indent();
     b.line("typeof val.constructor._registry !== 'undefined') {");
@@ -128,6 +140,53 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.dedent();
     b.line("}");
     b.blank();
+
+    // The value a by-value (moving) parameter receives. An owned wrapper
+    // hands over its own bytes (the caller then `_consume`s it). A field
+    // view's bytes belong to the parent struct, so moving them would leave
+    // the parent holding freed pointers (double free): it hands over a
+    // deep copy instead, or refuses if the type cannot be deep-copied.
+    b.raw(
+        r#"// The value a by-value (moving) parameter receives: an owned wrapper's own
+// bytes (the caller `_consume`s it afterwards), a DEEP COPY of a field view
+// (its bytes stay with the parent struct), any other value unchanged.
+function _moveArg(v) {
+    if (v && typeof v === 'object' && v._ptr !== undefined) {
+        if (v._view === true) {
+            // A type without `_delete` owns no heap: its bytes are a plain copy.
+            if (typeof v.constructor._registry === 'undefined') return v._ptr;
+            if (typeof v.constructor._cloneRaw !== 'function') {
+                throw new TypeError(`azul: ${v.constructor.name} cannot be copied out of the struct field it views; pass an owned value`);
+            }
+            return v.constructor._cloneRaw(v._ptr);
+        }
+        return v._ptr;
+    }
+    return v;
+}
+
+// A view of the struct field `parent._ptr[field]`, as an instance of `cls`.
+// Reads and writes go to the parent's field in place (so
+// `opts.windowState.title = 'x'` changes `opts`); `_ptr` is looked up on
+// every access, so the view follows the parent after a C call rewrote it.
+// It owns nothing: no finalizer, `delete()` is a no-op, and moving it into
+// a call moves a deep copy (`_moveArg`). It keeps the parent alive; using it
+// after the parent was deleted or consumed is an error.
+function _fieldView(cls, parent, field) {
+    const view = Object.create(cls.prototype);
+    Object.defineProperty(view, '_view', { value: true });
+    Object.defineProperty(view, '_ptr', {
+        get() {
+            const p = parent._ptr;
+            return p == null ? null : p[field];
+        },
+        set(_v) { /* a view never gives up or replaces the parent's field */ },
+    });
+    return view;
+}
+
+"#,
+    );
 
     // Auto-AzString-conversion helper. Wrapper methods route Owned
     // `String` args through this so user code can pass plain JS
@@ -163,10 +222,18 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     // C field spelling (`window_state`) or its lowerCamel form
     // (`windowState`); unknown keys throw instead of being silently
     // dropped. Plain `{}` literals recurse into the nested struct
-    // field; JS string values auto-convert via `_azString`; wrapper-
-    // class instances forward via their `_ptr`; everything else
-    // (numbers, enum constants, booleans, Buffers, raw koffi structs)
-    // assigns directly. Pure type-driven; no per-field allow-list.
+    // field; everything else is stored by `_setField`, the same setter
+    // the field accessors use: it RELEASES the field's old value (its
+    // `<T>_delete`, from the `_FIELDS` type table) and MOVES the new one
+    // in (a JS string becomes a fresh AzString, a wrapper is consumed, a
+    // field view is deep-copied). It used to copy a wrapper's `_ptr`
+    // without consuming it (both the wrapper's finalizer and the struct
+    // freed the same heap: double free) and overwrote the old value
+    // without releasing it (leak).
+    emit_field_type_table(b, ir);
+    let string_ffi = string_struct(ir)
+        .map(|s| ffi_type_name(&s.name))
+        .unwrap_or_else(|| "AzString".to_string());
     b.line("// lowerCamel -> snake_case for `with({ windowState: ... })` keys.");
     b.line("function _snakeKey(key) {");
     b.indent();
@@ -174,58 +241,57 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
     b.dedent();
     b.line("}");
     b.blank();
-    b.line("// Recursive opts-object applier. Routed through every struct wrapper's");
-    b.line("// `with(opts)` method below. `path` is only used for error messages.");
-    b.line("function _applyOpts(struct, opts, path) {");
-    b.indent();
-    b.line("if (opts == null) return;");
-    b.line("if (struct == null || typeof struct !== 'object') {");
-    b.indent();
-    b.line("throw new TypeError(`azul: ${path} is not a struct value; cannot assign options into it`);");
-    b.dedent();
-    b.line("}");
-    b.line("for (const key of Object.keys(opts)) {");
-    b.indent();
-    b.line("const value = opts[key];");
-    b.line("if (value === null || value === undefined) continue;");
-    b.line("const field = (key in struct) ? key : _snakeKey(key);");
-    b.line("if (!(field in struct)) {");
-    b.indent();
-    b.line("throw new TypeError(`azul: unknown field '${key}' on ${path} (fields: ${Object.keys(struct).join(', ')})`);");
-    b.dedent();
-    b.line("}");
-    b.line("if (typeof value === 'string') {");
-    b.indent();
-    b.line("struct[field] = _azString(value);");
-    b.dedent();
-    // Wrapper-class instance: forward its underlying koffi value.
-    // Checked before the plain-object branch so we don't recurse
-    // into wrapper internals.
-    b.line("} else if (typeof value === 'object' && value._ptr !== undefined) {");
-    b.indent();
-    b.line("struct[field] = value._ptr;");
-    b.dedent();
-    // Plain-object literal: recurse into nested koffi struct. We
-    // detect via `Object.getPrototypeOf(value) === Object.prototype`
-    // so class instances, Buffers, Arrays, koffi-managed structs
-    // (with non-Object prototypes) fall through to direct-assign.
-    b.line("} else if (typeof value === 'object'");
-    b.indent();
-    b.line("&& Object.getPrototypeOf(value) === Object.prototype) {");
-    b.dedent();
-    b.indent();
-    b.line("_applyOpts(struct[field], value, path + '.' + field);");
-    b.dedent();
-    b.line("} else {");
-    b.indent();
-    b.line("struct[field] = value;");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("}");
-    b.blank();
+    b.raw(&format!(
+        r#"// Store `value` into the koffi struct field `struct[field]`, whose C type is
+// `type` (undefined for a scalar). The field's OLD value is released first
+// (`<type>_delete`, when the type has one), then the new value is MOVED in:
+// a JS string becomes a fresh AzString, a wrapper is consumed (its finalizer
+// disarmed), a field view is deep-copied. A plain object literal is applied
+// field by field into the existing value instead (`_applyOpts`).
+function _setField(struct, field, type, value, path) {{
+    if (typeof value === 'object' && value !== null && value._ptr === undefined
+        && Object.getPrototypeOf(value) === Object.prototype) {{
+        _applyOpts(struct[field], value, path + '.' + field, type);
+        return;
+    }}
+    let nv;
+    if (typeof value === 'string') {{
+        if (type !== undefined && type !== '{string}') {{
+            throw new TypeError(`azul: ${{path}}: field ${{field}} is a ${{type}}, not a string`);
+        }}
+        nv = _azString(value);
+    }} else {{
+        nv = _moveArg(value);
+    }}
+    const del = type !== undefined ? lib[type + '_delete'] : undefined;
+    if (typeof del === 'function' && struct[field] != null) del(struct[field]);
+    struct[field] = nv;
+    _consume(value);
+}}
+
+// Recursive opts-object applier. Routed through every struct wrapper's
+// `with(opts)` method below. `type` is the C type of `struct` (keys the
+// `_FIELDS` table); `path` is only used for error messages.
+function _applyOpts(struct, opts, path, type) {{
+    if (opts == null) return;
+    if (struct == null || typeof struct !== 'object') {{
+        throw new TypeError(`azul: ${{path}} is not a struct value; cannot assign options into it`);
+    }}
+    const fields = type !== undefined ? _FIELDS[type] : undefined;
+    for (const key of Object.keys(opts)) {{
+        const value = opts[key];
+        if (value === null || value === undefined) continue;
+        const field = (key in struct) ? key : _snakeKey(key);
+        if (!(field in struct)) {{
+            throw new TypeError(`azul: unknown field '${{key}}' on ${{path}} (fields: ${{Object.keys(struct).join(', ')}})`);
+        }}
+        _setField(struct, field, fields !== undefined ? fields[field] : undefined, value, path);
+    }}
+}}
+
+"#,
+        string = string_ffi
+    ));
 
     b.line("// ----------------------------------------------------------------------------");
     b.line("// Wrapper classes (one per disposable struct / tagged-union enum).");
@@ -452,6 +518,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
             ffi
         ));
         b.blank();
+        emit_clone_raw(b, ir, &ffi);
     }
 
     // Constructor: takes a raw FFI pointer. Public callers should use
@@ -497,11 +564,14 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     b.line(" */");
     b.line("with(opts) {");
     b.indent();
-    b.line(&format!("_applyOpts(this._ptr, opts, '{}');", class));
+    b.line(&format!("_applyOpts(this._ptr, opts, '{}', '{}');", class, ffi));
     b.line("return this;");
     b.dedent();
     b.line("}");
     b.blank();
+
+    // `get`/`set` per public field (`opts.windowState.title = 'x'`).
+    emit_field_accessors(b, ir, s, &class, &funcs);
 
     // AzString gets a `toString()` override that decodes the wrapped
     // UTF-8 bytes into a JS string (`_ptr` is the koffi-decoded struct
@@ -614,7 +684,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         b.line(" */");
         b.line("delete() {");
         b.indent();
-        b.line("if (this._ptr === null) return;");
+        b.line("if (this._ptr === null || this._view === true) return;");
         b.line(&format!("{}._registry.unregister(this);", class));
         b.line(&format!("lib.{}_delete(this._ptr);", ffi));
         b.line("this._ptr = null;");
@@ -626,6 +696,239 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     b.dedent();
     b.line("}");
     b.blank();
+}
+
+// ============================================================================
+// Field access
+// ============================================================================
+
+/// How JS reaches one struct field.
+enum NodeField {
+    /// A number, bool or unit-enum constant: read and written as it stands.
+    Scalar,
+    /// The string type: decoded on read, a fresh AzString on write.
+    Str,
+    /// A koffi-registered struct / tagged union / monomorphized alias, by its
+    /// C name; `class` is its wrapper class, if this module emits one.
+    Aggregate { ffi: String, class: Option<String> },
+}
+
+/// The [`NodeField`] shape of a field, or `None` for a field JS must not
+/// touch: a pointer / reference, a callback (typedef or wrapper), a `RefAny`,
+/// a generic or anything koffi does not register by value.
+fn node_field(field: &FieldDef, ir: &CodegenIR) -> Option<NodeField> {
+    if !field.is_public || field.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = field.type_name.trim();
+    if t.contains(['<', '[', '*', '&']) {
+        return None;
+    }
+    if let Some(s) = ir.find_struct(t) {
+        return match s.category {
+            TypeCategory::String => Some(NodeField::Str),
+            TypeCategory::RefAny
+            | TypeCategory::Recursive
+            | TypeCategory::VecRef
+            | TypeCategory::GenericTemplate
+            | TypeCategory::DestructorOrClone
+            | TypeCategory::CallbackTypedef => None,
+            _ if is_callback_wrapper(ir, t) || !should_emit_struct(s) => None,
+            _ => Some(NodeField::Aggregate {
+                ffi: ffi_type_name(t),
+                class: node_wrapper_class_for(t, ir),
+            }),
+        };
+    }
+    if let Some(e) = ir.find_enum(t) {
+        if !should_emit_enum(e) {
+            return None;
+        }
+        if is_unit_only_enum(e) {
+            return Some(NodeField::Scalar);
+        }
+        return Some(NodeField::Aggregate {
+            ffi: ffi_type_name(t),
+            class: node_wrapper_class_for(t, ir),
+        });
+    }
+    if let Some(ta) = ir.find_type_alias(t) {
+        return match ta.monomorphized_def.as_ref().map(|m| &m.kind) {
+            Some(MonomorphizedKind::SimpleEnum { .. }) => Some(NodeField::Scalar),
+            Some(_) => Some(NodeField::Aggregate {
+                ffi: ffi_type_name(t),
+                class: node_wrapper_class_for(t, ir),
+            }),
+            // A plain alias (`GLuint = u32`) is its target on the wire.
+            None => match map_type_to_koffi(t, ir).as_str() {
+                "void *" | "void" => None,
+                k if k.starts_with("Az") => None,
+                _ => Some(NodeField::Scalar),
+            },
+        };
+    }
+    match map_type_to_koffi(t, ir).as_str() {
+        "bool" | "uint8_t" | "int8_t" | "uint16_t" | "int16_t" | "uint32_t" | "int32_t"
+        | "uint64_t" | "int64_t" | "float" | "double" | "size_t" | "intptr_t" => {
+            Some(NodeField::Scalar)
+        }
+        // Callback typedefs (registered fn pointers), opaque pointers.
+        _ => None,
+    }
+}
+
+/// The fields of a struct that `_FIELDS` and the accessors describe: only the
+/// user-facing struct categories. A Vec / String / boxed handle's fields are
+/// its internals (`ptr`, `len`, `run_destructor`): writing one would corrupt it.
+fn accessor_fields<'a>(s: &'a StructDef) -> &'a [FieldDef] {
+    if matches!(s.category, TypeCategory::Regular | TypeCategory::CallbackDataPair)
+        && should_emit_struct(s)
+    {
+        &s.fields
+    } else {
+        &[]
+    }
+}
+
+/// `const _FIELDS = { AzFullWindowState: { title: 'AzString', ... }, ... }`:
+/// the C type of every non-scalar field, per struct, so `_applyOpts` /
+/// `_setField` know which `<T>_delete` releases a field's old value, and the
+/// type of a nested struct a plain object literal recurses into.
+fn emit_field_type_table(b: &mut CodeBuilder, ir: &CodegenIR) {
+    let string_ffi = string_struct(ir).map(|s| ffi_type_name(&s.name));
+    let row = |fields: &[FieldDef]| -> Vec<String> {
+        fields
+            .iter()
+            .filter_map(|f| match node_field(f, ir)? {
+                NodeField::Scalar => None,
+                NodeField::Str => Some(format!("{}: '{}'", f.name, string_ffi.clone()?)),
+                NodeField::Aggregate { ffi, .. } => Some(format!("{}: '{}'", f.name, ffi)),
+            })
+            .collect()
+    };
+    b.line("// C type of every non-scalar struct field (see `_setField`).");
+    b.line("const _FIELDS = {");
+    b.indent();
+    for s in &ir.structs {
+        let entries = row(accessor_fields(s));
+        if !entries.is_empty() {
+            b.line(&format!("{}: {{ {} }},", ffi_type_name(&s.name), entries.join(", ")));
+        }
+    }
+    for ta in &ir.type_aliases {
+        if !should_emit_alias(ta, ir) {
+            continue;
+        }
+        if let Some(MonomorphizedKind::Struct { fields }) =
+            ta.monomorphized_def.as_ref().map(|m| &m.kind)
+        {
+            let entries = row(fields);
+            if !entries.is_empty() {
+                b.line(&format!("{}: {{ {} }},", ffi_type_name(&ta.name), entries.join(", ")));
+            }
+        }
+    }
+    b.dedent();
+    b.line("};");
+    b.blank();
+}
+
+/// `static _cloneRaw(p)`: deep-copy a raw value of this type through its
+/// `_clone` export. `_moveArg` uses it to move a field VIEW into a call
+/// without taking the parent's bytes. No `_clone`, no member (`_moveArg`
+/// then refuses rather than shallow-copying).
+fn emit_clone_raw(b: &mut CodeBuilder, ir: &CodegenIR, ffi: &str) {
+    let type_name = ffi.strip_prefix("Az").unwrap_or(ffi);
+    if let Some(clone) = node_clone_fn(type_name, ir) {
+        b.line(&format!(
+            "static _cloneRaw(p) {{ return lib.{}(p); }}",
+            sanitize_js_identifier(clone)
+        ));
+        b.blank();
+    }
+}
+
+/// `get name()` / `set name(v)` for every field JS may touch, named in
+/// lowerCamel (`window_state` -> `windowState`).
+///
+/// - a scalar reads and writes the koffi field as it stands;
+/// - a string decodes on read (the field keeps its bytes) and is set
+///   through `_setField` (old AzString released, fresh one moved in);
+/// - a struct / union is a VIEW on read (`_fieldView`: writes through it
+///   change this object, so nested writes work) and is set through
+///   `_setField` (old value released with its `_delete`, a wrapper
+///   argument consumed, a view argument deep-copied).
+///
+/// A member of the class already owns a name (an api.json method wins);
+/// that field stays writable through `with({ field: v })`.
+fn emit_field_accessors(
+    b: &mut CodeBuilder,
+    ir: &CodegenIR,
+    s: &StructDef,
+    class: &str,
+    funcs: &[&FunctionDef],
+) {
+    // allow-api-name: the members this module emits on every wrapper class.
+    const FIXED: &[&str] = &[
+        "constructor", "raw", "with", "delete", "clone", "toString", "toDebugString",
+        "equals", "hash", "compare", "partialCompare",
+    ];
+    let mut taken: std::collections::BTreeSet<String> =
+        FIXED.iter().map(|s| s.to_string()).collect();
+    for f in funcs {
+        taken.insert(js_method_name(&f.method_name));
+        if let Some((smart, _)) = smart_callback_setter_info(f) {
+            taken.insert(js_method_name(&smart));
+        }
+    }
+    let string_ffi = string_struct(ir)
+        .map(|st| ffi_type_name(&st.name))
+        .unwrap_or_else(|| "AzString".to_string());
+    for field in accessor_fields(s) {
+        let Some(kind) = node_field(field, ir) else {
+            continue;
+        };
+        let js = sanitize_js_identifier(&crate::utils::string::snake_case_to_lower_camel(
+            &field.name,
+        ));
+        if js.starts_with('_') || !taken.insert(js.clone()) {
+            continue;
+        }
+        let f = &field.name;
+        let path = format!("{}.{}", class, js);
+        match kind {
+            NodeField::Scalar => {
+                b.line(&format!("get {}() {{ return this._ptr.{}; }}", js, f));
+                b.line(&format!("set {}(v) {{ this._ptr.{} = v; }}", js, f));
+            }
+            NodeField::Str => {
+                b.line(&format!(
+                    "get {}() {{ return _azStringDecode(this._ptr.{}); }}",
+                    js, f
+                ));
+                b.line(&format!(
+                    "set {}(v) {{ _setField(this._ptr, '{}', '{}', v, '{}'); }}",
+                    js, f, string_ffi, path
+                ));
+            }
+            NodeField::Aggregate { ffi, class: field_class } => {
+                match field_class {
+                    Some(c) => b.line(&format!(
+                        "get {}() {{ return _fieldView({}, this, '{}'); }}",
+                        js, c, f
+                    )),
+                    // No wrapper class: the koffi value itself, which is
+                    // this struct's own nested object (writes go through).
+                    None => b.line(&format!("get {}() {{ return this._ptr.{}; }}", js, f)),
+                }
+                b.line(&format!(
+                    "set {}(v) {{ _setField(this._ptr, '{}', '{}', v, '{}'); }}",
+                    js, f, ffi, path
+                ));
+            }
+        }
+        b.blank();
+    }
 }
 
 // ============================================================================
@@ -671,6 +974,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
             ffi
         ));
         b.blank();
+        emit_clone_raw(b, ir, &ffi);
     }
 
     // Tag constants accessible as static members for caller-side checks.
@@ -771,7 +1075,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
     if has_delete {
         b.line("delete() {");
         b.indent();
-        b.line("if (this._ptr === null) return;");
+        b.line("if (this._ptr === null || this._view === true) return;");
         b.line(&format!("{}._registry.unregister(this);", class));
         b.line(&format!("lib.{}_delete(this._ptr);", ffi));
         b.line("this._ptr = null;");
@@ -1137,6 +1441,7 @@ fn emit_alias_wrapper(
             ffi
         ));
         b.blank();
+        emit_clone_raw(b, ir, &ffi);
     }
 
     if variants.is_some() {
@@ -1215,7 +1520,7 @@ fn emit_alias_wrapper(
             b.line(" */");
             b.line("with(opts) {");
             b.indent();
-            b.line(&format!("_applyOpts(this._ptr, opts, '{}');", class));
+            b.line(&format!("_applyOpts(this._ptr, opts, '{}', '{}');", class, ffi));
             b.line("return this;");
             b.dedent();
             b.line("}");
@@ -1252,7 +1557,7 @@ fn emit_alias_wrapper(
         b.line(" */");
         b.line("delete() {");
         b.indent();
-        b.line("if (this._ptr === null) return;");
+        b.line("if (this._ptr === null || this._view === true) return;");
         b.line(&format!("{}._registry.unregister(this);", class));
         b.line(&format!("lib.{}_delete(this._ptr);", ffi));
         b.line("this._ptr = null;");
@@ -1535,7 +1840,14 @@ fn emit_instance_method(
     b.line(&format!("{}({}) {{", method, params));
     b.indent();
     emit_callback_register_lines(b, f, &user_args);
-    let mut call = format!("lib.{}(this._ptr", f.c_name);
+    // A by-value receiver is MOVED into the call: `_moveArg` hands over a
+    // deep copy when `this` is a field view (the parent keeps its bytes).
+    let receiver_expr = if receiver_consumed {
+        "_moveArg(this)"
+    } else {
+        "this._ptr"
+    };
+    let mut call = format!("lib.{}({}", f.c_name, receiver_expr);
     if !call_args.is_empty() {
         call.push_str(", ");
         call.push_str(&call_args);
@@ -1852,6 +2164,12 @@ fn render_call_args(args: &[&FunctionArg], ir: &CodegenIR) -> String {
             // the wrapper directly; pull `._ptr` out so the FFI gets a
             // raw pointer. We use a permissive `?._ptr ?? value` guard
             // so primitives (numbers, booleans) pass through unchanged.
+            // A by-value arg is MOVED: `_moveArg` is the same pass-through,
+            // except that a field view hands over a deep copy (its bytes
+            // belong to the parent struct; the caller `_consume`s the arg).
+            if matches!(a.ref_kind, ArgRefKind::Owned) {
+                return format!("_moveArg({n})", n = n);
+            }
             format!("({n} && {n}._ptr !== undefined ? {n}._ptr : {n})", n = n)
         })
         .collect::<Vec<_>>()
@@ -1871,4 +2189,114 @@ fn is_az_string_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
 
 fn jsdoc_escape(s: &str) -> String {
     s.replace("*/", "* /")
+}
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for Node:
+    //! a field setter (and `with(opts)`) releases the field's old value and
+    //! MOVES the new one in (a wrapper argument is consumed, a field view is
+    //! deep-copied first); a struct-typed field getter returns a VIEW that
+    //! reads and writes the parent's field in place, so
+    //! `opts.windowState.title = 'x'` reaches `opts`.
+    use std::sync::OnceLock;
+
+    use super::*;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            let mut b = CodeBuilder::new("    ");
+            generate_wrappers(&mut b, super::super::super::bug_classes::ir());
+            b.finish()
+        })
+    }
+
+    /// The body of one top-level `function name(` or `class Name {`.
+    fn item(head: &str) -> &'static str {
+        let out = output();
+        let start = out
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{}` in the Node output", head));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").expect("item ends");
+        &rest[..end]
+    }
+
+    #[test]
+    fn apply_opts_stores_every_field_through_the_releasing_moving_setter() {
+        let f = item("function _applyOpts(struct, opts, path, type) {");
+        assert!(f.contains("_setField(struct, field, "), "{}", f);
+        assert!(!f.contains("struct[field] = value._ptr"), "{}", f);
+        assert!(!f.contains("struct[field] = _azString(value)"), "{}", f);
+    }
+
+    #[test]
+    fn set_field_releases_the_old_value_then_moves_and_consumes_the_new_one() {
+        let f = item("function _setField(struct, field, type, value, path) {");
+        let del = f.find("_delete").expect("releases the old value");
+        let store = f.find("struct[field] = nv;").expect("stores the new value");
+        let consume = f.find("_consume(value);").expect("consumes the wrapper");
+        assert!(del < store && store < consume, "{}", f);
+        assert!(f.contains("_moveArg(value)"), "{}", f);
+    }
+
+    #[test]
+    fn moving_a_field_view_deep_copies_it_first() {
+        let f = item("function _moveArg(v) {");
+        assert!(f.contains("v._view === true"), "{}", f);
+        assert!(f.contains("_cloneRaw"), "{}", f);
+        let c = item("function _consume(val) {");
+        assert!(c.contains("val._view === true"), "{}", c);
+    }
+
+    #[test]
+    fn the_field_type_table_knows_window_state_and_title() {
+        let t = item("const _FIELDS = {");
+        assert!(t.contains("window_state: 'AzFullWindowState'"), "{}", t);
+        assert!(t.contains("title: 'AzString'"), "{}", t);
+    }
+
+    #[test]
+    fn window_create_options_window_state_is_a_view_with_a_moving_setter() {
+        let c = item("class WindowCreateOptions {");
+        assert!(
+            c.contains("get windowState() { return _fieldView(FullWindowState, this, 'window_state'); }"),
+            "{}",
+            c
+        );
+        assert!(
+            c.contains(
+                "set windowState(v) { _setField(this._ptr, 'window_state', 'AzFullWindowState', v, \
+                 'WindowCreateOptions.windowState'); }"
+            ),
+            "{}",
+            c
+        );
+    }
+
+    #[test]
+    fn full_window_state_title_decodes_and_sets_through_the_string_setter() {
+        let c = item("class FullWindowState {");
+        assert!(c.contains("get title() { return _azStringDecode(this._ptr.title); }"), "{}", c);
+        assert!(
+            c.contains("set title(v) { _setField(this._ptr, 'title', 'AzString', v, 'FullWindowState.title'); }"),
+            "{}",
+            c
+        );
+        assert!(c.contains("static _cloneRaw(p) { return lib.AzFullWindowState_clone(p); }"), "{}", c);
+    }
+
+    #[test]
+    fn check_box_state_checked_is_a_plain_scalar_accessor() {
+        let c = item("class CheckBoxState {");
+        assert!(c.contains("get checked() { return this._ptr.checked; }"), "{}", c);
+        assert!(c.contains("set checked(v) { this._ptr.checked = v; }"), "{}", c);
+    }
+
+    #[test]
+    fn a_field_view_is_never_deleted_by_its_own_delete() {
+        let c = item("class FullWindowState {");
+        assert!(c.contains("if (this._ptr === null || this._view === true) return;"), "{}", c);
+    }
 }

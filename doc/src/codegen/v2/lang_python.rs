@@ -701,6 +701,34 @@ fn az_glintvec_to_py_veci32(input: AzGLintVec) -> Vec<i32> {
     slice.to_vec()
 }
 
+// --- Nested field writes ---
+//
+// A pyclass holds its value by value, so a struct-typed field getter can only
+// hand out a COPY (`opts.window_state` is a fresh FullWindowState). Without a
+// way back, `opts.window_state.title = "x"` changed that copy and the write was
+// lost. So the getter links the copy to its parent (`__azul_parent__` =
+// `(parent, field)` in the copy's `__dict__`), and every field setter and every
+// `&mut self` method calls `__azul_write_back` after it changed the value: it
+// stores the changed value into `parent.<field>` - through the parent's own
+// setter, which writes ITS value back in turn, up to the root object. A copy
+// with no link (built by the user, returned by a function) writes nowhere.
+
+/// Link the copy a field getter returns to the object it was read from.
+fn __azul_link_parent(child: &Bound<'_, PyAny>, parent: &Bound<'_, PyAny>, field: &'static str) -> PyResult<()> {
+    child.setattr("__azul_parent__", (parent.clone(), field))
+}
+
+/// Store a changed value back into the field it was read from, if any.
+fn __azul_write_back(obj: &Bound<'_, PyAny>) -> PyResult<()> {
+    let link = match obj.getattr("__azul_parent__") {
+        Ok(link) => link,
+        Err(e) if e.is_instance_of::<pyo3::exceptions::PyAttributeError>(obj.py()) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let (parent, field): (Bound<'_, PyAny>, String) = link.extract()?;
+    parent.setattr(field.as_str(), obj)
+}
+
 "#,
         );
     }
@@ -1552,8 +1580,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             ""
         };
 
+        // `dict`: the instance `__dict__` holds `__azul_parent__`, the link a
+        // field getter puts on the copy it returns, so a write to that copy
+        // reaches the parent (see `__azul_write_back`).
         builder.line(&format!(
-            "#[pyclass(name = \"{}\", module = \"azul\"{})]",
+            "#[pyclass(name = \"{}\", module = \"azul\", dict{})]",
             struct_def.name, unsendable
         ));
         builder.line("#[repr(transparent)]");
@@ -1602,7 +1633,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         };
 
         builder.line(&format!(
-            "#[pyclass(name = \"{}\", module = \"azul\"{})]",
+            "#[pyclass(name = \"{}\", module = \"azul\", dict{})]",
             enum_def.name, unsendable
         ));
         builder.line("#[repr(transparent)]");
@@ -2116,13 +2147,22 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 continue;
             }
             let t = field.type_name.as_str();
+            // Every setter takes the receiver as `&Bound<Self>` so that, after
+            // the field changed, it can write the whole value back into the
+            // object it was read from (`__azul_write_back`). Without that,
+            // `opts.window_state.title = "x"` changed a copy and was lost.
+            // Assigning to the field drops its old value (the mirror's `Drop`
+            // releases a heap field), and a wrapper argument arrives as its
+            // own deep copy (pyo3 clones a by-value pyclass argument), so the
+            // caller's object is never aliased.
             if is_primitive_type(t) {
                 builder.line(&format!("#[getter({})]", n));
                 builder.line(&format!("fn __get_{}(&self) -> {} {{ self.inner.{} }}", n, t, n));
                 builder.blank();
                 builder.line(&format!("#[setter({})]", n));
                 builder.line(&format!(
-                    "fn __set_{}(&mut self, value: {}) {{ self.inner.{} = value; }}",
+                    "fn __set_{}(slf: &Bound<'_, Self>, value: {}) -> PyResult<()> {{ \
+                     slf.try_borrow_mut()?.inner.{} = value; __azul_write_back(slf.as_any()) }}",
                     n, t, n
                 ));
                 builder.blank();
@@ -2136,8 +2176,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 builder.blank();
                 builder.line(&format!("#[setter({})]", n));
                 builder.line(&format!(
-                    "fn __set_{}(&mut self, value: String) {{ self.inner.{} = unsafe {{ \
-                     mem::transmute(azul_css::corety::AzString::from(value)) }}; }}",
+                    "fn __set_{}(slf: &Bound<'_, Self>, value: String) -> PyResult<()> {{ \
+                     slf.try_borrow_mut()?.inner.{} = unsafe {{ \
+                     mem::transmute(azul_css::corety::AzString::from(value)) }}; \
+                     __azul_write_back(slf.as_any()) }}",
                     n, n
                 ));
                 builder.blank();
@@ -2159,15 +2201,25 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                         && !has_no_pyclass(t, TypeCategory::Vec)))
                 && is_clone(t)
             {
+                // The getter hands out a deep copy (`clone`), LINKED to this
+                // object: a later write to the copy lands back in this field.
                 builder.line(&format!("#[getter({})]", n));
                 builder.line(&format!(
-                    "fn __get_{}(&self) -> {}{} {{ {}{} {{ inner: self.inner.{}.clone() }} }}",
-                    n, prefix, t, prefix, t, n
+                    "fn __get_{n}(slf: &Bound<'_, Self>) -> PyResult<Py<{p}{t}>> {{ \
+                     let __copy = {p}{t} {{ inner: slf.try_borrow()?.inner.{n}.clone() }}; \
+                     let __copy = Py::new(slf.py(), __copy)?; \
+                     __azul_link_parent(__copy.bind(slf.py()).as_any(), slf.as_any(), \"{n}\")?; \
+                     Ok(__copy) }}",
+                    n = n,
+                    p = prefix,
+                    t = t
                 ));
                 builder.blank();
                 builder.line(&format!("#[setter({})]", n));
                 builder.line(&format!(
-                    "fn __set_{}(&mut self, value: {}{}) {{ self.inner.{} = value.inner; }}",
+                    "fn __set_{}(slf: &Bound<'_, Self>, value: {}{}) -> PyResult<()> {{ \
+                     slf.try_borrow_mut()?.inner.{} = value.inner; \
+                     __azul_write_back(slf.as_any()) }}",
                     n, prefix, t, n
                 ));
                 builder.blank();
@@ -2596,10 +2648,26 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         // mutable receiver for that; pyo3 turns it into a `PyRefMut` borrow of
         // the pyclass for the duration of the call.
         let mutates_self = func.kind == FunctionKind::MethodMut;
-        let self_recv = if needs_consume_self || mutates_self {
+        //
+        // A `&mut self` method also has to reach the object the caller's
+        // object was READ from: `opts.window_state.some_setter(v)` changes the
+        // copy the field getter handed out, so the method writes its receiver
+        // back through the copy's parent link afterwards
+        // (`__azul_write_back`). That needs the Python object itself, so the
+        // receiver is the `PyRefMut` guard, which the method gives up before
+        // the write-back (the parent's setter reads the receiver again).
+        let writes_back = mutates_self;
+        let self_recv = if writes_back {
+            "mut __slf: PyRefMut<'_, Self>"
+        } else if needs_consume_self {
             "&mut self"
         } else {
             "&self"
+        };
+        let sig_return_type = if writes_back {
+            format!("PyResult<{}>", return_type)
+        } else {
+            return_type.clone()
         };
 
         // Generate function signature
@@ -2608,23 +2676,23 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 if needs_py_param {
                     builder.line(&format!(
                         "fn {}({}, py: Python<'_>) -> {} {{",
-                        func.method_name, self_recv, return_type
+                        func.method_name, self_recv, sig_return_type
                     ));
                 } else {
                     builder.line(&format!(
                         "fn {}({}) -> {} {{",
-                        func.method_name, self_recv, return_type
+                        func.method_name, self_recv, sig_return_type
                     ));
                 }
             } else if needs_py_param {
                 builder.line(&format!(
                     "fn {}({}, py: Python<'_>, {}) -> {} {{",
-                    func.method_name, self_recv, args_str, return_type
+                    func.method_name, self_recv, args_str, sig_return_type
                 ));
             } else {
                 builder.line(&format!(
                     "fn {}({}, {}) -> {} {{",
-                    func.method_name, self_recv, args_str, return_type
+                    func.method_name, self_recv, args_str, sig_return_type
                 ));
             }
         } else {
@@ -2651,6 +2719,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         }
 
         builder.indent();
+        if writes_back {
+            // A closure, so a `return` in the fn_body leaves only the body.
+            builder.line(&format!("let __ret: {} = (|| {{", return_type));
+            builder.indent();
+        }
         builder.line("#[allow(unused_mut)]");
         builder.line("unsafe {");
         builder.indent();
@@ -2745,7 +2818,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 // a silent no-op, except on the few classes whose value is
                 // itself a handle to something else.
                 builder.line(&format!(
-                    "let __cloned: &mut {} = core::mem::transmute(&mut self.inner);",
+                    "let __cloned: &mut {} = core::mem::transmute(&mut __slf.inner);",
                     external_path
                 ));
             } else if needs_consume_self {
@@ -3290,6 +3363,14 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         builder.dedent();
         builder.line("}");
+        if writes_back {
+            builder.dedent();
+            builder.line("})();");
+            builder.line("let __py = __slf.py();");
+            builder.line("let __obj: Py<Self> = __slf.into();");
+            builder.line("__azul_write_back(__obj.bind(__py).as_any())?;");
+            builder.line("Ok(__ret)");
+        }
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -4565,4 +4646,116 @@ fn to_snake_case(s: &str) -> String {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for Python:
+    //! a struct-typed field getter returns a copy that stays LINKED to its
+    //! parent, and every write to such a copy - a field setter or a `&mut self`
+    //! method - is written back through the link. So
+    //! `opts.window_state.title = "x"` reaches `opts` instead of changing a
+    //! temporary that is dropped right after.
+    use std::sync::OnceLock;
+
+    use super::*;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            PythonGenerator
+                .generate_python(super::super::bug_classes::ir(), &PythonConfig::python_extension())
+                .expect("python generates")
+        })
+    }
+
+    /// The `#[pymethods]` block of one class.
+    fn pymethods_of(class: &str) -> &'static str {
+        let out = output();
+        let head = format!("#[pymethods]\nimpl Az{} {{\n", class);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("no #[pymethods] block for {}", class));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").expect("block ends");
+        &rest[..end]
+    }
+
+    /// The one emitted fn whose signature starts with `fn {name}(`.
+    fn function_in(block: &str, name: &str) -> String {
+        let head = format!("fn {}(", name);
+        let start = block
+            .find(&head)
+            .unwrap_or_else(|| panic!("no fn {} in:\n{}", name, block));
+        let rest = &block[start..];
+        // An accessor is one line; a method ends at its closing brace.
+        let line_end = rest.find('\n').unwrap_or(rest.len());
+        if rest[..line_end].trim_end().ends_with('}') {
+            return rest[..line_end].to_string();
+        }
+        let end = rest.find("\n    }\n").map(|e| e + 6).unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    #[test]
+    fn a_struct_typed_field_getter_returns_a_deep_copy_linked_to_its_parent() {
+        let f = function_in(pymethods_of("WindowCreateOptions"), "__get_window_state");
+        assert!(f.contains("slf: &Bound<'_, Self>"), "{}", f);
+        assert!(f.contains("-> PyResult<Py<AzFullWindowState>>"), "{}", f);
+        assert!(f.contains(".inner.window_state.clone()"), "{}", f);
+        assert!(f.contains("__azul_link_parent("), "{}", f);
+        assert!(f.contains("\"window_state\""), "{}", f);
+    }
+
+    #[test]
+    fn a_string_field_setter_writes_the_new_value_back_into_the_parent() {
+        let f = function_in(pymethods_of("FullWindowState"), "__set_title");
+        assert!(f.contains("slf: &Bound<'_, Self>, value: String) -> PyResult<()>"), "{}", f);
+        assert!(f.contains(".inner.title = "), "{}", f);
+        assert!(f.contains("__azul_write_back(slf.as_any())"), "{}", f);
+    }
+
+    #[test]
+    fn a_bool_field_setter_writes_the_new_value_back_into_the_parent() {
+        let f = function_in(pymethods_of("CheckBoxState"), "__set_checked");
+        assert!(f.contains("slf: &Bound<'_, Self>, value: bool) -> PyResult<()>"), "{}", f);
+        assert!(f.contains("__azul_write_back(slf.as_any())"), "{}", f);
+    }
+
+    #[test]
+    fn a_struct_typed_field_setter_writes_the_new_value_back_into_the_parent() {
+        let f = function_in(pymethods_of("WindowCreateOptions"), "__set_window_state");
+        assert!(f.contains("value: AzFullWindowState) -> PyResult<()>"), "{}", f);
+        assert!(f.contains(".inner.window_state = value.inner"), "{}", f);
+        assert!(f.contains("__azul_write_back(slf.as_any())"), "{}", f);
+    }
+
+    #[test]
+    fn a_mut_self_method_writes_its_receiver_back_into_the_parent() {
+        let f = function_in(pymethods_of("RichFormats"), "set");
+        assert!(f.contains("mut __slf: PyRefMut<'_, Self>"), "{}", f);
+        assert!(f.contains("-> PyResult<()>"), "{}", f);
+        assert!(f.contains("core::mem::transmute(&mut __slf.inner)"), "{}", f);
+        assert!(f.contains("__azul_write_back("), "{}", f);
+        assert!(!f.contains("&mut self"), "{}", f);
+    }
+
+    #[test]
+    fn every_wrapper_class_has_a_dict_to_hold_its_parent_link() {
+        let out = output();
+        assert!(out.contains("#[pyclass(name = \"FullWindowState\", module = \"azul\", dict"));
+        assert!(out.contains("#[pyclass(name = \"WindowSize\", module = \"azul\", dict"));
+        let without_dict = out
+            .lines()
+            .filter(|l| l.starts_with("#[pyclass(") && !l.contains(", dict"))
+            .collect::<Vec<_>>();
+        assert!(without_dict.is_empty(), "{:#?}", without_dict);
+    }
+
+    #[test]
+    fn the_write_back_helpers_are_emitted_once() {
+        let out = output();
+        assert_eq!(out.matches("fn __azul_write_back(").count(), 1);
+        assert_eq!(out.matches("fn __azul_link_parent(").count(), 1);
+    }
 }
