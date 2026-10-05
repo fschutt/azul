@@ -29,12 +29,15 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
 - 1.7 RED c5e0b6a6d, GREEN 258df98cd (empty inline shape = strut via inline_box_px, baseline_offset below).
   Paint note: an empty span's vertical padding is no longer in its painted shape (round-2 for display_list).
 
+- 1.8 RED 9800c76cd, GREEN 23fff4c4a (baseline_shift Sub/Super; strut_font_size; ratios removed). Round-2:
+  layout/tests/text3_baseline_exact.rs 6.4 -> 6.3333 / 4.8 -> 4.2; text3_regression_metrics.rs -6.4 -> 0.0 /
+  4.8 -> 1.0.
+
 ## IN PROGRESS
-1.8
+1.9
 
 ## NEXT
-1.8 sub/super baseline_shift (text3/cache.rs ~11186 baseline_shift, ~13014 placement; strut_font_size on
-UnifiedConstraints, built in fc.rs ~5214 / ~5966)
+1.9 delete the wasm-lift tree clone (solver3/mod.rs ~1277 cache.tree = Some((*new_tree).clone()))
 
 ## Open questions
 (none)
