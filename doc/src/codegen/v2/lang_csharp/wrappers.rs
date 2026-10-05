@@ -1945,6 +1945,56 @@ fn emit_field_properties(
 // Method emission
 // ============================================================================
 
+/// The api.json arguments a wrapper method declares as C# parameters: the
+/// implicit self of an instance / clone method is dropped (it is `this`).
+///
+/// `pub(crate)` so the PowerShell cmdlets, which forward to these methods,
+/// declare exactly the same parameters.
+pub(crate) fn cs_user_args(func: &FunctionDef) -> Vec<&FunctionArg> {
+    // The first parameter of an instance/clone/deepcopy method is the
+    // implicit self pointer. `func.args[0]` is the self regardless of
+    // its declared name in api.json (which can be the lowercased class,
+    // `self`, or — in the trait-impl case — synonyms like `instance`).
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
+    );
+    if takes_self {
+        func.args.iter().skip(1).collect()
+    } else {
+        let class_lower = func.class_name.to_lowercase();
+        func.args
+            .iter()
+            .filter(|a| a.name != class_lower && a.name != "self")
+            .collect()
+    }
+}
+
+/// The C# parameter type a wrapper method declares for `a`:
+/// 1. an owned string → `string` (converted to a native string inside);
+/// 2. an owned arg of an owning wrapper class → that class (consumed by
+///    the call);
+/// 3. any other owned arg → its FFI type; a reference → `IntPtr`.
+///
+/// `pub(crate)` for the PowerShell cmdlets (see [`cs_user_args`]).
+pub(crate) fn cs_param_type(a: &FunctionArg, ir: &CodegenIR) -> String {
+    let owned = matches!(a.ref_kind, ArgRefKind::Owned);
+    // "Is this the API's string type?" is a CATEGORY question.
+    let is_string = ir
+        .find_struct(a.type_name.trim())
+        .is_some_and(|s| matches!(s.category, TypeCategory::String));
+    if owned && is_string {
+        "string".to_string()
+    } else if owned && is_owning_wrapper(a.type_name.trim(), ir) {
+        // C# wrapper class name strips the `Az` prefix.
+        a.type_name.trim().to_string()
+    } else if owned {
+        map_type_to_csharp(&a.type_name, ir)
+    } else {
+        "IntPtr".to_string()
+    }
+}
+
 fn emit_wrapper_method(
     builder: &mut CodeBuilder,
     class_name: &str,
@@ -1975,15 +2025,7 @@ fn emit_wrapper_method(
         func.kind,
         FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy
     );
-    let user_args: Vec<_> = if takes_self {
-        func.args.iter().skip(1).collect()
-    } else {
-        let class_lower = func.class_name.to_lowercase();
-        func.args
-            .iter()
-            .filter(|a| a.name != class_lower && a.name != "self")
-            .collect()
-    };
+    let user_args: Vec<&FunctionArg> = cs_user_args(func);
 
     // Auto-conversion rules (mirrors Java/Kotlin; pure type-driven, no
     // method-name allowlist):
@@ -2021,22 +2063,7 @@ fn emit_wrapper_method(
     // Build argument signature.
     let arg_sig: Vec<String> = user_args
         .iter()
-        .map(|a| {
-            let cs_type = if is_az_string_owned_arg(a) {
-                "string".to_string()
-            } else if is_wrapper_class_owned_arg(a) {
-                // C# wrapper class name strips the `Az` prefix.
-                a.type_name.trim().to_string()
-            } else {
-                match a.ref_kind {
-                    ArgRefKind::Owned => map_type_to_csharp(&a.type_name, ir),
-                    ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-                        "IntPtr".to_string()
-                    }
-                }
-            };
-            format!("{} {}", cs_type, sanitize_identifier(&a.name))
-        })
+        .map(|a| format!("{} {}", cs_param_type(a, ir), sanitize_identifier(&a.name)))
         .collect();
 
     // Determine how the C ABI receives the implicit self:
