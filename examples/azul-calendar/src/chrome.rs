@@ -27,11 +27,12 @@ use azul::{
     widgets::{
         Backstage, BackstageNavItem, ButtonType, CheckBoxState, DatePicker, DatePickerState,
         DatePickerWeekStart,
-        OnTextInputReturn, Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem,
+        OnTextInputReturn, Ribbon, RibbonAppButton, RibbonGroup, RibbonItem,
         RibbonTab, StatusBar, StatusBarSegment, StatusBarSync, StatusBarSyncKind, TextInputState,
         TextInputValid, Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask,
     },
 };
+use azul_appkit::ribbon::callback_button;
 use chrono::{Datelike, Duration, NaiveDate};
 
 use crate::{
@@ -91,8 +92,10 @@ pub(crate) fn office_shell(s: &CalState, app: &RefAny, window_height: f32) -> Do
 
 // ==== Ribbon ====
 
+// Each button has its own callback on the app: azul-appkit's one ribbon builder,
+// `callback_button`.
 fn large(app: &RefAny, icon: &str, label: &str, cb: ButtonOnClickCallbackType) -> RibbonItem {
-    RibbonItem::LargeButton(RibbonButton::create(icon, label).with_on_click(app.clone(), cb))
+    RibbonItem::LargeButton(callback_button(icon, label, app.clone(), cb))
 }
 
 fn toggled(
@@ -102,11 +105,7 @@ fn toggled(
     on: bool,
     cb: ButtonOnClickCallbackType,
 ) -> RibbonItem {
-    RibbonItem::LargeButton(
-        RibbonButton::create(icon, label)
-            .with_toggled(on)
-            .with_on_click(app.clone(), cb),
-    )
+    RibbonItem::LargeButton(callback_button(icon, label, app.clone(), cb).with_toggled(on))
 }
 
 /// Arrange: the five views, the shown one pressed in.
