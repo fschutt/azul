@@ -1127,3 +1127,69 @@ fn sanitize_comment(s: &str) -> String {
         .replace('}', ")")
         .replace(['\n', '\r'], " ")
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    fn generated() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            let ir = crate::codegen::v2::bug_classes::ir();
+            super::super::generate(ir, &CodegenConfig::c_header()).expect("pascal codegen")
+        })
+    }
+
+    /// One method body, from its header to the `end;` that closes it.
+    fn body_of(header: &str) -> &'static str {
+        let src = generated();
+        let start = src.find(header).unwrap_or_else(|| panic!("no `{}`", header));
+        let end = src[start..].find("\nend;").expect("end of method");
+        &src[start..start + end]
+    }
+
+    #[test]
+    fn the_window_title_is_a_string_property_that_releases_the_old_value() {
+        let src = generated();
+        assert!(src.contains("property Title: string read FieldGetTitle write FieldSetTitle;"));
+        let get = body_of("function TFullWindowState.FieldGetTitle: string;");
+        assert!(get.contains("Result := azul_string_to(FRaw.title);"), "{}", get);
+        assert!(!get.contains("_delete"), "reading must not free the field:\n{}", get);
+        let set = body_of("procedure TFullWindowState.FieldSetTitle(const AValue: string);");
+        assert!(set.contains("AzString_delete(@FRaw.title);"), "{}", set);
+        assert!(set.contains("FRaw.title := nv;"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_property_deep_copies_and_consumes_its_argument() {
+        let src = generated();
+        assert!(src.contains(
+            "property WindowState: TFullWindowState read FieldGetWindowState write FieldSetWindowState;"
+        ));
+        let get = body_of("function TWindowCreateOptions.FieldGetWindowState: TFullWindowState;");
+        assert!(
+            get.contains("Result := TFullWindowState.Wrap(AzFullWindowState_clone(@FRaw.window_state));"),
+            "{}",
+            get
+        );
+        let set = body_of("procedure TWindowCreateOptions.FieldSetWindowState(AValue: TFullWindowState);");
+        assert!(set.contains("AValue.FOwned := False;"), "the argument is consumed:\n{}", set);
+        assert!(set.contains("AzFullWindowState_delete(@FRaw.window_state);"), "{}", set);
+        assert!(set.contains("AValue.Free;"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_size_is_a_record_property_copied_in_and_out() {
+        assert!(generated().contains("property Size: TAzWindowSize read FieldGetSize write FieldSetSize;"));
+        let set = body_of("procedure TFullWindowState.FieldSetSize(const AValue: TAzWindowSize);");
+        assert!(set.contains("FRaw.size := AValue;"), "{}", set);
+        assert!(!set.contains("_delete"), "a POD has nothing to release:\n{}", set);
+    }
+
+    #[test]
+    fn a_text_input_text_field_is_writable_even_though_get_text_is_a_method() {
+        assert!(generated().contains("property Text: TU32Vec read FieldGetText write FieldSetText;"));
+    }
+}
