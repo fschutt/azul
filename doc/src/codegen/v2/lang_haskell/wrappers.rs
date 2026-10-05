@@ -57,7 +57,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionArg, FunctionDef, FunctionKind,
+    ArgRefKind, CallbackTypedefDef, CodegenIR, FieldDef, FieldRefKind, FunctionArg, FunctionDef, FunctionKind,
     MonomorphizedKind, StructDef, TypeCategory,
 };
 use super::super::managed_host_invoker;
@@ -151,6 +151,7 @@ pub fn generate_api_module(ctx: &Ctx, api_module: &str) -> String {
         if ctx.wrapped.contains(&s.name) && ctx.split.module_of(&s.name) == api_module {
             emit_layout_factory(&mut b, s, ctx, &module);
             emit_class_functions(&mut b, &s.name, ctx, &module, true);
+            emit_field_accessors(&mut b, s, ctx, &module);
         }
     }
     b.finish()
@@ -490,6 +491,14 @@ impl<'a> Ctx<'a> {
             name.push('\'');
         }
         name
+    }
+
+    /// Has `module` already declared `name`?
+    fn is_taken(&self, module: &str, name: &str) -> bool {
+        self.taken
+            .borrow()
+            .get(module)
+            .is_some_and(|names| names.contains(name))
     }
 
     /// Record which internal module declares `class`'s functions, so its
@@ -1056,9 +1065,14 @@ fn emit_wrapper_class(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx) {
 /// The FFI binding of `s`'s deep copy when it has the `(src, out)` shape
 /// `move<X>` needs to pass a borrowed value by value.
 fn clone_binding(s: &StructDef, ctx: &Ctx) -> Option<String> {
+    clone_binding_of(&s.name, ctx)
+}
+
+/// [`clone_binding`] for any class, struct or enum.
+fn clone_binding_of(class: &str, ctx: &Ctx) -> Option<String> {
     let func = ctx
         .ir
-        .functions_for_class(&s.name)
+        .functions_for_class(class)
         .find(|f| f.kind == FunctionKind::DeepCopy)?;
     if !super::functions::should_emit_function(func, ctx.ir, ctx.config) {
         return None;
@@ -1839,9 +1853,12 @@ fn arg_plan(a: &FunctionArg, ctx: &Ctx) -> Option<ArgPlan> {
         });
     }
     if ctx.wrapped.contains(t) {
+        // Only a type that owns heap memory (`_delete`) moves: passing it
+        // by value hands that memory over. A by-value POD is a bitwise copy,
+        // so a borrowed one - a callback's `CallbackInfo` - can be passed on.
         return Some(ArgPlan::Wrapper {
             hs: haskell_data_name(t),
-            consume: by_value,
+            consume: by_value && ctx.deletable.contains(t),
         });
     }
     if matches!(a.ref_kind, ArgRefKind::Ptr | ArgRefKind::PtrMut) {
@@ -2035,6 +2052,242 @@ fn emit_class_functions(b: &mut CodeBuilder, class: &str, ctx: &Ctx, module: &st
     }
     if emitted_any {
         ctx.set_home(class, module);
+    }
+}
+
+/// How one field of a wrapped struct is read and written.
+enum FieldShape {
+    /// A C primitive, peeked and poked in place; `bool` converts.
+    Prim { hs: String, is_bool: bool },
+    /// The String class: read as a Haskell `String`, written as a new
+    /// AzString after the old one is released.
+    Str { hs: String, delete: String },
+    /// A wrapped class: read as a fresh handle (a deep copy when the class
+    /// owns heap memory), written by moving the handle in.
+    Wrapper { hs: String, delete: Option<String>, clone: Option<String> },
+    /// An `Azul.Types` value: read with `peek` (through the deep copy when
+    /// the type owns heap memory), written with `poke`.
+    Value { hs: String, delete: Option<String>, clone: Option<String> },
+}
+
+/// The `_delete` FFI binding of `class`, when it has one.
+fn delete_binding_of(class: &str, ctx: &Ctx) -> Option<String> {
+    ctx.ir
+        .functions_for_class(class)
+        .find(|f| f.kind == FunctionKind::Delete)
+        .map(|f| format!("FFI.c_{}", f.c_name))
+}
+
+fn field_shape(f: &FieldDef, ctx: &Ctx) -> Option<FieldShape> {
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.contains('<') || !ctx.config.should_include_type(t) && !super::cshim::is_c_primitive(t) {
+        return None;
+    }
+    // Callbacks, their wrappers and the type-erased handle are wired up by
+    // the closure plumbing, never by poking bytes into a field.
+    if managed_host_invoker::is_callback_wrapper(ctx.ir, t)
+        || managed_lang_helpers::is_refany_type(t, ctx.ir)
+        || ctx.ir.callback_typedefs.iter().any(|c| c.name.trim() == t)
+    {
+        return None;
+    }
+    if super::cshim::is_c_primitive(t) {
+        if matches!(t, "c_void" | "void" | "()") {
+            return None;
+        }
+        return Some(FieldShape::Prim {
+            hs: super::types::map_owned_type(t, ctx.ir),
+            is_bool: t == "bool",
+        });
+    }
+    if ctx.is_string(t) {
+        let delete = delete_binding_of(t, ctx)?;
+        ctx.string_from_bytes.as_ref()?;
+        return Some(FieldShape::Str {
+            hs: format!("T.{}", haskell_data_name(t)),
+            delete,
+        });
+    }
+    let delete = delete_binding_of(t, ctx);
+    let clone = clone_binding_of(t, ctx).map(|c| format!("FFI.{}", c));
+    if ctx.wrapped.contains(t) {
+        return Some(FieldShape::Wrapper {
+            hs: haskell_data_name(t),
+            delete,
+            clone,
+        });
+    }
+    ctx.value_type(t).map(|hs| FieldShape::Value { hs, delete, clone })
+}
+
+/// `get<Field>` / `set<Field>` / `with<Field>` for every public field of a
+/// wrapped struct, so a handle's fields are as reachable as a record's:
+///
+/// - a getter returns an independent value - heap-owning fields (String,
+///   Vec, a class with `_delete`) are deep-copied, never aliased, so the
+///   result and the handle can both be released;
+/// - a setter releases the field's old value, then moves the new one in
+///   (a wrapped argument counts as moved, like any by-value argument);
+/// - `with<Field>` is the setter as a builder step, returning the handle.
+///
+/// An api.json method of the same name wins: the accessor is skipped.
+fn emit_field_accessors(b: &mut CodeBuilder, s: &StructDef, ctx: &Ctx, module: &str) {
+    let w = haskell_data_name(&s.name);
+    let class_prefix = lower_first(&w);
+    let mut emitted_any = false;
+    for f in &s.fields {
+        let Some(shape) = field_shape(f, ctx) else {
+            continue;
+        };
+        let field = pascal(&f.name);
+        let off = format!(
+            "fromIntegral T.c_az_hs_offsetof_{}_{}",
+            class_prefix,
+            super::super::lang_c::escape_cpp_keyword_for_c(&f.name)
+        );
+        let raw_ty = match &shape {
+            FieldShape::Prim { hs, .. } => hs.clone(),
+            FieldShape::Str { hs, .. } => hs.clone(),
+            FieldShape::Wrapper { hs, .. } => format!("T.{}", hs),
+            FieldShape::Value { hs, .. } => hs.clone(),
+        };
+        // The field's address inside the handle's buffer `p`.
+        let fp = format!("(castPtr (p `plusPtr` ({})) :: Ptr {})", off, paren(&raw_ty));
+        let user_ty = match &shape {
+            FieldShape::Prim { is_bool: true, .. } => "Bool".to_string(),
+            FieldShape::Prim { hs, .. } => hs.clone(),
+            // allow-api-name: Haskell's own `String`.
+            FieldShape::Str { .. } => "String".to_string(),
+            FieldShape::Wrapper { hs, .. } => hs.clone(),
+            FieldShape::Value { hs, .. } => hs.clone(),
+        };
+        let doc: Vec<String> = f.doc.iter().map(|d| sanitize_doc(d)).collect();
+
+        // Bodies are `do` blocks, one string per line; a leading `>` marks
+        // a line one level deeper (the statements of a nested `do`).
+        let wx = format!("with{}", w);
+        // Getter. A heap-owning field without a deep copy has no safe
+        // getter: a shallow copy would be freed twice.
+        let getter: Option<Vec<String>> = match &shape {
+            FieldShape::Prim { hs, is_bool: true } => Some(vec![format!(
+                "{wx} self $ \\p -> toBool <$> (peek {fp} :: IO {hs})"
+            )]),
+            FieldShape::Prim { .. } | FieldShape::Value { delete: None, .. } => {
+                Some(vec![format!("{wx} self $ \\p -> peek {fp}")])
+            }
+            FieldShape::Str { .. } => Some(vec![format!(
+                "{wx} self $ \\p -> peek {fp} >>= T.azStringToString"
+            )]),
+            FieldShape::Wrapper { hs, delete: None, .. } => Some(vec![format!(
+                "{wx} self $ \\p -> peek {fp} >>= {}FromValue",
+                lower_first(hs)
+            )]),
+            FieldShape::Wrapper { hs, delete: Some(_), clone: Some(c) } => Some(vec![
+                format!("__out <- alloc{hs}"),
+                format!("{wx} self $ \\p -> with{hs} __out $ \\__po -> {c} {fp} __po"),
+                "pure __out".to_string(),
+            ]),
+            FieldShape::Value { delete: Some(_), clone: Some(c), .. } => Some(vec![format!(
+                "{wx} self $ \\p -> alloca $ \\__po -> {c} {fp} __po >> peek __po"
+            )]),
+            _ => None,
+        };
+        // Setter: release the old value, then write the new one.
+        let mut setter: Vec<String> = Vec::new();
+        let release = |d: &Option<String>, out: &mut Vec<String>| {
+            if let Some(d) = d {
+                out.push(format!(">{} __fp", d));
+            }
+        };
+        match &shape {
+            FieldShape::Prim { is_bool: true, .. } => {
+                setter.push(format!("{wx} self $ \\p -> poke {fp} (fromBool v)"));
+            }
+            FieldShape::Prim { .. } => {
+                setter.push(format!("{wx} self $ \\p -> poke {fp} v"));
+            }
+            FieldShape::Str { hs, delete } => {
+                setter.push(format!("withAzStringArg v $ \\__vp -> {wx} self $ \\p -> do"));
+                setter.push(format!(">let __fp = {fp}"));
+                setter.push(format!(">{delete} __fp"));
+                setter.push(format!(">copyBytes __fp __vp (sizeOf (undefined :: {hs}))"));
+            }
+            FieldShape::Wrapper { hs, delete, .. } => {
+                // A POD wrapper is copied, so a borrowed one can be stored.
+                let bracket = if delete.is_some() { "move" } else { "with" };
+                setter.push(format!("{bracket}{hs} v $ \\__vp -> {wx} self $ \\p -> do"));
+                setter.push(format!(">let __fp = {fp}"));
+                release(delete, &mut setter);
+                setter.push(format!(">copyBytes __fp __vp (sizeOf (undefined :: T.{hs}))"));
+            }
+            FieldShape::Value { delete, .. } => {
+                setter.push(format!("{wx} self $ \\p -> do"));
+                setter.push(format!(">let __fp = {fp}"));
+                release(delete, &mut setter);
+                setter.push(">poke __fp v".to_string());
+            }
+        }
+
+        let mut emit = |verb: &str, sig: String, params: &str, body: &[String], what: &str| -> bool {
+            let full = format!("{}{}{}", class_prefix, pascal(verb), field);
+            if ctx.is_taken(module, &full) {
+                return false;
+            }
+            let full = ctx.unique_name(module, &full);
+            let what = what.replace("{}", &f.name);
+            b.line(&format!("-- | {}", what));
+            b.line(&format!("{} :: {}", full, sig));
+            b.line(&format!("{} {} = do", full, params));
+            b.indent();
+            for line in body {
+                match line.strip_prefix('>') {
+                    Some(inner) => {
+                        b.indent();
+                        b.line(inner);
+                        b.dedent();
+                    }
+                    None => b.line(line),
+                }
+            }
+            b.dedent();
+            b.blank();
+            let mut d = vec![what.clone()];
+            d.extend(doc.iter().cloned());
+            ctx.record_alias(&s.name, &full, &format!("{}{}", verb, field), &d);
+            emitted_any = true;
+            true
+        };
+        if let Some(body) = getter {
+            emit(
+                "get",
+                format!("{} -> IO {}", w, paren(&user_ty)),
+                "self",
+                &body,
+                "A copy of the @{}@ field.",
+            );
+        }
+        emit(
+            "set",
+            format!("{} -> {} -> IO ()", paren(&user_ty), w),
+            "v self",
+            &setter,
+            "Replaces the @{}@ field (the old value is released).",
+        );
+        let mut builder = setter.clone();
+        builder.push("pure self".to_string());
+        emit(
+            "with",
+            format!("{} -> {} -> IO {}", paren(&user_ty), w, w),
+            "v self",
+            &builder,
+            "Replaces the @{}@ field and returns the handle, for builder chains.",
+        );
+    }
+    if emitted_any {
+        ctx.set_home(&s.name, module);
     }
 }
 
