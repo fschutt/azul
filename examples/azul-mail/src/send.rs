@@ -2899,64 +2899,13 @@ mod tests {
 
     // ---- the real client against a sink on this computer ----
 
-    /// What a one-shot SMTP sink on 127.0.0.1 saw.
-    #[derive(Debug, Default)]
-    struct SinkSession {
-        commands: Vec<String>,
-        message: String,
-    }
-
-    fn spawn_sink() -> (u16, std::sync::mpsc::Receiver<SinkSession>) {
-        use std::io::{BufRead, BufReader, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let Ok((stream, _)) = listener.accept() else {
-                return;
-            };
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
-            let mut out = stream.try_clone().unwrap();
-            let mut reader = BufReader::new(stream);
-            let mut session = SinkSession::default();
-            let _ = out.write_all(b"220 sink ESMTP\r\n");
-            loop {
-                let mut line = String::new();
-                if reader.read_line(&mut line).unwrap_or(0) == 0 {
-                    break;
-                }
-                let line = line.trim_end().to_string();
-                session.commands.push(line.clone());
-                let upper = line.to_ascii_uppercase();
-                let answer: &[u8] = if upper.starts_with("EHLO") {
-                    b"250-sink\r\n250 8BITMIME\r\n"
-                } else if upper == "DATA" {
-                    let _ = out.write_all(b"354 go ahead\r\n");
-                    loop {
-                        let mut l = String::new();
-                        if reader.read_line(&mut l).unwrap_or(0) == 0 || l == ".\r\n" {
-                            break;
-                        }
-                        session.message.push_str(l.strip_prefix('.').unwrap_or(&l));
-                    }
-                    b"250 queued\r\n"
-                } else if upper == "QUIT" {
-                    let _ = out.write_all(b"221 bye\r\n");
-                    break;
-                } else {
-                    b"250 OK\r\n"
-                };
-                let _ = out.write_all(answer);
-            }
-            let _ = tx.send(session);
-        });
-        (port, rx)
-    }
-
     #[test]
     fn send_mail_delivers_through_a_local_smtp_server_and_files_the_mail_in_sent() {
         let dir = TempDir::new("send");
-        let (port, rx) = spawn_sink();
+        let (port, rx) = crate::testutil::spawn_smtp_sink(crate::testutil::SinkScript {
+            ehlo: vec![String::from("8BITMIME")],
+            ..crate::testutil::SinkScript::default()
+        });
         let settings = SendSettings {
             route: SendRoute::Smtp {
                 host: "127.0.0.1".to_string(),

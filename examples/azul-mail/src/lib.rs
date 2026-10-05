@@ -46,6 +46,7 @@ pub mod sample;
 pub mod send;
 pub mod sending;
 pub mod store;
+pub mod submit;
 pub mod sync;
 pub mod todo;
 mod ui_account;
