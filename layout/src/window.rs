@@ -8005,14 +8005,20 @@ impl LayoutWindow {
         if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
-        } else {
+        } else if !crate::probe::Probe::drained_by_its_caller() {
             // Recording can be on without the cpu report consuming it (e.g.
-            // AZ_PROFILE=memory records RSS checkpoints; a debug server could
-            // flip `set_recording` at runtime). Whatever buffered this pass
-            // and was not drained above must be discarded HERE or it
-            // accumulates for the life of the thread — the exact leak the
+            // AZ_PROFILE=memory records RSS checkpoints). Whatever buffered
+            // this pass and was not drained above must be discarded HERE or
+            // it accumulates for the life of the thread — the exact leak the
             // probe recording gate exists to prevent. Clearing an empty Vec
             // is a no-op, so the plain-run cost is nil.
+            //
+            // Not when a caller switched recording on and drains the buffer
+            // itself (`Probe::set_recording(true)`: the telemetry bridge, a
+            // test counting a frame's spans): this used to empty it under
+            // them at the end of every DOM's pass, so the telemetry phase
+            // histogram never saw a layout span, and a test draining after
+            // a relayout read nothing at all.
             crate::probe::Probe::drop_events();
         }
 
