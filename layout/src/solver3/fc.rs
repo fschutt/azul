@@ -15422,4 +15422,45 @@ mod window_layout_tests {
              {item_top}"
         );
     }
+
+    /// `body(0) > div.root(1) > [div.mover(2), div.after(3)]`.
+    fn a_block_above_a_block() -> Dom {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        Dom::create_body().with_child(
+            div("root")
+                .with_child(div("mover"))
+                .with_child(div("after")),
+        )
+    }
+
+    #[test]
+    fn a_block_moves_with_its_own_margin_after_a_restyle() {
+        // LAYOUTPERF8 bug B (scripts/layoutperf8_e2e/a_block_moves_with_its_own_margin.json):
+        // a stylesheet change of a block's own margin-left (0 -> 40px) moves
+        // it to x = 40, where a fresh layout of the page puts it. It stayed
+        // at 0: the node was a clean CLONE carrying the box props of the OLD
+        // cascade, the css-dirty channel only marked it dirty, and a dirty
+        // block root is re-solved in its old slot.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let base = "body { margin: 0; } .mover { width: 50px; height: 20px; } .after { height: \
+                    20px; }";
+        restyled(
+            &mut lw,
+            a_block_above_a_block,
+            &format!("{base} .mover {{ margin-left: 0px; }}"),
+            &format!("{base} .mover {{ margin-left: 40px; }}"),
+        );
+        let mover = position_of(&lw, 2);
+        assert!(
+            (mover.x - 40.0).abs() < 0.5,
+            "the block moved with its margin: {mover:?}"
+        );
+        let after = position_of(&lw, 3);
+        assert!(
+            after.x.abs() < 0.5 && (after.y - 20.0).abs() < 0.5,
+            "the block below stays in its slot: {after:?}"
+        );
+    }
 }
