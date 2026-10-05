@@ -15463,4 +15463,37 @@ mod window_layout_tests {
             "the block below stays in its slot: {after:?}"
         );
     }
+
+    #[test]
+    fn an_empty_inline_with_padding_is_as_tall_as_its_strut() {
+        // `body(0) > div.p(1) > span.e(2)`, the span empty and padded. CSS
+        // 2.2 10.8.1: an inline box with no glyphs holds a strut - it is
+        // line-height tall and straddles the baseline like the line's own
+        // strut; its vertical padding and borders do not count in the line
+        // box. Chrome: 18. It was a line-height + padding tall box sitting
+        // ON the baseline: 18 + 8 above the baseline plus the strut's
+        // descent below it (the brief's 27.2 with `line-height: normal`).
+        // Font-free: both struts take the 0.8em / 0.2em fallback split.
+        let page = || {
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into())
+                    .with_child(
+                        Dom::create_span()
+                            .with_ids_and_classes(vec![IdOrClass::Class("e".into())].into()),
+                    ),
+            )
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; } .p { font-size: 16px; line-height: 18px; } .e { padding: \
+                 4px; }",
+            ),
+        );
+        let h = size_of(&lw, 1).height;
+        assert!((h - 18.0).abs() < 0.5, "the line is its strut's 18px: {h}");
+    }
 }
