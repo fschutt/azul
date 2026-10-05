@@ -86,6 +86,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     //     :azul-internal alongside the regular defcfuns.
     managed::emit_internal_bindings(&mut builder, ir);
 
+    // 5c. By-value translation of the wrapped classes: a returned value is
+    //     boxed into a fresh foreign buffer (the CLOS wrapper's storage),
+    //     and a foreign pointer is accepted wherever one is passed by value.
+    wrappers::emit_internal_boxing(&mut builder, ir, config);
+
     // 6. CLOS wrappers in :azul
     builder.blank();
     builder.line("(in-package :azul)");

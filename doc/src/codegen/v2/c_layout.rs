@@ -425,6 +425,21 @@ fn fields_layout<'a>(
     Some(AbiLayout::new(align_to(off, align), align))
 }
 
+/// The byte offset of every field in `fields`, laid out as the matching
+/// azul.h struct (what C's `offsetof` gives). For bindings that address a
+/// field inside a handle's buffer without a native offset operator.
+pub(crate) fn field_offsets(fields: &[FieldDef], ir: &CodegenIR) -> Option<Vec<usize>> {
+    let mut off = 0usize;
+    let mut out = Vec::with_capacity(fields.len());
+    for f in fields {
+        let l = member_layout(&f.type_name, f.ref_kind, ir, 0)?;
+        off = align_to(off, l.align);
+        out.push(off);
+        off += l.size;
+    }
+    Some(out)
+}
+
 fn member_layout(
     type_name: &str,
     ref_kind: FieldRefKind,

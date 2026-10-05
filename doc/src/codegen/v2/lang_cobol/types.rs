@@ -19,6 +19,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::{self, type_layout},
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -66,17 +67,28 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     )
 }
 
-fn emit_skipped(builder: &mut CodeBuilder, name: &str, reason: &str) {
+fn emit_skipped(builder: &mut CodeBuilder, name: &str, reason: &str, ir: &CodegenIR) {
     builder.line(&format!(
         "*> SKIPPED: {} ({})",
         cobol_identifier(name),
         reason
     ));
-    // Still emit an opaque TYPEDEF (USAGE POINTER) so struct fields
-    // referencing the skipped type by `USAGE TYAZ-<NAME>` resolve.
-    // The codegen has no layout for these — callers see them as
-    // opaque handles.
+    // A skipped type can still sit BY VALUE inside an emitted record (every
+    // Vec holds its destructor union): give it its exact C size as an
+    // opaque blob, so the records around it keep their offsets.
     let typedef = cobol_identifier(&format!("TYAZ-{}", to_cobol_case(name)));
+    if let Some(layout) = type_layout(name, ir) {
+        builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
+        builder.line(&format!(
+            "           05  FILLER                   PIC X({}).",
+            layout.size.max(1)
+        ));
+        builder.blank();
+        return;
+    }
+    // No C layout (a generic template): still emit an opaque TYPEDEF
+    // (USAGE POINTER) so struct fields referencing the skipped type by
+    // `USAGE TYAZ-<NAME>` resolve. Callers see them as opaque handles.
     builder.line(&format!(
         "       01  {:<28} USAGE POINTER IS TYPEDEF.",
         typedef
@@ -100,7 +112,7 @@ pub fn generate_enum_constants(
 
     for e in &ir.enums {
         if !should_include_enum(e, config) {
-            emit_skipped(builder, &e.name, e.category.description());
+            emit_skipped(builder, &e.name, e.category.description(), ir);
             continue;
         }
         if e.is_union {
@@ -170,7 +182,7 @@ pub fn generate_records(
     let mut items: Vec<(usize, Item)> = Vec::new();
     for s in &ir.structs {
         if !should_include_struct(s, config) {
-            emit_skipped(builder, &s.name, s.category.description());
+            emit_skipped(builder, &s.name, s.category.description(), ir);
             continue;
         }
         items.push((s.sort_order, Item::Struct(s)));
@@ -223,8 +235,81 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     }
 
     builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
-    for f in &s.fields {
+    emit_laid_out_fields(builder, &s.name, &s.fields, ir);
+    builder.blank();
+}
+
+/// The `05` fields of a record at their azul.h offsets. A COBOL group is
+/// byte-packed - nothing aligns a field - so every gap C's alignment
+/// leaves (and the tail up to the C size) is an explicit `FILLER`; the
+/// offsets and sizes come from `c_layout`, the numbers azul.h has.
+fn emit_laid_out_fields(
+    builder: &mut CodeBuilder,
+    name: &str,
+    fields: &[FieldDef],
+    ir: &CodegenIR,
+) {
+    let offsets = c_layout::field_offsets(fields, ir);
+    let mut cur = 0usize;
+    for (i, f) in fields.iter().enumerate() {
+        if let Some(off) = offsets.as_ref().map(|o| o[i]) {
+            emit_filler(builder, off.saturating_sub(cur));
+            cur = off;
+        }
         emit_field(builder, f, ir, "05");
+        // An unknown layout is emitted as a POINTER (`pic_for_type`).
+        cur += member_size(f, ir).unwrap_or(8);
+    }
+    if let (Some(_), Some(total)) = (offsets, type_layout(name, ir)) {
+        emit_filler(builder, total.size.saturating_sub(cur));
+    }
+}
+
+/// `n` bytes of `FILLER` (nothing for 0).
+fn emit_filler(builder: &mut CodeBuilder, n: usize) {
+    if n > 0 {
+        builder.line(&format!(
+            "           05  FILLER                   PIC X({}).",
+            n
+        ));
+    }
+}
+
+/// The C size of one field (a pointer for every non-owned ref kind).
+fn member_size(f: &FieldDef, ir: &CodegenIR) -> Option<usize> {
+    match f.ref_kind {
+        FieldRefKind::Owned => type_layout(&f.type_name, ir).map(|l| l.size),
+        _ => Some(8),
+    }
+}
+
+/// A tagged union's record: the tag at its C width, the padding up to
+/// where Rust puts every payload, and the payload bytes up to the union's
+/// C size (`c_layout::union_payload_layout`). The payload is raw bytes -
+/// a variant is read by MOVEing them into that variant's record.
+fn emit_union_record(builder: &mut CodeBuilder, name: &str, typedef: &str, ir: &CodegenIR) {
+    builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
+    let anchor_name = cobol_identifier("PAYLOAD-ANCHOR");
+    let Some(u) = c_layout::union_payload_layout(name, ir) else {
+        // No C layout: the old shape (an int tag and a 64-byte payload).
+        builder.line("           05  TAG                      USAGE BINARY-LONG.");
+        builder.line(&format!("           05  {:<24} PIC X(64).", anchor_name));
+        builder.blank();
+        return;
+    };
+    if u.tag.size == 1 {
+        builder.line("           05  TAG                      USAGE BINARY-CHAR UNSIGNED.");
+    } else {
+        builder.line("           05  TAG                      USAGE BINARY-LONG.");
+    }
+    let payload_at = u.payload_offset.max(u.tag.size);
+    emit_filler(builder, payload_at - u.tag.size);
+    let payload = u.abi.size.saturating_sub(payload_at);
+    if payload > 0 {
+        builder.line(&format!(
+            "           05  {:<24} PIC X({}).",
+            anchor_name, payload
+        ));
     }
     builder.blank();
 }
@@ -299,9 +384,7 @@ fn emit_monomorphized_alias(
                 return;
             }
             builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
-            for f in fields {
-                emit_field(builder, f, ir, "05");
-            }
+            emit_laid_out_fields(builder, &ta.name, fields, ir);
             builder.blank();
         }
 
@@ -321,17 +404,7 @@ fn emit_monomorphized_alias(
                 builder.line(&format!("       78  {} VALUE {}.", full, idx));
             }
             builder.blank();
-            builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
-            builder.line("           05  TAG                      USAGE BINARY-LONG.");
-            // 64-byte raw payload — wide enough for any of the variants
-            // we currently emit. We don't emit per-variant typed accessors
-            // because their padded sizes are hard to compute portably;
-            // users access TAG to discriminate and read the raw bytes
-            // here for the actual payload.
-            let _ = variants;
-            let anchor_name = cobol_identifier("PAYLOAD-ANCHOR");
-            builder.line(&format!("           05  {:<24} PIC X(64).", anchor_name));
-            builder.blank();
+            emit_union_record(builder, &ta.name, &typedef, ir);
         }
     }
 }
@@ -360,20 +433,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     }
     builder.blank();
 
-    builder.line(&format!("       01  {} IS TYPEDEF.", typedef));
-    builder.line("           05  TAG                      USAGE BINARY-LONG.");
-
-    // 64-byte raw anchor — wide enough for every variant payload we
-    // currently emit (largest in practice is ~32 bytes for a Vec
-    // descriptor). Per-variant typed accessors are tricky here because
-    // each REDEFINES must be ≤ anchor size and computing variant sizes
-    // portably is brittle, so users discriminate via TAG and read the
-    // payload bytes directly. Bump if a variant ever needs more.
-    let _ = ir;
-    let _ = e.variants.len();
-    let anchor_name = cobol_identifier("PAYLOAD-ANCHOR");
-    builder.line(&format!("           05  {:<24} PIC X(64).", anchor_name));
-    builder.blank();
+    emit_union_record(builder, &e.name, &typedef, ir);
 }
 
 // ============================================================================
@@ -552,8 +612,12 @@ pub fn pic_for_type(rust_type: &str, ir: &CodegenIR) -> String {
         "f64" | "GLdouble" | "GLclampd" => "USAGE COMP-2".to_string(),
 
         // Pointer-sized integers / size_t -> POINTER for portability
-        "usize" | "size_t" | "uintptr_t" | "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr"
-        | "GLintptr" => "USAGE POINTER".to_string(),
+        // A pointer-sized NUMBER, not an address: 8 bytes on the 64-bit
+        // ABI (`c_layout`), and arithmetic works on it.
+        "usize" | "size_t" | "uintptr_t" => "USAGE BINARY-DOUBLE UNSIGNED".to_string(),
+        "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => {
+            "USAGE BINARY-DOUBLE".to_string()
+        }
 
         // Named types: assume IR type; fall back to USAGE POINTER if
         // the type isn't a known struct/enum/alias/callback.
@@ -569,5 +633,160 @@ pub fn pic_for_type(rust_type: &str, ir: &CodegenIR) -> String {
                 "USAGE POINTER".to_string()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{
+        super::super::{bug_classes::ir, c_layout::type_layout, config::CodegenConfig},
+        cobol_identifier, should_include_enum, should_include_struct, to_cobol_case,
+    };
+
+    fn cpy() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// Every `01 TYAZ-* ... TYPEDEF` of the copybook: a group's `05` lines,
+    /// or the one-line definition's USAGE clause.
+    fn typedefs() -> &'static BTreeMap<String, Vec<String>> {
+        static DEFS: std::sync::OnceLock<BTreeMap<String, Vec<String>>> =
+            std::sync::OnceLock::new();
+        DEFS.get_or_init(|| {
+            let mut out = BTreeMap::new();
+            let lines: Vec<&str> = cpy().lines().collect();
+            for (i, l) in lines.iter().enumerate() {
+                let Some(rest) = l.strip_prefix("       01  ") else {
+                    continue;
+                };
+                if !rest.contains("TYPEDEF") {
+                    continue;
+                }
+                let name = rest.split_whitespace().next().unwrap().to_string();
+                let body: Vec<String> =
+                    if rest.trim_end().ends_with("IS TYPEDEF.") && !rest.contains("USAGE") {
+                        lines[i + 1..]
+                        .iter()
+                        // A field's doc comment sits between the fields.
+                        .take_while(|l| {
+                            l.starts_with("           05  ") || l.trim_start().starts_with("*>")
+                        })
+                        .filter(|l| l.starts_with("           05  "))
+                        .map(|l| l.to_string())
+                        .collect()
+                    } else {
+                        vec![rest.to_string()]
+                    };
+                out.insert(name, body);
+            }
+            out
+        })
+    }
+
+    /// Bytes one data description occupies (GnuCOBOL, 64-bit).
+    fn clause_size(clause: &str) -> usize {
+        let base = if let Some(p) = clause.find("PIC X(") {
+            let n = &clause[p + 6..];
+            n[..n.find(')').unwrap()].parse::<usize>().unwrap()
+        } else if let Some(p) = clause.find("USAGE TYAZ-") {
+            let name: String = clause[p + 6..]
+                .chars()
+                .take_while(|c| !c.is_whitespace() && *c != '.')
+                .collect();
+            typedef_size(&name)
+        } else if clause.contains("BINARY-CHAR") {
+            1
+        } else if clause.contains("BINARY-SHORT") {
+            2
+        } else if clause.contains("BINARY-LONG") || clause.contains("COMP-1") {
+            4
+        } else if clause.contains("BINARY-DOUBLE")
+            || clause.contains("COMP-2")
+            || clause.contains("POINTER")
+        {
+            8
+        } else {
+            panic!("unknown size: `{clause}`")
+        };
+        let times = clause
+            .find("OCCURS ")
+            .map(|p| {
+                clause[p + 7..]
+                    .split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+            })
+            .unwrap_or(1);
+        base * times
+    }
+
+    fn typedef_size(name: &str) -> usize {
+        let body = typedefs()
+            .get(name)
+            .unwrap_or_else(|| panic!("no typedef {name}"));
+        body.iter().map(|l| clause_size(l)).sum()
+    }
+
+    fn tyaz(name: &str) -> String {
+        cobol_identifier(&format!("TYAZ-{}", to_cobol_case(name)))
+    }
+
+    #[test]
+    fn every_record_is_exactly_its_c_size() {
+        let config = CodegenConfig::c_header();
+        let mut names: Vec<&str> = ir()
+            .structs
+            .iter()
+            .filter(|s| should_include_struct(s, &config))
+            .map(|s| s.name.as_str())
+            .collect();
+        names.extend(
+            ir().enums
+                .iter()
+                .filter(|e| e.is_union && should_include_enum(e, &config))
+                .map(|e| e.name.as_str()),
+        );
+        let mut wrong = Vec::new();
+        for n in names {
+            let Some(layout) = type_layout(n, ir()) else {
+                continue;
+            };
+            let size = typedef_size(&tyaz(n));
+            if size != layout.size {
+                wrong.push(format!("{n}: {size} bytes, C has {}", layout.size));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "{} records:\n{}",
+            wrong.len(),
+            wrong.join("\n")
+        );
+    }
+
+    #[test]
+    fn a_tagged_union_is_its_tag_padding_and_payload_not_a_64_byte_blob() {
+        let body = &typedefs()[&tyaz("OptionU32")];
+        assert!(!body.iter().any(|l| l.contains("PIC X(64)")), "{body:?}");
+    }
+
+    #[test]
+    fn a_usize_field_is_a_64_bit_number_not_a_pointer() {
+        let s = ir()
+            .structs
+            .iter()
+            .find(|s| s.fields.iter().any(|f| f.type_name == "usize"))
+            .unwrap();
+        let body = &typedefs()[&tyaz(&s.name)];
+        assert!(
+            body.iter()
+                .any(|l| l.contains("USAGE BINARY-DOUBLE UNSIGNED")),
+            "{body:?}"
+        );
     }
 }
