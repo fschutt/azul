@@ -23,7 +23,6 @@ use azul::{
         ShellNavigationPaneEvent, ShellNavigationPaneEventKind, ShellThemeAccent, ShellThemeScope,
     },
     str::String as AzString,
-    vec::StringVec,
     widgets::{
         Avatar, AvatarSize, ButtonType, CloseGuard, CloseGuardDocumentState, CloseGuardEvent,
         CloseGuardEventKind, DropDown, OnTextInputReturn, StatusBar, StatusBarSegment, Switch,
@@ -44,70 +43,12 @@ use crate::vault::{sections, Kind, Scope, Vault};
 
 // ==== Small pieces ====
 
-pub(crate) fn strs(items: &[&str]) -> StringVec {
-    StringVec::from_vec(items.iter().map(|s| AzString::from(*s)).collect())
-}
-
-pub(crate) fn text<S: Into<AzString>>(content: S) -> Dom {
-    Dom::create_span_with_text(content)
-}
-
-pub(crate) fn block(css: &str, child: Dom) -> Dom {
-    Dom::create_div().with_css(css).with_child(child)
-}
-
-pub(crate) fn column(css: &str, children: Vec<Dom>) -> Dom {
-    Dom::create_div()
-        .with_css(format!("display: flex; flex-direction: column; {css}"))
-        .with_children(DomVec::from_vec(children))
-}
-
-pub(crate) fn row(css: &str, children: Vec<Dom>) -> Dom {
-    Dom::create_div()
-        .with_css(format!(
-            "display: flex; flex-direction: row; align-items: center; {css}"
-        ))
-        .with_children(DomVec::from_vec(children))
-}
-
-pub(crate) fn button(
-    label: &str,
-    id: AzString,
-    app: &RefAny,
-    cb: ButtonOnClickCallbackType,
-) -> Dom {
-    Button::create(label)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-}
-
-pub(crate) fn icon_button(
-    label: &str,
-    icon: &str,
-    id: AzString,
-    app: &RefAny,
-    cb: ButtonOnClickCallbackType,
-) -> Dom {
-    Button::create(label)
-        .with_icon(icon)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-}
-
-pub(crate) fn primary(
-    label: &str,
-    id: AzString,
-    app: &RefAny,
-    cb: ButtonOnClickCallbackType,
-) -> Dom {
-    Button::create(label)
-        .with_button_type(ButtonType::Primary)
-        .with_on_click(app.clone(), cb)
-        .dom()
-        .with_id(id)
-}
+// The pieces every Azlin app shares (azul_appkit::pieces). `row` is the name ui_item.rs
+// imports; the shared one is `flex_row` (appkit's `ui::row` is the settings row).
+pub(crate) use azul_appkit::pieces::flex_row as row;
+pub(crate) use azul_appkit::pieces::{
+    block, button, column, flex_row, icon_button, primary, strs, text,
+};
 
 /// A line of secondary text.
 pub(crate) fn note(content: &str) -> Dom {
@@ -128,7 +69,7 @@ pub(crate) fn problem(content: &str, id: AzString) -> Dom {
 
 /// A labelled form row.
 pub(crate) fn form_row(label: &str, control: Dom) -> Dom {
-    row(
+    flex_row(
         "padding: 4px 0px;",
         vec![
             block(
@@ -148,7 +89,7 @@ pub(crate) fn strength_bar(password: &str, id: AzString) -> Dom {
     } else {
         format!("{} (~{:.0} bits)", Strength::of_bits(bits).label(), bits)
     };
-    row(
+    flex_row(
         "padding: 2px 0px;",
         vec![
             block(
@@ -363,7 +304,7 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
             on_unlock_device,
         ));
     }
-    children.push(row("gap: 8px; padding: 8px 0px 4px 110px;", buttons));
+    children.push(flex_row("gap: 8px; padding: 8px 0px 4px 110px;", buttons));
     let message = if wait > 0 {
         s.attempts.message(t)
     } else {
@@ -384,7 +325,7 @@ fn unlock_screen(s: &KeysApp, app: &RefAny) -> Dom {
             .with_id(ids::UNLOCK_HINT),
         );
     }
-    children.push(row(
+    children.push(flex_row(
         "padding-top: 16px;",
         vec![icon_button(
             "New vault",
@@ -537,7 +478,7 @@ fn create_screen(s: &KeysApp, app: &RefAny) -> Dom {
     if !s.vaults.is_empty() {
         buttons.push(button("Cancel", ids::CREATE_CANCEL, app, on_create_cancel));
     }
-    children.push(row("gap: 8px; padding: 8px 0px 4px 110px;", buttons));
+    children.push(flex_row("gap: 8px; padding: 8px 0px 4px 110px;", buttons));
     if !s.create.message.is_empty() {
         children.push(problem(&s.create.message, ids::CREATE_MESSAGE));
     }
@@ -833,7 +774,7 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
             text("\u{2605}"),
         ));
     }
-    row(
+    flex_row(
         &format!(
             "padding: 4px 8px; cursor: pointer; {}",
             if selected {
@@ -910,7 +851,7 @@ extern "C" fn on_search(
 }
 
 fn toolbar(app: &RefAny) -> Dom {
-    row(
+    flex_row(
         "gap: 4px; padding: 4px 8px;",
         vec![
             icon_button("New", "add", ids::TOOLBAR_NEW, app, on_new),
