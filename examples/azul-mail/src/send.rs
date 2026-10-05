@@ -1697,6 +1697,7 @@ mod tests {
                 domain: "example.org".to_string(),
                 selector: "azmail".to_string(),
                 key_file: Some(key_file),
+                public_key: String::new(),
             }),
             ..SendSettings::default()
         };
@@ -1712,6 +1713,7 @@ mod tests {
                 domain: "example.org".to_string(),
                 selector: "azmail".to_string(),
                 key_file: None,
+                public_key: String::new(),
             }),
             dkim_key: Some(Secret::new(TEST_KEY.to_string())),
             ..SendSettings::default()
