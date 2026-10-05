@@ -2090,6 +2090,7 @@ pub fn generate_header_comment(standard: CppStandard) -> String {
          signatures\r\n",
     );
     code.push_str("//\r\n");
+    code.push_str(&field_accessor_docs(standard));
 
     code
 }
@@ -3118,5 +3119,443 @@ pub fn generate_freefn_trait_helpers(
         }
         code.push_str("\r\n");
     }
+    code
+}
+
+// ============================================================================
+// Field accessors: `get_<field>()` / `set_<field>(v)` on the wrapper classes
+// ============================================================================
+//
+// WHY THIS EXISTS
+// ---------------
+// A wrapper class holds its C struct privately; the only way to a field was
+// `inner()`, a reference to the raw struct. Writing a heap-owning field
+// through it leaked the old value (`opts.inner().window_state.title =
+// AzString_fromUtf8(..)` never freed the old title), and copying one out of
+// it aliased the parent's heap memory (`String t(opts.inner().title)` freed
+// the title twice). The accessors below are the safe spelling:
+//
+//   - a getter returns an INDEPENDENT value: a scalar, a `std::string` decoded
+//     from a String field (the field is not consumed), a deep copy through
+//     `Az<T>_clone` for a heap-owning type (no `_clone` -> no getter, never a
+//     shallow copy), a plain copy for a POD;
+//   - a setter frees the field's old value (`Az<T>_delete`, only for a type
+//     that has one), then MOVES the new value in - a wrapper argument is taken
+//     by value and `release()`d, so its destructor does not free it again.
+//
+// Getters return copies, so a nested write is read-modify-write. In C++11
+// and later every setter is `&`-qualified: `opts.get_window_state().set_title(
+// "x")` - a write into a temporary that would silently go nowhere - does not
+// compile. C++03 has no ref-qualifiers; its wrapper getters return a `const`
+// copy instead, which a (non-const) setter cannot be called on either.
+//
+// An api.json method of the same name wins (`TextInputState::get_text()`);
+// the field keeps its other accessor. Callback, callback-wrapper and RefAny
+// fields are wired by the callback plumbing and get none; neither do pointer,
+// array and generic fields.
+
+/// How one field of a wrapper class is read and written.
+enum CppFieldShape {
+    /// A C scalar, read and written in place.
+    Prim { c_ty: String },
+    /// The String class: read as `std::string` (C++11+) or a deep-copied
+    /// `String` (C++03), written as a moved-in `String`.
+    Str {
+        class: String,
+        delete: String,
+        clone: Option<String>,
+    },
+    /// A type with its own wrapper class.
+    Wrapper {
+        class: String,
+        delete: Option<String>,
+        clone: Option<String>,
+        proxy03: bool,
+    },
+    /// A raw C value (unit enum, tagged union, typedef'd empty struct,
+    /// monomorphized alias): typed by its C name, the same way the methods
+    /// that take or return one spell it.
+    Raw {
+        c_ty: String,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
+}
+
+/// The C symbol of `class`'s function of `kind` (`Az<T>_delete`,
+/// `Az<T>_clone`), when the IR exports one.
+fn class_fn_of(ir: &CodegenIR, class: &str, kind: FunctionKind) -> Option<String> {
+    ir.functions
+        .iter()
+        .find(|f| f.class_name == class && f.kind == kind)
+        .map(|f| f.c_name.clone())
+}
+
+/// Is `t` a callback typedef, a callback wrapper, a RefAny, or an Option of
+/// one - a field the callback plumbing owns.
+fn is_callback_or_refany_field(t: &str, ir: &CodegenIR) -> bool {
+    if t.contains("RefAny") || ir.callback_typedefs.iter().any(|c| c.name == t) {
+        return true;
+    }
+    if let Some(s) = ir.find_struct(t) {
+        if s.callback_wrapper_info.is_some()
+            || matches!(
+                s.category,
+                TypeCategory::RefAny
+                    | TypeCategory::CallbackDataPair
+                    | TypeCategory::CallbackTypedef
+                    | TypeCategory::DestructorOrClone
+            )
+        {
+            return true;
+        }
+    }
+    if let Some(e) = ir.find_enum(t) {
+        if matches!(
+            e.category,
+            TypeCategory::CallbackTypedef | TypeCategory::DestructorOrClone
+        ) {
+            return true;
+        }
+        if let Some(inner) = get_option_inner_from_enum(e) {
+            return inner != t && is_callback_or_refany_field(&inner, ir);
+        }
+    }
+    false
+}
+
+/// Does the wrapper class for `s` get field accessors at all? Only the
+/// ordinary data classes: a String / Vec / Option / Result wrapper has its
+/// own API over its representation (`setLen` on a Vec would be a footgun),
+/// and a callback wrapper is set through the callback plumbing.
+fn class_gets_field_accessors(s: &StructDef) -> bool {
+    matches!(s.category, TypeCategory::Regular | TypeCategory::Recursive)
+        && s.callback_wrapper_info.is_none()
+        && s.generic_params.is_empty()
+        && !should_skip_class(s)
+        && !renders_as_type_alias(s)
+}
+
+fn cpp_field_shape(f: &FieldDef, ir: &CodegenIR, config: &CodegenConfig) -> Option<CppFieldShape> {
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.is_empty() || t.contains(|c: char| matches!(c, '<' | '[' | '*' | '&' | ' ')) {
+        return None;
+    }
+    if is_primitive(t) {
+        if matches!(t, "c_void" | "()") {
+            return None;
+        }
+        return Some(CppFieldShape::Prim {
+            c_ty: primitive_to_c(t),
+        });
+    }
+    if !config.should_include_type(t) || is_callback_or_refany_field(t, ir) {
+        return None;
+    }
+    let st = ir.find_struct(t);
+    // A VecRef borrows the caller's buffer; Boxed is an internal heap pointer.
+    if st.is_some_and(|s| {
+        matches!(
+            s.category,
+            TypeCategory::VecRef | TypeCategory::Boxed | TypeCategory::GenericTemplate
+        ) || !s.generic_params.is_empty()
+    }) {
+        return None;
+    }
+    let delete = class_fn_of(ir, t, FunctionKind::Delete);
+    let clone = class_fn_of(ir, t, FunctionKind::DeepCopy);
+    if st.is_some_and(|s| matches!(s.category, TypeCategory::String)) {
+        return Some(CppFieldShape::Str {
+            class: t.to_string(),
+            delete: delete?,
+            clone,
+        });
+    }
+    if type_has_wrapper(t, ir) {
+        // The wrapper's destructor calls `_delete` exactly when the type
+        // needs one; never let the field setter disagree with it.
+        let delete = delete.or_else(|| {
+            st.filter(|s| needs_destructor(s))
+                .map(|_| format!("{}_delete", config.apply_prefix(t)))
+        });
+        return Some(CppFieldShape::Wrapper {
+            class: t.to_string(),
+            delete,
+            clone,
+            proxy03: type_needs_proxy_for_cpp03(t, ir),
+        });
+    }
+    let nameable = st.is_some()
+        || ir.find_enum(t).is_some_and(|e| e.generic_params.is_empty())
+        || ir.find_type_alias(t).is_some_and(|ta| {
+            ta.monomorphized_def.is_some() || !(ta.target.contains('<') || ta.target.contains('>'))
+        });
+    if !nameable {
+        return None;
+    }
+    Some(CppFieldShape::Raw {
+        c_ty: config.apply_prefix(t),
+        delete,
+        clone,
+    })
+}
+
+/// The member names a class already declares, which a field accessor must
+/// not redeclare: its api.json functions plus the hand-written members.
+fn class_member_names(class: &str, ir: &CodegenIR) -> std::collections::BTreeSet<String> {
+    let mut names: std::collections::BTreeSet<String> = ir
+        .functions
+        .iter()
+        .filter(|f| f.class_name == class && f.kind != FunctionKind::Delete)
+        .map(|f| escape_method_name(&f.method_name))
+        .collect();
+    for n in ["inner", "ptr", "release", "clone"] {
+        names.insert(n.to_string());
+    }
+    names
+}
+
+/// One accessor: its in-class declaration and its out-of-line definition.
+struct CppAccessor {
+    decl: String,
+    def: String,
+}
+
+fn cpp_field_accessors(
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    standard: CppStandard,
+) -> Vec<CppAccessor> {
+    let mut out = Vec::new();
+    if !class_gets_field_accessors(struct_def) {
+        return out;
+    }
+    let class = &struct_def.name;
+    let taken = class_member_names(class, ir);
+    let modern = standard.has_move_semantics();
+    // `&`: a setter cannot be called on a temporary copy (C++11+).
+    let ref_q = if modern { " &" } else { "" };
+    let nodiscard = if standard >= CppStandard::Cpp17 {
+        "[[nodiscard]] "
+    } else {
+        ""
+    };
+
+    for f in &struct_def.fields {
+        let Some(shape) = cpp_field_shape(f, ir, config) else {
+            continue;
+        };
+        let m = format!(
+            "inner_.{}",
+            super::super::lang_c::escape_cpp_keyword_for_c(&f.name)
+        );
+        let getter_name = format!("get_{}", f.name);
+        let setter_name = format!("set_{}", f.name);
+
+        // Getter: (return type, body lines). `None`: no safe getter.
+        let getter: Option<(String, Vec<String>)> = match &shape {
+            CppFieldShape::Prim { c_ty } => Some((c_ty.clone(), vec![format!("return {m};")])),
+            CppFieldShape::Str { .. } if modern => Some((
+                "std::string".to_string(),
+                vec![format!(
+                    "return {m}.vec.len ? std::string(reinterpret_cast<const char*>({m}.vec.ptr), \
+                     {m}.vec.len) : std::string();"
+                )],
+            )),
+            CppFieldShape::Str {
+                class: sc,
+                clone: Some(c),
+                ..
+            } => Some((
+                format!("const {sc}"),
+                vec![
+                    format!("{sc}::Proxy _p({c}(&{m}));"),
+                    "return _p;".to_string(),
+                ],
+            )),
+            CppFieldShape::Str { clone: None, .. } => None,
+            CppFieldShape::Wrapper {
+                class: wc,
+                delete,
+                clone,
+                proxy03,
+            } => {
+                let value = match (delete, clone) {
+                    (None, _) => Some(m.clone()),
+                    (Some(_), Some(c)) => Some(format!("{c}(&{m})")),
+                    (Some(_), None) => None,
+                };
+                value.map(|v| {
+                    if modern {
+                        (wc.clone(), vec![format!("return {wc}({v});")])
+                    } else if *proxy03 {
+                        (
+                            format!("const {wc}"),
+                            vec![format!("{wc}::Proxy _p({v});"), "return _p;".to_string()],
+                        )
+                    } else {
+                        (format!("const {wc}"), vec![format!("return {wc}({v});")])
+                    }
+                })
+            }
+            CppFieldShape::Raw {
+                c_ty,
+                delete,
+                clone,
+            } => match (delete, clone) {
+                (None, _) => Some((c_ty.clone(), vec![format!("return {m};")])),
+                (Some(_), Some(c)) => Some((c_ty.clone(), vec![format!("return {c}(&{m});")])),
+                (Some(_), None) => None,
+            },
+        };
+
+        // Setters: (parameter type, body lines).
+        let release_old = |delete: &Option<String>, body: &mut Vec<String>| {
+            if let Some(d) = delete {
+                body.push(format!("{d}(&{m});"));
+            }
+        };
+        let mut setters: Vec<(String, Vec<String>)> = Vec::new();
+        match &shape {
+            CppFieldShape::Prim { c_ty } => {
+                setters.push((c_ty.clone(), vec![format!("{m} = value;")]));
+            }
+            CppFieldShape::Str {
+                class: sc, delete, ..
+            } => {
+                setters.push((
+                    sc.clone(),
+                    vec![format!("{delete}(&{m});"), format!("{m} = value.release();")],
+                ));
+                if !modern {
+                    // C++03's `String(const char*)` is explicit: spell the
+                    // conversion the C++11 headers get implicitly.
+                    setters.push((
+                        "const char*".to_string(),
+                        vec![format!("{setter_name}({sc}(value));")],
+                    ));
+                }
+            }
+            CppFieldShape::Wrapper {
+                class: wc, delete, ..
+            } => {
+                let mut body = Vec::new();
+                release_old(delete, &mut body);
+                body.push(format!("{m} = value.release();"));
+                setters.push((wc.clone(), body));
+            }
+            CppFieldShape::Raw { c_ty, delete, .. } => {
+                let mut body = Vec::new();
+                release_old(delete, &mut body);
+                body.push(format!("{m} = value;"));
+                setters.push((c_ty.clone(), body));
+            }
+        }
+
+        let render_def = |sig: String, body: &[String]| -> String {
+            let mut def = format!("inline {} {{\r\n", sig);
+            for line in body {
+                def.push_str(&format!("    {}\r\n", line));
+            }
+            def.push_str("}\r\n\r\n");
+            def
+        };
+
+        if let Some((ret, body)) = getter {
+            if !taken.contains(&getter_name) {
+                out.push(CppAccessor {
+                    decl: format!("    {nodiscard}{ret} {getter_name}() const;\r\n"),
+                    def: render_def(format!("{ret} {class}::{getter_name}() const"), &body),
+                });
+            }
+        }
+        if !taken.contains(&setter_name) {
+            for (param, body) in setters {
+                out.push(CppAccessor {
+                    decl: format!("    void {setter_name}({param} value){ref_q};\r\n"),
+                    def: render_def(
+                        format!("void {class}::{setter_name}({param} value){ref_q}"),
+                        &body,
+                    ),
+                });
+            }
+        }
+    }
+    out
+}
+
+/// The in-class declarations of `struct_def`'s field accessors (empty when
+/// the class gets none). See the section comment above.
+pub fn generate_field_accessor_decls(
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    standard: CppStandard,
+) -> String {
+    let accessors = cpp_field_accessors(struct_def, ir, config, standard);
+    if accessors.is_empty() {
+        return String::new();
+    }
+    let mut code = String::from(
+        "\r\n    // Fields: get_<field>() returns a copy (deep for heap-owning fields),\r\n    \
+         // set_<field>(v) frees the old value and takes ownership of v.\r\n",
+    );
+    for a in &accessors {
+        code.push_str(&a.decl);
+    }
+    code
+}
+
+/// The out-of-line definitions of `struct_def`'s field accessors. Emitted
+/// with the method implementations, after every class is complete (a getter
+/// returns, and a setter takes, other wrapper classes by value).
+pub fn generate_field_accessor_impls(
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    standard: CppStandard,
+) -> String {
+    cpp_field_accessors(struct_def, ir, config, standard)
+        .into_iter()
+        .map(|a| a.def)
+        .collect()
+}
+
+/// The FIELDS paragraph of the header comment: how to reach a field, and
+/// that a nested field is read-modify-write.
+fn field_accessor_docs(standard: CppStandard) -> String {
+    let mv = |v: &str| {
+        if standard.has_move_semantics() {
+            format!("std::move({v})")
+        } else {
+            v.to_string()
+        }
+    };
+    let lines = [
+        "FIELDS".to_string(),
+        "  x.get_<field>()   a copy: a scalar, a std::string for a String field".to_string(),
+        "                    (a String in C++03), a deep copy of a heap-owning one".to_string(),
+        "  x.set_<field>(v)  frees the old value, then takes ownership of v".to_string(),
+        "  A getter returns a copy, so a nested field is read-modify-write:".to_string(),
+        "      FullWindowState ws = opts.get_window_state();".to_string(),
+        "      ws.set_title(\"My App\");".to_string(),
+        "      WindowSize size = ws.get_size();".to_string(),
+        "      LogicalSize dims = size.get_dimensions();".to_string(),
+        "      dims.set_width(800);".to_string(),
+        "      size.set_dimensions(dims);".to_string(),
+        "      ws.set_size(size);".to_string(),
+        format!("      opts.set_window_state({});", mv("ws")),
+        "  Writing through a getter's copy (opts.get_window_state().set_title(..))".to_string(),
+        "  does not compile: setters are lvalue-only (C++03: getters return const).".to_string(),
+    ];
+    let mut code = String::new();
+    for l in lines {
+        code.push_str(&format!("// {}\r\n", l));
+    }
+    code.push_str("//\r\n");
     code
 }
