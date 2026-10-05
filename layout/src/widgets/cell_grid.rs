@@ -3045,14 +3045,7 @@ pub(crate) fn edit_key(
 ) -> Option<CellGridEvent> {
     use VirtualKeyCode as K;
     let view = &grid.view;
-    let mut chars: Vec<char> = view.edit_text.as_str().chars().collect();
-    let caret = (view.edit_cursor as usize).min(chars.len());
-    let edited = |chars: &[char], caret: usize| {
-        let mut next = view.clone();
-        next.edit_text = AzString::from(chars.iter().collect::<String>());
-        next.edit_cursor = caret as u32;
-        CellGridEvent::create(CellGridEventKind::EditText, next)
-    };
+    let caret = (view.edit_cursor as usize).min(view.edit_text.as_str().chars().count());
     let enter_mode = view.edit_mode == CellGridEditMode::Enter;
     let moved = |dir: Dir| commit_to(grid, b, b.step(view.active, dir));
     // Point mode (Enter mode, a formula waiting for a reference): an arrow
@@ -3077,24 +3070,16 @@ pub(crate) fn edit_key(
         K::Down if enter_mode => moved(Dir::Down),
         K::Left if enter_mode => moved(Dir::Left),
         K::Right if enter_mode => moved(Dir::Right),
-        K::Left => edited(&chars, caret.saturating_sub(1)),
-        K::Right => edited(&chars, (caret + 1).min(chars.len())),
-        K::Home => edited(&chars, 0),
-        K::End => edited(&chars, chars.len()),
-        K::Back => {
-            if caret == 0 {
-                return Some(edited(&chars, 0));
-            }
-            chars.remove(caret - 1);
-            edited(&chars, caret - 1)
+        // The caret and the deletions: the one-line editor's keys, shared
+        // with the data table's cell editor.
+        _ => {
+            let (text, caret) =
+                crate::widgets::data_table::line_edit(view.edit_text.as_str(), caret, key)?;
+            let mut next = view.clone();
+            next.edit_text = AzString::from(text);
+            next.edit_cursor = caret as u32;
+            CellGridEvent::create(CellGridEventKind::EditText, next)
         }
-        K::Delete => {
-            if caret < chars.len() {
-                chars.remove(caret);
-            }
-            edited(&chars, caret)
-        }
-        _ => return None,
     })
 }
 
