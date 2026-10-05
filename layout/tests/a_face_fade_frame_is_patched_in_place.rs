@@ -18,11 +18,12 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::props::{
-    basic::{ColorU, PercentageValue},
+    basic::ColorU,
+    layout::LayoutWidth,
     property::CssProperty,
     style::{
         StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomColor,
-        StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopColor, StyleOpacity,
+        StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopColor,
     },
 };
 use azul_layout::{
@@ -192,6 +193,12 @@ fn a_face_fade_frame_is_patched_in_place_and_restyles_nothing() {
     );
 }
 
+/// Two `width` tweens: a size has no in-place patch and no GPU value, so
+/// each tween writes its override and the frame refreshes the cascade once
+/// for both. (This used two `opacity` tweens until FIX9-PAINT 2.8 put a CSS
+/// opacity fade on the GPU value path: an opacity frame whose layer exists
+/// restyles nothing at all, which the window's
+/// `a_css_opacity_tween_frame_after_the_first_is_values_only` pins.)
 #[test]
 fn tweens_that_restyle_share_one_cascade_refresh_per_frame() {
     let mut lw = window_with(
@@ -199,12 +206,12 @@ fn tweens_that_restyle_share_one_cascade_refresh_per_frame() {
             .with_child(
                 Dom::create_div()
                     .with_class("a".into())
-                    .with_css("width: 20px; height: 20px; animation: opacity 150ms linear;"),
+                    .with_css("width: 20px; height: 20px; animation: width 150ms linear;"),
             )
             .with_child(
                 Dom::create_div()
                     .with_class("b".into())
-                    .with_css("width: 20px; height: 20px; animation: opacity 150ms linear;"),
+                    .with_css("width: 20px; height: 20px; animation: width 150ms linear;"),
             ),
     );
     for class in ["a", "b"] {
@@ -212,13 +219,11 @@ fn tweens_that_restyle_share_one_cascade_refresh_per_frame() {
         let _ = lw.apply_content_change(ContentChange::NodeCss {
             dom_id: DomId::ROOT_ID,
             node_id: node,
-            props: vec![CssProperty::const_opacity(StyleOpacity {
-                inner: PercentageValue::const_new(40),
-            })],
+            props: vec![CssProperty::width(LayoutWidth::px(40.0))],
             override_only: false,
         });
     }
-    assert_eq!(lw.css_transitions.len(), 2, "harness: two opacity tweens");
+    assert_eq!(lw.css_transitions.len(), 2, "harness: two width tweens");
     let before = epoch(&lw);
     let _ = lw.tick_animations(0.016);
     let refreshes = epoch(&lw).wrapping_sub(before);
