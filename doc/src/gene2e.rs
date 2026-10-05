@@ -636,6 +636,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("resolve_function_pointers",  Some("editor/codegen plumbing, not engine behaviour")),
     ("run_e2e_tests",              Some("the test runner itself — a test may not recurse into it")),
     ("get_logs",                   Some("debug-server tooling, asserts nothing about the engine")),
+    // Writes an instrumented build's PGO counters (crate::pgo) - build
+    // tooling; `false` and a no-op in every build a scenario runs in.
+    ("dump_profile",               Some("PGO build tooling (writes profile counters), asserts nothing \
+                                         about the engine")),
     // Routes through `e2e::hooks::take_native_screenshot_base64`, whose default
     // is `None` — and NOTHING in the workspace calls `set_host_hooks`, so the op
     // returns "native screenshot unavailable (no e2e host hook installed)" in
@@ -925,7 +929,13 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
 }
 
 /// The blind-spot alarm's test: the scan extracted no params for assertion
-/// `a`, yet its eval fn reads `params`.
+/// `a`, yet its eval fn reads `params` for more than its guard.
+///
+/// Only the fn's BODY counts (its signature always names `params`), and the
+/// `reject_unknown_params(.., params, &[..])` guard does not: when the scan
+/// found nothing, the guard's list is empty (`reject_guard_keys` reads it), and
+/// an empty guard is the fn declaring that it takes no params - so the empty
+/// scan is right (`assert_no_unmocked_requests`).
 fn scanner_missed_params(src: &str, a: &OpDef) -> bool {
     if !a.params.is_empty() {
         return false;
@@ -933,7 +943,19 @@ fn scanner_missed_params(src: &str, a: &OpDef) -> bool {
     let Some(body) = top_level_fn_body(src, &format!("eval_{}", a.name)) else {
         return false;
     };
-    body.contains("params")
+    let Some(open) = body.find('{') else {
+        return false;
+    };
+    let mut rest = &body[open + 1..];
+    let mut outside_guards = String::new();
+    while let Some(p) = rest.find("reject_unknown_params(") {
+        outside_guards.push_str(&rest[..p]);
+        // The guard's `params` argument sits before its `&[..]` allow-list.
+        let guard = &rest[p..];
+        rest = &guard[guard.find(']').map_or(guard.len(), |e| e + 1)..];
+    }
+    outside_guards.push_str(rest);
+    outside_guards.contains("params")
 }
 
 /// The body of the top-level `fn <name>(…)` in `src`, or `None`.
