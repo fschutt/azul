@@ -523,7 +523,10 @@ pub fn apply_settings(
 #[must_use]
 pub fn style_declarations(style: &str, css_key_map: &CssKeyMap) -> Vec<CssPropertyWithConditions> {
     let mut parsed = Vec::new();
-    for decl in style.split(';') {
+    // Declarations end at a TOP-LEVEL `;`: one inside parentheses or a quoted
+    // string is part of a value (`url(data:image/png;base64,...)`, which a
+    // plain `split(';')` cut in two and lost).
+    for decl in azul_css::props::basic::parse::split_top_level(style, |b| b == b';') {
         // The key ends at the FIRST colon; the value keeps every later one
         // (`font-family: system:ui`, `url(https://...)`).
         let Some((key, value)) = decl.split_once(':') else {
