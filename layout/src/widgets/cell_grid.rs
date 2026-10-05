@@ -4031,6 +4031,28 @@ mod cell_grid_tests {
     }
 
     #[test]
+    fn ctrl_c_on_the_focused_grid_puts_the_range_on_the_clipboard() {
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let styled = StyledDom::create_from_dom(grid(&log).with_theme(UiTheme::Flat).dom());
+        let node = nodes_with(&styled, GRID_CLASS_NAME)[0];
+        let (primary, _) = rv::command_keys();
+        for (key, kind) in [
+            (VirtualKeyCode::C, CellGridEventKind::Copy),
+            (VirtualKeyCode::X, CellGridEventKind::Cut),
+        ] {
+            let (_, changes) = rv::press(&styled, id(node), key, &[primary]).expect("the grid hears keys");
+            assert!(rv::prevented(&changes), "{key:?}: the shortcut is the grid's");
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| matches!(c, crate::callbacks::CallbackChange::SetCopyContent { .. })),
+                "{key:?}: the range goes on the clipboard: {changes:?}"
+            );
+            assert_eq!(log.lock().expect("log").last().map(|e| e.kind), Some(kind));
+        }
+    }
+
+    #[test]
     fn a_fill_drag_reaches_down_or_across_and_its_release_reports_the_range() {
         let source = CellGridRange::spanning(at(0, 0), at(0, 1));
         assert_eq!(fill_range(source, at(5, 0)), CellGridRange::spanning(at(0, 0), at(5, 1)));
