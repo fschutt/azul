@@ -103,6 +103,11 @@ impl AccountEditor {
     /// The sending settings the form describes: the route and STARTTLS, then DKIM.
     fn sending_settings(&self) -> Result<SendSettings, String> {
         let applied = self.sending.apply(&self.settings)?;
+        // Submission signs in to the outgoing server of the Servers page: never unencrypted
+        // to another computer.
+        if let Ok(account) = self.form.to_account() {
+            crate::sending::check_submission(&applied, &account.smtp.host, account.smtp.port)?;
+        }
         let new_key = self
             .dkim_new_key
             .as_ref()
@@ -577,8 +582,8 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
         .with_css("display: flex; flex-direction: column;")
         .with_child(label("Send mail:"))
         .with_child(
-            Segmented::create(strings(&["Directly", "Through an SMTP server"]))
-                .with_selected_index(usize::from(sending.smtp))
+            Segmented::create(strings(&crate::sending::ROUTE_CHOICES))
+                .with_selected_index(sending.route_index())
                 .with_on_change(app.clone(), on_route as SegmentedOnChangeCallbackType)
                 .dom(),
         );
@@ -602,6 +607,27 @@ fn sending_fields(editor: &AccountEditor, app: &RefAny) -> Dom {
                 ids::SEND_PORT,
             ),
         ));
+    } else if sending.submission {
+        // The account's own outgoing server (the Servers page), signed in.
+        let (host, port) = match editor.form.to_account() {
+            Ok(account) => (account.smtp.host, account.smtp.port),
+            Err(_) => (
+                editor.drawn.smtp_host.clone(),
+                editor.drawn.smtp_port.parse().unwrap_or(account::SMTPS_PORT),
+            ),
+        };
+        let protection = if port == account::SMTPS_PORT {
+            "encrypted from the first byte"
+        } else {
+            "encrypted with STARTTLS before the sign-in"
+        };
+        let text = format!(
+            "AzMail signs in to {host} port {port} (the outgoing server on the Servers page) \
+             with this account's password or token, {protection}, and hands every mail to it. \
+             Gmail, iCloud and Fastmail want an app password. For a connection that cannot \
+             deliver directly; DKIM below still signs as your own domain."
+        );
+        page.add_child(Dom::create_span_with_text(text.as_str()).with_css(NOTE));
     } else {
         page.add_child(
             Dom::create_span_with_text(
@@ -914,7 +940,7 @@ extern "C" fn on_flag_label(mut data: RefAny, _info: CallbackInfo) -> Update {
 extern "C" fn on_route(mut data: RefAny, _info: CallbackInfo, state: SegmentedState) -> Update {
     with_app(&mut data, |s, _| {
         if let Some(editor) = s.editor.as_mut() {
-            editor.sending.smtp = state.selected_index == 1;
+            editor.sending.choose_route(state.selected_index);
             editor.error.clear();
         }
         Update::RefreshDom

@@ -823,6 +823,8 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
     // "Send" of Send / Receive: whatever waits in the outbox gets another try.
     let mut settings = send::SendSettings::load(&job.azmail_root, &job.account.id);
     settings.dkim_key = job.dkim_key.clone();
+    // Submission signs in with the secret the sync signed in with.
+    settings.sign_in = Some(job.secret.clone());
     let mut outbox = (0, 0, 0);
     for (_, status) in send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false) {
         match status {
