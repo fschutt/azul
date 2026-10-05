@@ -32,12 +32,15 @@ Branch wt/fix9-paint (fast-forwarded to b454da215). Brief: scripts/waves/wave9/S
 - 2.12 lint dedupe: RED 62abe69c0 (3 tests), GREEN ef05aaf81 (core diagnostics::emit_once, cleared by
   clear(); dom_lint identity_key/report_once; has_readable_text_label twin folded).
 
+- 2.13 one a11y pass per regenerate: instrumentation 2141683ad (pub a11y_tree_updates), RED 0c2ce0ff3
+  (dll headless test), GREEN 522222fe6 (refill_a11y_tree_unless_refreshed).
+- 2.14 mobile snapshot only when published: 4753644c5 (no RED, mobile only).
+
 ## IN PROGRESS
-2.13 redundant a11y pass in dll common/event.rs
+SUITE FAILURE: window::window_theme_context::a_changed_inline_flex_box_behind_a_block_sibling_keeps_its_slot_and_widens
 
 ## NEXT
-2.13 (dll/src/desktop/shell2/common/event.rs refill_a11y_tree_after_regeneration ~4874); then 2.14,
-then the suite failure.
+Decide test vs code (window.rs ~31952 at the triage commit); then the report scripts/FIX9_PAINT_2026_10_05.md.
 
 ## Open questions
 (none)
