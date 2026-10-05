@@ -137,6 +137,54 @@ pub fn attachment_parts(bytes: &[u8]) -> Vec<AttachmentPart> {
         .collect()
 }
 
+/// A picture the message carries itself: a part with a Content-ID the HTML names as `cid:`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlinePicture {
+    /// The Content-ID without its angle brackets.
+    pub content_id: String,
+    /// `image/<subtype>`, lower case.
+    pub mime_type: String,
+    /// Decoded (no base64 / quoted-printable left).
+    pub bytes: Vec<u8>,
+}
+
+/// Every picture part of a message's bytes that has a Content-ID, in the message's order;
+/// none when the bytes are not a message.
+pub fn inline_pictures(bytes: &[u8]) -> Vec<InlinePicture> {
+    let Some(message) = MessageParser::default().parse(bytes) else {
+        return Vec::new();
+    };
+    message
+        .parts
+        .iter()
+        .filter_map(|part| {
+            let content_type = part.content_type()?;
+            if !content_type.ctype().eq_ignore_ascii_case("image") {
+                return None;
+            }
+            let content_id = part
+                .content_id()?
+                .trim()
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_string();
+            if content_id.is_empty() {
+                return None;
+            }
+            let mime_type = match content_type.subtype() {
+                Some(sub) => format!("image/{sub}"),
+                None => String::from("image"),
+            }
+            .to_ascii_lowercase();
+            Some(InlinePicture {
+                content_id,
+                mime_type,
+                bytes: part.contents().to_vec(),
+            })
+        })
+        .collect()
+}
+
 /// What the message view shows.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MessageView {

@@ -3,6 +3,81 @@
 //! mail), and which of the mail's own `cid:` pictures are decoded under which image-cache key.
 //! The fetching and decoding run on azul Threads (`ui_main.rs`); this module is the policy.
 
+use crate::{html::Sanitized, message::InlinePicture};
+
+/// At most this many web pictures are fetched for one mail (in the order it shows them).
+pub const MAX_PICTURES: usize = 40;
+/// A web picture larger than this is not downloaded (the HTTP client stops there).
+pub const MAX_PICTURE_BYTES: usize = 5 * 1024 * 1024;
+/// One mail's pictures together download at most this much.
+pub const MAX_TOTAL_BYTES: usize = 25 * 1024 * 1024;
+/// A web picture's download may take this long, in seconds.
+pub const PICTURE_TIMEOUT_SECS: u64 = 20;
+
+/// What "download pictures" fetches for `sanitized` (sanitized with its web pictures on):
+/// the web pictures it shows - http and https only, no tracking pixel, each once -, in the
+/// order it shows them, at most [`MAX_PICTURES`].
+pub fn fetch_list(sanitized: &Sanitized) -> Vec<String> {
+    sanitized
+        .remote_images
+        .iter()
+        .filter(|url| {
+            let lower = url.to_ascii_lowercase();
+            lower.starts_with("https://") || lower.starts_with("http://")
+        })
+        .take(MAX_PICTURES)
+        .cloned()
+        .collect()
+}
+
+/// How much one mail's pictures have downloaded.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Budget {
+    used: usize,
+}
+
+impl Budget {
+    /// Counts a picture of `len` bytes, or refuses it (costing nothing): larger than
+    /// [`MAX_PICTURE_BYTES`], or past the mail's [`MAX_TOTAL_BYTES`].
+    pub fn take(&mut self, len: usize) -> bool {
+        if len > MAX_PICTURE_BYTES || self.used.saturating_add(len) > MAX_TOTAL_BYTES {
+            return false;
+        }
+        self.used += len;
+        true
+    }
+
+    /// The bytes counted so far.
+    pub fn used(&self) -> usize {
+        self.used
+    }
+
+    /// Whether a further picture of `len` bytes would pass the mail's total: the downloads
+    /// stop.
+    pub fn spent_for(&self, len: usize) -> bool {
+        self.used.saturating_add(len) > MAX_TOTAL_BYTES
+    }
+}
+
+/// The Content-IDs of the mail's own pictures, for `html::PictureOptions::inline`.
+pub fn content_ids(parts: &[InlinePicture]) -> Vec<String> {
+    parts.iter().map(|part| part.content_id.clone()).collect()
+}
+
+/// The mail's own pictures `sanitized` shows, each with its image-cache key
+/// (`Sanitized::inline_key`) and its bytes to decode; the parts it does not show are not
+/// decoded at all.
+pub fn inline_decodes(sanitized: &Sanitized, parts: &[InlinePicture]) -> Vec<(String, Vec<u8>)> {
+    sanitized
+        .inline_images
+        .iter()
+        .filter_map(|cid| {
+            let part = parts.iter().find(|part| part.content_id == *cid)?;
+            Some((sanitized.inline_key(cid), part.bytes.clone()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
