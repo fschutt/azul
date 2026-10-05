@@ -349,13 +349,144 @@ impl SvgPaintContext {
     }
 }
 
-/// Inherited SVG style (fill, stroke, stroke-width) that cascades from parent groups.
+/// Inherited SVG style (fill, stroke and the stroke's properties) that
+/// cascades from parent groups.
 #[cfg(all(feature = "std", feature = "xml"))]
 #[derive(Clone, Default)]
 struct SvgInheritedStyle {
     fill: Option<String>,   // None = not set (inherit default black)
     stroke: Option<String>, // None = not set (inherit default none)
     stroke_width: Option<f64>,
+    stroke_linecap: Option<String>,   // None = `butt`
+    stroke_linejoin: Option<String>,  // None = `miter`
+    stroke_miterlimit: Option<f64>,   // None = 4
+    stroke_dasharray: Option<String>, // None = `none` (a solid stroke)
+    stroke_dashoffset: Option<f64>,   // None = 0
+}
+
+/// How an SVG shape's outline is stroked (SVG 2 s13.5): the width, the
+/// caps, the joins and the dash pattern, each from the element or the
+/// groups it inherits from.
+#[cfg(all(feature = "std", feature = "xml"))]
+struct SvgStrokeStyle {
+    width: f64,
+    cap: agg_rust::math_stroke::LineCap,
+    join: agg_rust::math_stroke::LineJoin,
+    miter_limit: f64,
+    /// `(dash, gap)` pairs; empty = a solid stroke.
+    dashes: Vec<(f64, f64)>,
+    dash_offset: f64,
+}
+
+#[cfg(all(feature = "std", feature = "xml"))]
+impl SvgStrokeStyle {
+    /// The stroke of `node` under the inherited `style`.
+    fn of(node: &azul_core::xml::XmlNode, style: &SvgInheritedStyle) -> Self {
+        use agg_rust::math_stroke::{LineCap, LineJoin};
+        let number = |name: &str| {
+            presentation_property(node, name)
+                .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<f64>().ok())
+                .filter(|v| v.is_finite())
+        };
+        let cap = match presentation_property(node, "stroke-linecap")
+            .or_else(|| style.stroke_linecap.clone())
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("round") => LineCap::Round,
+            Some("square") => LineCap::Square,
+            _ => LineCap::Butt,
+        };
+        let join = match presentation_property(node, "stroke-linejoin")
+            .or_else(|| style.stroke_linejoin.clone())
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("round") => LineJoin::Round,
+            Some("bevel") => LineJoin::Bevel,
+            // SVG 2's `miter-clip`: the miter cut off at the limit.
+            Some("miter-clip") => LineJoin::Miter,
+            // `miter` (and `arcs`, which falls back to it): a bevel once the
+            // miter exceeds the limit - AGG's "revert", made for SVG / PDF.
+            _ => LineJoin::MiterRevert,
+        };
+        let miter_limit = number("stroke-miterlimit")
+            .or(style.stroke_miterlimit)
+            .filter(|m| *m >= 1.0)
+            .unwrap_or(4.0);
+        let dashes = parse_svg_dash_array(
+            presentation_property(node, "stroke-dasharray")
+                .or_else(|| style.stroke_dasharray.clone())
+                .as_deref(),
+        );
+        Self {
+            width: number("stroke-width")
+                .or(style.stroke_width)
+                .unwrap_or(1.0),
+            cap,
+            join,
+            miter_limit,
+            dashes,
+            dash_offset: number("stroke-dashoffset")
+                .or(style.stroke_dashoffset)
+                .unwrap_or(0.0),
+        }
+    }
+
+    /// Set the width, caps and joins on an AGG stroker.
+    fn configure<VS: agg_rust::basics::VertexSource>(&self, stroke: &mut ConvStroke<VS>) {
+        stroke.set_width(self.width);
+        stroke.set_line_cap(self.cap);
+        stroke.set_line_join(self.join);
+        stroke.set_miter_limit(self.miter_limit);
+    }
+
+    /// The dash pattern on an AGG dasher, its offset folded into one period
+    /// (the dasher walks the offset dash by dash).
+    fn dash<VS: agg_rust::basics::VertexSource>(
+        &self,
+        dasher: &mut agg_rust::conv_dash::ConvDash<VS>,
+    ) {
+        let period: f64 = self.dashes.iter().map(|(d, g)| d + g).sum();
+        for &(dash, gap) in &self.dashes {
+            dasher.add_dash(dash, gap);
+        }
+        dasher.dash_start(self.dash_offset.rem_euclid(period));
+    }
+}
+
+/// `stroke-dasharray` as `(dash, gap)` pairs (SVG 2 s13.5.6): lengths
+/// separated by commas and / or spaces, an odd list repeated to make it even.
+/// EMPTY - a solid stroke - for `none`, a negative or unreadable entry, a
+/// pattern whose lengths sum to (almost) zero (the dasher would emit a vertex
+/// per period of nothing), or more pairs than AGG's dasher holds (16).
+#[cfg(all(feature = "std", feature = "xml"))]
+fn parse_svg_dash_array(value: Option<&str>) -> Vec<(f64, f64)> {
+    let Some(value) = value.map(str::trim) else {
+        return Vec::new();
+    };
+    if value.is_empty() || value == "none" {
+        return Vec::new();
+    }
+    let mut lengths = Vec::new();
+    for part in value.split(|c: char| c == ',' || c.is_whitespace()) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        match part.trim_end_matches("px").parse::<f64>() {
+            Ok(v) if v.is_finite() && v >= 0.0 => lengths.push(v),
+            _ => return Vec::new(),
+        }
+    }
+    if lengths.len() % 2 == 1 {
+        lengths.extend_from_within(..);
+    }
+    let period: f64 = lengths.iter().sum();
+    if period < 1e-3 || lengths.len() > 32 {
+        return Vec::new();
+    }
+    lengths.chunks_exact(2).map(|p| (p[0], p[1])).collect()
 }
 
 #[cfg(all(feature = "std", feature = "xml"))]
@@ -454,7 +585,6 @@ fn render_svg_group_inner(
     parent_color: Option<&str>,
     paint: &SvgPaintContext,
 ) {
-    use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::xml::XmlNodeChild;
 
     // A node's own transform maps its user space into its parent's: it
@@ -471,12 +601,23 @@ fn render_svg_group_inner(
         });
 
     // Inherit style from this group's attributes
+    let inherit = |name: &str, parent: &Option<String>| {
+        presentation_property(node, name).or_else(|| parent.clone())
+    };
+    let inherit_number = |name: &str, parent: Option<f64>| {
+        presentation_property(node, name)
+            .and_then(|s| s.trim().trim_end_matches("px").trim().parse().ok())
+            .or(parent)
+    };
     let group_style = SvgInheritedStyle {
-        fill: presentation_property(node, "fill").or_else(|| parent_style.fill.clone()),
-        stroke: presentation_property(node, "stroke").or_else(|| parent_style.stroke.clone()),
-        stroke_width: presentation_property(node, "stroke-width")
-            .and_then(|s| s.parse().ok())
-            .or(parent_style.stroke_width),
+        fill: inherit("fill", &parent_style.fill),
+        stroke: inherit("stroke", &parent_style.stroke),
+        stroke_width: inherit_number("stroke-width", parent_style.stroke_width),
+        stroke_linecap: inherit("stroke-linecap", &parent_style.stroke_linecap),
+        stroke_linejoin: inherit("stroke-linejoin", &parent_style.stroke_linejoin),
+        stroke_miterlimit: inherit_number("stroke-miterlimit", parent_style.stroke_miterlimit),
+        stroke_dasharray: inherit("stroke-dasharray", &parent_style.stroke_dasharray),
+        stroke_dashoffset: inherit_number("stroke-dashoffset", parent_style.stroke_dashoffset),
     };
     // `color`, the property `currentColor` reads, inherits like the paints.
     let group_color =
@@ -566,18 +707,22 @@ fn render_svg_group_inner(
                         .unwrap_or(1.0);
                     color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
 
-                    let stroke_width = presentation_property(child_node, "stroke-width")
-                        .and_then(|s| s.parse::<f64>().ok())
-                        .or(group_style.stroke_width)
-                        .unwrap_or(1.0);
-
-                    let mut conv_stroke = ConvStroke::new(&mut curved);
-                    conv_stroke.set_width(stroke_width);
-                    conv_stroke.set_line_cap(LineCap::Round);
-                    conv_stroke.set_line_join(LineJoin::Round);
-
-                    let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
-                    agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    // The stroke in user space (dashed, then outlined),
+                    // then the element's transform.
+                    let stroke = SvgStrokeStyle::of(child_node, &group_style);
+                    if stroke.dashes.is_empty() {
+                        let mut conv_stroke = ConvStroke::new(&mut curved);
+                        stroke.configure(&mut conv_stroke);
+                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    } else {
+                        let mut dashed = agg_rust::conv_dash::ConvDash::new(&mut curved);
+                        stroke.dash(&mut dashed);
+                        let mut conv_stroke = ConvStroke::new(&mut dashed);
+                        stroke.configure(&mut conv_stroke);
+                        let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
+                        agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
+                    }
                 }
             }
             _ => {
@@ -2408,8 +2553,7 @@ mod autotest_generated {
     fn render_svg_group_with_style_explicit_parent_style_is_used() {
         let style = SvgInheritedStyle {
             fill: Some("red".to_string()),
-            stroke: None,
-            stroke_width: None,
+            ..SvgInheritedStyle::default()
         };
         let svg = el_with(
             "svg",
