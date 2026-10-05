@@ -89,10 +89,18 @@ dumb as possible". Order now:
   submission-xoauth2, submission-refused (smtp / starttls / rejected still PASS against the
   prebuilt base binary with the new sink). STEP 7a DONE.
 
+- Step 7b model: 529acc2b2 RED / aef73cfd7 GREEN html.rs pre-pass (RemoteContent from
+  Xml::scan_external_resources, summary) + cid: pictures (PictureOptions, sanitize_mail,
+  inline_key); 7481b9593 RED / e4cd15f7e GREEN message::inline_pictures, pictures.rs
+  (fetch_list, Budget, content_ids, inline_decodes)
+
 ## IN PROGRESS
-- Step 7b: remote content (PLAN "REMOTE CONTENT"): read html.rs / ui_main.rs "Download
-  pictures" first, then RED tests for the pre-pass list (scan_external_resources -> the
-  fetch list: http(s) only, no tracking pixel, caps), GREEN, then the Thread fetch.
+- Step 7b UI: lib.rs open_message sanitizes with the mail's inline parts (sanitize_mail) and
+  keeps them in OpenMessage; ui_main.rs: a decode Thread for the shown cid: pictures (one
+  WriteBack per picture -> add_image_to_cache), "Download pictures" starts a download Thread
+  (download_bytes blocks the worker; the resume on the UI checks the Budget, stops the
+  thread past the total, hands the bytes to the decode Thread), the info bar names
+  RemoteContent::summary.
 
 ## MONDAY - exact next step
 - Step 7a (secondary route, lettre): auth.rs part DONE. NEXT: RED tests in `send.rs` (`SendRoute::Submission`
