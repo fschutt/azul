@@ -859,3 +859,124 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, ir: &CodegenIR, config: &Codegen
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::lang_csharp::wrappers::tests::field_fixture_ir;
+    use super::*;
+
+    fn gen() -> String {
+        generate(&field_fixture_ir(), &CodegenConfig::c_header()).expect("wrappers.go")
+    }
+
+    /// The text of `func (self *<recv>) <name>(` up to its closing brace.
+    fn method(out: &str, recv: &str, name: &str) -> String {
+        let head = format!("func (self *{}) {}(", recv, name);
+        let start = out.find(&head).unwrap_or_else(|| panic!("no {recv}.{name}:\n{out}"));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").map(|e| e + 3).unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    fn before(hay: &str, a: &str, b: &str) -> bool {
+        match (hay.find(a), hay.find(b)) {
+            (Some(x), Some(y)) => x < y,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn a_string_field_reads_as_a_go_string_without_consuming_it() {
+        let out = gen();
+        let get = method(&out, "FullWindowState", "Title");
+        assert!(get.contains("func (self *FullWindowState) Title() string {"), "{get}");
+        assert!(get.contains("return GoStr(self.inner.Title)"), "{get}");
+    }
+
+    #[test]
+    fn a_string_setter_frees_the_old_string_before_storing_the_new_one() {
+        let out = gen();
+        let set = method(&out, "FullWindowState", "SetTitle");
+        assert!(set.contains("func (self *FullWindowState) SetTitle(v string) {"), "{set}");
+        assert!(set.contains("nv := azGoAzString(v)"), "{set}");
+        assert!(
+            before(&set, "AzString_delete(&self.inner.Title)", "self.inner.Title = nv"),
+            "{set}"
+        );
+    }
+
+    #[test]
+    fn a_heap_owning_field_is_a_borrowed_view_so_nested_writes_reach_the_parent() {
+        let out = gen();
+        let get = method(&out, "WindowCreateOptions", "WindowState");
+        assert!(
+            get.contains("return &FullWindowState{ inner: &self.inner.WindowState, borrowed: true }"),
+            "{get}"
+        );
+        let set = method(&out, "WindowCreateOptions", "SetWindowState");
+        assert!(set.contains("SetWindowState(v *FullWindowState) {"), "{set}");
+        // Raw() consumes an owned wrapper and clones a borrowed one.
+        assert!(set.contains("nv := v.Raw()"), "{set}");
+        assert!(
+            before(
+                &set,
+                "AzFullWindowState_delete(&self.inner.WindowState)",
+                "self.inner.WindowState = nv"
+            ),
+            "{set}"
+        );
+    }
+
+    #[test]
+    fn scalar_and_pod_fields_are_plain_copies() {
+        let out = gen();
+        let checked = method(&out, "CheckBoxState", "Checked");
+        assert!(checked.contains("Checked() bool {"), "{checked}");
+        assert!(checked.contains("return self.inner.Checked"), "{checked}");
+        let set = method(&out, "CheckBoxState", "SetChecked");
+        assert!(set.contains("self.inner.Checked = v"), "{set}");
+        let size = method(&out, "FullWindowState", "Size");
+        assert!(size.contains("Size() AzWindowSize {"), "{size}");
+        let set_size = method(&out, "FullWindowState", "SetSize");
+        assert!(set_size.contains("self.inner.Size = v"), "{set_size}");
+        assert!(!set_size.contains("_delete"), "{set_size}");
+    }
+
+    #[test]
+    fn a_method_of_the_same_name_wins_but_the_field_stays_writable() {
+        let out = gen();
+        // Label has a `text()` method: the getter steps aside, the setter stays.
+        assert!(out.contains("func (self *Label) Text() *String {"), "{out}");
+        assert!(out.contains("func (self *Label) GetText() string {"), "{out}");
+        assert!(out.contains("func (self *Label) SetText(v string) {"), "{out}");
+        // TextInputState's `get_text` does not collide with `Text`.
+        assert!(out.contains("func (self *TextInputState) GetText() *U32Vec {"), "{out}");
+        assert!(out.contains("func (self *TextInputState) Text() *U32Vec {"), "{out}");
+        assert!(out.contains("func (self *TextInputState) SetText(v *U32Vec) {"), "{out}");
+    }
+
+    #[test]
+    fn inner_hands_out_the_value_without_taking_ownership() {
+        let out = gen();
+        let owned = method(&out, "FullWindowState", "Inner");
+        assert!(owned.contains("Inner() *AzFullWindowState {"), "{owned}");
+        assert!(owned.contains("return self.inner"), "{owned}");
+        assert!(!owned.contains("SetFinalizer"), "{owned}");
+        let pod = method(&out, "CheckBoxState", "Inner");
+        assert!(pod.contains("return &self.inner"), "{pod}");
+    }
+
+    #[test]
+    fn vec_and_string_wrappers_get_no_field_accessors() {
+        let out = gen();
+        assert!(!out.contains("func (self *U8Vec) Len("), "{out}");
+        assert!(!out.contains("func (self *String) Vec("), "{out}");
+    }
+
+    #[test]
+    fn the_string_helper_builds_a_fresh_native_string() {
+        let out = super::super::managed::generate(&field_fixture_ir(), &CodegenConfig::c_header())
+            .expect("callbacks.go");
+        assert!(out.contains("func azGoAzString(s string) AzString {"), "{out}");
+    }
+}
