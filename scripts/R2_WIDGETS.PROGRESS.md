@@ -9,13 +9,17 @@ Brief: scripts/waves/wave9/ROUND2.md "PKG R2-WIDGETS" + USER DECISIONS D1, D3.
 - W4 DEDUP us_char / typed_letter: 23c0d27a5.
 - W5 DEDUP cell_grid typed -> data_table::insert_at: 771e5aab1.
 - W6 IconGrid item DOM id: RED 95cd51753, GREEN 1d13bd7b4.
+- D1 button keyboard focus: RED 3f7db13c9, GREEN 8bac59f23.
+- D1 dialog buttons (RowAction, reasons, held skin gone): RED d974ce4aa, GREEN 7afac3f1e
+  (settings_dialog.rs touched minimally: outside the package's files).
 
 ## IN PROGRESS
-- D1 dialog buttons: always a reason, Button's own disabled state, reason on hover + focus.
+- D3 IconGrid optional extras: extra text lines + placeholder colour.
 
 ## NEXT
-- D1: read button.rs disabled model, dialog_kit row_button, standard_dialogs, settings Apply, wizard Next.
-- D3 IconGrid extras (extra text lines + placeholder colour), report scripts/R2_WIDGETS_2026_10_05.md.
+- D3: RED pin "an item that sets none renders exactly as today" + RED for the extras, then GREEN in icon_grid.rs
+  (new fields LAST in IconGridItem, new fns), theme skins appended at the END of flat.rs / flora.rs if needed.
+- report scripts/R2_WIDGETS_2026_10_05.md.
 
 ## Open questions
 (none)
