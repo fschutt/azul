@@ -13,10 +13,10 @@
   after register_scroll_nodes + the caret reveal (window.rs)
 
 ## IN PROGRESS
-- report scripts/R3_FRAME_2026_10_05.md
+- (none)
 
 ## NEXT
-- commit the report; done
+- done: report scripts/R3_FRAME_2026_10_05.md committed
 
 ## Open questions
 - none (unverified without cargo: the knob test's count bounds once its spans are visible)
