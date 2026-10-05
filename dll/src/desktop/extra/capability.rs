@@ -35,6 +35,14 @@ pub struct PlatformCapability {
     pub reason: AzString,
 }
 
+/// [`PlatformCapability::scheduled_notifications`] on `os`
+/// (`std::env::consts::OS`), given what
+/// [`PlatformCapability::notifications`] answered there.
+fn scheduling_of(os: &str, notifications: PlatformCapability) -> PlatformCapability {
+    let _ = os;
+    notifications
+}
+
 #[inline]
 fn cap(available: bool, backend: &'static str, reason: &'static str) -> PlatformCapability {
     PlatformCapability {
@@ -440,6 +448,13 @@ impl PlatformCapability {
         crate::desktop::notifications::probe()
     }
 
+    /// Probe whether a notification with a delivery time
+    /// (`Notification::deliver_at`) is SCHEDULED with the OS - shown at its
+    /// time even while the app is not running.
+    pub fn scheduled_notifications() -> PlatformCapability {
+        scheduling_of(std::env::consts::OS, Self::notifications())
+    }
+
     /// Probe H.264 decode as `VideoDecoder` does it in THIS build: unavailable
     /// where the build has no decode engine (whatever the GPU could do), else
     /// the hardware probe (see
@@ -473,5 +488,57 @@ impl PlatformCapability {
             backend: AzString::from_const_str(p.backend),
             reason,
         }
+    }
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+    use azul_css::AzString;
+
+    use super::{scheduling_of, PlatformCapability};
+
+    fn notifications(available: bool, backend: &str) -> PlatformCapability {
+        PlatformCapability {
+            available,
+            backend: AzString::from(backend.to_string()),
+            reason: AzString::from(if available { "" } else { "no server" }.to_string()),
+        }
+    }
+
+    /// CLOCK9: an alarm app must know whether a scheduled notification fires
+    /// while it is closed. UNUserNotificationCenter and a WinRT toast keep
+    /// the delivery time themselves; the freedesktop server, the portal,
+    /// Android (until its alarm receiver exists) and the Windows balloon
+    /// cannot - the process holds the notification and shows it when due,
+    /// only while it runs (desktop/notifications/mod.rs).
+    #[test]
+    fn scheduled_notifications_capability_says_whether_the_backend_can_schedule() {
+        let can =
+            |os: &str, backend: &str| scheduling_of(os, notifications(true, backend)).available;
+        assert!(can("macos", "UNUserNotificationCenter"));
+        assert!(can("ios", "UNUserNotificationCenter"));
+        assert!(can("windows", "WinRT toast (AppUserModelID azul.app)"));
+        assert!(!can("windows", "Shell_NotifyIconW balloon (NIF_INFO)"));
+        assert!(!can("linux", "org.freedesktop.Notifications (D-Bus)"));
+        assert!(!can(
+            "linux",
+            "org.freedesktop.portal.Notification (Flatpak)"
+        ));
+        assert!(!can(
+            "android",
+            "NotificationManager (AzulNotifications.java)"
+        ));
+
+        // Held, not scheduled: the reason says so.
+        let held = scheduling_of(
+            "linux",
+            notifications(true, "org.freedesktop.Notifications (D-Bus)"),
+        );
+        assert!(held.reason.as_str().contains("while"), "{:?}", held.reason);
+
+        // No notifications at all: no scheduling, for the same reason.
+        let none = scheduling_of("macos", notifications(false, "UNUserNotificationCenter"));
+        assert!(!none.available);
+        assert_eq!(none.reason.as_str(), "no server");
     }
 }
