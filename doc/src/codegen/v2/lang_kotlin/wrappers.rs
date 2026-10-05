@@ -2565,14 +2565,33 @@ mod tests {
     }
 
     #[test]
-    fn the_window_state_property_deep_copies_on_read_and_deletes_then_consumes_on_write() {
+    fn a_nested_write_through_the_window_state_property_reaches_the_options() {
+        // `opts.windowState.title = "x"` must change `opts`: the property
+        // reads as a live view over the field, tied to `opts` being open.
         let src = &wrapper_source("WindowCreateOptions");
         let prop = member(src, "var windowState: FullWindowState");
         let (get, set) = prop.split_at(prop.find("set(v)").expect("a setter"));
-        assert!(get.contains("AzFullWindowState_clone("), "{}", get);
-        assert!(get.contains("FullWindowState(__copy.pointer)"), "{}", get);
-        assert!(before(set, "AzFullWindowState_delete(", ".write(0,"), "{}", set);
-        assert!(set.contains("v.__consume()"), "the argument is moved in:\n{}", set);
+        assert!(get.contains("FullWindowState("), "{}", get);
+        assert!(get.contains("it.__parentOpen = { this@WindowCreateOptions.__isOpen() }"), "{}", get);
+        assert!(!get.contains("_clone("), "a view, not a copy:\n{}", get);
+        assert!(
+            before(set, "AzFullWindowState_clone(v.ptr)", "AzFullWindowState_delete("),
+            "a view is copied before the old state is released:\n{}",
+            set
+        );
+        assert!(before(set, "AzFullWindowState_delete(", "__fp.write(0,"), "{}", set);
+        assert!(set.contains("if (__move) v.__consume()"), "{}", set);
+    }
+
+    #[test]
+    fn a_view_refuses_calls_once_the_object_it_lives_in_is_closed() {
+        let src = &wrapper_source("FullWindowState");
+        assert!(
+            src.contains("internal fun __isOpen(): Boolean = !closed && (__parentOpen?.invoke() ?: true)"),
+            "{}",
+            src
+        );
+        assert!(!src.contains("check(!closed)"), "every check goes through __isOpen");
     }
 
     #[test]

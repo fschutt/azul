@@ -2685,14 +2685,37 @@ mod tests {
     }
 
     #[test]
-    fn the_window_state_getter_deep_copies_and_the_setter_deletes_the_old_state_then_consumes_the_new_one() {
+    fn a_nested_write_through_the_window_state_getter_reaches_the_options() {
+        // `opts.getWindowState().setTitle("x")` must change `opts`: the
+        // getter is a live view over the field, tied to `opts` being open.
         let src = &wrapper_source("WindowCreateOptions");
         let get = method(src, "public FullWindowState getWindowState()");
-        assert!(get.contains("AzFullWindowState_clone("), "{}", get);
-        assert!(get.contains("return new FullWindowState("), "{}", get);
+        assert!(get.contains("FullWindowState.__view("), "{}", get);
+        assert!(get.contains("this::__isOpen"), "{}", get);
+        assert!(!get.contains("_clone("), "a view, not a copy:\n{}", get);
+    }
+
+    #[test]
+    fn storing_a_view_deep_copies_it_and_storing_an_owned_state_moves_it_in() {
+        let src = &wrapper_source("WindowCreateOptions");
         let set = method(src, "public void setWindowState(FullWindowState v)");
-        assert!(before(set, "AzFullWindowState_delete(", ".write(0,"), "{}", set);
-        assert!(set.contains("v.__consume();"), "the argument is moved in:\n{}", set);
+        assert!(set.contains("boolean __move = v.__isMovable();"), "{}", set);
+        assert!(
+            before(set, "AzFullWindowState_clone(v.rawPointer())", "AzFullWindowState_delete("),
+            "a view is copied before the old state is released:\n{}",
+            set
+        );
+        assert!(before(set, "AzFullWindowState_delete(", "__fp.write(0,"), "{}", set);
+        assert!(set.contains("if (__move) v.__consume();"), "{}", set);
+    }
+
+    #[test]
+    fn a_view_refuses_calls_once_the_object_it_lives_in_is_closed() {
+        let src = &wrapper_source("FullWindowState");
+        assert!(src.contains("__parentOpen.getAsBoolean()"), "{}", src);
+        let set = method(src, "public void setTitle(java.lang.String v)");
+        assert!(set.contains("if (!__isOpen()) throw"), "{}", set);
+        assert!(!src.contains("if (closed) throw"), "every check goes through __isOpen");
     }
 
     #[test]
