@@ -34,9 +34,21 @@ impl Playlist {
         format!("{}.json", self.id)
     }
 
-    /// The playlist from its file's text, or why not.
+    /// The playlist from its file's text, or why not. The file is a JSON object with an id
+    /// (serde would also read a struct from an array, so `[]` would be an empty, nameless
+    /// playlist in the list).
     pub fn from_json(text: &str) -> Result<Playlist, String> {
-        serde_json::from_str(text).map_err(|e| format!("the playlist file does not read: {e}"))
+        let value: serde_json::Value = serde_json::from_str(text)
+            .map_err(|e| format!("the playlist file does not read: {e}"))?;
+        if !value.is_object() {
+            return Err("the playlist file is not a playlist (a JSON object)".to_string());
+        }
+        let playlist: Playlist = serde_json::from_value(value)
+            .map_err(|e| format!("the playlist file does not read: {e}"))?;
+        if playlist.id.trim().is_empty() {
+            return Err("the playlist file has no id".to_string());
+        }
+        Ok(playlist)
     }
 
     /// The playlist as its file's text.
