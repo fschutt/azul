@@ -2670,21 +2670,22 @@ pub(crate) mod tests {
         }
     }
 
-    /// `_delete` + `_clone` for a heap-owning class.
+    /// `_delete` + `_clone` for a heap-owning class. Their receiver is
+    /// named `instance`, as in api.json (not the class' receiver name).
     fn owning(ir: &mut CodegenIR, class: &str) {
-        let recv = super::super::super::ir::receiver_arg_name(class);
+        let recv = "instance";
         ir.functions.push(func(
             class,
             "delete",
             FunctionKind::Delete,
-            vec![arg(&recv, class, ArgRefKind::RefMut)],
+            vec![arg(recv, class, ArgRefKind::RefMut)],
             None,
         ));
         ir.functions.push(func(
             class,
             "clone",
             FunctionKind::DeepCopy,
-            vec![arg(&recv, class, ArgRefKind::Ref)],
+            vec![arg(recv, class, ArgRefKind::Ref)],
             Some(class),
         ));
     }

@@ -408,3 +408,56 @@ fn idiomatic_cs_method(method_name: &str) -> String {
 fn ps_doc_escape(s: &str) -> String {
     s.replace("#>", "# >")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::lang_csharp::wrappers::tests::field_fixture_ir;
+    use super::*;
+
+    fn gen() -> String {
+        let ir = field_fixture_ir();
+        let mut b = CodeBuilder::new("    ");
+        generate_cmdlets(&mut b, &ir, &CodegenConfig::c_header()).expect("cmdlets");
+        b.finish()
+    }
+
+    /// The text of `function <name> { ... }`.
+    fn function_body(out: &str, name: &str) -> String {
+        let head = format!("function {} {{\n", name);
+        let start = out.find(&head).unwrap_or_else(|| panic!("no {name}:\n{out}"));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").map(|e| e + 3).unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    #[test]
+    fn every_argument_is_typed_like_the_csharp_method_it_forwards_to() {
+        let out = gen();
+        let run = function_body(&out, "Invoke-AzulAppRun");
+        // An owned heap-owning argument is the wrapper class (consumed by the
+        // call), a string argument a native string, a POD one its struct.
+        assert!(run.contains("[Azul.WindowCreateOptions]$RootWindow"), "{run}");
+        assert!(run.contains("[string]$Label"), "{run}");
+        assert!(run.contains("[Azul.AzWindowSize]$Size"), "{run}");
+        assert!(!run.contains("[Azul.AzWindowCreateOptions]"), "{run}");
+    }
+
+    #[test]
+    fn a_clone_cmdlet_takes_only_the_piped_instance() {
+        let out = gen();
+        let clone = function_body(&out, "Copy-AzulFullWindowStateClone");
+        assert!(!clone.contains("$InstanceArg"), "{clone}");
+        assert!(clone.contains("$Instance.Clone()"), "{clone}");
+    }
+
+    #[test]
+    fn every_cmdlet_name_is_declared_once() {
+        let out = gen();
+        let mut seen = std::collections::BTreeSet::new();
+        for line in out.lines().filter(|l| l.starts_with("function ")) {
+            assert!(seen.insert(line.to_string()), "declared twice: {line}\n{out}");
+        }
+        assert!(out.contains("function New-AzulWindowCreateOptions {\n"), "{out}");
+        assert!(out.contains("[Azul.WindowCreateOptions]::Default()"), "{out}");
+    }
+}
