@@ -1741,6 +1741,28 @@ mod tests {
         }
     }
 
+    /// A parsed PDF's page size belongs with `ParsedPdf` in pdf; the css
+    /// keyword "size" (a whole word, and longer than "pdf") filed it in css,
+    /// and the confident keyword then kept it there (integration 2026-10-05).
+    #[test]
+    fn a_pdf_page_size_is_placed_with_the_parsed_pdf() {
+        assert_eq!(determine_module("PdfPageSize").0, "pdf");
+        assert_eq!(
+            get_correct_module_with_path(
+                "PdfPageSize",
+                "css",
+                Some("azul_dll::unified::pdf::PdfPageSize")
+            )
+            .as_deref(),
+            Some("pdf")
+        );
+        assert_eq!(
+            new_type_module("PdfPageSize", "azul_dll::unified::pdf::PdfPageSize").0,
+            "pdf"
+        );
+        assert_eq!(determine_module("ParsedPdf").0, "pdf");
+    }
+
     /// Haptics and dials had NO keyword in any module, so they landed in
     /// "misc" - the junk drawer - which is where a binding user would never
     /// look for an input type.
