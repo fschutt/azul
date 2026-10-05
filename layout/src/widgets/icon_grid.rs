@@ -1359,8 +1359,8 @@ pub(crate) fn build(grid: IconGrid, look: &IconGridLook, extras: &IconGridExtras
                     )),
             );
         }
-        let mut thumb = Dom::create_div().with_class(AzString::from_const_str(THUMB_CLASS));
-        thumb = match tile {
+        let thumb = Dom::create_div().with_class(AzString::from_const_str(THUMB_CLASS));
+        let thumb = match tile {
             Some(color) => {
                 let mut style = decl::on_base(&thumb_base(icon_px), &extras.placeholder);
                 style.push(decl::simple(decl::fill(color)));
