@@ -2882,8 +2882,9 @@ pub(crate) fn line_edit(text: &str, caret: usize, key: VirtualKeyCode) -> Option
     }
 }
 
-/// `text` with `inserted` typed at `caret`, and the caret after it.
-fn insert_at(text: &str, caret: usize, inserted: &str) -> (String, usize) {
+/// `text` with `inserted` typed at `caret`, and the caret after it (the cell
+/// grid's editor types through it too).
+pub(crate) fn insert_at(text: &str, caret: usize, inserted: &str) -> (String, usize) {
     let mut chars: Vec<char> = text.chars().collect();
     let caret = caret.min(chars.len());
     let new: Vec<char> = inserted.chars().collect();
