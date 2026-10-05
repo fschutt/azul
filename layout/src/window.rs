@@ -28385,6 +28385,47 @@ mod autotest_generated {
         );
     }
 
+    /// The four DOM lints are developer warnings about the DOM's SHAPE. A
+    /// relayout of the same DOM - an animation frame, a resize, a restyle:
+    /// the shells' `incremental_relayout` hands the retained `StyledDom` back
+    /// - leaves every finding as it was, and used to walk the whole DOM four
+    /// times again on every pass (ANIMFRAME8 s8). A new DOM is linted.
+    #[test]
+    fn a_relayout_of_an_unchanged_dom_runs_no_dom_lint() {
+        let dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("width: 20px; height: 20px;"));
+        let mut win = laid_out(StyledDom::create_from_dom(dom), 300.0, 200.0);
+        let after_first = win.dom_lint_runs;
+        assert!(after_first >= 1, "the first layout lints its DOM");
+
+        // The shells' incremental relayout: the retained StyledDom, by value.
+        let retained = win
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .expect("laid out")
+            .styled_dom;
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = size(320.0, 200.0);
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        win.layout_and_generate_display_list(retained, &ws, &rr, &sc, &mut None)
+            .expect("the relayout");
+        assert_eq!(
+            win.dom_lint_runs, after_first,
+            "the relayout of the unchanged DOM runs no lint"
+        );
+
+        // The app's next DOM is linted.
+        let next = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_div()));
+        win.layout_new_generation(next, &ws, &rr, &sc, &mut None)
+            .expect("the new generation");
+        assert_eq!(
+            win.dom_lint_runs,
+            after_first + 1,
+            "a new generation is linted"
+        );
+    }
+
     /// A CSS `opacity` tween is a GPU property after its first frame
     /// (ANIMFRAME8 s8): the display list binds the node's CSS opacity key in
     /// its `PushOpacity`, so a later frame publishes the new value in the GPU
