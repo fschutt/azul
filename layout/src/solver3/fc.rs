@@ -4210,13 +4210,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 // node's entries in makes any cascade change invalidate.
                 let dom_id_opt = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id);
                 if let (Some(cc), Some(dom_id)) = (compact, dom_id_opt) {
-                    let i = dom_id.index();
-                    if let Some(t1) = cc.tier1_enums.get(i) {
-                        t1.hash(&mut h);
-                    }
-                    if let Some(t2) = cc.tier2b_text.get(i) {
-                        t2.font_family_hash.hash(&mut h);
-                    }
+                    hash_resolved_style(cc, dom_id.index(), &mut h);
                 }
             }
             idx.hash(&mut h);
@@ -12158,6 +12152,78 @@ fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bo
         get_position_type(styled_dom, Some(dom_id)),
         LayoutPosition::Absolute | LayoutPosition::Fixed
     ) && get_float_property(styled_dom, Some(dom_id)) == LayoutFloat::None
+}
+
+/// Folds the RESOLVED style of DOM node `i` - every compact tier the inline
+/// collection reads - into the inline-collection key of `layout_ifc`: the
+/// tier-1 enums, the tier-2 dimensions (font size, and the box sizes and
+/// edges of inline boxes and atomic inlines, whose measured sizes the
+/// collection caches) and the whole tier-2b text block (font family,
+/// colour, line height, letter / word spacing, indent).
+///
+/// The node fingerprints cover a node's own data and inline CSS, not what an
+/// author STYLESHEET resolved onto it: the same DOM under another stylesheet
+/// (or an inherited value moved by an ancestor's restyle) compared equal on
+/// the tier-1 enums and the font family alone, and reused runs of the old
+/// font size and atomic inlines of the old size (FIX9 1.2, TEXT7 found (c)).
+/// The compact cache stores computed values (inherited ones included), so a
+/// change anywhere above reaches every node of the subtree here.
+fn hash_resolved_style<H: core::hash::Hasher>(
+    cc: &azul_css::compact_cache::CompactLayoutCache,
+    i: usize,
+    h: &mut H,
+) {
+    use core::hash::Hash;
+    if let Some(t1) = cc.tier1_enums.get(i) {
+        t1.hash(h);
+    }
+    if let Some(d) = cc.tier2_dims.get(i) {
+        (
+            d.width,
+            d.height,
+            d.min_width,
+            d.max_width,
+            d.min_height,
+            d.max_height,
+            d.flex_basis,
+            d.font_size,
+        )
+            .hash(h);
+        (
+            d.padding_top,
+            d.padding_right,
+            d.padding_bottom,
+            d.padding_left,
+            d.margin_top,
+            d.margin_right,
+            d.margin_bottom,
+            d.margin_left,
+        )
+            .hash(h);
+        (
+            d.border_top_width,
+            d.border_right_width,
+            d.border_bottom_width,
+            d.border_left_width,
+            d.top,
+            d.right,
+            d.bottom,
+            d.left,
+        )
+            .hash(h);
+        (d.flex_grow, d.flex_shrink, d.row_gap, d.column_gap).hash(h);
+    }
+    if let Some(t) = cc.tier2b_text.get(i) {
+        (
+            t.text_color,
+            t.font_family_hash,
+            t.line_height,
+            t.letter_spacing,
+            t.word_spacing,
+            t.text_indent,
+        )
+            .hash(h);
+    }
 }
 
 /// The first in-flow child box of `index` ([`is_in_flow_box`]).
