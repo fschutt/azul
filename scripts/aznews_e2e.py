@@ -226,7 +226,8 @@ def rename_run(args, logs, out):
     try:
         app.expect_line("AZNEWS_LOADED", "42 891", "the sample library")
         app.expect_line("AZNEWS_SAMPLE_WRITTEN", "127", "the sample's files")
-        app.until("the first feed's page", lambda: app.has(app.sel("feed-title")))
+        # The first feed's page (its name field).
+        app.detect_naming("__aznews_", "feed-title")
         app.text_input(app.sel("feed-title"), RENAMED)
         app.until("the new name on the page", lambda: app.shows(RENAMED))
         saved = app.count("AZNEWS_SAVED", re.escape(SUBSCRIPTIONS))
