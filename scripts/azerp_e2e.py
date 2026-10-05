@@ -80,7 +80,8 @@ def body(args, logs, out):
         if app.last("AZERP_FORM") != "assets_fixed_asset_form":
             raise Failure("New asset opened %r" % app.last("AZERP_FORM"))
         app.text_input("#__azerp_field-name", "Drill press")
-        app.text_input("#__azerp_field-acquisition_cost", "2.400,00")
+        # The amount is a MoneyInput (FIX9 6.6a): its text field is the one inside, en-US format.
+        app.text_input("#__azerp_field-acquisition_cost .__azul-native-text-input-container", "2,400.00")
         app.text_input("#__azerp_field-useful_life_years", "8")
         before = saved(app)
         app.after("the asset saved", "AZERP_SAVED_FORM", r"\S+", lambda: app.click(selector="#__azerp_form-save"))
