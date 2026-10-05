@@ -62,6 +62,8 @@ use azul::{
     xml::{ExternalResourceKind, Xml},
 };
 
+use azul_appkit::css::{self as sheet, CssItem};
+
 use crate::ids;
 
 /// The sanitized document and what was left out.
@@ -703,7 +705,7 @@ fn body_of(attributes: &[(&str, &str)], prefix: &str) -> Body {
                 }
             }
             "bgcolor" | "text" => {
-                if !value.is_empty() && safe_style_value(value) {
+                if !value.is_empty() && sheet::safe_value(value) {
                     let property = if name == "bgcolor" {
                         "background-color"
                     } else {
@@ -780,7 +782,7 @@ fn push_attributes(
                 }
             }
             "color" | "face" if source == "font" => {
-                if !value.is_empty() && safe_style_value(value) {
+                if !value.is_empty() && sheet::safe_value(value) {
                     let property = if name == "color" { "color" } else { "font-family" };
                     styles.push((String::from(property), value.to_string()));
                 }
@@ -848,18 +850,7 @@ fn names_dark(value: &str) -> bool {
 /// left with no declaration. Dark rules: a kept `@media` whose condition says
 /// `prefers-color-scheme: dark`, or a `color-scheme` declaration that names `dark`.
 fn sanitize_style_sheet(css: &str, prefix: &str) -> (String, bool) {
-    let mut plain = String::with_capacity(css.len());
-    let mut rest = css;
-    while let Some(at) = rest.find("/*") {
-        plain.push_str(&rest[..at]);
-        let after = &rest[at + 2..];
-        rest = match after.find("*/") {
-            Some(end) => &after[end + 2..],
-            None => "",
-        };
-    }
-    plain.push_str(rest);
-    let plain = plain.replace("<!--", " ").replace("-->", " ");
+    let plain = sheet::strip_comments(css);
     let mut out = String::new();
     let mut dark = false;
     sanitize_rules(&plain, &mut out, &mut dark, false, prefix);
@@ -867,97 +858,60 @@ fn sanitize_style_sheet(css: &str, prefix: &str) -> (String, bool) {
 }
 
 /// The rules of `css` (a sheet, or the inside of an `@media` block when `nested`), made safe
-/// into `out`.
+/// into `out`: the policy over azul-appkit's style-sheet reader (`azul_appkit::css`).
 fn sanitize_rules(css: &str, out: &mut String, dark: &mut bool, nested: bool, prefix: &str) {
-    let mut rest = css.trim_start();
-    while !rest.is_empty() {
-        let brace = rest.find('{');
-        if let Some(at_rule) = rest.strip_prefix('@') {
-            let name_len = at_rule
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
-                .unwrap_or(at_rule.len());
-            let name = at_rule[..name_len].to_ascii_lowercase();
-            // A statement (`@import ...;`) ends at its `;` - when no block follows at all, or
-            // before the first one - a block at-rule at its block.
-            match (rest.find(';'), brace) {
-                (Some(semi), None) => {
-                    rest = rest[semi + 1..].trim_start();
-                }
-                (Some(semi), Some(b)) if semi < b => {
-                    rest = rest[semi + 1..].trim_start();
-                }
-                (_, Some(b)) => {
-                    let condition = rest[1 + name_len..b].trim();
-                    let (body, after) = block_body(&rest[b..]);
-                    if name == "media" && !nested && safe_style_value(condition) {
-                        let mut inner = String::new();
-                        sanitize_rules(body, &mut inner, dark, true, prefix);
-                        if !inner.is_empty() {
-                            let lower = condition.to_ascii_lowercase();
-                            if lower.contains("prefers-color-scheme") && lower.contains("dark") {
-                                *dark = true;
-                            }
-                            out.push_str("@media ");
-                            out.push_str(condition);
-                            out.push_str(" { ");
-                            out.push_str(&inner);
-                            out.push_str("} ");
-                        }
+    sheet::for_each_item(css, &mut |item| match item {
+        // `@import`, `@charset`, `@namespace`: gone.
+        CssItem::AtStatement { .. } => {}
+        CssItem::AtBlock {
+            name,
+            condition,
+            body,
+        } => {
+            if name == "media" && !nested && sheet::safe_value(condition) {
+                let mut inner = String::new();
+                sanitize_rules(body, &mut inner, dark, true, prefix);
+                if !inner.is_empty() {
+                    let lower = condition.to_ascii_lowercase();
+                    if lower.contains("prefers-color-scheme") && lower.contains("dark") {
+                        *dark = true;
                     }
-                    rest = after.trim_start();
+                    out.push_str("@media ");
+                    out.push_str(condition);
+                    out.push_str(" { ");
+                    out.push_str(&inner);
+                    out.push_str("} ");
                 }
-                (None, None) => break,
             }
-            continue;
         }
-        let Some(b) = brace else {
-            break;
-        };
-        let selectors = rest[..b].trim();
-        let (body, after) = block_body(&rest[b..]);
-        let lower = body.to_ascii_lowercase();
-        if let Some(at) = lower.find("color-scheme") {
-            let value = lower[at..].split(';').next().unwrap_or("");
-            if names_dark(value.split_once(':').map_or("", |(_, v)| v)) {
+        CssItem::Rule {
+            selectors,
+            declarations,
+        } => {
+            // `supported-color-schemes`: Apple Mail's older name of `color-scheme`.
+            if declarations.iter().any(|(property, value)| {
+                matches!(property.as_str(), "color-scheme" | "supported-color-schemes")
+                    && names_dark(value)
+            }) {
                 *dark = true;
             }
-        }
-        let declarations = parse_style(body);
-        if let (false, Some(scoped)) = (
-            declarations.is_empty(),
-            scope_selectors(selectors, prefix),
-        ) {
-            out.push_str(&scoped);
-            out.push_str(" { ");
-            for (property, value) in &declarations {
-                out.push_str(property);
-                out.push_str(": ");
-                out.push_str(value);
-                out.push_str("; ");
-            }
-            out.push_str("} ");
-        }
-        rest = after.trim_start();
-    }
-}
-
-/// The inside of the block that starts at `s` (its `{`) and what follows its matching `}`; an
-/// unclosed block runs to the end.
-fn block_body(s: &str) -> (&str, &str) {
-    let mut depth = 0_usize;
-    for (at, c) in s.char_indices() {
-        match c {
-            '{' => depth += 1,
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return (&s[1..at], &s[at + 1..]);
+            let declarations = safe_declarations(declarations);
+            if let (false, Some(scoped)) = (
+                declarations.is_empty(),
+                scope_selectors(selectors, prefix),
+            ) {
+                out.push_str(&scoped);
+                out.push_str(" { ");
+                for (property, value) in &declarations {
+                    out.push_str(property);
+                    out.push_str(": ");
+                    out.push_str(value);
+                    out.push_str("; ");
                 }
+                out.push_str("} ");
             }
-            _ => {}
         }
-    }
-    (s.get(1..).unwrap_or(""), "")
+    });
 }
 
 /// A rule's selectors scoped to the paper, so a mail's sheet cannot restyle the app around
@@ -1029,25 +983,21 @@ fn rename_classes(selector: &str, prefix: &str) -> String {
 }
 
 /// The safe declarations of a `style` attribute, property names in lower case, `!important`
-/// dropped.
+/// dropped (read by azul-appkit's `parse_declarations`: a `;` in quotes or parentheses ends
+/// nothing).
 fn parse_style(style: &str) -> Vec<(String, String)> {
-    style
-        .split(';')
-        .filter_map(|declaration| {
-            let (property, value) = declaration.split_once(':')?;
-            let property = property.trim().to_ascii_lowercase();
-            let mut value = value.trim().to_string();
-            if let Some(at) = value.to_ascii_lowercase().find("!important") {
-                value.truncate(at);
-                value = value.trim().to_string();
-            }
+    safe_declarations(sheet::parse_declarations(style))
+}
+
+/// The declarations AzMail keeps: a property of [`STYLE_PROPERTIES`] with a value that names
+/// nothing to fetch or run (`azul_appkit::css::safe_value`), and no negative margin.
+fn safe_declarations(declarations: Vec<(String, String)>) -> Vec<(String, String)> {
+    declarations
+        .into_iter()
+        .filter(|(property, value)| {
             // A negative margin pulls the mail over other content.
             let negative = property.starts_with("margin") && value.contains('-');
-            (STYLE_PROPERTIES.contains(&property.as_str())
-                && !value.is_empty()
-                && !negative
-                && safe_style_value(&value))
-            .then_some((property, value))
+            STYLE_PROPERTIES.contains(&property.as_str()) && !negative && sheet::safe_value(value)
         })
         .collect()
 }
@@ -1068,32 +1018,6 @@ fn is_tracking_pixel(width: Option<&str>, height: Option<&str>, style: Option<&s
         s.contains("display:none") || s.contains("visibility:hidden")
     });
     (tiny(width) && tiny(height)) || hidden
-}
-
-/// Whether a style value names nothing to fetch or run.
-fn safe_style_value(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    ![
-        "url(",
-        "url (",
-        "expression",
-        "javascript:",
-        "@import",
-        "\\",
-        "<",
-        ">",
-        "/*",
-        "behavior",
-        "-moz-binding",
-        "image-set",
-        // One value: no second declaration, no way out of the rule it is written into.
-        ";",
-        "{",
-        "}",
-    ]
-    .iter()
-    .any(|bad| lower.contains(bad))
-        && !value.chars().any(char::is_control)
 }
 
 /// Appends `s` as XML text, written by azul's one encoder (`Xml::encode_text`: `& < >` as
