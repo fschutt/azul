@@ -232,3 +232,107 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
 
     Ok(builder.finish())
 }
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::super::config::CodegenConfig;
+    use super::*;
+
+    /// `Azul.php` for the real api.json, generated once.
+    fn azul_php() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("php codegen")
+        })
+    }
+
+    /// The body of `final class <name>`.
+    fn class_body(name: &str) -> &'static str {
+        let out = azul_php();
+        let head = format!("\nfinal class {}\n{{\n", name);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("class {} is not generated", name));
+        let end = out[start + 1..].find("\n}\n").expect("class end") + start + 1;
+        &out[start..end]
+    }
+
+    /// `public function <name>(...)` of `body`, up to its closing brace.
+    fn method<'a>(body: &'a str, name: &str) -> &'a str {
+        let head = format!("public function {}(", name);
+        let i = body
+            .find(&head)
+            .unwrap_or_else(|| panic!("`{}` is missing in:\n{}", name, body));
+        let rest = &body[i..];
+        &rest[..rest.find("\n    }\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn a_window_title_reads_as_a_php_string_and_its_setter_releases_the_old_title() {
+        let body = class_body("FullWindowState");
+        let get = method(body, "get_title");
+        assert!(get.contains("): string"), "{}", get);
+        assert!(get.contains("Azul::readString($this->ptr->title)"), "{}", get);
+        let set = method(body, "set_title");
+        assert!(set.contains("Azul::str($value)"), "a PHP string is copied in:\n{}", set);
+        assert!(
+            set.contains("Azul::lib()->AzString_delete(\\FFI::addr($this->ptr->title));"),
+            "the old title is released:\n{}",
+            set
+        );
+    }
+
+    #[test]
+    fn the_window_state_of_create_options_is_a_live_view_and_its_setter_moves_the_value_in() {
+        let body = class_body("WindowCreateOptions");
+        let get = method(body, "get_window_state");
+        assert!(get.contains("new FullWindowState($this->ptr->window_state, $this)"), "{}", get);
+        let set = method(body, "set_window_state");
+        assert!(set.contains("$value->intoRaw()"), "{}", set);
+        assert!(
+            set.contains("AzFullWindowState_delete(\\FFI::addr($this->ptr->window_state))"),
+            "{}",
+            set
+        );
+    }
+
+    #[test]
+    fn a_borrowed_view_is_never_freed_and_moves_out_a_deep_copy() {
+        let body = class_body("FullWindowState");
+        let d = method(body, "__destruct");
+        assert!(d.contains("$this->owner !== null"), "{}", d);
+        let into = method(body, "intoRaw");
+        assert!(into.contains("AzFullWindowState_clone(\\FFI::addr($this->ptr))"), "{}", into);
+    }
+
+    #[test]
+    fn clone_and_to_string_take_no_extra_argument() {
+        let body = class_body("WindowCreateOptions");
+        let clone = method(body, "clone");
+        assert!(clone.starts_with("public function clone()"), "{}", clone);
+        assert!(
+            clone.contains("new self(Azul::lib()->AzWindowCreateOptions_clone(\\FFI::addr($this->ptr)))"),
+            "{}",
+            clone
+        );
+        let ts = method(body, "toString");
+        assert!(ts.starts_with("public function toString(): string"), "{}", ts);
+        assert!(!azul_php().contains("toString($instance)"));
+        assert!(!azul_php().contains("clone($instance)"));
+    }
+
+    #[test]
+    fn a_bool_field_has_typed_accessors() {
+        let body = class_body("CheckBoxState");
+        assert!(method(body, "get_checked").contains("return $this->ptr->checked;"), "{}", body);
+        assert!(method(body, "set_checked").contains("$this->ptr->checked = $value;"), "{}", body);
+    }
+
+    #[test]
+    fn a_field_whose_getter_name_is_an_api_method_is_still_settable() {
+        let body = class_body("TextInputState");
+        assert!(method(body, "get_text").contains("AzTextInputState_getText"), "{}", body);
+        assert!(method(body, "set_text").contains("AzU32Vec_delete"), "{}", body);
+    }
+}
