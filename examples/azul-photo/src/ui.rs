@@ -124,7 +124,7 @@ fn icon_button(app: &RefAny, icon: &str, label: &str, command: Command) -> Dom {
         .with_icon(AzString::from(icon))
         .with_on_click(cmd(app, command), commands::on_command as ButtonOnClickCallbackType)
         .dom()
-        .with_accessibility_info(AccessibilityInfo::named(label, AccessibilityRole::PushButton))
+        .with_accessibility_assign(AccessibilityInfo::named(label, AccessibilityRole::PushButton))
 }
 
 /// A labelled number field.
@@ -511,7 +511,7 @@ fn tools_column(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
                 .dom()
                 .with_id(t.dom_id())
                 .with_css("margin: 1px;")
-                .with_accessibility_info(AccessibilityInfo::named(
+                .with_accessibility_assign(AccessibilityInfo::named(
                     format!("{} ({})", t.name(), t.key()),
                     AccessibilityRole::PushButton,
                 )),
