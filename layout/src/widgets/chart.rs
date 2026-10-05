@@ -216,7 +216,7 @@ impl ChartKind {
 
     /// A bar chart, grouped or stacked: a category axis from zero.
     #[must_use]
-    pub const fn is_bar(self) -> bool {
+    pub const fn has_bars(self) -> bool {
         matches!(self, Self::Bar | Self::StackedBar)
     }
 
@@ -1521,7 +1521,7 @@ fn band_count(chart: &Chart) -> usize {
     if named > 0 {
         return named;
     }
-    if chart.kind.is_bar() || chart.kind.is_round() {
+    if chart.kind.has_bars() || chart.kind.is_round() {
         return chart
             .series
             .as_slice()
@@ -1662,7 +1662,7 @@ pub(crate) fn chart_geometry(chart: &Chart) -> ChartGeometry {
     let plot_h = (frame_height - plot_top - X_GUTTER - x_title_h).max(MIN_PLOT_PX);
 
     let (mut lo, mut hi) = y_extent(chart, bands).unwrap_or((0.0, 1.0));
-    if chart.kind.is_bar() {
+    if chart.kind.has_bars() {
         lo = lo.min(0.0);
         hi = hi.max(0.0);
     }

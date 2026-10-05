@@ -68897,6 +68897,9 @@
                                 "accessibility_name": {
                                     "type": "OptionString"
                                 },
+                                "status": {
+                                    "type": "OptionString"
+                                },
                                 "theme": {
                                     "type": "OptionUiTheme"
                                 }
@@ -69214,7 +69217,13 @@
                                 "on_text_input": {
                                     "type": "OptionComboBoxOnTextInput"
                                 },
+                                "item_details": {
+                                    "type": "StringVec"
+                                },
                                 "active_option_cleared": {
+                                    "type": "bool"
+                                },
+                                "open_on_type": {
                                     "type": "bool"
                                 }
                             }
@@ -96993,20 +97002,6 @@
                             }
                         ],
                         "functions": {
-                            "is_bar": {
-                                "doc": [
-                                    "A bar chart, grouped or stacked: a category axis from zero."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_bar()"
-                            },
                             "is_round": {
                                 "doc": [
                                     "A pie or a donut: no axes, the categories are the slices."
@@ -97020,6 +97015,20 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_round()"
+                            },
+                            "has_bars": {
+                                "doc": [
+                                    "A bar chart, grouped or stacked: a category axis from zero."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.has_bars()"
                             }
                         },
                         "repr": "C"
@@ -180859,6 +180868,9 @@
                                 },
                                 "callback": {
                                     "type": "OptionNotificationCallback"
+                                },
+                                "deliver_at": {
+                                    "type": "OptionU64"
                                 }
                             }
                         ],
