@@ -20,16 +20,19 @@ No cargo. Report: scripts/FIX9_WIDGETS_2026_10_05.md.
 - 4.14 refactor ec5bfb751 (decl.rs appended - outside Files line, item names it)
 - 4.15 refactor dbd708496 (no RED)
 - 4.16 RED becbfa671, GREEN 82fad2e6b
-- 4.17 SKIPPED (NOT SMALL): Button's disabled model needs a reason and keeps the Tab stop + answers a click
-  with its reason; 2 of 3 row_button callers pass no reason; wizard_layout.rs's test pins "a held Next has no
-  Click handler" (not a PKG 4 file); the box's held opacity would double the Button's. Decision for the report.
+- 4.17 SKIPPED (NOT SMALL) - see the report
 - 4.18 chore 3460fd689
+- suite: dom_lint (rich_text_editor) 3e948cc3e - code wrong
+- suite: button autotest 17708ce84 - test wrong
+- suite: code_view wheel 49fffa034 - code wrong
+- suite: date_range_picker invariants a7dc9e502 - code wrong
 
 ## IN PROGRESS
-- suite failures: rich_text_editor dom_lint, button autotest, code_view wheel, date_range_picker invariants
+- (none)
 
 ## NEXT
-- 4.1 .. 4.18 in order, then the 4 suite failures, then the report.
+- Done; the report is scripts/FIX9_WIDGETS_2026_10_05.md.
 
 ## Open questions
-(none yet)
+- 4.17: how a reasonless disabled dialog button reads (Button's disabled model needs a reason) and whether a
+  disabled dialog button keeps its Tab stop (Button: yes; row_button today: no). See the report.
