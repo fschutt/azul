@@ -10472,6 +10472,64 @@ mod autotest_generated {
         assert!(nan_vp.top.is_finite() && nan_vp.padding_top.is_finite());
     }
 
+    /// A border without a colour of its own is `currentcolor`: the colour the
+    /// node's text USES. A colour transition writes its per-tick value as a
+    /// user override on the animated node (`set_user_property_override_fast`:
+    /// no re-inheritance, no compact-cache patch), so a child sees it only
+    /// through the ancestor walk the text painter did (`live_color`) - the
+    /// border read the stale inherited colour (WPT8 found (f)).
+    #[test]
+    fn a_currentcolor_border_follows_an_animated_colour_on_its_parent() {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::{property::CssProperty, style::text::StyleTextColor},
+        };
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_class("p".into())
+                .with_child(Dom::create_div().with_class("c".into())),
+        );
+        let mut sd = StyledDom::create(&mut dom, parse(".p { color: red; } .c { border: 2px solid; }"));
+        let child = NodeId::new(2);
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let blue = ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        };
+        let top = |sd: &StyledDom| {
+            get_border_info(sd, child, &normal())
+                .colors
+                .top
+                .and_then(|c| c.get_property().copied())
+                .map(|c| c.inner)
+        };
+        assert_eq!(top(&sd), Some(red), "currentcolor is the inherited red");
+
+        sd.set_user_property_override_fast(
+            &NodeId::new(1),
+            &[CssProperty::TextColor(CssPropertyValue::Exact(
+                StyleTextColor { inner: blue },
+            ))],
+        );
+        assert_eq!(
+            get_used_text_color(&sd, child, &normal()),
+            blue,
+            "the child's used colour follows its parent's animated colour"
+        );
+        assert_eq!(
+            top(&sd),
+            Some(blue),
+            "and so does its currentcolor border"
+        );
+    }
+
     #[test]
     fn get_style_properties_stays_finite_for_every_degenerate_viewport() {
         let sd = body_with_text("hello");
