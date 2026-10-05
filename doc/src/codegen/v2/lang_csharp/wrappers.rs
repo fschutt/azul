@@ -386,6 +386,8 @@ pub fn generate_wrappers(
     builder.line("}");
     builder.blank();
 
+    emit_field_runtime(builder, ir);
+
     // `App.run(window)` blocks inside the native event loop for the app's
     // lifetime, which `Dispose(false)` has to know about (see
     // `__AzAppLoopState`). Which methods those are comes from the shared
@@ -571,7 +573,34 @@ fn emit_wrapper_storage(
 ) {
     // Storage, disposal flag and (owning types only) the borrowed flag
     // set by `__Borrow` for engine-owned bytes.
-    builder.line(&format!("private {} _inner;", ffi_name));
+    //
+    // An owning class can also be a VIEW of a field of its parent
+    // (`opts.WindowState` is the `window_state` bytes inside `opts`, so
+    // `opts.WindowState.Title = "x"` reaches `opts`). `_inner` is then a
+    // ref-returning property: every member reads and writes through it
+    // unchanged, and a view's `_inner` is the parent's field.
+    if has_delete {
+        builder.line(&format!("private {} __store;", ffi_name));
+        builder.line(&format!("private __AzRef<{}> __view;", ffi_name));
+        builder.line(
+            "/// <summary>The FFI value: this object's own storage, or the parent's field when \
+             this object is a view.</summary>",
+        );
+        builder.line(&format!("private ref {} _inner", ffi_name));
+        builder.line("{");
+        builder.indent();
+        builder.line("get");
+        builder.line("{");
+        builder.indent();
+        builder.line("if (__view != null) return ref __view();");
+        builder.line("return ref __store;");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+    } else {
+        builder.line(&format!("private {} _inner;", ffi_name));
+    }
     builder.line("private bool _disposed;");
     if has_delete {
         builder.line("private bool _borrowed;");
@@ -612,8 +641,10 @@ fn emit_wrapper_storage(
     builder.blank();
     builder.line("/// <summary>Wrap an existing raw FFI struct (takes ownership).</summary>");
     builder.line(&format!(
-        "internal {}({} inner) {{ _inner = inner; }}",
-        class_name, ffi_name
+        "internal {}({} inner) {{ {} = inner; }}",
+        class_name,
+        ffi_name,
+        if has_delete { "__store" } else { "_inner" }
     ));
     builder.blank();
 }
@@ -787,6 +818,9 @@ fn emit_wrapper_class(
         }
         emit_wrapper_method(builder, &class_name, func, ir, event_loop_methods);
     }
+
+    // The struct's fields as properties (`opts.WindowState.Title = "x"`).
+    emit_field_properties(builder, s, &class_name, ir, config);
 
     // Phase I.2 (C#): override Equals(object) + GetHashCode() routed
     // through the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash`
@@ -1410,6 +1444,501 @@ fn emit_dispose_methods(
     builder.dedent();
     builder.line("}");
     builder.blank();
+
+    if !has_delete {
+        return;
+    }
+    let ffi = ffi_type_name(raw_type_name);
+
+    // View: an object whose bytes are a field of another object (the
+    // getter of a heap-owning field property). Reads and writes go to the
+    // parent; like a borrow it never frees anything.
+    builder.line(
+        "/// <summary>Internal: a view of bytes another object owns (a field of a parent \
+         wrapper). Reads and writes reach the parent; Dispose() never frees them.</summary>",
+    );
+    builder.line(&format!(
+        "internal static {} __View(__AzRef<{}> slot)",
+        class_name, ffi
+    ));
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!("var __w = new {}(default({}));", class_name, ffi));
+    builder.line("__w.__view = slot;");
+    builder.line("__w._borrowed = true;");
+    builder.line("global::System.GC.SuppressFinalize(__w);");
+    builder.line("return __w;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+
+    // Take: the value to MOVE into a field. An owned wrapper is consumed
+    // (its finalizer disarmed); a borrowed one (a view, a callback
+    // argument) still belongs to someone else and is deep-copied instead.
+    builder.line(
+        "/// <summary>Internal: the value to move into a field setter. An owned object is \
+         consumed; a borrowed one (a view, a callback argument) is deep-copied.</summary>",
+    );
+    builder.line(&format!("internal {} __Take()", ffi));
+    builder.line("{");
+    builder.indent();
+    builder.line(
+        "if (_disposed) throw new ObjectDisposedException(nameof(_inner), \"wrapper already \
+         disposed or consumed; its native data is no longer owned by this object\");",
+    );
+    match format_clone_call_cs(raw_type_name, ir) {
+        Some(clone) => builder.line(&format!(
+            "if (_borrowed) return __AzDerive.Call<{ffi}, {ffi}>(_inner, {clone});"
+        )),
+        None => builder.line(&format!(
+            "if (_borrowed) throw new global::System.InvalidOperationException(\"{} has no \
+             deep copy: a borrowed value cannot be moved into a field\");",
+            class_name
+        )),
+    }
+    builder.line("var __v = _inner;");
+    builder.line("__Consume();");
+    builder.line("return __v;");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+// ============================================================================
+// Field properties
+// ============================================================================
+
+/// The runtime the field properties share: the ref-returning delegate a
+/// view reaches its parent's field through, and the string conversions.
+fn emit_field_runtime(builder: &mut CodeBuilder, ir: &CodegenIR) {
+    builder.line(
+        "/// <summary>Internal: a reference to a field inside another object (what a field \
+         view reads and writes through).</summary>",
+    );
+    builder.line("internal delegate ref T __AzRef<T>();");
+    builder.blank();
+
+    let Some(string_ty) = ir
+        .structs
+        .iter()
+        .find(|s| matches!(s.category, TypeCategory::String))
+        .map(|s| ffi_type_name(&s.name))
+    else {
+        return;
+    };
+    let m = "global::System.Runtime.InteropServices.Marshal";
+    builder.line(
+        "/// <summary>Internal: native string conversions for the string-typed field \
+         properties.</summary>",
+    );
+    builder.line("internal static class __AzField");
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!(
+        "/// <summary>Decode the UTF-8 bytes of a {} without consuming it.</summary>",
+        string_ty
+    ));
+    builder.line(&format!("internal static string ReadString({} s)", string_ty));
+    builder.line("{");
+    builder.indent();
+    builder.line("var ptr = s.vec.ptr;");
+    builder.line("var len = (long)s.vec.len.ToUInt64();");
+    builder.line("if (ptr == global::System.IntPtr.Zero || len <= 0) return \"\";");
+    builder.line("var bytes = new byte[len];");
+    builder.line(&format!("{m}.Copy(ptr, bytes, 0, (int)len);"));
+    builder.line("return global::System.Text.Encoding.UTF8.GetString(bytes);");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+    builder.line(&format!(
+        "/// <summary>A fresh {} holding a copy of `v` (owned by the caller).</summary>",
+        string_ty
+    ));
+    builder.line(&format!("internal static {} MakeString(string v)", string_ty));
+    builder.line("{");
+    builder.indent();
+    builder.line("var bytes = global::System.Text.Encoding.UTF8.GetBytes(v ?? \"\");");
+    builder.line(&format!(
+        "var buf = {m}.AllocHGlobal(global::System.Math.Max(bytes.Length, 1));"
+    ));
+    builder.line("try");
+    builder.line("{");
+    builder.indent();
+    builder.line(&format!("{m}.Copy(bytes, 0, buf, bytes.Length);"));
+    builder.line(&format!(
+        "return NativeMethods.{}_fromUtf8(buf, (UIntPtr)bytes.Length);",
+        string_ty
+    ));
+    builder.dedent();
+    builder.line("}");
+    builder.line(&format!("finally {{ {m}.FreeHGlobal(buf); }}"));
+    builder.dedent();
+    builder.line("}");
+    builder.dedent();
+    builder.line("}");
+    builder.blank();
+}
+
+/// How one field of a wrapped struct is read and written.
+enum CsFieldShape {
+    /// A C primitive: read and written in place.
+    Prim { ty: String },
+    /// The string type: read as a C# `string` (the field is only read),
+    /// written as a fresh native string after the old one is released.
+    Str { delete: String },
+    /// A heap-owning class: read as a live view of the field, written by
+    /// moving the argument in (`__Take`) after the old value is released.
+    Wrapper { class: String, delete: String },
+    /// Any other value type, as its raw `Az*` struct (or C enum). With a
+    /// `_delete` the getter deep-copies (no `_clone`: no getter) and the
+    /// setter releases the old value first.
+    Value {
+        ty: String,
+        delete: Option<String>,
+        clone: Option<String>,
+    },
+}
+
+/// Does `t` carry a callback, a callback wrapper or the type-erased
+/// handle (directly, or in a variant of a union / option)? Such fields are
+/// wired up by the callback plumbing, never assigned as plain values.
+pub(crate) fn field_type_carries_callback(t: &str, ir: &CodegenIR) -> bool {
+    use super::super::{managed_host_invoker::is_callback_wrapper, managed_lang_helpers::is_refany_type};
+    let direct = |t: &str| {
+        let t = t.trim();
+        is_callback_wrapper(ir, t)
+            || is_refany_type(t, ir)
+            || ir.callback_typedefs.iter().any(|c| c.name.trim() == t)
+    };
+    let t = t.trim();
+    if direct(t) {
+        return true;
+    }
+    if let Some(e) = ir.find_enum(t) {
+        return e.variants.iter().any(|v| match &v.kind {
+            EnumVariantKind::Unit => false,
+            EnumVariantKind::Tuple(types) => types.iter().any(|(ty, _)| direct(ty.as_str())),
+            EnumVariantKind::Struct(fields) => fields.iter().any(|f| direct(f.type_name.as_str())),
+        });
+    }
+    if let Some(ta) = ir.find_type_alias(t) {
+        if let Some(MonomorphizedKind::TaggedUnion { variants, .. }) =
+            ta.monomorphized_def.as_ref().map(|m| &m.kind)
+        {
+            return variants
+                .iter()
+                .any(|v| v.payload_type.as_deref().is_some_and(|p| direct(p)));
+        }
+    }
+    false
+}
+
+/// A C scalar the struct mirror stores as a C# primitive.
+fn is_cs_scalar(t: &str) -> bool {
+    matches!(
+        t,
+        "u8" | "u16"
+            | "u32"
+            | "u64"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "usize"
+            | "isize"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "c_char"
+            | "c_uchar"
+            | "c_int"
+            | "c_uint"
+            | "char"
+    )
+}
+
+fn cs_field_shape(
+    f: &super::super::ir::FieldDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<CsFieldShape> {
+    if !f.is_public || f.ref_kind != FieldRefKind::Owned {
+        return None;
+    }
+    let t = f.type_name.trim();
+    if t.is_empty() || t.contains(['<', '[', '*', '&']) || matches!(t, "c_void" | "void" | "()") {
+        return None;
+    }
+    if is_cs_scalar(t) {
+        return Some(CsFieldShape::Prim {
+            ty: ref_kind_field_type(t, &FieldRefKind::Owned, ir),
+        });
+    }
+    if !config.should_include_type(t) || field_type_carries_callback(t, ir) {
+        return None;
+    }
+    let delete = has_delete_function(t, ir).then(|| format!("NativeMethods.{}_delete", ffi_type_name(t)));
+    if ir
+        .find_struct(t)
+        .is_some_and(|s| matches!(s.category, TypeCategory::String))
+    {
+        return delete.map(|delete| CsFieldShape::Str { delete });
+    }
+    if let Some(delete) = delete.clone() {
+        if is_owning_wrapper(t, ir)
+            && ir.find_struct(t).is_some_and(|s| should_emit_wrapper(s, ir, config))
+        {
+            return Some(CsFieldShape::Wrapper {
+                class: sanitize_class_name(t),
+                delete,
+            });
+        }
+    }
+    let ty = ref_kind_field_type(t, &FieldRefKind::Owned, ir);
+    if ty == "IntPtr" {
+        // A recursive or unknown type the mirror only holds as a pointer.
+        return None;
+    }
+    Some(CsFieldShape::Value {
+        ty,
+        delete,
+        clone: format_clone_call_cs(t, ir),
+    })
+}
+
+/// Every member name the wrapper class of `s` declares besides its field
+/// properties: a field property never shadows one (the method wins).
+fn class_member_names(s: &StructDef, class_name: &str, ir: &CodegenIR) -> BTreeSet<String> {
+    let mut taken: BTreeSet<String> = [
+        "Raw",
+        "Dispose",
+        "Clone",
+        "Equals",
+        "GetHashCode",
+        "ToString",
+        "CompareTo",
+        "GetEnumerator",
+        "GetType",
+        "MemberwiseClone",
+        "Finalize",
+        "ReferenceEquals",
+        "Create",
+        "__Consume",
+        "__Borrow",
+        "__View",
+        "__Take",
+    ]
+    .iter()
+    .map(|n| n.to_string())
+    .collect();
+    taken.insert(class_name.to_string());
+    for func in ir.functions_for_class(&s.name) {
+        taken.insert(idiomatic_method_name(&func.method_name));
+        if let Some((smart, _)) = smart_callback_setter_info(func) {
+            taken.insert(super::snake_to_pascal(&smart));
+        }
+    }
+    taken
+}
+
+/// Properties for the public fields of a wrapped struct, so a class's
+/// fields are as reachable as a struct's:
+///
+/// - a scalar reads and writes in place; a string reads as a C# `string`
+///   (the field is not consumed) and writes a fresh native string after
+///   releasing the old one;
+/// - a heap-owning class field reads as a live VIEW of the field, so
+///   nested writes (`opts.WindowState.Title = "x"`) reach the parent;
+///   assigning releases the old value and consumes the new object (a
+///   borrowed one is deep-copied);
+/// - a value-type field reads as a copy (C# rejects `x.Size.dpi = 2` at
+///   compile time, so a nested write is never silently lost: modify the
+///   copy and assign it back).
+///
+/// An api.json method of the same name wins: the property is then emitted
+/// as `Get<Field>()` / `Set<Field>(value)` methods where those are free.
+fn emit_field_properties(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    // A Vec / the string type: their fields are the buffer itself.
+    // Callback wrappers and RefAny: plumbing, not data.
+    if matches!(
+        s.category,
+        TypeCategory::Vec | TypeCategory::String | TypeCategory::RefAny
+    ) || detect_vec_elem_type_cs(s).is_some()
+        || s.callback_wrapper_info.is_some()
+    {
+        return;
+    }
+    let mut taken = class_member_names(s, class_name, ir);
+    let guard = "if (_disposed) throw new ObjectDisposedException(nameof(_inner));";
+
+    for f in &s.fields {
+        let Some(shape) = cs_field_shape(f, ir, config) else {
+            continue;
+        };
+        let mut prop = snake_to_pascal(&f.name);
+        if prop.starts_with(|c: char| c.is_ascii_digit()) {
+            prop = format!("Item{}", prop);
+        }
+        let fid = format!("_inner.{}", sanitize_identifier(&f.name));
+
+        // Bodies, one string per line; each leading '>' is one extra
+        // indent level.
+        let (ty, getter, setter, what): (String, Option<Vec<String>>, Vec<String>, String) =
+            match &shape {
+                CsFieldShape::Prim { ty } => (
+                    ty.clone(),
+                    Some(vec![format!("return {fid};")]),
+                    vec![format!("{fid} = value;")],
+                    format!("The `{}` field.", f.name),
+                ),
+                CsFieldShape::Str { delete } => (
+                    "string".to_string(),
+                    Some(vec![format!("return __AzField.ReadString({fid});")]),
+                    vec![
+                        "var __nv = __AzField.MakeString(value);".to_string(),
+                        format!("__AzDerive.Consume({fid}, {delete});"),
+                        format!("{fid} = __nv;"),
+                    ],
+                    format!(
+                        "The `{}` field. Reading copies the text out; assigning releases the old \
+                         string.",
+                        f.name
+                    ),
+                ),
+                CsFieldShape::Wrapper { class, delete } => (
+                    class.clone(),
+                    Some(vec![
+                        format!("return {class}.__View(() =>"),
+                        "{".to_string(),
+                        format!(">{guard}"),
+                        format!(">return ref {fid};"),
+                        "});".to_string(),
+                    ]),
+                    vec![
+                        "var __nv = value.__Take();".to_string(),
+                        format!("__AzDerive.Consume({fid}, {delete});"),
+                        format!("{fid} = __nv;"),
+                    ],
+                    format!(
+                        "The `{}` field as a live view: writes through it change this object \
+                         (valid while this object lives; Clone() it for an independent copy). \
+                         Assigning releases the old value and consumes the new one (a borrowed \
+                         one is deep-copied).",
+                        f.name
+                    ),
+                ),
+                CsFieldShape::Value { ty, delete, clone } => {
+                    let getter = match (delete, clone) {
+                        (None, _) => Some(vec![format!("return {fid};")]),
+                        (Some(_), Some(c)) => {
+                            Some(vec![format!("return __AzDerive.Call<{ty}, {ty}>({fid}, {c});")])
+                        }
+                        // Heap-owning without a deep copy: a shallow copy
+                        // would be freed twice.
+                        (Some(_), None) => None,
+                    };
+                    let mut setter = Vec::new();
+                    if let Some(d) = delete {
+                        setter.push(format!("__AzDerive.Consume({fid}, {d});"));
+                    }
+                    setter.push(format!("{fid} = value;"));
+                    let what = if delete.is_some() {
+                        format!(
+                            "A deep copy of the `{}` field; assigning releases the old value and \
+                             moves the new one in.",
+                            f.name
+                        )
+                    } else {
+                        format!(
+                            "A copy of the `{}` field (a value type: modify the copy and assign it \
+                             back, `var v = x.{prop}; ...; x.{prop} = v;`).",
+                            f.name
+                        )
+                    };
+                    (ty.clone(), getter, setter, what)
+                }
+            };
+
+        let emit_body = |b: &mut CodeBuilder, lines: &[String]| {
+            b.line(guard);
+            for l in lines {
+                let depth = l.chars().take_while(|c| *c == '>').count();
+                for _ in 0..depth {
+                    b.indent();
+                }
+                b.line(&l[depth..]);
+                for _ in 0..depth {
+                    b.dedent();
+                }
+            }
+        };
+        let emit_doc = |b: &mut CodeBuilder| {
+            b.line(&format!("/// <summary>{}</summary>", xml_escape(&what)));
+            if let Some(d) = &f.doc {
+                b.line(&format!("/// <remarks>{}</remarks>", xml_escape(d)));
+            }
+        };
+
+        if !taken.contains(&prop) {
+            taken.insert(prop.clone());
+            emit_doc(builder);
+            builder.line(&format!("public {} {}", ty, prop));
+            builder.line("{");
+            builder.indent();
+            if let Some(g) = &getter {
+                builder.line("get");
+                builder.line("{");
+                builder.indent();
+                emit_body(builder, g);
+                builder.dedent();
+                builder.line("}");
+            }
+            builder.line("set");
+            builder.line("{");
+            builder.indent();
+            emit_body(builder, &setter);
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            continue;
+        }
+
+        // The name belongs to a method: plain accessor methods instead.
+        let get_name = format!("Get{}", prop);
+        if let Some(g) = &getter {
+            if !taken.contains(&get_name) {
+                taken.insert(get_name.clone());
+                emit_doc(builder);
+                builder.line(&format!("public {} {}()", ty, get_name));
+                builder.line("{");
+                builder.indent();
+                emit_body(builder, g);
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+        }
+        let set_name = format!("Set{}", prop);
+        if !taken.contains(&set_name) {
+            taken.insert(set_name.clone());
+            emit_doc(builder);
+            builder.line(&format!("public void {}({} value)", set_name, ty));
+            builder.line("{");
+            builder.indent();
+            emit_body(builder, &setter);
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
 }
 
 // ============================================================================
