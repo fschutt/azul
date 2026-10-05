@@ -1574,8 +1574,83 @@ mod standard_dialog_tests {
         }
     }
 
+    /// The reason a click showed (a disabled button's tooltip), if any.
+    fn says_why(clicked: Option<(Update, Vec<crate::callbacks::CallbackChange>)>) -> Option<String> {
+        clicked?.1.into_iter().find_map(|c| match c {
+            crate::callbacks::CallbackChange::ShowTooltip { text, .. } if !text.as_str().is_empty() => {
+                Some(text.as_str().to_string())
+            }
+            _ => None,
+        })
+    }
+
+    /// User decision D1 (2026-10-05): every disabled button of a standard
+    /// dialog is the Button's own disabled state with a reason - it keeps
+    /// its Tab stop and is described by the reason (shown on hover and on
+    /// keyboard focus) - and no button box dims it a second time.
+    #[test]
+    fn every_disabled_standard_dialog_button_keeps_its_tab_stop_and_says_why() {
+        use crate::widgets::button::BUTTON_DISABLED_CLASS;
+        for theme in checks::BOTH {
+            let held = [
+                (
+                    "progress: Cancel",
+                    ProgressDialog::create(AzString::from("Copying"), 30.0)
+                        .with_cancel(AzString::from("Cancel"), false)
+                        .with_theme(theme)
+                        .dom(),
+                ),
+                (
+                    "login: Sign in",
+                    LoginDialog::create(AzString::from("Sign in"))
+                        .with_theme(theme)
+                        .dom(),
+                ),
+                (
+                    "find: the find buttons",
+                    FindReplaceDialog::create(AzString::from(""))
+                        .with_replace(AzString::from(""))
+                        .with_theme(theme)
+                        .dom(),
+                ),
+            ];
+            for (what, dom) in held {
+                let disabled = tc::find_all(&dom, BUTTON_DISABLED_CLASS);
+                assert!(
+                    !disabled.is_empty(),
+                    "{} {what}: the Button's own disabled state",
+                    theme.name()
+                );
+                for button in disabled {
+                    assert_eq!(
+                        button.root.get_tab_index(),
+                        Some(TabIndex::Auto),
+                        "{} {what}: keeps its Tab stop",
+                        theme.name()
+                    );
+                    let why = button
+                        .root
+                        .get_accessibility_info()
+                        .and_then(|a| a.description.as_ref().map(|d| d.as_str().to_string()))
+                        .unwrap_or_default();
+                    assert!(!why.is_empty(), "{} {what}: says why", theme.name());
+                }
+                for button_box in tc::find_all(&dom, BUTTON_BOX_CLASS) {
+                    assert!(
+                        !button_box.root.style.iter_inline_properties().any(|(p, _)| matches!(
+                            p,
+                            azul_css::props::property::CssProperty::Opacity(_)
+                        )),
+                        "{} {what}: no box dims a button a second time",
+                        theme.name()
+                    );
+                }
+            }
+        }
+    }
+
     /// Clicks the first node at or above the text `label` that takes a
-    /// click; `None` when nothing does (an inert button).
+    /// click; `None` when nothing does.
     fn click(dom: Dom, label: &str) -> Option<(Update, Vec<crate::callbacks::CallbackChange>)> {
         let styled = StyledDom::create_from_dom(dom);
         let hierarchy = styled.node_hierarchy.as_ref();
@@ -1777,16 +1852,22 @@ mod standard_dialog_tests {
             log.lock().expect("log")[0].kind,
             StandardDialogEventKind::Cancel
         );
+        let before = log.lock().expect("log").len();
         assert!(
-            click(
+            says_why(click(
                 progress()
                     .with_cancel(AzString::from("Cancel"), false)
                     .with_theme(UiTheme::Flat)
                     .dom(),
                 "Cancel"
-            )
-            .is_none(),
-            "a held Cancel is inert"
+            ))
+            .is_some(),
+            "a held Cancel says why"
+        );
+        assert_eq!(
+            log.lock().expect("log").len(),
+            before,
+            "and reports nothing"
         );
     }
 
@@ -1834,8 +1915,8 @@ mod standard_dialog_tests {
                 .is_some_and(|i| i.role == AccessibilityRole::Alert)));
         }
         assert!(
-            click(login().with_theme(UiTheme::Flat).dom(), "Sign in").is_none(),
-            "Sign in is inert while a field is empty"
+            says_why(click(login().with_theme(UiTheme::Flat).dom(), "Sign in")).is_some(),
+            "Sign in says why while a field is empty (and reports nothing: the log below)"
         );
         click(ready.with_theme(UiTheme::Flat).dom(), "Sign in").expect("Sign in");
         click(login().with_theme(UiTheme::Flat).dom(), "Remember me").expect("the label");
@@ -1886,7 +1967,10 @@ mod standard_dialog_tests {
                 );
             }
         }
-        assert!(click(find("").with_theme(UiTheme::Flat).dom(), "Find next").is_none());
+        assert!(
+            says_why(click(find("").with_theme(UiTheme::Flat).dom(), "Find next")).is_some(),
+            "Find next says why without a text (and reports nothing: the log below)"
+        );
         click(find("azul").with_theme(UiTheme::Flat).dom(), "Find next").expect("Find next");
         click(find("azul").with_theme(UiTheme::Flat).dom(), "Whole word").expect("the label");
         click(find("").with_theme(UiTheme::Flat).dom(), "Close").expect("Close");

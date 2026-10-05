@@ -579,6 +579,92 @@ mod dialog_kit_tests {
         assert_eq!(plain.children.as_ref().len(), 1, "no match: one text leaf");
     }
 
+    /// User decision D1 (2026-10-05): a dialog's disabled button is the
+    /// Button's own disabled state - it keeps its Tab stop, runs nothing,
+    /// is announced unavailable and described by its reason, and shows the
+    /// reason on hover, on a click and on keyboard focus - and its box adds
+    /// no dimming of its own (the `held` 50 % over the Button's 40 % made
+    /// 20 %).
+    #[test]
+    fn a_disabled_row_button_is_the_buttons_own_disabled_state_and_says_why() {
+        use azul_core::{
+            dom::{DomId, DomNodeId, EventFilter, HoverEventFilter, NodeId, TabIndex},
+            events::FocusEventFilter,
+            styled_dom::{NodeHierarchyItemId, StyledDom},
+        };
+
+        use crate::{
+            callbacks::CallbackChange,
+            widgets::{
+                button::{ButtonType, BUTTON_DISABLED_CLASS},
+                roving::test_support as rv,
+                themes::theme_checks as tc,
+            },
+        };
+
+        let reason = "There are no changes to apply.";
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let look = look_for(OptionUiTheme::Some(theme));
+            let boxed = row_button(
+                AzString::from("Apply"),
+                ButtonType::Default,
+                None,
+                Some(AzString::from(reason)),
+                Some(theme),
+                (BUTTON_BOX_CLASS, HELD_CLASS),
+                BUTTON_BOX_BASE,
+                (&look.button, &look.held),
+            );
+            assert!(
+                !boxed
+                    .root
+                    .style
+                    .iter_inline_properties()
+                    .any(|(p, _)| matches!(p, CssProperty::Opacity(_))),
+                "{theme:?}: the box adds no dimming over the button's own"
+            );
+            let button = &boxed.children.as_ref()[0];
+            assert!(
+                tc::has_class(button, BUTTON_DISABLED_CLASS),
+                "{theme:?}: the Button's own disabled state"
+            );
+            assert_eq!(
+                button.root.get_tab_index(),
+                Some(TabIndex::Auto),
+                "{theme:?}: it keeps its Tab stop"
+            );
+            assert_eq!(
+                button
+                    .root
+                    .get_accessibility_info()
+                    .and_then(|a| a.description.as_ref().map(|d| d.as_str().to_string())),
+                Some(String::from(reason)),
+                "{theme:?}: described by its reason"
+            );
+            // The button is the box's first child: node 1.
+            let styled = StyledDom::create_from_dom(boxed);
+            let node = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            };
+            for event in [
+                EventFilter::Hover(HoverEventFilter::MouseEnter),
+                EventFilter::Hover(HoverEventFilter::Click),
+                EventFilter::Focus(FocusEventFilter::FocusReceived),
+            ] {
+                let (_, changes) = rv::fire(&styled, node, event)
+                    .unwrap_or_else(|| panic!("{theme:?}: {event:?} reaches the button"));
+                assert!(
+                    changes.iter().any(|c| matches!(
+                        c,
+                        CallbackChange::ShowTooltip { text, .. } if text.as_str() == reason
+                    )),
+                    "{theme:?}: {event:?} shows why: {changes:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn an_unpinned_kit_look_is_the_pinned_one_under_each_app_theme() {
         use crate::widgets::themes::theme_blocks::checks::{under, BOTH};

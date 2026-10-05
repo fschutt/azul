@@ -1090,8 +1090,18 @@ mod wizard_layout_tests {
         assert!(dom.root.get_tab_index().is_none());
     }
 
+    /// The text a fired event showed as a tooltip (a held button's reason).
+    fn shown_reason(fired: Option<(Update, Vec<crate::callbacks::CallbackChange>)>) -> Option<String> {
+        fired?.1.into_iter().find_map(|c| match c {
+            crate::callbacks::CallbackChange::ShowTooltip { text, .. } if !text.as_str().is_empty() => {
+                Some(text.as_str().to_string())
+            }
+            _ => None,
+        })
+    }
+
     #[test]
-    fn the_buttons_report_their_step_and_back_on_the_first_step_is_inert() {
+    fn the_buttons_report_their_step_and_back_on_the_first_step_says_why_and_does_not_go_back() {
         let log: Log = Arc::new(Mutex::new(Vec::new()));
         let styled = StyledDom::create_from_dom(wizard(&log, 1).with_theme(UiTheme::Flat).dom());
         let click = |label: &str| {
@@ -1115,15 +1125,17 @@ mod wizard_layout_tests {
         );
 
         let first = StyledDom::create_from_dom(wizard(&log, 0).with_theme(UiTheme::Flat).dom());
+        let before = log.lock().expect("log").len();
         assert!(
-            rv::fire(
+            shown_reason(rv::fire(
                 &first,
                 id(button_labelled(&first, "Back")),
                 EventFilter::Hover(HoverEventFilter::Click)
-            )
-            .is_none(),
-            "nothing to go back to"
+            ))
+            .is_some(),
+            "nothing to go back to: Back says so"
         );
+        assert_eq!(log.lock().expect("log").len(), before, "and does not go back");
         let last = StyledDom::create_from_dom(wizard(&log, 2).with_theme(UiTheme::Flat).dom());
         rv::fire(
             &last,
@@ -1135,21 +1147,29 @@ mod wizard_layout_tests {
             log.lock().expect("log").last(),
             Some(&(WizardEventKind::Finish, 2))
         );
+        // Held without a reason of the app's: Next still says why.
         let held = StyledDom::create_from_dom(
             wizard(&log, 1)
                 .with_can_go_next(false)
                 .with_theme(UiTheme::Flat)
                 .dom(),
         );
+        let before = log.lock().expect("log").len();
         assert!(
-            rv::fire(
+            shown_reason(rv::fire(
                 &held,
                 id(button_labelled(&held, "Next")),
-                EventFilter::Hover(HoverEventFilter::Click)
-            )
-            .is_none(),
-            "Next is inert while the page is not valid"
+                EventFilter::Hover(HoverEventFilter::MouseEnter)
+            ))
+            .is_some(),
+            "a held Next says why while the page is not valid"
         );
+        let _ = rv::fire(
+            &held,
+            id(button_labelled(&held, "Next")),
+            EventFilter::Hover(HoverEventFilter::Click),
+        );
+        assert_eq!(log.lock().expect("log").len(), before, "and does not advance");
     }
 
     #[test]
@@ -1199,9 +1219,32 @@ mod wizard_layout_tests {
             );
             let styled = StyledDom::create_from_dom(dom);
             let next = button_labelled_any(&styled, "Next");
-            assert!(
-                rv::fire(&styled, id(next), EventFilter::Hover(HoverEventFilter::Click)).is_none(),
-                "{}: a held Next is inert",
+            // User decision D1 (2026-10-05): a held Next shows why on hover
+            // (and on keyboard focus: it keeps its Tab stop) and does not
+            // advance.
+            assert_eq!(
+                styled.node_data.as_ref()[next.index()].get_tab_index(),
+                Some(azul_core::dom::TabIndex::Auto),
+                "{}: a held Next keeps its Tab stop",
+                theme.name()
+            );
+            for event in [
+                EventFilter::Hover(HoverEventFilter::MouseEnter),
+                EventFilter::Focus(azul_core::events::FocusEventFilter::FocusReceived),
+            ] {
+                assert_eq!(
+                    shown_reason(rv::fire(&styled, id(next), event)).as_deref(),
+                    Some(reason),
+                    "{}: a held Next shows why on {event:?}",
+                    theme.name()
+                );
+            }
+            let before = log.lock().expect("log").len();
+            let _ = rv::fire(&styled, id(next), EventFilter::Hover(HoverEventFilter::Click));
+            assert_eq!(
+                log.lock().expect("log").len(),
+                before,
+                "{}: a held Next does not advance",
                 theme.name()
             );
             let info = styled.node_data.as_ref()[next.index()]
@@ -1228,7 +1271,7 @@ mod wizard_layout_tests {
     }
 
     /// The node whose text reads `label`, walked up to the first node that
-    /// declares an accessibility role (a held button takes no focus).
+    /// declares the push button role.
     fn button_labelled_any(styled: &StyledDom, label: &str) -> NodeId {
         let hierarchy = styled.node_hierarchy.as_ref();
         let nodes = styled.node_data.as_ref();
@@ -1247,7 +1290,7 @@ mod wizard_layout_tests {
     }
 
     #[test]
-    fn back_is_inert_while_the_app_holds_it() {
+    fn back_held_by_the_app_says_why_and_does_not_go_back() {
         let log: Log = Arc::new(Mutex::new(Vec::new()));
         let styled = StyledDom::create_from_dom(
             wizard(&log, 1)
@@ -1257,9 +1300,16 @@ mod wizard_layout_tests {
         );
         let back = button_labelled_any(&styled, "Back");
         assert!(
-            rv::fire(&styled, id(back), EventFilter::Hover(HoverEventFilter::Click)).is_none(),
-            "Back is held on an installer's progress page"
+            shown_reason(rv::fire(
+                &styled,
+                id(back),
+                EventFilter::Hover(HoverEventFilter::MouseEnter)
+            ))
+            .is_some(),
+            "Back held on an installer's progress page says why"
         );
+        let _ = rv::fire(&styled, id(back), EventFilter::Hover(HoverEventFilter::Click));
+        assert!(log.lock().expect("log").is_empty(), "and does not go back");
     }
 
     #[test]

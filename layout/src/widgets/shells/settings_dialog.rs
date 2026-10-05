@@ -1959,10 +1959,17 @@ mod settings_dialog_build_tests {
             texts(footer),
             vec!["Restore defaults", "OK", "Cancel", "Apply"]
         );
-        assert_eq!(
-            tc::find_all(footer, HELD_CLASS).len(),
-            1,
-            "Apply is inert while nothing changed"
+        // User decision D1 (2026-10-05): Apply is the Button's own disabled
+        // state while nothing changed - it keeps its Tab stop and says why.
+        let held = tc::find_all(footer, crate::widgets::button::BUTTON_DISABLED_CLASS);
+        assert_eq!(held.len(), 1, "Apply waits while nothing changed");
+        assert!(
+            held[0]
+                .root
+                .get_accessibility_info()
+                .and_then(|a| a.description.as_ref().map(|d| !d.as_str().is_empty()))
+                .unwrap_or(false),
+            "a waiting Apply says why"
         );
         assert!(tc::find(&fresh, SETTING_MODIFIED_CLASS).is_none());
 
@@ -1979,7 +1986,10 @@ mod settings_dialog_build_tests {
         );
         assert!(tc::find(rows[1], SETTING_MODIFIED_CLASS).is_none());
         let footer = tc::find(&dom, FOOTER_CLASS).expect("the button row");
-        assert!(tc::find_all(footer, HELD_CLASS).is_empty(), "Apply goes");
+        assert!(
+            tc::find_all(footer, crate::widgets::button::BUTTON_DISABLED_CLASS).is_empty(),
+            "Apply goes"
+        );
     }
 
     #[test]
