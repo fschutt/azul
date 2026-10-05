@@ -10094,6 +10094,58 @@ mod autotest_generated {
         }
     }
 
+    /// CSS `zoom` scales every absolute length of the zoomed subtree (Chrome):
+    /// the corner radii and the box shadow too, not only the box's size. (azul
+    /// has no CSS `outline` property, so there is no outline length to zoom.)
+    #[test]
+    fn css_zoom_scales_border_radius_and_box_shadows() {
+        let sd = body_with_divs(
+            1,
+            "div { zoom: 2; border-radius: 6px; box-shadow: 1px 2px 3px 4px black; }",
+        );
+        let child = NodeId::new(1);
+        let element = PhysicalSizeImport {
+            width: 100.0,
+            height: 50.0,
+        };
+        let viewport = LogicalSize::new(800.0, 600.0);
+
+        // The compact-cache fast path (normal state) and the cascade (hover).
+        for st in [normal(), hovered()] {
+            let r = get_border_radius(&sd, child, &st, element, viewport);
+            for corner in [r.top_left, r.top_right, r.bottom_left, r.bottom_right] {
+                assert_eq!(corner, 12.0, "a 6px radius under zoom: 2 is 12px");
+            }
+        }
+
+        let shadows = get_box_shadows(&sd, child, &normal());
+        assert_eq!(shadows.len(), 1, "one distinct shadow");
+        let px = |v: &azul_css::props::basic::pixel::PixelValueNoPercent| {
+            v.inner.to_pixels_internal(0.0, 16.0, 16.0)
+        };
+        let s = shadows[0];
+        assert_eq!(
+            [
+                px(&s.offset_x),
+                px(&s.offset_y),
+                px(&s.blur_radius),
+                px(&s.spread_radius)
+            ],
+            [2.0, 4.0, 6.0, 8.0],
+            "a 1px 2px 3px 4px shadow under zoom: 2 is 2px 4px 6px 8px"
+        );
+
+        // An unzoomed sibling document keeps its lengths as they are.
+        let plain = body_with_divs(
+            1,
+            "div { border-radius: 6px; box-shadow: 1px 2px 3px 4px black; }",
+        );
+        let r = get_border_radius(&plain, child, &normal(), element, viewport);
+        assert_eq!(r.top_left, 6.0);
+        let s = get_box_shadows(&plain, child, &normal())[0];
+        assert_eq!(px(&s.spread_radius), 4.0);
+    }
+
     // =====================================================================
     // Smoke coverage for the remaining StyledDom getters
     // =====================================================================
