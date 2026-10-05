@@ -1869,6 +1869,112 @@ mod tests {
         assert!(!z.contains("C.AzFooVecRef_delete("), "{z}");
     }
 
+    // ---- Field accessors (field-access wave, 2026-10-05) -------------------
+
+    /// The real azul.zig, from the real api.json.
+    fn real_zig() -> String {
+        let api = crate::api::ApiData::from_str(include_str!("../../../../../api.json"))
+            .expect("api.json parses");
+        super::super::super::generate_zig(&api).expect("zig generates")
+    }
+
+    /// The text of `pub const <name> = struct { ... };`.
+    fn struct_body<'a>(z: &'a str, name: &str) -> &'a str {
+        let start = z
+            .find(&format!("\npub const {name} = struct {{\n"))
+            .unwrap_or_else(|| panic!("no wrapper {name}"));
+        let end = start + z[start..].find("\n};\n").expect("unterminated wrapper");
+        &z[start..end]
+    }
+
+    #[test]
+    fn a_zig_getter_copies_the_field_and_a_setter_frees_the_old_value_before_moving_in() {
+        let z = real_zig();
+
+        let fws = struct_body(&z, "FullWindowState");
+        // A String field: duplicated into the caller's allocator, never consumed.
+        assert!(
+            fws.contains(
+                "    pub fn getTitle(self: *const Self, allocator: std.mem.Allocator) ![]u8 {\n        \
+                 const _s = &self.inner.title;\n        if (_s.vec.len == 0) return \
+                 allocator.alloc(u8, 0);\n        return allocator.dupe(u8, \
+                 _s.vec.ptr[0.._s.vec.len]);\n    }\n"
+            ),
+            "{fws}"
+        );
+        // Convert first (a `*const` argument may point at this very field),
+        // then free the old value, then move the new one in.
+        assert!(
+            fws.contains(
+                "    pub fn setTitle(self: *Self, value: anytype) void {\n        const _new = \
+                 _asAzString(value);\n        C.AzString_delete(&self.inner.title);\n        \
+                 self.inner.title = _new;\n    }\n"
+            ),
+            "{fws}"
+        );
+        assert!(!fws.contains("pub fn setLayoutCallback("), "{fws}");
+
+        let wco = struct_body(&z, "WindowCreateOptions");
+        assert!(
+            wco.contains(
+                "    pub fn getWindowState(self: *const Self) FullWindowState {\n        return \
+                 FullWindowState{ .inner = \
+                 C.AzFullWindowState_clone(&self.inner.window_state) };\n    }\n"
+            ),
+            "{wco}"
+        );
+        assert!(
+            wco.contains(
+                "    pub fn setWindowState(self: *Self, value: anytype) void {\n        const _new \
+                 = _asOwned(C.AzFullWindowState, value, C.AzFullWindowState_clone);\n        \
+                 C.AzFullWindowState_delete(&self.inner.window_state);\n        \
+                 self.inner.window_state = _new;\n    }\n"
+            ),
+            "{wco}"
+        );
+        assert!(!wco.contains("pub fn setCreateCallback("), "{wco}");
+
+        let cbs = struct_body(&z, "CheckBoxState");
+        assert!(
+            cbs.contains(
+                "    pub fn getChecked(self: *const Self) bool {\n        return \
+                 self.inner.checked;\n    }\n"
+            ),
+            "{cbs}"
+        );
+        assert!(
+            cbs.contains(
+                "    pub fn setChecked(self: *Self, value: bool) void {\n        \
+                 self.inner.checked = value;\n    }\n"
+            ),
+            "{cbs}"
+        );
+    }
+
+    /// `TextInputState.getText()` is an api.json method: it keeps the name,
+    /// the `text` field keeps its setter.
+    #[test]
+    fn a_zig_api_method_wins_the_getter_name_but_the_field_keeps_its_setter() {
+        let z = real_zig();
+        let tis = struct_body(&z, "TextInputState");
+        assert_eq!(tis.matches("    pub fn getText(").count(), 1, "{tis}");
+        assert!(tis.contains("    pub fn setText(self: *Self, value: anytype) void {\n        const _new = _asAzVec(value, "), "{tis}");
+        assert!(
+            tis.contains(
+                "        C.AzU32Vec_delete(&self.inner.text);\n        self.inner.text = \
+                 _new;\n    }\n"
+            ),
+            "{tis}"
+        );
+    }
+
+    #[test]
+    fn the_zig_wrappers_document_read_modify_write_for_nested_fields() {
+        let z = real_zig();
+        assert!(z.contains("//     ws.setTitle(\"My App\");\n"));
+        assert!(z.contains("//     opts.setWindowState(&ws);"));
+    }
+
     #[test]
     fn runtime_prelude_is_emitted_once_after_the_c_namespace() {
         let z = zig();
