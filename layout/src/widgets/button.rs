@@ -792,7 +792,30 @@ pub(crate) extern "C" fn show_disabled_reason(mut data: RefAny, mut info: Callba
     Update::DoNothing
 }
 
-/// The pointer left a disabled button.
+/// A disabled button took the keyboard focus: say why, under the button (a
+/// keyboard user's pointer may be anywhere, so the reason does not follow
+/// it).
+pub(crate) extern "C" fn show_disabled_reason_on_focus(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+) -> Update {
+    let reason = data.downcast_ref::<DisabledReason>().map(|r| r.0.clone());
+    if let Some(reason) = reason {
+        match info.get_hit_node_rect() {
+            Some(rect) => info.show_tooltip_at(
+                reason,
+                azul_core::geom::LogicalPosition::new(
+                    rect.origin.x,
+                    rect.origin.y + rect.size.height,
+                ),
+            ),
+            None => info.show_tooltip(reason),
+        }
+    }
+    Update::DoNothing
+}
+
+/// The pointer (or the keyboard focus) left a disabled button.
 pub(crate) extern "C" fn hide_disabled_reason(_data: RefAny, mut info: CallbackInfo) -> Update {
     info.hide_tooltip();
     Update::DoNothing
@@ -834,11 +857,13 @@ fn add_accessibility_state(dom: &mut Dom, state: azul_core::a11y::AccessibilityS
 
 /// Marks a built button disabled: [`BUTTON_DISABLED_CLASS`], the
 /// unavailable state with `reason` as its description, and the callbacks
-/// that show the reason on hover and click.
+/// that show the reason on hover, on click and on keyboard focus (it keeps
+/// its Tab stop, and a keyboard user never hovers).
 pub(crate) fn mark_disabled(dom: &mut Dom, reason: AzString) {
     use azul_core::{
         callbacks::CoreCallback,
         dom::{EventFilter, HoverEventFilter},
+        events::FocusEventFilter,
         refany::OptionRefAny,
     };
     dom.root.add_class(AzString::from_const_str(BUTTON_DISABLED_CLASS));
@@ -849,12 +874,17 @@ pub(crate) fn mark_disabled(dom: &mut Dom, reason: AzString) {
     }
     let mut callbacks = dom.root.get_callbacks().clone().into_library_owned_vec();
     for (event, cb) in [
-        (HoverEventFilter::MouseEnter, show_disabled_reason as usize),
-        (HoverEventFilter::Click, show_disabled_reason as usize),
-        (HoverEventFilter::MouseLeave, hide_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::MouseEnter), show_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::Click), show_disabled_reason as usize),
+        (EventFilter::Hover(HoverEventFilter::MouseLeave), hide_disabled_reason as usize),
+        (
+            EventFilter::Focus(FocusEventFilter::FocusReceived),
+            show_disabled_reason_on_focus as usize,
+        ),
+        (EventFilter::Focus(FocusEventFilter::FocusLost), hide_disabled_reason as usize),
     ] {
         callbacks.push(CoreCallbackData {
-            event: EventFilter::Hover(event),
+            event,
             callback: CoreCallback {
                 cb,
                 ctx: OptionRefAny::None,
