@@ -8851,6 +8851,8 @@ where
             } else {
                 None // gradient/image span background — unprovable
             };
+            // A moved run may leave the background the IFC proved.
+            let uniform_bg = uniform_bg.filter(|_| shift.x == 0.0 && shift.y == 0.0);
             // Colour is paint-only and deliberately excluded from the text
             // layout hash, so a cached run can outlive the cascade that
             // resolved its colour (the deactivated-ribbon-tab KNOWN GAP:
