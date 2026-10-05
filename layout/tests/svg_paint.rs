@@ -32,8 +32,19 @@ const TRANSPARENT: ColorU = ColorU {
 /// A BARE FRAGMENT is passed through deliberately - no `<html>` wrapper - so
 /// these also pin that an `<svg>` root parses on its own, the way a browser
 /// takes one.
+///
+/// The `<svg>` is laid out as a BLOCK, as large as its box. Inline (its UA
+/// display), it sits on a line box that holds the strut of the body's font
+/// (CSS 2.2 s10.8, user ruling 2026-10-03: Chrome is the reference), so the
+/// line is taller than the SVG by the font's descent and half-leading: the
+/// 8 and 16 px frames below overflowed, the viewport scrolled, and its
+/// scrollbar thumb (#c1c1c1) covered the frame - a grey centre where the
+/// fill was. An icon that wants its box's height alone says `display: block`
+/// (or `line-height: 0`), as on the web; these tests are about the paint.
 fn render(markup: &str, size: f32) -> azul_layout::cpurender::ComponentPreviewResult {
-    let markup = format!("<style>body {{ margin: 0; padding: 0; }}</style>{markup}");
+    let markup = format!(
+        "<style>body {{ margin: 0; padding: 0; }} svg {{ display: block; }}</style>{markup}"
+    );
     let parsed = azul_layout::xml::parse_xml(&markup).expect("the fixture parses");
     let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
     render_dom_to_rgba(dom, Css::empty(), size, size, 1.0, TRANSPARENT).expect("renders")
