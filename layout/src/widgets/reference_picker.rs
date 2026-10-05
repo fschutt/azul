@@ -1008,6 +1008,34 @@ mod dom_tests {
         assert_eq!(events[0].text.as_str(), "acme");
     }
 
+    /// The x button's class (`REFERENCE_PICKER_CLEAR_CLASS`).
+    const CLEAR: &str = "__azul-native-reference-picker-clear";
+
+    #[test]
+    fn a_picked_reference_clears_with_its_x_button() {
+        let nothing = ReferencePicker::create(customers()).dom();
+        assert!(tc::find(&nothing, CLEAR).is_none(), "nothing picked: no x");
+        let (s, log) = styled(ReferencePicker::create(customers()).with_selected(5));
+        let x = s
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| n.has_class(CLEAR))
+            .expect("a picked record shows an x");
+        let (_, changes) = rv::fire(&s, node(x), EventFilter::Hover(HoverEventFilter::Click))
+            .expect("the x takes the click");
+        let events = log.lock().expect("log").clone();
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(format!("{:?}", events[0].kind), "Clear");
+        assert_eq!((events[0].id, events[0].text.as_str()), (0, ""));
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, crate::callbacks::CallbackChange::StopPropagation)),
+            "the click ends at the x: the field under it does not toggle its list"
+        );
+    }
+
     #[test]
     fn the_list_lists_at_most_max_rows_and_counts_the_rest() {
         let dom = ReferencePicker::create(customers()).with_max_rows(2).dom();
