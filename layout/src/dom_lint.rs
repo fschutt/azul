@@ -190,6 +190,16 @@ fn display_of(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     }
 }
 
+/// Whether `node_id` is absolutely or fixed positioned: out of flow, it
+/// takes no place in its parent's lines (CSS Position 3 §3).
+fn is_out_of_flow(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    use azul_css::props::layout::LayoutPosition;
+    matches!(
+        crate::solver3::positioning::get_position_type(styled_dom, Some(node_id)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    )
+}
+
 const fn is_flex_or_grid(display: LayoutDisplay) -> bool {
     matches!(
         display,
@@ -305,12 +315,16 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
             }
         } else {
             // Mixed inline + block content under one parent: the text has no
-            // dedicated line box of its own next to block siblings.
+            // dedicated line box of its own next to block siblings. An
+            // absolutely / fixed positioned sibling is out of flow and
+            // splits no line, so it does not count; a float still does
+            // (azul places no float inside an inline formatting context).
             let mut has_block_child = false;
             let mut sibling = h.first_child_id(node_id);
             while let Some(sib) = sibling {
                 if !is_text(node_data[sib].get_node_type())
                     && is_block_level(display_of(styled_dom, sib))
+                    && !is_out_of_flow(styled_dom, sib)
                 {
                     has_block_child = true;
                     break;
