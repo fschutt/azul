@@ -1872,3 +1872,113 @@ fn is_az_string_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
 fn jsdoc_escape(s: &str) -> String {
     s.replace("*/", "* /")
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for Node:
+    //! a field setter (and `with(opts)`) releases the field's old value and
+    //! MOVES the new one in (a wrapper argument is consumed, a field view is
+    //! deep-copied first); a struct-typed field getter returns a VIEW that
+    //! reads and writes the parent's field in place, so
+    //! `opts.windowState.title = 'x'` reaches `opts`.
+    use std::sync::OnceLock;
+
+    use super::*;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            let mut b = CodeBuilder::new("    ");
+            generate_wrappers(&mut b, super::super::super::bug_classes::ir());
+            b.finish()
+        })
+    }
+
+    /// The body of one top-level `function name(` or `class Name {`.
+    fn item(head: &str) -> &'static str {
+        let out = output();
+        let start = out
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{}` in the Node output", head));
+        let rest = &out[start..];
+        let end = rest.find("\n}\n").expect("item ends");
+        &rest[..end]
+    }
+
+    #[test]
+    fn apply_opts_stores_every_field_through_the_releasing_moving_setter() {
+        let f = item("function _applyOpts(struct, opts, path, type) {");
+        assert!(f.contains("_setField(struct, field, "), "{}", f);
+        assert!(!f.contains("struct[field] = value._ptr"), "{}", f);
+        assert!(!f.contains("struct[field] = _azString(value)"), "{}", f);
+    }
+
+    #[test]
+    fn set_field_releases_the_old_value_then_moves_and_consumes_the_new_one() {
+        let f = item("function _setField(struct, field, type, value, path) {");
+        let del = f.find("_delete").expect("releases the old value");
+        let store = f.find("struct[field] = nv;").expect("stores the new value");
+        let consume = f.find("_consume(value);").expect("consumes the wrapper");
+        assert!(del < store && store < consume, "{}", f);
+        assert!(f.contains("_moveArg(value)"), "{}", f);
+    }
+
+    #[test]
+    fn moving_a_field_view_deep_copies_it_first() {
+        let f = item("function _moveArg(v) {");
+        assert!(f.contains("v._view === true"), "{}", f);
+        assert!(f.contains("_cloneRaw"), "{}", f);
+        let c = item("function _consume(val) {");
+        assert!(c.contains("val._view === true"), "{}", c);
+    }
+
+    #[test]
+    fn the_field_type_table_knows_window_state_and_title() {
+        let t = item("const _FIELDS = {");
+        assert!(t.contains("window_state: 'AzFullWindowState'"), "{}", t);
+        assert!(t.contains("title: 'AzString'"), "{}", t);
+    }
+
+    #[test]
+    fn window_create_options_window_state_is_a_view_with_a_moving_setter() {
+        let c = item("class WindowCreateOptions {");
+        assert!(
+            c.contains("get windowState() { return _fieldView(FullWindowState, this, 'window_state'); }"),
+            "{}",
+            c
+        );
+        assert!(
+            c.contains(
+                "set windowState(v) { _setField(this._ptr, 'window_state', 'AzFullWindowState', v, \
+                 'WindowCreateOptions.windowState'); }"
+            ),
+            "{}",
+            c
+        );
+    }
+
+    #[test]
+    fn full_window_state_title_decodes_and_sets_through_the_string_setter() {
+        let c = item("class FullWindowState {");
+        assert!(c.contains("get title() { return _azStringDecode(this._ptr.title); }"), "{}", c);
+        assert!(
+            c.contains("set title(v) { _setField(this._ptr, 'title', 'AzString', v, 'FullWindowState.title'); }"),
+            "{}",
+            c
+        );
+        assert!(c.contains("static _cloneRaw(p) { return lib.AzFullWindowState_clone(p); }"), "{}", c);
+    }
+
+    #[test]
+    fn check_box_state_checked_is_a_plain_scalar_accessor() {
+        let c = item("class CheckBoxState {");
+        assert!(c.contains("get checked() { return this._ptr.checked; }"), "{}", c);
+        assert!(c.contains("set checked(v) { this._ptr.checked = v; }"), "{}", c);
+    }
+
+    #[test]
+    fn a_field_view_is_never_deleted_by_its_own_delete() {
+        let c = item("class FullWindowState {");
+        assert!(c.contains("if (this._ptr === null || this._view === true) return;"), "{}", c);
+    }
+}
