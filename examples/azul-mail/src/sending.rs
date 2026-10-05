@@ -399,4 +399,87 @@ mod tests {
             Ok(with_file)
         );
     }
+
+    // ---- submission: signed in to the account's own outgoing server (optional) ----
+
+    #[test]
+    fn the_page_offers_three_routes_and_direct_stays_the_default() {
+        assert_eq!(ROUTE_CHOICES.len(), 3);
+        assert!(ROUTE_CHOICES[2].contains("sign in"), "{}", ROUTE_CHOICES[2]);
+        let mut form = SendingForm::from_settings(&SendSettings::default());
+        assert_eq!(form.route_index(), 0);
+        form.choose_route(2);
+        assert_eq!(form.route_index(), 2);
+        let applied = form.apply(&SendSettings::default()).unwrap();
+        assert_eq!(applied.route, SendRoute::Submission);
+        assert_eq!(describe(&applied), "Through my provider's server, signed in");
+        // Shown again as the third choice.
+        let shown = SendingForm::from_settings(&applied);
+        assert_eq!(shown.route_index(), 2);
+        assert!(shown.submission && !shown.smtp);
+        // And back: the relay wants its server, direct wants nothing.
+        let mut relay = shown.clone();
+        relay.choose_route(1);
+        assert!(relay.smtp && !relay.submission);
+        relay.host = String::from("relay.example.org");
+        assert_eq!(
+            relay.apply(&applied).unwrap().route,
+            SendRoute::Smtp {
+                host: String::from("relay.example.org"),
+                port: SUBMISSION_PORT,
+            }
+        );
+        let mut direct = shown;
+        direct.choose_route(0);
+        assert_eq!(direct.apply(&applied).unwrap().route, SendRoute::Direct);
+    }
+
+    #[test]
+    fn implicit_tls_stays_with_submission_and_the_other_routes_speak_starttls() {
+        let implicit = SendSettings {
+            route: SendRoute::Submission,
+            tls: TlsPolicy::Implicit,
+            ..SendSettings::default()
+        };
+        let form = SendingForm::from_settings(&implicit);
+        assert!(form.starttls, "an encrypted connection shows as ticked");
+        assert_eq!(form.apply(&implicit).unwrap().tls, TlsPolicy::Implicit);
+        let mut direct = form.clone();
+        direct.choose_route(0);
+        assert_eq!(direct.apply(&implicit).unwrap().tls, TlsPolicy::Opportunistic);
+        let mut relay = form;
+        relay.choose_route(1);
+        relay.host = String::from("relay.example.org");
+        assert_eq!(relay.apply(&implicit).unwrap().tls, TlsPolicy::Opportunistic);
+        assert_eq!(
+            describe(&SendSettings {
+                dkim: signing_settings().dkim,
+                ..implicit
+            }),
+            "Through my provider's server, signed in, DKIM-signed (example.org)"
+        );
+    }
+
+    #[test]
+    fn the_page_refuses_submission_without_encryption_to_another_computer() {
+        let plain = SendSettings {
+            route: SendRoute::Submission,
+            tls: TlsPolicy::Off,
+            ..SendSettings::default()
+        };
+        let refused = check_submission(&plain, "smtp.example.org", 587).unwrap_err();
+        assert!(refused.contains("encrypt"), "{refused}");
+        assert_eq!(check_submission(&plain, "127.0.0.1", 2525), Ok(()));
+        let encrypted = SendSettings {
+            tls: TlsPolicy::Opportunistic,
+            ..plain.clone()
+        };
+        assert_eq!(check_submission(&encrypted, "smtp.example.org", 587), Ok(()));
+        // The other routes sign in nowhere: nothing to check.
+        let direct = SendSettings {
+            route: SendRoute::Direct,
+            ..plain
+        };
+        assert_eq!(check_submission(&direct, "smtp.example.org", 587), Ok(()));
+    }
 }
