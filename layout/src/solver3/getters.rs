@@ -118,6 +118,21 @@ pub fn get_element_font_size(
     resolve_font_size_slow(styled_dom, dom_id, node_state) * get_effective_zoom(styled_dom, dom_id)
 }
 
+/// [`get_element_font_size`] with the viewport units (`vw` / `vh` / `vmin` /
+/// `vmax`) of the node's and its ancestors' `font-size` resolved against
+/// `viewport` - the size the text is laid out in. (The plain getter resolves
+/// them against a zero viewport, to 0.)
+#[must_use]
+pub fn get_element_font_size_in_viewport(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> f32 {
+    resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, viewport)
+        * get_effective_zoom(styled_dom, dom_id)
+}
+
 // ==== CSS zoom (LAYOUT7) ====
 
 /// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
@@ -530,6 +545,16 @@ fn resolve_font_size_slow(
     dom_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
+    resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, PhysicalSize::new(0.0, 0.0))
+}
+
+/// [`resolve_font_size_slow`] with viewport units resolved against `viewport`.
+fn resolve_font_size_slow_in_viewport(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> f32 {
     // ITERATIVE resolution (was unbounded self-recursion up the parent chain, which
     // stack-overflowed on deeply nested DOMs and was O(N*depth)). We walk `parent_id`
     // in a loop to collect the ancestor chain, then resolve top-down so each node's
@@ -556,6 +581,7 @@ fn resolve_font_size_slow(
             root_state,
             DEFAULT_FONT_SIZE,
             DEFAULT_FONT_SIZE,
+            viewport,
         )
     };
 
@@ -586,8 +612,14 @@ fn resolve_font_size_slow(
         } else {
             root_font_size
         };
-        resolved =
-            resolve_font_size_one(styled_dom, id, this_state, parent_font_size, this_root_fs);
+        resolved = resolve_font_size_one(
+            styled_dom,
+            id,
+            this_state,
+            parent_font_size,
+            this_root_fs,
+            viewport,
+        );
         parent_font_size = resolved;
     }
     resolved
@@ -596,13 +628,15 @@ fn resolve_font_size_slow(
 /// Resolves a single node's font-size given its already-resolved `parent_font_size`
 /// and `root_font_size`. Contains the per-node logic that the old recursive
 /// `resolve_font_size_slow` applied at each frame (computed-values px short-circuit,
-/// then a full cascade walk), with no recursion of its own.
+/// then a full cascade walk), with no recursion of its own. Viewport units
+/// resolve against `viewport`.
 fn resolve_font_size_one(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
     parent_font_size: f32,
     root_font_size: f32,
+    viewport: PhysicalSize,
 ) -> f32 {
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let cache = &styled_dom.css_property_cache.ptr;
@@ -631,7 +665,7 @@ fn resolve_font_size_one(
                 root_font_size,
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
-                viewport_size: PhysicalSize::new(0.0, 0.0),
+                viewport_size: viewport,
             };
             v.inner
                 .resolve_with_context(&context, PropertyContext::FontSize)
@@ -4794,6 +4828,26 @@ pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
+    collect_font_stacks_from_styled_dom_in_viewport(
+        styled_dom,
+        platform,
+        PhysicalSize::new(0.0, 0.0),
+    )
+}
+
+/// [`collect_font_stacks_from_styled_dom`] for text laid out in `viewport`:
+/// a chain's optical size is the text's USED font size, and a `font-size` in
+/// viewport units (`5vw`) is only known against the viewport - against a zero
+/// one it was 0 px, the text asked for its real size, missed the chain and
+/// was drawn by the fallback (SYSUI8 s8).
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use]
+pub fn collect_font_stacks_from_styled_dom_in_viewport(
+    styled_dom: &StyledDom,
+    platform: &azul_css::system::Platform,
+    viewport: PhysicalSize,
+) -> CollectedFontStacks {
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
     let mut font_refs: HashMap<usize, azul_css::props::basic::font::FontRef> = HashMap::new();
@@ -4904,9 +4958,9 @@ pub fn collect_font_stacks_from_styled_dom(
         // And on the optical size of the node's font size: a variable face
         // with an `opsz` axis (macOS's system font) is a different instance
         // per size, and each needs its chain resolved and its face loaded.
-        let optical_size = crate::text3::cache::optical_size_for(get_element_font_size(
-            styled_dom, dom_id, node_state,
-        ));
+        let optical_size = crate::text3::cache::optical_size_for(
+            get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport),
+        );
         let key = (
             fh,
             super::fc::convert_font_weight(weight) as u16,
@@ -5872,7 +5926,27 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     font_manager: &crate::text3::cache::FontManager<T>,
     platform: &azul_css::system::Platform,
 ) -> ResolvedFontChains {
-    let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
+    collect_and_resolve_font_chains_with_registration_in_viewport(
+        styled_dom,
+        fc_cache,
+        font_manager,
+        platform,
+        PhysicalSize::new(0.0, 0.0),
+    )
+}
+
+/// [`collect_and_resolve_font_chains_with_registration`] for text laid out in
+/// `viewport` (the chains' optical sizes of `vw` / `vh` font sizes:
+/// [`collect_font_stacks_from_styled_dom_in_viewport`]).
+#[must_use]
+pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    fc_cache: &FcFontCache,
+    font_manager: &crate::text3::cache::FontManager<T>,
+    platform: &azul_css::system::Platform,
+    viewport: PhysicalSize,
+) -> ResolvedFontChains {
+    let collected = collect_font_stacks_from_styled_dom_in_viewport(styled_dom, platform, viewport);
 
     // Register embedded FontRefs (from the same scan, no second pass)
     for font_ref in collected.font_refs.values() {
@@ -9975,7 +10049,14 @@ mod autotest_generated {
             (f32::MAX, f32::MIN),
             (-1.0, -1.0),
         ] {
-            let px = resolve_font_size_one(&sd, root, &st, parent, rootsz);
+            let px = resolve_font_size_one(
+                &sd,
+                root,
+                &st,
+                parent,
+                rootsz,
+                PhysicalSize::new(0.0, 0.0),
+            );
             assert_eq!(
                 px, DEFAULT_FONT_SIZE,
                 "an unstyled node ignores the context and falls back to the default \

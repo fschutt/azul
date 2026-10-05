@@ -6834,7 +6834,7 @@ impl LayoutWindow {
         // This must happen BEFORE layout_document() is called
         {
             use crate::{
-                solver3::getters::collect_and_resolve_font_chains_with_registration,
+                solver3::getters::collect_and_resolve_font_chains_with_registration_in_viewport,
                 text3::default::PathLoader,
             };
 
@@ -6975,11 +6975,17 @@ impl LayoutWindow {
                 crate::probe::sample_peak_rss("rss:before_font_chain");
                 let mut chains = {
                     let _p = crate::probe::Probe::span("font_chain_resolve");
-                    collect_and_resolve_font_chains_with_registration(
+                    // The DOM's text is laid out in `viewport`: a `vw` font
+                    // size's chain is collected at the size the text asks for.
+                    collect_and_resolve_font_chains_with_registration_in_viewport(
                         &styled_dom,
                         &self.font_manager.fc_cache,
                         &self.font_manager,
                         &platform,
+                        azul_css::props::basic::PhysicalSize::new(
+                            viewport.size.width,
+                            viewport.size.height,
+                        ),
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after

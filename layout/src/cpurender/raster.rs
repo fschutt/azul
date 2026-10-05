@@ -5980,17 +5980,23 @@ pub fn render_component_preview(
     // --- Font resolution ---
     {
         use crate::{
-            solver3::getters::collect_and_resolve_font_chains_with_registration,
+            solver3::getters::collect_and_resolve_font_chains_with_registration_in_viewport,
             text3::default::PathLoader,
         };
 
         let platform = azul_css::system::Platform::current();
 
-        let chains = collect_and_resolve_font_chains_with_registration(
+        // The preview's text is laid out in `viewport`: a `vw` font size's
+        // chain is collected at the size the text asks for.
+        let chains = collect_and_resolve_font_chains_with_registration_in_viewport(
             styled_dom,
             &preview_font_manager.fc_cache,
             &preview_font_manager,
             &platform,
+            azul_css::props::basic::PhysicalSize::new(
+                viewport.size.width,
+                viewport.size.height,
+            ),
         );
         let loader = PathLoader::new();
         let _failed = preview_font_manager.load_missing_for_chains(&chains, |bytes, index| {
