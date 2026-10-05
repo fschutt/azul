@@ -929,3 +929,7 @@ mod an_svg_paints_any_css_colour_and_nests_its_transforms;
 mod an_svg_renders_at_the_size_its_fit_asks_for;
 #[path = "a_zoomed_box_paints_its_border_corners_and_shadow_zoomed.rs"]
 mod a_zoomed_box_paints_its_border_corners_and_shadow_zoomed;
+#[path = "hyphens_auto_hyphenates_in_the_language_of_the_lang_attribute.rs"]
+mod hyphens_auto_hyphenates_in_the_language_of_the_lang_attribute;
+#[path = "a_relatively_positioned_inline_box_moves_its_text.rs"]
+mod a_relatively_positioned_inline_box_moves_its_text;
