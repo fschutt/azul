@@ -3376,7 +3376,11 @@ pub fn parse_css_property(
         CssPropertyType::TextDecoration | // text-decoration: none is a typed value
         CssPropertyType::OverscrollBehaviorX | // see the auto list above
         CssPropertyType::OverscrollBehaviorY |
-        CssPropertyType::ObjectFit // object-fit: none means StyleObjectFit::None
+        CssPropertyType::ObjectFit | // object-fit: none means StyleObjectFit::None
+        // list-style-type: none means StyleListStyleType::None (no marker);
+        // as the CSS-wide `None` it read back as "no value" and the item got
+        // the initial disc
+        CssPropertyType::ListStyleType
     );
 
     Ok(match value {
