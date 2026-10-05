@@ -375,25 +375,26 @@ impl Xml {
         // wide match). An explicit stack keeps memory on the heap; `depth` still
         // bounds how deep we descend so unbounded input can't grow the worklist
         // without limit.
+        //
+        // The stack pops LAST first, so children go on in REVERSE: the first
+        // child comes off next and the scan is the document's pre-order (it
+        // listed siblings last first). Text is never CSS by itself - a
+        // `<style>`'s text is scanned by its element (`scan_node`); scanning
+        // every text node made prose that says `url(...)` a resource and read
+        // each stylesheet twice.
         let mut stack: Vec<(&XmlNodeChild, usize)> = Vec::new();
-        for child in self.root.as_ref() {
+        for child in self.root.as_ref().iter().rev() {
             stack.push((child, 0));
         }
         while let Some((child, depth)) = stack.pop() {
-            match child {
-                XmlNodeChild::Text(text) => {
-                    // CSS @import / url() in text content (inside <style> tags).
-                    Self::extract_css_urls(text.as_str(), &mut resources);
+            if let XmlNodeChild::Element(node) = child {
+                if depth > MAX_XML_NESTING_DEPTH {
+                    // Deeper subtrees are simply not scanned.
+                    continue;
                 }
-                XmlNodeChild::Element(node) => {
-                    if depth > MAX_XML_NESTING_DEPTH {
-                        // Deeper subtrees are simply not scanned.
-                        continue;
-                    }
-                    Self::scan_node(node, &mut resources);
-                    for c in node.children.as_ref() {
-                        stack.push((c, depth + 1));
-                    }
+                Self::scan_node(node, &mut resources);
+                for c in node.children.as_ref().iter().rev() {
+                    stack.push((c, depth + 1));
                 }
             }
         }
