@@ -83,3 +83,21 @@ result: ::
   FIX9-LAYOUT 1.8's strut_font_size; LayoutNodeCold 288 -> 296: find the field; update the pins with the reason or
   shrink). (Suspects: ANIMFRAME8 / A11YPATCH8 / FIX9-PAINT 2.8 / 2.11 / 2.13 / FIX9-LAYOUT 1.6 / 1.9 and today's
   LayoutCacheMap::mark_dirty change a253ffd49.)
+
+## App lib tests (10 failing, cargo test --lib over the 35 app crates on 6a39b7f1a)
+```
+[azkeys] sample::tests::the_sample_vault_has_the_plans_items_of_every_kind :: thread 'sample::tests::the_sample_vault_has_the_plans_items_of_every_kind' (1447602) panicked at examples/azul-keys/src/sample.rs:274:9: 55 
+[azmusic] playlists::tests::a_playlist_is_one_file_named_by_its_id_and_round_trips :: thread 'playlists::tests::a_playlist_is_one_file_named_by_its_id_and_round_trips' (1448115) panicked at examples/azul-music/src/playlists.rs:94:9: assertion failed: Playlist::from_json("[]").is_err() 
+[aznews] feed::tests::an_email_author_is_shown_by_its_name :: thread 'feed::tests::an_email_author_is_shown_by_its_name' (1448148) panicked at examples/azul-news/src/feed.rs:1363:30: index out of bounds: the len is 0 but the index is 0 
+[aznews] store::tests::a_broken_file_is_reported_and_the_rest_loads :: thread 'store::tests::a_broken_file_is_reported_and_the_rest_loads' (1448197) panicked at examples/azul-news/src/store.rs:357:9: assertion failed: loaded.library.feeds[0].items.is_empty() 
+[aznews] store::tests::what_is_written_loads_back_the_same :: thread 'store::tests::what_is_written_loads_back_the_same' (1448202) panicked at examples/azul-news/src/store.rs:315:13: assertion `left == right` failed   left: Subscription { id: "f2", title: "Bakery", url: "https://f2.example.org/feed", site: "https://f2.example.org/", folder: "" }  right: Subscription { id: "f1", title: "Example Weekly", url: "
+[azreader] xmltree::tests::names_and_attributes_match_without_case_and_prefix :: thread 'xmltree::tests::names_and_attributes_match_without_case_and_prefix' (1448875) panicked at examples/azul-reader/src/xmltree.rs:229:9: assertion `left == right` failed   left: None  right: Some("toc") 
+[azshow] text::tests::a_text_body_survives_the_trip_through_the_shared_rich_text_model :: thread 'text::tests::a_text_body_survives_the_trip_through_the_shared_rich_text_model' (1449076) panicked at examples/azul-show/src/text.rs:259:9: nothing changed 
+[azshow] text::tests::an_edit_from_the_editor_comes_back_into_the_body :: thread 'text::tests::an_edit_from_the_editor_comes_back_into_the_body' (1449078) panicked at examples/azul-show/src/text.rs:278:9: a numbered item is a bullet 
+[azwriter] docx::tests::the_docx_wire_subset_becomes_blocks_and_skips_the_unknown :: thread 'docx::tests::the_docx_wire_subset_becomes_blocks_and_skips_the_unknown' (1449237) panicked at examples/azul-writer/src/docx.rs:252:9: assertion `left == right` failed: the item keeps its level   left: Bullet(     0, 
+[azwriter] commands::tests::the_answer_of_an_import_read_is_a_document_or_a_sentence :: thread 'commands::tests::the_answer_of_an_import_read_is_a_document_or_a_sentence' (1449235) panicked at examples/azul-writer/src/commands.rs:348:79: not Word: RichTextDoc {     blocks: [         RichBlock { 
+```
+
+- R3-APPS: these 10 (AzKeys sample, AzMusic playlists, AzNews feed + store x3, AzReader xmltree, AzShow text x2,
+  AzWriter docx + commands; several touch the shared rich-text model in layout/src/widgets/rich_text - numbering /
+  list levels - and the XML parser leniency XML8).
