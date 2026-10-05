@@ -2635,8 +2635,11 @@ pub enum DebugEvent {
     /// substitute either: it needs a coordinate, and a generated test may not
     /// know or guess one.
     ///
-    /// Give exactly one of `selector` / `node_id`. Refuses (loudly) if the node
-    /// does not exist or cannot hold focus.
+    /// Give exactly one of `selector` / `node_id`. Focuses like the engine's
+    /// `FocusTarget::Id`: a node that cannot hold focus hands it to its first
+    /// focusable descendant, and the answer (`FocusNodeResponse.node_id`)
+    /// names the node that took it. Refuses (loudly) if the node does not
+    /// exist or nothing in its subtree can hold focus.
     FocusNode {
         /// CSS selector for the node to focus
         #[serde(default)]
@@ -14710,14 +14713,11 @@ pub fn process_debug_event(
             use azul_core::{
                 callbacks::FocusTarget, dom::DomNodeId, styled_dom::NodeHierarchyItemId,
             };
+            use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
 
-            let target = resolve_node_target(
-                callback_info,
-                target_dom(request),
-                selector.as_deref(),
-                *node_id,
-                None,
-            );
+            let dom = target_dom(request);
+            let target =
+                resolve_node_target(callback_info, dom, selector.as_deref(), *node_id, None);
             let described = selector.clone().unwrap_or_else(|| {
                 node_id.map_or_else(|| "<nothing>".to_string(), |n| format!("node {n}"))
             });
@@ -14727,46 +14727,70 @@ pub fn process_debug_event(
             // `DoNothing` — silently — so a test that focused a node that does
             // not exist, or one that can never hold focus, would run its whole
             // keyboard timeline against no focus at all and blame the engine.
-            let focusable = target.and_then(|nid| {
-                callback_info
-                    .get_layout_window()
-                    .layout_results
-                    .get(&target_dom(request))
-                    .and_then(|lr| {
-                        lr.styled_dom
-                            .node_data
-                            .as_container()
-                            .get(nid)
-                            .map(azul_core::dom::NodeData::is_focusable)
-                    })
+            //
+            // WHO takes the focus is the engine's answer, asked of the same
+            // resolver an app's `set_focus` goes through (user decision D2,
+            // 2026-10-05): `FocusTarget::Id` on a node that cannot hold focus
+            // (the row an app named around a widget's field) hands it to the
+            // node's first focusable descendant (FIX9-INPUT 3.2), and keeps the
+            // node itself when nothing inside it can - the one case refused
+            // here.
+            let resolution = target.map(|nid| {
+                let asked = DomNodeId {
+                    dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
+                };
+                let lw = callback_info.get_layout_window();
+                let taker = match resolve_focus_target(
+                    &FocusTarget::Id(asked),
+                    &lw.layout_results,
+                    None,
+                    &lw.focus_out_of_scope_doms(),
+                ) {
+                    Ok(FocusResolution::Resolved(taker)) => taker.node.into_crate_internal(),
+                    _ => None,
+                };
+                let can_hold_focus = |n: azul_core::id::NodeId| {
+                    lw.layout_results
+                        .get(&dom)
+                        .and_then(|lr| {
+                            lr.styled_dom
+                                .node_data
+                                .as_container()
+                                .get(n)
+                                .map(azul_core::dom::NodeData::is_focusable)
+                        })
+                        .unwrap_or(false)
+                };
+                (nid, asked, taker.filter(|n| can_hold_focus(*n)))
             });
 
-            match (target, focusable) {
-                (Some(nid), Some(true)) => {
-                    callback_info.set_focus(FocusTarget::Id(DomNodeId {
-                        dom: target_dom(request),
-                        node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
-                    }));
+            match resolution {
+                Some((_, asked, Some(taker))) => {
+                    callback_info.set_focus(FocusTarget::Id(asked));
                     send_ok(
                         request,
                         None,
                         Some(ResponseData::FocusNode(FocusNodeResponse {
-                            node_id: nid.index() as u64,
+                            // The node that TOOK the focus: the asked one, or
+                            // its first focusable descendant.
+                            node_id: taker.index() as u64,
                             selector: selector.clone(),
                         })),
                     );
                 }
-                (Some(nid), _) => send_err(
+                Some((nid, _, None)) => send_err(
                     request,
                     format!(
-                        "focus_node: '{described}' resolves to node {} but that node cannot hold \
-                         focus (not a/button/input/select/textarea, not contenteditable, no \
-                         tabindex and no focus callback). Focusing it would leave the focus \
-                         manager empty and every following keyboard step would test nothing.",
+                        "focus_node: '{described}' resolves to node {} but neither it nor any \
+                         node inside it can hold focus (not a/button/input/select/textarea, not \
+                         contenteditable, no tabindex and no focus callback). Focusing it would \
+                         leave the focus manager empty and every following keyboard step would \
+                         test nothing.",
                         nid.index()
                     ),
                 ),
-                (None, _) => send_err(
+                None => send_err(
                     request,
                     format!("focus_node: no node matches '{described}'"),
                 ),
