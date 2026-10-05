@@ -4211,24 +4211,21 @@ fn render_text_prerendered_lcd(
     };
     let lut = lcd_distribution_lut();
 
-    // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
+    // The run's clip, as WHOLE PIXELS: `text_run_clip` (the item clip_rect
+    // cut to the stack clip, device px) through `text_clip_pixel_box` - the
+    // very box the sweep and the grayscale path paint under, so a fractional
+    // clip cuts the tiles at the same pixel (this path used to snap the
+    // clip_rect OUTWARD on its own and paint one column / row more).
     // NOTE: `clip_rect` arrives ALREADY scroll-projected by the caller
     // (`text_clip = scroll_rect(clip_rect)` in the Text arm) — do not
     // subtract `scroll_offset` here again.
-    let cr = clip_rect;
-    let mut cx0 = (cr.origin.x * dpi_factor).floor() as i32;
-    let mut cy0 = (cr.origin.y * dpi_factor).floor() as i32;
-    let mut cx1 = ((cr.origin.x + cr.size.width) * dpi_factor).ceil() as i32;
-    let mut cy1 = ((cr.origin.y + cr.size.height) * dpi_factor).ceil() as i32;
-    if let Some(c) = clip {
-        cx0 = cx0.max(c.x as i32);
-        cy0 = cy0.max(c.y as i32);
-        cx1 = cx1.min((c.x + c.width) as i32);
-        cy1 = cy1.min((c.y + c.height) as i32);
-    }
-    if cx1 <= cx0 || cy1 <= cy0 {
+    let Some((bx0, by0, bx1, by1)) = text_run_clip(clip_rect, clip, dpi_factor)
+        .and_then(|c| text_clip_pixel_box(c, pixmap.width, pixmap.height))
+    else {
         return true; // fully clipped: nothing to paint, and nothing missed
-    }
+    };
+    // `clip_box_i`'s inclusive form, made exclusive for the tile copies.
+    let (cx0, cy0, cx1, cy1) = (bx0, by0, bx1 + 1, by1 + 1);
     // The same box, for the sweep the overlapping components take (pass
     // 2a): it used to get the STACK clip alone, so with no stack clip - or
     // one wider than the run's clip_rect - the overlapping glyphs of a run
