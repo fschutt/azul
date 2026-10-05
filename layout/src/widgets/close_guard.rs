@@ -58,7 +58,6 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    impl_option_inner,
     props::{
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutMinHeight},
         property::CssProperty,
