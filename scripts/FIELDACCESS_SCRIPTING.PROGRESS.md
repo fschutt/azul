@@ -26,11 +26,16 @@ carrying them; skips Vec/String/RefAny/... container structs).
   non-nullable typed property); clone()/toString() lost the extra $instance; toString returns a PHP
   string; Azul::str / Azul::readString
 
+- PHP ext RED + fix: allowlist += FullWindowState, WindowSize, LogicalSize; get_/set_<field> (copies,
+  release-then-ptr::write); copy_expr (deep copy, or bitwise copy for POD - no more calls to
+  nonexistent Az<POD>_clone); class registration only for emitted classes; examples/php/hello-world.php
+  sets title + size by read-modify-write (camelCase: getWindowState()...)
+
 ## IN PROGRESS
-- PHP ext
+- Perl
 
 ## NEXT
-- Perl
+- final report
 
 ## Open questions
 - field_access.rs may duplicate helpers other groups wrote (unify at integration).
