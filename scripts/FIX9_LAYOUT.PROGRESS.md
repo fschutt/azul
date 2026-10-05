@@ -16,11 +16,15 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
 - 1.3 RED 07ef25280, GREEN 2f1e76da4 (knuth_plass tests; starts_paragraph param on kp_layout /
   find_optimal_breakpoints / position_lines_from_breaks).
 
+- 1.4 RED 471d463ab, GREEN 1b580afc3 (fc.rs window_layout_tests; layout_bfc marker branch before the
+  position/float checks, content = max(content, marker) like Chrome - NOT "no contribution" as the brief
+  said: an empty li keeps its marker height; sizing block intrinsic max; cache.rs skips every marker).
+
 ## IN PROGRESS
-1.4
+1.5
 
 ## NEXT
-1.4 RED a_list_item_without_a_line_box_is_as_tall_as_its_block (fc.rs marker_line_host ~12203)
+1.5 GREEN for layout/tests/a_stretched_flex_container_keeps_its_min_height.rs (taffy_bridge.rs ~1501)
 
 ## Open questions
 (none)
