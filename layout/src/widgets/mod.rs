@@ -570,6 +570,33 @@ pub mod reference_picker;
 /// typed text, pastes and the pointer come back as bytes for the program
 /// (xterm encodings). See `terminal_view.rs`.
 pub mod terminal_view;
+/// Waveform widget.
+///
+/// An audio file's loudness over time as bars (the peaks of each slice),
+/// the part already played in the accent; a click or a drag seeks. The
+/// peaks come from `AudioFileDecoder::waveform` or the app's own samples
+/// (`WaveformPeaks`, `resample_peaks`); see `waveform.rs`.
+pub mod waveform;
+/// Level meter widget.
+///
+/// How loud something is now (a microphone, the music playing): a trough
+/// filled on the dB scale, green, amber past -18 dB, red past -6 dB,
+/// horizontal or vertical, moved in place without a rebuild
+/// (`LevelMeter::update_level`, `LevelMeterThrottle`); see `level_meter.rs`.
+pub mod level_meter;
+/// Seek bar widget.
+///
+/// Where a track or a video is: the time played, a trough with the played
+/// and buffered parts and a thumb, the length, chapter ticks; press, drag,
+/// keys seek; moved in place by a player (`SeekBar::update_position`);
+/// `media_time` is the one media clock format; see `seek_bar.rs`.
+pub mod seek_bar;
+/// Media controls widget.
+///
+/// A player's transport: previous, play / pause, next, the podcast skips,
+/// shuffle and repeat toggles, a volume slider - icon buttons named by what
+/// they do now, one `on_action` hook; see `media_controls.rs`.
+pub mod media_controls;
 
 /// Every shipped widget's `dom()` with reasonable defaults, for lints that
 /// must hold across the whole widget set (the label-convention test below and
@@ -1948,6 +1975,45 @@ mod label_convention {
             "terminal_view",
             super::terminal_view::fixtures::sample().dom(),
         ));
+        // The seek bar: a minute into a nine-minute track, loaded to five,
+        // three chapters.
+        all.push((
+            "seek_bar",
+            super::seek_bar::SeekBar::create(72.0, 562.0)
+                .with_buffered(300.0)
+                .with_chapters(azul_css::F32Vec::from_vec(alloc::vec![0.0, 120.0, 400.0]))
+                .with_accessibility_name("Playback position")
+                .dom(),
+        ));
+        // The media controls: playing, shuffle and repeat, a volume.
+        all.push((
+            "media_controls",
+            super::media_controls::MediaControls::create(true)
+                .with_shuffle_repeat(true, super::media_controls::MediaRepeat::All)
+                .with_volume(0.8)
+                .with_accessibility_name("Player")
+                .dom(),
+        ));
+        // The waveform: sixteen peaks, a quarter played.
+        all.push((
+            "waveform",
+            super::waveform::Waveform::create(
+                azul_css::F32Vec::from_vec(alloc::vec![
+                    0.2, 0.5, 0.9, 0.4, 0.7, 0.3, 1.0, 0.6, 0.2, 0.8, 0.5, 0.1, 0.6, 0.9, 0.3, 0.4,
+                ]),
+                30.0,
+                120.0,
+            )
+            .with_accessibility_name("Position")
+            .dom(),
+        ));
+        // The level meter: well into the amber, named.
+        all.push((
+            "level_meter",
+            super::level_meter::LevelMeter::create(80.0)
+                .with_accessibility_name("Level")
+                .dom(),
+        ));
         all
     }
 
@@ -2860,6 +2926,14 @@ mod theme_contrast {
         "money_input (empty, en)",
         "date_range_picker",
         "reference_picker",
+        // A meter: a value shown like the progress bar.
+        "level_meter",
+        // A seek bar: a slider over time.
+        "seek_bar",
+        // A transport: a row of buttons and a slider.
+        "media_controls",
+        // A waveform: a slider drawn as the audio.
+        "waveform",
     ];
     /// Navigation and application chrome.
     const CHROME: &[&str] = &[

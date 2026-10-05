@@ -38,7 +38,7 @@ use azul::{
     vec::{DomVec, StringVec, U8VecRef},
     widgets::{
         AboutDialog, Avatar, AvatarSize, Badge, Button, ButtonType, CameraWidget, DropDown,
-        MicrophoneWidget, ProgressBar, ScreenCaptureWidget, Segmented, Titlebar,
+        LevelMeter, MicrophoneWidget, ScreenCaptureWidget, Segmented, Titlebar,
     },
 };
 
@@ -643,7 +643,8 @@ fn level_meter(view: &CallView, data: &RefAny) -> Dom {
             "font-size: 12px; margin-right: 8px; white-space: nowrap;",
         ))
         .with_child(
-            ProgressBar::create(view.mic_level)
+            LevelMeter::create(view.mic_level)
+                .with_accessibility_name("Microphone level")
                 .dom()
                 .with_css("flex-grow: 1; min-width: 40px;")
                 .with_callback(

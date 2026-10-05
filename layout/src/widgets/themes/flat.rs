@@ -6802,3 +6802,141 @@ pub(crate) const fn terminal_palette() -> crate::widgets::terminal_view::Termina
         selection: C::create(U::rgba(0x26, 0x6F, 0xD0, 0x50), U::rgba(0xFF, 0xFF, 0xFF, 0x40)),
     }
 }
+
+// ==== level_meter ====
+//
+// The flat level meter is a mixing desk's on a Windows 7 dialog: a grey
+// trough (the slider's track) with flat's 3 px corners, the level in a
+// clear green, amber past -18 dB, red past -6 dB. At night the trough is
+// the dark track and the three colours lift.
+
+const LEVEL_OK_LIGHT: ColorU = ColorU::new(0x2E, 0x9E, 0x4F, 255);
+const LEVEL_OK_DARK: ColorU = ColorU::new(0x4C, 0xC4, 0x6B, 255);
+const LEVEL_WARM_LIGHT: ColorU = ColorU::new(0xE0, 0xA8, 0x00, 255);
+const LEVEL_WARM_DARK: ColorU = ColorU::new(0xF2, 0xC2, 0x30, 255);
+const LEVEL_HOT_LIGHT: ColorU = ColorU::new(0xD9, 0x30, 0x25, 255);
+const LEVEL_HOT_DARK: ColorU = ColorU::new(0xF0, 0x6A, 0x5F, 255);
+
+/// Flat's level-meter look.
+#[must_use]
+pub(crate) fn level_meter_look() -> crate::widgets::level_meter::LevelMeterLook {
+    use super::decl;
+    let mut track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    track.extend(decl::radius(3));
+    crate::widgets::level_meter::LevelMeterLook {
+        track,
+        ok: decl::themed_fill(LEVEL_OK_LIGHT, LEVEL_OK_DARK).to_vec(),
+        warm: decl::themed_fill(LEVEL_WARM_LIGHT, LEVEL_WARM_DARK).to_vec(),
+        hot: decl::themed_fill(LEVEL_HOT_LIGHT, LEVEL_HOT_DARK).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat level meter.
+#[must_use]
+pub fn level_meter(m: crate::widgets::level_meter::LevelMeter) -> Dom {
+    crate::widgets::level_meter::build(m, &level_meter_look())
+}
+
+// ==== seek_bar ====
+//
+// The flat seek bar is Windows Media Player 12's: the times in the UI face at
+// 12 px in the secondary ink either side, a grey trough (the slider's track)
+// with the loaded part a shade darker and the played part in flat's accent,
+// chapter ticks cut into it in the surface colour, a round accent thumb. The
+// trough wears the focus halo. At night the desktop's track, the lifted
+// accent.
+
+/// Flat's seek-bar look.
+#[must_use]
+pub(crate) fn seek_bar_look() -> crate::widgets::seek_bar::SeekBarLook {
+    use super::decl;
+    let mut time = vec![
+        decl::font_size(12),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    time.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+    let mut track = decl::themed_fill(LIGHT_TRACK, DARK_TRACK).to_vec();
+    track.extend(decl::radius(3));
+    track.extend(decl::margin(0, 8, 0, 8));
+    track.extend(decl::focus_halo(LIGHT_GLOW, DARK_GLOW));
+    let mut buffered = decl::themed_fill(LIGHT_BD, DARK_BD).to_vec();
+    buffered.extend(decl::radius(3));
+    let mut played = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    played.extend(decl::radius(3));
+    let mut thumb = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    thumb.extend(decl::radius(6));
+    crate::widgets::seek_bar::SeekBarLook {
+        time,
+        track,
+        buffered,
+        played,
+        tick: decl::themed_fill(LIGHT_SUR, DARK_SUR).to_vec(),
+        thumb,
+        marker: None,
+    }
+}
+
+/// The flat seek bar.
+#[must_use]
+pub fn seek_bar(b: crate::widgets::seek_bar::SeekBar) -> Dom {
+    crate::widgets::seek_bar::build(b, &seek_bar_look())
+}
+
+// ==== media_controls ====
+//
+// The flat transport is Windows Media Player 12's row: link-style icon
+// buttons (flat's own button faces), the play button the primary one, the
+// volume slider set off by a gap. The buttons and the slider carry the
+// theme; the row only spaces them.
+
+/// Flat's media-controls look.
+#[must_use]
+pub(crate) fn media_controls_look() -> crate::widgets::media_controls::MediaControlsLook {
+    use super::decl;
+    crate::widgets::media_controls::MediaControlsLook {
+        row: decl::padding(2, 4, 2, 4).to_vec(),
+        volume: decl::margin(0, 0, 0, 12).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat media controls.
+#[must_use]
+pub fn media_controls(c: crate::widgets::media_controls::MediaControls) -> Dom {
+    crate::widgets::media_controls::build(c, &media_controls_look())
+}
+
+// ==== waveform ====
+//
+// The flat waveform is a sound editor's overview on a white sheet: grey bars
+// (the strong border) not played yet, flat's accent for the played part, a
+// playhead in the ink; the sheet wears the focus halo. At night the
+// desktop's page, the lifted accent.
+
+/// Flat's waveform look.
+#[must_use]
+pub(crate) fn waveform_look() -> crate::widgets::waveform::WaveformLook {
+    use super::decl;
+    let mut root = decl::themed_fill(LIGHT_PG, DARK_PG).to_vec();
+    root.extend(decl::radius(3));
+    root.extend(decl::padding(4, 4, 4, 4));
+    root.extend(decl::focus_halo(LIGHT_GLOW, DARK_GLOW));
+    let mut bar = decl::themed_fill(LIGHT_BD3, DARK_BD3).to_vec();
+    bar.extend(decl::margin(0, 1, 0, 0));
+    let mut played = decl::themed_fill(LIGHT_ACC, DARK_ACC).to_vec();
+    played.extend(decl::margin(0, 1, 0, 0));
+    crate::widgets::waveform::WaveformLook {
+        root,
+        bar,
+        played,
+        head: decl::themed_fill(LIGHT_INK, DARK_INK).to_vec(),
+        marker: None,
+    }
+}
+
+/// The flat waveform.
+#[must_use]
+pub fn waveform(w: crate::widgets::waveform::Waveform) -> Dom {
+    crate::widgets::waveform::build(w, &waveform_look())
+}

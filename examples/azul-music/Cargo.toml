@@ -1,0 +1,36 @@
+[package]
+name = "AzMusic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzMusic - a music player on the public azul API: a library scanned from a
+    music folder (tags and cover art read by azul's AudioFileDecoder), albums,
+    artists and songs (azul's virtualized DataTable), playlists as files in the
+    data tree, a play queue with shuffle and repeat, gapless playback through
+    azul's AudioPlayer, the now-playing bar (MediaControls, SeekBar,
+    LevelMeter) and the OS media keys / now-playing widget. Built on azul's S7
+    MediaShell, NoTitle with the app-drawn Titlebar, flat and flora, light and
+    dark.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+azul-storage = { path = "../azul-storage", features = ["azul"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
+# Data, Shortcuts, About), the --shot timer.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The library and the playlists as JSON files (already in the tree).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+name = "azmusic"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzMusic"
+path = "src/main.rs"

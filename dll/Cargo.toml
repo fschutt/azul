@@ -85,6 +85,30 @@ png = { version = "0.18", default-features = false, optional = true }
 # `video-native`. See dll/src/desktop/extra/video_codec/demux.rs.
 mp4 = { version = "0.14", default-features = false, optional = true }
 
+# Audio FILE decoding for AudioFileDecoder / AudioPlayer (audio/decode.rs):
+# MP3, AAC, ALAC, FLAC, Vorbis, PCM / ADPCM in WAV, AIFF, MP4 / M4A, Ogg, MKV /
+# WebM and CAF, with ID3v1 / ID3v2 / APE tags and cover art. Pure Rust
+# (MPL-2.0), behind `audio-decode`. No `opt-simd` (it would pull rustfft).
+# Opus in those containers is decoded by azul's own AudioDecoder.
+symphonia = { version = "0.6.1", default-features = false, optional = true, features = [
+    "mp3",
+    "aac",
+    "alac",
+    "flac",
+    "vorbis",
+    "pcm",
+    "adpcm",
+    "wav",
+    "aiff",
+    "isomp4",
+    "ogg",
+    "mkv",
+    "caf",
+    "id3v1",
+    "id3v2",
+    "ape",
+] }
+
 # Windows-only: libm for math functions
 libm = { version = "0.2.2", default-features = false, optional = true }
 
@@ -729,6 +753,8 @@ build-dll = [
     # (linux/windows) `gpu-video`, so libazul.so gives the C video player real
     # frames instead of the stub. No-op decoder on platforms without a backend.
     "video-native",
+    # Audio files (MP3 / AAC / FLAC / ...) for AudioFileDecoder and AudioPlayer.
+    "audio-decode",
     # OTLP telemetry compiled into the shipped dylib so any app (and the
     # link-dynamic demos) can opt in at RUNTIME via AZ_TELEMETRY=... without a
     # special build. Consent stays dual-keyed: linking this in sends NOTHING
@@ -1068,6 +1094,10 @@ camera-native = ["dep:nokhwa"]
 # a no-op on Apple/Android — those use VideoToolbox/MediaCodec or the stub). OFF
 # by default so the stub (video_codec/mod.rs) keeps cross-compile builds lean.
 video-native = ["dep:mp4", "dep:gpu-video"]
+# Audio file decoding (Symphonia): AudioFileDecoder and AudioPlayer decode MP3,
+# AAC, ALAC, FLAC, Vorbis, WAV, AIFF in their containers. Without it both
+# handles open closed and say why.
+audio-decode = ["dep:symphonia"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]

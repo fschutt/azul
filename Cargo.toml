@@ -30,6 +30,8 @@ members = [
     "examples/azul-pdf", # AzPdf: the PDF viewer (ParsedPdf -> page SVG -> azul's SVG renderer on a Thread; thumbnails, outline, zoom, search) on the DocumentShell
     "examples/azul-clock", # AzClock: alarms (RRULE repeats, DST-correct, OS-scheduled notifications), timers, stopwatch, world clock on the S9 UtilityShell
     "examples/azul-reader", # AzReader: the e-reader (EPUB through azul's XML/HTML parser, paged layout, library, TOC, bookmarks; reader/books/<uuid>/...)
+    "examples/azul-music", # AzMusic: the music player (library from a folder, gapless AudioPlayer, MediaControls / SeekBar / LevelMeter) on the S7 MediaShell
+    "examples/azul-player", # AzPlayer: the video player (VideoWidget picture + AudioPlayer sound kept in step, controls, fullscreen, resume) on the S7 MediaShell
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
