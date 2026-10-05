@@ -1575,6 +1575,37 @@ mod autotest_generated {
         assert_eq!(attrs.get_key("v").map(AzString::as_str), Some("😀"));
     }
 
+    /// The strict loader keeps a qualified name as written - for an attribute
+    /// as for an element (`dc:title`), and as the lenient loader does: EPUB's
+    /// `epub:type` is not a `type`, XHTML's `xml:lang` is not a `lang`, and a
+    /// namespace declaration `xmlns:dc` is not an attribute `dc`.
+    #[cfg(feature = "xml")]
+    #[test]
+    fn a_prefixed_attribute_keeps_its_prefix_as_a_prefixed_element_does() {
+        let parsed = parse_xml_string(
+            r#"<package xmlns:dc="urn:dc" xmlns:epub="urn:epub"><dc:title xml:lang="en">A</dc:title><nav epub:type="toc" type="list"/></package>"#,
+        )
+        .expect("valid document");
+        let package = elements(&parsed);
+        let declared = &package[0].attributes;
+        assert_eq!(
+            declared.get_key("xmlns:dc").map(AzString::as_str),
+            Some("urn:dc")
+        );
+        assert_eq!(declared.get_key("dc"), None, "no attribute `dc`");
+        let children = elements(package[0].children.as_ref());
+        assert_eq!(children[0].node_type.as_str(), "dc:title");
+        let title = &children[0].attributes;
+        assert_eq!(title.get_key("xml:lang").map(AzString::as_str), Some("en"));
+        let nav = &children[1].attributes;
+        assert_eq!(nav.get_key("epub:type").map(AzString::as_str), Some("toc"));
+        assert_eq!(
+            nav.get_key("type").map(AzString::as_str),
+            Some("list"),
+            "the unprefixed `type` is its own attribute"
+        );
+    }
+
     #[cfg(feature = "xml")]
     #[test]
     fn parse_xml_string_tolerates_extra_and_mismatched_close_tags() {
