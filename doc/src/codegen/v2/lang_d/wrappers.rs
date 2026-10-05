@@ -2978,3 +2978,78 @@ mod tests {
         assert!(!reserved_member("open"));
     }
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for D.
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            super::super::generate(super::super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("D generates")
+        })
+    }
+
+    /// The body of `struct {name}`.
+    fn struct_body(name: &str) -> &'static str {
+        let out = output();
+        let head = format!("\nstruct {}\n{{\n", name);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("no struct {} in the D output", name));
+        let rest = &out[start + 1..];
+        let end = rest.find("\n}\n").expect("struct ends");
+        &rest[..end]
+    }
+
+    /// The member starting at `head`, up to its closing brace.
+    fn member<'a>(body: &'a str, head: &str) -> &'a str {
+        let start = body
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{}` in:\n{}", head, body));
+        let rest = &body[start..];
+        let end = rest.find("\n    }\n").expect("member ends");
+        &rest[..end]
+    }
+
+    #[test]
+    fn the_text_field_of_text_input_state_is_still_settable_next_to_the_get_text_method() {
+        let body = struct_body("TextInputState");
+        // The api.json method keeps the name `text()` ...
+        assert!(body.contains("AzTextInputState_getText("), "{}", body);
+        // ... and the field still gets its setter, which releases the old Vec.
+        let set = member(body, "    void text(");
+        assert!(set.contains("auto __f = &_ptr().text;"), "{}", set);
+        assert!(set.contains("AzU32Vec_delete(__f);"), "{}", set);
+        assert!(set.contains("*__f = __v;"), "{}", set);
+    }
+
+    #[test]
+    fn a_string_field_setter_releases_the_old_string_before_storing_the_new_one() {
+        let set = member(struct_body("FullWindowState"), "    void title(string v)");
+        let del = set.find("AzString_delete(__f);").expect("releases");
+        let store = set.find("*__f = __v;").expect("stores");
+        assert!(del < store, "{}", set);
+    }
+
+    #[test]
+    fn a_struct_field_getter_is_a_view_and_its_setter_consumes_the_new_value() {
+        let body = struct_body("WindowCreateOptions");
+        let get = member(body, "    FullWindowState windowState()");
+        assert!(get.contains("FullWindowState._viewOf(&_ptr().window_state, _rc)"), "{}", get);
+        let set = member(body, "    void windowState(FullWindowState v)");
+        assert!(set.contains("v._take()"), "{}", set);
+        assert!(set.contains("AzFullWindowState_delete(__f);"), "{}", set);
+    }
+
+    #[test]
+    fn a_bool_field_reads_and_writes_in_place() {
+        let body = struct_body("CheckBoxState");
+        assert!(body.contains("return _ptr().checked;"), "{}", body);
+        assert!(body.contains("_ptr().checked = v;"), "{}", body);
+    }
+}
