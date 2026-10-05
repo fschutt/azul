@@ -5374,6 +5374,29 @@ mod autotest_generated {
         assert!(!m.get(0).is_empty);
     }
 
+    /// A flex item laid out by taffy never gets an entry of its own, and
+    /// neither does a node the reconcile built fresh: an EMPTY entry says
+    /// nothing about its ancestors. Stopping there left the flex container's
+    /// layout slot in place, which served the old child positions and never
+    /// laid the fresh item out - a dragged slider's thumb vanished
+    /// (`dragging_the_slider_leaves_no_thumb_behind`, FIX9 1.6, 2026-10-05).
+    #[test]
+    fn cachemap_mark_dirty_on_a_node_with_no_entry_still_clears_its_ancestors() {
+        // 0 (block) <- 1 (flex container, laid out) <- 2 (flex item, no entry)
+        let tree = vec![plain(None), plain(Some(0)), plain(Some(1))];
+        let mut m = LayoutCacheMap::default();
+        m.resize_to_tree(3);
+        m.get_mut(0)
+            .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+        m.get_mut(1)
+            .store_size(0, sizing_entry(size(1.0, 1.0), size(1.0, 1.0)));
+
+        m.mark_dirty(2, &tree);
+
+        assert!(m.get(1).is_empty, "the container lays its items out again");
+        assert!(m.get(0).is_empty);
+    }
+
     #[test]
     fn cachemap_mark_dirty_on_an_already_dirty_node_leaves_ancestors_alone() {
         let tree = vec![plain(None), plain(Some(0))];
