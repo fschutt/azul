@@ -1337,4 +1337,18 @@ mod tests {
         assert!(!code("import com.sun.jna.Library"), "{kt}");
         assert!(!code(".INSTANCE."), "{kt}");
     }
+    /// A nested struct / union field is `lateinit`: JNA's `Structure`
+    /// constructor instantiates it, and an `= AzFoo()` initializer built
+    /// every nested struct again at every level (115 ms per field read of
+    /// `WindowCreateOptions`).
+    #[test]
+    fn a_nested_struct_field_is_built_once_by_jna_not_again_by_an_initializer() {
+        let kt = generate(super::super::bug_classes::ir(), &CodegenConfig::c_header()).unwrap();
+        let start = kt.find("open class AzFullWindowState : Structure() {").expect("AzFullWindowState");
+        let body = &kt[start..start + kt[start..].find("\n}\n").unwrap()];
+        assert!(body.contains("lateinit var title: AzString\n"), "{}", body);
+        assert!(body.contains("lateinit var size: AzWindowSize\n"), "{}", body);
+        assert!(body.contains("@JvmField var mode: Int = 0"), "primitives keep their initializer:\n{}", body);
+        assert!(!body.contains("= AzString()"), "{}", body);
+    }
 }
