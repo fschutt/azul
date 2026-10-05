@@ -27,3 +27,14 @@ azerp_e2e amount step, wasm scheduled_notifications stub, RawImage::rgba_to_nv12
 | R2-WIDGETS (PKG R2-WIDGETS + D1 + D3) | add7791a3c9f3a36e | wt/r2-widgets | scripts/R2_WIDGETS_2026_10_05.md | running |
 | R2-APPS (PKG R2-APPS) | a1a907b790f2a870c | wt/r2-apps | scripts/R2_APPS_2026_10_05.md | running |
 | R2-ENGINE | the coordinator | - | - | with the slider regression (FIX9 1.6 confirmed by revert) and the RED tests that did not turn green |
+
+## Round 3 (2026-10-05 night): the 42 failing layout tests (scripts/waves/wave9/ROUND3_FAILURES.md, base 6a39b7f1a)
+Round 2 merged + pushed (3db9fce91). Suites on it: core / css / css_codegen / dll lib / dll tests / dylib / apps build
+GREEN; layout lib 4 + layout all 38 failing (-> round 3); doc 8 failing (bug_classes - the other session's codegen WIP in
+this checkout, not ours); apps lib: AzMonitor + AzNotes test helpers fixed (bc0b00177, AzNotes), rerun pending.
+| Task | Agent id | Branch | Report | State |
+|---|---|---|---|---|
+| R3-PAINT | a2b50af7b06081acb | wt/r3-paint | scripts/R3_PAINT_2026_10_05.md | running |
+| R3-TEXT | aa29d62945e549b29 | wt/r3-text | scripts/R3_TEXT_2026_10_05.md | running |
+| R3-WIDGETS | aab70e6966f347921 | wt/r3-widgets | scripts/R3_WIDGETS_2026_10_05.md | running |
+| R3-FRAME | ae324df22d3899ae3 | wt/r3-frame | scripts/R3_FRAME_2026_10_05.md | running |
