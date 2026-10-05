@@ -13,7 +13,7 @@ Worktree branch based on bc606e468 (fix/input-bugs-2026-09-19). No compiling (pa
   Get<F>()/Set<F>(v) fallback.
 
 - PowerShell RED tests 5702553fd (lang_powershell/cmdlets.rs `mod tests`).
-- PowerShell fix (this commit): cmdlet args = C# `cs_user_args` (Clone no longer takes an
+- PowerShell fix 221ca7f00: cmdlet args = C# `cs_user_args` (Clone no longer takes an
   `[IntPtr]$InstanceArg`), types = C# `cs_param_type` mapped to PS (`[Azul.WindowCreateOptions]`,
   `[string]`, `[Azul.DarkLightMode]` ...); unique cmdlet names (second `New-Azul<T>` becomes
   `New-Azul<T><Method>`); `Copy-Azul*` exported (psm1 + psd1); psm1 header documents field access
