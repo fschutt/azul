@@ -528,3 +528,89 @@ azul._apply_opts = function(struct, opts)
 end
 
 "#;
+
+#[cfg(test)]
+mod field_accessor_tests {
+    use super::super::config::CodegenConfig;
+    use super::*;
+
+    /// `azul.lua` for the real api.json, generated once.
+    fn azul_lua() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("lua codegen")
+        })
+    }
+
+    /// The line that starts with `head` (after indentation).
+    fn line(head: &str) -> &'static str {
+        azul_lua()
+            .lines()
+            .map(str::trim_start)
+            .find(|l| l.starts_with(head))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", head))
+    }
+
+    /// A postlude helper: from `function <name>(` / `<name> = function(`
+    /// up to its closing top-level `end`.
+    fn helper(name: &str) -> &'static str {
+        let out = azul_lua();
+        let i = out
+            .find(&format!("function {}(", name))
+            .or_else(|| out.find(&format!("{} = function(", name)))
+            .unwrap_or_else(|| panic!("helper {} is missing", name));
+        let rest = &out[i..];
+        &rest[..rest.find("\nend\n").unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn a_window_title_reads_as_a_lua_string_and_its_setter_releases_the_old_title() {
+        let get = line("function FullWindowState_methods:get_title()");
+        assert!(get.contains("azul._read_string(self.title)"), "{}", get);
+        let set = line("function FullWindowState_methods:set_title(v)");
+        assert!(set.contains("azul._set_field(self, 'title', 'AzString', v)"), "{}", set);
+        let sf = helper("azul._set_field");
+        assert!(sf.contains("C[del](struct[k])"), "the old value is released:\n{}", sf);
+        assert!(!helper("azul._read_string").contains("_delete"), "reading never frees");
+    }
+
+    #[test]
+    fn a_value_moved_into_a_field_is_deep_copied_never_aliased() {
+        let take = helper("azul._take");
+        assert!(take.contains("C[clone](v)"), "{}", take);
+        let set = line("function WindowCreateOptions_methods:set_window_state(v)");
+        assert!(set.contains("'AzFullWindowState'"), "{}", set);
+        let get = line("function WindowCreateOptions_methods:get_window_state()");
+        assert!(get.contains("C.AzFullWindowState_clone(self.window_state)"), "{}", get);
+        assert!(get.contains("ffi.gc("), "the copy is owned by the caller:\n{}", get);
+    }
+
+    #[test]
+    fn apply_opts_knows_each_field_type_and_releases_the_old_value() {
+        let with = line("function WindowCreateOptions_methods:with(opts)");
+        assert!(with.contains("azul._apply_opts(self, opts, 'AzWindowCreateOptions')"), "{}", with);
+        let apply = helper("azul._apply_opts");
+        assert!(apply.contains("azul._set_field(struct, k, ftn, v)"), "{}", apply);
+        let ft = line("azul._az_ft.AzFullWindowState = {");
+        assert!(ft.contains("title = 'AzString'"), "{}", ft);
+        assert!(ft.contains("size = 'AzWindowSize'"), "{}", ft);
+        assert!(!ft.contains("layout_callback"), "callbacks are not plain fields:\n{}", ft);
+        let wco = line("azul._az_ft.AzWindowCreateOptions = {");
+        assert!(wco.contains("window_state = 'AzFullWindowState'"), "{}", wco);
+    }
+
+    #[test]
+    fn a_bool_field_has_typed_accessors() {
+        assert!(line("function CheckBoxState_methods:set_checked(v)").contains("self.checked = v"));
+        assert!(line("function CheckBoxState_methods:get_checked()").contains("self.checked"));
+    }
+
+    #[test]
+    fn a_field_whose_getter_name_is_an_api_method_is_still_settable() {
+        let set = line("function TextInputState_methods:set_text(v)");
+        assert!(set.contains("'AzU32Vec'"), "{}", set);
+        let get = line("function TextInputState_methods:get_text(");
+        assert!(get.contains("AzTextInputState_getText"), "the api method wins:\n{}", get);
+    }
+}
