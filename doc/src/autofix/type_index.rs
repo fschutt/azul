@@ -1433,23 +1433,34 @@ impl TypeIndex {
 // file collection
 /// Recursively collect all .rs files in a directory
 fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir: &Path) {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    // Skip excluded paths (tests, examples, build.rs, etc.)
+    let mut found = Vec::new();
+    rust_files_under(dir, &crate::autofix::module_map::should_exclude_path, &mut found);
+    files.extend(found.into_iter().map(|path| (crate_name.to_string(), path)));
+}
 
+/// Every `.rs` file under `dir`, recursively, into `out` - except the paths
+/// `skip` names (a skipped directory is not entered). THE walker of the
+/// autofix tools: the index skips tests, examples, benches and build
+/// scripts (`module_map::should_exclude_path`), the preflight syntax check
+/// (autofix/mod.rs) reads every file.
+pub(crate) fn rust_files_under(
+    dir: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+    out: &mut Vec<PathBuf>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-
-        // Skip excluded paths (tests, examples, build.rs, etc.)
-        if crate::autofix::module_map::should_exclude_path(&path) {
+        if skip(&path) {
             continue;
         }
-
         if path.is_dir() {
-            collect_rust_files(files, crate_name, &path);
-        } else if path.extension().map_or(false, |e| e == "rs") {
-            files.push((crate_name.to_string(), path));
+            rust_files_under(&path, skip, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
         }
     }
 }

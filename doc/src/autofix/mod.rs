@@ -78,8 +78,9 @@ fn preflight_syntax_check(project_root: &Path) -> Result<()> {
         if !src_dir.exists() {
             continue;
         }
+        // Every file, tests included (the one walker, no filter)
         let mut files = Vec::new();
-        collect_rs_files(&src_dir, &mut files);
+        type_index::rust_files_under(&src_dir, &|_: &Path| false, &mut files);
         for file_path in &files {
             let content = match fs::read_to_string(file_path) {
                 Ok(c) => c,
@@ -106,21 +107,6 @@ fn preflight_syntax_check(project_root: &Path) -> Result<()> {
         );
     }
     Ok(())
-}
-
-fn collect_rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_rs_files(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
 }
 
 // main entry point
