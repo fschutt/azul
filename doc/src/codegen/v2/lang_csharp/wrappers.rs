@@ -2071,3 +2071,352 @@ fn xml_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::super::super::ir::{FieldDef, FunctionArg};
+    use super::*;
+
+    fn field(name: &str, ty: &str, rk: FieldRefKind) -> FieldDef {
+        FieldDef {
+            name: name.into(),
+            type_name: ty.into(),
+            doc: None,
+            is_public: true,
+            ref_kind: rk,
+        }
+    }
+
+    fn strukt(name: &str, category: TypeCategory, fields: Vec<FieldDef>) -> StructDef {
+        StructDef {
+            name: name.into(),
+            doc: vec![],
+            fields,
+            external_path: None,
+            module: "test".into(),
+            derives: vec![],
+            has_explicit_derive: false,
+            custom_impls: vec![],
+            is_boxed: false,
+            repr: Some("C".into()),
+            is_send_safe: true,
+            generic_params: vec![],
+            traits: Default::default(),
+            category,
+            dependencies: vec![],
+            sort_order: 0,
+            needs_forward_decl: false,
+            callback_wrapper_info: None,
+        }
+    }
+
+    fn arg(name: &str, ty: &str, rk: ArgRefKind) -> FunctionArg {
+        FunctionArg {
+            name: name.into(),
+            type_name: ty.into(),
+            ref_kind: rk,
+            doc: None,
+            callback_info: None,
+        }
+    }
+
+    pub(crate) fn func(
+        class: &str,
+        method: &str,
+        kind: FunctionKind,
+        args: Vec<FunctionArg>,
+        ret: Option<&str>,
+    ) -> FunctionDef {
+        FunctionDef {
+            c_name: format!("Az{}_{}", class, method),
+            class_name: class.into(),
+            method_name: method.into(),
+            kind,
+            args,
+            return_type: ret.map(str::to_string),
+            fn_body: Some("body".into()),
+            doc: vec![],
+            is_const: false,
+            is_unsafe: false,
+        }
+    }
+
+    /// `_delete` + `_clone` for a heap-owning class.
+    fn owning(ir: &mut CodegenIR, class: &str) {
+        let recv = super::super::super::ir::receiver_arg_name(class);
+        ir.functions.push(func(
+            class,
+            "delete",
+            FunctionKind::Delete,
+            vec![arg(&recv, class, ArgRefKind::RefMut)],
+            None,
+        ));
+        ir.functions.push(func(
+            class,
+            "clone",
+            FunctionKind::DeepCopy,
+            vec![arg(&recv, class, ArgRefKind::Ref)],
+            Some(class),
+        ));
+    }
+
+    /// The field-access fixture the C#, PowerShell and Go tests of this wave
+    /// share: the window-options chain (WindowCreateOptions.window_state ->
+    /// FullWindowState.title / .size -> WindowSize.dimensions),
+    /// CheckBoxState.checked, TextInputState.text (next to a `get_text`
+    /// method) and a Label whose `text` field collides with a method of the
+    /// same name.
+    pub(crate) fn field_fixture_ir() -> CodegenIR {
+        let mut ir = CodegenIR::new();
+        let vec_fields = |elem: &str, dtor: &str| {
+            vec![
+                field("ptr", elem, FieldRefKind::Ptr),
+                field("len", "usize", FieldRefKind::Owned),
+                field("cap", "usize", FieldRefKind::Owned),
+                field("destructor", dtor, FieldRefKind::Owned),
+            ]
+        };
+        ir.structs.push(strukt("U8Vec", TypeCategory::Vec, vec_fields("u8", "U8VecDestructor")));
+        ir.structs.push(strukt("U32Vec", TypeCategory::Vec, vec_fields("u32", "U32VecDestructor")));
+        ir.structs.push(strukt(
+            "String",
+            TypeCategory::String,
+            vec![field("vec", "U8Vec", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt(
+            "LogicalSize",
+            TypeCategory::default(),
+            vec![
+                field("width", "f32", FieldRefKind::Owned),
+                field("height", "f32", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "WindowSize",
+            TypeCategory::default(),
+            vec![
+                field("dimensions", "LogicalSize", FieldRefKind::Owned),
+                field("dpi", "u32", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "FullWindowState",
+            TypeCategory::default(),
+            vec![
+                field("title", "String", FieldRefKind::Owned),
+                field("size", "WindowSize", FieldRefKind::Owned),
+                field("window_focused", "bool", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "WindowCreateOptions",
+            TypeCategory::default(),
+            vec![
+                field("window_state", "FullWindowState", FieldRefKind::Owned),
+                field("size_to_content", "bool", FieldRefKind::Owned),
+            ],
+        ));
+        ir.structs.push(strukt(
+            "CheckBoxState",
+            TypeCategory::default(),
+            vec![field("checked", "bool", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt(
+            "TextInputState",
+            TypeCategory::default(),
+            vec![field("text", "U32Vec", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt(
+            "Label",
+            TypeCategory::default(),
+            vec![field("text", "String", FieldRefKind::Owned)],
+        ));
+        ir.structs.push(strukt("App", TypeCategory::default(), vec![]));
+        for class in [
+            "U8Vec",
+            "U32Vec",
+            "String",
+            "FullWindowState",
+            "WindowCreateOptions",
+            "TextInputState",
+            "Label",
+            "App",
+        ] {
+            owning(&mut ir, class);
+        }
+        ir.functions.push(func(
+            "CheckBoxState",
+            "create",
+            FunctionKind::Constructor,
+            vec![arg("checked", "bool", ArgRefKind::Owned)],
+            Some("CheckBoxState"),
+        ));
+        ir.functions.push(func(
+            "TextInputState",
+            "get_text",
+            FunctionKind::Method,
+            vec![arg("text_input_state", "TextInputState", ArgRefKind::Ref)],
+            Some("U32Vec"),
+        ));
+        ir.functions.push(func(
+            "Label",
+            "text",
+            FunctionKind::Method,
+            vec![arg("label", "Label", ArgRefKind::Ref)],
+            Some("String"),
+        ));
+        ir.functions.push(func(
+            "WindowCreateOptions",
+            "create",
+            FunctionKind::Constructor,
+            vec![arg("title", "String", ArgRefKind::Owned)],
+            Some("WindowCreateOptions"),
+        ));
+        ir.functions.push(func(
+            "WindowCreateOptions",
+            "default",
+            FunctionKind::Default,
+            vec![],
+            Some("WindowCreateOptions"),
+        ));
+        ir.functions.push(func(
+            "App",
+            "run",
+            FunctionKind::Method,
+            vec![
+                arg("app", "App", ArgRefKind::RefMut),
+                arg("root_window", "WindowCreateOptions", ArgRefKind::Owned),
+                arg("label", "String", ArgRefKind::Owned),
+                arg("size", "WindowSize", ArgRefKind::Owned),
+            ],
+            None,
+        ));
+        ir
+    }
+
+    fn gen() -> String {
+        let ir = field_fixture_ir();
+        let mut b = CodeBuilder::new("    ");
+        generate_wrappers(&mut b, &ir, &CodegenConfig::c_header()).expect("wrappers");
+        b.finish()
+    }
+
+    /// The text of `class Name` up to the next top-level class.
+    fn class_body(out: &str, name: &str) -> String {
+        let head = format!("public sealed class {} ", name);
+        let head_nl = format!("public sealed class {}\n", name);
+        let start = out
+            .find(&head)
+            .or_else(|| out.find(&head_nl))
+            .unwrap_or_else(|| panic!("no class {name}:\n{out}"));
+        let rest = &out[start + head.len()..];
+        let end = rest.find("\npublic sealed class ").unwrap_or(rest.len());
+        rest[..end].to_string()
+    }
+
+    fn before(hay: &str, a: &str, b: &str) -> bool {
+        match (hay.find(a), hay.find(b)) {
+            (Some(x), Some(y)) => x < y,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn a_string_field_is_read_without_consuming_it_and_written_after_freeing_the_old_string() {
+        let out = gen();
+        let c = class_body(&out, "FullWindowState");
+        assert!(c.contains("public string Title\n"), "{c}");
+        assert!(c.contains("return __AzField.ReadString(_inner.title);"), "{c}");
+        assert!(c.contains("var __nv = __AzField.MakeString(value);"), "{c}");
+        assert!(
+            before(
+                &c,
+                "__AzDerive.Consume(_inner.title, NativeMethods.AzString_delete);",
+                "_inner.title = __nv;"
+            ),
+            "the old title must be released before the new one is stored:\n{c}"
+        );
+        assert!(out.contains("internal static class __AzField"), "{out}");
+    }
+
+    #[test]
+    fn a_heap_owning_field_is_a_live_view_and_its_setter_deletes_the_old_value_then_consumes_the_new()
+    {
+        let out = gen();
+        let c = class_body(&out, "WindowCreateOptions");
+        assert!(c.contains("public FullWindowState WindowState\n"), "{c}");
+        assert!(c.contains("return FullWindowState.__View(() =>"), "{c}");
+        assert!(c.contains("return ref _inner.window_state;"), "{c}");
+        assert!(c.contains("var __nv = value.__Take();"), "{c}");
+        assert!(
+            before(
+                &c,
+                "__AzDerive.Consume(_inner.window_state, NativeMethods.AzFullWindowState_delete);",
+                "_inner.window_state = __nv;"
+            ),
+            "{c}"
+        );
+    }
+
+    #[test]
+    fn an_owning_class_can_be_a_view_into_its_parent_and_moves_out_through_take() {
+        let out = gen();
+        let c = class_body(&out, "FullWindowState");
+        assert!(c.contains("private ref AzFullWindowState _inner"), "{c}");
+        assert!(c.contains("if (__view != null) return ref __view();"), "{c}");
+        assert!(
+            c.contains("internal static FullWindowState __View(__AzRef<AzFullWindowState> slot)"),
+            "{c}"
+        );
+        assert!(c.contains("internal AzFullWindowState __Take()"), "{c}");
+        // A borrowed value (a view, a callback argument) is deep-copied,
+        // an owned one is moved and its finalizer disarmed.
+        assert!(
+            c.contains(
+                "if (_borrowed) return __AzDerive.Call<AzFullWindowState, \
+                 AzFullWindowState>(_inner, NativeMethods.AzFullWindowState_clone);"
+            ),
+            "{c}"
+        );
+        assert!(out.contains("internal delegate ref T __AzRef<T>();"), "{out}");
+    }
+
+    #[test]
+    fn a_bool_field_is_a_read_write_property() {
+        let out = gen();
+        let c = class_body(&out, "CheckBoxState");
+        assert!(c.contains("public bool Checked\n"), "{c}");
+        assert!(c.contains("return _inner.@checked;"), "{c}");
+        assert!(c.contains("_inner.@checked = value;"), "{c}");
+    }
+
+    #[test]
+    fn a_pod_struct_field_is_a_copy_that_is_assigned_back_whole() {
+        let out = gen();
+        let c = class_body(&out, "FullWindowState");
+        assert!(c.contains("public AzWindowSize Size\n"), "{c}");
+        assert!(c.contains("return _inner.size;"), "{c}");
+        assert!(c.contains("_inner.size = value;"), "{c}");
+        assert!(!c.contains("Consume(_inner.size"), "a POD field owns nothing:\n{c}");
+    }
+
+    #[test]
+    fn a_method_of_the_same_name_wins_but_the_field_stays_writable() {
+        let out = gen();
+        let label = class_body(&out, "Label");
+        assert!(label.contains("public String Text()"), "{label}");
+        assert!(!label.contains("public string Text\n"), "{label}");
+        assert!(label.contains("public void SetText(string value)"), "{label}");
+        // `get_text` does not collide with the `Text` property.
+        let tis = class_body(&out, "TextInputState");
+        assert!(tis.contains("public U32Vec GetText()"), "{tis}");
+        assert!(tis.contains("public U32Vec Text\n"), "{tis}");
+    }
+
+    #[test]
+    fn vec_and_string_classes_expose_no_field_properties() {
+        let out = gen();
+        assert!(!class_body(&out, "U8Vec").contains("public UIntPtr Len"), "{out}");
+        assert!(!class_body(&out, "String").contains("public AzU8Vec Vec"), "{out}");
+    }
+}
