@@ -34,11 +34,14 @@ Commit messages via /tmp/fix9i_msg (Write tool), git add explicit paths.
 - 3.14 upper_first dedup: 87502fd22 (+ function_diff capitalize aliased)
 - 3.15 walker dedup: 48222245b (autotest/mod.rs third copy -> round 2)
 
+- 3.16 crash_mail -> micromail: RED 0a37780ae, GREEN 19b6bf456
+- report scripts/FIX9_INPUT_2026_10_05.md: 9f5e972ce, 694abd838, a7537091a (+ wording fix)
+
 ## IN PROGRESS
-- 3.16 crash_mail -> micromail builder (layout/src/telemetry/crash_mail.rs)
+(none) - package complete except 3.8 (round 2, RED ignored)
 
 ## NEXT
-- the report scripts/FIX9_INPUT_2026_10_05.md
+- nothing; wait for integration
 
 ## Open questions
 (none)
