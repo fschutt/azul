@@ -7242,15 +7242,17 @@ impl LayoutWindow {
                 &previous_size,
             );
         }
-        // M12.7: in the headless web path the GPU cache is empty (sync skipped),
-        // and `.clone()` of an empty hashbrown table drives RawTable::clone's
-        // RawIterRange — which mis-lifts to wasm and loops forever. Use a fresh
-        // empty cache instead (geometry doesn't use it). Desktop unchanged.
-        let gpu_cache = if self.skip_gpu_sync {
-            GpuValueCache::default()
-        } else {
-            self.gpu_state_manager.get_or_create_cache(dom_id).clone()
-        };
+        // The GPU values this pass binds are BORROWED from the manager at the
+        // solve below (`gpu_cache_for_pass`): the whole cache - every key and
+        // value map of the DOM - used to be cloned here on every layout pass
+        // (ANIMFRAME8 s8). M12.7: the headless web path syncs no values and
+        // must not touch a hashbrown table (`.clone()` / a probe of an empty
+        // one mis-lifts to wasm and loops forever): it binds a fresh empty
+        // cache (geometry doesn't use it).
+        let empty_gpu_cache = GpuValueCache::default();
+        if !self.skip_gpu_sync {
+            let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
+        }
 
         // A tween in flight forces the caret solid: the framework suppresses
         // blinking while the caret / selection is animating (user directive).
@@ -7346,6 +7348,8 @@ impl LayoutWindow {
             // Snapshotted BEFORE the closure: it borrows `self` immutably and
             // the layout cache above is already borrowed mutably.
             let virtual_view_sizes = virtual_view_sizes_snapshot;
+            let gpu_cache = gpu_cache_for_pass(&self.gpu_state_manager, dom_id, self.skip_gpu_sync)
+                .unwrap_or(&empty_gpu_cache);
             solver3::layout_tree::with_transient_docks(docks, || {
                 solver3::layout_document(
                     layout_cache,
@@ -7357,7 +7361,7 @@ impl LayoutWindow {
                     &scroll_offsets,
                     &text_selections_map,
                     debug_messages,
-                    Some(&gpu_cache),
+                    Some(gpu_cache),
                     renderer_resources,
                     id_namespace,
                     dom_id,
@@ -7383,7 +7387,11 @@ impl LayoutWindow {
         // The key population this list binds (a cache hit inside
         // `layout_document` serves a list keyed on the same fingerprint).
         if dom_id == DomId::ROOT_ID {
-            self.root_display_list_gpu_fingerprint = Some(gpu_cache.dl_emission_fingerprint());
+            self.root_display_list_gpu_fingerprint = Some(
+                gpu_cache_for_pass(&self.gpu_state_manager, dom_id, self.skip_gpu_sync)
+                    .unwrap_or(&empty_gpu_cache)
+                    .dl_emission_fingerprint(),
+            );
         }
 
         // Hint the allocator to return freed pages after the layout pass
@@ -22568,8 +22576,12 @@ impl LayoutWindow {
             sync_css_gpu_values(&mut self.gpu_state_manager, dom_id, styled_dom, &size_of);
         }
 
-        // Get GPU cache for this DOM
-        let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
+        // The GPU cache of this DOM, BORROWED for the build (it was cloned
+        // whole on every display-list regeneration).
+        let empty_gpu_cache = GpuValueCache::default();
+        let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
+        let gpu_cache =
+            gpu_cache_for_pass(&self.gpu_state_manager, dom_id, false).unwrap_or(&empty_gpu_cache);
 
         // Get cursor state for display list generation. A tween in flight
         // forces the caret solid (blinking is suppressed while animating).
@@ -22642,11 +22654,14 @@ impl LayoutWindow {
             calculated_positions,
             &scroll_offsets,
             scroll_ids,
-            Some(&gpu_cache),
+            Some(gpu_cache),
             &self.renderer_resources,
             self.id_namespace,
             dom_id,
         );
+        // The key population the list binds, taken while the cache is still
+        // borrowed (the tween pass below needs `self` mutably).
+        let gpu_fingerprint = gpu_cache.dl_emission_fingerprint();
 
         // Restore the cache_map back to layout_cache
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
@@ -22707,8 +22722,7 @@ impl LayoutWindow {
                     layout_result.display_list = display_list.clone();
                 }
                 if dom_id == DomId::ROOT_ID {
-                    self.root_display_list_gpu_fingerprint =
-                        Some(gpu_cache.dl_emission_fingerprint());
+                    self.root_display_list_gpu_fingerprint = Some(gpu_fingerprint);
                 }
                 // PAINT dirt staged for this DOM is served: the list was just
                 // built from the styles it describes. A paint-scope tween
@@ -22760,7 +22774,7 @@ impl LayoutWindow {
                             *cached = (
                                 h,
                                 cached.1,
-                                gpu_cache.dl_emission_fingerprint(),
+                                gpu_fingerprint,
                                 solver3::scroll_geometry_fingerprint(&scroll_offsets),
                                 dl_input_fp,
                                 display_list,
@@ -29846,6 +29860,21 @@ fn tween_keeps_layout_tree_shape(ty: azul_css::props::property::CssPropertyType)
 /// (`getters::get_border_info`), not through the user override the lean
 /// channel writes; without this the next list built for any reason painted
 /// the side at the colour of the last full restyle.
+/// The GPU value cache a layout pass of `dom_id` binds, borrowed from the
+/// manager (`None`: bind an empty one - the headless web path, which syncs no
+/// values, or a DOM without a cache).
+fn gpu_cache_for_pass(
+    manager: &GpuStateManager,
+    dom_id: DomId,
+    skip_gpu_sync: bool,
+) -> Option<&GpuValueCache> {
+    if skip_gpu_sync {
+        None
+    } else {
+        manager.caches.get(&dom_id)
+    }
+}
+
 /// The compact cache's opacity byte of `node`, set to `opacity` (encoded as
 /// `core::compact` encodes it: x 254, 255 = unset): the lean override
 /// channel of an `opacity` tween does not rebuild the compact cache, and the
