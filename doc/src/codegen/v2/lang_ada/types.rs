@@ -585,7 +585,7 @@ fn parse_array_type(s: &str) -> Option<(String, usize)> {
 
 /// Convert an api.json field name (`snake_case` or `camelCase`) into
 /// `Pascal_Snake_Case`. Ada style prefers `Each_Word_Capitalized`.
-fn pascalize_field_name(name: &str) -> String {
+pub(super) fn pascalize_field_name(name: &str) -> String {
     let mut out = String::with_capacity(name.len() + 4);
     let mut chars = name.chars().peekable();
     let mut upper_next = true;

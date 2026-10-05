@@ -7,12 +7,15 @@ Shared: `doc/src/codegen/v2/field_access_classic.rs` - field classification (Pri
 Str / Value{delete, clone}), string copy fn + layout, all derived from the IR.
 
 ## DONE
-(none yet)
+- Ada: RED 99132a402, fix = the commit after it. Adjust deep-copies via Az_X_Deep_Copy;
+  no-clone wrappers are Limited_Controlled; nested `package Azul.Fields` with Get_/Set_ per field.
+  User: `WS := Get_Window_State (Opts); Set_Title (WS, "Hi"); Sz := Get_Size (WS);
+  Sz.Dimensions.Width := 800.0; Set_Size (WS, Sz); Set_Window_State (Opts, WS);`
 
 ## IN PROGRESS
-- Ada: RED tests committed (lang_ada/wrappers.rs `field_access_tests`).
+- Fortran
 
 ## NEXT
-- Ada fix, Fortran, FreeBASIC, VB6, Pascal.
+- FreeBASIC, VB6, Pascal.
 
 ## Open questions
