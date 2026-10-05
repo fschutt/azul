@@ -6462,9 +6462,18 @@ where
                 border_radius: padding_radius,
             });
         }
+        // The Border item carries the declared widths to the renderer, which
+        // resolves them with no zoom: in a zoomed subtree they are resolved
+        // here (the radii already are: `get_style_border_radius`). The
+        // cascade's `get_border_info` stays declared - the layout zooms it.
+        let widths = match super::getters::PaintZoom::of(self.ctx.styled_dom, dom_id, node_state)
+        {
+            Some(zoom) => zoom.border_widths(border_info.widths),
+            None => border_info.widths,
+        };
         builder.push_border(
             border_box,
-            border_info.widths,
+            widths,
             border_info.colors,
             border_info.styles,
             style_border_radius,

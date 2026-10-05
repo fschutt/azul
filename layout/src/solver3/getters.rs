@@ -272,6 +272,121 @@ pub fn scale_length_for_zoom(
     }
 }
 
+/// CSS `zoom` for the lengths the RENDERER resolves by itself: a display-list
+/// item carries a border width, a corner radius or a shadow length as
+/// declared, and the painters resolve them with no font size and no zoom.
+/// In a zoomed subtree such a length is resolved here instead - an em against
+/// the node's (zoomed) font size, a rem against the root's - and scaled by
+/// [`scale_length_for_zoom`]; a percentage or a viewport length stays as it
+/// is (the painter resolves it against the already zoomed box).
+#[derive(Debug, Clone, Copy)]
+pub struct PaintZoom {
+    zoom: f32,
+    root_zoom: f32,
+    em: f32,
+    rem: f32,
+}
+
+impl PaintZoom {
+    /// The zoom of node `node_id`, `None` when it is 1 (its paint lengths
+    /// stay as declared; no font size is resolved then).
+    #[must_use]
+    pub fn of(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> Option<Self> {
+        let zoom = get_effective_zoom(styled_dom, node_id);
+        if (zoom - 1.0).abs() <= f32::EPSILON {
+            return None;
+        }
+        Some(Self {
+            zoom,
+            root_zoom: get_effective_zoom(styled_dom, NodeId::new(0)),
+            em: get_element_font_size(styled_dom, node_id, node_state),
+            rem: get_root_font_size(styled_dom, node_state),
+        })
+    }
+
+    /// `v` under this zoom, in px (a percentage / viewport length as it is).
+    #[must_use]
+    pub fn length(
+        &self,
+        v: azul_css::props::basic::pixel::PixelValue,
+    ) -> azul_css::props::basic::pixel::PixelValue {
+        use azul_css::props::basic::{pixel::PixelValue, SizeMetric};
+        match v.metric {
+            SizeMetric::Percent
+            | SizeMetric::Vw
+            | SizeMetric::Vh
+            | SizeMetric::Vmin
+            | SizeMetric::Vmax => v,
+            metric => PixelValue::px(scale_length_for_zoom(
+                metric,
+                v.to_pixels_internal(0.0, self.em, self.rem),
+                self.zoom,
+                self.root_zoom,
+            )),
+        }
+    }
+
+    /// Four corner radii under this zoom.
+    #[must_use]
+    pub fn border_radius(&self, r: StyleBorderRadius) -> StyleBorderRadius {
+        StyleBorderRadius {
+            top_left: self.length(r.top_left),
+            top_right: self.length(r.top_right),
+            bottom_right: self.length(r.bottom_right),
+            bottom_left: self.length(r.bottom_left),
+        }
+    }
+
+    /// The four border widths under this zoom (a side without a width keeps
+    /// none).
+    #[must_use]
+    pub fn border_widths(
+        &self,
+        w: crate::solver3::display_list::StyleBorderWidths,
+    ) -> crate::solver3::display_list::StyleBorderWidths {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::style::{
+                LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+                LayoutBorderTopWidth,
+            },
+        };
+        macro_rules! side {
+            ($v:expr, $Width:ident) => {
+                $v.map(|v| match v {
+                    CssPropertyValue::Exact(x) => CssPropertyValue::Exact($Width {
+                        inner: self.length(x.inner),
+                    }),
+                    other => other,
+                })
+            };
+        }
+        crate::solver3::display_list::StyleBorderWidths {
+            top: side!(w.top, LayoutBorderTopWidth),
+            right: side!(w.right, LayoutBorderRightWidth),
+            bottom: side!(w.bottom, LayoutBorderBottomWidth),
+            left: side!(w.left, LayoutBorderLeftWidth),
+        }
+    }
+
+    /// A box shadow's lengths under this zoom.
+    #[must_use]
+    pub fn box_shadow(
+        &self,
+        s: azul_css::props::style::box_shadow::StyleBoxShadow,
+    ) -> azul_css::props::style::box_shadow::StyleBoxShadow {
+        use azul_css::props::basic::pixel::PixelValueNoPercent;
+        let z = |v: PixelValueNoPercent| PixelValueNoPercent::from(self.length(v.inner));
+        azul_css::props::style::box_shadow::StyleBoxShadow {
+            offset_x: z(s.offset_x),
+            offset_y: z(s.offset_y),
+            blur_radius: z(s.blur_radius),
+            spread_radius: z(s.spread_radius),
+            ..s
+        }
+    }
+}
+
 /// Bottom-up single-pass resolve of every node's font-size.
 /// Parents are computed before children (DFS pre-order invariant
 /// on `NodeId::index()`), so `em` inherits via the parent's
@@ -2018,14 +2133,17 @@ pub fn get_style_border_radius(
     use azul_css::props::basic::pixel::PixelValue;
     // FAST PATH: all four corners live in tier2_cold as i16 px × 10. The
     // common case (no rounded corners anywhere) reads four bytes and bails.
+    // The radii are paint lengths (the Border item carries them to the
+    // renderer): authored px, scaled by the node's CSS `zoom`.
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
             let idx = node_id.index();
+            let zoom = get_effective_zoom(styled_dom, node_id);
             let decode = |raw: i16| -> PixelValue {
                 if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     PixelValue::px(0.0)
                 } else {
-                    PixelValue::px(f32::from(raw) / 10.0)
+                    PixelValue::px(f32::from(raw) / 10.0 * zoom)
                 }
             };
             return StyleBorderRadius {
@@ -2070,11 +2188,15 @@ pub fn get_style_border_radius(
         .map(|v| v.inner)
         .unwrap_or_default();
 
-    StyleBorderRadius {
+    let radius = StyleBorderRadius {
         top_left,
         top_right,
         bottom_right,
         bottom_left,
+    };
+    match PaintZoom::of(styled_dom, node_id, node_state) {
+        Some(zoom) => zoom.border_radius(radius),
+        None => radius,
     }
 }
 
@@ -2103,13 +2225,16 @@ pub fn get_border_radius(
             let tr = cc.get_border_top_right_radius_raw(idx);
             let br = cc.get_border_bottom_right_radius_raw(idx);
             let bl = cc.get_border_bottom_left_radius_raw(idx);
-            // sentinel = "unset" = 0 px (no corner radius)
+            // sentinel = "unset" = 0 px (no corner radius). The cache holds
+            // authored px, an absolute length: CSS `zoom` scales it (1.0 and
+            // no memo read in an unzoomed document).
             let thresh = azul_css::compact_cache::I16_SENTINEL_THRESHOLD;
+            let zoom = get_effective_zoom(styled_dom, node_id);
             let decode = |raw: i16| -> f32 {
                 if raw >= thresh {
                     0.0
                 } else {
-                    f32::from(raw) / 10.0
+                    f32::from(raw) / 10.0 * zoom
                 }
             };
             return BorderRadius {
@@ -2174,19 +2299,21 @@ pub fn get_border_radius(
         .and_then(|br| br.get_property().copied())
         .unwrap_or_default();
 
+    // CSS `zoom`: an absolute radius scales by the effective zoom, an em or a
+    // percentage already follows the zoomed font size / box (`zoomed_length`).
+    let resolve = |v: azul_css::props::basic::pixel::PixelValue| -> f32 {
+        zoomed_length(
+            styled_dom,
+            node_id,
+            v.metric,
+            v.resolve_with_context(&context, PropertyContext::BorderRadius),
+        )
+    };
     BorderRadius {
-        top_left: top_left
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
-        top_right: top_right
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
-        bottom_right: bottom_right
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
-        bottom_left: bottom_left
-            .inner
-            .resolve_with_context(&context, PropertyContext::BorderRadius),
+        top_left: resolve(top_left.inner),
+        top_right: resolve(top_right.inner),
+        bottom_right: resolve(bottom_right.inner),
+        bottom_left: resolve(bottom_left.inner),
     }
 }
 
@@ -7595,6 +7722,14 @@ pub fn get_box_shadows(
     {
         if !shadows.contains(&shadow) {
             shadows.push(shadow);
+        }
+    }
+    // CSS `zoom` (LAYOUT7): a shadow's lengths are paint lengths.
+    if !shadows.is_empty() {
+        if let Some(zoom) = PaintZoom::of(styled_dom, node_id, node_state) {
+            for s in &mut shadows {
+                *s = zoom.box_shadow(*s);
+            }
         }
     }
     shadows
