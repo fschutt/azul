@@ -277,8 +277,11 @@ impl Task {
     /// The tags become `tokens` (a token field's, in its order): each without its `#`, once
     /// (any case), the empty ones left out; `false` when that changed nothing.
     pub fn set_tags<'a>(&mut self, tokens: impl IntoIterator<Item = &'a str>) -> bool {
-        let _ = tokens;
-        unimplemented!()
+        let before = std::mem::take(&mut self.tags);
+        for token in tokens {
+            self.add_tag(token);
+        }
+        self.tags != before
     }
 
     /// Removes `tag`; `false` when the task did not carry it.
