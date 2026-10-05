@@ -723,11 +723,34 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 base: prop.clone(),
                 labels: vec![],
             };
+            let access = format!("_raw.{}", escape(&f.c_name));
             if !taken.is_free(&sel, None) {
+                // A method owns the property name: the field stays writable
+                // through `mutating func setX(_:)` (a plain struct owns no
+                // heap, so storing the new value is the whole setter).
+                let name = camel(&format!("set_{}", f.name));
+                let set_sel = Selector {
+                    is_static: false,
+                    base: name.clone(),
+                    labels: vec!["_".to_string()],
+                };
+                if taken.is_free(&set_sel, Some(ex.as_str())) {
+                    taken.take(set_sel, Some(ex.clone()));
+                    w.l(
+                        1,
+                        &format!(
+                            "public mutating func {}(_ newValue: {}) {{ {} = {} }}",
+                            escape(&name),
+                            ex,
+                            access,
+                            m.in_expr(t, "newValue").unwrap()
+                        ),
+                    );
+                    w.l(0, "");
+                }
                 continue;
             }
             taken.take(sel, None);
-            let access = format!("_raw.{}", escape(&f.c_name));
             if let Some(d) = &f.doc {
                 w.doc(1, &self.rw(std::slice::from_ref(d)));
             }
@@ -1204,10 +1227,56 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 base: prop.clone(),
                 labels: vec![],
             };
+            let fptr = format!("_address.pointer(to: \\{}.{})!", raw, escape(&f.c_name));
+            // The setter body: release the field's old value (its `_delete`),
+            // then move the new one in.
+            let set_body: Option<Vec<String>> = m.in_expr(&t, "newValue").and_then(|setter| {
+                let ct = c_type(&t)?;
+                let mut b = vec![format!("let __v: {} = {}", ct, setter)];
+                match &t {
+                    Ty::Prim(_) | Ty::Enum(_) | Ty::Plain(_) => {
+                        b.push(format!("_address.pointee.{} = __v", escape(&f.c_name)));
+                    }
+                    _ => {
+                        b.push(format!("let __f: UnsafeMutablePointer<{}> = {}", ct, fptr));
+                        if let Some(d) = m.cleanup(&t, "__f") {
+                            b.push(d);
+                        }
+                        b.push("__f.pointee = __v".to_string());
+                    }
+                }
+                Some(b)
+            });
             if !taken.is_free(&sel, None) {
+                // An api.json method owns the property name (`get_text` is
+                // the read-only `var text: String`). It keeps it, but the
+                // field must stay writable: `setText(_:)`. Skipping the
+                // field outright made `TextInputState.text` unreachable.
+                if matches!(t, Ty::Callback(_) | Ty::RawPtr(_) | Ty::RefAny) {
+                    continue;
+                }
+                let Some(body) = set_body else { continue };
+                let name = camel(&format!("set_{}", f.name));
+                let set_sel = Selector {
+                    is_static: false,
+                    base: name.clone(),
+                    labels: vec!["_".to_string()],
+                };
+                if !taken.is_free(&set_sel, Some(ex.as_str())) {
+                    continue;
+                }
+                taken.take(set_sel, Some(ex.clone()));
+                if let Some(d) = &f.doc {
+                    w.doc(1, &self.rw(std::slice::from_ref(d)));
+                }
+                w.l(1, &format!("public func {}(_ newValue: {}) {{", escape(&name), ex));
+                for l in &body {
+                    w.l(2, l);
+                }
+                w.l(1, "}");
+                w.l(0, "");
                 continue;
             }
-            let fptr = format!("_address.pointer(to: \\{}.{})!", raw, escape(&f.c_name));
             let get = match &t {
                 Ty::Class(n) => Some(format!(
                     "{}(_view: {}, root: self)",
@@ -1230,28 +1299,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(2, "get {");
             w.l(3, &format!("return {}", get));
             w.l(2, "}");
-            let setter = m.in_expr(&t, "newValue");
-            if let Some(setter) = setter {
+            if let Some(body) = set_body {
                 w.l(2, "set {");
-                w.l(3, &format!("let __v: {} = {}", c_type(&t).unwrap(), setter));
-                match &t {
-                    Ty::Prim(_) | Ty::Enum(_) | Ty::Plain(_) => {
-                        w.l(3, &format!("_address.pointee.{} = __v", escape(&f.c_name)));
-                    }
-                    _ => {
-                        w.l(
-                            3,
-                            &format!(
-                                "let __f: UnsafeMutablePointer<{}> = {}",
-                                c_type(&t).unwrap(),
-                                fptr
-                            ),
-                        );
-                        if let Some(d) = m.cleanup(&t, "__f") {
-                            w.l(3, &d);
-                        }
-                        w.l(3, "__f.pointee = __v");
-                    }
+                for l in &body {
+                    w.l(3, l);
                 }
                 w.l(2, "}");
             }

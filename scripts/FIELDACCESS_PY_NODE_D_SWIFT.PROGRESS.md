@@ -27,8 +27,18 @@ Brief: /Users/fschutt/Development/azul-work/field_access_wave.md. No compiling i
   emitted (`void text(<restriction> v)` next to the `string text()` method from get_text).
   The title/window_state/checked cases already met the contract (regression asserts added).
 
+- Swift: RED test (lang_swift/wrappers.rs `field_access_tests`) + fix. When a method owns the
+  property name (get_text -> read-only `var text: String`), the field gets
+  `public func setText(_ newValue: [UInt32])` (old Vec released with `_delete`, new value moved
+  in); plain structs get `public mutating func setX(_:)`. Setter body construction no longer
+  unwraps `c_type` (panic-free).
+
 ## IN PROGRESS
-- Swift.
+- (none)
+
+## NEXT
+- Parent: run the four `field_access_tests` modules + bug_classes, regenerate target/codegen,
+  build python-extension (pyo3 receivers / `dict`), run node + swift + d smoke tests.
 
 ## Open questions
 - (none)
