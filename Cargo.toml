@@ -34,6 +34,7 @@ members = [
     "examples/azul-player", # AzPlayer: the video player (VideoWidget picture + AudioPlayer sound kept in step, controls, fullscreen, resume) on the S7 MediaShell
     "examples/azul-code", # AzCode: the code editor (S8 DeveloperShell, CodeView over a piece table, syntect highlighting, file tree, tabs, find / replace)
     "examples/azul-keys", # AzKeys: the password manager (Argon2id + XChaCha20-Poly1305 vault files keys/vaults/<uuid>.azkv, keyring / biometric unlock, TOTP, generator, import) on the S4 PimShell
+    "examples/azul-monitor", # AzMonitor: processes (sysinfo) in the DataTable, CPU / memory / disk / network history in Charts, S6 RecordsShell
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css
