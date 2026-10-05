@@ -10,8 +10,9 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
   for every IFC" - actually it added NONE for any anonymous block (no dom id) and measured white-space normal;
   the "after a nested block" test is a pin, the RED is the first anonymous block + nowrap.
 
-- 1.2 RED f3134cb66, GREEN df8f3b7bd (fc.rs mod inline_collection_cache_tests; fc::hash_resolved_style).
-  Unverified symptom: parent runs the RED at f3134cb66; if it passes there, revert df8f3b7bd.
+- 1.2 RED f3134cb66 (+ test fix cfb0916b0: span font-size + padding, since window's begin_reconciliation
+  classifies a font-size-only change as paint-only), GREEN df8f3b7bd (fc.rs mod window_layout_tests;
+  fc::hash_resolved_style).
 
 - 1.3 RED 07ef25280, GREEN 2f1e76da4 (knuth_plass tests; starts_paragraph param on kp_layout /
   find_optimal_breakpoints / position_lines_from_breaks).
@@ -20,11 +21,16 @@ knuth_plass.rs}, core/src/{xml.rs, xml_attributes.rs}. No cargo.
   position/float checks, content = max(content, marker) like Chrome - NOT "no contribution" as the brief
   said: an empty li keeps its marker height; sizing block intrinsic max; cache.rs skips every marker).
 
+- 1.5 GREEN 4283694b6 (RED existed: layout/tests/a_stretched_flex_container_keeps_its_min_height.rs).
+
+- 1.6 RED aaaa87196, GREEN 97b2a05c9 + 0edd94e79 (reconcile_and_invalidate_restyled + css_relayout;
+  Step 1.15 Full -> parent for block flow; outermost_layout_roots; e2e json expect pass).
+
 ## IN PROGRESS
-1.5
+1.7
 
 ## NEXT
-1.5 GREEN for layout/tests/a_stretched_flex_container_keeps_its_min_height.rs (taffy_bridge.rs ~1501)
+1.7 RED an_empty_inline_with_padding_is_as_tall_as_its_strut (fc.rs ~11589 empty inline InlineShape)
 
 ## Open questions
 (none)
