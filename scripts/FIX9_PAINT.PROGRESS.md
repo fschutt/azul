@@ -26,11 +26,15 @@ Branch wt/fix9-paint (fast-forwarded to b454da215). Brief: scripts/waves/wave9/S
 - 2.9 Timer.node_id remap: RED 5358ef0a2, GREEN 1d77f15be.
 - 2.10 GPU cache borrowed not cloned (2 sites, layout pass + regenerate_display_list_for_dom): 1bd06c5df.
 
+- 2.11 lints skip unchanged DOM: instrumentation b617d6eb6 (pub dom_lint_runs), RED 5b796699f,
+  GREEN 3b961da00 (per-dom arena stamp + new_generation / kept_doms).
+
 ## IN PROGRESS
-2.11 skip DOM lints on unchanged DOM
+2.12 lint findings deduped through diagnostics
 
 ## NEXT
-2.11 RED, GREEN (window.rs ~3034); then 2.12 .. 2.14, then the suite failure.
+2.12 RED, GREEN (dom_lint.rs warn_a11y_shape / div_as_text / interactive -> dedup_key / EMITTED;
+core/src/diagnostics.rs); then 2.13, 2.14, then the suite failure.
 
 ## Open questions
 (none)
