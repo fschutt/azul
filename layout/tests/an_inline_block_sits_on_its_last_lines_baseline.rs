@@ -56,8 +56,13 @@ fn an_inline_block_of_text_shares_the_lines_baseline() {
 
 #[test]
 fn an_inline_block_whose_text_is_in_a_block_shares_the_lines_baseline() {
-    let (centre, baseline) =
-        centre_of_red_against_the_baseline("<span class=\"ib\"><div>words</div></span>");
+    // The block child is a `display: block` span, not a `<div>`: a `<div>`
+    // start tag closes the open `<p>` (HTML 13.2.6.4.7, "close a p element";
+    // azul's loaders build the same tree), which would leave the inline-block
+    // EMPTY and put "words" after the paragraph - in Chrome as in azul.
+    let (centre, baseline) = centre_of_red_against_the_baseline(
+        "<span class=\"ib\"><span style=\"display: block\">words</span></span>",
+    );
     assert!(
         (centre - baseline).abs() < 10.0,
         "the last line box is found inside the inline-block's block child: centre y={centre}, \
