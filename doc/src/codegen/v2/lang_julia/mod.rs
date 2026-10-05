@@ -468,3 +468,92 @@ pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &Codegen
     }
     true
 }
+
+#[cfg(test)]
+mod field_access_tests {
+    use std::sync::OnceLock;
+
+    use super::{super::config::CodegenConfig, generate};
+
+    fn out() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            generate(super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("julia codegen")
+        })
+    }
+
+    /// The one generated line that starts with `prefix`.
+    fn line(prefix: &str) -> &'static str {
+        out()
+            .lines()
+            .find(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no line starts with `{}`", prefix))
+    }
+
+    #[test]
+    fn the_window_title_is_read_without_consuming_it() {
+        let l = line("get_title(x::_AzRef{AzFullWindowState})");
+        assert!(l.contains("native_string(unsafe_load(_az_fptr(x, AzString, ")), "{}", l);
+        assert!(!l.contains("_delete"), "{}", l);
+    }
+
+    #[test]
+    fn setting_the_window_title_releases_the_old_string_then_stores_a_fresh_one() {
+        let l = line("set_title!(x::_AzRef{AzFullWindowState}, v::AzString)");
+        assert!(l.contains("_az_replace!(_az_fptr(x, AzString, "), "{}", l);
+        assert!(l.contains("AzString_delete"), "{}", l);
+        let l = line("set_title!(x::_AzRef{AzFullWindowState}, v::AbstractString)");
+        assert!(l.contains("az_string(v)"), "{}", l);
+    }
+
+    #[test]
+    fn the_window_state_getter_returns_a_deep_copy() {
+        let l = line("get_window_state(x::_AzRef{AzWindowCreateOptions})");
+        assert!(
+            l.contains("AzFullWindowState_clone(_az_fptr(x, AzFullWindowState, 1))"),
+            "{}",
+            l
+        );
+    }
+
+    #[test]
+    fn setting_the_window_state_releases_the_old_one_then_takes_the_new_one() {
+        let l = line("set_window_state!(x::_AzRef{AzWindowCreateOptions}, v::AzFullWindowState)");
+        assert!(
+            l.contains(
+                "_az_replace!(_az_fptr(x, AzFullWindowState, 1), v, AzFullWindowState_delete)"
+            ),
+            "{}",
+            l
+        );
+    }
+
+    #[test]
+    fn a_checkbox_flag_reads_and_writes_as_a_bool_in_place() {
+        let l = line("get_checked(x::_AzRef{AzCheckBoxState})");
+        assert!(l.contains("unsafe_load(_az_fptr(x, Bool, 1))"), "{}", l);
+        let l = line("set_checked!(x::_AzRef{AzCheckBoxState}, v)");
+        assert!(l.contains("unsafe_store!(_az_fptr(x, Bool, 1), v)"), "{}", l);
+    }
+
+    #[test]
+    fn nested_writes_reach_the_window_options_through_field_views() {
+        let l = line("window_state_ptr(x::_AzRef{AzWindowCreateOptions})");
+        assert!(l.contains("_az_fptr(x, AzFullWindowState, 1)"), "{}", l);
+        line("size_ptr(x::_AzRef{AzFullWindowState})");
+        line("set_dimensions!(x::_AzRef{AzWindowSize}, v::AzLogicalSize)");
+    }
+
+    #[test]
+    fn the_text_input_text_is_settable_although_get_text_exists() {
+        let l = line("set_text!(x::_AzRef{AzTextInputState}, v::AzU32Vec)");
+        assert!(l.contains("AzU32Vec_delete"), "{}", l);
+    }
+
+    #[test]
+    fn a_callback_field_gets_no_accessor() {
+        assert!(!out().contains("set_layout_callback!("));
+        assert!(!out().contains("set_create_callback!("));
+    }
+}
