@@ -24,11 +24,16 @@
   azreview_e2e.py click their toolbar buttons by DOM id (#__azcontacts_toolbar-new, #__azreview_save) and the
   Toolbar widget does not put an item's id on its tool (round 2: PKG 4 widget, or the scripts).
 
+- 5.14 TokenInput: fa2c575bf (RED set_tags), 6cd5a3ca5 (GREEN), c2d67d7e7 (AzTasks). AzMail To / Cc and
+  AzCalendar attendees NOT done (borderline; see report).
+- Report: scripts/FIX9_APPSA_2026_10_05.md
+
 ## IN PROGRESS
-5.14 TokenInput for AzTasks tags
+(none)
 
 ## NEXT
-5.14, then the report scripts/FIX9_APPSA_2026_10_05.md (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
+Nothing: all 14 items handled (12 done, 5.13 / 5.14 in part). The parent: the api.json entry
+RawImage.rgba_to_nv12 (report), compile, tests, round-2 notes. (scripts/waves/wave9/SMALL_FIXES.md, PKG 5)
 
 ## Round-2 notes so far
 - AzKeys/Cargo.toml still lists csv (unused after 5.1): drop it.
