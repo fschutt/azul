@@ -330,7 +330,7 @@ pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
         if !should_emit_wrapper(s, ir, config) {
             continue;
         }
-        emit_wrapper(builder, s, ir, app_info.as_ref());
+        emit_wrapper(builder, s, ir, app_info.as_ref(), config);
     }
 
     for e in &ir.enums {
@@ -394,6 +394,7 @@ fn emit_wrapper(
     s: &StructDef,
     ir: &CodegenIR,
     app_info: Option<&AppFactoryInfo>,
+    config: &CodegenConfig,
 ) {
     let has_delete = has_delete_function(&s.name, ir);
     let class_name = kotlin_class_name(&s.name, ir);
@@ -584,6 +585,10 @@ fn emit_wrapper(
         emit_instance_method(builder, &class_name, &ffi_name, func, ir, app_info);
     }
 
+    // Field properties (`opts.windowState`, `state.title = "..."`) and
+    // in-place editors, so user code never needs `rawPointer()`.
+    emit_kt_field_accessors(builder, s, &class_name, ir, config);
+
     // Phase I.2 (Kotlin): equals + hashCode routed through the
     // codegen-emitted C-ABI helpers when TypeTraits says they exist.
     emit_kt_equals_hashcode_if_supported(builder, s, &class_name, &ffi_name, ir);
@@ -644,6 +649,14 @@ fn emit_wrapper(
         builder.line("__cleanable?.clean()");
         builder.dedent();
         builder.line("}");
+        builder.blank();
+        // Field setters move a wrapper argument in: refuse a closed /
+        // already-moved one, and a borrowed view (no Cleanable = not owned).
+        builder.line(
+            "/** Internal: its bytes may be moved out (not closed, not consumed, not a borrowed \
+             view). */",
+        );
+        builder.line("internal fun __isMovable(): Boolean = !closed && __cleanable != null");
     } else {
         // Nothing to free: the type has no `_delete`. `__consume()` only
         // invalidates the wrapper — its bytes were copied into the engine,
@@ -658,6 +671,9 @@ fn emit_wrapper(
         builder.line("closed = true");
         builder.dedent();
         builder.line("}");
+        builder.blank();
+        builder.line("/** Internal: its bytes may be copied out (not closed). */");
+        builder.line("internal fun __isMovable(): Boolean = !closed");
     }
 
     builder.dedent();
@@ -1216,6 +1232,359 @@ fn emit_kt_az_string_conv(pre_call_lines: &mut Vec<String>, raw_name: &str) -> S
         bytes = bytes_name,
     ));
     az_name
+}
+
+/// Field properties for every public field of a wrapped struct, on the
+/// same contract as the Java accessors (`lang_java::wrappers::FieldShape`
+/// decides the shape, so both JVM bindings agree):
+///
+/// - `var <field>: T` - the getter returns an INDEPENDENT value
+///   (primitives / enums by value, the string decoded without freeing the
+///   field, heap-owning types deep-copied via `_clone`, plain data
+///   byte-copied); the setter releases the old value (`_delete`) and moves
+///   the new one in (a wrapper argument is consumed);
+/// - `edit<Field> { ... }` runs the block on a VIEW of the field (no copy)
+///   and returns `this`, so nested writes reach this object:
+///   `opts.editWindowState { title = "Hello" }`. (`opts.windowState.title =
+///   "x"` would only change a copy.)
+///
+/// An api.json method whose name equals the property's JVM getter / setter
+/// (`getText()`) wins: the property is not emitted, and the still-free half
+/// becomes a plain function (`fun setText(v: U32Vec)`), so the field stays
+/// writable.
+fn emit_kt_field_accessors(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    class_name: &str,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) {
+    use super::super::lang_java::wrappers::{
+        field_pascal, field_shape, struct_has_field_accessors, FieldShape,
+    };
+    if !struct_has_field_accessors(s, ir) {
+        return;
+    }
+    // JVM-level member names already in the class (functions), plus the
+    // Kotlin property names the class declares itself.
+    let mut taken: std::collections::HashSet<String> = ir
+        .functions_for_class(&s.name)
+        .map(|f| idiomatic_method_name(&f.method_name).trim_matches('`').to_string())
+        .collect();
+    for func in ir.functions_for_class(&s.name) {
+        if let Some((smart, _)) = smart_callback_setter_info(func) {
+            taken.insert(snake_to_lower_camel(&smart));
+        }
+    }
+    for own in ["ptr", "closed", "getClass", "rawPointer", "close", "iterator"] {
+        taken.insert(own.to_string());
+    }
+    let ov_ty = ffi_type_name(&s.name);
+    let overlay = format!(
+        "val __ov = Structure.newInstance({}::class.java, this.ptr) as {}; __ov.read()",
+        ov_ty, ov_ty
+    );
+    let closed_check = "check(!closed) { \"closed\" }";
+
+    for f in &s.fields {
+        let Some(shape) = field_shape(f, ir, config) else {
+            continue;
+        };
+        // The JNA field: declared under its (keyword-escaped) api.json name;
+        // `writeField` takes the plain name.
+        let jf = sanitize_kt_identifier(&f.name);
+        let pascal = field_pascal(&f.name);
+        let prop_plain = snake_to_lower_camel(&f.name);
+        let fp = format!("__ov.{}.pointer", jf);
+
+        let user_ty = match &shape {
+            FieldShape::Prim { is_bool: true, .. } => "Boolean".to_string(),
+            FieldShape::Prim { jt, .. } => super::jvm_to_kotlin_primitive(jt),
+            FieldShape::Enum { name } => name.clone(),
+            FieldShape::Str { .. } => "kotlin.String".to_string(),
+            FieldShape::Wrapper { ty, .. } => kotlin_class_name(ty, ir),
+            FieldShape::Value { ffi, .. } => format!("{}.ByValue", ffi),
+        };
+
+        // ---- bodies --------------------------------------------------------
+        let mut get_body: Vec<String> = vec![closed_check.to_string(), overlay.clone()];
+        match &shape {
+            FieldShape::Prim { is_bool: true, .. } => {
+                get_body.push(format!("return __ov.{}.toInt() != 0", jf));
+            }
+            FieldShape::Prim { .. } => get_body.push(format!("return __ov.{}", jf)),
+            FieldShape::Enum { name } => {
+                get_body.push(format!("return {}.fromInt(__ov.{})", name, jf));
+            }
+            FieldShape::Str { .. } => {
+                get_body.push(format!("val __fp = {}", fp));
+                get_body.push("val __buf: Pointer? = __fp.getPointer(0)".to_string());
+                get_body.push("val __len = __fp.getLong(8)".to_string());
+                get_body.push("if (__buf == null || __len <= 0) return \"\"".to_string());
+                get_body.push(
+                    "return __buf.getByteArray(0, __len.toInt()).toString(Charsets.UTF_8)"
+                        .to_string(),
+                );
+            }
+            FieldShape::Wrapper {
+                ty,
+                ffi,
+                native,
+                delete,
+                clone,
+            } => {
+                match (delete, clone) {
+                    (Some(_), Some(c)) => {
+                        get_body.push(format!("val __copy = {}.{}({})", native, c, fp));
+                    }
+                    _ => kt_byte_copy(&mut get_body, ffi, &fp),
+                }
+                get_body.push(format!(
+                    "return {}(__copy.pointer)",
+                    kotlin_class_name(ty, ir)
+                ));
+            }
+            FieldShape::Value {
+                ffi,
+                native,
+                delete,
+                clone,
+                ..
+            } => {
+                match (delete, clone) {
+                    (Some(_), Some(c)) => {
+                        get_body.push(format!("val __copy = {}.{}({})", native, c, fp));
+                    }
+                    _ => {
+                        kt_byte_copy(&mut get_body, ffi, &fp);
+                        get_body.push("__copy.read()".to_string());
+                    }
+                }
+                get_body.push("return __copy".to_string());
+            }
+        }
+
+        let mut set_body: Vec<String> = vec![closed_check.to_string()];
+        match &shape {
+            FieldShape::Prim { is_bool: true, .. } => {
+                set_body.push(overlay.clone());
+                set_body.push(format!("__ov.{} = (if (v) 1 else 0).toByte()", jf));
+                set_body.push(format!("__ov.writeField(\"{}\")", f.name));
+            }
+            FieldShape::Prim { .. } => {
+                set_body.push(overlay.clone());
+                set_body.push(format!("__ov.{} = v", jf));
+                set_body.push(format!("__ov.writeField(\"{}\")", f.name));
+            }
+            FieldShape::Enum { .. } => {
+                set_body.push(overlay.clone());
+                set_body.push(format!("__ov.{} = v.value", jf));
+                set_body.push(format!("__ov.writeField(\"{}\")", f.name));
+            }
+            FieldShape::Str { ffi, native, delete } => {
+                set_body.push("val __bytes = v.toByteArray(Charsets.UTF_8)".to_string());
+                set_body.push("val __mem = Memory(maxOf(1, __bytes.size).toLong())".to_string());
+                set_body.push("__mem.write(0, __bytes, 0, __bytes.size)".to_string());
+                set_body.push(format!(
+                    "val __new = {}.{}_fromUtf8(__mem, __bytes.size.toLong())",
+                    native, ffi
+                ));
+                set_body.push("val __nb = __new.pointer.getByteArray(0, __new.size())".to_string());
+                set_body.push(overlay.clone());
+                set_body.push(format!("val __fp = {}", fp));
+                set_body.push(format!("{}.{}(__fp)", native, delete));
+                set_body.push("__fp.write(0, __nb, 0, __nb.size)".to_string());
+            }
+            FieldShape::Wrapper {
+                ffi,
+                native,
+                delete,
+                ..
+            } => {
+                set_body.push(
+                    "check(v.__isMovable()) { \"argument is closed, already moved, or a borrowed \
+                     view - pass a copy\" }"
+                        .to_string(),
+                );
+                set_body.push(format!("val __n = {}().size()", ffi));
+                set_body.push("val __nb = v.ptr.getByteArray(0, __n)".to_string());
+                set_body.push(overlay.clone());
+                set_body.push(format!("val __fp = {}", fp));
+                if let Some(d) = delete {
+                    set_body.push(format!("{}.{}(__fp)", native, d));
+                }
+                set_body.push("__fp.write(0, __nb, 0, __n)".to_string());
+                set_body.push("v.__consume()".to_string());
+            }
+            FieldShape::Value { native, delete, .. } => {
+                set_body.push("v.write()".to_string());
+                set_body.push("val __nb = v.pointer.getByteArray(0, v.size())".to_string());
+                set_body.push(overlay.clone());
+                set_body.push(format!("val __fp = {}", fp));
+                if let Some(d) = delete {
+                    set_body.push(format!("{}.{}(__fp)", native, d));
+                }
+                set_body.push("__fp.write(0, __nb, 0, __nb.size)".to_string());
+            }
+        }
+
+        // ---- names ---------------------------------------------------------
+        // JVM names of the property's accessors (`isFoo` keeps its name as
+        // the getter and drops the `is` for the setter).
+        let is_prefixed = prop_plain.len() > 2
+            && prop_plain.starts_with("is")
+            && prop_plain[2..].starts_with(|c: char| c.is_ascii_uppercase());
+        let (jvm_get, jvm_set) = if is_prefixed {
+            (prop_plain.clone(), format!("set{}", &prop_plain[2..]))
+        } else {
+            (format!("get{}", pascal), format!("set{}", pascal))
+        };
+        let can_get = shape.has_getter() && !taken.contains(&jvm_get);
+        let can_set = !taken.contains(&jvm_set);
+        let prop_free = !taken.contains(&prop_plain);
+        let prop = sanitize_kt_identifier(&prop_plain);
+        let copy_note = !matches!(shape, FieldShape::Prim { .. } | FieldShape::Enum { .. });
+        let setter_note = match &shape {
+            FieldShape::Prim { .. } | FieldShape::Enum { .. } => "",
+            FieldShape::Str { .. } => " Writing releases the old string.",
+            FieldShape::Wrapper { .. } => {
+                " Writing releases the old value and MOVES the assigned wrapper in (it is \
+                 closed afterwards - assign a copy to keep using it)."
+            }
+            FieldShape::Value { .. } => {
+                " Writing releases the old value and MOVES the native bytes of the assigned \
+                 value in (do not pass it anywhere else afterwards)."
+            }
+        };
+        let doc_lines = |b: &mut CodeBuilder, head: &str| {
+            b.line(&format!("/// {}", head));
+            if let Some(d) = &f.doc {
+                for l in d.lines() {
+                    b.line(&format!("/// {}", kdoc_escape(l)));
+                }
+            }
+        };
+        let emit_body = |b: &mut CodeBuilder, body: &[String]| {
+            b.indent();
+            for l in body {
+                b.line(l);
+            }
+            b.dedent();
+        };
+
+        if can_get && prop_free {
+            let mut head = format!("The `{}` field.", f.name);
+            if copy_note {
+                head.push_str(&format!(
+                    " Reading returns a COPY: changing it does not change this object - \
+                     assign it back{}.",
+                    if shape.has_edit() {
+                        format!(", or change it in place with `edit{}`", pascal)
+                    } else {
+                        String::new()
+                    }
+                ));
+            }
+            if can_set {
+                head.push_str(setter_note);
+            }
+            doc_lines(builder, &head);
+            builder.line(&format!(
+                "{} {}: {}",
+                if can_set { "var" } else { "val" },
+                prop,
+                user_ty
+            ));
+            builder.indent();
+            builder.line("get() {");
+            emit_body(builder, &get_body[..]);
+            builder.line("}");
+            if can_set {
+                builder.line("set(v) {");
+                emit_body(builder, &set_body[..]);
+                builder.line("}");
+            }
+            builder.dedent();
+            builder.blank();
+            taken.insert(prop_plain.clone());
+            taken.insert(jvm_get.clone());
+            if can_set {
+                taken.insert(jvm_set.clone());
+            }
+        } else if can_set {
+            // The getter name belongs to an api.json method (or there is no
+            // safe getter): the field stays writable through a function.
+            let param_ty = match &shape {
+                FieldShape::Value { ffi, .. } => ffi.clone(),
+                _ => user_ty.clone(),
+            };
+            doc_lines(
+                builder,
+                &format!("Replaces the `{}` field.{}", f.name, setter_note),
+            );
+            builder.line(&format!("fun {}(v: {}) {{", jvm_set, param_ty));
+            emit_body(builder, &set_body[..]);
+            builder.line("}");
+            builder.blank();
+            taken.insert(jvm_set.clone());
+        }
+
+        // ---- in-place edit -------------------------------------------------
+        let edit = format!("edit{}", pascal);
+        if shape.has_edit() && !taken.contains(&edit) {
+            taken.insert(edit.clone());
+            let view_ty = match &shape {
+                FieldShape::Wrapper { ty, .. } => kotlin_class_name(ty, ir),
+                FieldShape::Value { ffi, .. } => ffi.clone(),
+                _ => unreachable!("has_edit"),
+            };
+            builder.line(&format!(
+                "/// Changes the `{}` field IN PLACE: `block` runs on a view of the field (not a \
+                 copy), so its writes reach this object. The view is only valid inside `block`. \
+                 Returns `this` for chaining.",
+                f.name
+            ));
+            builder.line(&format!(
+                "fun {}(block: {}.() -> Unit): {} {{",
+                edit, view_ty, class_name
+            ));
+            builder.indent();
+            builder.line(closed_check);
+            builder.line(&overlay);
+            match &shape {
+                FieldShape::Wrapper { ty, .. } => {
+                    let ctor_args = if has_delete_function(ty, ir) {
+                        format!("{}, false", fp)
+                    } else {
+                        fp.clone()
+                    };
+                    builder.line(&format!("val __view = {}({})", view_ty, ctor_args));
+                    builder.line("try { __view.block() } finally { __view.__consume() }");
+                }
+                _ => {
+                    builder.line(&format!(
+                        "val __view = Structure.newInstance({}::class.java, {}) as {}; \
+                         __view.read()",
+                        view_ty, fp, view_ty
+                    ));
+                    builder.line("__view.block()");
+                    builder.line("__view.write()");
+                }
+            }
+            builder.line("return this");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+}
+
+/// `val __copy` = a fresh `<ffi>.ByValue` byte copy of the plain-data value
+/// at `src` (an expression yielding a `Pointer`).
+fn kt_byte_copy(body: &mut Vec<String>, ffi: &str, src: &str) {
+    body.push(format!("val __copy = {}.ByValue()", ffi));
+    body.push(format!("val __bytes = {}.getByteArray(0, __copy.size())", src));
+    body.push("__copy.pointer.write(0, __bytes, 0, __bytes.size)".to_string());
 }
 
 /// Phase I.2 (Kotlin): override equals + hashCode routed through the
@@ -2138,4 +2507,103 @@ pub(crate) fn kdoc_escape(s: &str) -> String {
     s.replace("*/", "*&#47;")
         .replace('{', "&#123;")
         .replace('}', "&#125;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The wrapper classes `emit_wrapper` produces for `names`, built from
+    /// the real api.json.
+    fn wrapper_source(name: &str) -> String {
+        wrapper_sources(&[name]).remove(0)
+    }
+
+    fn wrapper_sources(names: &[&str]) -> Vec<String> {
+        let api = crate::api::ApiData::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../api.json")).unwrap(),
+        )
+        .unwrap();
+        let ir = super::super::super::build_ir_from_api(&api).unwrap();
+        let config = CodegenConfig::c_header();
+        let app = app_factory_info(&ir);
+        names
+            .iter()
+            .map(|n| {
+                let s = ir.find_struct(n).unwrap_or_else(|| panic!("{} in api.json", n));
+                let mut b = CodeBuilder::new(&config.indent);
+                emit_wrapper(&mut b, s, &ir, app.as_ref(), &config);
+                b.finish()
+            })
+            .collect()
+    }
+
+    /// The member whose declaration contains `sig`, up to the blank line
+    /// that follows it.
+    fn member<'a>(src: &'a str, sig: &str) -> &'a str {
+        let start = src.find(sig).unwrap_or_else(|| panic!("no `{}` in:\n{}", sig, src));
+        let end = src[start..].find("\n\n").map(|e| e + start).unwrap_or(src.len());
+        &src[start..end]
+    }
+
+    fn before(body: &str, first: &str, second: &str) -> bool {
+        match (body.find(first), body.find(second)) {
+            (Some(a), Some(b)) => a < b,
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn the_title_property_decodes_the_string_without_freeing_it_and_its_setter_releases_the_old_one() {
+        let src = &wrapper_source("FullWindowState");
+        let prop = member(src, "var title: kotlin.String");
+        let (get, set) = prop.split_at(prop.find("set(v)").expect("a setter"));
+        assert!(!get.contains("_delete"), "a getter must not free the field:\n{}", get);
+        assert!(get.contains("Charsets.UTF_8"), "{}", get);
+        assert!(set.contains("AzString_fromUtf8"), "{}", set);
+        assert!(before(set, "AzString_delete(", ".write(0,"), "{}", set);
+    }
+
+    #[test]
+    fn the_window_state_property_deep_copies_on_read_and_deletes_then_consumes_on_write() {
+        let src = &wrapper_source("WindowCreateOptions");
+        let prop = member(src, "var windowState: FullWindowState");
+        let (get, set) = prop.split_at(prop.find("set(v)").expect("a setter"));
+        assert!(get.contains("AzFullWindowState_clone("), "{}", get);
+        assert!(get.contains("FullWindowState(__copy.pointer)"), "{}", get);
+        assert!(before(set, "AzFullWindowState_delete(", ".write(0,"), "{}", set);
+        assert!(set.contains("v.__consume()"), "the argument is moved in:\n{}", set);
+    }
+
+    #[test]
+    fn a_bool_field_is_a_kotlin_boolean_property() {
+        let src = &wrapper_source("WindowCreateOptions");
+        let prop = member(src, "var sizeToContent: Boolean");
+        assert!(prop.contains(".toInt() != 0"), "{}", prop);
+        assert!(prop.contains("writeField(\"size_to_content\")"), "{}", prop);
+    }
+
+    #[test]
+    fn the_window_state_can_be_edited_in_place_so_nested_writes_reach_the_options() {
+        let src = &wrapper_source("WindowCreateOptions");
+        let edit = member(
+            src,
+            "fun editWindowState(block: FullWindowState.() -> Unit): WindowCreateOptions",
+        );
+        assert!(edit.contains("FullWindowState(__ov.window_state.pointer, false)"), "{}", edit);
+        assert!(edit.contains("finally"), "the view is invalidated after the edit:\n{}", edit);
+        let fws = &wrapper_source("FullWindowState");
+        member(fws, "var size: AzWindowSize.ByValue");
+        let edit_size = member(fws, "fun editSize(block: AzWindowSize.() -> Unit): FullWindowState");
+        assert!(edit_size.contains(".write()"), "{}", edit_size);
+    }
+
+    #[test]
+    fn the_text_field_stays_writable_although_the_api_method_get_text_takes_the_jvm_getter_name() {
+        let src = &wrapper_source("TextInputState");
+        assert!(!src.contains("var text:") && !src.contains("val text:"), "{}", src);
+        let set = member(src, "fun setText(v: U32Vec)");
+        assert!(before(set, "AzU32Vec_delete(", ".write(0,"), "{}", set);
+        assert!(set.contains("v.__consume()"), "{}", set);
+    }
 }
