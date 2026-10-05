@@ -2969,12 +2969,6 @@ impl LayoutWindow {
         // build.
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
 
-        // After successful layout, update the accessibility tree
-        #[cfg(feature = "a11y")]
-        if result.is_ok() {
-            self.update_a11y_tree();
-        }
-
         // PUBLISH BEFORE CONSUME. The reveal below clamps against
         // `ScrollManager`'s `content_rect`, and `find_scrollable_ancestor`
         // refuses a node that has no registered scroll state at all — but until
@@ -3018,6 +3012,19 @@ impl LayoutWindow {
             if self.scroll_focused_cursor_into_view() {
                 self.regenerate_display_list_for_dom(caret_dom);
             }
+        }
+
+        // After successful layout, update the accessibility tree - AFTER the
+        // scroll registration and the caret reveal above: a node's scroll
+        // surface (its actions, extents and offset) is read from the
+        // registered scroll states, which only the registration publishes and
+        // the reveal moves. Built before them, the tree described the
+        // PREVIOUS pass's scrolling: a page that grew past the window sent the
+        // screen reader a body that could not scroll, until some later pass
+        // happened to rebuild it.
+        #[cfg(feature = "a11y")]
+        if result.is_ok() {
+            self.update_a11y_tree();
         }
 
         // Every layout pass ends here — full rebuild, pre-cascade relayout,
@@ -8005,14 +8012,20 @@ impl LayoutWindow {
         if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
-        } else {
+        } else if !crate::probe::Probe::drained_by_its_caller() {
             // Recording can be on without the cpu report consuming it (e.g.
-            // AZ_PROFILE=memory records RSS checkpoints; a debug server could
-            // flip `set_recording` at runtime). Whatever buffered this pass
-            // and was not drained above must be discarded HERE or it
-            // accumulates for the life of the thread — the exact leak the
+            // AZ_PROFILE=memory records RSS checkpoints). Whatever buffered
+            // this pass and was not drained above must be discarded HERE or
+            // it accumulates for the life of the thread — the exact leak the
             // probe recording gate exists to prevent. Clearing an empty Vec
             // is a no-op, so the plain-run cost is nil.
+            //
+            // Not when a caller switched recording on and drains the buffer
+            // itself (`Probe::set_recording(true)`: the telemetry bridge, a
+            // test counting a frame's spans): this used to empty it under
+            // them at the end of every DOM's pass, so the telemetry phase
+            // histogram never saw a layout span, and a test draining after
+            // a relayout read nothing at all.
             crate::probe::Probe::drop_events();
         }
 

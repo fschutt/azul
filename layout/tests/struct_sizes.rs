@@ -115,8 +115,10 @@ fn inline_pipeline_struct_sizes_are_pinned() {
     assert_size!(VisualItem, 168, "Stage 2 (bidi) output.");
     assert_size!(
         StyleProperties,
-        248,
-        "Shared behind an Arc, so one per distinct style - NOT per glyph."
+        256,
+        "Shared behind an Arc, so one per distinct style - NOT per glyph. GREW 248 -> 256 \
+         (2026-10-03, 753dbc393): InlineBorderInfo gained `margin_left` / `margin_right` (an \
+         inline box's horizontal margins move the pen, CSS 2.2 s10.3.1), 60 -> 68 B."
     );
 }
 
@@ -171,10 +173,14 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     );
     assert_size!(
         LayoutNodeCold,
-        288,
+        296,
         "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): NodeDataFingerprint \
          gained `dataset_hash` so a dataset's allocation is no longer a LAYOUT change (the \
-         TextArea-over-Slider fix)."
+         TextArea-over-Slider fix). GREW 288 -> 296 (2026-10-03, CSS `zoom`, aa4a3f9e1): \
+         UnresolvedBoxProps carries the node's effective zoom and the root's (two f32, 200 -> \
+         208 with its bool), which its late resolve against the real containing block scales \
+         the absolute and rem edges by. `root_zoom` is the same for every node of a document: \
+         passing it in ResolutionParams (beside root_font_size) would win these 8 B back."
     );
 }
 

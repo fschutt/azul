@@ -927,6 +927,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // expected no damage, got rects).
             cache.last_build_was_patched = false;
             cache.last_patch_damage = None;
+            // The census describes THIS pass, as the early exit's does: it
+            // sized nothing. Left in place, the count of the last pass that
+            // laid out (the cold one: every node) made a relayout of an
+            // unchanged page read as a whole-page re-measure.
+            cache.last_intrinsic_dirty = 0;
             return Ok(dl);
         }
     }
