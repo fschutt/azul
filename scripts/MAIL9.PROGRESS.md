@@ -75,8 +75,16 @@ dumb as possible". Order now:
 - 0278ac528 RED / 14991e968 GREEN auth.rs `ServerCaps::from_smtp_auth`, `choose_submission` (the auth.rs
   half of step 7a is DONE; f5fd901a0 test helper)
 
+- 2026-10-05 (Monday session): 43d9cd50a test compile fix (two DkimSettings literals lacked
+  public_key); 94aa34021 RED send.rs submission route; d969b8140 RED submit.rs (lettre client)
+  + the one scriptable SMTP sink in testutil.rs (send.rs's private sink removed)
+
 ## IN PROGRESS
-- nothing half-done. Monday: start step 7 below.
+- Step 7a GREEN: send.rs (SendRoute::Submission, SendSettings::sign_in, TlsPolicy::Implicit,
+  Transport::submit, attempt() branch, submit_target()), submit.rs (SubmitSecurity /
+  SubmitTarget / SubmitFailure / submission_security / submit via lettre), Cargo.toml lettre.
+  Then: sending.rs form choice + describe, ui wiring (sign_in from s.secrets), azmail-send
+  --submission, python sink AUTH / implicit TLS, E2E cases.
 
 ## MONDAY - exact next step
 - Step 7a (secondary route, lettre): auth.rs part DONE. NEXT: RED tests in `send.rs` (`SendRoute::Submission`
