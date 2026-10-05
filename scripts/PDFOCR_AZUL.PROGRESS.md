@@ -5,16 +5,16 @@ move its text) and 3 (`hyphens: auto` ignores the `lang` attribute).
 Report: /Users/fschutt/Development/pdfocr/results/engine-issues/README.md
 
 ## DONE
-- (none yet)
+- 7f90585b5 progress file
+- a8e5b0167 issue 3 RED: core/src/xml_attributes.rs inline test +
+  layout/tests/hyphens_auto_hyphenates_in_the_language_of_the_lang_attribute.rs (NEW, unregistered)
+- 030ce1de7 issue 3 GREEN: xml_attributes `lang` / `xml:lang` entries;
+  fc.rs content_language + hyphenation_language_of_tag, read under hyphens: auto only
 
 ## IN PROGRESS
-- issue 3: RED tests
+- issue 2: RED test
 
 ## NEXT
-- issue 3 RED: core/src/xml_attributes.rs inline test (lang lands as
-  AttributeType::Lang) + layout/tests/hyphens_auto_takes_its_language_from_the_lang_attribute.rs
-- issue 3 GREEN: xml_attributes `lang` / `xml:lang` entries; solver3/fc.rs
-  falls back to the nearest `lang` when hyphens: auto and no azul property
 - issue 2 RED: layout/tests/a_relatively_positioned_inline_moves_its_text.rs
 - issue 2 GREEN: positioning.rs shared shift helper + display_list.rs shifts
   the runs (and the paged TextLayout payload) of relpos inline boxes
