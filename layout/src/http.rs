@@ -2468,8 +2468,9 @@ mod client_pool_tests {
             "http_get held the calling callback for {returned_after:?}"
         );
 
-        // The answer resumes on a later pump. (The queue is process-wide: a
-        // test elsewhere that drains it can take this entry - see the report.)
+        // The answer resumes on a later pump: this thread's pump (under tests
+        // the request queue is per thread, so no test beside this one can
+        // drain the entry).
         let deadline = Instant::now() + Duration::from_secs(10);
         let answer = loop {
             if let Some(entry) = crate::request::take_completed()

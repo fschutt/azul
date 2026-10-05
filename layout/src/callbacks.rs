@@ -798,6 +798,17 @@ pub enum CallbackChange {
         target: DomNodeId,
         range: SelectionRange,
     },
+    /// Paste `content` into the focused node the way a user's paste does,
+    /// with the content handed in instead of read from the OS clipboard (the
+    /// e2e `paste` op: a scenario has no clipboard). The host stages it as the
+    /// paste content (`CallbackInfo::get_clipboard_content`), dispatches
+    /// `EventType::Paste` at the focus and, unless a callback called
+    /// `prevent_default`, runs the engine's paste
+    /// (`LayoutWindow::paste_clipboard_content`) - the dll's deferred
+    /// clipboard block for a Ctrl+V. Not FFI.
+    Paste {
+        content: ClipboardContent,
+    },
 
     // Hit Test Request (for Debug API)
     /// Request a hit test update at a specific position
@@ -7042,11 +7053,15 @@ impl CallbackInfo {
         self.set_copy_content(self.hit_dom_node, content);
     }
 
-    /// Set/modify the clipboard content before a copy operation
+    /// Put `content` on the system clipboard (a copy)
     ///
-    /// Use this to transform clipboard content before copying.
-    /// The change is queued and will be applied after the callback returns,
-    /// if `preventDefault()` was not called.
+    /// The change is queued and written to the clipboard right after the
+    /// callback returns, whatever `prevent_default` says - from any callback
+    /// (a "Copy link" button's click too). In an `On::Copy` callback the
+    /// engine's own copy runs AFTER it unless the callback also calls
+    /// `prevent_default()`, and writes the current text selection (if there
+    /// is one) over this content: call both to replace what a Ctrl+C copies,
+    /// as with `clipboardData.setData` plus `preventDefault` on the web.
     pub fn set_copy_content(&mut self, target: DomNodeId, content: ClipboardContent) {
         self.push_change(CallbackChange::SetCopyContent { target, content });
     }
@@ -7065,6 +7080,14 @@ impl CallbackInfo {
     /// The change is queued and will be applied after the callback returns.
     pub fn set_select_all_range(&mut self, target: DomNodeId, range: SelectionRange) {
         self.push_change(CallbackChange::SetSelectAllRange { target, range });
+    }
+
+    /// Paste `content` into the focused node after the callback returns, as a
+    /// user's paste would: the focused node's `Paste` callbacks run first (and
+    /// may `prevent_default` it), then the engine's paste. Test-facing - the
+    /// door of the e2e `paste` op (`CallbackChange::Paste`); not in api.json.
+    pub fn simulate_paste(&mut self, content: ClipboardContent) {
+        self.push_change(CallbackChange::Paste { content });
     }
 
     /// Request a hit test update at a specific position

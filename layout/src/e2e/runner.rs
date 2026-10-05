@@ -3353,6 +3353,10 @@ impl Runner {
                 self.unsupported("RemoveThread", "no thread pump")
             }
 
+            // The e2e `paste` op: the content is handed in, so no OS
+            // clipboard is needed - the rest is the dll's paste.
+            CallbackChange::Paste { content } => self.apply_paste(content),
+
             // No OS integration.
             CallbackChange::SetCopyContent { .. } => {
                 self.unsupported("SetCopyContent", "no OS clipboard")
@@ -3705,6 +3709,63 @@ impl Runner {
                 }
             }
         }
+    }
+
+    /// The `CallbackChange::Paste` arm - the same arm as the dll's
+    /// (`dll/src/desktop/shell2/common/event.rs::apply_user_change`), which is
+    /// the dll's deferred clipboard block for a Ctrl+V with the content handed
+    /// in: stage it as the paste content (what a `Paste` callback reads
+    /// through `get_clipboard_content`), dispatch `Paste` at the focus, and
+    /// unless a callback vetoed it run the engine's paste
+    /// (`LayoutWindow::paste_clipboard_content`) and land what it recorded.
+    /// The staged content is cleared afterwards either way.
+    fn apply_paste(
+        &mut self,
+        content: &azul_layout::managers::selection::ClipboardContent,
+    ) -> ProcessEventResult {
+        use azul_core::{
+            callbacks::Update,
+            events::{EventData, EventSource, EventType, SyntheticEvent},
+        };
+        use azul_layout::window::PasteOutcome;
+
+        let target = self
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .unwrap_or(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
+            });
+        self.layout_window
+            .clipboard_manager
+            .set_paste_content(content.clone());
+        let now = self.now();
+        let paste_event = SyntheticEvent::new(
+            EventType::Paste,
+            EventSource::User,
+            target,
+            now,
+            EventData::None,
+        );
+        let (mut result, update, prevented, _) = self.dispatch_events_propagated(&[paste_event]);
+        if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        if !prevented {
+            result = result.max(match self.layout_window.paste_clipboard_content(content) {
+                PasteOutcome::Nothing => ProcessEventResult::DoNothing,
+                PasteOutcome::Text => ProcessEventResult::ShouldUpdateDisplayListCurrentWindow,
+                PasteOutcome::Structural => ProcessEventResult::ShouldIncrementalRelayout,
+            });
+            // A plain paste RECORDS its text (`process_text_input`); a shell
+            // lands it with the rest of the pass, an op has no pass after it.
+            let landed = self.layout_window.apply_pending_text_and_reveal();
+            result = result.max(landed.event_result());
+        }
+        self.layout_window.clipboard_manager.clear_paste();
+        result
     }
 
     /// Port of `PlatformWindow::apply_capi_delete`
@@ -7207,8 +7268,6 @@ mod tests {
     /// vetoes it), then `LayoutWindow::paste_clipboard_content` - so a rich
     /// editor keeps the HTML's bold.
     #[test]
-    #[ignore = "round 2 (FIX9-INPUT 3.8): the paste op needs a CallbackChange (layout/src/callbacks.rs) \
-                and its arm in the dll's apply_user_change (dll/src/desktop/shell2/common/event.rs)"]
     fn a_scenarios_paste_op_pastes_bold_html_into_the_focused_editor() {
         use azul_core::dom::IdOrClass;
 
@@ -7257,6 +7316,144 @@ mod tests {
             edit.runs,
             edit.text
         );
+    }
+
+    /// The paste op is a user's paste, veto included: the focused node's
+    /// `Paste` callbacks run FIRST, and one that calls `prevent_default`
+    /// keeps the engine's paste out of the editor (the app pastes itself, or
+    /// refuses) - exactly what the dll's deferred clipboard block does for a
+    /// Ctrl+V. Without the veto the same scenario lands the text, so the
+    /// assertion cannot pass on a paste that never ran at all.
+    #[test]
+    fn a_paste_callback_that_prevents_default_keeps_the_scenarios_paste_out_of_the_editor() {
+        use azul_core::{
+            dom::IdOrClass,
+            events::{EventFilter, FocusEventFilter},
+        };
+
+        let pasted_lands = |vetoed: bool| -> bool {
+            let mut host = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("editor".into())].into())
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("foo"),
+                ));
+            host.set_contenteditable(true);
+            if vetoed {
+                host = host.with_callback(
+                    EventFilter::Focus(FocusEventFilter::Paste),
+                    RefAny::new(()),
+                    veto_key_down as usize,
+                );
+            }
+            let mut dom = Dom::create_body().with_child(host);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "paste_vetoed_by_a_callback",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "focus_node", "selector": ".editor" },
+                    { "op": "wait_frame" },
+                    { "op": "paste", "text": "pasted" },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+            assert_eq!(result.status, "pass", "{:#?}", result.steps);
+            runner
+                .layout_window
+                .unsynced_text_edits()
+                .iter()
+                .any(|e| e.text.as_str().contains("pasted"))
+        };
+
+        assert!(
+            pasted_lands(false),
+            "premise: without a veto the paste op lands its text"
+        );
+        assert!(
+            !pasted_lands(true),
+            "a Paste callback's prevent_default vetoes the engine's paste"
+        );
+    }
+
+    /// User decision D2 (2026-10-05): the debug server's `focus_node` focuses
+    /// like the engine's `FocusTarget::Id` (FIX9-INPUT 3.2) - a node that
+    /// cannot hold focus (the row an app named around a widget's field) hands
+    /// it to its first focusable descendant, and the op answers with the node
+    /// that took it. It refused the row ("cannot hold focus") while
+    /// `set_focus` on the same id focused the field. Only a subtree with
+    /// nothing focusable in it is still an error.
+    #[test]
+    fn focus_node_on_an_unfocusable_row_focuses_its_first_focusable_descendant() {
+        use azul_core::dom::IdOrClass;
+
+        let focus_scenario = |selector: &str| {
+            let mut field = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("field".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"));
+            field.set_contenteditable(true);
+            let row = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("row".into())].into())
+                .with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(vec![IdOrClass::Class("label".into())].into())
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Search",
+                        )),
+                )
+                .with_child(field);
+            let mut dom = Dom::create_body().with_child(row);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: \
+                 200px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "focus_node_delegates",
+                "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+                "steps": [
+                    { "op": "wait_frame" },
+                    { "op": "focus_node", "selector": selector },
+                    { "op": "wait_frame" }
+                ]
+            }))
+            .expect("scenario json");
+            run_e2e_test_keeping_runner(&test, Some(styled_dom))
+        };
+
+        let (result, runner) = focus_scenario(".row");
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .and_then(|f| f.node.into_crate_internal())
+            .expect("focus_node on the row focused a node");
+        let node_data = runner.layout_window.layout_results[&DomId::ROOT_ID]
+            .styled_dom
+            .node_data
+            .as_container();
+        assert!(
+            node_data[focused].has_class("field"),
+            "the focus went to the row's first focusable descendant, the field"
+        );
+        let answer = serde_json::to_string(&result.steps[1].response).expect("json");
+        assert!(
+            answer.contains(&format!("\"node_id\":{}", focused.index())),
+            "focus_node answers with the node that took the focus: {answer}"
+        );
+
+        // A subtree with nothing focusable in it still refuses by name.
+        let (result, _) = focus_scenario(".label");
+        assert_eq!(result.status, "fail", "{:#?}", result.steps);
     }
 
     /// A 200x100 box with a CLASSIC vertical scrollbar (reserved, always

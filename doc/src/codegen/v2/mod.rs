@@ -141,6 +141,20 @@ pub fn upper_first(s: &str) -> String {
     }
 }
 
+/// `s` with its first character lower-cased (`LayoutCallback` ->
+/// `layoutCallback`): the twin of [`upper_first`], THE helper for every
+/// generator and checker (bug_classes, conformance, Haskell, Kotlin, Java,
+/// C# and Node each carried a copy). Unicode lower-casing, identical to the
+/// ASCII one for the ASCII names fed to it.
+#[must_use]
+pub fn lower_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 // ============================================================================
 // Helper: Build IR from ApiData
 // ============================================================================

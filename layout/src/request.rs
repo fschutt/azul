@@ -33,6 +33,10 @@
 //! [`complete_erased`] / [`defer`] / [`take_completed`] as boundary imports
 //! and services them from JavaScript, and nothing else changes.
 //!
+//! Under this crate's own unit tests the queue is per THREAD instead (see
+//! `queue`): tests run side by side, and a drainer takes everything, so a
+//! shared queue let one test swallow the completion of the test beside it.
+//!
 //! ## Delivery order and ownership
 //!
 //! * FIFO. Nested completions (a resume that issues and immediately completes another request) are
@@ -92,8 +96,6 @@ impl core::fmt::Debug for PendingRequest {
 
 #[cfg(feature = "std")]
 mod queue {
-    use std::sync::Mutex;
-
     use super::{CompletedRequest, PendingRequest};
 
     pub(super) struct RequestQueue {
@@ -101,11 +103,14 @@ mod queue {
         pub pending: Vec<PendingRequest>,
     }
 
-    pub(super) static REQUEST_QUEUE: Mutex<RequestQueue> = Mutex::new(RequestQueue {
+    /// The runtime's queue: ONE for the process (the module doc says why).
+    #[cfg(not(test))]
+    static REQUEST_QUEUE: std::sync::Mutex<RequestQueue> = std::sync::Mutex::new(RequestQueue {
         completed: Vec::new(),
         pending: Vec::new(),
     });
 
+    #[cfg(not(test))]
     pub(super) fn with_queue<R>(f: impl FnOnce(&mut RequestQueue) -> R) -> R {
         // A poisoned lock only means a callback panicked while the queue was
         // held; the queue itself is still a plain Vec pair, so keep serving.
@@ -113,6 +118,30 @@ mod queue {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         f(&mut guard)
+    }
+
+    // Under this crate's own tests: one queue per THREAD. The harness runs
+    // tests side by side on its threads and every drainer takes everything
+    // (`take_completed`; the e2e runner's pump inside many runner tests), so
+    // a shared queue let a test swallow its neighbour's completion. Each
+    // test issues its requests on its own thread - a `complete` there, or a
+    // `defer` whose poll its own pump runs (an http worker thread only
+    // answers the poll's channel) - so it sees exactly its own. The dll and
+    // every product build keep the process-wide queue above.
+    #[cfg(test)]
+    std::thread_local! {
+        static REQUEST_QUEUE: core::cell::RefCell<RequestQueue> =
+            const {
+                core::cell::RefCell::new(RequestQueue {
+                    completed: Vec::new(),
+                    pending: Vec::new(),
+                })
+            };
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_queue<R>(f: impl FnOnce(&mut RequestQueue) -> R) -> R {
+        REQUEST_QUEUE.with(|queue| f(&mut queue.borrow_mut()))
     }
 }
 
@@ -936,7 +965,8 @@ mod tests {
 
     #[test]
     fn complete_is_delivered_fifo_and_defer_waits_for_its_poll() {
-        // Other tests share the process-wide queue; drain whatever they left.
+        // The queue is per thread under tests; drain anything an earlier test
+        // on this harness thread left.
         let _ = take_completed();
 
         let cb = ResumeCallback::create(noop);
@@ -970,5 +1000,37 @@ mod tests {
         assert_eq!(result.downcast_ref::<u32>().map(|r| *r), Some(30));
         assert_eq!(pending_count(), 0);
         assert!(!has_work());
+    }
+
+    /// The test harness runs tests side by side on its threads, and every
+    /// drainer takes EVERYTHING (`take_completed`; the e2e runner's pump runs
+    /// inside many runner tests): with one process-wide queue a test's
+    /// completion could be swallowed by the test running beside it, and the
+    /// http tests' worker-thread answers made that window as long as a
+    /// transfer. Test B drains while test A's completion waits; A must still
+    /// find it.
+    #[test]
+    fn a_tests_completion_is_not_drained_by_a_test_running_beside_it() {
+        use std::sync::mpsc::channel;
+
+        let (completed_tx, completed_rx) = channel::<()>();
+        let (drained_tx, drained_rx) = channel::<()>();
+
+        let test_a = std::thread::spawn(move || {
+            let id = complete(RefAny::new(()), ResumeCallback::create(noop), 7u32);
+            completed_tx.send(()).expect("test B listens");
+            drained_rx.recv().expect("test B drained");
+            take_completed().iter().any(|c| c.request_id == id)
+        });
+        let test_b = std::thread::spawn(move || {
+            completed_rx.recv().expect("test A completed");
+            let _ = take_completed();
+            drained_tx.send(()).expect("test A listens");
+        });
+        test_b.join().expect("test B ran");
+        assert!(
+            test_a.join().expect("test A ran"),
+            "test A's completion is still in the queue for test A after test B drained"
+        );
     }
 }

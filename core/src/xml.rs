@@ -251,6 +251,9 @@ impl MimeTypeHint {
             "css" => "text/css",
             // Scripts
             "js" | "mjs" => "application/javascript",
+            // Data and text
+            "json" => "application/json",
+            "txt" => "text/plain",
             // Video
             "mp4" => "video/mp4",
             "webm" => "video/webm",
@@ -7424,6 +7427,40 @@ mod scan_external_resources_tests {
             urls,
             ["a.png", "b.png", "c.png"],
             "document order, each once, nothing from prose"
+        );
+    }
+}
+
+/// `MimeTypeHint::from_extension`, the one extension table.
+#[cfg(test)]
+mod mime_type_hint_tests {
+    use super::*;
+
+    /// A JSON or text file had no row and came out as
+    /// `application/octet-stream`, so crash_mail kept its own twin table for
+    /// the two (FIX9-INPUT round 2 item 4).
+    #[test]
+    fn a_json_or_txt_extension_has_its_own_media_type() {
+        for (extension, media_type) in [
+            ("json", "application/json"),
+            ("JSON", "application/json"),
+            ("txt", "text/plain"),
+            ("TXT", "text/plain"),
+        ] {
+            assert_eq!(
+                MimeTypeHint::from_extension(extension).inner.as_str(),
+                media_type,
+                "the media type of .{extension}"
+            );
+        }
+        // Unchanged: a known row, and the default.
+        assert_eq!(
+            MimeTypeHint::from_extension("png").inner.as_str(),
+            "image/png"
+        );
+        assert_eq!(
+            MimeTypeHint::from_extension("xyz").inner.as_str(),
+            "application/octet-stream"
         );
     }
 }

@@ -24,6 +24,7 @@ use std::{
 };
 
 use super::ir::*;
+use super::lower_first;
 use crate::api::{ApiData, ClassData, RefKind, VersionData};
 
 // ============================================================================
@@ -87,13 +88,6 @@ fn assert_none(class: &str, offenders: impl IntoIterator<Item = String>) {
             offenders.join("\n  ")
         );
     }
-}
-
-fn lower_first(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_lowercase().collect::<String>() + c.as_str())
-        .unwrap_or_default()
 }
 
 /// The trait functions' C suffixes (`delete`, `clone`, ...): names every

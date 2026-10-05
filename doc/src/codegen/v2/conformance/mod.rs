@@ -37,6 +37,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::ir::{
     CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, TypeCategory,
 };
+use super::lower_first;
 
 /// How a conformance program makes a value of some type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,13 +383,6 @@ impl<'a> FnIndex<'a> {
     fn method(&self, class: &str, method: &str) -> Option<String> {
         self.by_method.get(&(class, method)).map(|f| f.c_name.clone())
     }
-}
-
-fn lower_first(s: &str) -> String {
-    let mut c = s.chars();
-    c.next()
-        .map(|f| f.to_lowercase().collect::<String>() + c.as_str())
-        .unwrap_or_default()
 }
 
 fn is_copy(ir: &CodegenIR, ty: &str) -> bool {
