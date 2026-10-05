@@ -1345,23 +1345,30 @@ impl<'m, 'a> Emitter<'m, 'a> {
             _ => None,
         };
         let (ret, attrs, expr) = getter?;
-        if !taken.is_free(prop, "") {
+        // An api.json method that already owns the name (`get_text` is
+        // `text()`) wins the zero-argument overload, but the field must
+        // stay writable: the setter is a different overload
+        // (`text(uint[] v)`) and is still emitted below. Dropping both made
+        // `TextInputState.text` unreachable.
+        let getter_free = taken.is_free(prop, "");
+        if getter_free {
+            taken.take(prop, "");
+            if let Some(d) = &f.doc {
+                w.doc(1, &self.rw(std::slice::from_ref(d)));
+            }
+            w.l(1, &format!("{} {}(){}", ret, prop, attrs));
+            w.l(1, "{");
+            if let Some(g) = guard {
+                w.l(2, g);
+            }
+            w.l(2, &format!("return {};", expr));
+            w.l(1, "}");
+            w.l(0, "");
+            self.stats.members += 1;
+            checks.push(vec![format!("auto __g = __s.{};", prop)]);
+        } else if !setter {
             return None;
         }
-        taken.take(prop, "");
-        if let Some(d) = &f.doc {
-            w.doc(1, &self.rw(std::slice::from_ref(d)));
-        }
-        w.l(1, &format!("{} {}(){}", ret, prop, attrs));
-        w.l(1, "{");
-        if let Some(g) = guard {
-            w.l(2, g);
-        }
-        w.l(2, &format!("return {};", expr));
-        w.l(1, "}");
-        w.l(0, "");
-        self.stats.members += 1;
-        checks.push(vec![format!("auto __g = __s.{};", prop)]);
 
         if !setter {
             return Some(checks);

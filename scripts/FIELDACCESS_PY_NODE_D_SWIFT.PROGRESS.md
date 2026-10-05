@@ -22,10 +22,12 @@ Brief: /Users/fschutt/Development/azul-work/field_access_wave.md. No compiling i
   Behaviour change: a JS string assigned to a non-AzString field now throws (used to store
   AzString bytes into e.g. an OptionString).
 
-## IN PROGRESS
-- D.
+- D: RED test (lang_d/wrappers.rs `field_access_tests`) + fix. `emit_accessor` no longer
+  returns early when the getter name is taken by a method; the setter overload is still
+  emitted (`void text(<restriction> v)` next to the `string text()` method from get_text).
+  The title/window_state/checked cases already met the contract (regression asserts added).
 
-## NEXT
+## IN PROGRESS
 - Swift.
 
 ## Open questions
