@@ -20,12 +20,14 @@ Branch wt/fix9-paint (fast-forwarded to b454da215). Brief: scripts/waves/wave9/S
 - 2.6 SVG mask memo: RED 61e096fb5, GREEN 108450ea2 (thread-local LRU in display_list.rs).
 - 2.7 LCD tile clip: RED 09e16cdd4, GREEN ac1d92bae (text_clip_pixel_box(text_run_clip), not outward).
 
+- 2.8 opacity tween values-only: RED e8b72669d, GREEN aabe3db1e (gpu.rs refresh_opacity_value_of +
+  fingerprint; display_list binds the CSS key; window.rs Opacity arm + patch_compact_opacity).
+
 ## IN PROGRESS
-2.8 CSS opacity tween values-only
+2.9 Timer.node_id remap
 
 ## NEXT
-2.8 (borderline SMALL) - read display_list.rs PushOpacity (~5154), gpu.rs fingerprint (~164) and
-opacity sync (~580-654), window.rs css_transition_tick (~15159); then 2.9 .. 2.14, then the suite failure.
+2.9 RED, GREEN (window.rs remap_node_ids ~25266); then 2.10 .. 2.14, then the suite failure.
 
 ## Open questions
 (none)
