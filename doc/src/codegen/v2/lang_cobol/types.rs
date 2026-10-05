@@ -571,3 +571,145 @@ pub fn pic_for_type(rust_type: &str, ir: &CodegenIR) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{
+        super::super::{bug_classes::ir, c_layout::type_layout, config::CodegenConfig},
+        cobol_identifier, should_include_enum, should_include_struct, to_cobol_case,
+    };
+
+    fn cpy() -> &'static str {
+        static OUT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        OUT.get_or_init(|| super::super::generate(ir(), &CodegenConfig::c_header()).unwrap())
+    }
+
+    /// Every `01 TYAZ-* ... TYPEDEF` of the copybook: a group's `05` lines,
+    /// or the one-line definition's USAGE clause.
+    fn typedefs() -> &'static BTreeMap<String, Vec<String>> {
+        static DEFS: std::sync::OnceLock<BTreeMap<String, Vec<String>>> =
+            std::sync::OnceLock::new();
+        DEFS.get_or_init(|| {
+            let mut out = BTreeMap::new();
+            let lines: Vec<&str> = cpy().lines().collect();
+            for (i, l) in lines.iter().enumerate() {
+                let Some(rest) = l.strip_prefix("       01  ") else { continue };
+                if !rest.contains("TYPEDEF") {
+                    continue;
+                }
+                let name = rest.split_whitespace().next().unwrap().to_string();
+                let body: Vec<String> = if rest.trim_end().ends_with("IS TYPEDEF.")
+                    && !rest.contains("USAGE")
+                {
+                    lines[i + 1..]
+                        .iter()
+                        .take_while(|l| l.starts_with("           05  "))
+                        .map(|l| l.to_string())
+                        .collect()
+                } else {
+                    vec![rest.to_string()]
+                };
+                out.insert(name, body);
+            }
+            out
+        })
+    }
+
+    /// Bytes one data description occupies (GnuCOBOL, 64-bit).
+    fn clause_size(clause: &str) -> usize {
+        let base = if let Some(p) = clause.find("PIC X(") {
+            let n = &clause[p + 6..];
+            n[..n.find(')').unwrap()].parse::<usize>().unwrap()
+        } else if let Some(p) = clause.find("USAGE TYAZ-") {
+            let name: String = clause[p + 6..]
+                .chars()
+                .take_while(|c| !c.is_whitespace() && *c != '.')
+                .collect();
+            typedef_size(&name)
+        } else if clause.contains("BINARY-CHAR") {
+            1
+        } else if clause.contains("BINARY-SHORT") {
+            2
+        } else if clause.contains("BINARY-LONG") || clause.contains("COMP-1") {
+            4
+        } else if clause.contains("BINARY-DOUBLE")
+            || clause.contains("COMP-2")
+            || clause.contains("POINTER")
+        {
+            8
+        } else {
+            panic!("unknown size: `{clause}`")
+        };
+        let times = clause
+            .find("OCCURS ")
+            .map(|p| {
+                clause[p + 7..]
+                    .split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+            })
+            .unwrap_or(1);
+        base * times
+    }
+
+    fn typedef_size(name: &str) -> usize {
+        let body = typedefs()
+            .get(name)
+            .unwrap_or_else(|| panic!("no typedef {name}"));
+        body.iter().map(|l| clause_size(l)).sum()
+    }
+
+    fn tyaz(name: &str) -> String {
+        cobol_identifier(&format!("TYAZ-{}", to_cobol_case(name)))
+    }
+
+    #[test]
+    fn every_record_is_exactly_its_c_size() {
+        let config = CodegenConfig::c_header();
+        let mut names: Vec<&str> = ir()
+            .structs
+            .iter()
+            .filter(|s| should_include_struct(s, &config))
+            .map(|s| s.name.as_str())
+            .collect();
+        names.extend(
+            ir().enums
+                .iter()
+                .filter(|e| e.is_union && should_include_enum(e, &config))
+                .map(|e| e.name.as_str()),
+        );
+        let mut wrong = Vec::new();
+        for n in names {
+            let Some(layout) = type_layout(n, ir()) else { continue };
+            let size = typedef_size(&tyaz(n));
+            if size != layout.size {
+                wrong.push(format!("{n}: {size} bytes, C has {}", layout.size));
+            }
+        }
+        assert!(wrong.is_empty(), "{} records:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    #[test]
+    fn a_tagged_union_is_its_tag_padding_and_payload_not_a_64_byte_blob() {
+        let body = &typedefs()[&tyaz("OptionU32")];
+        assert!(!body.iter().any(|l| l.contains("PIC X(64)")), "{body:?}");
+    }
+
+    #[test]
+    fn a_usize_field_is_a_64_bit_number_not_a_pointer() {
+        let s = ir()
+            .structs
+            .iter()
+            .find(|s| s.fields.iter().any(|f| f.type_name == "usize"))
+            .unwrap();
+        let body = &typedefs()[&tyaz(&s.name)];
+        assert!(
+            body.iter().any(|l| l.contains("USAGE BINARY-DOUBLE UNSIGNED")),
+            "{body:?}"
+        );
+    }
+}
