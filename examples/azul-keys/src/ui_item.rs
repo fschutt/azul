@@ -1710,3 +1710,28 @@ extern "C" fn on_audit_export(mut data: RefAny, mut info: CallbackInfo) -> Updat
         jobs::spawn(info, app, &s.data_root, work);
     })
 }
+
+/// The tag field's state (its tokens and the typed text) into the draft: each token once, as
+/// `Item::add_tag` keeps it (no `#`, no case-folded twin); a chip removed in the field leaves
+/// the draft.
+fn take_tag_tokens(_form: &mut Form, _tokens: &[&str], _typed: &str) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tag_fields_tokens_become_the_drafts_tags_once_and_without_a_hash() {
+        let mut form = Form::new_item(Kind::Login, 0);
+        take_tag_tokens(&mut form, &["work", "#Work", " home "], "fi");
+        assert_eq!(form.draft.tags, vec!["work", "home"]);
+        assert_eq!(form.tag, "fi");
+        take_tag_tokens(&mut form, &["home"], "");
+        assert_eq!(
+            form.draft.tags,
+            vec!["home"],
+            "a chip removed in the field leaves the draft"
+        );
+        assert!(form.tag.is_empty());
+    }
+}
