@@ -1354,12 +1354,16 @@ mod tests {
 
     #[test]
     fn an_email_author_is_shown_by_its_name() {
+        // Each item has a title: RSS 2.0 wants a title or a description in every item, and an
+        // item that says nothing at all is skipped (`finish`).
         let feed = read(
             b"<rss version=\"2.0\"><channel><title>T</title><item><guid>a</guid>\
-              <author>editor@example.org (Rosa Wolf)</author></item>\
-              <item><guid>b</guid><author>desk@example.org</author></item></channel></rss>",
+              <title>One</title><author>editor@example.org (Rosa Wolf)</author></item>\
+              <item><guid>b</guid><title>Two</title><author>desk@example.org</author></item>\
+              </channel></rss>",
             "https://example.org/rss",
         );
+        assert_eq!(feed.items.len(), 2, "{:#?}", feed.items);
         assert_eq!(feed.items[0].author, "Rosa Wolf");
         assert_eq!(feed.items[1].author, "desk@example.org");
     }
