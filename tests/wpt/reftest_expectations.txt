@@ -54,7 +54,6 @@ FAIL css/css-lists/li-list-item-counter-002.html E-OL # match li-list-item-count
 FAIL css/css-lists/list-marker-alignment.html E-OL # match list-marker-alignment-ref.html: maxdiff 121 pixels 116
 FAIL css/css-lists/list-style-type-string-001a.html E-OL # needs list-style-type: <string> (test) and ::before generated content (reference); gate 2026-10-06: maxdiff 233 pixels 3563
 FAIL css/css-tables/anonymous-table-ws-001.html E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
-FAIL css/css-tables/col-definite-size-001.html E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/css-tables/table-intrinsic-size-001.html E-TABLE # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 10000
 FAIL css/css-tables/table_grid_size_col_colspan.html E-TABLE # match table_grid_size_col_colspan-ref.html: maxdiff 255 pixels 29500
 FAIL css/css-tables/th-text-align.html E-TABLE # needs HTML's th rule: centred only under a parent whose text-align is the initial value, and an author `text-align: inherit` to beat the UA centre; gate 2026-10-06: maxdiff 233 pixels 283

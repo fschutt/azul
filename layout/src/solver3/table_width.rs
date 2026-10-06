@@ -88,11 +88,13 @@ pub fn specified_width(styled_dom: &StyledDom, dom_id: NodeId, h_extras: f32) ->
             };
             w
         }
-        // A `calc()` with a percentage in it is that percentage, its length
-        // part dropped (browsers: `calc(50% + 0px)` sizes its column like
-        // `50%`, WPT calc-percent-plus-0px-auto); one without is the length
-        // it adds up to. The percentage is the calc's growth per 100% of its
-        // basis (the sums and products of calc() are linear in it).
+        // A `calc()` is what it adds up to: a percentage alone (`calc(50% +
+        // 0px)` sizes its column like `50%`, WPT calc-percent-plus-0px-auto),
+        // a length alone - and `auto` when it mixes the two (CSS Tables 3,
+        // Chrome: `calc(100px + 1%)` on a `<col>` is no 1% column, WPT
+        // col-definite-size-001). The percentage is the calc's growth per
+        // 100% of its basis, the length its value at a zero basis (the sums
+        // and products of calc() are linear in it).
         MultiValue::Exact(LayoutWidth::Calc(items)) => {
             let (em, rem) = font_sizes();
             let calc = crate::solver3::calc::CalcResolveContext {
@@ -103,6 +105,9 @@ pub fn specified_width(styled_dom: &StyledDom, dom_id: NodeId, h_extras: f32) ->
             let at_zero = crate::solver3::calc::evaluate_calc(&calc, 0.0);
             let percent = crate::solver3::calc::evaluate_calc(&calc, 100.0) - at_zero;
             if percent.abs() > 1e-4 {
+                if at_zero.abs() > 1e-4 {
+                    return SpecifiedWidth::Auto;
+                }
                 return as_percent(percent);
             }
             at_zero
@@ -733,5 +738,25 @@ mod tests {
             SpecifiedWidth::Percent(50.0)
         );
         assert_eq!(width("width: calc(40px + 2px);"), SpecifiedWidth::Fixed(42.0));
+    }
+
+    #[test]
+    fn a_calc_width_mixing_a_length_and_a_percentage_is_auto() {
+        // WPT css/css-tables/col-definite-size-001: four `<col style="width:
+        // calc(100px + 1%)">` over two cells - the reference is the bare
+        // table. CSS Tables 3 (and Chrome) treat a width mixing a percentage
+        // with a length as `auto` on a cell or column; read as its 1% it made
+        // percentage columns that stretched the table to the page (content /
+        // 1%).
+        let width = |css: &str| {
+            let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+                azul_core::dom::Dom::create_body()
+                    .with_child(azul_core::dom::Dom::create_div().with_css(css)),
+            );
+            specified_width(&styled, NodeId::new(1), 0.0)
+        };
+        assert_eq!(width("width: calc(100px + 1%);"), SpecifiedWidth::Auto);
+        assert_eq!(width("width: calc(50% - 10px);"), SpecifiedWidth::Auto);
+        assert_eq!(width("width: calc(25% * 2);"), SpecifiedWidth::Percent(50.0), "% only");
     }
 }
