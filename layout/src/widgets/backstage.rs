@@ -1904,3 +1904,97 @@ mod flora_tests {
         }
     }
 }
+
+/// A backstage page taller than the window scrolls inside the backstage: the backstage (a
+/// flex item of the window's column) and its page column take the height they are given, not
+/// their content's - CSS's automatic minimum size of a flex item is its content's, so every
+/// flex level between the window and the page's scroller declares `min-height: 0`. AzMail's
+/// File > Account Settings (E2E-A, 2026-10-06): the backstage was 1016 px in an 832 px shell,
+/// the settings never scrolled, and "Create a key" stood below the window's edge.
+#[cfg(test)]
+mod a_backstage_page_scrolls_inside_the_window_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::Backstage;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The used size of the first node carrying the class `class`, in a 800 x 400 window.
+    fn height_of_class(mut dom: Dom, class: &str) -> f32 {
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 400.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let node = lr
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|n| n.has_class(class))
+            .unwrap_or_else(|| panic!("no node .{class}"));
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the node has a size")
+            .height
+    }
+
+    /// The window's column (as OfficeShell's backstage slot: `min-height: 0`) holding a
+    /// backstage whose page is a scroller over 2000 px of content.
+    fn window_with_a_tall_page() -> Dom {
+        let page = Dom::create_div()
+            .with_css(
+                "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                 overflow-y: auto;",
+            )
+            .with_child(Dom::create_div().with_css("height: 2000px; flex-shrink: 0;"));
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;",
+                    )
+                    .with_child(Backstage::office_2013().with_content(page).dom()),
+            )
+    }
+
+    #[test]
+    fn a_tall_page_scrolls_inside_the_backstage_instead_of_growing_it() {
+        for class in [
+            "__azul-native-backstage",
+            "__azul-native-backstage-right",
+            "__azul-native-backstage-content",
+        ] {
+            let h = height_of_class(window_with_a_tall_page(), class);
+            assert!(
+                h <= 400.5,
+                ".{class} is {h} px tall in a 400 px window: it grew to its page's content"
+            );
+        }
+    }
+}
