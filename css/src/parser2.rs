@@ -461,8 +461,10 @@ pub fn pseudo_selector_from_str<'a>(
     value: Option<&'a str>,
 ) -> Result<CssPathPseudoSelector, CssPseudoSelectorParseError<'a>> {
     match selector {
-        "first" => Ok(CssPathPseudoSelector::First),
-        "last" => Ok(CssPathPseudoSelector::Last),
+        // `:first-child` / `:last-child` (CSS Selectors 3 s6.6.5.6/7) are the
+        // standard names; `:first` / `:last` are azul's short ones.
+        "first" | "first-child" => Ok(CssPathPseudoSelector::First),
+        "last" | "last-child" => Ok(CssPathPseudoSelector::Last),
         // Pseudo-ELEMENT: `::placeholder`. The double colon is consumed by
         // the selector tokenizer, so both spellings arrive here as the bare
         // name; CSS 2.1 allowed a single colon for pseudo-elements and
