@@ -16871,13 +16871,7 @@ mod an_absolute_box_keeps_its_static_position_tests {
         let doc = |above: u32| {
             Dom::create_html().with_child(
                 Dom::create_body()
-                    // The node's own inline style (what the reconcile's
-                    // fingerprint reads; a `Dom::with_css` sheet is caught
-                    // by `begin_reconciliation`'s CSS diff, which this
-                    // direct API path does not run).
-                    .with_child(Dom::create_div().with_style(azul_css::css::Css::parse_inline(
-                        &alloc::format!("height: {above}px;"),
-                    )))
+                    .with_child(Dom::create_div().with_css(&alloc::format!("height: {above}px;")))
                     .with_child(Dom::create_div().with_children(page("A paragraph.").into())),
             )
         };

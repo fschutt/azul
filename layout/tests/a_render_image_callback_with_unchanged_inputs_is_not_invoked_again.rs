@@ -41,11 +41,7 @@ extern "C" fn counting_canvas(_data: RefAny, _info: RenderImageCallbackInfo) -> 
 
 /// Lay the canvas out in a window `window_width` wide. The canvas is a
 /// quarter of the window, so a resize of the WINDOW resizes it - the way a
-/// canvas changes size in an app. (Re-laying out an identical tree with a
-/// different inline `width` would not: the solver's reconcile is blind to a
-/// stylesheet change over an unchanged tree - that diff is staged by
-/// `begin_reconciliation`, which a bare `layout_and_generate_display_list`
-/// skips - so the box, and with it the canvas's inputs, would stay put.)
+/// canvas changes size in an app.
 fn lay_out(lw: &mut LayoutWindow, canvas: &ImageRef, window_width: f32) {
     let dom = Dom::create_body()
         .with_child(Dom::create_image(canvas.clone()).with_css("width: 25%; height: 50px;"));
@@ -105,8 +101,23 @@ fn a_render_image_callback_with_unchanged_inputs_is_not_invoked_again() {
     lw.prepare_frame_content();
     assert_eq!(CALLS.load(Ordering::SeqCst), 2, "a resized canvas renders again");
 
-    // Laying out again at the same size changes nothing it reads.
-    lay_out(&mut lw, &canvas, 800.0);
+    // Laying the same DOM out again at the same size (a relayout: the shells
+    // take the result out and hand its StyledDom back; a NEW DOM is a rebuild,
+    // which renders every canvas again) changes nothing it reads.
+    let retained = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .expect("laid out")
+        .styled_dom;
+    let ws = lw.current_window_state.clone();
+    lw.layout_and_generate_display_list(
+        retained,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the canvas lays out again");
     lw.prepare_frame_content();
     assert_eq!(CALLS.load(Ordering::SeqCst), 2);
 }

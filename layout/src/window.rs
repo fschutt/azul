@@ -1152,6 +1152,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         routes: _,
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
+        reconciled_dom: _,
         // One rect per NodeResized subscriber (a handful of widgets), not
         // the document.
         resize_watch: _,
@@ -1610,6 +1611,11 @@ pub struct LayoutWindow {
         DomId,
         Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     )>,
+    /// The DOM [`Self::begin_reconciliation`] reconciled for the layout pass
+    /// that follows it; taken by that pass. A new DOM the funnel receives
+    /// without one is reconciled by the funnel itself
+    /// (`layout_and_generate_display_list_impl`).
+    pub reconciled_dom: Option<DomId>,
     pub layout_cache: Solver3LayoutCache,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
@@ -2372,6 +2378,7 @@ impl LayoutWindow {
     pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
             pending_css_dirty: None,
+            reconciled_dom: None,
             e2e_mount: E2eMountOverride::default(),
             #[cfg(feature = "e2e-server")]
             e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
@@ -2697,7 +2704,7 @@ impl LayoutWindow {
     /// [`Self::layout_new_generation`] distinction.
     fn layout_and_generate_display_list_impl(
         &mut self,
-        root_dom: StyledDom,
+        mut root_dom: StyledDom,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -2712,6 +2719,31 @@ impl LayoutWindow {
         // of which scheduler decided it should.
         self.sync_frame_report();
         self.frame_report.layout_passes = self.frame_report.layout_passes.saturating_add(1);
+
+        // A NEXT DOM handed in without the engine's reconciliation before it
+        // (an embedder, a test, a document export - the shells and the E2E
+        // runner call `begin_reconciliation` themselves) is reconciled here.
+        // A relayout of the DOM already laid out takes its result out of
+        // `layout_results` first, so an old result still in place means the
+        // DOM is the next one. Without the reconciliation a style change the
+        // reconcile's per-node fingerprint cannot see - a `Dom::with_css`
+        // sheet (selector-matched: the node's own inline style stays empty),
+        // another stylesheet over an identical tree - kept the old geometry,
+        // and focus, scroll and hover state stayed on the old NodeIds.
+        let reconciled_by_caller = self.reconciled_dom.take() == Some(DomId::ROOT_ID);
+        let pending_reconciliation = if !reconciled_by_caller
+            && self.layout_results.contains_key(&DomId::ROOT_ID)
+        {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            let mut pending = self.begin_reconciliation(DomId::ROOT_ID, &mut root_dom, now);
+            self.reconciled_dom = None;
+            // No reason is known here: nothing slides after a rebuild nobody
+            // asked to animate (the shells decide that per relayout reason).
+            pending.animate_moves = false;
+            Some(pending)
+        } else {
+            None
+        };
 
         // A DOM the app just built is never an override-only frame of the
         // one the tick looked at, however alike their stamps
@@ -3087,6 +3119,12 @@ impl LayoutWindow {
             }
             self.dom_lint_stamps
                 .retain(|dom_id, _| self.layout_results.contains_key(dom_id));
+        }
+
+        // The funnel's own reconciliation completes like the shells' does,
+        // once the new geometry exists (enters, exits, the animation keys).
+        if let (Ok(()), Some(pending)) = (&result, pending_reconciliation.as_ref()) {
+            self.finish_reconciliation(DomId::ROOT_ID, pending);
         }
 
         result
@@ -14379,6 +14417,7 @@ impl LayoutWindow {
         // reconciliation — `layout_dom_recursive_impl` consumes it exactly
         // once for this DOM.
         self.pending_css_dirty = Some((dom_id, restyled.clone()));
+        self.reconciled_dom = Some(dom_id);
 
         PendingReconciliation {
             node_moves: diff.node_moves,
@@ -25577,6 +25616,7 @@ impl LayoutWindow {
             // same reconciliation that produces the remap — it is consumed by
             // the very next layout pass and never survives a second remap.
             pending_css_dirty: _,
+            reconciled_dom: _,
             // One timestamp; carries no NodeId.
             last_anim_tick: _,
             // The culled set follows its tracks (remapped below, beside them).
@@ -32623,5 +32663,86 @@ mod selection_anchor_survives_focus_tests {
             !win.text_edit_manager.has_active_editing(),
             "a caret nobody is dragging dies with the focus that owned it"
         );
+    }
+}
+
+#[cfg(test)]
+mod a_new_dom_through_the_layout_funnel_is_reconciled_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::LayoutWindow;
+    use crate::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
+
+    /// `<html><body><div style-sheet="height: {above}px"/><div class="next"/>`,
+    /// the first div's height from a `Dom::with_css` sheet: a selector-matched
+    /// sheet, so the node's own inline style stays empty.
+    fn doc(above: u32) -> StyledDom {
+        let mut dom = Dom::create_html().with_child(
+            Dom::create_body()
+                .with_child(Dom::create_div().with_css(&alloc::format!("height: {above}px;")))
+                .with_child(
+                    Dom::create_div()
+                        .with_class("next".into())
+                        .with_css("height: 20px;"),
+                ),
+        );
+        StyledDom::create(&mut dom, azul_css::css::Css::empty())
+    }
+
+    fn next_y(lw: &LayoutWindow) -> f32 {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let dom = lr
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|n| n.has_class("next"))
+            .expect("the node");
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(dom))
+            .and_then(|v| v.first())
+            .expect("laid out");
+        crate::solver3::pos_get(&lr.calculated_positions, index.index())
+            .expect("positioned")
+            .y
+    }
+
+    /// The layout funnel handed the NEXT DOM (an old layout still in place)
+    /// without `begin_reconciliation` before it - an embedder, a test, the
+    /// PDF path: a style change from a `with_css` sheet is invisible to the
+    /// reconcile's fingerprint (the node's inline style is empty) and only
+    /// the reconciliation's CSS diff names it. The funnel ran none: the
+    /// block below kept the old position.
+    #[test]
+    fn a_with_css_height_change_moves_the_block_below() {
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        lw.layout_and_generate_display_list(doc(10), &ws, &rr, &sc, &mut None)
+            .expect("the first layout");
+        let before = next_y(&lw);
+        lw.layout_and_generate_display_list(doc(60), &ws, &rr, &sc, &mut None)
+            .expect("the second layout");
+        let after = next_y(&lw);
+        assert!(
+            (after - before - 50.0).abs() < 0.5,
+            "the block below moved from y {before} to y {after}, not 50 px down"
+        );
+        // A new generation through the other entry point, back to 10 px.
+        lw.layout_new_generation(doc(10), &ws, &rr, &sc, &mut None)
+            .expect("the third layout");
+        assert!((next_y(&lw) - before).abs() < 0.5, "back at y {before}: {}", next_y(&lw));
     }
 }

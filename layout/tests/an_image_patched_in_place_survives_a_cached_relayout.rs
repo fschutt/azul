@@ -8,8 +8,7 @@
 //! image change does `Arc::make_mut(&mut display_list).patch_node_image(..)`;
 //! the solver's `cached_display_list` holds a clone of the same Arc, so
 //! `make_mut` copies and the cache keeps the PRE-PATCH list. The next
-//! relayout over the same tree (a hover change, a `RefreshDom` that changed
-//! no structure) is a cache hit and serves that pre-patch list back - and as
+//! relayout over the same tree (a hover change) is a cache hit and serves that pre-patch list back - and as
 //! the canvas's inputs did not change, nothing renders it again. The CSS
 //! transition patch path swaps the patched Arc into the cache for exactly
 //! this reason; the image chokepoint did not.
@@ -85,11 +84,23 @@ fn cached_list(lw: &LayoutWindow) -> Option<Arc<azul_layout::solver3::display_li
     lw.layout_cache.cached_display_list.as_ref().map(|c| c.5.clone())
 }
 
-/// Lay the same tree out again and check the premise: the solver served it
-/// from its cache (a fresh build would replace the cached list).
-fn relayout_from_cache(lw: &mut LayoutWindow, image: &ImageRef) {
+/// Lay the same tree out again - as the shells relayout a hover change: the
+/// result taken out of the window and its `StyledDom` handed back (a NEW DOM
+/// is a rebuild, which renders every canvas again) - and check the premise:
+/// the solver served it from its cache (a fresh build would replace the
+/// cached list).
+fn relayout_from_cache(lw: &mut LayoutWindow) {
     let before = cached_list(lw).expect("a cached list after a layout");
-    lay_out(lw, image);
+    let retained = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .expect("laid out")
+        .styled_dom;
+    let ws = lw.current_window_state.clone();
+    let rr = RendererResources::default();
+    let sc = ExternalSystemCallbacks::rust_internal();
+    lw.layout_and_generate_display_list(retained, &ws, &rr, &sc, &mut None)
+        .expect("the image lays out again");
     let after = cached_list(lw).expect("a cached list after a layout");
     assert!(
         Arc::ptr_eq(&before, &after),
@@ -119,8 +130,8 @@ fn a_canvas_frame_patched_in_place_survives_a_cached_relayout() {
     assert_eq!(FRAMES.lock().expect("frames").len(), 2, "premise: two frames");
     assert_eq!(painted(&lw), Some(newest), "premise: the new frame is patched in");
 
-    // A hover change, a RefreshDom over the same structure: a cache hit.
-    relayout_from_cache(&mut lw, &canvas);
+    // A hover change: the same tree laid out again, a cache hit.
+    relayout_from_cache(&mut lw);
     lw.prepare_frame_content();
     assert_eq!(FRAMES.lock().expect("frames").len(), 2, "nothing asked for a new frame");
     assert_eq!(
@@ -155,7 +166,7 @@ fn an_image_swapped_in_place_survives_a_cached_relayout() {
     });
     assert_eq!(painted(&lw), Some(swapped.get_hash().inner), "premise: patched in");
 
-    relayout_from_cache(&mut lw, &declared);
+    relayout_from_cache(&mut lw);
     assert_eq!(
         painted(&lw),
         Some(swapped.get_hash().inner),
