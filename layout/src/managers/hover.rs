@@ -694,6 +694,76 @@ mod autotest_generated {
         assert_eq!(events.len(), 1, "same node: one release");
     }
 
+    /// A click is a press and a release on the same CONTROL, not on the same box: the release
+    /// can land on another node of it - the content scrolled under the pointer between the two
+    /// (a press focuses a button half under the fold, and the focus scrolls it into view), or
+    /// the hand moved a pixel off the label onto the button's padding. W3C UI Events: `click`
+    /// goes to the nearest common inclusive ancestor of the press and the release targets.
+    /// AzCalendar's editor: "Save & Close" pressed on its label, released on the button, and
+    /// nothing was saved (E2E-A, 2026-10-06).
+    #[test]
+    fn a_release_on_an_ancestor_or_a_descendant_of_the_pressed_node_clicks_the_ancestor() {
+        // 3 is the button, 5 its label; `ancestor(a, d)`: a is d or one of d's ancestors.
+        fn ancestor(a: DomNodeId, d: DomNodeId) -> bool {
+            a == d || (a == press_dnid(3) && d == press_dnid(5))
+        }
+        fn clicks(events: &[SyntheticEvent]) -> Vec<DomNodeId> {
+            events
+                .iter()
+                .filter(|e| e.event_type == EventType::Click)
+                .map(|e| e.target)
+                .collect()
+        }
+        fn press_release(
+            hm: &mut HoverManager,
+            button: MouseButton,
+            press: usize,
+            release: usize,
+        ) -> Vec<SyntheticEvent> {
+            let mut events = vec![mouse_event(EventType::MouseDown, button, press_dnid(press))];
+            hm.apply_press_target_capture(&mut events, &ancestor);
+            let mut events = vec![mouse_event(EventType::MouseUp, button, press_dnid(release))];
+            hm.apply_press_target_capture(&mut events, &ancestor);
+            events
+        }
+        let mut hm = HoverManager::new();
+
+        let events = press_release(&mut hm, MouseButton::Left, 5, 3);
+        assert_eq!(
+            clicks(&events),
+            vec![press_dnid(3)],
+            "pressed on the label, released on the button: the button is clicked"
+        );
+        let events = press_release(&mut hm, MouseButton::Left, 3, 5);
+        assert_eq!(
+            clicks(&events),
+            vec![press_dnid(3)],
+            "pressed on the button, released on its label: the button is clicked"
+        );
+        let events = press_release(&mut hm, MouseButton::Left, 5, 9);
+        assert!(
+            clicks(&events).is_empty(),
+            "released on an unrelated node: no click"
+        );
+        let events = press_release(&mut hm, MouseButton::Right, 5, 3);
+        assert!(clicks(&events).is_empty(), "a right release is no click");
+
+        // A click the determination already made (press and release on one node) is not
+        // doubled.
+        let mut events = vec![mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            press_dnid(3),
+        )];
+        hm.apply_press_target_capture(&mut events, &ancestor);
+        let mut events = vec![
+            mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(3)),
+            mouse_event(EventType::Click, MouseButton::Left, press_dnid(3)),
+        ];
+        hm.apply_press_target_capture(&mut events, &ancestor);
+        assert_eq!(clicks(&events), vec![press_dnid(3)], "one click");
+    }
+
     #[test]
     fn press_targets_are_per_button_and_follow_remaps() {
         let mut hm = HoverManager::new();
