@@ -60,5 +60,20 @@ Runs: `/Users/fschutt/Development/azul/scripts/waves/tools/run_capped.sh --cap-m
   ea8bdc655 GREEN; typing over a select-all appended 1de27a73a RED, 0a990a50d GREEN.
   TextArea twin has both bugs (not changed; its test skeleton renders an empty area).
 
+## AzDashboard - PASS on today's binary
+- "timed out waiting for the sales sorted": SCRIPT - click by text is "contains"; the charts'
+  "Sales by row" came first. App.click_within(scope, text) on the DataTable headers. de76f315a.
+
+## AzDrive - PASS on today's binary
+- "timed out waiting for the paste" (another run: "Select all"): SCRIPT - Drive.ribbon() clicked
+  without the settle App.click got in 05ef3a8f4 (the HOME groups slide in). 5bc20e3c6.
+
+## AzERP - DONE pending rebuild (passes on today's binary with the lingering-modal workaround)
+- "the check-in's files": ENGINE - first press after a closed modal eaten (same as AzClock;
+  49d34f0b0 + 30fb9f06b).
+- SCRIPT: asset tabs clicked inside #__azerp_detail-tabs (the section tabs' "Maintenance" came
+  first); the refusal check reads all new AZERP_REFUSED lines. 4b35eeedf (click_within takes #id).
+  InWindow/modal_window moved to azlin_e2e (1e439d6b5) - the azerp copy lacked App.settle.
+
 ## Others
-- NEXT: AzDashboard.
+- NEXT: AzKeys, then AzMail.
