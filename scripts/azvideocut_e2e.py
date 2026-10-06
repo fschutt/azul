@@ -40,6 +40,8 @@ import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import azlin_e2e  # noqa: E402  (the shared driver: its `settle`)
 
 
 def log(line):
@@ -179,10 +181,16 @@ class App:
                 ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
+        # A tap of the chord: the key and its modifiers come up together. An op's `modifiers`
+        # are the whole modifier state at its key, so a key_up with the chord's modifiers left
+        # them held - the click after Ctrl+E was a Ctrl / Cmd + click (scripts/azlin_e2e.py).
+        self.must("key_up", key=key, modifiers={"shift": False, "ctrl": False, "alt": False, "meta": False})
         self.frame(2)
 
     def click(self, **target):
+        # Settle first, as the shared driver's click does: an entrance animation moves a node
+        # off its layout rect and the click op aims at what is painted.
+        azlin_e2e.App.settle(self, limit=2.0)
         self.must("click", **target)
         self.frame(2)
 
@@ -350,11 +358,14 @@ def run(args, logs, out, data_root):
         # 6. Export the first second.
         app.key("e", primary=True)
         app.until("the export dialog", lambda: any("First second" in t for t in app.texts()))
-        app.click(text="First second")
-        wait = app.next_line("EXPORTED", r"\S+ \d+ \w+", "the export")
-        app.click(text="Export now")
+        # The export dialog is a modal Dialog: a window of its own (`list_windows`), so its
+        # controls are clicked there - in the owner a click lands on whatever lies under them.
+        app.click(text="First second", window_id="azul-transient")
+        # The key is the project's title as a file name, spaces and all ("Sample cut.mp4").
+        wait = app.next_line("EXPORTED", r".+ \d+ \w+", "the export")
+        app.click(text="Export now", window_id="azul-transient")
         line = wait()
-        key, size, fmt = line.split(" ")
+        key, size, fmt = line.rsplit(" ", 2)
         path = os.path.join(data_root, key)
         if not os.path.isfile(path) or os.path.getsize(path) != int(size) or int(size) == 0:
             raise Failure("the export %s is not a %s-byte file at %s" % (key, size, path))
