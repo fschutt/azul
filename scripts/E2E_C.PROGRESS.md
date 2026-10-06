@@ -29,8 +29,16 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
   (/tmp/e2e-c/setup_skipbox.py), the whole rest of the script passes on today's binary.
 - Seen: Settings > General, the "Requires restart" badge's second line ("restart") hangs out of its pill.
 
-## AzSheets / AzShow / AzTasks / AzTerm / AzVideoCut / AzWriter
+## AzSheets - PASS (after two script fixes)
+- SCRIPT: its `Sheets.settle(before, what)` shadowed the helper's `settle(limit)` that every click runs since
+  05ef3a8f4 (TypeError) - renamed `await_reply`.
+- SCRIPT: the close question is a Modal (window "azul-transient"); "Cancel" was clicked in the owner window.
+  The helper's `click` now takes `window=`.
+- Seen (not a script failure): after File > New > Budget sample the grid shows stale cell borders of the
+  previous layout all over the empty cells (headless CPU repaint / damage?), screenshot sample-flat-light.png.
+
+## AzShow / AzTasks / AzTerm / AzVideoCut / AzWriter
 - status: not run yet
 
 ## NEXT
-- run AzSheets
+- run AzShow
