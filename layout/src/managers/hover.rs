@@ -238,7 +238,18 @@ impl HoverManager {
     /// in its propagation path (`in_release_path(press, release)`), a second
     /// `MouseUp` for the pressed node — delivered AT THAT TARGET ONLY, its
     /// ancestors see the real release — is appended. The release through the
-    /// hovered node is untouched (click semantics stay hover-based).
+    /// hovered node is untouched.
+    ///
+    /// CLICK ACROSS NODES. `determine_all_events` clicks a left press and
+    /// release on ONE node; this is where the tree is known (`in_release_path`),
+    /// so the rest of the W3C rule lives here: `click` goes to the nearest
+    /// common inclusive ancestor of the press and the release targets. A
+    /// release on a descendant of the pressed node clicks the pressed node; a
+    /// release on an ancestor of it clicks that ancestor (never the DOM root -
+    /// a release off every node is targeted there). The content can move
+    /// under a still pointer between the two: a press that focuses a button
+    /// half under the fold scrolls it into view, and the release lands on its
+    /// label instead of its padding (AzCalendar's "Save & Close", E2E-A).
     ///
     /// Call once per pass, after `determine_all_events`, before dispatch. A
     /// release derived from a blur (the OS handlers clear the buttons) goes
@@ -250,6 +261,8 @@ impl HoverManager {
         in_release_path: &dyn Fn(DomNodeId, DomNodeId) -> bool,
     ) {
         let mut captured_releases: Vec<SyntheticEvent> = Vec::new();
+        // (seat, the Click) of every release that completed a click across nodes.
+        let mut clicks: Vec<(u64, SyntheticEvent)> = Vec::new();
         for event in events.iter() {
             let EventData::Mouse(mouse) = &event.data else {
                 continue;
@@ -270,7 +283,34 @@ impl HoverManager {
                         continue;
                     };
                     let (_, _, press_target) = self.press_targets.remove(pos);
-                    if press_target == event.target || in_release_path(press_target, event.target) {
+                    if press_target == event.target {
+                        continue;
+                    }
+                    let press_on_path = in_release_path(press_target, event.target);
+                    if mouse.button == MouseButton::Left {
+                        let release_is_root = event.target.node.into_crate_internal()
+                            == Some(azul_core::id::NodeId::ZERO);
+                        let common = if press_on_path {
+                            Some(press_target)
+                        } else if !release_is_root && in_release_path(event.target, press_target) {
+                            Some(event.target)
+                        } else {
+                            None
+                        };
+                        if let Some(common) = common {
+                            clicks.push((
+                                mouse.seat_id,
+                                SyntheticEvent::new(
+                                    EventType::Click,
+                                    EventSource::User,
+                                    common,
+                                    event.timestamp.clone(),
+                                    event.data.clone(),
+                                ),
+                            ));
+                        }
+                    }
+                    if press_on_path {
                         continue;
                     }
                     captured_releases.push(
@@ -288,6 +328,17 @@ impl HoverManager {
             }
         }
         events.extend(captured_releases);
+        for (seat, click) in clicks {
+            // One click per release: the same-node one `determine_all_events`
+            // made stands.
+            let clicked = events.iter().any(|e| {
+                e.event_type == EventType::Click
+                    && matches!(&e.data, EventData::Mouse(m) if m.seat_id == seat)
+            });
+            if !clicked {
+                events.push(click);
+            }
+        }
     }
 
     /// (input points, total history entries across all points). Used by
@@ -674,7 +725,10 @@ mod autotest_generated {
         )];
         hm.apply_press_target_capture(&mut events, &descendant_of);
         assert_eq!(
-            events.len(),
+            events
+                .iter()
+                .filter(|e| e.event_type == EventType::MouseUp)
+                .count(),
             1,
             "no second release when the path already covers the press"
         );
