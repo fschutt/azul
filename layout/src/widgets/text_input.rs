@@ -1472,10 +1472,12 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
 
 /// Adopts the engine's text for `node` into the widget's mirror.
 ///
-/// The engine owns the buffer, so its answer wins — except that an empty answer
-/// is ambiguous: `get_text_before_textinput` also yields nothing for a node
-/// whose text sits under a block wrapper it does not descend into. An empty
-/// read therefore never clears a non-empty mirror.
+/// The engine owns the buffer, so its answer wins - an EMPTY answer included:
+/// `get_node_text_content` says `None` for a node that is not there, and a
+/// container's read descends into its value line, so `Some("")` is a field the
+/// user emptied (Backspace over the last character, select-all + Backspace).
+/// Refusing it while the mirror held text kept the deleted value, and the
+/// hook never heard the field was cleared.
 fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomNodeId) {
     // A password's engine buffer holds BULLETS: adopting it would overwrite
     // the real value with its own mask. Its edits are mirrored one by one
@@ -1486,9 +1488,6 @@ fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomN
     let Some(text) = info.get_node_text_content(node) else {
         return;
     };
-    if text.is_empty() && !state.text.is_empty() {
-        return;
-    }
     state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
 }
 
@@ -1554,7 +1553,7 @@ fn caret_byte(cursor: &azul_core::selection::TextCursor, text: &str) -> usize {
 /// (the bullets of a password).
 fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
     let cursor = info.get_node_cursor_position(node)?;
-    // An empty read is ambiguous (see `adopt_engine_text`): the cluster start then.
+    // An empty value (or none read) has no cluster to stand after: its start.
     Some(
         match info.get_node_text_content(node).filter(|t| !t.is_empty()) {
             Some(text) => caret_byte(&cursor, &text),
