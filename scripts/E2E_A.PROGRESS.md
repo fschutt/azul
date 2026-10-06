@@ -11,8 +11,13 @@ Runs: `/Users/fschutt/Development/azul/scripts/waves/tools/run_capped.sh --cap-m
   Escape went to `dismiss_menu_windows`, which closed the popup silently (no Dismissed, no
   on_close) and consumed the key. Second half: headless `deliver_forwarded_keys` is a no-op, so a
   key forwarded to a keyboard-owning popup is never replayed.
-- commits: RED (tests in dll/src/desktop/shell2/headless/mod.rs child_window_tests).
-- NEXT: GREEN for is_menu_window + deliver_forwarded_keys in headless/mod.rs.
+- commits: c0a7ef37f RED (dll/src/desktop/shell2/headless/mod.rs child_window_tests), 49d34f0b0 GREEN
+  (is_menu_window excludes mailboxes; headless deliver_forwarded_keys). Unverified (needs a rebuild).
+- proof on today's binary: a probe copy that sends the Escape to the modal's own window
+  (`window_id="azul-transient"`, what macOS does - the modal is the key window) closes the box
+  (`AZCALCULATOR_ABOUT closed`) and the whole script then PASSES (Ctrl+C copied 42).
+- the script itself is unchanged (its expectation is right).
+- DONE pending rebuild.
 
 ## Others
 - not started.
