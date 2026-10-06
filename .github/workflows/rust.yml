@@ -1006,10 +1006,11 @@ jobs:
             artifact_name: azul-macos-x86_64
             use_cross: false
             artifact_ext: dylib
-            # Intel Macs: the oldest macOS Rust 1.91 and the macos-14 Xcode build for. Without
-            # it the C parts (cc-rs) target the runner's own macOS and the Intel demos linked
-            # against this libazul.a would not start on an older Intel Mac.
-            macos_deployment_target: "10.13"
+            # Intel Macs: the oldest macOS rustc 1.91 builds for (it raises anything lower to
+            # 10.12: its std calls clock_gettime, 10.12). Without it the C parts (cc-rs) target
+            # the runner's own macOS, and the Intel demos linked against this libazul.a would not
+            # start on an older Intel Mac.
+            macos_deployment_target: "10.12"
           - target: powerpc64-unknown-linux-gnu
             runner: ubuntu-22.04
             artifact_name: azul-linux-ppc64
@@ -2509,7 +2510,7 @@ jobs:
             artifact_name: azul-demos-macos-intel
             dll_artifact: azul-macos-x86_64
             target: x86_64-apple-darwin
-            macos_deployment_target: "10.13"
+            macos_deployment_target: "10.12"
           - os: windows-2022
             label: Windows
             os_suffix: windows
@@ -2712,15 +2713,22 @@ jobs:
               missing_staged=1
             fi
           done
-          # (an Intel leg must not ship an arm64 binary: the Mac it is for says "bad CPU type")
+          # (an Intel leg must not ship an arm64 binary: the Mac it is for says "bad CPU type";
+          # nor one that asks for a newer macOS than the release page promises)
           if [ -n "${{ matrix.target }}" ] && command -v lipo >/dev/null 2>&1; then
             for f in demos-staging/*; do
               case "$f" in *.json) continue;; esac
               archs=$(lipo -archs "$f" 2>/dev/null || echo "?")
-              echo "  $f: $archs"
+              minos=$(otool -l "$f" | awk '/LC_VERSION_MIN_MACOSX/ {v=1} v && $1 == "version" {print $2; exit}
+                                          /LC_BUILD_VERSION/ {b=1} b && $1 == "minos" {print $2; exit}')
+              echo "  $f: $archs, macOS $minos and later"
               case "${{ matrix.target }}" in
                 x86_64-apple-darwin) [ "$archs" = "x86_64" ] || { echo "::error::$f is '$archs', not x86_64"; exit 1; } ;;
               esac
+              if [ -n "${{ matrix.macos_deployment_target }}" ] && [ "$minos" != "${{ matrix.macos_deployment_target }}" ]; then
+                echo "::error::$f needs macOS $minos, not ${{ matrix.macos_deployment_target }}"
+                exit 1
+              fi
             done
           fi
           ls -la demos-staging/ || echo "No demos staged"

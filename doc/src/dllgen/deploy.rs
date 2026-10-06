@@ -2351,9 +2351,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let os_groups: &[(&str, &str, fn(&str) -> bool)] = &[
         ("Linux", "demos/{c}-linux", |_| true),
         // Apple Silicon and Intel apart: an arm64 binary on an Intel Mac only says "bad CPU
-        // type in executable". The Intel ones run on macOS 10.13 (High Sierra) and later.
+        // type in executable". The Intel ones run on macOS 10.12 (Sierra) and later.
         ("macOS (M1+)", "demos/{c}-macos", |_| true),
-        ("macOS (Intel, 10.13+)", "demos/{c}-macos-intel", |_| true),
+        ("macOS (Intel, 10.12+)", "demos/{c}-macos-intel", |_| true),
         ("Windows", "demos/{c}-windows.exe", |_| true),
         (
             "iOS device (.ipa, signed)",
