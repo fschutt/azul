@@ -28,8 +28,6 @@ FAIL css/CSS2/lists/list-style-position-023.xht E-OL # OPEN 2026-10-06: WPT-REG 
 FAIL css/CSS2/lists/reset-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
 FAIL css/CSS2/tables/border-collapse-empty-row.html E-TABLE-BC # needs :not() - the reference thickens its cells with `tr:not(:last-child) td` (the inline-table painting is fixed); gate 2026-10-06: maxdiff 127 pixels 4000
 FAIL css/CSS2/tables/border-collapse-offset-002.xht E-TABLE-BC # the caption is laid out INSIDE the table box: a collapsed table's half border (2px) offsets it, Chrome's wrapper box keeps it outside; gate 2026-10-06: maxdiff 255 pixels 1051
-FAIL css/CSS2/tables/height-table-cell-001.xht E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
-FAIL css/CSS2/tables/height-width-table-001.xht E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/CSS2/tables/separated-border-model-004a.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 27816
 FAIL css/CSS2/tables/separated-border-model-004b.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 28116
 FAIL css/CSS2/tables/separated-border-model-007.xht E-TABLE # match separated-border-model-007-ref.xht: maxdiff 8 pixels 1
@@ -43,9 +41,6 @@ FAIL css/css-backgrounds/background-color-clip.html E-BG # match background-colo
 FAIL css/css-backgrounds/background-margin-root.html E-BG # match background-margin-root-ref.html: maxdiff 255 pixels 402224
 FAIL css/css-color-adjust/rendering/dark-color-scheme/color-scheme-rule-cache.html E-MODE # match color-scheme-rule-cache-ref.html: maxdiff 255 pixels 8339
 FAIL css/css-images/color-stop-currentcolor.html E-GRAD # match color-stop-currentcolor-ref.html: maxdiff 205 pixels 468864
-FAIL css/css-images/gradient/gradient-single-stop-001.html E-GRAD # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 14681
-FAIL css/css-images/gradient/gradient-single-stop-002.html E-GRAD # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 14681
-FAIL css/css-images/gradient/gradient-single-stop-003.html E-GRAD # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 14681
 FAIL css/css-images/gradients-with-border.html E-GRAD # match gradients-with-border-ref.html: maxdiff 255 pixels 8006
 FAIL css/css-images/gradients-with-transparent.html E-GRAD # match gradients-with-transparent-ref.html: maxdiff 64 pixels 31914
 FAIL css/css-images/normalization-linear-degenerate.html E-GRAD # match 100x100-blue.html: maxdiff 255 pixels 5000

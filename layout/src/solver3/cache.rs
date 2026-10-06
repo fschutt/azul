@@ -2104,7 +2104,6 @@ pub fn reconcile_recursive(
             )
         }
     };
-
     // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).
     let dirty_flag = old_cold.map_or_else(
         || {
@@ -3677,6 +3676,18 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
                 )
             });
         super::pos_set(calculated_positions, child_index, static_pos);
+        // ...and kept relative to the parent like an in-flow child's: a
+        // parent laid out at a provisional origin and moved afterwards
+        // re-derives its children from `relative_position`
+        // (`position_bfc_child_descendants`), which put the box back at the
+        // parent's content-box origin - over the paragraph before it (WPT
+        // css/CSS2/tables/height-table-cell-001). Only a recorded one: a
+        // flex / grid container's taffy already wrote its children's.
+        if let Some(rel) = static_positions.get(&child_index) {
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(child_index)) {
+                warm.relative_position = Some(*rel);
+            }
+        }
 
         // Perform full layout for the absolutely positioned child so its
         // inline_layout_result is populated (text rendering needs this).
