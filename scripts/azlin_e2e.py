@@ -272,39 +272,48 @@ class App:
     def nodes_with_class(self, cls):
         return [n["index"] for n in self.hierarchy() if cls in (n.get("classes") or [])]
 
-    def _within(self, cls):
-        """The window's nodes, and a test: does a node lie inside a node of the class `cls`?"""
+    def _within(self, scope):
+        """The window's nodes, and a test: does a node lie inside the node(s) `scope` names -
+        `#id` an id, anything else a class (a leading `.` optional)?"""
         nodes = self.hierarchy()
         by_index = {n["index"]: n for n in nodes}
+        if scope.startswith("#"):
+            def matches(node):
+                return node.get("id") == scope[1:]
+        else:
+            cls = scope[1:] if scope.startswith(".") else scope
+
+            def matches(node):
+                return cls in (node.get("classes") or [])
 
         def inside(node):
             for _ in range(256):
                 if node is None:
                     return False
-                if cls in (node.get("classes") or []):
+                if matches(node):
                     return True
                 node = by_index.get(node.get("parent"))
             return False
 
         return nodes, inside
 
-    def texts_within(self, cls):
-        """The texts of the window whose node lies inside a node carrying the class `cls`
-        (`shows` reads every text - a search field holding the word included)."""
-        nodes, inside = self._within(cls)
+    def texts_within(self, scope):
+        """The texts of the window whose node lies inside the node(s) `scope` names (`#id` or a
+        class; `shows` reads every text - a search field holding the word included)."""
+        nodes, inside = self._within(scope)
         return [n["text"] for n in nodes if n.get("text") and inside(n)]
 
-    def click_within(self, cls, text, frames=2):
-        """Clicks the node holding exactly `text` inside a node of the class `cls`, once it is
-        there (a click by text takes the first node CONTAINING the text anywhere: a chart's
-        "Sales by row" before the table's "Sales" header)."""
+    def click_within(self, scope, text, frames=2):
+        """Clicks the node holding exactly `text` inside the node(s) `scope` names (`#id` or a
+        class), once it is there (a click by text takes the first node CONTAINING the text
+        anywhere: a chart's "Sales by row" before the table's "Sales" header)."""
         def found():
-            nodes, inside = self._within(cls)
+            nodes, inside = self._within(scope)
             for n in nodes:
                 if n.get("text") == text and inside(n):
                     return n.get("parent", n["index"])
             return None
-        node = self.until('the text "%s" in .%s' % (text, cls), found)
+        node = self.until('the text "%s" in %s' % (text, scope), found)
         self.settle(limit=2.0)
         self.must("click", node_id=node)
         self.frame(frames)
