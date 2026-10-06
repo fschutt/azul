@@ -15957,6 +15957,74 @@ mod window_layout_tests {
             );
         }
     }
+
+    /// Where the first marker glyph of list item `item` (a DOM node) sits,
+    /// relative to the content box of the IFC holding it: the item's own
+    /// line layout, else its marker box's (which sits at the item's content
+    /// start).
+    fn marker_x(lw: &LayoutWindow, item: usize) -> f32 {
+        let tree = &lw.layout_results[&DomId::ROOT_ID].layout_tree;
+        let li = tree
+            .dom_to_layout
+            .get(&NodeId::new(item))
+            .and_then(|v| v.first())
+            .expect("the item is laid out")
+            .index();
+        std::iter::once(li)
+            .chain(tree.children(li).iter().copied())
+            .filter_map(|host| tree.materialized_inline_layout_for_node(host))
+            .find_map(|layout| {
+                layout.items.iter().find_map(|it| match &it.item {
+                    crate::text3::cache::ShapedItem::Cluster(c)
+                        if c.marker_position_outside.is_some() =>
+                    {
+                        Some(it.position.x)
+                    }
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| panic!("list item {item} has a marker"))
+    }
+
+    #[test]
+    fn an_empty_list_items_marker_hangs_where_a_full_ones_does() {
+        // WPT css/CSS2/lists/list-style-type-applies-to-009: the square of
+        // an EMPTY list item was 4px (a space) closer to the content than
+        // the square of an item with text. The marker text ends in a space
+        // ("\u{25AA} "); alone on its line - an empty item's marker is a
+        // line of its own - that space was the line's trailing white space
+        // and was stripped, so the marker, placed by its width, moved in by
+        // it. A marker's space is part of the marker (Chrome's UA sheet:
+        // `::marker { white-space: pre }`) whatever follows it.
+        // `body(0) > [div.li(1) > span(2) > "Item"(3)], [div.li(4)]`.
+        let page = || {
+            let li = || {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("li".into())].into())
+            };
+            Dom::create_body()
+                .with_child(li().with_child(Dom::create_span_with_text("Item")))
+                .with_child(li())
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; } .li { display: list-item; list-style-type: square; \
+                 margin-left: 96px; line-height: 20px; }",
+            ),
+        );
+        let full = marker_x(&lw, 1);
+        let empty = marker_x(&lw, 4);
+        assert!(
+            full < 0.0,
+            "harness: an outside marker hangs before its item's content: {full}"
+        );
+        assert!(
+            (full - empty).abs() < 0.01,
+            "the empty item's marker hangs where the full item's does: {empty} vs {full}"
+        );
+    }
 }
 
 /// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
