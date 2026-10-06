@@ -117,6 +117,27 @@ def drag_onto(app, source, target):
     app.drag(x0, y0, x1, y1)
 
 
+def planned_box(app, date, title):
+    """The box of the task `title` in the planned month's day `date`, or None. A day's FIRST
+    planned task is not the one to drag: the sample has tasks of its own on tomorrow, and the
+    drag moved one of them."""
+    nodes = {n["index"]: n for n in app.hierarchy()}
+    day_id = app.name("month-day-%s" % date.isoformat())
+    task_class = app.name("planned-task")
+    for n in nodes.values():
+        if title not in (n.get("text") or ""):
+            continue
+        at = n
+        while at is not None and task_class not in (at.get("classes") or []):
+            at = nodes.get(at.get("parent"))
+        if at is None or (nodes.get(at.get("parent")) or {}).get("id") != day_id:
+            continue
+        r = (app.value("get_node_layout", node_id=at["index"]) or {}).get("rect") or {}
+        if r.get("width"):
+            return {key: float(r.get(key, 0)) for key in ("x", "y", "width", "height")}
+    return None
+
+
 def planned_and_board(app, data_dir, ferns, ferns_list, plumber, tomorrow, out):
     """Scheduled as the planned month (a drag onto a day moves the due day), the list as its
     board (a drag onto Doing starts a task). An older build has no layout switch: skipped."""
@@ -129,9 +150,8 @@ def planned_and_board(app, data_dir, ferns, ferns_list, plumber, tomorrow, out):
     switch_layout(app, True)
     app.until("AZTASKS_LAYOUT scheduled month",
               lambda: "scheduled month" in app.printed("AZTASKS_LAYOUT", r".+"))
-    day = app.sel("month-day-%s" % tomorrow.isoformat())
-    ferns_there = "%s .%splanned-task" % (day, app.prefix)
-    app.until("the ferns on tomorrow in the planned month", lambda: app.has(ferns_there))
+    ferns_on = lambda date: planned_box(app, date, "Water the ferns")
+    app.until("the ferns on tomorrow in the planned month", lambda: ferns_on(tomorrow))
     app.screenshot(os.path.join(out, "planned-month.png"))
     # Next month, and back to this one.
     first = (tomorrow - datetime.timedelta(days=1)).replace(day=1)  # the month shown: today's
@@ -142,13 +162,16 @@ def planned_and_board(app, data_dir, ferns, ferns_list, plumber, tomorrow, out):
     app.until("AZTASKS_MONTH %s" % next_month, lambda: next_month in app.printed("AZTASKS_MONTH", r"\S+")[seen:])
     app.click(selector=app.sel("month-today"))
     app.frame(2)
-    app.until("this month again", lambda: app.has(ferns_there))
+    app.until("this month again", lambda: ferns_on(tomorrow))
     # A drag onto the day after: due then (the time and the repeat kept); and back.
     later = tomorrow + datetime.timedelta(days=1)
-    for source, target, due in ((ferns_there, app.sel("month-day-%s" % later.isoformat()), later),
-                                ("%s .%splanned-task" % (app.sel("month-day-%s" % later.isoformat()), app.prefix),
-                                 day, tomorrow)):
-        drag_onto(app, source, target)
+    for start, due in ((tomorrow, later), (later, tomorrow)):
+        app.settle()
+        source = app.until("the ferns on %s" % start, lambda: ferns_on(start))
+        target = app.box(app.sel("month-day-%s" % due.isoformat()))
+        (x0, y0), (x1, y1) = centre(source), centre(target)
+        log("dragging the ferns from %s (%.0f, %.0f) onto %s (%.0f, %.0f)" % (start, x0, y0, due, x1, y1))
+        app.drag(x0, y0, x1, y1)
         app.until("AZTASKS_DUE %s %s" % (ferns, due),
                   lambda: "%s %s" % (ferns, due.isoformat()) in app.printed("AZTASKS_DUE", r".+"))
         wait_file(app, data_dir, ferns_list, ferns, lambda t: t.get("due") == due.isoformat(), "the due day %s" % due)
