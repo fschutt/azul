@@ -2522,6 +2522,7 @@ mod autotest_generated {
         hit: DomNodeId,
         keycode: Option<VirtualKeyCode>,
         changeset: Option<PendingTextEdit>,
+        selection: Option<azul_core::selection::SelectionRange>,
     }
 
     impl Env {
@@ -2531,7 +2532,29 @@ mod autotest_generated {
                 hit: dom_node(CONTAINER),
                 keycode: None,
                 changeset: None,
+                selection: None,
             }
+        }
+
+        /// A live selection in the field, as the engine holds it: from before the cluster
+        /// at byte `from` to after the cluster at byte `last` (a Ctrl+A over "krug" is
+        /// `selecting(0, 3)`).
+        fn selecting(mut self, from: u32, last: u32) -> Self {
+            use azul_core::selection::{
+                CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor,
+            };
+            let cursor = |byte: u32, affinity: CursorAffinity| TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: byte,
+                },
+                affinity,
+            };
+            self.selection = Some(SelectionRange {
+                start: cursor(from, CursorAffinity::Leading),
+                end: cursor(last, CursorAffinity::Trailing),
+            });
+            self
         }
 
         fn hit(mut self, hit: DomNodeId) -> Self {
@@ -2575,6 +2598,14 @@ mod autotest_generated {
             .insert(DomId::ROOT_ID, layout_result(env.styled_dom));
         if let Some(changeset) = env.changeset {
             layout_window.text_input_manager.set_changeset(changeset);
+        }
+        if let Some(range) = env.selection {
+            use azul_core::selection::{MultiCursorState, TextBlock, TextBlockKey};
+            let block =
+                TextBlock::from_resolved(DomId::ROOT_ID, TextBlockKey::Element(NodeId::new(0)));
+            let mut session = MultiCursorState::new_with_cursor(range.end, block, 0);
+            session.set_single_range(range);
+            layout_window.text_edit_manager.multi_cursor = Some(session);
         }
         let layout_window = layout_window;
 
@@ -4059,6 +4090,36 @@ mod autotest_generated {
         let seen = recorded(&probe);
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].get_text(), "");
+    }
+
+    /// Typing over a selection REPLACES it: the engine deletes the live selection before it
+    /// inserts, so the hook's preview - and the mirror - must too. Select-all + "e" in a field
+    /// holding "krug" handed the hook "kruge": AzContacts searched for that, and its rebuild
+    /// wrote it back into the field (E2E-A, 2026-10-06).
+    #[test]
+    fn typing_over_a_select_all_replaces_the_value() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create()
+                .with_text("krug".into())
+                .with_on_text_input(
+                    probe.clone(),
+                    record_text_input as TextInputOnTextInputCallbackType,
+                ),
+        );
+        // Ctrl+A over "krug": before 'k' to after 'g' (its cluster starts at byte 3).
+        let (update, _, _) = run(Env::new(styled_dom).insert("e").selecting(0, 3), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(update, Update::RefreshDom);
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0].get_text(),
+            "e",
+            "the hook was shown the typed text appended to the selected value"
+        );
+        assert_eq!(state_of(&state).get_text(), "e");
     }
 
     #[test]
