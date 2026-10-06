@@ -237,10 +237,12 @@ class Run:
             return data.get('value') if isinstance(data, dict) and 'value' in data else data
         azlin_e2e.settle_animations(animations, lambda: self.frame(window), limit)
 
-    def click(self, text, window=None):
+    def click(self, text, window=None, closes=False):
+        """Clicks `text` in `window`; `closes`: the click closes that window, so the frame is
+        the main window's (a closed window answers no frame)."""
         self.settle(window)
         self.must('click', window, text=text)
-        self.frame(window)
+        self.frame(None if closes else window)
 
     def click_id(self, dom_id, window=None):
         self.settle(window)
@@ -429,7 +431,12 @@ class Run:
                    lambda: '__azmail_compose_body' in self.focused_selector(window) or self._focus_editor(window))
         self.must('text_input', window, text=TYPED)
         self.frame(window, 2)
-        self.until('the typed line in the editor', lambda: self.shows(TYPED, window))
+        # Typing in the rich-text editor does not rebuild its DOM (the engine edits, the editor
+        # follows: RichTextEditor's "Path 2"), so the window's node texts never show the line;
+        # the caret does - past the typed line, in the first block. The mail the sink gets
+        # carries the line itself (check_sink).
+        self.until('the typed line in the editor', lambda: self.caret(window) == (
+            'p#__azmail_compose_body-0.__azul-rte-block', len(TYPED.encode('utf-8'))))
         self.click_id('__azmail_compose_send', window)
         sent = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
                                                if line.startswith(window + ' ')])
@@ -445,6 +452,25 @@ class Run:
         self.must('focus_node', window, selector='#__azmail_compose_body')
         self.frame(window)
         return False
+
+    def other_window(self, known):
+        """The id of an open window not in `known` (a Modal's own window), else None."""
+        answer = self.must('list_windows')
+        data = answer.get('data') if isinstance(answer, dict) else None
+        value = data.get('value') if isinstance(data, dict) and 'value' in data else data
+        ids = [w.get('window_id') for w in (value or {}).get('windows') or []]
+        others = [i for i in ids if i not in known]
+        return others[0] if others else None
+
+    def caret(self, window=None):
+        """(the block the caret is in - its selector -, the caret's byte in it), else None."""
+        answer = self.must('get_selection_state', window)
+        value = ((answer.get('data') or {}).get('value') or {}) if isinstance(answer, dict) else {}
+        for sel in value.get('selections') or []:
+            for r in sel.get('ranges') or []:
+                if r.get('selection_type') == 'cursor':
+                    return sel.get('selector') or '', r.get('cursor_position')
+        return None
 
     def check_sink(self):
         path = os.path.join(self.sink_dir, '0001.eml')
@@ -510,7 +536,7 @@ class Run:
             drafts = [json.loads(line) for line in f if line.strip()]
         if [d['subject'] for d in drafts] != ['Bulb order']:
             raise Failure(f'mail/drafts holds {drafts}')
-        self.click('Discard', window)
+        self.click('Discard', window, closes=True)
         self.until('the draft window to close', lambda: window in self.printed(
             'AZMAIL_COMPOSE_CLOSED'))
         log('a new mail saved as a draft in mail/drafts, then discarded')
@@ -682,7 +708,12 @@ class SampleRun(Run):
                        lambda: self.shows('Do you want to save changes', window), limit=20)
             asked = window not in self.printed('AZMAIL_COMPOSE_CLOSED')
             self.check('closing an edited mail asks "save changes?" and keeps the window', asked)
-            self.click("Don't Save", window)
+            # The question is a Modal: a window of its own over the compose window (the
+            # CloseGuard's MessageBox in a <transient-window>), where the click lands - its
+            # nodes in the compose window's DOM have no box there. The answer closes both.
+            question = self.until('the question\'s window', lambda: self.other_window(
+                ('azmail-main', window)), limit=20)
+            self.click("Don't Save", question, closes=True)
             self.until('the compose window to close', lambda: window in self.printed(
                 'AZMAIL_COMPOSE_CLOSED'), limit=20)
             self.check('"Don\'t Save" closes the window', True)
