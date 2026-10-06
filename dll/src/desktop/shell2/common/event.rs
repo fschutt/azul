@@ -5249,11 +5249,23 @@ pub trait PlatformWindow {
             return;
         };
         let outcome = super::transient::sync_parent(parent_id, &parent_state, lw);
+        let close_owner = super::transient::take_close_owner(lw);
         for options in outcome.create {
             self.queue_window_create(options);
         }
         if outcome.wake_all {
             self.request_regeneration_all_windows();
+        }
+        // A popup's `close_window()` meant this window (`post_close_owner`):
+        // the same request `CallbackChange::CloseWindow` raises here.
+        if close_owner {
+            if !self.get_current_window_state().flags.close_requested {
+                self.get_common_mut().close_unconfirmed = true;
+            }
+            self.get_common_mut()
+                .update_window_state(WindowStateSource::App, |ws| {
+                    ws.flags.close_requested = true;
+                });
         }
     }
 
@@ -6189,6 +6201,15 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::CloseWindow => {
+                // In a transient popup (a Modal), "the window" is the OWNER:
+                // the popup shows the owner's subtree, so a Don't Save in a
+                // close question, or a save write-back its Save started,
+                // closes the document window - and the popup with it. It
+                // used to close only the popup (E2E-C, AzWriter).
+                if super::transient::post_close_owner(self.get_current_window_state()) {
+                    self.request_regeneration_all_windows();
+                    return ProcessEventResult::DoNothing;
+                }
                 // A REQUEST, like the window manager's: the backend's loop runs
                 // the close protocol for it (`confirm_app_close`) after this
                 // frame, so the app's CloseRequested callbacks can veto it.

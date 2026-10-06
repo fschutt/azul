@@ -135,6 +135,11 @@ pub struct TransientWindowData {
     /// happens ONCE per window: a click on nothing that clears focus later
     /// must not be undone by the next pass.
     pub autofocused: bool,
+    /// Popup → parent: a callback in the popup asked to close THE window
+    /// (`CallbackInfo::close_window`) - the parent, whose subtree the popup
+    /// shows ([`post_close_owner`]). A Modal's Don't Save, or a save
+    /// write-back a Modal's Save started (E2E-C, AzWriter).
+    pub close_owner: bool,
 }
 
 /// One keyboard transition a parent received while its popup held the
@@ -423,6 +428,7 @@ pub fn popup_create_options(
         forwarded_keys: Vec::new(),
         takes_focus: true,
         autofocused: false,
+        close_owner: false,
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
@@ -493,6 +499,7 @@ pub fn toplevel_create_options(
         forwarded_keys: Vec::new(),
         takes_focus: true,
         autofocused: false,
+        close_owner: false,
     });
 
     // A torn-off panel is exactly the popover the picker uses, only `torn`:
@@ -1187,6 +1194,37 @@ pub fn post_dismissed(state: &FullWindowState) -> bool {
         }
         write(&m, |d| d.dismissed = true)
     })
+}
+
+/// The popup side: a callback in this popup asked to close THE window
+/// (`CallbackInfo::close_window`). The popup's content is the parent's
+/// subtree, so the window meant is the parent (a Modal's Don't Save, a save
+/// write-back a Modal's Save started): post it to the parent, which closes -
+/// through its close protocol - and takes the popup with it. `false` when
+/// this is no popup, or a torn-off toplevel (a window of its own, which
+/// closes itself and reports `dismissed`).
+pub fn post_close_owner(state: &FullWindowState) -> bool {
+    mailbox_of(state).is_some_and(|m| {
+        if read(&m, |d| d.torn || d.closed).unwrap_or(true) {
+            return false;
+        }
+        write(&m, |d| d.close_owner = true)
+    })
+}
+
+/// The parent side: did one of this window's popups ask to close this window
+/// ([`post_close_owner`])? Takes the requests.
+pub fn take_close_owner(lw: &LayoutWindow) -> bool {
+    let mut any = false;
+    for w in lw.transient_windows.open_windows() {
+        if let OptionRefAny::Some(m) = &w.surface {
+            if read(m, |d| d.close_owner).unwrap_or(false) {
+                write(m, |d| d.close_owner = false);
+                any = true;
+            }
+        }
+    }
+    any
 }
 
 /// The popup side: the window is closing for ANY reason the parent did not
