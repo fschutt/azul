@@ -1514,25 +1514,57 @@ fn engine_selection(
     }))
 }
 
+/// The engine's live selection in `node` as the byte range `[from, to)` of
+/// `text` (the value before the edit), each end through its affinity
+/// (`caret_byte`: a trailing end stands after its cluster). `None` without a
+/// selection, for a collapsed one, or off `text`'s character boundaries.
+fn engine_selected_bytes(
+    info: &CallbackInfo,
+    node: DomNodeId,
+    text: &str,
+) -> Option<(usize, usize)> {
+    let ranges = info.get_node_selection_ranges(node);
+    let range = *ranges.as_ref().first()?;
+    let a = caret_byte(&range.start, text);
+    let b = caret_byte(&range.end, text);
+    let (from, to) = (a.min(b), a.max(b));
+    (from < to && text.is_char_boundary(from) && text.is_char_boundary(to)).then_some((from, to))
+}
+
 /// Mirrors the insertion the engine is about to apply.
 ///
-/// The engine inserts at the caret, so the mirror does too whenever the caret
-/// is readable and lands on a character boundary; otherwise it appends, which
-/// is where the caret sits for every append-only path. `cursor_pos` stays a
-/// byte offset, as it has always been.
-fn mirror_insertion(state: &mut TextInputState, inserted: &str, caret: Option<usize>) {
+/// The engine replaces a live selection (`selected`, from
+/// [`engine_selected_bytes`]) with the typed text - select-all and typing
+/// replaces the value - and otherwise inserts at the caret; the mirror does
+/// the same whenever the caret is readable and lands on a character boundary,
+/// else it appends, which is where the caret sits for every append-only path.
+/// `cursor_pos` stays a byte offset, as it has always been.
+fn mirror_insertion(
+    state: &mut TextInputState,
+    inserted: &str,
+    caret: Option<usize>,
+    selected: Option<(usize, usize)>,
+) {
     let text = state.get_text();
-    let at = caret
-        .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
-        .unwrap_or(text.len());
+    let (from, to) = match selected.filter(|&(a, b)| {
+        a < b && b <= text.len() && text.is_char_boundary(a) && text.is_char_boundary(b)
+    }) {
+        Some(range) => range,
+        None => {
+            let at = caret
+                .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
+                .unwrap_or(text.len());
+            (at, at)
+        }
+    };
 
     let mut next = String::with_capacity(text.len() + inserted.len());
-    next.push_str(&text[..at]);
+    next.push_str(&text[..from]);
     next.push_str(inserted);
-    next.push_str(&text[at..]);
+    next.push_str(&text[to..]);
 
     state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
-    state.cursor_pos = at.saturating_add(inserted.len());
+    state.cursor_pos = from.saturating_add(inserted.len());
 }
 
 /// The caret's byte offset inside the edited node, if the engine has one.
@@ -2082,6 +2114,9 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_input.inner, &info, container);
+    // The selection the engine replaces with the typed text, in the value as
+    // it stands before the edit.
+    let selected = engine_selected_bytes(&info, container, &text_input.inner.get_text());
 
     // maxlength: veto an insertion that would GROW the value past `max_len`
     // (counted in characters, the stored unit). Replacement-aware: the engine
@@ -2123,7 +2158,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
         // inner_clone has the new text
         let mut inner_clone = text_input.inner.clone();
-        mirror_insertion(&mut inner_clone, &inserted_text, caret);
+        mirror_insertion(&mut inner_clone, &inserted_text, caret, selected);
         let len = inner_clone.get_text().len();
         inner_clone.selection = engine_selection(&info, container, len).into();
         inner_clone.validity = validity_of(&inner_clone);
@@ -2143,7 +2178,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         // No placeholder bookkeeping: the first accepted character makes the
         // line non-empty, and the engine simply stops painting the prompt on
         // the next display list.
-        mirror_insertion(&mut text_input.inner, &inserted_text, caret);
+        mirror_insertion(&mut text_input.inner, &inserted_text, caret, selected);
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
         text_input.inner.validity = validity_of(&text_input.inner);
