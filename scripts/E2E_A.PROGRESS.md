@@ -42,5 +42,23 @@ Runs: `/Users/fschutt/Development/azul/scripts/waves/tools/run_capped.sh --cap-m
   (built 03:14, before 30fb9f06b) and headless dismiss_menu_windows ate the press (49d34f0b0).
 - proof: with the schedule check relaxed and a second click after each modal, the script PASSES.
 
+## AzCode - PASS (both runs) on today's binary
+- "one undo did not take back every replacement": SCRIPT - shows() read the find/replace fields
+  ("counts"/"tally"); code_shows() reads the code view's lines (App.texts_within). 524e9fc58.
+- seen broken (not asserted): after replace-all, every replaced identifier keeps the old width (a
+  gap: "word_tally (text"); after the Return at Ctrl+Home, line 2 is drawn indented and the gutter's
+  line numbers overlap (3-saved.png). Engine relayout of changed text runs - for a layout agent.
+
+## AzContacts - DONE pending rebuild (steps 1-6 pass on today's binary with a probe workaround)
+- "searching krug: expected '1', last None": ENGINE (layout) - the search field's input (flex-grow
+  item of the field's flex row) is 6 px in a 148 px field on the first layout and after any restyle;
+  a resize relays it out right. Also the card's notes wrap one word per line. RED 2ba1d6c3a in
+  layout/src/solver3/fc.rs (a_flex_items_content_takes_its_final_width_tests); NO GREEN (needs a
+  layout agent with a compiler; suspects 889dccf30 + measure/final caching in taffy_bridge).
+- "the whole list again": SCRIPT (the row click took the focus; focus_search first, 413217160) +
+  ENGINE (widgets/text_input.rs): an emptied field never told its hook (adopt guard) b23659c09 RED,
+  ea8bdc655 GREEN; typing over a select-all appended 1de27a73a RED, 0a990a50d GREEN.
+  TextArea twin has both bugs (not changed; its test skeleton renders an empty area).
+
 ## Others
-- NEXT: AzCode.
+- NEXT: AzDashboard.
