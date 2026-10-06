@@ -1260,6 +1260,43 @@ mod tests {
             assert_eq!(*ft, parsed, "Roundtrip failed for {ft:?}");
         }
     }
+
+    #[test]
+    fn font_size_keywords_parse_to_the_sizes_browsers_use() {
+        // CSS Fonts 4 s2.5: `font-size` takes the absolute-size keywords
+        // (`xx-small` .. `xxx-large`, Chrome's px at the 16px default) and the
+        // relative ones (`smaller` / `larger`, the step the UA sheet's
+        // `small` / `big` take). A keyword was a parse error, so the whole
+        // declaration was dropped: WPT local/ua/small-is-smaller's reference
+        // (`.s { font-size: smaller }`) kept the parent's size while the
+        // test's `<small>` shrank.
+        for (keyword, px) in [
+            ("xx-small", 9.0),
+            ("x-small", 10.0),
+            ("small", 13.0),
+            ("medium", 16.0),
+            ("large", 18.0),
+            ("x-large", 24.0),
+            ("xx-large", 32.0),
+            ("xxx-large", 48.0),
+        ] {
+            assert_eq!(
+                parse_style_font_size(keyword).map(|f| f.inner),
+                Ok(PixelValue::px(px)),
+                "font-size: {keyword}"
+            );
+        }
+        assert_eq!(
+            parse_style_font_size("smaller").map(|f| f.inner),
+            Ok(PixelValue::const_em_fractional(0, 83)),
+            "smaller: the UA sheet's `small` step"
+        );
+        assert_eq!(
+            parse_style_font_size(" Larger ").map(|f| f.inner),
+            Ok(PixelValue::const_em_fractional(1, 2)),
+            "larger (keywords are ASCII case-insensitive)"
+        );
+    }
 }
 
 #[cfg(test)]
