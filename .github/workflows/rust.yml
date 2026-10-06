@@ -1166,6 +1166,11 @@ jobs:
             artifact_name: azul-macos-x86_64
             use_cross: false
             artifact_ext: dylib
+            # Intel Macs: the oldest macOS rustc 1.91 builds for (it raises anything lower to
+            # 10.12: its std calls clock_gettime, 10.12). Without it the C parts (cc-rs) target
+            # the runner's own macOS, and the Intel demos linked against this libazul.a would not
+            # start on an older Intel Mac.
+            macos_deployment_target: "10.12"
           - target: powerpc64-unknown-linux-gnu
             runner: ubuntu-22.04
             artifact_name: azul-linux-ppc64
@@ -1198,10 +1203,10 @@ jobs:
           path: |
             target/${{ matrix.target }}/prod-release
             target/codegen
-          key: cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
+          key: cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}${{ matrix.macos_deployment_target && format('-macos{0}', matrix.macos_deployment_target) || '' }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('css/src/**/*.rs', 'core/src/**/*.rs', 'layout/src/**/*.rs', 'dll/src/**/*.rs', 'dll/build.rs') }}
           restore-keys: |
-            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-
-            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}-
+            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}${{ matrix.macos_deployment_target && format('-macos{0}', matrix.macos_deployment_target) || '' }}-${{ hashFiles('Cargo.lock') }}-
+            cross-build-${{ env.CACHE_BUST }}-${{ matrix.target }}${{ matrix.macos_deployment_target && format('-macos{0}', matrix.macos_deployment_target) || '' }}-
 
       - name: Validate build cache
         id: cache-valid
@@ -1254,6 +1259,7 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true' && !matrix.use_cross
         env:
           RUSTFLAGS: ${{ matrix.rustflags || '' }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
         run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
       - name: Strip static lib (bitcode + debug)
@@ -2754,10 +2760,17 @@ jobs:
   build_demos:
     # Builds demos linking dynamically to the prebuilt static libazul.
     # Uses fingerprinting to reuse existing release binaries if source has not changed.
-    name: Build Demo Apps (${{ matrix.os }})
-    needs: [build_binaries, codegen_linux, codegen_macos, codegen_windows]
+    name: Build Demo Apps (${{ matrix.label }})
+    # cross_build_binaries makes the x86_64 libazul.a the Intel macOS demos link against. It
+    # runs on master and tags only, so this job runs whether it ran or not (!cancelled()), and
+    # the Intel leg skips itself where it did not.
+    needs: [build_binaries, cross_build_binaries, codegen_linux, codegen_macos, codegen_windows]
     timeout-minutes: 30
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    if: >-
+      !cancelled()
+      && needs.build_binaries.result == 'success' && needs.codegen_linux.result == 'success'
+      && needs.codegen_macos.result == 'success' && needs.codegen_windows.result == 'success'
+      && (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
     continue-on-error: true
     runs-on: ${{ matrix.os }}
     strategy:
@@ -2765,35 +2778,64 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
+            label: Linux
             os_suffix: linux
             bin_ext: ""
             artifact_name: azul-demos-ubuntu
             dll_artifact: azul-linux-amd64
+          # macos-14 is an Apple Silicon runner: its own builds are arm64 only (M1 and later;
+          # an Intel Mac says "bad CPU type in executable"). The Intel demos are built on it
+          # for x86_64, against the x86_64 libazul.a of cross_build_binaries.
           - os: macos-14
+            label: macOS (M1+)
             os_suffix: macos
             bin_ext: ""
             artifact_name: azul-demos-macos
             dll_artifact: azul-macos-amd64
+          - os: macos-14
+            label: macOS (Intel)
+            os_suffix: macos-intel
+            bin_ext: ""
+            artifact_name: azul-demos-macos-intel
+            dll_artifact: azul-macos-x86_64
+            target: x86_64-apple-darwin
+            macos_deployment_target: "10.12"
           - os: windows-2022
+            label: Windows
             os_suffix: windows
             bin_ext: ".exe"
             artifact_name: azul-demos-windows
             dll_artifact: azul-windows-amd64
     steps:
+      - name: Does this leg run
+        id: gate
+        shell: bash
+        run: |
+          # the Intel macOS demos link the x86_64 libazul.a of cross_build_binaries (master and tags)
+          if [ "${{ matrix.target }}" = "x86_64-apple-darwin" ] && [ "${{ needs.cross_build_binaries.result }}" != "success" ]; then
+            echo "::notice::no x86_64 libazul.a in this run (cross_build_binaries: ${{ needs.cross_build_binaries.result }}): no Intel macOS demos"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.gate.outputs.run == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
+        if: steps.gate.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
+          targets: ${{ matrix.target || '' }}
 
       - name: Install clang + deps (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+        if: steps.gate.outputs.run == 'true' && matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Install MinGW (Windows)
-        if: matrix.os == 'windows-2022'
+        if: steps.gate.outputs.run == 'true' && matrix.os == 'windows-2022'
         shell: bash
         run: |
           if command -v gcc >/dev/null 2>&1; then
@@ -2814,24 +2856,28 @@ jobs:
           exit 1
 
       - name: Install coreutils (macOS)
-        if: matrix.os == 'macos-14'
+        if: steps.gate.outputs.run == 'true' && matrix.os == 'macos-14'
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
+        if: steps.gate.outputs.run == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Download prebuilt libazul (static .a for self-contained demos)
+        if: steps.gate.outputs.run == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.dll_artifact }}
           path: libazul-prebuilt
 
       - name: Build demos (best-effort)
+        if: steps.gate.outputs.run == 'true'
         env:
           CARGO_PROFILE_RELEASE_LTO: "off"
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target || '' }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         shell: bash
@@ -2898,7 +2944,8 @@ jobs:
             else
               echo "=== Building $demo on ${{ matrix.os }} (no published fingerprint) ==="
             fi
-            if cargo build --release -p "$demo" \
+            # (a leg with a target builds for it: the Intel macOS one, on an Apple Silicon runner)
+            if cargo build --release -p "$demo" ${{ matrix.target && format('--target {0}', matrix.target) || '' }} \
                  --message-format=json-render-diagnostics > "demo-build-$demo.json"; then
               exe="$(python3 scripts/cargo_bin_path.py "demo-build-$demo.json" "$demo")" || exe=""
               if [ -n "$exe" ] && command -v cygpath >/dev/null 2>&1; then
@@ -2933,6 +2980,7 @@ jobs:
           fi
 
       - name: Stage demo binaries
+        if: steps.gate.outputs.run == 'true'
         shell: bash
         run: |
           mkdir -p demos-staging
@@ -2954,6 +3002,24 @@ jobs:
               missing_staged=1
             fi
           done
+          # (an Intel leg must not ship an arm64 binary: the Mac it is for says "bad CPU type";
+          # nor one that asks for a newer macOS than the release page promises)
+          if [ -n "${{ matrix.target }}" ] && command -v lipo >/dev/null 2>&1; then
+            for f in demos-staging/*; do
+              case "$f" in *.json) continue;; esac
+              archs=$(lipo -archs "$f" 2>/dev/null || echo "?")
+              minos=$(otool -l "$f" | awk '/LC_VERSION_MIN_MACOSX/ {v=1} v && $1 == "version" {print $2; exit}
+                                          /LC_BUILD_VERSION/ {b=1} b && $1 == "minos" {print $2; exit}')
+              echo "  $f: $archs, macOS $minos and later"
+              case "${{ matrix.target }}" in
+                x86_64-apple-darwin) [ "$archs" = "x86_64" ] || { echo "::error::$f is '$archs', not x86_64"; exit 1; } ;;
+              esac
+              if [ -n "${{ matrix.macos_deployment_target }}" ] && [ "$minos" != "${{ matrix.macos_deployment_target }}" ]; then
+                echo "::error::$f needs macOS $minos, not ${{ matrix.macos_deployment_target }}"
+                exit 1
+              fi
+            done
+          fi
           ls -la demos-staging/ || echo "No demos staged"
           echo "=== demo staging summary (${{ matrix.os }}) ==="
           echo "  staged: ${staged[*]:-none}"
@@ -2964,6 +3030,7 @@ jobs:
           python3 -c 'import json,sys; out=sys.argv[1]; e=dict(l.strip().split("=",1) for l in open(sys.argv[2]) if "=" in l); json.dump(e, open(out,"w"), indent=2, sort_keys=True); print("wrote", out, len(e), "fingerprints")' "demos-staging/demo-build-manifest-${{ matrix.os_suffix }}.json" "$manifest_lines"
 
       - name: Upload demo binaries
+        if: steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact_name }}
@@ -4977,6 +5044,13 @@ jobs:
           name: azul-demos-macos
           path: artifacts-demos-macos
 
+      - name: Download macOS (Intel) demo binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: azul-demos-macos-intel
+          path: artifacts-demos-macos-intel
+
       - name: Download Windows demo binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
@@ -5206,7 +5280,7 @@ jobs:
           find artifacts-windows-rust9x -name "azul.lib" -exec cp {} "$RELEASE_DIR/azul.rust9x.lib" \; 2>/dev/null || true
 
           mkdir -p "$RELEASE_DIR/demos"
-          for demodir in artifacts-demos-linux artifacts-demos-macos artifacts-demos-windows; do
+          for demodir in artifacts-demos-linux artifacts-demos-macos artifacts-demos-macos-intel artifacts-demos-windows; do
             if [ -d "$demodir" ]; then
               find "$demodir" -type f -exec cp {} "$RELEASE_DIR/demos/" \; 2>/dev/null || true
             fi
