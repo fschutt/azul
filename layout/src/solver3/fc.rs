@@ -16226,6 +16226,40 @@ mod window_layout_tests {
         // (The percentage / calc() / auto halves of the WPT page match
         // their reference already: those columns stay dropped.)
     }
+
+    #[test]
+    fn a_shrink_wrapped_list_item_keeps_its_text_on_its_markers_line() {
+        // WPT css/css-lists/inline-block-list's reference: a list item as
+        // wide as its text (`width: fit-content`, or shrink-to-fit in an
+        // inline-block) showed its marker on one line and its text on the
+        // next. An OUTSIDE marker hangs in the gutter - the line placement
+        // never advances the pen for it, and the item's intrinsic width
+        // leaves it out - but the line breaker counted its width on the
+        // line, so the text no longer fitted beside it. Chrome: one 20px
+        // line. `body(0) > div.ib(1) > div.li(2) > span(3) > "B"(4)`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body().with_child(
+                div("ib").with_child(div("li").with_child(Dom::create_span_with_text("B"))),
+            )
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; padding-left: 40px; } .ib { display: inline-block; } .li { \
+                 display: list-item; list-style-type: decimal; line-height: 20px; }",
+            ),
+        );
+        let h = size_of(&lw, 2).height;
+        assert!(
+            (h - 20.0).abs() < 0.5,
+            "the item's text stays on its marker's line (Chrome 20): {h}"
+        );
+    }
 }
 
 /// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
