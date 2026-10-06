@@ -50,8 +50,9 @@ class Sheets(k.App):
     def replies(self):
         return len(self.printed("AZSHEETS_REPLY", r"\d+ \w+"))
 
-    def settle(self, before, what):
-        """Waits until a reply after `before` replies arrived."""
+    def await_reply(self, before, what):
+        """Waits until a reply after `before` replies arrived. (Not `settle`: that is the shared
+        helper's wait for animations, which every `click` runs first.)"""
         self.until(what, lambda: self.replies() > before)
         self.frame(2)
 
@@ -90,7 +91,7 @@ class Sheets(k.App):
             self.focus_grid()
             self.type_text(text)
             self.key("return")
-            self.settle(before, "the engine to take %s" % text)
+            self.await_reply(before, "the engine to take %s" % text)
 
     def classes(self):
         out = set()
@@ -139,7 +140,7 @@ def first_session(binary, args, logs, data_dir, out):
         app.focus_grid()
         app.key("up", shift=True)
         app.key("up", shift=True)
-        app.settle(before, "the selection's statistics")
+        app.await_reply(before, "the selection's statistics")
         app.until("the sum of A1:A3", lambda: any(s.startswith("count=3 sum=18") for s in app.printed("AZSHEETS_STATS")))
         app.until("'Sum: 18' in the status bar", lambda: app.shows("Sum: 18"))
         app.log("status bar: Sum: 18")
@@ -150,7 +151,7 @@ def first_session(binary, args, logs, data_dir, out):
         app.home(right=2, shift_down=2)
         before = app.replies()
         app.click(text="Sort A to Z")
-        app.settle(before, "the sort")
+        app.await_reply(before, "the sort")
         app.home(right=2)
         app.until("C1 to be 1 after the sort", lambda: app.cell_line("C1") == "1")
         app.log("sorted C1:C3 from HOME: C1 is 1")
@@ -160,7 +161,7 @@ def first_session(binary, args, logs, data_dir, out):
         app.click(text="VIEW")
         before = app.replies()
         app.click(text="Freeze Panes")
-        app.settle(before, "the freeze")
+        app.await_reply(before, "the freeze")
         app.until("the panes frozen at B2", lambda: "1 1" in app.printed("AZSHEETS_FROZEN"))
         app.until("the freeze line", lambda: "__azul-native-cell-grid-freeze" in app.classes())
         app.log("froze the panes at B2")
@@ -202,7 +203,7 @@ def first_session(binary, args, logs, data_dir, out):
         app.click(text="New")
         before = app.replies()
         app.click(selector="#__azsheets_new-sample")
-        app.settle(before, "the sample")
+        app.await_reply(before, "the sample")
         for word in ("Category", "Rent", "Total"):
             app.until("%s in the sample" % word, lambda: app.shows(word))
         app.screenshot(os.path.join(out, "sample-flat-light.png"))
