@@ -560,6 +560,9 @@ def ratio(a, b):
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 
 
+FILLS = ("rect", "linear_gradient", "radial_gradient", "conic_gradient")
+
+
 def contrast_findings(items, base):
     """Text items whose ink reads under 2:1 against the rectangles painted under their centre
     (at the same scroll depth, in paint order) over the window's ground `base`."""
@@ -569,7 +572,9 @@ def contrast_findings(items, base):
         kind = it.get("type")
         if not it.get("color") or it.get("width") is None or it.get("height") is None:
             continue
-        if kind == "rect":
+        # A gradient (flora's title bar, its active ribbon tab) is a fill too: the debug server
+        # lists it with its bounds and the mean of its stops.
+        if kind in FILLS:
             rects.append(it)
             continue
         if kind not in ("text", "text_layout"):
