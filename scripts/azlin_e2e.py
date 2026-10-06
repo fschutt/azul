@@ -282,6 +282,7 @@ class App:
     def click_exact(self, text, button="left", double=False, frames=2):
         """Clicks (or double-clicks) the node holding exactly `text`, once it is there."""
         node = self.until('the text "%s"' % text, lambda: self.exact(text))
+        self.settle(limit=2.0)
         self.must("double_click" if double else "click", node_id=node, button=button)
         self.frame(frames)
 
@@ -353,6 +354,11 @@ class App:
     # ---- input ----
 
     def click(self, selector=None, text=None, frames=2):
+        # A click lands where the node IS: an entrance animation (AzCalculator's
+        # Scientific keys slide in) moves it off its layout rect, and the engine
+        # hits what is painted, as a user would. Settle first, or the click
+        # misses the key it names (it hit a neighbour or nothing).
+        self.settle(limit=2.0)
         if selector:
             self.must("click", selector=selector)
         else:
