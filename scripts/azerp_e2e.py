@@ -33,7 +33,7 @@ import glob
 import os
 
 import azlin_e2e as e2e
-from azlin_e2e import Failure
+from azlin_e2e import Failure, modal_window
 # The one "click a standard dialog's button by its label" (the page has a "Delete" too).
 from azwriter_e2e import click_dialog_button
 
@@ -55,37 +55,6 @@ def start(args, logs, binary, data_dir, extra, tag):
 
 def saved(app):
     return len(app.printed("AZERP_SAVED"))
-
-
-class InWindow:
-    """`app` with every op addressed to its window `window_id` (the envelope's `window_id`): a
-    `Modal` is a transient window of its own, its buttons are not in the main window's tree."""
-
-    def __init__(self, app, window_id):
-        self.app = app
-        self.window_id = window_id
-
-    def op(self, op, **params):
-        return self.app.op(op, window_id=self.window_id, **params)
-
-    def must(self, op, **params):
-        return self.app.must(op, window_id=self.window_id, **params)
-
-    def frame(self, n=1):
-        self.app.frame(n)
-
-    # The App's own input helpers, run through this window's `must` / `frame`.
-    click = e2e.App.click
-    text_input = e2e.App.text_input
-
-
-def modal_window(app):
-    """The open modal's window (the one window that is not the app's own)."""
-    def other():
-        windows = (app.value("list_windows") or {}).get("windows") or []
-        ids = [w.get("window_id") for w in windows if not w.get("is_default")]
-        return ids[0] if ids else None
-    return InWindow(app, app.until("the modal's window", other))
 
 
 def delete_asks_first(app, data_dir, key, out):

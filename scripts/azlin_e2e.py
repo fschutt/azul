@@ -317,6 +317,11 @@ class App:
         value = data.get("value") if isinstance(data, dict) else None
         return isinstance(value, dict) and value.get("node_id") is not None
 
+    def laid_out(self, selector):
+        """Whether `selector` names a node with a box in this window (a Modal's nodes are in
+        its owner's DOM too, without one)."""
+        return self.has(selector) and self.box(selector)["width"] > 0
+
     def box(self, selector):
         """The laid-out rect of `selector` (window coordinates before scrolling) as floats."""
         value = self.value("get_node_layout", selector=selector)
@@ -464,6 +469,40 @@ class App:
         with open(path, "wb") as f:
             f.write(base64.b64decode(data.split("base64,", 1)[1]))
         self.log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+
+
+class InWindow(App):
+    """`app` with every op addressed to one of its windows (the request's `window_id`): a
+    `Modal` is a transient window of its own, and its nodes are laid out - and clicked - there,
+    not in the main window (they are in the main window's DOM, without a box). Everything else
+    (stdout, waits) is the app's; frames are the app's loop turns, so a click that closes the
+    window still gets its frames."""
+
+    def __init__(self, app, window_id):
+        self.__dict__.update(app.__dict__)
+        self.app = app
+        self.window_id = window_id
+
+    def op(self, op, **params):
+        params.setdefault("window_id", self.window_id)
+        return self.app.op(op, **params)
+
+    def frame(self, n=1):
+        self.app.frame(n)
+
+    def stop(self):
+        raise Failure("stop the app, not one of its windows")
+
+
+def modal_window(app, known=()):
+    """The open modal's window: the one window that is neither the app's own (the default) nor
+    in `known`."""
+    def other():
+        windows = (app.value("list_windows") or {}).get("windows") or []
+        ids = [w.get("window_id") for w in windows
+               if not w.get("is_default") and w.get("window_id") not in known]
+        return ids[0] if ids else None
+    return InWindow(app, app.until("the modal's window", other))
 
 
 def run(tag, body, argv=None, default_port=8781, binary_name=None, binary_env=None):
