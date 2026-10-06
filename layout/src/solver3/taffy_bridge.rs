@@ -2139,8 +2139,16 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // taffy's cache served for the real 140 px query and a whole flex row
         // came out four times too tall. The cache entry keeps the original
         // inputs as its key (this runs inside `compute_cached_layout`).
+        // EXCEPT under `SizingMode::ContentSize`: that query asks for the
+        // CONTENT's size with the node's own size styles ignored - taffy's
+        // automatic minimum size of a flex item is min(specified size,
+        // content size) (CSS Flexbox 4.5), and answering it with the item's
+        // own `width` kept every `width: 32px` cell at 32 however narrow its
+        // row was (Chrome shrinks a date picker's columns to fit its pane).
+        let content_size_query = inputs.sizing_mode == taffy::SizingMode::ContentSize;
         let inputs = match inputs.known_dimensions.width {
             Some(_) => inputs,
+            None if content_size_query => inputs,
             None => match self.own_definite_width(
                 node_idx,
                 inputs.parent_size.width,
@@ -2385,6 +2393,23 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     && inputs.known_dimensions.width.is_none();
 
                 let effective_content_width = match inputs.available_space.width {
+                    // A content-size query of a box with its own width: the
+                    // stored min-content is that width (its css-sizing
+                    // contribution); the content's own is what this layout
+                    // at min-content just measured.
+                    AvailableSpace::MinContent
+                        if content_size_query
+                            && content_width > 0.0
+                            && self
+                                .own_definite_width(
+                                    node_idx,
+                                    inputs.parent_size.width,
+                                    node_padding_width + node_border_width,
+                                )
+                                .is_some() =>
+                    {
+                        content_width
+                    }
                     AvailableSpace::MinContent => {
                         if intrinsic.min_content_width > 0.0 {
                             intrinsic.min_content_width
