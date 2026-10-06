@@ -101,7 +101,21 @@ fn window() -> Dom {
                     )),
             ),
     );
-    Dom::create_html().with_child(
+    // `html { height: 100% }` as a Chrome page needs it for the body's 100% to
+    // mean the window: neither Chrome's UA sheet nor azul's sets it (the
+    // ruling: Chrome is the reference), and an auto-height `<html>` sizes
+    // the whole chain to its content.
+    // (A node-own property: `Dom::with_css` scopes its declarations to the
+    // whole subtree.)
+    Dom::create_html()
+        .with_css_property(azul_css::dynamic_selector::CssPropertyWithConditions::simple(
+            azul_css::props::property::CssProperty::Height(
+                azul_css::css::CssPropertyValue::Exact(azul_css::props::layout::LayoutHeight::Px(
+                    azul_css::props::basic::pixel::PixelValue::const_percent(100),
+                )),
+            ),
+        ))
+        .with_child(
         Dom::create_body()
             .with_css("display: flex; flex-direction: column; height: 100%; margin: 0px;")
             .with_child(
