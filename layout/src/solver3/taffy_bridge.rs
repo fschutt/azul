@@ -697,6 +697,9 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     node_styles: Vec<std::cell::OnceCell<Style>>,
     /// The style of a node without a DOM node (anonymous boxes).
     default_style: Style,
+    /// Flex ROWS whose width alone is being measured, innermost last (see
+    /// `compute_child_layout`): their items' heights are not laid out.
+    width_only_rows: Vec<usize>,
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
@@ -719,6 +722,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .take(layout_nodes)
                 .collect(),
             default_style: Style::DEFAULT,
+            width_only_rows: Vec::new(),
         }
     }
 
@@ -1965,6 +1969,65 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             .map(|s| s.formatting_context)
             .unwrap_or_default();
 
+        // A WIDTH-ONLY measure of a flex ROW (a parent asking for its
+        // min-/max-content width, or its width at a known height): taffy runs
+        // the whole row algorithm, and every item is laid out to find the
+        // height the line would have - which the width does not depend on. The
+        // items' height measures are stubbed while the row answers, and the
+        // answer is not cached (taffy's cache key ignores the axis). AzContacts'
+        // split panes were laid out at widths 0, 49, 79, 190 for these
+        // questions, every name in the list with them (2026-10-06).
+        if inputs.run_mode == RunMode::ComputeSize {
+            if inputs.axis == taffy::RequestedAxis::Vertical
+                && self.width_only_rows.last().is_some_and(|&row| {
+                    self.tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) == Some(row)
+                })
+            {
+                drop(crate::probe::Probe::span("taffy_width_only_row_item"));
+                return LayoutOutput::from_outer_size(Size {
+                    width: inputs.known_dimensions.width.unwrap_or(0.0),
+                    height: inputs.known_dimensions.height.unwrap_or(0.0),
+                });
+            }
+            if inputs.axis == taffy::RequestedAxis::Horizontal
+                && fc == FormattingContext::Flex
+                && inputs.known_dimensions.width.is_none()
+                && matches!(
+                    self.get_taffy_style(node_idx).flex_direction,
+                    FlexDirection::Row | FlexDirection::RowReverse
+                )
+            {
+                drop(crate::probe::Probe::span("taffy_width_only_row"));
+                self.width_only_rows.push(node_idx);
+                let output = compute_flexbox_layout(self, node_id, inputs);
+                self.width_only_rows.pop();
+                return LayoutOutput::from_outer_size(Size {
+                    width: output.size.width,
+                    height: 0.0,
+                });
+            }
+        }
+
+        // A WIDTH-ONLY measure of a block-level item (taffy's
+        // `measure_child_size` for a flex basis or a min-content contribution
+        // reads nothing but the width): answered from the intrinsic widths the
+        // sizing pass computed, which is what the full layout below returns
+        // for it anyway. That layout - the whole subtree, every paragraph
+        // shaped and broken at the probe's width - only produced a height
+        // nobody read: AzContacts' list was laid out at every probe of its
+        // split pane, 47 visits per paragraph (2026-10-06). NOT stored in
+        // taffy's cache: its key ignores the axis, and a both-axes query must
+        // not be served a width-only answer.
+        if inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && !matches!(fc, FormattingContext::Flex | FormattingContext::Grid)
+        {
+            if let Some(width) = self.width_only_answer(node_idx, &inputs) {
+                drop(crate::probe::Probe::span("taffy_width_only_answer"));
+                return LayoutOutput::from_outer_size(Size { width, height: 0.0 });
+            }
+        }
+
         // PURE CONTENT MEASURE cache (min-/max-content, no known dimensions).
         // These answers are viewport-independent, but taffy's own cache
         // cannot keep them alive: the flex algorithm's candidate-width
@@ -2124,6 +2187,51 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         }
     }
 
+    /// The border-box width [`Self::compute_non_flex_layout`] answers for
+    /// `inputs`, when it follows without laying anything out: a known width,
+    /// the node's own definite width, or (a min-/max-content query) the
+    /// intrinsic width plus padding and border. `None` when only the layout
+    /// knows: a definite available width, a replaced element, a content-size
+    /// query of a box with its own width, an intrinsic width of 0.
+    fn width_only_answer(&self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
+        if let Some(width) = inputs.known_dimensions.width {
+            return Some(width);
+        }
+        let node = self.tree.get(LayoutNodeId::new(node_idx))?;
+        let bp = node.box_props.unpack();
+        let padding_border = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+        let content_size_query = inputs.sizing_mode == taffy::SizingMode::ContentSize;
+        let own = self.own_definite_width(node_idx, inputs.parent_size.width, padding_border);
+        if !content_size_query {
+            if let Some(width) = own {
+                return Some(width);
+            }
+        }
+        let min_content = match inputs.available_space.width {
+            AvailableSpace::MinContent => true,
+            AvailableSpace::MaxContent => false,
+            AvailableSpace::Definite(_) => return None,
+        };
+        if content_size_query && min_content && own.is_some() {
+            return None;
+        }
+        if let Some(dom_id) = node.dom_node_id {
+            let nd = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            if matches!(nd.get_node_type(), azul_core::dom::NodeType::Image(_))
+                || nd.is_virtual_view_node()
+            {
+                return None;
+            }
+        }
+        let intrinsic = self.tree.warm(LayoutNodeId::new(node_idx))?.intrinsic_sizes?;
+        let content = if min_content {
+            intrinsic.min_content_width
+        } else {
+            intrinsic.max_content_width
+        };
+        (content > 0.0).then_some(content + padding_border)
+    }
+
     /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
     /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
     #[allow(clippy::match_same_arms)]
@@ -2150,6 +2258,15 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     bp.border.left + bp.border.right,
                     bp.border.top + bp.border.bottom,
                 )
+            });
+        // The item's horizontal margins: an available width (no known one) is
+        // the space for its MARGIN box.
+        let node_margin_width = self
+            .tree
+            .get(LayoutNodeId::new(node_idx))
+            .map_or(0.0, |node| {
+                let bp = node.box_props.unpack();
+                (bp.margin.left + bp.margin.right).max(0.0)
             });
 
         // A box whose own style fixes its width lays its content out at that
@@ -2191,12 +2308,20 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // padding+border to convert from border-box to content-box available space.
         // For MinContent/MaxContent, use INFINITY and let the text layout calculate
         // its actual intrinsic width.
+        // An available width (no known one) is the space for the item's margin
+        // box: its content gets what its margins, border and padding leave. A
+        // fit-content measure (a column's `align-items: flex-start` item) broke
+        // its text at the full width and came out wider than the column by its
+        // own padding.
+        let available_content_width = |w: f32| {
+            (w - node_margin_width - node_padding_width - node_border_width).max(0.0)
+        };
         let available_width = inputs
             .known_dimensions
             .width
             .map(|kw| (kw - node_padding_width - node_border_width).max(0.0))
             .or(match inputs.available_space.width {
-                AvailableSpace::Definite(w) => Some(w),
+                AvailableSpace::Definite(w) => Some(available_content_width(w)),
                 AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
                 AvailableSpace::MaxContent => None, // Use infinity for max-content
             })
@@ -2233,11 +2358,12 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 },
             };
             crate::solver3::geometry::ContainingBlock::from_axes(
-                axis(
-                    inputs.known_dimensions.width,
-                    node_padding_width + node_border_width,
-                    inputs.available_space.width,
-                ),
+                match (inputs.known_dimensions.width, inputs.available_space.width) {
+                    (None, AvailableSpace::Definite(w)) => {
+                        crate::text3::cache::AvailableSpace::Definite(available_content_width(w))
+                    }
+                    (known, avail) => axis(known, node_padding_width + node_border_width, avail),
+                },
                 axis(
                     inputs.known_dimensions.height,
                     node_padding_height + node_border_height,
@@ -2260,7 +2386,9 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             crate::text3::cache::AvailableSpace::Definite(available_width)
         } else {
             match inputs.available_space.width {
-                AvailableSpace::Definite(w) => crate::text3::cache::AvailableSpace::Definite(w),
+                AvailableSpace::Definite(_) => {
+                    crate::text3::cache::AvailableSpace::Definite(available_width)
+                }
                 AvailableSpace::MinContent => crate::text3::cache::AvailableSpace::MinContent,
                 AvailableSpace::MaxContent => crate::text3::cache::AvailableSpace::MaxContent,
             }
@@ -4768,5 +4896,101 @@ mod autotest_generated {
                 "the viewport's bar is an overlay: it takes no space from the page"
             );
         }
+    }
+}
+
+/// How often a split pane's paragraphs are laid out. A width-only measure of
+/// a block-level flex item is answered from the intrinsic widths
+/// (`TaffyBridge::width_only_answer`); it used to lay the whole subtree out at
+/// every probe of the pane - 47 visits per paragraph of AzContacts' list
+/// (2026-10-06).
+#[cfg(test)]
+mod a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times_tests {
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks,
+        probe::{Event, Probe},
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    const PARAGRAPHS: usize = 40;
+
+    /// `body > row(flex) > [half(block, grow 1) > column of 40 paragraphs,
+    /// half(block, grow 2) > column of 40 paragraphs]`: an Office-shell split.
+    fn split_page() -> Dom {
+        let column = |side: &str| {
+            let mut col = Dom::create_div().with_css("display: flex; flex-direction: column;");
+            for i in 0..PARAGRAPHS {
+                col.add_child(
+                    Dom::create_div().with_css("padding: 4px 8px;").with_child(
+                        Dom::create_span_with_text(alloc::format!("{side} contact number {i}")),
+                    ),
+                );
+            }
+            col
+        };
+        let half = |grow: u32, side: &str| {
+            Dom::create_div()
+                .with_css(&alloc::format!(
+                    "display: block; flex-grow: {grow}; min-width: 0px; overflow: hidden;"
+                ))
+                .with_child(column(side))
+        };
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row; flex-grow: 1;")
+                    .with_child(half(1, "left"))
+                    .with_child(half(2, "right")),
+            )
+    }
+
+    fn count(events: &[Event], name: &str) -> usize {
+        events.iter().filter(|e| e.name == name).count()
+    }
+
+    #[test]
+    fn a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times() {
+        if !Probe::enabled() {
+            return;
+        }
+        let mut dom = split_page();
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(1000.0, 700.0);
+        lw.current_window_state = ws.clone();
+
+        Probe::set_recording(true);
+        let _ = Probe::drain();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let events = Probe::drain();
+        Probe::set_recording(false);
+
+        assert!(lw.layout_results.contains_key(&DomId::ROOT_ID));
+        let paragraphs = 2 * PARAGRAPHS;
+        let flows = count(&events, "text_layout_flow");
+        let visits = count(&events, "fc_inline");
+        assert!(
+            flows <= 4 * paragraphs && visits <= 8 * paragraphs,
+            "{paragraphs} paragraphs: {flows} text layouts, {visits} inline-context visits - a \
+             measure of a pane's width laid the pane's whole text out again"
+        );
     }
 }
