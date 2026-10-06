@@ -412,11 +412,16 @@ class App:
     # ---- stdout ----
 
     def printed(self, key, pattern=r".*"):
+        """The values of the lines `<KEY> <value>` whose value matches `pattern`. A bare line
+        `<KEY>` (AZREADER_READY, AZWRITER_READY, AZTERM_READY print no value) counts as the
+        value "" when `pattern` can match an empty value (the default `.*`)."""
         try:
             with open(self.out_path, "r", encoding="utf-8", errors="replace") as f:
                 text = f.read()
         except OSError:
             return []
+        if re.fullmatch(pattern, "") is not None:
+            return re.findall(r"^%s(?: (%s))?$" % (re.escape(key), pattern), text, re.M)
         return re.findall(r"^%s (%s)$" % (re.escape(key), pattern), text, re.M)
 
     def last(self, key):
