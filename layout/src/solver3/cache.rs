@@ -386,6 +386,19 @@ impl NodeCache {
         self.layout_entry = Some(entry);
         self.is_empty = false;
     }
+
+    /// Does the subtree still hold the layout computed for the sizing key
+    /// `key` (a [`Self::classify_size_key`] key)? Every computation of the
+    /// node stores its layout slot, so the slot names what its children's
+    /// sizes and offsets were last laid out for.
+    #[must_use]
+    pub fn holds(&self, key: LogicalSize) -> bool {
+        self.layout_entry.as_ref().is_some_and(|l| {
+            let (_, laid_out_for) = Self::classify_size_key(l.available_size);
+            (laid_out_for.width - key.width).abs() < CACHE_SIZE_EPSILON
+                && (laid_out_for.height - key.height).abs() < CACHE_SIZE_EPSILON
+        })
+    }
 }
 
 /// External layout cache, parallel to `LayoutTree.nodes`.
@@ -3824,9 +3837,19 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 // height) land in different slots, so neither evicts the
                 // other — the slot-0 collapse made every visit a miss.
                 let (size_slot, size_key) = NodeCache::classify_size_key(containing_block_size);
+                // This is the node's layout (its parent's Pass 1; the children
+                // are only positioned after), and whatever it leaves behind
+                // may be what the page keeps - a final layout further up can
+                // be served from a cache that a pass inside a MEASURE filled.
+                // So a hit must describe what the subtree holds now
+                // ([`NodeCache::holds`]). AzContacts' search field, measured
+                // at 148 px and then at 6 px by its flex-grow block's probes,
+                // was served the 148 px entry by the block's final layout and
+                // kept the 6 px input the last probe had laid out inside it.
                 let sizing_hit = ctx.cache_map.entries[node_index]
                     .get_size(size_slot, size_key)
-                    .copied();
+                    .copied()
+                    .filter(|hit| ctx.cache_map.entries[node_index].holds(hit.available_size));
                 if let Some(cached_sizing) = sizing_hit {
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.
