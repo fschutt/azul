@@ -12383,8 +12383,17 @@ pub fn break_one_line<T: ParsedFontTrait>(
         WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
     );
     if strip_trailing {
+        // A list marker's own space ("1. ", "\u{2022} ") is part of the
+        // marker, never the line's trailing white space (Chrome's UA sheet:
+        // `::marker { white-space: pre }`): alone on its line - an empty
+        // item's marker - it was stripped, and the marker, placed by its
+        // width, moved a space closer to the content than a full item's.
         while let Some(last) = line_items.last() {
-            if is_collapsible_whitespace(last) {
+            let is_marker = matches!(
+                last,
+                ShapedItem::Cluster(c) if c.marker_position_outside.is_some()
+            );
+            if is_collapsible_whitespace(last) && !is_marker {
                 line_items.pop();
             } else {
                 break;
@@ -13571,7 +13580,12 @@ fn is_arabic_cluster(cluster: &ShapedCluster) -> bool {
 fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
     let mut trailing_ws = 0.0;
     for item in items.iter().rev() {
-        if is_collapsible_whitespace(item) {
+        // A list marker's space belongs to the marker (`break_one_line`).
+        let is_marker = matches!(
+            item,
+            ShapedItem::Cluster(c) if c.marker_position_outside.is_some()
+        );
+        if is_collapsible_whitespace(item) && !is_marker {
             trailing_ws += get_item_measure(item, is_vertical);
         } else {
             break;
