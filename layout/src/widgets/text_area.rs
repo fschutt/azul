@@ -604,17 +604,16 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
 
 /// Adopts the engine's text for `node` into the widget's mirror.
 ///
-/// The engine owns the buffer, so its answer wins — except that an empty answer
-/// is ambiguous: `get_text_before_textinput` also yields nothing for a node
-/// whose text sits under a block wrapper it does not descend into. An empty
-/// read therefore never clears a non-empty mirror.
+/// The engine owns the buffer, so its answer wins - an EMPTY answer too: it is
+/// the text the user just cleared. `get_node_text_content` answers `None` for a
+/// node it cannot read, and the read descends into the value `<p>`, so
+/// `Some("")` is an empty text area. (TextInput's `adopt_engine_text` is this
+/// function's twin; both ignored an empty read over a non-empty mirror, so a
+/// cleared field never reached the app's `on_text_input`.)
 fn adopt_engine_text(state: &mut TextAreaState, info: &CallbackInfo, node: DomNodeId) {
     let Some(text) = info.get_node_text_content(node) else {
         return;
     };
-    if text.is_empty() && !state.text.is_empty() {
-        return;
-    }
     state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
 }
 
