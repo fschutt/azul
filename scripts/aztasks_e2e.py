@@ -111,8 +111,13 @@ def centre(box):
 
 
 def drag_onto(app, source, target):
-    """Drags the node `source` onto the middle of the node `target` (both selectors)."""
+    """Drags the node `source` onto the middle of the node `target` (both selectors). A pointer
+    drag goes where the coordinates are, as a user's hand does: both nodes are scrolled into
+    view first (a card low in a long column sat below the window - the drag started off it)."""
     app.settle()
+    for node in (source, target):
+        app.must("scroll_into_view", selector=node)
+        app.frame(2)
     (x0, y0), (x1, y1) = centre(app.box(source)), centre(app.box(target))
     app.drag(x0, y0, x1, y1)
 

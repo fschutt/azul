@@ -471,9 +471,11 @@ class App:
         return self.has(selector) and self.box(selector)["width"] > 0
 
     def box(self, selector):
-        """The laid-out rect of `selector` (window coordinates before scrolling) as floats."""
-        value = self.value("get_node_layout", selector=selector)
-        r = (value or {}).get("rect") or {}
+        """Where `selector`'s box is on screen (window coordinates after its scroll containers'
+        offsets - where a pointer has to go), as floats; its laid-out rect for a build whose
+        debug server reports no `screen_rect`."""
+        value = self.value("get_node_layout", selector=selector) or {}
+        r = value.get("screen_rect") or value.get("rect") or {}
         return {key: float(r.get(key, 0)) for key in ("x", "y", "width", "height")}
 
     # ---- the app's DOM names ----

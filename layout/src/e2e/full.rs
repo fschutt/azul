@@ -1382,7 +1382,13 @@ pub struct NodeLayoutResponse {
     pub node_id: u64,
     pub size: Option<LogicalSizeJson>,
     pub position: Option<LogicalPositionJson>,
+    /// The laid-out rect: the node's own DOM's coordinates, before any
+    /// scrolling.
     pub rect: Option<LogicalRectJson>,
+    /// Where the node's box is ON SCREEN now: in window coordinates, after
+    /// its scroll containers' offsets and transforms - where a pointer has to
+    /// go to reach it (`None` for a node that paints no box: a text node).
+    pub screen_rect: Option<LogicalRectJson>,
 }
 
 /// Response for GetAllNodesLayout
@@ -16565,6 +16571,9 @@ pub fn process_debug_event(
             let size = callback_info.get_node_size(dom_node_id);
             let pos = callback_info.get_node_position(dom_node_id);
             let rect = callback_info.get_node_rect(dom_node_id);
+            let screen_rect = callback_info
+                .get_node_hit_test_bounds(dom_node_id)
+                .map(|r| lift_rect_to_window_space(callback_info, dom_node_id.dom, r));
 
             let response = NodeLayoutResponse {
                 node_id: nid,
@@ -16574,6 +16583,12 @@ pub fn process_debug_event(
                 }),
                 position: pos.map(|p| LogicalPositionJson { x: p.x, y: p.y }),
                 rect: rect.map(|r| LogicalRectJson {
+                    x: r.origin.x,
+                    y: r.origin.y,
+                    width: r.size.width,
+                    height: r.size.height,
+                }),
+                screen_rect: screen_rect.map(|r| LogicalRectJson {
                     x: r.origin.x,
                     y: r.origin.y,
                     width: r.size.width,
