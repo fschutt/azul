@@ -10411,13 +10411,14 @@ pub trait PlatformWindow {
     /// menu bar is natively accelerated), then the context menus of the
     /// focused node and its ancestors — and run its callback like a click
     /// on it would. Returns what the callback asked for, so the pass result
-    /// carries it; `DoNothing` when nothing matched.
+    /// carries it - `Some` when an item ran (its chord is then the menu's,
+    /// see the caller), `None` when nothing matched.
     ///
     /// Before this, a menu item's chord was display-only everywhere but the
     /// macOS menu bar: AzPaint's Ctrl+O / Ctrl+S did nothing on Windows and
     /// Linux. The chord rule itself is `azul_core::menu::accelerator_matches`
     /// (`[LWin, S]` = Cmd+S on a Mac, Ctrl+S elsewhere, exact modifiers).
-    fn dispatch_menu_accelerators(&mut self) -> ProcessEventResult {
+    fn dispatch_menu_accelerators(&mut self) -> Option<ProcessEventResult> {
         use azul_core::dom::{DomId, NodeId};
 
         let pressed = {
@@ -10432,7 +10433,7 @@ pub trait PlatformWindow {
                 .and_then(|p| p.keyboard_state.current_virtual_keycode.into_option());
             match now {
                 Some(key) if before != Some(key) => key,
-                _ => return ProcessEventResult::DoNothing,
+                _ => return None,
             }
         };
         let keyboard = self.get_current_window_state().keyboard_state.clone();
@@ -10487,10 +10488,7 @@ pub trait PlatformWindow {
                 .and_then(|item| item.callback.as_ref().cloned())
         });
 
-        match callback {
-            Some(cb) => self.invoke_menu_callback(cb, MenuInvocation::Accelerator),
-            None => ProcessEventResult::DoNothing,
-        }
+        callback.map(|cb| self.invoke_menu_callback(cb, MenuInvocation::Accelerator))
     }
 
     /// Run a menu item's callback with a full `CallbackInfo` — exactly what
@@ -11614,9 +11612,24 @@ pub trait PlatformWindow {
 
         // MENU ACCELERATORS: a key that just went down may be a menu item's
         // chord (see `dispatch_menu_accelerators`). Runs before the DOM
-        // dispatch, like AppKit's key equivalents; the key still reaches the
-        // DOM afterwards (a chord never types a character).
-        let accelerator_result = self.dispatch_menu_accelerators();
+        // dispatch, like AppKit's key equivalents - and like them it TAKES the
+        // key: a chord a menu item ran never reaches the DOM's key handlers
+        // or the key's default action (AppKit does not send the view the
+        // key-down of a performed key equivalent; the Windows accelerator
+        // table turns it into a command). Delivered as well, an app that
+        // binds Mod+Z in its menu bar and in its key handler undid twice off
+        // macOS (AzPhoto, 2026-10-06). The key-up still arrives, as there.
+        let accelerator_result = match self.dispatch_menu_accelerators() {
+            Some(result) => {
+                synthetic_events.retain(|e| {
+                    !(e.event_type == azul_core::events::EventType::KeyDown
+                        && azul_layout::managers::hover::seat_of_event(e)
+                            == azul_core::window::PRIMARY_POINTER_SEAT)
+                });
+                result
+            }
+            None => ProcessEventResult::DoNothing,
+        };
 
         if synthetic_events.is_empty() {
             return accelerator_result;
