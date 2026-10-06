@@ -4455,7 +4455,8 @@ fn html_percentage(value: &str) -> Option<String> {
 /// The pixel size of HTML's legacy font sizes: 1..7 (x-small .. xxx-large), a
 /// `+n` / `-n` relative to 3.
 fn legacy_font_size_px(value: &str) -> Option<u32> {
-    const PX: [u32; 7] = [10, 13, 16, 18, 24, 32, 48];
+    // Sizes 1..7 are the `font-size` keywords from `x-small` on (one table).
+    let px = &azul_css::props::basic::font::FONT_SIZE_KEYWORDS_PX[1..];
     let value = value.trim();
     let (relative, digits) = match value.as_bytes().first()? {
         b'+' => (1, &value[1..]),
@@ -4466,7 +4467,7 @@ fn legacy_font_size_px(value: &str) -> Option<u32> {
     let n: i32 = digits.parse().ok()?;
     let size = if relative == 0 { n } else { 3 + relative * n };
     let index = usize::try_from(size.clamp(1, 7) - 1).ok()?;
-    PX.get(index).copied()
+    px.get(index).map(|(_, size)| u32::from(*size))
 }
 
 /// A legacy colour attribute as a CSS colour: `#rgb` / `#rrggbb` (also

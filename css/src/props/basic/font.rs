@@ -626,11 +626,51 @@ impl CssStyleFontSizeParseErrorOwned {
     }
 }
 
+/// `font-size: smaller` (CSS Fonts 4 s2.5 leaves the ratio to the UA): 0.83em,
+/// the browsers' 1/1.2 - the UA sheet's `small, sub, sup` take it too.
+pub const FONT_SIZE_SMALLER: PixelValue = PixelValue::const_em_fractional(0, 83);
+
+/// `font-size: larger`: 1.2em, the inverse step (the UA sheet's `big`).
+pub const FONT_SIZE_LARGER: PixelValue = PixelValue::const_em_fractional(1, 2);
+
+/// The absolute-size keywords of `font-size` (CSS Fonts 4 s2.5) and the
+/// px browsers give them at the 16px default, smallest first. HTML's legacy
+/// `<font size="1".."7">` takes the entries from `x-small` on.
+pub const FONT_SIZE_KEYWORDS_PX: [(&str, u16); 8] = [
+    ("xx-small", 9),
+    ("x-small", 10),
+    ("small", 13),
+    ("medium", 16),
+    ("large", 18),
+    ("x-large", 24),
+    ("xx-large", 32),
+    ("xxx-large", 48),
+];
+
 #[cfg(feature = "parser")]
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `font-size` value.
 pub fn parse_style_font_size(input: &str) -> Result<StyleFontSize, CssStyleFontSizeParseError<'_>> {
+    let keyword = input.trim();
+    if keyword.eq_ignore_ascii_case("smaller") {
+        return Ok(StyleFontSize {
+            inner: FONT_SIZE_SMALLER,
+        });
+    }
+    if keyword.eq_ignore_ascii_case("larger") {
+        return Ok(StyleFontSize {
+            inner: FONT_SIZE_LARGER,
+        });
+    }
+    if let Some((_, px)) = FONT_SIZE_KEYWORDS_PX
+        .iter()
+        .find(|(name, _)| keyword.eq_ignore_ascii_case(name))
+    {
+        return Ok(StyleFontSize {
+            inner: PixelValue::px(f32::from(*px)),
+        });
+    }
     Ok(StyleFontSize {
         inner: parse_pixel_value(input)?,
     })
@@ -1123,7 +1163,12 @@ mod tests {
             parse_style_font_size("120%").unwrap().inner,
             PixelValue::percent(120.0)
         );
-        assert!(parse_style_font_size("medium").is_err());
+        // A keyword is a size too (CSS Fonts 4 s2.5): `medium` is the 16px
+        // default (`font_size_keywords_parse_to_the_sizes_browsers_use`).
+        assert_eq!(
+            parse_style_font_size("medium").unwrap().inner,
+            PixelValue::px(16.0)
+        );
     }
 
     #[test]
@@ -1889,9 +1934,10 @@ mod autotest_generated {
             "expected NoValueGiven, got {err:?}"
         );
 
+        // (`medium` / `larger` are sizes: font_size_keywords_parse_to_the_sizes_browsers_use)
         for input in [
-            "medium",
-            "larger",
+            "mediumish",
+            "larger than life",
             "16PX", // unit matching is case-sensitive
             "16px;junk",
             "16 px junk",
