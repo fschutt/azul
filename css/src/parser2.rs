@@ -5394,4 +5394,24 @@ mod invalid_selector_tests {
         assert_eq!(paths(&rules), [".a", ".b:hover", ".d .e"]);
         assert_eq!(warnings, 1);
     }
+
+    #[test]
+    fn first_child_and_last_child_are_the_standard_names_of_first_and_last() {
+        // CSS Selectors 3 s6.6.5.6/7: `:first-child` / `:last-child` are
+        // azul's `:first` / `:last`. Only the short names parsed, so every
+        // page's `td:first-child { .. }` rule was dropped as an unknown
+        // pseudo-class (WPT html/rendering/non-replaced-elements/tables/
+        // table-cell-width-s: its red first column never painted).
+        let (rules, warnings) = parse("td:first-child { width: 1px; } li:last-child { width: 2px; }");
+        assert_eq!(warnings, 0, "both pseudo-classes parse");
+        assert_eq!(paths(&rules), ["td:first", "li:last"]);
+        assert_eq!(
+            pseudo_selector_from_str("first-child", None),
+            Ok(CssPathPseudoSelector::First)
+        );
+        assert_eq!(
+            pseudo_selector_from_str("last-child", None),
+            Ok(CssPathPseudoSelector::Last)
+        );
+    }
 }
