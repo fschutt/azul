@@ -6381,7 +6381,7 @@ impl MacOSWindow {
         }
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {

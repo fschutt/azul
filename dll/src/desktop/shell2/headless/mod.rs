@@ -2559,7 +2559,7 @@ impl HeadlessWindow {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = debug_server::is_debug_enabled();
+        let debug_enabled = debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -2777,7 +2777,7 @@ impl HeadlessWindow {
     /// runtime edit, `Resize` for the latched resize fast path (see
     /// `service_frame`). Both re-lay-out the EXISTING StyledDom and render.
     fn relayout_existing_dom(&mut self, kind: event::IncrementalRelayout) -> Result<(), String> {
-        let debug_enabled = debug_server::is_debug_enabled();
+        let debug_enabled = debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
