@@ -22649,3 +22649,51 @@ mod debug_routing_tests {
         assert_eq!(this, vec!["azmail-compose-1"]);
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod display_list_gradient_tests {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_css::props::basic::color::ColorU;
+
+    use super::gradient_item_info;
+
+    /// `get_display_list` lists a gradient fill with its bounds and, as its colour, the mean of
+    /// its stops: a reader that composites what is painted under a text (the E2E contrast
+    /// checks) must see it. It was `unknown`, without bounds, so flora's title bar text - light
+    /// on a dark gradient - read as light on the white painted before it (AzCalendar's E2E,
+    /// 2026-10-06).
+    #[test]
+    fn a_gradient_is_listed_with_its_bounds_and_the_mean_of_its_stops() {
+        let bounds = LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(1280.0, 28.0),
+        );
+        let stops = [
+            ColorU {
+                r: 0x80,
+                g: 0x78,
+                b: 0x6e,
+                a: 255,
+            },
+            ColorU {
+                r: 0x40,
+                g: 0x38,
+                b: 0x2e,
+                a: 255,
+            },
+        ];
+        let info = gradient_item_info(7, "linear_gradient", bounds, &stops, 1, 2);
+        assert_eq!(info.item_type, "linear_gradient");
+        assert_eq!(
+            (info.x, info.y, info.width, info.height),
+            (Some(0.0), Some(0.0), Some(1280.0), Some(28.0))
+        );
+        assert_eq!(info.color.as_deref(), Some("#60584eff"));
+        assert_eq!(
+            (info.index, info.clip_depth, info.scroll_depth),
+            (7, Some(1), Some(2))
+        );
+        let unresolved = gradient_item_info(0, "conic_gradient", bounds, &[], 0, 0);
+        assert_eq!(unresolved.color, None, "no concrete stop: no colour");
+    }
+}
