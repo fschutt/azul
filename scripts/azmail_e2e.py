@@ -279,6 +279,16 @@ class Run:
                 return ((target or n)['index'],)
         return None
 
+    def check_lines_stack(self, prefixes, window=None):
+        """The lines starting with `prefixes` are drawn one under the other (azlin_e2e)."""
+        self.settle(window)
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        finding = azlin_e2e.overlap_finding(nodes, prefixes)
+        if finding:
+            raise Failure(finding)
+        log(f'the lines {[p.strip() for p in prefixes]} stack')
+
     def click_exact(self, text, window=None, within=None):
         found = self.until(f'a node reading exactly "{text}"',
                            lambda: self.node_with_text(text, window, within), limit=20)
@@ -376,6 +386,7 @@ class Run:
         self.click('Use STARTTLS when the server offers it')
         self.click('Next >')
         self.until('the last page', lambda: self.shows('Finish adds the account'))
+        self.check_lines_stack(('Account: ', 'Incoming: ', 'Sending: '))
         # The page's own text says "Finish adds the account ..." and the wizard's last step is
         # named "Finish" too: the button in the wizard's button row.
         self.click_exact('Finish', within='__azul-native-wizard-layout-buttons')

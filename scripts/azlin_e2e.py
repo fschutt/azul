@@ -222,6 +222,37 @@ def contrast_findings(items, base):
     return found
 
 
+def text_box(nodes, prefix):
+    """The box (x, y, width, height) of the first of `nodes` (a node hierarchy) whose text starts
+    with `prefix` - its nearest ancestor's with a box, a text node having none - else None."""
+    by_index = {n.get("index"): n for n in nodes}
+    for n in nodes:
+        if (n.get("text") or "").startswith(prefix):
+            target = n
+            while target is not None and not target.get("rect"):
+                target = by_index.get(target.get("parent"))
+            if target is None:
+                return None
+            r = target["rect"]
+            return r["x"], r["y"], r["width"], r["height"]
+    return None
+
+
+def overlap_finding(nodes, prefixes):
+    """None when the lines starting with `prefixes` each have a height and none is drawn over
+    another (AzMail's wizard drew "Account: ..." over "Incoming: ...", AzContacts' groups tree
+    "Imported (2)" over "Neighbours (21)"); else what is wrong."""
+    boxes = [(text_box(nodes, p), p) for p in prefixes]
+    missing = [p for b, p in boxes if b is None]
+    if missing:
+        return f"no line for {missing}"
+    boxes.sort(key=lambda bp: bp[0][1])
+    for (a, p), (b, q) in zip(boxes, boxes[1:]):
+        if a[3] <= 0 or b[1] < a[1] + a[3] - 0.5:
+            return f'"{p}" {a} and "{q}" {b} overlap'
+    return None
+
+
 def settle_animations(animations, frame, limit=3.0):
     """Waits (at most `limit` seconds) until no animation, exit or transition runs: a click
     lands where the node is PAINTED (an entrance animation moves it off its layout rect), and

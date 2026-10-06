@@ -124,6 +124,13 @@ def body(args, logs, out):
         app.expect_line("AZCONTACTS_IMPORTED", "2", "Import imports the two new cards")
         app.until("302 files", lambda: len(contact_files(data_dir)) == 302)
         app.screenshot(os.path.join(out, "list.png"))
+        # The import added the group "Imported": its row takes a place of its own in the tree.
+        groups = [t.rsplit(" (", 1)[0] + " (" for t in app.texts_within("__azul-native-navigation-pane-groups")
+                  if t.endswith(")") and not t.startswith(("All contacts", "Favourites", "Possible"))]
+        finding = e2e.overlap_finding(app.hierarchy(), groups)
+        if "Imported (" not in groups or finding:
+            raise Failure("the groups tree after the import (%s): %s" % (groups, finding))
+        app.log("the groups tree stacks its %d rows, Imported among them" % len(groups))
 
         # 3: search and select.
         search(app, "krug")
