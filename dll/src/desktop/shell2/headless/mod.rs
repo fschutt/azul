@@ -2440,10 +2440,16 @@ impl HeadlessWindow {
         self.pending_window_creates.extend(opened_by_children);
     }
 
-    /// Is this window a window-based menu (`WindowType::Menu`)?
+    /// Is this window a window-based menu (`WindowType::Menu`, no transient
+    /// mailbox)? A `<transient-window>` popup (a Modal's window, a Popover's,
+    /// a combobox's list) is a `Menu`-type window too
+    /// (`transient::popup_window_state`), but its NODE owns it: the transient
+    /// machinery closes it and tells the node - the same test
+    /// `process_transient_dismissal` makes for a menu dismissing itself.
     fn is_menu_window(&self) -> bool {
-        self.common.current_window_state().flags.window_type
-            == azul_core::window::WindowType::Menu
+        let state = self.common.current_window_state();
+        state.flags.window_type == azul_core::window::WindowType::Menu
+            && crate::desktop::shell2::common::transient::mailbox_of(state).is_none()
     }
 
     /// Whether this window's loop must poll (it has timers or threads in flight): the
@@ -3753,6 +3759,28 @@ impl PlatformWindow for HeadlessWindow {
         }
         self.children.retain(HeadlessWindow::is_open);
         any
+    }
+
+    /// The popups are this window's children: run the pass of every one the
+    /// owner just forwarded a key to, right now, as X11, macOS and Win32 do -
+    /// headless makes no popup a key window, so a script's key always lands
+    /// in the owner, and nothing else would ever wake the popup to replay it.
+    fn deliver_forwarded_keys(&mut self) {
+        use azul_core::events::ProcessEventResult as R;
+        for child in &mut self.children {
+            if !crate::desktop::shell2::common::transient::has_forwarded_keys(
+                child.common.current_window_state(),
+            ) {
+                continue;
+            }
+            let r = child.process_window_events(0);
+            if r == R::ShouldRegenerateDomAllWindows {
+                child.request_regeneration_all_windows();
+            }
+            if r != R::DoNothing {
+                child.service_frame(r);
+            }
+        }
     }
 
     fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {

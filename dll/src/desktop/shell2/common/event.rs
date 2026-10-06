@@ -5221,9 +5221,9 @@ pub trait PlatformWindow {
 
     /// Run the pass of every popup this window just forwarded a key to,
     /// where this backend can reach the popup's window (X11, macOS and
-    /// Win32: the registry; Wayland: its `active_popup`). The default
-    /// reaches none: such a popup replays the key on its own next pass
-    /// (headless: the test drives it).
+    /// Win32: the registry; Wayland: its `active_popup`; headless: its
+    /// children). The default reaches none: such a popup replays the key on
+    /// its own next pass.
     fn deliver_forwarded_keys(&mut self) {}
 
     /// Close every window-based MENU this window opened - the whole chain
