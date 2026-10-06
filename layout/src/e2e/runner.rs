@@ -1801,6 +1801,9 @@ impl Runner {
             /// Which event this callback answers: a `preventDefault` vetoes
             /// THIS event's default action and nothing else in the pass.
             event_type: azul_core::events::EventType,
+            /// The event's index in `events`: propagation is controlled per
+            /// event (the dll's dispatcher does the same).
+            event_index: usize,
         }
 
         // Phase 1 — build the dispatch plan (read-only over the layout window).
@@ -1809,7 +1812,7 @@ impl Runner {
             let focused_node = lw.focus_manager.get_focused_node().copied();
             let mut planned = Vec::new();
 
-            for event in events {
+            for (event_index, event) in events.iter().enumerate() {
                 let event_filters =
                     azul_core::events::event_type_to_filters(event.event_type, &event.data);
 
@@ -1836,6 +1839,7 @@ impl Runner {
                                     node_id,
                                     callback_data,
                                     event_type: event.event_type,
+                                    event_index,
                                 });
                             }
                         }
@@ -1879,6 +1883,7 @@ impl Runner {
                                         node_id,
                                         callback_data: cb.clone(),
                                         event_type: event.event_type,
+                                        event_index,
                                     });
                                 }
                             }
@@ -1903,6 +1908,7 @@ impl Runner {
                                                 node_id,
                                                 callback_data: cb.clone(),
                                                 event_type: event.event_type,
+                                                event_index,
                                             });
                                         }
                                     }
@@ -1928,6 +1934,7 @@ impl Runner {
                                         node_id,
                                         callback_data: cb.clone(),
                                         event_type: event.event_type,
+                                        event_index,
                                     });
                                 }
                             }
@@ -1955,17 +1962,29 @@ impl Runner {
         // `preventDefault` must not take back the scroll a wheel earned.
         let mut prevented_event_types: std::collections::BTreeSet<azul_core::events::EventType> =
             std::collections::BTreeSet::new();
+        // Propagation control is PER EVENT: a release carries a Click and a
+        // DoubleClick, and a click handler's stopPropagation ends the click's
+        // propagation only (the dll's `dispatch_events_propagated`).
         let mut propagation_stopped = false;
         let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
+        let mut immediately_stopped = false;
+        let mut current_event: Option<usize> = None;
 
         for planned in planned_callbacks {
+            if current_event != Some(planned.event_index) {
+                current_event = Some(planned.event_index);
+                propagation_stopped = false;
+                propagation_stopped_node = None;
+                immediately_stopped = false;
+            }
             // W3C stopPropagation: remaining handlers on the SAME node still
-            // run; the first handler on a different node ends the dispatch.
-            if propagation_stopped
-                && propagation_stopped_node
-                    .is_none_or(|(dom, nid)| dom != planned.dom_id || nid != planned.node_id)
+            // run; the event's handlers on other nodes do not.
+            if immediately_stopped
+                || (propagation_stopped
+                    && propagation_stopped_node
+                        .is_none_or(|(dom, nid)| dom != planned.dom_id || nid != planned.node_id))
             {
-                break;
+                continue;
             }
 
             let mut callback =
@@ -2013,7 +2032,7 @@ impl Runner {
                 propagation_stopped_node = Some((planned.dom_id, planned.node_id));
             }
             if should_stop_immediate {
-                break;
+                immediately_stopped = true;
             }
         }
 

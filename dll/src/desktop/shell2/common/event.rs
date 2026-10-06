@@ -9737,6 +9737,9 @@ pub trait PlatformWindow {
             /// The pointer seat of the event this callback answers (9b-ii-b):
             /// a `capture_pointer` it pushes binds to THIS seat.
             seat_id: u64,
+            /// Which of the pass's events (its index in `events`) this
+            /// callback answers: propagation is controlled per event.
+            event_index: usize,
         }
 
         // ===================================================================
@@ -9751,7 +9754,7 @@ pub trait PlatformWindow {
             let focused_node = layout_window.focus_manager.get_focused_node().cloned();
             let mut planned = Vec::new();
 
-            for event in events {
+            for (event_index, event) in events.iter().enumerate() {
                 let event_filters =
                     azul_core::events::event_type_to_filters(event.event_type, &event.data);
 
@@ -9782,6 +9785,7 @@ pub trait PlatformWindow {
                                     callback_data,
                                     event_type: event.event_type,
                                     seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                    event_index,
                                 });
                             }
                         }
@@ -9825,6 +9829,7 @@ pub trait PlatformWindow {
                                                         callback_data: cb.clone(),
                                                         event_type: event.event_type,
                                                         seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                                        event_index,
                                                     });
                                                 }
                                             }
@@ -9851,6 +9856,7 @@ pub trait PlatformWindow {
                                                         azul_layout::managers::hover::seat_of_event(
                                                             event,
                                                         ),
+                                                    event_index,
                                                 });
                                             }
                                         }
@@ -9882,6 +9888,7 @@ pub trait PlatformWindow {
                                                         azul_layout::managers::hover::seat_of_event(
                                                             event,
                                                         ),
+                                                    event_index,
                                                 });
                                             }
                                         }
@@ -9913,6 +9920,7 @@ pub trait PlatformWindow {
                                         callback_data: cb.clone(),
                                         event_type: event.event_type,
                                         seat_id: azul_layout::managers::hover::seat_of_event(event),
+                                        event_index,
                                     });
                                 }
                             }
@@ -9945,21 +9953,36 @@ pub trait PlatformWindow {
         let mut prevented_event_types: alloc::collections::BTreeSet<azul_core::events::EventType> =
             alloc::collections::BTreeSet::new();
 
-        // Track propagation control flags (W3C semantics):
+        // Track propagation control flags (W3C semantics), PER EVENT: a pass
+        // carries several (a release: MouseUp, Click, DoubleClick), and a click
+        // handler's stopPropagation ends the CLICK's propagation, not the
+        // double-click's. Stopping the whole pass left AzDrive's drive tile
+        // unopenable - its click stops at the tile, the pane around it takes
+        // clicks too (E2E sweep, 2026-10-06).
         //  - stop_propagation: remaining handlers on the *same* node still fire, but handlers on
         //    different nodes are skipped.
-        //  - stop_immediate_propagation: no further handlers fire at all.
+        //  - stop_immediate_propagation: no further handlers of the event fire.
         let mut propagation_stopped = false;
         let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
+        let mut immediately_stopped = false;
+        let mut current_event: Option<usize> = None;
 
         for planned in planned_callbacks {
-            // W3C stopImmediatePropagation: break immediately
+            if current_event != Some(planned.event_index) {
+                current_event = Some(planned.event_index);
+                propagation_stopped = false;
+                propagation_stopped_node = None;
+                immediately_stopped = false;
+            }
+            if immediately_stopped {
+                continue;
+            }
             if propagation_stopped
                 && propagation_stopped_node
                     .is_none_or(|(dom, nid)| dom != planned.dom_id || nid != planned.node_id)
             {
-                // We crossed to a different node and stop_propagation was called → skip
-                break;
+                // The event crossed to a different node after stop_propagation → skip
+                continue;
             }
 
             let mut callback = LayoutCallback::from_core(planned.callback_data.callback);
@@ -10048,9 +10071,9 @@ pub trait PlatformWindow {
                 propagation_stopped_node = Some((planned.dom_id, planned.node_id));
             }
 
-            // stopImmediatePropagation: break immediately
+            // stopImmediatePropagation: nothing more of this event
             if should_stop_immediate {
-                break;
+                immediately_stopped = true;
             }
         }
 
