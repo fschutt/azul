@@ -41,10 +41,21 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App>; libazul.dylib is
   no TextChanged, nothing painted; flaky (extra debug ops in between make it pass). With 0.5 s after
   each type/key the WHOLE script passes (probe /tmp/e2e-b/aznotes_probe.py). Second bug seen: Enter
   in a check item, then typing, saves "- [ ] plain\ue835" (the check box's icon glyph in the text).
-- AzPaint: todo
-- AzPdf: todo
-- AzPhoto: todo
-- AzPlayer: todo
+- AzPaint: PASS (no change).
+- AzPdf: FAILS "Page Down goes to page 3" (AZPDF_PAGE 2, 3, then 1). SCRIPT fixed first (commit "AzPdf
+  reads its pages..."): pages/thumbs are VirtualView DOMs -> rect/has_id every_dom. ENGINE, not pinned:
+  the app's scroll_to on its page VirtualView to page 3 (y ~2640 of 3949) is reset to 0 at once
+  (get_scroll_states node 71 scroll_y 0) when the re-invoked slice is pages 2-3 (materialized
+  1321..3949, scroll_size 2628, virtual 3949); the first jump (page 2, slice from 0) holds. Next twice
+  shows the same. Looks: the page shows only the stroked line - no text, no filled rect; the thumbnail
+  rail VirtualView is 0 px wide until a later relayout.
+- AzPhoto: FAILS "the undo" - one Cmd+Z undoes TWICE (HISTORY 4 3 Opacity -> 4 2 -> 4 1). Root cause:
+  Mod+Z is both the menu bar's Edit > Undo accelerator AND the canvas key handler's shortcut; the
+  shared accelerator dispatch (dll common/event.rs dispatch_menu_accelerators) fires the item and
+  then still delivers the KeyDown to the DOM ("the key still reaches the DOM afterwards"), where
+  AppKit (native menu bar on macOS) and Win32 TranslateAccelerator consume it. (The script's own
+  key_up also keeps the chord held - released in a probe, still two undos.)
+- AzPlayer: PASS (no change). Look: the time label stays 0:00 while playing.
 
 ## Commits
 see `git log --oneline 05ef3a8f4..HEAD`
@@ -55,4 +66,4 @@ see `git log --oneline 05ef3a8f4..HEAD`
 - AzMonitor look: the process table stops at ~810 px of 1280 (columns do not fill the width).
 
 ## NEXT
-- run azpaint_e2e.py
+- decide AzPhoto (engine accelerator consume vs app); write report
