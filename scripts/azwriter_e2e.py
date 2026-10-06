@@ -54,11 +54,12 @@ def saved_count(app, doc_id):
 DIALOG_BUTTONS = "__azul-native-standard-dialog-buttons"
 
 
-def click_dialog_button(app, label, window="azul-transient"):
+def click_dialog_button(app, label, window="azul-transient", closes=False):
     """Clicks the button `label` of the standard dialog showing (the text "Save" is in the
     document too, so a click by text could land in the page). The dialog is a Modal: a window
     of its own (`window`). Its nodes are in the owner's hierarchy too, but a click there lands in
-    the owner, on whatever lies under them - the question stayed and nothing was saved."""
+    the owner, on whatever lies under them - the question stayed and nothing was saved.
+    `closes`: the answer closes the app's window (and the app): no frames are asked after it."""
     answer = app.op("get_node_hierarchy", window_id=window)
     nodes = [d for d in e.dicts(answer) if "index" in d and "parent" in d]
     by_index = {d["index"]: d for d in nodes}
@@ -79,7 +80,8 @@ def click_dialog_button(app, label, window="azul-transient"):
             while target is not None and not target.get("rect"):
                 target = by_index.get(target.get("parent"))
             app.must("click", node_id=(target or node)["index"], window_id=window)
-            app.frame(2)
+            if not closes:
+                app.frame(2)
             return
     raise e.Failure("no dialog button %r" % label)
 
@@ -181,13 +183,16 @@ def first_session(app, data, out):
     app.frame(2)
     app.until("the save-changes question", lambda: app.shows("Save changes"))
     app.screenshot(os.path.join(out, "close-guard.png"))
-    click_dialog_button(app, "Save")
-    app.until("the save on close", lambda: saved_count(app, doc_id) > before)
+    click_dialog_button(app, "Save", closes=True)
+    # The save runs on a thread and its write-back closes the window - and the app: wait for
+    # the exit (`until` gives up on an exited app), then read what it printed.
     end = time.time() + 20
     while app.process.poll() is None and time.time() < end:
         time.sleep(0.25)
     if app.process.poll() is None:
         raise e.Failure("the window did not close after Save")
+    if saved_count(app, doc_id) <= before:
+        raise e.Failure("the window closed without the save on close")
     if "CLOSING" not in read(doc_file(data, doc_id)):
         raise e.Failure("the save on close did not write the text")
     app.log("the close guard saved and closed")
