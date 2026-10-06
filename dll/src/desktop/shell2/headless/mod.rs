@@ -2440,10 +2440,17 @@ impl HeadlessWindow {
         self.pending_window_creates.extend(opened_by_children);
     }
 
-    /// Is this window a window-based menu (`WindowType::Menu`)?
+    /// Is this window a window-based menu: a `WindowType::Menu` window with no
+    /// transient mailbox? Every `<transient-window>` popup (a modal, a
+    /// popover, a picker) is a Menu-type window too
+    /// (`transient::popup_window_state`); it closes through its own policy and
+    /// tells its node (`Dismissed`) - the owner closing it as a menu closed an
+    /// open modal on any Escape, silently (E2E-C, AzReview). The same rule as
+    /// `process_transient_dismissal`'s `is_window_menu`.
     fn is_menu_window(&self) -> bool {
-        self.common.current_window_state().flags.window_type
-            == azul_core::window::WindowType::Menu
+        let state = self.common.current_window_state();
+        state.flags.window_type == azul_core::window::WindowType::Menu
+            && crate::desktop::shell2::common::transient::mailbox_of(state).is_none()
     }
 
     /// Whether this window's loop must poll (it has timers or threads in flight): the
@@ -3753,6 +3760,24 @@ impl PlatformWindow for HeadlessWindow {
         }
         self.children.retain(HeadlessWindow::is_open);
         any
+    }
+
+    /// The popups are this window's children: run the pass of every one this
+    /// window just forwarded a key to, right now, as X11 / macOS / Win32 do.
+    /// Headless has no key window; the popup never ran a pass for the key on
+    /// its own, so a script's Escape in a modal's owner sat in the modal's
+    /// mailbox and the modal's own Escape never closed it (E2E-C, AzReview).
+    fn deliver_forwarded_keys(&mut self) {
+        for child in &mut self.children {
+            if child.is_open()
+                && crate::desktop::shell2::common::transient::has_forwarded_keys(
+                    child.common.current_window_state(),
+                )
+            {
+                let r = child.process_window_events(0);
+                child.service_frame(r);
+            }
+        }
     }
 
     fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {
