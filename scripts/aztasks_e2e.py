@@ -82,7 +82,9 @@ def wait_file(app, data_dir, list_id, task_id, check=lambda t: True, what="the t
 def quick_add(app, text):
     """Types `text` into the quick-add line and presses Enter; returns (id, list, due)."""
     before = len(app.printed("AZTASKS_ADDED", r"\S+ \S+ \S+"))
-    app.must("click", selector=app.sel("quick-add"))
+    # `app.click` settles first: dismissing the reminder banner slides the list up (a layout
+    # animation of ~170 nodes), and a click at the field's centre mid-slide landed 14 px below it.
+    app.click(selector=app.sel("quick-add"))
     app.frame(1)
     app.must("text_input", text=text)
     app.frame(2)
@@ -97,6 +99,7 @@ def quick_add(app, text):
 def switch_layout(app, second):
     """Clicks the list header's layout switch: its second half ("Month" / "Board") or its first
     ("List")."""
+    app.settle()  # a click at a layout rect while a layout animation runs misses (see quick_add)
     box = app.box(app.sel("layout-switch"))
     x = box["x"] + box["width"] * (0.75 if second else 0.25)
     app.must("click", x=x, y=box["y"] + box["height"] / 2.0)
@@ -109,6 +112,7 @@ def centre(box):
 
 def drag_onto(app, source, target):
     """Drags the node `source` onto the middle of the node `target` (both selectors)."""
+    app.settle()
     (x0, y0), (x1, y1) = centre(app.box(source)), centre(app.box(target))
     app.drag(x0, y0, x1, y1)
 
@@ -133,10 +137,10 @@ def planned_and_board(app, data_dir, ferns, ferns_list, plumber, tomorrow, out):
     first = (tomorrow - datetime.timedelta(days=1)).replace(day=1)  # the month shown: today's
     next_month = (first + datetime.timedelta(days=32)).strftime("%Y-%m")
     seen = len(app.printed("AZTASKS_MONTH", r"\S+"))
-    app.must("click", selector=app.sel("month-next"))
+    app.click(selector=app.sel("month-next"))
     app.frame(2)
     app.until("AZTASKS_MONTH %s" % next_month, lambda: next_month in app.printed("AZTASKS_MONTH", r"\S+")[seen:])
-    app.must("click", selector=app.sel("month-today"))
+    app.click(selector=app.sel("month-today"))
     app.frame(2)
     app.until("this month again", lambda: app.has(ferns_there))
     # A drag onto the day after: due then (the time and the repeat kept); and back.
@@ -155,7 +159,7 @@ def planned_and_board(app, data_dir, ferns, ferns_list, plumber, tomorrow, out):
     # The board of the ferns' list.
     with open(os.path.join(data_dir, "tasks", ferns_list, "list.json"), "r", encoding="utf-8") as f:
         name = json.load(f)["name"]
-    app.must("click", text=name)
+    app.click(text=name)
     app.frame(2)
     app.until("AZTASKS_VIEW list:%s" % ferns_list,
               lambda: app.printed("AZTASKS_VIEW", r"\S+")[-1:] == ["list:%s" % ferns_list])
@@ -208,7 +212,7 @@ def run(args, logs, out, data_dir):
         except (urllib.error.URLError, OSError, ValueError) as e:
             log("WARN assert_notification unavailable: %s" % e)
         app.screenshot(os.path.join(out, "reminder.png"))
-        app.must("click", selector=app.sel("dismiss-reminder"))
+        app.click(selector=app.sel("dismiss-reminder"))
         app.frame(2)
         app.until("the banner to close", lambda: not app.has(app.sel("reminder-banner")))
         log("reminder %s shown and dismissed" % reminded[-1])
@@ -250,7 +254,7 @@ def run(args, logs, out, data_dir):
             # into the list's view first (a click op at a row below it lands outside the list).
             app.must("scroll_into_view", selector=app.sel("task-%s") % task_id, block="center", behavior="instant")
             app.frame(2)
-            app.must("click", selector="%s .%stask-title" % (app.sel("task-%s") % task_id, app.prefix))
+            app.click(selector="%s .%stask-title" % (app.sel("task-%s") % task_id, app.prefix))
             app.frame(2)
             app.until("AZTASKS_SELECTED %s" % task_id,
                       lambda: app.printed("AZTASKS_SELECTED", r"\S+")[-1:] == [task_id])
@@ -266,7 +270,7 @@ def run(args, logs, out, data_dir):
         # Completing the repeating task leaves next week's behind.
         app.key("2", primary=True)
         app.frame(2)
-        app.must("click", selector=app.sel("check-%s") % ferns)
+        app.click(selector=app.sel("check-%s") % ferns)
         app.frame(2)
         app.until("AZTASKS_COMPLETED", lambda: ferns in app.printed("AZTASKS_COMPLETED", r"\S+"))
         spawned = app.until("AZTASKS_SPAWNED", lambda: app.printed("AZTASKS_SPAWNED", r"\S+ \S+"))
@@ -280,16 +284,16 @@ def run(args, logs, out, data_dir):
         log("completed %s; the next one is %s, due %s" % (ferns, new_id, new_due))
 
         # FILE opens the backstage (settings); Escape closes it.
-        app.must("click", text="FILE")
+        app.click(text="FILE")
         app.frame(2)
         app.until("the backstage", lambda: app.has(app.sel("backstage")))
         app.screenshot(os.path.join(out, "settings.png"))
 
         # Settings > Data: export the tasks into the data tree, import an iCalendar to-do.
-        app.must("click", text="Data")
+        app.click(text="Data")
         app.frame(2)
         app.until("the import and export controls", lambda: app.has(app.sel("settings-export")))
-        app.must("click", selector=app.sel("settings-export"))
+        app.click(selector=app.sel("settings-export"))
         app.frame(2)
         exported = app.until("AZTASKS_EXPORTED", lambda: app.printed("AZTASKS_EXPORTED", r"\d+ \S+"))
         count, key = exported[-1].split(" ", 1)
@@ -312,11 +316,11 @@ def run(args, logs, out, data_dir):
                     "UID:e2e-1@example.org\r\nSUMMARY:Imported from iCal\r\n"
                     "DUE;VALUE=DATE:%s\r\nPRIORITY:1\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
                     % tomorrow.strftime("%Y%m%d"))
-        app.must("click", selector=app.sel("settings-import-path"))
+        app.click(selector=app.sel("settings-import-path"))
         app.frame(1)
         app.must("text_input", text=ics)
         app.frame(2)
-        app.must("click", selector=app.sel("settings-import"))
+        app.click(selector=app.sel("settings-import"))
         app.frame(2)
         imported = app.until("AZTASKS_IMPORTED", lambda: app.printed("AZTASKS_IMPORTED", r"\d+ .+"))
         if not imported[-1].startswith("1 "):
@@ -324,10 +328,10 @@ def run(args, logs, out, data_dir):
         log("exported %s to-do(s) to %s; imported 1 from %s" % (count, key, ics))
 
         # Settings > Appearance: Flora is kept for the next start (aztasks/settings.json).
-        app.must("click", text="Appearance")
+        app.click(text="Appearance")
         app.frame(2)
         app.until("the theme control", lambda: app.has(app.sel("settings-theme")))
-        app.must("click", text="Flora")
+        app.click(text="Flora")
         app.frame(2)
         appearance_file = os.path.join(data_dir, "aztasks", "settings.json")
 
