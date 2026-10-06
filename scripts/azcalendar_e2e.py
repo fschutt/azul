@@ -419,6 +419,18 @@ def stage_editor(app, ctx):
 
 # ==== close ====
 
+def reach_modal(app, known):
+    """The debug client of the window a Modal opened (`azul-transient`, `azul-transient-2`,
+    ...): the one window not in `known`."""
+
+    def other():
+        windows = (app.main.value({"op": "list_windows"}) or {}).get("windows") or []
+        ids = [w.get("window_id") for w in windows if w.get("window_id") not in known]
+        return ids[0] if ids else None
+
+    return Window(app.port, app.timeout, app.main.until("the question's window", other))
+
+
 def stage_close(app, ctx):
     """An edited appointment is not lost to the window's close: the close is held and the window
     asks "save changes?"; Don't Save closes it and writes nothing. An unedited one closes at
@@ -437,7 +449,13 @@ def stage_close(app, ctx):
     if "closed" in app.printed("AZCAL_EDITOR")[opened:]:
         raise Failure("the edited appointment's window closed without asking")
     ed.until("the question", lambda: ed.shows("Don't Save"))
-    ed.click(text="Don't Save")
+    # The question is a Modal: a window of its own over the editor (the CloseGuard's
+    # MessageBox in a <transient-window>), where the user's click lands - its nodes in the
+    # editor's DOM are not laid out there. The answer closes it and the editor: no frames
+    # are asked of it after the click.
+    question = reach_modal(app, (MAIN, EDITOR))
+    question.until("Don't Save in the question's window", lambda: question.shows("Don't Save"))
+    question.must({"op": "click", "text": "Don't Save"})
     w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
     if set(wi.event_files(app.data)) != before:
         raise Failure("Don't Save wrote an event file")
