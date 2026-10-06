@@ -192,7 +192,9 @@ class App:
                 ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
+        # A tap of the chord: the key and its modifiers come up together (an op's modifiers are
+        # the whole modifier state - the chord's would stay held for every later op).
+        self.must("key_up", key=key, modifiers={"shift": False, "ctrl": False, "alt": False, "meta": False})
         self.frame(2)
 
     def type(self, text):
@@ -265,8 +267,11 @@ def run(args):
         app.screenshot(os.path.join(out, "vault-flat-light.png"))
 
         # 2. Search, select, the one-time code, copy.
-        app.type_into(sel("list-search"), "codehost")
-        app.until("one item for 'codehost'", lambda: app.printed("AZKEYS_VIEW", r"\d+")[-1:] == ["1"])
+        # Every word must match: "codehost" alone also finds the sample's secure note
+        # "CodeHost recovery codes" (the sample got its 11 notes in db13c2ce8).
+        app.type_into(sel("list-search"), "codehost example")
+        app.until("one item for 'codehost example'",
+                  lambda: app.printed("AZKEYS_VIEW", r"\d+")[-1:] == ["1"])
         app.click(sel("row-0"))
         app.until("CodeHost selected", lambda: "CodeHost (example)" in app.printed("AZKEYS_SELECTED"))
         code = app.until("a one-time code", lambda: [t for t in app.texts() if re.fullmatch(r"\d{3} \d{3}", t)])
