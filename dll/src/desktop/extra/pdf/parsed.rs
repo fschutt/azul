@@ -359,3 +359,123 @@ mod engine {
         )
     }
 }
+
+#[cfg(all(test, feature = "pdf"))]
+mod page_to_svg_tests {
+    use super::ParsedPdf;
+
+    /// A one-page PDF (612 x 792 pt) around the content stream `content`,
+    /// with `/F1` the standard Helvetica (not embedded).
+    fn tiny_pdf(content: &str) -> Vec<u8> {
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R \
+             /Resources << /Font << /F1 5 0 R >> >> >>"
+                .to_string(),
+            format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ];
+        let mut out = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, body) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+        }
+        let xref = out.len();
+        out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+        for offset in offsets {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                objects.len() + 1
+            )
+            .as_bytes(),
+        );
+        out
+    }
+
+    /// The page's SVG drawn 612 px wide (1 px per pt), as AzPdf draws it.
+    fn picture(pdf: &ParsedPdf) -> azul_core::resources::RawImage {
+        use azul_core::svg::{SvgFitTo, SvgParseOptions, SvgRenderOptions};
+        use azul_css::props::basic::color::{ColorU, OptionColorU};
+        let svg = pdf.page_to_svg(0).into_option().expect("an SVG of page 1");
+        let parsed = azul_layout::xml::svg::ParsedSvg::from_string(
+            svg.as_str(),
+            SvgParseOptions::default(),
+        )
+        .expect("the SVG parses");
+        parsed
+            .render(SvgRenderOptions {
+                fit: SvgFitTo::Width(612),
+                background_color: OptionColorU::Some(ColorU::WHITE),
+                ..SvgRenderOptions::default()
+            })
+            .expect("the SVG draws")
+    }
+
+    /// The colour at (`x`, `y`) of a page picture, top-left origin.
+    fn at(image: &azul_core::resources::RawImage, x: usize, y: usize) -> (u8, u8, u8) {
+        let azul_core::resources::RawImageData::U8(bytes) = &image.pixels else {
+            panic!("an 8-bit picture");
+        };
+        let bytes = bytes.as_ref();
+        let i = (y * image.width + x) * 4;
+        let px = (bytes[i], bytes[i + 1], bytes[i + 2]);
+        match image.data_format {
+            azul_core::resources::RawImageFormat::BGRA8 => (px.2, px.1, px.0),
+            _ => px,
+        }
+    }
+
+    #[test]
+    fn a_shape_drawn_under_a_scaling_cm_is_where_the_pdf_puts_it() {
+        // A 100 x 100 pt red square at (100, 100) in a half-scale user space:
+        // on the page it covers x 50..100, y (from the top) 692..742. The SVG
+        // export flipped the points AND the translation, so it sat d * H = 396
+        // pt too low - below the page.
+        let pdf = ParsedPdf::create_from_bytes(&tiny_pdf(
+            "q 0.5 0 0 0.5 0 0 cm 1 0 0 rg 100 100 100 100 re f Q",
+        ));
+        assert!(pdf.is_valid(), "{:?}", pdf.get_error());
+        let image = picture(&pdf);
+        assert_eq!(at(&image, 75, 717), (255, 0, 0), "inside the square");
+        assert_eq!(at(&image, 75, 640), (255, 255, 255), "above it");
+    }
+
+    #[test]
+    fn a_clip_rectangle_is_not_painted_and_a_rectangle_after_it_is() {
+        // `re W n` sets a clip and paints nothing; it came out as a rectangle
+        // filled in the current colour (black: a page-sized black box over
+        // most real PDFs, which clip their content area first).
+        let pdf = ParsedPdf::create_from_bytes(&tiny_pdf(
+            "q 0 0 400 400 re W n 0 0.5 0 rg 10 10 50 50 re f Q",
+        ));
+        assert!(pdf.is_valid(), "{:?}", pdf.get_error());
+        let image = picture(&pdf);
+        assert_eq!(at(&image, 200, 592), (255, 255, 255), "the clip area stays paper");
+        assert_eq!(at(&image, 35, 757), (0, 128, 0), "the green square inside it");
+    }
+
+    #[test]
+    fn a_cubic_curve_is_drawn_as_one() {
+        // A filled shape whose top edge is a cubic bulging up to y 700 pt
+        // (a control polygon at 760): (100, 600) -> curve -> (300, 600) ->
+        // down to 500 and back. Read as a quadratic through the second handle
+        // the curve ended at that handle and the shape lost its right half.
+        let pdf = ParsedPdf::create_from_bytes(&tiny_pdf(
+            "0 0 1 rg 100 600 m 150 760 250 760 300 600 c 300 500 l 100 500 l h f",
+        ));
+        assert!(pdf.is_valid(), "{:?}", pdf.get_error());
+        let image = picture(&pdf);
+        // (280, 550) pt is inside the right half; y from the top: 792 - 550.
+        assert_eq!(at(&image, 280, 242), (0, 0, 255), "the right half is filled");
+        // The bulge: (200, 690) pt lies under the curve's apex (720).
+        assert_eq!(at(&image, 200, 102), (0, 0, 255), "under the apex");
+        // Above the curve at x 250 (it passes 680 there): the quadratic ran
+        // up to the second handle, (250, 760), and filled this.
+        assert_eq!(at(&image, 250, 52), (255, 255, 255), "above the curve");
+    }
+}
