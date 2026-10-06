@@ -255,11 +255,26 @@ class App:
 
     # ---- what the window shows ----
 
-    def texts(self):
-        return list(strings(self.op("get_node_hierarchy")))
+    def dom_ids(self):
+        """The ids of the window's DOMs (the debug server's `list_doms`): its own document (0),
+        every VirtualView's document and every open popup's content."""
+        value = self.value("list_doms")
+        doms = value.get("doms") if isinstance(value, dict) else None
+        return [d["dom_id"] for d in doms or [] if isinstance(d, dict) and "dom_id" in d] or [0]
 
-    def shows(self, text):
-        return any(text in t for t in self.texts())
+    def texts(self, every_dom=False):
+        """The strings of the window's node hierarchy: of its own document (DOM 0), or with
+        `every_dom` of every DOM it shows - a VirtualView's rows (AzMonitor's process table, its
+        cards' headlines) live in a DOM of their own, which DOM 0's hierarchy does not hold."""
+        if not every_dom:
+            return list(strings(self.op("get_node_hierarchy")))
+        found = []
+        for dom in self.dom_ids():
+            found.extend(strings(self.op("get_node_hierarchy", dom_id=dom)))
+        return found
+
+    def shows(self, text, every_dom=False):
+        return any(text in t for t in self.texts(every_dom))
 
     def hierarchy(self):
         """The window's nodes (`index`, `type`, `text`, `classes`, `parent`, `children`)."""
@@ -353,16 +368,24 @@ class App:
 
     # ---- input ----
 
-    def click(self, selector=None, text=None, frames=2):
+    def click(self, selector=None, text=None, frames=2, every_dom=False):
         # A click lands where the node IS: an entrance animation (AzCalculator's
         # Scientific keys slide in) moves it off its layout rect, and the engine
         # hits what is painted, as a user would. Settle first, or the click
         # misses the key it names (it hit a neighbour or nothing).
         self.settle(limit=2.0)
-        if selector:
-            self.must("click", selector=selector)
+        target = {"selector": selector} if selector else {"text": text}
+        if every_dom:
+            # The first DOM that has the target: a VirtualView's rows (AzMonitor's process
+            # table) are a DOM of their own, which a click naming no `dom_id` never searches.
+            for dom in self.dom_ids():
+                answer = self.op("click", dom_id=dom, **target)
+                if isinstance(answer, dict) and answer.get("status") != "error":
+                    break
+            else:
+                raise Failure("click %s: no DOM of the window has it" % json.dumps(target))
         else:
-            self.must("click", text=text)
+            self.must("click", **target)
         self.frame(frames)
 
     def key(self, key, shift=False, ctrl=False, alt=False, meta=False, frames=2, primary=False):

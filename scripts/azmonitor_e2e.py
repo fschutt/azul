@@ -56,8 +56,9 @@ def layouts(app):
 
 
 def cpu_headline(app):
-    """The CPU card's headline as the window shows it ("CPU 23.4 %")."""
-    for text in app.texts():
+    """The CPU card's headline as the window shows it ("CPU 23.4 %"): a VirtualView, so a DOM
+    of its own."""
+    for text in app.texts(every_dom=True):
         if text.startswith("CPU ") and "%" in text:
             return text
     return None
@@ -86,7 +87,8 @@ def body(args, logs, out):
         for stem in ("cards", "table-view", "tools", "filter"):
             if not app.has_id("__azmonitor_" + stem):
                 raise Failure("#__azmonitor_%s is not in the tree" % stem)
-        app.until("the table's rows", lambda: app.shows("cargo"))
+        # The table is a VirtualView: its rows are a DOM of their own.
+        app.until("the table's rows", lambda: app.shows("cargo", every_dom=True))
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "1-processes.png"))
 
@@ -105,7 +107,7 @@ def body(args, logs, out):
         app.log("3 readings, layout() ran 0 times; CPU card %r -> %r" % (before_cpu, after_cpu))
 
         # ---- 3. sort by name ----
-        app.click(text="Name")
+        app.click(text="Name", every_dom=True)
         app.until("the name sort", lambda: app.last("AZMON_SORT") == "Name asc")
         app.until("accounts-daemon on top",
                   lambda: (app.last("AZMON_TOP") or "").endswith(" accounts-daemon"))
@@ -127,7 +129,7 @@ def body(args, logs, out):
         app.text_input(P + "filter", "pipewire")
         app.expect_line("AZMON_SHOWN", "1", "the pipewire filter")
         app.frame(2)
-        app.click(text="pipewire")
+        app.click(text="pipewire", every_dom=True)
         app.expect_line("AZMON_SELECT", "812 pipewire", "pipewire selected")
         app.key("delete")
         app.expect_line("AZMON_ASK", "812 pipewire", "the question")
@@ -145,7 +147,7 @@ def body(args, logs, out):
         app.text_input(P + "filter", "sshd")
         app.expect_line("AZMON_SHOWN", "1", "the sshd filter")
         app.frame(2)
-        app.click(text="sshd")
+        app.click(text="sshd", every_dom=True)
         app.expect_line("AZMON_SELECT", "702 sshd", "sshd selected")
         app.click(selector=P + "end-process")
         app.expect_line("AZMON_ASK", "702 sshd", "the question for sshd")
