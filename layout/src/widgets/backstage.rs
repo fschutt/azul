@@ -441,6 +441,9 @@ fn theme_right(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
         // As the root: the page's scroller scrolls, the column does not grow (theme_root).
         Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
+        // The flex item beside the navigation: the width it is given, not its page's widest
+        // word (a DKIM key's record pushed AzMail's settings past the window's edge).
+        Cond::simple(P::const_min_width(LayoutMinWidth::const_px(0))),
     ];
     v.extend(page_bg(t));
     CssPropertyWithConditionsVec::from_vec(v)
