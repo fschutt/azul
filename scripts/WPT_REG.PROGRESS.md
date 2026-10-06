@@ -26,8 +26,12 @@ their fix (8fba0bcdf, 8a8d980ea, 978441b69, 4958a31e7, 03ba7769c) - never verifi
 ## DONE
 - 98187c0ac the 44 unexpected passes leave tests/wpt/reftest_expectations.txt
 - 264f41dba RED / 879830f93 GREEN (A) abspos static position (LayoutOutput::static_positions)
+- ce4fc965c RED / 640999161 GREEN (B) inside marker: own line host only, in flow otherwise
+- 20f62e7d2 RED / f3312a48d GREEN (C) a marker's space is never stripped as trailing white space
+- 888b7fac7 RED / c766ce0c0 GREEN (D) font-size keywords (css), one table (ua_css, core xml legacy)
+- 320874a95 RED / d1f8fbeee GREEN (G) middle-aligned cell measured by ifc_extent
 
 ## NEXT
-- B: marker_line_host only for OUTSIDE markers past the item itself; inside marker with no own
-  line host stays in flow (layout_bfc marker branch + sizing.rs max)
-- C, D, G, H, tables, gradient; expectations for E, F
+- H text clip; tables (collapsing-border-model-003/009, border-collapse-offset-002,
+  border-collapse-empty-row, calc-percent-plus-0px-auto, col-definite-size-001, th-text-align,
+  table-cell-width-s); gradient seams; expectations for E, F and any gap left unfixed
