@@ -119,6 +119,20 @@ fn render_backend_from_env(val: &str) -> Option<AzBackend> {
 }
 
 impl AzBackend {
+    /// Whether the `AZ_BACKEND` value `val` selects the headless backend.
+    #[must_use]
+    pub fn headless_selected_by(val: Option<&str>) -> bool {
+        val.and_then(render_backend_from_env) == Some(AzBackend::Headless)
+    }
+
+    /// Whether this process runs headless (`AZ_BACKEND=headless`) - known
+    /// before `App::run` starts the headless loop, for what an app asks while
+    /// it builds its state (`PlatformCapability::notifications()`).
+    #[must_use]
+    pub fn headless_selected() -> bool {
+        Self::headless_selected_by(std::env::var("AZ_BACKEND").ok().as_deref())
+    }
+
     /// Resolve the backend from environment variable and config.
     ///
     /// Priority order:
