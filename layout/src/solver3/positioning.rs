@@ -1135,32 +1135,23 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 delta_y
             );
 
-            // +spec:table-layout:ec2600 - For table-row-group, table-header-group,
+            // The box is shifted AS A UNIT (CSS 2.2 9.4.3): its contents go with it.
+            // Positions are absolute, so every descendant takes the same delta (a
+            // nested relative box adds its own shift when the walk reaches it).
+            // +spec:table-layout:ec2600 - for table-row-group, table-header-group,
             // table-footer-group, or table-row, the relative shift affects all contents
-            // of the box including table cells. Propagate the delta to all descendant
-            // nodes.
+            // of the box including table cells.
+            // Only table rows used to drag their subtree: a relatively positioned block
+            // moved and left its content behind (E2E-C, AzReader's page 2 repeated the
+            // chapter's start: the column under `position: relative; top: -502px` stayed).
             {
-                use azul_css::props::layout::LayoutDisplay;
-                let display = get_display_property(ctx.styled_dom, node.dom_node_id);
-                let is_table_row_like = matches!(
-                    display,
-                    MultiValue::Exact(
-                        LayoutDisplay::TableRowGroup
-                            | LayoutDisplay::TableHeaderGroup
-                            | LayoutDisplay::TableFooterGroup
-                            | LayoutDisplay::TableRow
-                    )
-                );
-                if is_table_row_like {
-                    // Shift all children (and their descendants) by the same delta
-                    let mut stack = tree.children(node_index).to_vec();
-                    while let Some(child_idx) = stack.pop() {
-                        if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
-                            child_pos.x += delta_x;
-                            child_pos.y += delta_y;
-                        }
-                        stack.extend_from_slice(tree.children(child_idx));
+                let mut stack = tree.children(node_index).to_vec();
+                while let Some(child_idx) = stack.pop() {
+                    if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
+                        child_pos.x += delta_x;
+                        child_pos.y += delta_y;
                     }
+                    stack.extend_from_slice(tree.children(child_idx));
                 }
             }
         }
@@ -2909,8 +2900,7 @@ mod autotest_generated {
             // AzReader shows page 2 of a chapter as the reading column shifted up by page 1's
             // height inside a clip (`position: relative; top: -502px`): the shifted box moved,
             // the column in it stayed, and page 2 showed the chapter's start again (E2E-C).
-            let (sd, mut tree) =
-                three_level(".mid { position: relative; top: -50px; left: 5px; }");
+            let (sd, mut tree) = three_level(".mid { position: relative; top: -50px; left: 5px; }");
             tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 100.0));
             tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 300.0));
             tree.nodes[2].used_size = Some(LogicalSize::new(200.0, 300.0));
@@ -2918,7 +2908,11 @@ mod autotest_generated {
             let mut env = Env::new(sd);
             run_rel(&mut env, &tree, &mut pos);
             assert_eq!(pos[1], LogicalPosition::new(15.0, -30.0), "the box itself");
-            assert_eq!(pos[2], LogicalPosition::new(15.0, -30.0), "its content goes with it");
+            assert_eq!(
+                pos[2],
+                LogicalPosition::new(15.0, -30.0),
+                "its content goes with it"
+            );
         }
 
         #[test]
@@ -2933,7 +2927,11 @@ mod autotest_generated {
             let mut env = Env::new(sd);
             run_rel(&mut env, &tree, &mut pos);
             assert_eq!(pos[1], LogicalPosition::new(10.0, 30.0), "the outer box");
-            assert_eq!(pos[2], LogicalPosition::new(10.0, 35.0), "the inner box: both shifts");
+            assert_eq!(
+                pos[2],
+                LogicalPosition::new(10.0, 35.0),
+                "the inner box: both shifts"
+            );
         }
 
         #[test]
