@@ -42,8 +42,21 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
 - NOTE the script already tolerates: the slide sorter's drag and drop delivers no drop headlessly (Mod+Down
   reorders instead). Not investigated.
 
-## AzTasks / AzTerm / AzVideoCut / AzWriter
+## AzTasks - SCRIPT fixed + ENGINE fix, unverified
+- SCRIPT: the quick-add click landed 14 px below the field: dismissing the reminder banner slides the list
+  up (~170 layout animations) and the raw click op targets what is painted. Clicks now go through the
+  helper's `click` (settles first).
+- SCRIPT: the planned-month drag took the day's FIRST planned task - the sample's own task on tomorrow - not
+  the ferns; `planned_box` finds the ferns by title in the day.
+- ENGINE: no drop ever arrived: a scripted pointer (ModifyWindowState / QueueWindowStateSequence) never fed
+  the gesture manager, so no DragStart (the log showed only TextSelectionDrag). RED 22d564f60 + 32952e3ba
+  (e2e_host.rs: a scripted drag drops; two scripted press/release cycles are one double click), GREEN
+  9695862dc (dll event.rs `record_scripted_pointer_sample` in both arms; full.rs double_click op stops
+  injecting a native DoubleClick, which would now be a second one).
+- With the drag steps skipped (/tmp/e2e-c/tasks_skipdnd.py) everything else PASSES on today's binary.
+
+## AzTerm / AzVideoCut / AzWriter
 - status: not run yet
 
 ## NEXT
-- run AzTasks
+- run AzTerm
