@@ -68,3 +68,13 @@ shared click now settles animations first (05ef3a8f4: AzCalculator's Scientific 
 | E2E-C (Reader, Review, Setup, Sheets, Show, Tasks, Term, VideoCut, Writer) | a668f2e176ca88325 | wt/e2e-c | scripts/E2E_C_2026_10_06.md |
 | WPT-REG (19 regressions + 44 unexpected passes) | ad8fe53ce300e017b | wt/wpt-reg | scripts/WPT_REG_2026_10_06.md |
 WAYLAND8 Linux checks: not possible on this Mac (no running Linux VM; a live KDE session needed) - open.
+
+## Root-cause round (2026-10-06 afternoon/evening, coordinator only, 24 commits on e3b282862)
+E2E findings of E2E-A/B/C fixed in the engine, each RED first: sizing-cache hit vs subtree (d81fd5f37), a thread
+started in a modal outlives it (bad49bf1b), stopPropagation per event (eb693929a), reveal-before-click +
+screen_rect (5561eaf9b, 7b9c5c80d), empty list item Enter (db7f7e81d), Shift+Left on typed text (c5f8adf86), one
+TextInput/TextArea mirror (cd1df569f), AzMail compose dark paper (727f4a2c5), overlay-aware debug texts (2884b90b6),
+absolute static position (66ee066a9, WPT 148 pass / 0 regressions). Perf/memory: 584be9913, 4cfcdb9da, d296c7ae5,
+0986daef3 (AzContacts 300-contact rebuild 1.77 s -> ~0.2 s, layout 578 -> 76 ms); rust-fontconfig 5.0.1 published
+and adopted (f90f551bb, AzContacts peak 392 -> 198 MB). Suites green (layout lib 9399, all 2213, dll 3456).
+Next: CSS diff on the direct LayoutWindow layout path, the 4 OPEN WPT entries, push. E2E sweep left to CI.
