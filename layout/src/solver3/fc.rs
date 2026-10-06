@@ -15772,6 +15772,51 @@ mod window_layout_tests {
             );
         }
     }
+
+    /// `body(0) > [div.above(1), div.abs(2), div.below(3)]`.
+    fn an_absolute_box_between_two_blocks() -> Dom {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        Dom::create_body()
+            .with_child(div("above"))
+            .with_child(div("abs"))
+            .with_child(div("below"))
+    }
+
+    #[test]
+    fn an_absolute_box_with_auto_insets_sits_where_the_flow_would_have_put_it() {
+        // WPT css/CSS2/tables/height-table-cell-001 (and every "no red"
+        // test with an `overlapped-red-reference` after its `<p>`): an
+        // absolutely positioned box whose insets are all `auto` takes its
+        // STATIC position - where it would have been as a block in the flow
+        // (CSS 2.2 10.3.7 / 10.6.4): after the block above it and that
+        // block's bottom margin, at its own margin-left. Chrome: (5, 40),
+        // and the block below starts at 40 too (the absolute box takes no
+        // room). It sat at its parent's content-box origin, (0, 0): on top
+        // of the paragraph, the red reference showing above the green.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                an_absolute_box_between_two_blocks(),
+                "body { margin: 0; } .above { height: 30px; margin-bottom: 10px; } .abs { \
+                 position: absolute; width: 10px; height: 10px; margin-left: 5px; } .below { \
+                 height: 20px; }",
+            ),
+        );
+        let abs = position_of(&lw, 2);
+        assert!(
+            (abs.y - 40.0).abs() < 0.5 && (abs.x - 5.0).abs() < 0.5,
+            "the absolute box sits below the 30px block and its 10px margin, at its own 5px \
+             margin (Chrome (5, 40)): {abs:?}"
+        );
+        let below = position_of(&lw, 3);
+        assert!(
+            (below.y - 40.0).abs() < 0.5,
+            "the absolute box takes no room in the flow: the block below starts at 40: {below:?}"
+        );
+    }
 }
 
 /// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
