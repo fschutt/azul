@@ -1367,19 +1367,47 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 .find(|(k, _)| k == &child_index)
                 .map(|(_, v)| v)
             {
+                // A flex item contributes its OUTER size (CSS Flexbox 9.9.1,
+                // the min / max-content contributions): its content plus its
+                // padding, border and margins - as the block aggregation
+                // adds them. Summing bare content sizes made a flex
+                // container too small for children with a box: a text field
+                // (1px border, 1px padding) in a body column came out 4px
+                // short, the body's height was fixed from it and the flex
+                // algorithm squeezed the field back to its min-height - an
+                // app's 24px font never reached the field's height.
+                let (extra_w, extra_h) = tree
+                    .get(LayoutNodeId::new(child_index))
+                    .map_or((0.0, 0.0), |cn| {
+                        let bp = cn.box_props.unpack();
+                        (
+                            bp.margin.left
+                                + bp.margin.right
+                                + bp.border.left
+                                + bp.border.right
+                                + bp.padding.left
+                                + bp.padding.right,
+                            bp.margin.top
+                                + bp.margin.bottom
+                                + bp.border.top
+                                + bp.border.bottom
+                                + bp.padding.top
+                                + bp.padding.bottom,
+                        )
+                    });
                 let (child_main_min, child_main_max, child_cross_min, child_cross_max) = if is_row {
                     (
-                        child_intrinsic.min_content_width,
-                        child_intrinsic.max_content_width,
-                        child_intrinsic.min_content_height,
-                        child_intrinsic.max_content_height,
+                        child_intrinsic.min_content_width + extra_w,
+                        child_intrinsic.max_content_width + extra_w,
+                        child_intrinsic.min_content_height + extra_h,
+                        child_intrinsic.max_content_height + extra_h,
                     )
                 } else {
                     (
-                        child_intrinsic.min_content_height,
-                        child_intrinsic.max_content_height,
-                        child_intrinsic.min_content_width,
-                        child_intrinsic.max_content_width,
+                        child_intrinsic.min_content_height + extra_h,
+                        child_intrinsic.max_content_height + extra_h,
+                        child_intrinsic.min_content_width + extra_w,
+                        child_intrinsic.max_content_width + extra_w,
                     )
                 };
 

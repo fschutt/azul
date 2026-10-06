@@ -765,8 +765,14 @@ fn layout_flex_grid<T: ParsedFontTrait>(
             // sizes items to their hypothetical main size and performs no
             // shrinking. Leaving the dimension unknown is what makes taffy
             // content-size the container.
-            Some(h) if h <= 0.0 => None,
-            Some(h) => Some(h),
+            //
+            // A POSITIVE used height is no better: it is the sizing
+            // pre-pass's estimate of the content, which leaves out the
+            // root's own padding and border - taken as the border box, it
+            // squeezed the items into the rest (a body column with 8px
+            // padding handed its 32px text field 16px, and the field fell
+            // back to its 22px min-height; an app's 24px font never grew it).
+            Some(_) => None,
             None => {
                 if constraints.available_size.height.is_finite() {
                     Some(constraints.available_size.height + height_adjustment)
