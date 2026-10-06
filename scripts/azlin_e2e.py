@@ -483,6 +483,10 @@ class App:
             raise Failure("%s: expected %r, last %r" % (what or key, expected, self.last(key)))
 
     def screenshot(self, path):
+        # Settle first (the house rule: nothing moving when the picture is taken). A rebuild
+        # slides every moved node to its new place: AzSheets' Budget sample, shot mid-slide,
+        # showed the grid's cell borders strewn over the empty rows.
+        self.settle()
         value = self.value("take_screenshot")
         data = value.get("data") if isinstance(value, dict) else None
         if not isinstance(data, str) or "base64," not in data:
