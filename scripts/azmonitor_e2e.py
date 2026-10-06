@@ -137,7 +137,8 @@ def body(args, logs, out):
             raise Failure("the end-process question is not shown")
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "4-question.png"))
-        app.click(text="Kill")
+        # The question is a Modal: a window of its own.
+        app.click_exact("Kill", window=app.until("the question's window", app.popup))
         app.expect_line("AZMON_END", "812 true", "the kill")
         app.until("the kill's notice", lambda: app.last("AZMON_NOTICE") == "Killed pipewire (812)")
         app.until("44 processes", lambda: (app.last("AZMON_TICK") or "").split()[1:2] == [str(PROCESSES - 1)])
@@ -151,7 +152,8 @@ def body(args, logs, out):
         app.expect_line("AZMON_SELECT", "702 sshd", "sshd selected")
         app.click(selector=P + "end-process")
         app.expect_line("AZMON_ASK", "702 sshd", "the question for sshd")
-        app.click(text="Kill")
+        # The question is a Modal: a window of its own.
+        app.click_exact("Kill", window=app.until("the question's window", app.popup))
         app.until("the refusal", lambda: "administrator" in (app.last("AZMON_NOTICE") or ""))
         app.log("sshd refused: %s" % app.last("AZMON_NOTICE"))
         clear_filter(app)
@@ -168,7 +170,7 @@ def body(args, logs, out):
                 raise Failure("#__azmonitor_%s is not in the tree" % stem)
         wait_ticks(app, 1, "a reading on the performance page")
         app.frame(2)
-        if not app.has_id("__azmonitor_cores"):
+        if not app.has_id("__azmonitor_cores", every_dom=True):  # inside the page's VirtualView
             raise Failure("the per-core bars (#__azmonitor_cores) are not shown")
         before_layouts = layouts(app)
         wait_ticks(app, 2, "two readings on the performance page")

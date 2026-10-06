@@ -255,10 +255,22 @@ class App:
 
     # ---- what the window shows ----
 
-    def dom_ids(self):
+    def window_ids(self):
+        """The ids of the app's windows (`list_windows`), the app's first window first. An open
+        Modal / Popover / menu is a window of its own (`azul-transient`, `azul-menu`)."""
+        value = self.value("list_windows")
+        wins = value.get("windows") if isinstance(value, dict) else value
+        return [w["window_id"] for w in wins or [] if isinstance(w, dict) and w.get("window_id")]
+
+    def popup(self):
+        """The id of the newest window besides the app's first (an open Modal's), or None."""
+        ids = self.window_ids()
+        return ids[-1] if len(ids) > 1 else None
+
+    def dom_ids(self, window=None):
         """The ids of the window's DOMs (the debug server's `list_doms`): its own document (0),
         every VirtualView's document and every open popup's content."""
-        value = self.value("list_doms")
+        value = self.value("list_doms", **({"window_id": window} if window else {}))
         doms = value.get("doms") if isinstance(value, dict) else None
         return [d["dom_id"] for d in doms or [] if isinstance(d, dict) and "dom_id" in d] or [0]
 
@@ -276,9 +288,11 @@ class App:
     def shows(self, text, every_dom=False):
         return any(text in t for t in self.texts(every_dom))
 
-    def hierarchy(self):
-        """The window's nodes (`index`, `type`, `text`, `classes`, `parent`, `children`)."""
-        return [d for d in dicts(self.op("get_node_hierarchy")) if "index" in d and "type" in d]
+    def hierarchy(self, window=None):
+        """The window's nodes (`index`, `type`, `text`, `classes`, `parent`, `children`): the
+        app's first window's, or `window`'s (an open Modal's, `popup()`)."""
+        answer = self.op("get_node_hierarchy", **({"window_id": window} if window else {}))
+        return [d for d in dicts(answer) if "index" in d and "type" in d]
 
     def classes(self):
         """Every class a node of the window carries."""
@@ -287,43 +301,61 @@ class App:
     def nodes_with_class(self, cls):
         return [n["index"] for n in self.hierarchy() if cls in (n.get("classes") or [])]
 
-    def exact(self, text):
+    def exact(self, text, window=None):
         """The node holding the text node whose text is exactly `text` (the first one)."""
-        for n in self.hierarchy():
+        for n in self.hierarchy(window):
             if n.get("text") == text:
                 return n.get("parent", n["index"])
         return None
 
-    def click_exact(self, text, button="left", double=False, frames=2):
-        """Clicks (or double-clicks) the node holding exactly `text`, once it is there."""
-        node = self.until('the text "%s"' % text, lambda: self.exact(text))
-        self.settle(limit=2.0)
-        self.must("double_click" if double else "click", node_id=node, button=button)
+    def click_exact(self, text, button="left", double=False, frames=2, window=None):
+        """Clicks (or double-clicks) the node holding exactly `text`, once it is there - in the
+        app's first window, or in `window` (an open Modal's, `popup()`). `click(text=...)`
+        takes the first text CONTAINING `text`: a dialog's "Kill" button lost to the
+        paragraph explaining what Kill does."""
+        node = self.until('the text "%s"' % text, lambda: self.exact(text, window))
+        self.settle(limit=2.0, window=window)
+        target = {"window_id": window} if window else {}
+        self.must("double_click" if double else "click", node_id=node, button=button, **target)
         self.frame(frames)
 
-    def settle(self, limit=3.0):
-        """Waits (at most `limit` seconds) until no animation, exit or transition runs, so a
-        screenshot does not catch a slide or a fade midway."""
+    def settle(self, limit=3.0, window=None):
+        """Waits (at most `limit` seconds) until no animation, exit or transition runs (in the
+        app's first window, or `window`), so a screenshot does not catch a slide or a fade
+        midway."""
         end = time.time() + limit
         while time.time() < end:
-            value = self.value("get_animations")
+            value = self.value("get_animations", **({"window_id": window} if window else {}))
             if not isinstance(value, dict) or not (
                     value.get("active") or value.get("zombies") or value.get("transitions")):
                 return
             time.sleep(0.1)
             self.frame(1)
 
-    def has_id(self, node_id):
-        return self.has("#%s" % node_id)
+    def has_id(self, node_id, every_dom=False):
+        return self.has("#%s" % node_id, every_dom)
 
     def rect(self, node_id):
         value = self.value("get_node_layout", selector="#%s" % node_id)
         return value.get("rect") or {}
 
-    def has(self, selector):
-        """Whether `selector` (any CSS selector the debug server reads) names a laid-out node."""
+    def has(self, selector, every_dom=False):
+        """Whether `selector` (any CSS selector the debug server reads) names a laid-out node -
+        of DOM 0, or with `every_dom` of any DOM the window shows (a VirtualView's)."""
+        if every_dom:
+            try:
+                doms = self.dom_ids()
+            except (OSError, ValueError, Failure, urllib.error.URLError):
+                return False
+            return any(self._has_in(selector, dom) for dom in doms)
+        return self._has_in(selector, None)
+
+    def _has_in(self, selector, dom):
+        params = {"selector": selector}
+        if dom is not None:
+            params["dom_id"] = dom
         try:
-            answer = self.op("get_node_layout", selector=selector)
+            answer = self.op("get_node_layout", **params)
         except (OSError, ValueError, urllib.error.URLError):
             return False
         if not isinstance(answer, dict) or answer.get("status") == "error":
@@ -368,17 +400,21 @@ class App:
 
     # ---- input ----
 
-    def click(self, selector=None, text=None, frames=2, every_dom=False):
+    def click(self, selector=None, text=None, frames=2, every_dom=False, window=None):
         # A click lands where the node IS: an entrance animation (AzCalculator's
         # Scientific keys slide in) moves it off its layout rect, and the engine
         # hits what is painted, as a user would. Settle first, or the click
         # misses the key it names (it hit a neighbour or nothing).
-        self.settle(limit=2.0)
+        self.settle(limit=2.0, window=window)
         target = {"selector": selector} if selector else {"text": text}
+        if window:
+            # An open Modal is a window of its own (`popup()`): its buttons are not in the
+            # app's window, where a click at their rect lands on nothing.
+            target["window_id"] = window
         if every_dom:
             # The first DOM that has the target: a VirtualView's rows (AzMonitor's process
             # table) are a DOM of their own, which a click naming no `dom_id` never searches.
-            for dom in self.dom_ids():
+            for dom in self.dom_ids(window):
                 answer = self.op("click", dom_id=dom, **target)
                 if isinstance(answer, dict) and answer.get("status") != "error":
                     break
