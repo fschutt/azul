@@ -202,7 +202,12 @@ class App:
                 ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
+        # A tap of the chord: the key and its modifiers come up together. An op's `modifiers`
+        # are the whole modifier state at its key (layout/src/e2e/full.rs), so a key_up with
+        # the chord's modifiers left them held - every later click a Cmd / Shift + click
+        # (the shared driver's rule, scripts/azlin_e2e.py).
+        self.must("key_up", key=key, modifiers={"shift": False, "ctrl": False, "alt": False,
+                                                "meta": False})
         self.frame(2)
 
     def type(self, text):
