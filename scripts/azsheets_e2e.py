@@ -215,7 +215,8 @@ def first_session(binary, args, logs, data_dir, out):
             app.frame(3)
             app.until("the save question", lambda: "__azul-native-message-box" in app.classes())
             app.screenshot(os.path.join(out, "close-question.png"))
-            app.click(text="Cancel")
+            # The question is a Modal: a window of its own.
+            app.click(text="Cancel", window="azul-transient")
             app.until("the question gone", lambda: "__azul-native-message-box" not in app.classes())
             app.log("a close with unsaved work asks; Cancel keeps the window")
         except k.Failure as e:

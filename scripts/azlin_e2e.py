@@ -353,16 +353,20 @@ class App:
 
     # ---- input ----
 
-    def click(self, selector=None, text=None, frames=2):
+    def click(self, selector=None, text=None, frames=2, window=None):
         # A click lands where the node IS: an entrance animation (AzCalculator's
         # Scientific keys slide in) moves it off its layout rect, and the engine
         # hits what is painted, as a user would. Settle first, or the click
         # misses the key it names (it hit a neighbour or nothing).
+        # `window`: the window that shows the node (`list_windows`). A Modal / MessageBox /
+        # popover is a window of its own ("azul-transient"): its content is also in the owner's
+        # node hierarchy, but a click there lands in the owner, on whatever lies under it.
         self.settle(limit=2.0)
+        target = {"window_id": window} if window else {}
         if selector:
-            self.must("click", selector=selector)
+            self.must("click", selector=selector, **target)
         else:
-            self.must("click", text=text)
+            self.must("click", text=text, **target)
         self.frame(frames)
 
     def key(self, key, shift=False, ctrl=False, alt=False, meta=False, frames=2, primary=False):
