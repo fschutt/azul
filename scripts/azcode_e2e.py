@@ -40,6 +40,12 @@ KEYWORD = "__azul-native-code-view-keyword"
 LINE = "__azul-native-code-view-line"
 
 
+def code_shows(app, text):
+    """Whether the code view's lines show `text` (the find and replace fields hold the
+    searched and the replacing word too, so `shows` alone proves nothing there)."""
+    return any(text in t for t in app.texts_within(LINE))
+
+
 def listed(app, folder):
     """The entry count of the last AZCODE_LISTED line for `folder`."""
     for line in reversed(app.printed("AZCODE_LISTED")):
@@ -112,12 +118,12 @@ def body(args, logs, out):
         replaced = int(app.last("AZCODE_REPLACED") or "0")
         if replaced != found:
             raise Failure("replace all replaced %d of %d" % (replaced, found))
-        if not app.shows("tally"):
-            raise Failure("the replacement is not shown")
+        if not code_shows(app, "tally") or code_shows(app, "counts"):
+            raise Failure("the replacement is not shown in the code")
         app.screenshot(os.path.join(out, "4-replaced.png"))
         app.click(selector=EDITOR)
         app.key("z", primary=True)
-        if app.shows("tally") or not app.shows("counts"):
+        if code_shows(app, "tally") or not code_shows(app, "counts"):
             raise Failure("one undo did not take back every replacement")
         app.key("escape")
 

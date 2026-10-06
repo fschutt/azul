@@ -272,6 +272,23 @@ class App:
     def nodes_with_class(self, cls):
         return [n["index"] for n in self.hierarchy() if cls in (n.get("classes") or [])]
 
+    def texts_within(self, cls):
+        """The texts of the window whose node lies inside a node carrying the class `cls`
+        (`shows` reads every text - a search field holding the word included)."""
+        nodes = self.hierarchy()
+        by_index = {n["index"]: n for n in nodes}
+
+        def inside(node):
+            for _ in range(256):
+                if node is None:
+                    return False
+                if cls in (node.get("classes") or []):
+                    return True
+                node = by_index.get(node.get("parent"))
+            return False
+
+        return [n["text"] for n in nodes if n.get("text") and inside(n)]
+
     def exact(self, text):
         """The node holding the text node whose text is exactly `text` (the first one)."""
         for n in self.hierarchy():
