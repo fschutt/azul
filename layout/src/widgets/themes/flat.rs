@@ -5203,7 +5203,9 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
 
     let mut empty_icon = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(48)))];
     empty_icon.extend(decl::margin(0, 0, 12, 0));
-    empty_icon.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+    // The soft-1 ink of the detail line: soft-2 read 1.97:1 on the surface
+    // (WCAG 1.4.11 asks 3:1 of a graphic), the 48 px glyph barely showed.
+    empty_icon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     let mut empty_title = vec![px(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
     empty_title.push(decl::semibold());

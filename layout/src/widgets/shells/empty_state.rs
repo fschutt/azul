@@ -251,6 +251,40 @@ mod empty_state_tests {
     }
 
     #[test]
+    fn the_flat_icon_reads_at_3_to_1_on_the_surface_it_sits_on() {
+        // WCAG 1.4.11 (graphics: 3:1). AzCalendar's empty agenda: the flat
+        // icon was #adb5bd on the #f8f9fa surface, 1.97:1 - the 48 px glyph
+        // barely showed. Light ink on both light grounds, dark ink on both
+        // dark ones.
+        use azul_css::props::property::CssProperty;
+
+        use crate::widgets::themes::flat;
+        let look = crate::widgets::themes::flat::shell_look();
+        let inks: Vec<(bool, azul_css::props::basic::color::ColorU)> = look
+            .empty_icon
+            .iter()
+            .filter_map(|p| match &p.property {
+                CssProperty::TextColor(v) => {
+                    v.get_property().map(|c| (p.apply_if.as_ref().is_empty(), c.inner))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(inks.len(), 2, "a light and a dark ink: {inks:?}");
+        for (light, ink) in inks {
+            let grounds = if light {
+                [flat::LIGHT_PG, flat::LIGHT_SUR]
+            } else {
+                [flat::DARK_PG, flat::DARK_SUR]
+            };
+            for ground in grounds {
+                let ratio = ink.contrast_ratio(&ground);
+                assert!(ratio >= 3.0, "{ink:?} on {ground:?} reads {ratio:.2}:1");
+            }
+        }
+    }
+
+    #[test]
     fn an_empty_state_is_an_icon_over_a_line_a_detail_and_an_action() {
         let dom = empty_state().with_theme(UiTheme::Flat).dom();
         let kids = dom.children.as_ref();
