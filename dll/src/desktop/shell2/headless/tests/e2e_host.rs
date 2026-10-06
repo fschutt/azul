@@ -1124,6 +1124,116 @@ fn two_scripted_press_release_cycles_on_one_spot_are_one_double_click() {
     );
 }
 
+/// [`selecting_tile_layout`]'s state: the tile's selection and its opens.
+struct SelectingTile {
+    selected: bool,
+    opened: usize,
+}
+
+extern "C" fn select_the_tile(
+    mut data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    // AzDrive's `on_place_click`: the click is the tile's alone.
+    info.stop_propagation();
+    if let Some(mut t) = data.downcast_mut::<SelectingTile>() {
+        t.selected = true;
+    }
+    azul_core::callbacks::Update::RefreshDom
+}
+
+extern "C" fn open_the_tile(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut t) = data.downcast_mut::<SelectingTile>() {
+        t.opened += 1;
+    }
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// `body` with a focusable 120x40 tile at the top-left that a click SELECTS (the page is
+/// rebuilt, the click stops there) and a double-click OPENS - AzDrive's drive tile. A selected tile's page holds more nodes BEFORE
+/// it (the ribbon's commands for a selection; here two hidden ones), so the tile's node ids
+/// move with the rebuild the first click asked for.
+extern "C" fn selecting_tile_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    let selected = data.downcast_ref::<SelectingTile>().is_some_and(|t| t.selected);
+    let hook = |filter: HoverEventFilter, cb: usize| CoreCallbackData {
+        event: EventFilter::Hover(filter),
+        callback: CoreCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        },
+        refany: data.clone(),
+    };
+    let tile = Dom::create_div()
+        .with_css("width: 120px; height: 40px;")
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
+        .with_callbacks(
+            vec![
+                hook(HoverEventFilter::Click, select_the_tile as usize),
+                hook(HoverEventFilter::DoubleClick, open_the_tile as usize),
+            ]
+            .into(),
+        )
+        .with_child(Dom::create_div().with_css("width: 24px; height: 24px;"));
+    let mut body = Dom::create_body();
+    if selected {
+        body.add_child(Dom::create_div().with_css("display: none;"));
+        body.add_child(Dom::create_div().with_css("display: none;"));
+    }
+    // The pane around the tile takes clicks too (a click on its empty space clears the
+    // selection): the tile's click stops before it.
+    let pane = Dom::create_div()
+        .with_callbacks(vec![hook(HoverEventFilter::Click, select_the_tile as usize)].into())
+        .with_child(tile);
+    body.with_child(pane)
+}
+
+/// E2E sweep, 2026-10-06, AzDrive: a double-click on a drive tile never opened the drive. The
+/// second release raises a Click and the DoubleClick in one pass; the tile's click handler
+/// stops the CLICK's propagation, and the dispatcher, on reaching the pane's click handler,
+/// ended the whole pass - the DoubleClick planned after it never ran. A `stopPropagation`
+/// ends the propagation of its own event only.
+#[test]
+fn a_click_that_stops_its_propagation_leaves_the_double_click_of_the_same_release_alone() {
+    let state = Arc::new(RefCell::new(RefAny::new(SelectingTile {
+        selected: false,
+        opened: 0,
+    })));
+    let mut window = make_window_with(&state, selecting_tile_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    window.start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_double_click_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..4 {
+        window.pump_once(true);
+    }
+
+    let (selected, opened) = state
+        .borrow_mut()
+        .downcast_ref::<SelectingTile>()
+        .map(|t| (t.selected, t.opened))
+        .expect("the tile's state");
+    assert!(selected, "harness: the first click selected the tile");
+    assert_eq!(opened, 1, "the double-click opened the tile once");
+}
+
 /// The question's "Close": what a CloseGuard's Don't Save does, and what
 /// AzWriter's save write-back does after a Save the question started.
 extern "C" fn close_from_the_question(
