@@ -75,5 +75,23 @@ Runs: `/Users/fschutt/Development/azul/scripts/waves/tools/run_capped.sh --cap-m
   first); the refusal check reads all new AZERP_REFUSED lines. 4b35eeedf (click_within takes #id).
   InWindow/modal_window moved to azlin_e2e (1e439d6b5) - the azerp copy lacked App.settle.
 
-## Others
-- NEXT: AzKeys, then AzMail.
+## AzKeys - PASS on today's binary
+- "one item for 'codehost'": SCRIPT - the sample got "CodeHost recovery codes" (db13c2ce8);
+  search "codehost example". key() released its modifiers on key_up. f27cbc90e.
+- seen: its search field is also the collapsed 6 px input (the flex-grow layout bug, AzContacts).
+
+## AzMail - DONE pending rebuild (all three phases pass on today's binary with probe workarounds)
+- SCRIPT: clicks settle (settle_animations shared from azlin_e2e); the pre-filled 587 port typed
+  over (replace_in); Finish clicked in the wizard's button row; click_exact moved into Run (boxed
+  ancestor, `within`); the RTE's typed line checked by the caret (typing does not rebuild the
+  DOM); Discard frames the main window; Don't Save clicked in the question's window.
+  56a0732df, b5e75f4e7, 76bc286b3.
+- ENGINE: typing over a select-all (0a990a50d, AzContacts); backstage min-height/min-width
+  08701e789 RED, 0d1e0ba29 GREEN, 28a923d5b RED, 2c2c33ef2 GREEN (Account Settings never scrolled;
+  a DKIM record widened it); a reset editor's caret on the "layout unchanged" exits 3def9bbc6 RED,
+  8bc01679d GREEN (the reply's answer went under the quote).
+- probe evidence: with the select-all, the backstage CSS overrides and a click into the editor,
+  sample / account / submission all PASS.
+
+## NEXT
+- write scripts/E2E_A_2026_10_06.md (the report) and commit.
