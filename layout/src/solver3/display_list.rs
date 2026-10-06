@@ -7542,6 +7542,28 @@ where
                     viewport_clip_rect.origin.y += ink.y;
                     viewport_clip_rect.size.height -= ink.y;
                 }
+                // Glyph INK reaches past the advances the layout measures -
+                // a side bearing, the anti-aliased edge of the last glyph,
+                // an italic overhang - and a box shrink-wrapped to its text
+                // (a table cell, an inline-block) ends exactly at the last
+                // advance: on a visible x axis the run was cut there, the
+                // right edge of a cell's last "b" one pixel short (WPT
+                // anonymous-table-ws-001, table-width-s). One em of the
+                // largest run each side, the allowance the text damage
+                // (`visual_bounds`) pads with. Horizontal only: a text
+                // clip's VERTICAL extent is its lines', which the page
+                // breaks read (azul#478 above).
+                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                    let em = cached_layout
+                        .glyph_runs
+                        .iter()
+                        .map(|run| run.font_size_px)
+                        .fold(0.0f32, f32::max);
+                    if em.is_finite() && em > 0.0 {
+                        viewport_clip_rect.origin.x -= em;
+                        viewport_clip_rect.size.width += em * 2.0;
+                    }
+                }
                 // The runs a relatively positioned inline box moves paint as
                 // far past that ink as it moved them (a visible axis only).
                 if let Some(shifts) = run_shifts.as_deref() {
