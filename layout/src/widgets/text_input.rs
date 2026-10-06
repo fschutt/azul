@@ -4573,9 +4573,10 @@ mod autotest_generated {
         // single unit — every one of them belongs to the engine.
         let (_, state) = rendered(TextInput::create().with_text("abc".into()));
         for i in 0..6 {
-            // The tree shape does not depend on what the buffer holds, so a fresh
-            // container is enough to navigate; the live state is `state`.
-            let (styled_dom, _) = rendered(TextInput::create());
+            // The engine's buffer is the tree's text, and the handlers adopt it
+            // (an emptied field included): the tree holds what the engine
+            // holds - the key reaches the engine, which this test leaves out.
+            let (styled_dom, _) = rendered(TextInput::create().with_text("abc".into()));
             let (update, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
                 default_on_virtual_key_down(state.clone(), info)
             });

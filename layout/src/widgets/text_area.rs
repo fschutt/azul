@@ -1160,8 +1160,14 @@ mod autotest_generated {
     /// `styled_dom.node_hierarchy`, so no real layout (and no font) is needed.
     /// The DOM here is a pure *navigation skeleton*: the state a handler edits
     /// is always the `RefAny` passed to it, never this DOM's own dataset.
-    fn skeleton() -> (StyledDom, Nodes) {
-        let styled = StyledDom::create_from_dom(TextArea::create().dom());
+    /// The widget's tree holding `text` - the ENGINE's buffer. The handlers
+    /// adopt it as the truth (an emptied field included), so a harness that
+    /// rendered an empty tree under a non-empty mirror told them the user had
+    /// cleared it; the real window's tree always shows the mirror's text
+    /// before the event.
+    fn skeleton(text: &str) -> (StyledDom, Nodes) {
+        let styled =
+            StyledDom::create_from_dom(TextArea::create().with_text(AzString::from(text)).dom());
 
         fn one(styled: &StyledDom, class: &str) -> usize {
             let found = nodes_with_class(styled, class);
@@ -1271,7 +1277,14 @@ mod autotest_generated {
         data: &RefAny,
         call: impl FnOnce(RefAny, CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>, Nodes) {
-        let (styled, nodes) = skeleton();
+        // (A foreign payload - the "ignores a foreign payload" tests - has no
+        // text: the tree is empty.)
+        let mirror = data
+            .clone()
+            .downcast_ref::<TextAreaStateWrapper>()
+            .map(|w| w.inner.get_text())
+            .unwrap_or_default();
+        let (styled, nodes) = skeleton(&mirror);
 
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
@@ -2227,7 +2240,7 @@ mod autotest_generated {
         // that walk ever stops matching the DOM, all of them silently no-op.
         // (It used to hop container -> placeholder -> next sibling; the
         // prompt is an attribute now, so the value line IS the first child.)
-        let (styled, nodes) = skeleton();
+        let (styled, nodes) = skeleton("");
         let hierarchy = styled.node_hierarchy.as_container();
 
         let label = hierarchy[NodeId::new(nodes.container)]
