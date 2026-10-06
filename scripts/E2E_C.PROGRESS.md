@@ -23,8 +23,14 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
 - Probe on the current binary: closing the box by its close button prints AZREVIEW_ABOUT closed and the second
   Escape closes the settings page - so the rest of the script should pass once the fix is built.
 
-## AzSetup / AzSheets / AzShow / AzTasks / AzTerm / AzVideoCut / AzWriter
+## AzSetup - ENGINE (the AzReview fix), unverified
+- Fails at "Escape closes the question" (the exit question is a MessageBox in a Modal): the same headless
+  menu-dismissal of a modal. With the two modal closes done by the modal's close button instead
+  (/tmp/e2e-c/setup_skipbox.py), the whole rest of the script passes on today's binary.
+- Seen: Settings > General, the "Requires restart" badge's second line ("restart") hangs out of its pill.
+
+## AzSheets / AzShow / AzTasks / AzTerm / AzVideoCut / AzWriter
 - status: not run yet
 
 ## NEXT
-- run AzSetup
+- run AzSheets
