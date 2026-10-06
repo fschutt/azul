@@ -56,3 +56,15 @@ suite run), a_short_list_in_a_shell_pane_fills_its_pane_from_the_top (the UA `ht
 commented out in core/src/ua_css.rs; Chrome has no such rule -> give the shells' roots + the test height: 100%,
 per the "Chrome is the reference" ruling), R3-TEXT's leftovers (vh fast path on a height-only resize, an <img> in
 a shifted span), R3-PAINT's (the styled-DOM loader draws no inline SVG, a stroke without stroke-width draws nothing).
+
+## Verification round (2026-10-06): E2E + WPT triage (base 05ef3a8f4)
+Suites on 889dccf30: everything green except one dll test (the Modal close - fixed 30fb9f06b). Mail corpus: 20
+mails, 0 mismatched boxes (target/refci/mail-wave9). WPT gate: 19 regressions, 44 unexpected passes. E2E: the
+shared click now settles animations first (05ef3a8f4: AzCalculator's Scientific keys slide in, clicks missed).
+| Task | Agent id | Branch | Report |
+|---|---|---|---|
+| E2E-A (Calculator, Calendar, Clock, Code, Contacts, Dashboard, Drive, ERP, Keys, Mail) | a90e1e2428f99a3a2 | wt/e2e-a | scripts/E2E_A_2026_10_06.md |
+| E2E-B (Maps, Meet, Monitor, Music, News, Notes, Paint, Pdf, Photo, Player) | a153b86fed8549d05 | wt/e2e-b | scripts/E2E_B_2026_10_06.md |
+| E2E-C (Reader, Review, Setup, Sheets, Show, Tasks, Term, VideoCut, Writer) | a668f2e176ca88325 | wt/e2e-c | scripts/E2E_C_2026_10_06.md |
+| WPT-REG (19 regressions + 44 unexpected passes) | ad8fe53ce300e017b | wt/wpt-reg | scripts/WPT_REG_2026_10_06.md |
+WAYLAND8 Linux checks: not possible on this Mac (no running Linux VM; a live KDE session needed) - open.
