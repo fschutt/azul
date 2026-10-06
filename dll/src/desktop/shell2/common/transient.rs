@@ -62,10 +62,12 @@ use azul_core::{
     geom::{LogicalPosition, LogicalSize, PhysicalPosition},
     id::NodeId,
     refany::{OptionRefAny, RefAny},
+    task::ThreadId,
     transient::{TransientDismiss, TransientTearoff},
     window::{VirtualKeyCode, WindowDecorations, WindowPosition, WindowType},
 };
 use azul_layout::{
+    thread::Thread,
     transient::{OpenTransientWindow, TransientPlacement},
     window::LayoutWindow,
     window_state::{FullWindowState, WindowCreateOptions},
@@ -140,6 +142,11 @@ pub struct TransientWindowData {
     /// parent ([`post_close_owner`]). The parent's next sync takes it
     /// ([`SyncOutcome::close_owner`]).
     pub close_owner: bool,
+    /// Popup → parent: the threads a callback that ran in this popup started
+    /// (`CallbackInfo::add_thread`) - the OWNER's work, on the owner's data,
+    /// which must outlive the popup ([`post_owner_thread`]). The parent's
+    /// next sync adopts them ([`SyncOutcome::threads`]).
+    pub owner_threads: Vec<(ThreadId, Thread)>,
 }
 
 /// One keyboard transition a parent received while its popup held the
@@ -429,6 +436,7 @@ pub fn popup_create_options(
         takes_focus: true,
         autofocused: false,
         close_owner: false,
+        owner_threads: Vec::new(),
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
@@ -500,6 +508,7 @@ pub fn toplevel_create_options(
         takes_focus: true,
         autofocused: false,
         close_owner: false,
+        owner_threads: Vec::new(),
     });
 
     // A torn-off panel is exactly the popover the picker uses, only `torn`:
@@ -621,11 +630,14 @@ pub struct SyncOutcome {
     /// A callback in one of the popups closed "the window" - the parent
     /// ([`post_close_owner`]): the shell asks the parent to close.
     pub close_owner: bool,
+    /// Threads callbacks in the popups started ([`post_owner_thread`]): the
+    /// shell adds them to the parent.
+    pub threads: Vec<(ThreadId, Thread)>,
 }
 
 impl SyncOutcome {
     fn is_empty(&self) -> bool {
-        self.create.is_empty() && !self.wake_all && !self.close_owner
+        self.create.is_empty() && !self.wake_all && !self.close_owner && self.threads.is_empty()
     }
 }
 
@@ -686,12 +698,14 @@ pub fn sync_parent(
         }
     }
 
-    // 0b. A close a callback in a popup asked for: the parent's (`post_close_owner`).
+    // 0b. A close a callback in a popup asked for, the threads one started: the parent's
+    //     (`post_close_owner`, `post_owner_thread`).
     for w in lw.transient_windows.open_windows() {
         if let OptionRefAny::Some(m) = &w.surface {
             if take_close_owner(m) {
                 out.close_owner = true;
             }
+            out.threads.extend(take_owner_threads(m));
         }
     }
 
@@ -738,6 +752,9 @@ pub fn sync_parent(
             if take_close_owner(&m) {
                 out.close_owner = true;
             }
+            // The answer that closed the popup started work (AzPhoto's
+            // export sheet): it is the parent's now.
+            out.threads.extend(take_owner_threads(&m));
             if write(&m, |d| d.closed = true) {
                 out.wake_all = true;
             }
@@ -1236,6 +1253,30 @@ fn take_close_owner(mailbox: &RefAny) -> bool {
     let mut asked = false;
     write(mailbox, |d| asked = core::mem::take(&mut d.close_owner));
     asked
+}
+
+/// The popup side: a callback that ran in this popup started a thread
+/// (`CallbackInfo::add_thread`). Its writeback runs on the OWNER's data and
+/// the popup may close before it ends - a dialog's OK closes the dialog and
+/// leaves the export running - so the thread is the owner's: post it for the
+/// parent's next sync ([`SyncOutcome::threads`]). Returns whether this window
+/// is a popup that took it - `false` for any other window, which keeps it.
+pub fn post_owner_thread(state: &FullWindowState, thread_id: ThreadId, thread: Thread) -> bool {
+    mailbox_of(state).is_some_and(|m| {
+        // A torn-off toplevel is a window of its own; a popup the parent
+        // already closed has no owner left to take it.
+        if read(&m, |d| d.torn || d.closed).unwrap_or(true) {
+            return false;
+        }
+        write(&m, |d| d.owner_threads.push((thread_id, thread)))
+    })
+}
+
+/// The parent side: the threads a popup posted ([`post_owner_thread`]).
+fn take_owner_threads(mailbox: &RefAny) -> Vec<(ThreadId, Thread)> {
+    let mut taken = Vec::new();
+    write(mailbox, |d| taken = core::mem::take(&mut d.owner_threads));
+    taken
 }
 
 /// The popup side: the window is closing for ANY reason the parent did not

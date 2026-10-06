@@ -979,6 +979,7 @@ fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> Transient
         takes_focus: d.takes_focus,
         autofocused: d.autofocused,
         close_owner: d.close_owner,
+        owner_threads: d.owner_threads.clone(),
     }
 }
 

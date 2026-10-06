@@ -5259,6 +5259,14 @@ pub trait PlatformWindow {
         if outcome.close_owner {
             self.request_close_by_app();
         }
+        // ... or started a thread: this window's.
+        for (thread_id, thread) in outcome.threads {
+            let _ = self.apply_user_change(&azul_layout::callbacks::CallbackChange::AddThread {
+                thread_id,
+                thread,
+                owner: None,
+            });
+        }
     }
 
     /// The app asks this window to close (`CallbackInfo::close_window`, here
@@ -6527,6 +6535,21 @@ pub trait PlatformWindow {
                 thread,
                 owner,
             } => {
+                // A thread a callback in a transient popup started is the
+                // OWNER's (the popup only shows the owner's subtree, and it
+                // may close before the thread ends): the owner adopts it on
+                // its next sync (`SyncOutcome::threads`). A node's own thread
+                // stays with the node.
+                if owner.is_none()
+                    && super::transient::post_owner_thread(
+                        self.get_current_window_state(),
+                        *thread_id,
+                        thread.clone(),
+                    )
+                {
+                    self.request_regeneration_all_windows();
+                    return ProcessEventResult::DoNothing;
+                }
                 let had_threads = self
                     .get_layout_window()
                     .map(|lw| !lw.threads.is_empty())
