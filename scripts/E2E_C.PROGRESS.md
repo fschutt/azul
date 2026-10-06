@@ -73,5 +73,11 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
 - With the guard step replaced by Cancel + Ctrl+S (/tmp/e2e-c/writer_skipguard.py) the rest PASSES, the
   restart included.
 
-## NEXT
-- AzSheets stale grid borders (optional), then the final report scripts/E2E_C_2026_10_06.md
+## AzSheets stale grid borders - SCRIPT (44196b7d0)
+- The screenshot was taken mid-slide (a rebuild animates moved nodes); settled, the grid is clean, and a
+  redraw / resize changes nothing. The shared `screenshot` now settles first. AzReader, AzTerm, AzShow rerun
+  with the updated helper: PASS.
+
+## DONE
+- Final report: scripts/E2E_C_2026_10_06.md. NEXT for the coordinator: rebuild, run the tests listed there,
+  rerun the nine scripts.
