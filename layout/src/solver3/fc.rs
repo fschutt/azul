@@ -15844,6 +15844,68 @@ mod window_layout_tests {
             "the absolute box takes no room in the flow: the block below starts at 40: {below:?}"
         );
     }
+
+    /// `body(0) > [div.li(1) > div.block(2)], [div.li(3) > div.p(4) >
+    /// span(5) > "Text"(6)]`: two list items whose first child is a block.
+    fn two_list_items_starting_with_a_block() -> Dom {
+        let class = |c: &'static str| -> azul_core::dom::IdOrClassVec {
+            vec![IdOrClass::Class(c.into())].into()
+        };
+        Dom::create_body()
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(class("li"))
+                    .with_child(Dom::create_div().with_ids_and_classes(class("block"))),
+            )
+            .with_child(
+                Dom::create_div().with_ids_and_classes(class("li")).with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(class("p"))
+                        .with_child(Dom::create_span_with_text("Text")),
+                ),
+            )
+    }
+
+    #[test]
+    fn an_inside_marker_is_a_line_of_its_own_before_a_block_child() {
+        // WPT css/CSS2/lists/list-style-position-023: an INSIDE marker is an
+        // inline box at the start of its item (CSS 2.2 12.5.1). Before a
+        // block child it sits in an anonymous block of its own - one line -
+        // and the block starts below it; it never rides a nested block's
+        // first line. Chrome: each item is 20px (the marker's line) taller
+        // than its block, the block 20px down. The item's first line box
+        // was looked for down its first blocks (`marker_line_host`, the
+        // OUTSIDE marker's rule): the marker of the item with a text block
+        // rode that text's line (three nested `<li>`s piled "1. 1. 1." onto
+        // the innermost line), the one of the item with an empty block hung
+        // out of the flow at its top.
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                two_list_items_starting_with_a_block(),
+                "body { margin: 0; } .li { display: list-item; list-style-type: disc; \
+                 list-style-position: inside; line-height: 20px; margin: 0; padding: 0; } \
+                 .block { height: 50px; } .p { margin: 0; }",
+            ),
+        );
+        for (item, block, block_height, what) in [
+            (1, 2, 50.0, "an empty 50px block"),
+            (3, 4, 20.0, "a block of one 20px line"),
+        ] {
+            let h = size_of(&lw, item).height;
+            assert!(
+                (h - (block_height + 20.0)).abs() < 0.5,
+                "the item holding {what} is the marker's 20px line taller (Chrome {}): {h}",
+                block_height + 20.0
+            );
+            let down = position_of(&lw, block).y - position_of(&lw, item).y;
+            assert!(
+                (down - 20.0).abs() < 0.5,
+                "{what} starts below the marker's line, 20px into its item: {down}"
+            );
+        }
+    }
 }
 
 /// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
