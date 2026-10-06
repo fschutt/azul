@@ -896,3 +896,99 @@ fn a_scripted_drag_from_a_draggable_node_drops_on_the_target_under_the_release()
     );
     assert_eq!(drops, 1, "the release over the target drops there");
 }
+
+/// How many DoubleClicks [`double_click_layout`]'s box heard.
+struct DoubleClicks {
+    count: usize,
+}
+
+extern "C" fn count_double_click(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut d) = data.downcast_mut::<DoubleClicks>() {
+        d.count += 1;
+    }
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// `body` with one 120x40 box that counts its DoubleClicks (AzReader's
+/// library tile opens its book on one).
+extern "C" fn double_click_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    Dom::create_body().with_child(
+        Dom::create_div()
+            .with_css("width: 120px; height: 40px;")
+            .with_callbacks(
+                vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::DoubleClick),
+                    callback: CoreCallback {
+                        cb: count_double_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data.clone(),
+                }]
+                .into(),
+            ),
+    )
+}
+
+/// The debug server's `double_click` op: two press / release cycles at the
+/// box's centre, each its own window-state change.
+extern "C" fn debug_double_click_timer(
+    _data: RefAny,
+    mut info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::window::CursorPosition;
+    let mut state = info.callback_info.get_current_window_state().clone();
+    state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(60.0, 28.0));
+    for _ in 0..2 {
+        state.mouse_state.left_down = true;
+        info.callback_info.modify_window_state(state.clone());
+        state.mouse_state.left_down = false;
+        info.callback_info.modify_window_state(state.clone());
+    }
+    azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+}
+
+/// E2E-C: with the scripted pointer feeding the gesture sessions (see the
+/// drag above), the `double_click` op's two press / release cycles ARE a
+/// double click - exactly one, raised by the release that completes it. The
+/// op also injected a native DoubleClick (its stand-in while scripts fed no
+/// sessions), which would now be a second one.
+#[test]
+fn two_scripted_press_release_cycles_on_one_spot_are_one_double_click() {
+    let state = Arc::new(RefCell::new(RefAny::new(DoubleClicks { count: 0 })));
+    let mut window = make_window_with(&state, double_click_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    window.start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_double_click_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..4 {
+        window.pump_once(true);
+    }
+
+    let count = state
+        .borrow_mut()
+        .downcast_ref::<DoubleClicks>()
+        .map(|d| d.count)
+        .expect("the counter");
+    assert_eq!(
+        count, 1,
+        "two press / release cycles on one spot are one double click"
+    );
+}
