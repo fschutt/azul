@@ -4026,6 +4026,42 @@ mod autotest_generated {
         assert!(pushed_texts(&changes).is_empty());
     }
 
+    /// Backspace over the last character, or select-all and Backspace, EMPTIES the field: the
+    /// engine's buffer is "" and its post-edit notification must reach the hook with the empty
+    /// value. The mirror refused every empty read while it held text ("an empty read is
+    /// ambiguous" - no longer: `get_node_text_content` answers `None` for a missing node, and
+    /// the container's read descends into its value line), so the hook never heard it:
+    /// AzContacts' search, once typed into, could never be cleared (E2E-A, 2026-10-06).
+    #[test]
+    fn a_notification_that_emptied_the_field_tells_the_hook_the_empty_value() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(TextInput::create().with_on_text_input(
+            probe.clone(),
+            record_text_input as TextInputOnTextInputCallbackType,
+        ));
+        // The engine's buffer (the DOM's value line) is empty; the mirror still holds what
+        // was typed before the deletion.
+        poke(&state, |w| {
+            w.inner.text = "krug".chars().map(|c| c as u32).collect::<Vec<_>>().into();
+        });
+        let (update, _, _) = run(Env::new(styled_dom), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(
+            state_of(&state).get_text(),
+            "",
+            "the mirror kept the deleted text"
+        );
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the hook was not told the field is empty"
+        );
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].get_text(), "");
+    }
+
     #[test]
     fn text_input_hands_the_hook_a_preview_that_already_contains_the_insertion() {
         // The hook is a *validator*: it has to see the would-be result, not the state
