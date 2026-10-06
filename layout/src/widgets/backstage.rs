@@ -1935,7 +1935,7 @@ mod a_backstage_page_scrolls_inside_the_window_tests {
     };
 
     /// The used size of the first node carrying the class `class`, in a 800 x 400 window.
-    fn height_of_class(mut dom: Dom, class: &str) -> f32 {
+    fn size_of_class(mut dom: Dom, class: &str) -> LogicalSize {
         let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
         let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
         let mut ws = FullWindowState::default();
@@ -1968,18 +1968,11 @@ mod a_backstage_page_scrolls_inside_the_window_tests {
             .get(index)
             .and_then(|n| n.used_size)
             .expect("the node has a size")
-            .height
     }
 
     /// The window's column (as OfficeShell's backstage slot: `min-height: 0`) holding a
-    /// backstage whose page is a scroller over 2000 px of content.
-    fn window_with_a_tall_page() -> Dom {
-        let page = Dom::create_div()
-            .with_css(
-                "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
-                 overflow-y: auto;",
-            )
-            .with_child(Dom::create_div().with_css("height: 2000px; flex-shrink: 0;"));
+    /// backstage whose page is `page`.
+    fn window_with(page: Dom) -> Dom {
         Dom::create_body()
             .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
             .with_child(
@@ -1991,6 +1984,41 @@ mod a_backstage_page_scrolls_inside_the_window_tests {
             )
     }
 
+    /// A page whose one line is a 600-character word (a DKIM key's TXT record): its
+    /// min-content width is the word's.
+    fn window_with_a_wide_word() -> Dom {
+        window_with(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;")
+                .with_child(Dom::create_span_with_text("k".repeat(600))),
+        )
+    }
+
+    /// The right side - the backstage's flex item beside the navigation - takes the width
+    /// it is given, not its page's widest word: AzMail's Account Settings with a DKIM key's
+    /// record pushed the settings' Save button to x 1676 in a 1280 px window.
+    #[test]
+    fn a_wide_page_does_not_widen_the_backstage_past_the_window() {
+        let w = size_of_class(window_with_a_wide_word(), "__azul-native-backstage-right").width;
+        assert!(
+            w <= 800.5,
+            "the backstage's right side is {w} px wide in an 800 px window: it grew to its \
+             page's widest word"
+        );
+    }
+
+    /// A backstage whose page is a scroller over 2000 px of content.
+    fn window_with_a_tall_page() -> Dom {
+        window_with(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                     overflow-y: auto;",
+                )
+                .with_child(Dom::create_div().with_css("height: 2000px; flex-shrink: 0;")),
+        )
+    }
+
     #[test]
     fn a_tall_page_scrolls_inside_the_backstage_instead_of_growing_it() {
         for class in [
@@ -1998,7 +2026,7 @@ mod a_backstage_page_scrolls_inside_the_window_tests {
             "__azul-native-backstage-right",
             "__azul-native-backstage-content",
         ] {
-            let h = height_of_class(window_with_a_tall_page(), class);
+            let h = size_of_class(window_with_a_tall_page(), class).height;
             assert!(
                 h <= 400.5,
                 ".{class} is {h} px tall in a 400 px window: it grew to its page's content"
