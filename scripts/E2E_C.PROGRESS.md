@@ -9,9 +9,11 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
   "wait for the window" timed out. A bare line now counts as "" when the pattern can match an empty value.
 
 ## AzReader - PASS (after the helper fix)
-- Seen (not a script failure): the first-page screenshot's right page repeats page 1 (the chapter head and the
-  first paragraphs) and is cut mid-line - page 2 of the spread does not show the continuation. Not investigated
-  yet.
+- Seen (not a script failure): the right page of the spread repeated page 1's start, cut to page 2's height.
+  ENGINE: a relatively positioned box moved without its content (adjust_relative_positions shifted only the box,
+  its subtree only for table rows); get_node_layout: shift box y -265.8, the column in it 236.2. RED da8623f2e,
+  GREEN 5db6092da (layout/src/solver3/positioning.rs). Probe: no drift of the shift across theme / mode /
+  resize / hover relayouts on today's build.
 
 ## AzReview - ENGINE (headless), fixed unverified
 - Fails at "Escape closes the About box first: expected 'closed', last 'open'".
@@ -72,5 +74,4 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
   restart included.
 
 ## NEXT
-- look at the "seen" visual bugs if time permits (AzReader page 2, AzSheets stale grid borders); then the
-  final report scripts/E2E_C_2026_10_06.md
+- AzSheets stale grid borders (optional), then the final report scripts/E2E_C_2026_10_06.md
