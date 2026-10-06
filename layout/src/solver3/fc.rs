@@ -250,6 +250,12 @@ pub struct LayoutOutput {
     // +spec:inline-formatting-context:f7eebb - baseline along inline axis for glyph alignment
     /// The baseline of the context, if applicable, measured from the top of its content box.
     pub baseline: Option<f32>,
+    /// The STATIC positions of the out-of-flow (absolute / fixed) children
+    /// this context placed no box for: the border-box origin each would
+    /// have had in the flow (CSS 2.2 10.3.7 / 10.6.4), relative to the
+    /// container's content-box origin like `positions`. A child missing
+    /// here takes the content-box origin.
+    pub static_positions: BTreeMap<usize, LogicalPosition>,
 }
 
 /// Text alignment options
@@ -1951,6 +1957,24 @@ fn layout_bfc<T: ParsedFontTrait>(
         // +spec:positioning:dccad6 - floats only apply to non-absolutely-positioned boxes
         let position_type = get_position_type(ctx.styled_dom, child_dom_id);
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
+            // Its STATIC position (CSS 2.2 10.3.7 / 10.6.4): the border-box
+            // origin it would have had as a block of this flow - after the
+            // blocks placed so far and the margin they leave, at its own
+            // start margins - which an `auto` inset resolves to
+            // (`positioning`). It takes no room: the pen stays. It was
+            // never recorded, and every absolute box sat at its parent's
+            // content-box origin, on top of the blocks before it.
+            let child_margin = child_node.box_props.unpack().margin;
+            let static_main = main_pen
+                + collapse_margins(last_margin_bottom, child_margin.main_start(writing_mode));
+            output.static_positions.insert(
+                child_index,
+                LogicalPosition::from_main_cross(
+                    static_main,
+                    child_margin.cross_start(writing_mode),
+                    writing_mode,
+                ),
+            );
             continue;
         }
 
@@ -4558,6 +4582,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 positions: BTreeMap::new(),
                 overflow_size: LogicalSize::new(0.0, strut_height),
                 baseline: Some(strut_height * 0.8),
+                static_positions: BTreeMap::new(),
             });
         }
         // The node has no inline-level content this pass (e.g. its only
@@ -7630,6 +7655,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         positions: cell_positions,
         // First in-flow row's baseline (CSS 2.2 §10.8.1); None ⇒ bottom edge.
         baseline: table_baseline,
+        static_positions: BTreeMap::new(),
     };
 
     Ok(output)
@@ -13638,6 +13664,7 @@ mod autotest_generated {
             positions,
             overflow_size: size(f32::NAN, f32::INFINITY),
             baseline: Some(-0.0),
+            static_positions: BTreeMap::new(),
         };
         let res = BfcLayoutResult::from_output(output);
         assert!(res.escaped_top_margin.is_none());
