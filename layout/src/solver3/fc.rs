@@ -16151,6 +16151,56 @@ mod window_layout_tests {
             "the 0.5in border is painted 0.5in wide, not `medium`"
         );
     }
+
+    #[test]
+    fn a_column_with_a_definite_width_counts_without_cells() {
+        // WPT css/css-tables/col-definite-size-001: four `<col style="width:
+        // 100px">` over a row of two cells make a table of four 100px
+        // columns (Chrome: as wide as the reference's four cells); a
+        // trailing column a `<col>` alone makes with a percentage, a calc()
+        // or no width names no column. The grid had a column only where a
+        // cell was: the definite columns were dropped (200px).
+        // `body(0) > div.t(1) > [div.g(2) > div.col(3..=6)], [div.r(7) > div.c(8), div.c(9)]`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body().with_child(
+                div("t")
+                    .with_child(
+                        div("g")
+                            .with_child(div("col"))
+                            .with_child(div("col"))
+                            .with_child(div("col"))
+                            .with_child(div("col")),
+                    )
+                    .with_child(div("r").with_child(div("c")).with_child(div("c"))),
+            )
+        };
+        let table_width = |col_width: &str| {
+            let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+            lay_out(
+                &mut lw,
+                styled(
+                    page(),
+                    &format!(
+                        "body {{ margin: 0; }} .t {{ display: table; border-spacing: 0; }} .g \
+                         {{ display: table-column-group; }} .col {{ display: table-column; \
+                         width: {col_width}; }} .r {{ display: table-row; }} .c {{ display: \
+                         table-cell; padding: 0; }}"
+                    ),
+                ),
+            );
+            size_of(&lw, 1).width
+        };
+        let definite = table_width("100px");
+        assert!(
+            (definite - 400.0).abs() < 0.5,
+            "four 100px columns, two of them without cells (Chrome 400): {definite}"
+        );
+        // (The percentage / calc() / auto halves of the WPT page match
+        // their reference already: those columns stay dropped.)
+    }
 }
 
 /// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
