@@ -695,7 +695,7 @@ impl CachedInlineLayout {
         let Some(from_dense) = extract_item_metrics_dense(d, layout.items.len()) else {
             return Self::extract_item_metrics(layout);
         };
-        let verify = std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify");
+        let verify = env_flag!("AZ_DENSE_TEXT" == "verify");
         if verify {
             let reference = Self::extract_item_metrics(layout);
             assert_eq!(

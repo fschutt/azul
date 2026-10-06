@@ -147,6 +147,23 @@ extern crate core;
 // self-alias makes those ~80 `azul_layout::…` paths resolve without editing them.
 extern crate self as azul_layout;
 
+/// Whether the debugging environment variable `$name` is set, read ONCE per
+/// call site. A `std::env::var_os` takes the process-wide environment lock
+/// (~100 ns on macOS), and these checks sat in layout's innermost loops - the
+/// taffy cache lookup, the scrollbar painter, the shaper - about 4% of a
+/// 300-contact list's layout (AzContacts, 2026-10-06).
+#[cfg(feature = "std")]
+macro_rules! env_flag {
+    ($name:literal) => {{
+        static FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *FLAG.get_or_init(|| std::env::var_os($name).is_some())
+    }};
+    ($name:literal == $value:literal) => {{
+        static FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *FLAG.get_or_init(|| std::env::var($name).as_deref() == Ok($value))
+    }};
+}
+
 // Dependencies kept for downstream/feature-plumbing use but not referenced
 // directly in this crate's source — marked intentionally linked so
 // unused_crate_dependencies stays quiet (the lint's own suggested fix).

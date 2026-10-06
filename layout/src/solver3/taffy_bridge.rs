@@ -682,13 +682,21 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     // taffy `Dimension::calc()`; a plain Vec<T> would invalidate those pointers on realloc.
     #[allow(clippy::vec_box)]
     calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
-    /// Memoised `translate_style_to_taffy` results, keyed by DOM node id
-    /// (`usize` = `NodeId::index`). Taffy calls
-    /// `get_core_container_style` and `should_suppress_cross_intrinsic`
-    /// many times per node during a single layout pass; each call
-    /// triggers ~13 `cache.get_property` cascade walks for grid/flex
-    /// props. Caching the built `Style` cuts this to one build per node.
-    style_memo: std::cell::RefCell<HashMap<usize, Style>>,
+    /// Memoised `translate_style_to_taffy` results, indexed by DOM node id
+    /// (`NodeId::index`). Taffy calls `get_core_container_style` and
+    /// `should_suppress_cross_intrinsic` many times per node during a single
+    /// layout pass; each build is ~13 `cache.get_property` cascade walks.
+    /// Built once per node and LENT, never cloned: a hashed memo that handed
+    /// out clones (a `Style` holds Vecs) was 8% of a 300-contact list's layout
+    /// (AzContacts, 2026-10-06).
+    dom_styles: Vec<std::cell::OnceCell<Style>>,
+    /// The style each LAYOUT node hands taffy ([`Self::get_taffy_style`]: its
+    /// DOM node's, with the root's margin and a stretched item's cross size
+    /// adjusted - both fixed by the styles and the tree), indexed by layout
+    /// node, built once.
+    node_styles: Vec<std::cell::OnceCell<Style>>,
+    /// The style of a node without a DOM node (anonymous boxes).
+    default_style: Style,
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
@@ -697,31 +705,36 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         tree: &'a mut LayoutTree,
         text_cache: *mut crate::font_traits::TextLayoutCache,
     ) -> Self {
+        let dom_nodes = ctx.styled_dom.node_data.len();
+        let layout_nodes = tree.nodes.len();
         Self {
             ctx,
             tree,
             text_cache,
             calc_storage: std::cell::RefCell::new(Vec::new()),
-            style_memo: std::cell::RefCell::new(HashMap::new()),
+            dom_styles: core::iter::repeat_with(std::cell::OnceCell::new)
+                .take(dom_nodes)
+                .collect(),
+            node_styles: core::iter::repeat_with(std::cell::OnceCell::new)
+                .take(layout_nodes)
+                .collect(),
+            default_style: Style::DEFAULT,
         }
     }
 
-    /// Cache-backed wrapper for `translate_style_to_taffy`. Returns a
-    /// clone of the memoised `Style` on cache hit, builds + inserts on
-    /// miss. Keyed by DOM node index (not tree index) because the
-    /// result depends only on the styled DOM, not on the transient
+    /// Cache-backed wrapper for `translate_style_to_taffy`: built on the
+    /// first ask, lent after. Indexed by DOM node (not tree index) because
+    /// the result depends only on the styled DOM, not on the transient
     /// layout tree.
-    fn translate_style_to_taffy_cached(&self, dom_id: Option<NodeId>) -> Style {
+    fn translate_style_to_taffy_cached(&self, dom_id: Option<NodeId>) -> &Style {
         let Some(id) = dom_id else {
-            return Style::default();
+            return &self.default_style;
         };
-        let key = id.index();
-        if let Some(style) = self.style_memo.borrow().get(&key) {
-            return style.clone();
+        match self.dom_styles.get(id.index()) {
+            Some(cell) => cell.get_or_init(|| self.translate_style_to_taffy(dom_id)),
+            // A node the styled DOM does not have: nothing to memoise.
+            None => &self.default_style,
         }
-        let style = self.translate_style_to_taffy(dom_id);
-        self.style_memo.borrow_mut().insert(key, style.clone());
-        style
     }
 
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
@@ -1461,13 +1474,21 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style
     }
 
-    /// Gets or computes the Taffy style for a given node index.
-    fn get_taffy_style(&self, node_idx: usize) -> Style {
+    /// The Taffy style of a layout node, built once ([`Self::node_styles`]).
+    fn get_taffy_style(&self, node_idx: usize) -> &Style {
+        match self.node_styles.get(node_idx) {
+            Some(cell) => cell.get_or_init(|| self.build_taffy_style(node_idx)),
+            None => &self.default_style,
+        }
+    }
+
+    /// The Taffy style of a layout node: its DOM node's, adjusted.
+    fn build_taffy_style(&self, node_idx: usize) -> Style {
         let dom_id = self
             .tree
             .get(LayoutNodeId::new(node_idx))
             .and_then(|n| n.dom_node_id);
-        let mut style = self.translate_style_to_taffy_cached(dom_id);
+        let mut style = self.translate_style_to_taffy_cached(dom_id).clone();
 
         // CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
         //
@@ -1826,7 +1847,7 @@ impl<T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'_, '_, T> {
 
 impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
     type CoreContainerStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
     type CustomIdent = String;
@@ -2806,7 +2827,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         // Diffing two passes' lines for the same node names WHICH component
         // (known_dimensions / available_space / run_mode) moved and broke
         // the key — aggregates can't tell that.
-        if std::env::var_os("AZ_TAFFY_DEBUG").is_some() {
+        if env_flag!("AZ_TAFFY_DEBUG") {
             eprintln!(
                 "[taffy] {} n{} kd=({:?},{:?}) avail=({:?},{:?}) mode={:?}",
                 if hit.is_some() { "HIT " } else { "MISS" },
@@ -2870,11 +2891,11 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
 
 impl<T: ParsedFontTrait> LayoutFlexboxContainer for TaffyBridge<'_, '_, T> {
     type FlexboxContainerStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
     type FlexboxItemStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
 
@@ -2892,11 +2913,11 @@ impl<T: ParsedFontTrait> LayoutFlexboxContainer for TaffyBridge<'_, '_, T> {
 
 impl<T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'_, '_, T> {
     type GridContainerStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
     type GridItemStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
 

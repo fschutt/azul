@@ -1171,6 +1171,7 @@ impl FontContext {
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
             vf_bake_cache: HashMap::new(),
+            loaded_fonts_memo: Arc::new(Mutex::new(None)),
         };
         // Idempotent: reuses the FontIds already in the shared fc_cache.
         fm.register_builtin_mock_fonts();
@@ -1364,6 +1365,12 @@ pub struct FontManager<T> {
     /// bucket (see `register_named_font`); this caches the minted faces so the
     /// several spelling registrations of the same VF don't re-bake it.
     vf_bake_cache: HashMap<u64, Vec<(FontId, FaceStyle)>>,
+    /// [`Self::get_loaded_fonts`]' snapshot, with the size and fingerprint of
+    /// the pool it was taken from. Shared like `parsed_fonts`: a face added
+    /// through any handle - the managers sharing the pool, the rasterizer
+    /// locking it directly - changes the fingerprint, and the next call takes
+    /// a new snapshot.
+    loaded_fonts_memo: Arc<Mutex<Option<(usize, u64, Arc<LoadedFonts<T>>)>>>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
@@ -1402,6 +1409,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             last_resolved_font_stacks_sig: None,
             memory_families: self.memory_families.clone(),
             vf_bake_cache: self.vf_bake_cache.clone(),
+            loaded_fonts_memo: Arc::clone(&self.loaded_fonts_memo),
         }
     }
 
@@ -1423,6 +1431,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
             vf_bake_cache: HashMap::new(),
+            loaded_fonts_memo: Arc::new(Mutex::new(None)),
         };
         fm.register_builtin_mock_fonts();
         Ok(fm)
@@ -1749,6 +1758,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
             vf_bake_cache: HashMap::new(),
+            loaded_fonts_memo: Arc::new(Mutex::new(None)),
         };
         fm.register_builtin_mock_fonts();
         Ok(fm)
@@ -1865,7 +1875,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             .map(|(id, _)| *id)?;
         let (font, _) = condemned.faces.remove(&id)?;
         drop(condemned);
-        if std::env::var_os("AZ_FONT_GC_TRACE").is_some() {
+        if env_flag!("AZ_FONT_GC_TRACE") {
             eprintln!("[azul][font][gc] RESURRECT id={id} face_hash={font_hash}");
         }
         self.parsed_fonts.lock().unwrap().insert(id, font.clone());
@@ -1922,13 +1932,39 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
+    ///
+    /// Memoized: every inline formatting context of a layout asks, and the
+    /// pool rarely changes between them. Building the two maps per call was a
+    /// fifth of a 300-contact list's layout (1 500 IFCs x every loaded face,
+    /// AzContacts, 2026-10-06); checking the pool's fingerprint allocates
+    /// nothing.
     #[must_use]
-    pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
+    pub fn get_loaded_fonts(&self) -> Arc<LoadedFonts<T>> {
         let parsed = self.parsed_fonts.lock().unwrap();
-        parsed
-            .iter()
-            .map(|(id, font)| (*id, font.shallow_clone()))
-            .collect()
+        // Order-free over every (id, face) pair: a face added, dropped or
+        // replaced under the same id changes it.
+        let fingerprint = parsed.iter().fold(0u64, |acc, (id, font)| {
+            #[allow(clippy::cast_possible_truncation)] // the halves of the u128 id
+            let id = (id.0 as u64) ^ ((id.0 >> 64) as u64).rotate_left(32);
+            acc.wrapping_add(
+                (id.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ font.get_hash())
+                    .wrapping_mul(0xC2B2_AE3D_27D4_EB4F),
+            )
+        });
+        let mut memo = self.loaded_fonts_memo.lock().unwrap();
+        if let Some((len, seen, fonts)) = memo.as_ref() {
+            if *len == parsed.len() && *seen == fingerprint {
+                return Arc::clone(fonts);
+            }
+        }
+        let fonts: Arc<LoadedFonts<T>> = Arc::new(
+            parsed
+                .iter()
+                .map(|(id, font)| (*id, font.shallow_clone()))
+                .collect(),
+        );
+        *memo = Some((parsed.len(), fingerprint, Arc::clone(&fonts)));
+        fonts
     }
 
     /// Get the set of `FontIds` that are currently loaded
@@ -2174,7 +2210,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         keep_ids: &HashSet<FontId>,
         keep_hashes: &HashSet<u64>,
     ) -> usize {
-        let trace = std::env::var_os("AZ_FONT_GC_TRACE").is_some();
+        let trace = env_flag!("AZ_FONT_GC_TRACE");
         let mut condemned = self.condemned_fonts.lock().unwrap();
         condemned.generation = condemned.generation.saturating_add(1);
         let generation = condemned.generation;
@@ -8542,7 +8578,7 @@ impl TextShapingCache {
             }
         }
 
-        if std::env::var("TEXTDBG").is_ok() {
+        if env_flag!("TEXTDBG") {
             let total_items: usize = fragment_layouts.values().map(|f| f.items.len()).sum();
             let text_preview: String = content
                 .iter()
@@ -9515,7 +9551,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             // 8ec9f387d fixed. The identity gate
             // (tests/text3_shaping_cache_identity.rs) runs once with this
             // set and requires itself to FAIL; production never sets it.
-            let t2_skip_restamp = std::env::var_os("AZ_T2_SKIP_RESTAMP").is_some();
+            let t2_skip_restamp = env_flag!("AZ_T2_SKIP_RESTAMP");
             // (d7) Materialize from the compact store — the fat path
             // cloned every item here anyway, so this is cost-neutral.
             shaped.extend(cached.compact.expand().into_iter().map(|c| {

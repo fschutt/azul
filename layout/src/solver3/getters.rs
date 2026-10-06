@@ -5745,7 +5745,7 @@ pub fn resolve_font_chains_with_registry(
             optical_size: canonical_key.optical_size,
         });
 
-        if std::env::var("TEXTDBG").is_ok() {
+        if env_flag!("TEXTDBG") {
             eprintln!("[TEXTDBG] CHAIN STORE key={cache_key:?}");
         }
         // Skip if already resolved
@@ -6719,7 +6719,7 @@ pub fn get_scrollbar_style(
         use core::sync::atomic::{AtomicBool, Ordering};
         static DUMPED: AtomicBool = AtomicBool::new(false);
         if !DUMPED.swap(true, Ordering::Relaxed)
-            && std::env::var_os("AZ_DUMP_SCROLLBAR_OS").is_some()
+            && env_flag!("AZ_DUMP_SCROLLBAR_OS")
         {
             std::eprintln!(
                 "[azul][scrollbar] system_style={} os={:?} visibility={:?} width={:?}",

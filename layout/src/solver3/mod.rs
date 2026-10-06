@@ -913,7 +913,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         {
             let _p = crate::probe::Probe::span("display_list_cache_hit");
             #[cfg(feature = "std")]
-            if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+            if env_flag!("AZ_ANIM_DEBUG") {
                 eprintln!(
                     "[dlcache] HIT fp={gpu_fp:x} items={}",
                     cached_dl.items.len()
@@ -1721,7 +1721,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 .dynamic_context
                 .as_deref();
             #[cfg(feature = "std")]
-            if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            if env_flag!("AZ_PATCH_DEBUG") {
                 match (cur, cache.last_dynamic_context.as_ref()) {
                     (Some(a), Some(b)) if a != b => {
                         eprintln!(
@@ -1786,7 +1786,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             std::collections::BTreeSet::new()
         };
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if env_flag!("AZ_PATCH_DEBUG") {
             eprintln!(
                 "[PATCHGATE] skipped={} preserved={} css_dirty={} structure_ok={} disabled={} \
                  prev_sizes={} nodes={} prev_pos={} pos={} ctx_same={} reflowed_ifcs={:?} \
@@ -1978,7 +1978,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // correctly misses once and re-seeds.
     let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
     #[cfg(feature = "std")]
-    if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+    if env_flag!("AZ_ANIM_DEBUG") {
         eprintln!(
             "[dlcache] STORE fp={gpu_fp:x} items={}",
             display_list.items.len()
@@ -2019,7 +2019,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             ));
         }
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if env_flag!("AZ_PATCH_DEBUG") {
             eprintln!("[PATCHDMG] rects={rects:?}");
         }
         // Onto the LOG, not just the slot: a second patched build before the

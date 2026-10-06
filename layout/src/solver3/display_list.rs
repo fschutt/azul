@@ -8000,7 +8000,7 @@ where
         // built, and the layout pass that precedes this one has already
         // recomputed `warm.scrollbar_info` from the laid-out sizes.
         if let Some(nid) = node_id {
-            if std::env::var("AZ_VV_BAR_TRACE").is_ok()
+            if env_flag!("AZ_VV_BAR_TRACE")
                 && self
                     .ctx
                     .styled_dom
@@ -8030,7 +8030,7 @@ where
                     padding_box_size,
                     &mut scrollbar_info,
                 );
-                if std::env::var("AZ_VV_BAR_TRACE").is_ok() {
+                if env_flag!("AZ_VV_BAR_TRACE") {
                     eprintln!(
                         "[vv-bar] nid={nid:?} raised={raised} virt={:?} \
                          padbox={padding_box_size:?} reqs_after={scrollbar_info:?}",
@@ -9556,7 +9556,7 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
             Some((max_x, max_y))
         });
         let (max_x, max_y) = if let Some((dx, dy)) = dense_extent {
-            if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
+            if env_flag!("AZ_DENSE_TEXT" == "verify") {
                 let mut sx: f32 = 0.0;
                 let mut sy: f32 = 0.0;
                 for positioned_item in &text_layout.items {

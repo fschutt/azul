@@ -2427,7 +2427,7 @@ pub fn reconcile_recursive(
     let new_layout_relevant_count =
         layout_relevant_child_count(styled_dom, &new_children_dom_ids, new_dom_id);
 
-    if std::env::var_os("AZ_RECON_DEBUG").is_some()
+    if env_flag!("AZ_RECON_DEBUG")
         && old_tree.is_some()
         && new_layout_relevant_count != old_layout_relevant_count
     {
@@ -2661,7 +2661,7 @@ pub fn reconcile_recursive(
                         // paragraph's parent on every reconcile (see
                         // try_reuse_anon_wrapper).
                         if !anon_reused {
-                            if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+                            if env_flag!("AZ_RECON_DEBUG") {
                                 eprintln!(
                                     "[recon] mid-loop wrapper ord {} NOT reused (run len {})",
                                     anon_ordinal - 1,
@@ -2701,7 +2701,7 @@ pub fn reconcile_recursive(
                     .get(reconciled_child_idx)
                     .map(|n| n.subtree_hash)
                 {
-                    if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+                    if env_flag!("AZ_RECON_DEBUG") {
                         eprintln!(
                             "[recon] block child dom {:?} under parent dom {:?} hash MISMATCH \
                              warm_pass={} old_idx={:?} (old {:?} vs new {:?})",
@@ -2797,7 +2797,7 @@ pub fn reconcile_recursive(
                 // children's own mark_dirty to propagate upward rather
                 // than invalidating the whole wrapper each reconcile.
                 if !anon_reused {
-                    if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+                    if env_flag!("AZ_RECON_DEBUG") {
                         eprintln!(
                             "[recon] trailing wrapper ord {} NOT reused",
                             anon_ordinal - 1
@@ -2826,7 +2826,7 @@ pub fn reconcile_recursive(
     if dirty_flag >= DirtyFlag::Layout || children_are_different {
         // Runtime-gated classification trace: names WHY a node went dirty,
         // which is the question every reconcile investigation starts with.
-        if std::env::var_os("AZ_RECON_DEBUG").is_some() {
+        if env_flag!("AZ_RECON_DEBUG") {
             eprintln!(
                 "[recon] intrinsic_dirty += layout_idx {} (dom {:?}, flag {:?}, children_diff {})",
                 new_node_idx,
