@@ -348,7 +348,16 @@ class App:
     def has_id(self, node_id, every_dom=False):
         return self.has("#%s" % node_id, every_dom)
 
-    def rect(self, node_id):
+    def rect(self, node_id, every_dom=False):
+        """The rect of the node `#node_id` - of DOM 0, or with `every_dom` of the first DOM that
+        has it (AzPdf's pages live in a VirtualView's DOM; its rects are in that DOM's own
+        coordinates, so compare them with each other, not with DOM 0's)."""
+        if every_dom:
+            for dom in self.dom_ids():
+                if self._has_in("#%s" % node_id, dom):
+                    value = self.value("get_node_layout", selector="#%s" % node_id, dom_id=dom)
+                    return value.get("rect") or {}
+            raise Failure("no DOM of the window has #%s" % node_id)
         value = self.value("get_node_layout", selector="#%s" % node_id)
         return value.get("rect") or {}
 
