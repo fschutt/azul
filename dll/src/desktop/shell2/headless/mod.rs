@@ -13059,6 +13059,64 @@ mod tests {
             "the shell has stopped the unmounted node's timer (nothing left to stop)"
         );
     }
+
+    /// `body(0) > div[contenteditable](1) > [p(2) > "Re"(3), p(4) > "Ben"(5)]`: a reply's
+    /// editor, the same DOM on every build.
+    extern "C" fn reply_editor_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(Dom::create_p_with_text("Re"))
+                .with_child(Dom::create_p_with_text("Ben")),
+        )
+    }
+
+    /// An app that resets its editor's content (`CallbackInfo::reset_editor_content`, caret at
+    /// the start) and rebuilds the SAME DOM gets its caret: the reset's caret is placed by the
+    /// tail of a full layout, and an identical rebuild takes the shell's pre-cascade "layout
+    /// unchanged" exit, which lays nothing out - the caret waited for some later full layout,
+    /// and the focus the app gave the editor in the same callback seeded it at the END of the
+    /// text meanwhile. AzMail's reply: the caret stood after the quote's last line, and the
+    /// typed answer went under the quote (E2E-A, 2026-10-06).
+    #[test]
+    fn a_reset_editor_gets_its_caret_when_the_app_rebuilds_the_same_dom() {
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_with(&state, reply_editor_layout);
+        window
+            .regenerate_layout()
+            .expect("the editor's first layout");
+        let _ = window.common.take_regeneration();
+        let host = azul_core::dom::DomNodeId {
+            dom: azul_core::dom::DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                azul_core::id::NodeId::new(1),
+            )),
+        };
+        assert!(
+            window
+                .common
+                .layout_window
+                .as_mut()
+                .expect("a layout window")
+                .reset_editor_content(host, false),
+            "premise: the host is a live editor"
+        );
+        window.regenerate_layout().expect("the identical rebuild");
+        let _ = window.common.take_regeneration();
+
+        let caret = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.document_caret())
+            .expect("the reset placed the editor's caret");
+        assert_eq!(
+            caret.node.node.into_crate_internal(),
+            Some(azul_core::id::NodeId::new(2)),
+            "the caret is in the first block"
+        );
+        assert_eq!(caret.text_byte, 0, "at its start");
+    }
 }
 
 #[cfg(test)]
