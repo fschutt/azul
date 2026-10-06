@@ -17,8 +17,6 @@ FAIL css/CSS2/linebox/inline-formatting-context-006.xht E-INLINE # match inline-
 FAIL css/CSS2/linebox/line-height-bleed-001.xht E-INLINE # match line-height-bleed-001-ref.xht: maxdiff 255 pixels 5409
 FAIL css/CSS2/linebox/split-inline-borders.html E-INLINE # match split-inline-borders-ref.html: maxdiff 255 pixels 14179
 FAIL css/CSS2/linebox/vertical-align-baseline-003.xht E-INLINE # match vertical-align-baseline-003-ref.xht: maxdiff 255 pixels 8030
-FAIL css/CSS2/linebox/vertical-align-baseline-006.xht E-INLINE # match vertical-align-baseline-007-ref.xht: maxdiff 23 pixels 2067
-FAIL css/CSS2/linebox/vertical-align-baseline-008.xht E-INLINE # match vertical-align-baseline-008-ref.xht: maxdiff 23 pixels 2268
 FAIL css/CSS2/linebox/vertical-align-baseline-010.xht E-INLINE # match vertical-align-baseline-007-ref.xht: maxdiff 23 pixels 3064
 FAIL css/CSS2/linebox/vertical-align-nested-top-001.html E-INLINE # match vertical-align-nested-top-001-ref.html: maxdiff 3 pixels 2
 FAIL css/CSS2/linebox/vertical-align-sub-001.xht E-INLINE # match vertical-align-sub-001-ref.xht: maxdiff 48 pixels 6
@@ -26,10 +24,12 @@ FAIL css/CSS2/linebox/vertical-align-super-001.xht E-INLINE # match vertical-ali
 FAIL css/CSS2/lists/counter-increment-055.xht E-OL # match counter-increment-055-ref.html: maxdiff 250 pixels 4154
 FAIL css/CSS2/lists/counter-reset-055.xht E-OL # match pass-if-number-0-30px.xht: maxdiff 201 pixels 4347
 FAIL css/CSS2/lists/increment-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
-FAIL css/CSS2/lists/list-style-type-applies-to-010.xht E-OL # match single_square_list_marker.xht: maxdiff 23 pixels 4052
+FAIL css/CSS2/lists/list-style-position-023.xht E-OL # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/CSS2/lists/reset-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
 FAIL css/CSS2/tables/border-collapse-empty-row.html E-TABLE-BC # needs :not() - the reference thickens its cells with `tr:not(:last-child) td` (the inline-table painting is fixed); gate 2026-10-06: maxdiff 127 pixels 4000
 FAIL css/CSS2/tables/border-collapse-offset-002.xht E-TABLE-BC # the caption is laid out INSIDE the table box: a collapsed table's half border (2px) offsets it, Chrome's wrapper box keeps it outside; gate 2026-10-06: maxdiff 255 pixels 1051
+FAIL css/CSS2/tables/height-table-cell-001.xht E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
+FAIL css/CSS2/tables/height-width-table-001.xht E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/CSS2/tables/separated-border-model-004a.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 27816
 FAIL css/CSS2/tables/separated-border-model-004b.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 28116
 FAIL css/CSS2/tables/separated-border-model-007.xht E-TABLE # match separated-border-model-007-ref.xht: maxdiff 8 pixels 1
@@ -58,10 +58,13 @@ FAIL css/css-lists/li-list-item-counter-001.html E-OL # match li-list-item-count
 FAIL css/css-lists/li-list-item-counter-002.html E-OL # match li-list-item-counter-002-ref.html: maxdiff 255 pixels 786
 FAIL css/css-lists/list-marker-alignment.html E-OL # match list-marker-alignment-ref.html: maxdiff 121 pixels 116
 FAIL css/css-lists/list-style-type-string-001a.html E-OL # needs list-style-type: <string> (test) and ::before generated content (reference); gate 2026-10-06: maxdiff 233 pixels 3563
+FAIL css/css-tables/anonymous-table-ws-001.html E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
+FAIL css/css-tables/col-definite-size-001.html E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/css-tables/table-intrinsic-size-001.html E-TABLE # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 10000
 FAIL css/css-tables/table_grid_size_col_colspan.html E-TABLE # match table_grid_size_col_colspan-ref.html: maxdiff 255 pixels 29500
 FAIL css/css-tables/th-text-align.html E-TABLE # needs HTML's th rule: centred only under a parent whose text-align is the initial value, and an author `text-align: inherit` to beat the UA centre; gate 2026-10-06: maxdiff 233 pixels 283
 FAIL css/css-text-decor/text-decoration-color.html E-DECOR # match text-decoration-color-ref.html: maxdiff 210 pixels 11946
+FAIL css/css-text-decor/text-decoration-propagation-04.html E-DECOR # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/css-text-decor/text-decoration-subelements-003.html E-DECOR # match text-decoration-subelements-003-ref.html: maxdiff 232 pixels 808
 FAIL html/rendering/non-replaced-elements/tables/table-cell-width-s.html E-LEGACY # the reference's `.row { clear: both } .row div { float: left }` rows overlap: clearance does not see the floats of a previous sibling block (:first-child is fixed); gate 2026-10-06: maxdiff 255 pixels 4034
 FAIL html/rendering/non-replaced-elements/the-hr-element-0/color.html E-LEGACY # match color-ref.html: maxdiff 165 pixels 3136
@@ -70,6 +73,4 @@ FAIL html/rendering/non-replaced-elements/the-hr-element-0/size.html E-LEGACY # 
 FAIL html/rendering/non-replaced-elements/the-hr-element-0/width.html E-LEGACY # match width-ref.html: maxdiff 165 pixels 8624
 FAIL local/color-scheme/a-dark-subtree-paints-a-dark-canvas.html E-MODE # mismatch a-dark-subtree-paints-a-dark-canvas-ref.html: maxdiff 0 pixels 0
 FAIL local/color-scheme/a-dark-subtree-writes-light-canvastext.html E-MODE # mismatch a-dark-subtree-writes-light-canvastext-ref.html: maxdiff 0 pixels 0
-FAIL local/legacy/a-font-element-is-an-inline-span-with-its-attributes.html E-LEGACY # match a-font-element-is-an-inline-span-with-its-attributes-ref.html: maxdiff 233 pixels...
 FAIL local/ua/nested-lists-mark-disc-circle-square.html E-OL # match nested-lists-mark-disc-circle-square-ref.html: maxdiff 23 pixels 1220
-FAIL local/ua/sub-and-sup-are-shifted-and-smaller.html E-UA # match sub-and-sup-are-shifted-and-smaller-ref.html: maxdiff 23 pixels 210
