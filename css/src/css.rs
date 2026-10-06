@@ -1193,7 +1193,7 @@ impl CssRuleBlock {
 }
 
 /// A group of CSS path selectors, used during selector matching.
-pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
+pub type CssContentGroup<'a> = &'a [CssPathSelector];
 
 /// Signifies the type of a DOM node without carrying any associated data
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

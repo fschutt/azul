@@ -19287,6 +19287,36 @@ mod autotest_generated {
         ));
     }
 
+    /// `get_loaded_fonts` is one shared snapshot while the pool is unchanged
+    /// (every inline formatting context asks; building the two maps per call was
+    /// a fifth of a 300-contact list's layout), and a new one after ANY change -
+    /// an insert, a replacement under the same id, a removal straight through
+    /// the shared pool the way the rasterizer and other managers reach it.
+    #[test]
+    fn loaded_fonts_are_one_snapshot_until_the_pool_changes() {
+        let m = manager();
+        m.insert_font(FontId(1), tf(1));
+        let first = m.get_loaded_fonts();
+        assert!(Arc::ptr_eq(&first, &m.get_loaded_fonts()), "unchanged pool, same snapshot");
+
+        m.insert_font(FontId(2), tf(2));
+        let inserted = m.get_loaded_fonts();
+        assert_eq!(inserted.len(), 2);
+        assert!(!Arc::ptr_eq(&first, &inserted));
+
+        m.insert_font(FontId(2), tf(3));
+        let replaced = m.get_loaded_fonts();
+        assert!(!Arc::ptr_eq(&inserted, &replaced), "a face replaced under its id");
+        assert!(replaced.contains_hash(3) && !replaced.contains_hash(2));
+
+        m.shared_parsed_fonts().lock().unwrap().remove(&FontId(1));
+        let removed = m.get_loaded_fonts();
+        assert_eq!(removed.len(), 1, "a removal through the shared pool is seen");
+
+        let other = m.clone_shared();
+        assert!(Arc::ptr_eq(&removed, &other.get_loaded_fonts()), "managers share the snapshot");
+    }
+
     #[test]
     fn font_manager_insert_font_returns_the_replaced_font() {
         let m = manager();

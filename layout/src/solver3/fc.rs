@@ -4305,7 +4305,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     // pagination even when the line layout was going to be reused.
     let subtree_fingerprint = {
         use core::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut h = azul_core::hash::FastHasher::new();
 
         // vw/vh/vmin/vmax resolve against the viewport, so a resize MUST
         // invalidate collected styles — but ONLY for documents that actually
@@ -4413,13 +4413,14 @@ fn layout_ifc<T: ParsedFontTrait>(
         } else {
             let _p = crate::probe::Probe::span("ifc_collect_content");
             let res =
-                collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints);
+                collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints)
+                    .map(|(content, child_map)| (Arc::new(content), Arc::new(child_map)));
             let mut base = None;
             if let Ok((content, child_map)) = res.as_ref() {
                 let computed_base = {
                     let _p = crate::probe::Probe::span("ifc_content_hash_base");
                     use std::hash::{Hash, Hasher};
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    let mut h = azul_core::hash::FastHasher::new();
                     content.hash(&mut h);
                     h.finish()
                 };
@@ -4427,8 +4428,8 @@ fn layout_ifc<T: ParsedFontTrait>(
                 if let Some(w) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                     w.inline_content_cache =
                         Some(Box::new(crate::solver3::layout_tree::CachedInlineContent {
-                            content: content.clone(),
-                            child_map: child_map.clone(),
+                            content: Arc::clone(content),
+                            child_map: Arc::clone(child_map),
                             subtree_fingerprint,
                             content_hash_base: computed_base,
                             atomics_measured_against: content
@@ -4493,7 +4494,7 @@ fn layout_ifc<T: ParsedFontTrait>(
     let current_content_hash = {
         let _p = crate::probe::Probe::span("ifc_content_hash");
         use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut h = azul_core::hash::FastHasher::new();
         // The content component comes pre-hashed from the collection cache —
         // an equal subtree_fingerprint admitted it, so its bytes are the ones
         // this hash used to re-derive per visit. `None` cannot happen when

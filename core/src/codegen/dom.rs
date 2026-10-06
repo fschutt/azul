@@ -1461,8 +1461,8 @@ impl CssMatcher {
 // does p.home match div.after-tabs?
 // a: div.after-tabs
 fn group_matches(
-    a: &[&CssPathSelector],
-    b: &[&CssPathSelector],
+    a: &[CssPathSelector],
+    b: &[CssPathSelector],
     idx_in_parent: usize,
     parent_children: usize,
 ) -> bool {
@@ -1483,17 +1483,17 @@ fn group_matches(
             ) => {}
 
             Type(tag) => {
-                if !b.iter().any(|t| **t == Type(*tag)) {
+                if !b.iter().any(|t| *t == Type(*tag)) {
                     return false;
                 }
             }
             Class(class) => {
-                if !b.iter().any(|t| **t == Class(class.clone())) {
+                if !b.iter().any(|t| *t == Class(class.clone())) {
                     return false;
                 }
             }
             Id(id) => {
-                if !b.iter().any(|t| **t == Id(id.clone())) {
+                if !b.iter().any(|t| *t == Id(id.clone())) {
                     return false;
                 }
             }

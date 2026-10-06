@@ -224,10 +224,14 @@ pub struct InlineItemMetrics {
 /// nothing.
 #[derive(Debug, Clone)]
 pub struct CachedInlineContent {
-    /// The collected inline content (text runs, atomics, markers).
-    pub content: Vec<crate::text3::cache::InlineContent>,
+    /// The collected inline content (text runs, atomics, markers). Shared:
+    /// every visit of the IFC that reuses the collection takes it, and a
+    /// deep clone per visit (flex probes visit each IFC several times) was
+    /// a share of a 300-contact list's layout.
+    pub content: alloc::sync::Arc<Vec<crate::text3::cache::InlineContent>>,
     /// `ContentIndex` -> child layout-node index, as collection built it.
-    pub child_map: std::collections::HashMap<crate::text3::cache::ContentIndex, usize>,
+    pub child_map:
+        alloc::sync::Arc<std::collections::HashMap<crate::text3::cache::ContentIndex, usize>>,
     /// Validity key: the fingerprints of the IFC root and its descendants,
     /// folded in tree order. Anything that changes text, style or structure
     /// changes a fingerprint, so an equal key means an identical collection.

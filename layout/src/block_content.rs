@@ -496,7 +496,7 @@ impl LayoutWindow {
                 let root = tree.text_block_root(block.key())?;
                 tree.warm(LayoutNodeId::new(root))
                     .and_then(|w| w.inline_content_cache.as_deref())
-                    .map(|cache| cache.content.clone())
+                    .map(|cache| cache.content.to_vec())
             })
             .unwrap_or_default();
         let generated = items

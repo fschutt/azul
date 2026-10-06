@@ -293,8 +293,8 @@ fn first_caption_text_edges() {
 // group_matches / CssMatcher  (numeric: indices)
 // ================================================================
 
-fn refs(v: &[CssPathSelector]) -> Vec<&CssPathSelector> {
-    v.iter().collect()
+fn refs(v: &[CssPathSelector]) -> Vec<CssPathSelector> {
+    v.to_vec()
 }
 
 #[test]

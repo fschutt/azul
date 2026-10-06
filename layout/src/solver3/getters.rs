@@ -98,24 +98,60 @@ pub fn get_element_font_size(
     dom_id: NodeId,
     node_state: &StyledNodeState,
 ) -> f32 {
-    // M12.7 FIX: the OnceLock-cached fast path
-    // (`is_normal → resolved_font_sizes_px.get_or_init(|| compute_all_font_sizes_px) →
-    // sizes.get`) MIS-LIFTS to wasm — it diverges (create_node_from_dom never returns →
-    // empty LayoutTree → 0 rects). PROVEN by isolation: skipping it lets
-    // get_element_font_size reach + return via resolve_font_size_slow, and
-    // create_resolution_context completes (sub-step 1→4). resolve_font_size_slow is the
-    // same resolution unmemoized (correct), so we always use it. (Native desktop is
-    // unaffected in correctness; it loses the per-DOM memoization — a minor perf cost
-    // only on the lifted web path's small DOMs. The cache-block lift bug — likely the
-    // compute_all_font_sizes_px closure's control/FP — is documented for a later remill
-    // fix that can restore the fast path.)
-    // referenced so other callers / native keep it
-    let _ = compute_all_font_sizes_px;
+    // The memo first (`memoised_font_size`; not in the web-lift build, where
+    // its OnceLock mis-lifts - M12.7), else the walk up the ancestor chain.
     // CSS `zoom` scales the font size by the node's effective zoom (the
     // cascade's value is unzoomed: an inherited size is the parent's
     // UNZOOMED one, so the product never applies a zoom twice); em lengths
     // follow it (LAYOUT7).
-    resolve_font_size_slow(styled_dom, dom_id, node_state) * get_effective_zoom(styled_dom, dom_id)
+    memoised_font_size(styled_dom, dom_id, node_state)
+        .unwrap_or_else(|| resolve_font_size_slow(styled_dom, dom_id, node_state))
+        * get_effective_zoom(styled_dom, dom_id)
+}
+
+/// The memoised font size of `dom_id` (`resolved_font_sizes_px`: every node's,
+/// computed top-down in one pass on first use), where it is the answer: the
+/// `Normal` state of a document whose font sizes use no viewport unit (the
+/// memo is resolved once, not per viewport). `None` sends the caller up the
+/// ancestor chain instead.
+///
+/// The web-lift build keeps the walk (M12.7: the memo's `OnceLock` mis-lifts
+/// to wasm). Native builds had lost the memo with it: every lookup - each
+/// inline formatting context asks, at every visit - walked to the root and
+/// allocated the chain, a tenth of a 300-contact list's layout (AzContacts,
+/// 2026-10-06).
+#[cfg(not(feature = "web_lift"))]
+fn memoised_font_size(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<f32> {
+    if !node_state.is_normal() {
+        return None;
+    }
+    let cache = &styled_dom.css_property_cache.ptr;
+    if cache
+        .compact_cache
+        .as_ref()
+        .is_none_or(|cc| cc.uses_viewport_units)
+    {
+        return None;
+    }
+    cache
+        .resolved_font_sizes_px
+        .get_or_init(|| compute_all_font_sizes_px(styled_dom))
+        .get(dom_id.index())
+        .copied()
+}
+
+#[cfg(feature = "web_lift")]
+fn memoised_font_size(
+    _styled_dom: &StyledDom,
+    _dom_id: NodeId,
+    _node_state: &StyledNodeState,
+) -> Option<f32> {
+    let _ = compute_all_font_sizes_px;
+    None
 }
 
 /// [`get_element_font_size`] with the viewport units (`vw` / `vh` / `vmin` /
@@ -129,7 +165,10 @@ pub fn get_element_font_size_in_viewport(
     node_state: &StyledNodeState,
     viewport: PhysicalSize,
 ) -> f32 {
-    resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, viewport)
+    memoised_font_size(styled_dom, dom_id, node_state)
+        .unwrap_or_else(|| {
+            resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, viewport)
+        })
         * get_effective_zoom(styled_dom, dom_id)
 }
 
@@ -10072,6 +10111,67 @@ mod autotest_generated {
         let px = get_element_font_size(&sd, deepest, &st);
         assert!(px.is_finite() && px > 0.0);
         assert_eq!(px, resolve_font_size_slow(&sd, deepest, &st));
+    }
+
+    /// The memoised font sizes (one top-down pass, restored for native
+    /// builds) agree with the walk up the ancestor chain for every node of a
+    /// page that nests px, em, rem and % sizes; a page with a viewport unit in
+    /// a font size takes the walk, against the viewport it is laid out in.
+    #[test]
+    fn memoised_font_sizes_agree_with_the_ancestor_walk() {
+        let mut dom = Dom::create_body().with_children(
+            vec![Dom::create_div()
+                .with_class("a".into())
+                .with_children(
+                    vec![
+                        Dom::create_div().with_class("b".into()).with_children(
+                            vec![Dom::create_div().with_class("c".into())].into(),
+                        ),
+                        Dom::create_div().with_class("d".into()),
+                    ]
+                    .into(),
+                )]
+            .into(),
+        );
+        let sd = StyledDom::create(
+            &mut dom,
+            parse(
+                "body { font-size: 20px; } .a { font-size: 1.5em; } .b { font-size: 50%; } \
+                 .c { font-size: 2rem; } .d { font-size: 13px; }",
+            ),
+        );
+        for i in 0..sd.node_data.len() {
+            let id = NodeId::new(i);
+            let st = state_of(&sd, id);
+            assert_eq!(
+                get_element_font_size(&sd, id, &st),
+                resolve_font_size_slow(&sd, id, &st) * get_effective_zoom(&sd, id),
+                "node {i}"
+            );
+        }
+        let by_class = |sd: &StyledDom, class: &str| {
+            NodeId::new(
+                sd.node_data
+                    .as_container()
+                    .internal
+                    .iter()
+                    .position(|n| n.has_class(class))
+                    .expect("the node"),
+            )
+        };
+        let b = by_class(&sd, "b");
+        assert_eq!(get_element_font_size(&sd, b, &state_of(&sd, b)), 15.0, "50% of 1.5em of 20px");
+
+        let mut vw = Dom::create_body()
+            .with_children(vec![Dom::create_div().with_class("v".into())].into());
+        let sd = StyledDom::create(&mut vw, parse(".v { font-size: 2vw; }"));
+        let v = by_class(&sd, "v");
+        let viewport = PhysicalSize::new(1000.0, 500.0);
+        assert_eq!(
+            get_element_font_size_in_viewport(&sd, v, &state_of(&sd, v), viewport),
+            20.0,
+            "2vw of a 1000 px viewport, not the memo's zero viewport"
+        );
     }
 
     #[test]

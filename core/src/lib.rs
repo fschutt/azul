@@ -212,25 +212,30 @@ pub mod hash {
     pub use std::hash::DefaultHasher;
 
     #[cfg(not(feature = "std"))]
-    pub use self::nostd::DefaultHasher;
+    pub use self::fast::FastHasher as DefaultHasher;
 
-    #[cfg(not(feature = "std"))]
-    mod nostd {
+    pub use self::fast::FastHasher;
+
+    mod fast {
         use core::hash::Hasher;
 
         const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
         const ROTATE: u32 = 5;
 
-        /// FxHasher-style `no_std` hasher. Not DoS-resistant; used purely for
-        /// in-process change detection.
+        /// FxHasher-style hasher, in every build. Not DoS-resistant: for
+        /// in-process change detection and cache keys over the app's own data
+        /// - a layout fingerprints every inline formatting context it visits,
+        /// and `SipHash` (`std`'s `DefaultHasher`) was a visible share of a
+        /// 300-contact list's layout (AzContacts, 2026-10-06).
         #[derive(Default)]
-        pub struct DefaultHasher {
+        pub struct FastHasher {
             hash: u64,
         }
 
-        impl DefaultHasher {
-            pub fn new() -> Self {
-                DefaultHasher { hash: 0 }
+        impl FastHasher {
+            #[must_use]
+            pub const fn new() -> Self {
+                Self { hash: 0 }
             }
 
             #[inline]
@@ -239,7 +244,7 @@ pub mod hash {
             }
         }
 
-        impl Hasher for DefaultHasher {
+        impl Hasher for FastHasher {
             #[inline]
             fn finish(&self) -> u64 {
                 self.hash
@@ -247,16 +252,27 @@ pub mod hash {
 
             #[inline]
             fn write(&mut self, bytes: &[u8]) {
-                for chunk in bytes.chunks(8) {
+                let mut chunks = bytes.chunks_exact(8);
+                for chunk in &mut chunks {
                     let mut buf = [0u8; 8];
-                    buf[..chunk.len()].copy_from_slice(chunk);
+                    buf.copy_from_slice(chunk);
+                    self.add(u64::from_le_bytes(buf));
+                }
+                let rest = chunks.remainder();
+                if !rest.is_empty() {
+                    let mut buf = [0u8; 8];
+                    buf[..rest.len()].copy_from_slice(rest);
                     self.add(u64::from_le_bytes(buf));
                 }
             }
 
             #[inline]
             fn write_u8(&mut self, i: u8) {
-                self.add(i as u64);
+                self.add(u64::from(i));
+            }
+            #[inline]
+            fn write_u32(&mut self, i: u32) {
+                self.add(u64::from(i));
             }
             #[inline]
             fn write_u64(&mut self, i: u64) {

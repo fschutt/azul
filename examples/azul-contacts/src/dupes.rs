@@ -58,36 +58,52 @@ pub fn name_key(c: &Contact) -> String {
     fold(&out).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// What [`similarity`] compares, derived once per contact.
+struct Keys {
+    name: String,
+    folded_display: String,
+    /// The normalized, non-empty e-mail addresses, in the card's order.
+    emails: Vec<String>,
+    phones: Vec<String>,
+}
+
+impl Keys {
+    fn of(c: &Contact) -> Self {
+        Self {
+            name: name_key(c),
+            folded_display: fold(&c.display_name()),
+            emails: c
+                .emails
+                .iter()
+                .map(|e| normalize_email(&e.value))
+                .filter(|e| !e.is_empty())
+                .collect(),
+            phones: c.phones.iter().filter_map(|p| normalize_phone(&p.value)).collect(),
+        }
+    }
+}
+
 /// How alike two contacts are (0..=1) and why.
 #[must_use]
 pub fn similarity(a: &Contact, b: &Contact) -> (f32, Vec<String>) {
+    similarity_of(&Keys::of(a), &Keys::of(b))
+}
+
+fn similarity_of(a: &Keys, b: &Keys) -> (f32, Vec<String>) {
     let mut score: f32 = 0.0;
     let mut reasons = Vec::new();
-    let (na, nb) = (name_key(a), name_key(b));
-    let same_name = !na.is_empty() && na == nb;
+    let same_name = !a.name.is_empty() && a.name == b.name;
     if same_name {
         // Exactly the same name, or the same only after dropping a note such as "(imported)".
-        let exact = fold(&a.display_name()) == fold(&b.display_name());
+        let exact = a.folded_display == b.folded_display;
         score = score.max(if exact { 0.93 } else { 0.9 });
         reasons.push("same name".to_string());
     }
-    if let Some(e) = a
-        .emails
-        .iter()
-        .map(|e| normalize_email(&e.value))
-        .filter(|e| !e.is_empty())
-        .find(|e| b.emails.iter().any(|f| normalize_email(&f.value) == *e))
-    {
+    if let Some(e) = a.emails.iter().find(|e| b.emails.contains(e)) {
         score = score.max(0.95);
         reasons.push(format!("same email {e}"));
     }
-    let phones_b: Vec<String> = b.phones.iter().filter_map(|p| normalize_phone(&p.value)).collect();
-    if a
-        .phones
-        .iter()
-        .filter_map(|p| normalize_phone(&p.value))
-        .any(|p| phones_b.contains(&p))
-    {
+    if a.phones.iter().any(|p| b.phones.contains(p)) {
         score = score.max(0.9);
         reasons.push("same phone number".to_string());
     }
@@ -110,20 +126,54 @@ pub struct Pair {
 /// "not a duplicate" (`ignored`, by UID, either order) are left out.
 #[must_use]
 pub fn find_duplicates(contacts: &[Contact], threshold: f32, ignored: &[(String, String)]) -> Vec<Pair> {
+    use std::collections::{BTreeSet, HashMap};
+
+    let keys: Vec<Keys> = contacts.iter().map(Keys::of).collect();
+    // A pair that shares no name, e-mail or phone scores 0: only pairs that
+    // share one are worth comparing (every pair, below a threshold of 0).
+    // Comparing every pair was 300 x 300 normalizations on every rebuild of
+    // the window (AzContacts, 2026-10-06).
+    let mut candidates: BTreeSet<(usize, usize)> = BTreeSet::new();
+    if threshold <= 0.0 {
+        for i in 0..contacts.len() {
+            for j in i + 1..contacts.len() {
+                candidates.insert((i, j));
+            }
+        }
+    } else {
+        // One bucket per key value (a name that happens to equal a phone's
+        // digits only adds a candidate, which then scores what it scores).
+        let mut buckets: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            let shared = core::iter::once(k.name.as_str())
+                .chain(k.emails.iter().map(String::as_str))
+                .chain(k.phones.iter().map(String::as_str));
+            for key in shared.filter(|key| !key.is_empty()) {
+                buckets.entry(key).or_default().push(i);
+            }
+        }
+        for members in buckets.values() {
+            for (x, &i) in members.iter().enumerate() {
+                for &j in &members[x + 1..] {
+                    if i != j {
+                        candidates.insert((i.min(j), i.max(j)));
+                    }
+                }
+            }
+        }
+    }
     let mut out = Vec::new();
-    for i in 0..contacts.len() {
-        for j in i + 1..contacts.len() {
-            let (a, b) = (&contacts[i], &contacts[j]);
-            if ignored
-                .iter()
-                .any(|(x, y)| (x == &a.uid && y == &b.uid) || (x == &b.uid && y == &a.uid))
-            {
-                continue;
-            }
-            let (score, reasons) = similarity(a, b);
-            if score >= threshold {
-                out.push(Pair { a: i, b: j, score, reasons });
-            }
+    for (i, j) in candidates {
+        let (a, b) = (&contacts[i], &contacts[j]);
+        if ignored
+            .iter()
+            .any(|(x, y)| (x == &a.uid && y == &b.uid) || (x == &b.uid && y == &a.uid))
+        {
+            continue;
+        }
+        let (score, reasons) = similarity_of(&keys[i], &keys[j]);
+        if score >= threshold {
+            out.push(Pair { a: i, b: j, score, reasons });
         }
     }
     out.sort_by(|x, y| y.score.partial_cmp(&x.score).unwrap_or(std::cmp::Ordering::Equal).then(x.a.cmp(&y.a)));
@@ -394,5 +444,46 @@ mod tests {
         assert_eq!(m.family, "Berg (imported)");
         assert_eq!(m.phones.len(), 1, "the same number in two spellings is one");
         assert_eq!(m.photo, anna().photo, "B has no photo: A's");
+    }
+
+    /// The bucketed finder (only pairs that share a name, an e-mail or a phone
+    /// are compared) finds exactly what comparing every pair finds - the same
+    /// pairs, scores, reasons and order - on the 300-contact sample book, with
+    /// and without an ignored pair. It replaced a 300 x 300 comparison that ran
+    /// on every rebuild of the window.
+    #[test]
+    fn the_bucketed_finder_finds_what_comparing_every_pair_finds() {
+        let book = crate::sample::sample_book();
+        let exhaustive = |ignored: &[(String, String)]| {
+            let mut out = Vec::new();
+            for i in 0..book.len() {
+                for j in i + 1..book.len() {
+                    let (a, b) = (&book[i], &book[j]);
+                    if ignored
+                        .iter()
+                        .any(|(x, y)| (x == &a.uid && y == &b.uid) || (x == &b.uid && y == &a.uid))
+                    {
+                        continue;
+                    }
+                    let (score, reasons) = similarity(a, b);
+                    if score >= THRESHOLD {
+                        out.push(Pair { a: i, b: j, score, reasons });
+                    }
+                }
+            }
+            out.sort_by(|x, y| {
+                y.score
+                    .partial_cmp(&x.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(x.a.cmp(&y.a))
+            });
+            out
+        };
+        let found = find_duplicates(&book, THRESHOLD, &[]);
+        assert!(!found.is_empty(), "the sample book has duplicates");
+        assert_eq!(found, exhaustive(&[]));
+        let first = &found[0];
+        let ignored = vec![(book[first.a].uid.clone(), book[first.b].uid.clone())];
+        assert_eq!(find_duplicates(&book, THRESHOLD, &ignored), exhaustive(&ignored));
     }
 }
