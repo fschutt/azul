@@ -49,7 +49,9 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App>; libazul.dylib is
   1321..3949, scroll_size 2628, virtual 3949); the first jump (page 2, slice from 0) holds. Next twice
   shows the same. Looks: the page shows only the stroked line - no text, no filled rect; the thumbnail
   rail VirtualView is 0 px wide until a later relayout.
-- AzPhoto: FAILS "the undo" - one Cmd+Z undoes TWICE (HISTORY 4 3 Opacity -> 4 2 -> 4 1). Root cause:
+- AzPhoto: NEEDS REBUILD (engine RED cd867df5c / GREEN c1a18d2b0; scripts 790ada8f8, 7a861173a; a probe
+  undoing via the History button passes the whole script). FAILS "the undo" today - one Cmd+Z undoes
+  TWICE (HISTORY 4 3 Opacity -> 4 2 -> 4 1). Root cause:
   Mod+Z is both the menu bar's Edit > Undo accelerator AND the canvas key handler's shortcut; the
   shared accelerator dispatch (dll common/event.rs dispatch_menu_accelerators) fires the item and
   then still delivers the KeyDown to the DOM ("the key still reaches the DOM afterwards"), where
@@ -66,4 +68,4 @@ see `git log --oneline 05ef3a8f4..HEAD`
 - AzMonitor look: the process table stops at ~810 px of 1280 (columns do not fill the width).
 
 ## NEXT
-- decide AzPhoto (engine accelerator consume vs app); write report
+- DONE. Report: scripts/E2E_B_2026_10_06.md
