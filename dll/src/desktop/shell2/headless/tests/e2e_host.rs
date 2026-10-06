@@ -7,6 +7,8 @@
 //! backend. Every op the in-process runner answers must be answerable here
 //! too, or a scenario that is green in CI is red against an app.
 
+use core::sync::atomic::Ordering;
+
 use super::*;
 
 /// `<body>` with one silver 120x30 box: something to paint.
@@ -688,6 +690,86 @@ fn a_close_asked_from_a_modal_closes_the_window_that_owns_it() {
     assert!(
         !root.is_open() || root.common.current_window_state().flags.close_requested,
         "the window that owns the modal closes"
+    );
+}
+
+/// The thread [`answer_on_a_thread`] started has written back.
+static WRITTEN_BACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn work_on_a_thread(
+    _init: RefAny,
+    mut sender: azul_layout::thread::ThreadSender,
+    _receiver: azul_core::task::ThreadReceiver,
+) {
+    // Work that outlasts the answer's pass: the modal is gone before it ends.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let _sent = sender.send(azul_layout::thread::ThreadReceiveMsg::WriteBack(
+        azul_layout::thread::ThreadWriteBackMsg::new(
+            work_written_back as azul_layout::thread::WriteBackCallbackType,
+            RefAny::new(()),
+        ),
+    ));
+}
+
+extern "C" fn work_written_back(
+    _data: RefAny,
+    _back: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    WRITTEN_BACK.store(true, Ordering::SeqCst);
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// The question's answer closes the question and leaves its work to a thread: AzPhoto's
+/// export sheet (OK), AzWriter's close guard (Save, then close once saved).
+extern "C" fn answer_on_a_thread(
+    mut data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut page) = data.downcast_mut::<RecordPage>() {
+        page.deleted = true;
+    }
+    info.add_thread(
+        azul_core::task::ThreadId::unique(),
+        azul_layout::thread::Thread::create(
+            RefAny::new(()),
+            data.clone(),
+            work_on_a_thread as azul_layout::thread::ThreadCallbackType,
+        ),
+    );
+    azul_core::callbacks::Update::RefreshDom
+}
+
+extern "C" fn thread_page_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    record_page(data, answer_on_a_thread as usize)
+}
+
+/// A thread a modal's callback starts is its OWNER's: the modal's popup only shows the
+/// owner's subtree, its callbacks run on the owner's data, and the popup goes as soon as the
+/// answer closes the modal. The thread was the popup's and went with it - AzPhoto's export
+/// sheet printed "Exporting Sample.png..." and never finished; AzWriter's close guard saved
+/// (Save) but its "close once saved" never came, the window stayed open (E2E sweep,
+/// 2026-10-06).
+#[test]
+fn a_thread_a_modals_answer_starts_writes_back_after_the_modal_closed() {
+    WRITTEN_BACK.store(false, Ordering::SeqCst);
+    let (state, mut root) = click_the_questions_delete(thread_page_layout);
+    let answered = state
+        .borrow_mut()
+        .downcast_ref::<RecordPage>()
+        .is_some_and(|p| p.deleted);
+    assert!(answered, "harness: the click ran the question's answer");
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !WRITTEN_BACK.load(Ordering::SeqCst) && std::time::Instant::now() < end {
+        root.pump_children();
+        root.pump_once(true);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        WRITTEN_BACK.load(Ordering::SeqCst),
+        "the thread the modal's answer started wrote back after the modal closed ({} window(s) \
+         open besides the owner)",
+        root.children.len()
     );
 }
 
