@@ -264,10 +264,14 @@ def check_files(app, data, other, deadline, procs):
 
 
 def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
-    """`sender` opens the chat and sends `text`; `receiver` prints it, counts it, shows it."""
-    sender.must("click", text="Chat")
+    """`sender` opens the chat and sends `text`; `receiver` prints it, counts it, shows it.
+
+    Every click goes through the shared `click`, which waits for the animations first: a
+    rebuild (a tile coming in, the rejoin) slides the side panel's nodes, and a click at their
+    layout rects missed the Chat tab (2026-10-06)."""
+    sender.click(text="Chat")
     sender.frame()
-    sender.must("click", selector="#" + sender.id("chat-field"))
+    sender.click(selector="#" + sender.id("chat-field"))
     sender.frame()
     sender.must("text_input", text=text)
     sender.frame()
@@ -275,7 +279,7 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
         sender.must("key_down", key="Return")
         sender.must("key_up", key="Return")
     else:
-        sender.must("click", selector="#" + sender.id("chat-send"))
+        sender.click(selector="#" + sender.id("chat-send"))
     sender.frame()
     until("%s's message on %s's stdout" % (sender_name, receiver.tag),
           lambda: "%s: %s" % (sender_name, text) in receiver.printed("AZMEET_CHAT"),
@@ -285,7 +289,7 @@ def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
         # The receiver's chat may already be open (the answer goes to Ada, whose chat is open).
         if not any(text in t for t in receiver.texts()):
             raise Failure("%s's window neither counts the message unread nor shows it" % receiver.tag)
-    receiver.must("click", text="Chat")
+    receiver.click(text="Chat")
     receiver.frame()
     until("the message in %s's chat panel" % receiver.tag,
           lambda: any(t == text for t in receiver.texts()), deadline, procs)
@@ -404,7 +408,7 @@ def main():
             restored = until("AZMEET_CHAT_RESTORED", lambda: ada.printed("AZMEET_CHAT_RESTORED"), deadline, procs)
             if restored[-1].strip() != "2":
                 raise Failure("Ada's first visit had 2 messages, %s came back" % restored[-1])
-            ada.must("click", text="Chat")
+            ada.click(text="Chat")
             ada.frame()
             until("the first visit's chat in Ada's panel",
                   lambda: MESSAGE in ada.texts() and ANSWER in ada.texts(), deadline, procs)

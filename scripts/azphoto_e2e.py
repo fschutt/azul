@@ -186,6 +186,14 @@ class App:
             time.sleep(interval)
         raise Failure("timed out waiting for %s%s" % (what, " (last error: %s)" % last if last else ""))
 
+    def popup(self):
+        """The id of the newest window besides the app's first - an open sheet (a modal
+        `Dialog`, a window of its own) - or None. (`scripts/azlin_e2e.py` has the same.)"""
+        value = self.value("list_windows")
+        wins = value.get("windows") if isinstance(value, dict) else value
+        ids = [w["window_id"] for w in wins or [] if isinstance(w, dict) and w.get("window_id")]
+        return ids[-1] if len(ids) > 1 else None
+
     def rect(self, selector):
         value = self.value("get_node_layout", selector=selector)
         rect = (value or {}).get("rect") or {}
@@ -203,11 +211,20 @@ class App:
                 ctrl = True
         mods = {"shift": shift, "ctrl": ctrl, "alt": False, "meta": meta}
         self.must("key_down", key=key, modifiers=mods)
-        self.must("key_up", key=key, modifiers=mods)
+        # A tap of the chord: the key and its modifiers come up together. An op's `modifiers`
+        # are the whole modifier state at its key (layout/src/e2e/full.rs), so a key_up with
+        # the chord's modifiers left them held - every later click a Cmd / Shift + click
+        # (the shared driver's rule, scripts/azlin_e2e.py).
+        self.must("key_up", key=key, modifiers={"shift": False, "ctrl": False, "alt": False,
+                                                "meta": False})
         self.frame(2)
 
-    def click(self, selector):
-        self.must("click", selector=selector)
+    def click(self, selector, window=None):
+        """Clicks `selector` in the app's window, or in `window` (an open sheet, `popup()`)."""
+        if window:
+            self.must("click", selector=selector, window_id=window)
+        else:
+            self.must("click", selector=selector)
         self.frame(2)
 
     def screenshot(self, path):
@@ -302,7 +319,9 @@ def run(args, logs, out):
         # updates before the release), one "Move" History state after it.
         app.click("#__azphoto_layer-row-1")
         app.click("#__azphoto_tool-move")
-        steps = history(app)[0]
+        # The History as (count, current, label); the undo above left a redo tail, which the
+        # move drops - so "one state" is the CURRENT step advancing by one, at the tip.
+        before_move = history(app)
         mx = float(canvas["x"]) + float(canvas["width"]) * 0.5
         my = float(canvas["y"]) + float(canvas["height"]) * 0.5
         app.must("mouse_move", x=mx, y=my)
@@ -315,13 +334,15 @@ def run(args, logs, out):
         live = len(app.printed("AZPHOTO_UPDATE", r"-?\d+ -?\d+ \d+ \d+")) - before
         if live == 0:
             raise Failure("the move drag did not redraw the canvas before the release (no live preview)")
-        if history(app)[0] != steps:
-            raise Failure("the move drag recorded History before the release: %s" % (history(app),))
+        if history(app) != before_move:
+            raise Failure("the move drag recorded History before the release: %s -> %s"
+                          % (before_move, history(app)))
         app.must("mouse_up", x=mx + 40.0, y=my + 20.0)
         app.frame(3)
         app.until("the Move in the History", lambda: (history(app) or (0, 0, ""))[2] == "Move")
-        if history(app)[0] != steps + 1:
-            raise Failure("the move should be ONE History state: %s" % (history(app),))
+        after_move = history(app)
+        if after_move[1] != before_move[1] + 1 or after_move[0] != after_move[1] + 1:
+            raise Failure("the move should be ONE History state: %s -> %s" % (before_move, after_move))
         log("live move: %d canvas updates while dragging, one Move state" % live)
 
         # 4c: the Text tool on azul's text raster (RawImage::from_text): a
@@ -346,8 +367,10 @@ def run(args, logs, out):
 
         # 5: export into the data tree, beside the document.
         app.key("e", primary=True, shift=True)
-        app.until("the export sheet", lambda: app.shows("Export"))
-        app.click("#__azphoto_sheet-ok")
+        # The sheet is a modal Dialog: a window of its own ("Export" alone matched the File
+        # menu's "Export..." in the app's window, and its OK is not there).
+        sheet = app.until("the export sheet", app.popup)
+        app.click("#__azphoto_sheet-ok", window=sheet)
         exported = app.until("the export", lambda: app.last("AZPHOTO_EXPORTED", r"\d+ .+"))
         size, key = exported.split(" ", 1)
         if not key.startswith("photo/") or "/exports/" not in key:

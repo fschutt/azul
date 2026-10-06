@@ -69,10 +69,11 @@ def body(args, logs, out):
         view = app.rect(PAGES)
         if not view or view.get("height", 0) < 300 or view.get("y", 0) + view.get("height", 0) > HEIGHT:
             raise Failure("the page view does not fill the document: %s" % view)
-        page1 = app.rect("__azpdf_page-1")
+        # The pages and the thumbnails are VirtualViews: DOMs of their own.
+        page1 = app.rect("__azpdf_page-1", every_dom=True)
         if not page1 or page1.get("width", 0) < 300:
             raise Failure("page 1 is not laid out in the view: %s" % page1)
-        if not app.has_id("__azpdf_thumb-1"):
+        if not app.has_id("__azpdf_thumb-1", every_dom=True):
             raise Failure("no thumbnail of page 1 in the rail")
         app.screenshot(os.path.join(out, "1-opened.png"))
 
@@ -83,11 +84,11 @@ def body(args, logs, out):
         app.expect_line("AZPDF_PAGE", "3", "Page Down goes to page 3")
 
         # Zoom in: the page gets wider.
-        before = app.rect("__azpdf_page-3") or {}
+        before = app.rect("__azpdf_page-3", every_dom=True) or {}
         app.click(selector="#__azpdf_zoom-in")
         app.until("the zoom changed", lambda: app.printed("AZPDF_ZOOM", r"\d+"))
         app.frame(4)
-        after = app.rect("__azpdf_page-3") or {}
+        after = app.rect("__azpdf_page-3", every_dom=True) or {}
         if after.get("width", 0) <= before.get("width", 0):
             raise Failure("zoom in did not widen the page: %s -> %s" % (before, after))
 

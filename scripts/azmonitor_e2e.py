@@ -56,8 +56,9 @@ def layouts(app):
 
 
 def cpu_headline(app):
-    """The CPU card's headline as the window shows it ("CPU 23.4 %")."""
-    for text in app.texts():
+    """The CPU card's headline as the window shows it ("CPU 23.4 %"): a VirtualView, so a DOM
+    of its own."""
+    for text in app.texts(every_dom=True):
         if text.startswith("CPU ") and "%" in text:
             return text
     return None
@@ -86,7 +87,8 @@ def body(args, logs, out):
         for stem in ("cards", "table-view", "tools", "filter"):
             if not app.has_id("__azmonitor_" + stem):
                 raise Failure("#__azmonitor_%s is not in the tree" % stem)
-        app.until("the table's rows", lambda: app.shows("cargo"))
+        # The table is a VirtualView: its rows are a DOM of their own.
+        app.until("the table's rows", lambda: app.shows("cargo", every_dom=True))
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "1-processes.png"))
 
@@ -105,7 +107,7 @@ def body(args, logs, out):
         app.log("3 readings, layout() ran 0 times; CPU card %r -> %r" % (before_cpu, after_cpu))
 
         # ---- 3. sort by name ----
-        app.click(text="Name")
+        app.click(text="Name", every_dom=True)
         app.until("the name sort", lambda: app.last("AZMON_SORT") == "Name asc")
         app.until("accounts-daemon on top",
                   lambda: (app.last("AZMON_TOP") or "").endswith(" accounts-daemon"))
@@ -127,7 +129,7 @@ def body(args, logs, out):
         app.text_input(P + "filter", "pipewire")
         app.expect_line("AZMON_SHOWN", "1", "the pipewire filter")
         app.frame(2)
-        app.click(text="pipewire")
+        app.click(text="pipewire", every_dom=True)
         app.expect_line("AZMON_SELECT", "812 pipewire", "pipewire selected")
         app.key("delete")
         app.expect_line("AZMON_ASK", "812 pipewire", "the question")
@@ -135,7 +137,8 @@ def body(args, logs, out):
             raise Failure("the end-process question is not shown")
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "4-question.png"))
-        app.click(text="Kill")
+        # The question is a Modal: a window of its own.
+        app.click_exact("Kill", window=app.until("the question's window", app.popup))
         app.expect_line("AZMON_END", "812 true", "the kill")
         app.until("the kill's notice", lambda: app.last("AZMON_NOTICE") == "Killed pipewire (812)")
         app.until("44 processes", lambda: (app.last("AZMON_TICK") or "").split()[1:2] == [str(PROCESSES - 1)])
@@ -145,11 +148,12 @@ def body(args, logs, out):
         app.text_input(P + "filter", "sshd")
         app.expect_line("AZMON_SHOWN", "1", "the sshd filter")
         app.frame(2)
-        app.click(text="sshd")
+        app.click(text="sshd", every_dom=True)
         app.expect_line("AZMON_SELECT", "702 sshd", "sshd selected")
         app.click(selector=P + "end-process")
         app.expect_line("AZMON_ASK", "702 sshd", "the question for sshd")
-        app.click(text="Kill")
+        # The question is a Modal: a window of its own.
+        app.click_exact("Kill", window=app.until("the question's window", app.popup))
         app.until("the refusal", lambda: "administrator" in (app.last("AZMON_NOTICE") or ""))
         app.log("sshd refused: %s" % app.last("AZMON_NOTICE"))
         clear_filter(app)
@@ -166,7 +170,7 @@ def body(args, logs, out):
                 raise Failure("#__azmonitor_%s is not in the tree" % stem)
         wait_ticks(app, 1, "a reading on the performance page")
         app.frame(2)
-        if not app.has_id("__azmonitor_cores"):
+        if not app.has_id("__azmonitor_cores", every_dom=True):  # inside the page's VirtualView
             raise Failure("the per-core bars (#__azmonitor_cores) are not shown")
         before_layouts = layouts(app)
         wait_ticks(app, 2, "two readings on the performance page")

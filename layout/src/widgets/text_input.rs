@@ -1472,10 +1472,13 @@ fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
 
 /// Adopts the engine's text for `node` into the widget's mirror.
 ///
-/// The engine owns the buffer, so its answer wins — except that an empty answer
-/// is ambiguous: `get_text_before_textinput` also yields nothing for a node
-/// whose text sits under a block wrapper it does not descend into. An empty
-/// read therefore never clears a non-empty mirror.
+/// The engine owns the buffer, so its answer wins - an EMPTY answer too: it is
+/// the field the user just cleared (Backspace over the last character, over a
+/// select-all). `get_node_text_content` answers `None` for a node it cannot
+/// read, and the read descends into the value `<p>`, so `Some("")` is an empty
+/// field. (An empty read used to be ignored over a non-empty mirror, from when
+/// the read skipped block wrappers: a cleared field then never reached the
+/// app's `on_text_input`.)
 fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomNodeId) {
     // A password's engine buffer holds BULLETS: adopting it would overwrite
     // the real value with its own mask. Its edits are mirrored one by one
@@ -1486,9 +1489,6 @@ fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomN
     let Some(text) = info.get_node_text_content(node) else {
         return;
     };
-    if text.is_empty() && !state.text.is_empty() {
-        return;
-    }
     state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
 }
 
@@ -1554,7 +1554,7 @@ fn caret_byte(cursor: &azul_core::selection::TextCursor, text: &str) -> usize {
 /// (the bullets of a password).
 fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
     let cursor = info.get_node_cursor_position(node)?;
-    // An empty read is ambiguous (see `adopt_engine_text`): the cluster start then.
+    // An empty buffer has no cluster to measure: the cluster start then.
     Some(
         match info.get_node_text_content(node).filter(|t| !t.is_empty()) {
             Some(text) => caret_byte(&cursor, &text),
