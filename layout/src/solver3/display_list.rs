@@ -9171,6 +9171,39 @@ where
         // Get border information
         let border_info = get_border_info(self.ctx.styled_dom, node_id, styled_node_state);
 
+        // An inline TABLE (CSS 2.2 17.5.1): its own box here is layer 1; the
+        // layers above it - column, row and cell backgrounds, the resolved
+        // collapsed borders - are `paint_table_items`, below, which a block
+        // table's box painting calls and this one did not (an inline table
+        // painted no cell background and no collapsed border at all). In the
+        // collapsing model the table's border is part of the resolved grid,
+        // so its box paints none, as a block table's.
+        let inline_table = self
+            .positioned_tree
+            .tree
+            .dom_to_layout
+            .get(&node_id)
+            .and_then(|indices| indices.first())
+            .map(|idx| idx.index())
+            .filter(|&index| {
+                self.positioned_tree
+                    .tree
+                    .get(LayoutNodeId::new(index))
+                    .is_some_and(|n| matches!(n.formatting_context, FormattingContext::Table))
+            });
+        let border_info = if inline_table.is_some_and(|t| self.table_is_border_collapsed(t)) {
+            let mut without_border = border_info;
+            without_border.widths = StyleBorderWidths {
+                top: None,
+                right: None,
+                bottom: None,
+                left: None,
+            };
+            without_border
+        } else {
+            border_info
+        };
+
         // FIX: object_bounds is the margin-box position from text3.
         // We need to convert to border-box for painting backgrounds/borders.
         let (margins, border, padding) = self
@@ -9240,6 +9273,12 @@ where
             simple_border_radius,
             style_border_radius,
         );
+
+        // The table layers 2-6 over the inline table's own box (see above).
+        // A grid that cannot be analysed leaves the box as painted.
+        if let Some(table) = inline_table {
+            let _ = self.paint_table_items(builder, table);
+        }
 
         // Push hit-test area for this inline-block element
         // This is critical for buttons and other inline-block elements to receive
