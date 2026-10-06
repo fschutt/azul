@@ -394,7 +394,10 @@ pub fn regenerate_layout(
                 "after_tokenize",
                 registry.chain_cache_len() as u64,
             );
-            registry.request_fonts(&font_stacks);
+            // Load them, resolve nothing: layout resolves the chains it needs,
+            // for the scripts the page uses (a default-script chain per common
+            // stack held megabytes each and was never asked for again).
+            registry.wait_for_fonts(&font_stacks);
             azul_layout::probe::emit_phase_heap_extra(
                 "after_request_fonts",
                 registry.chain_cache_len() as u64,

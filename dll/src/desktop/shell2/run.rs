@@ -917,7 +917,7 @@ pub fn run(
             // threads and `fc_cache` is only snapshotted from it at layout time.
             // Taking the window's already-laid-out manager was how this used to
             // get a warm cache - and that is exactly what tied the tray to a
-            // window existing. Blocking on `request_fonts` here is the same wait
+            // window existing. Blocking on `wait_for_fonts` here is the same wait
             // the window does, just done for ourselves.
             let own = font_manager.as_ref().map(|fm| {
                 let mut fm = fm.clone_shared();
@@ -925,7 +925,8 @@ pub fn run(
                     let stacks = rust_fontconfig::config::tokenize_common_families(
                         rust_fontconfig::OperatingSystem::current(),
                     );
-                    reg.request_fonts(&stacks);
+                    // Loaded, not resolved: the tray's layout resolves its own chains.
+                    reg.wait_for_fonts(&stacks);
                     fm.replace_fc_cache(reg.shared_cache());
                 }
                 fm

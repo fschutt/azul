@@ -2612,7 +2612,7 @@ version = "0.0.6"
 criteria = "safe-to-run"
 
 [[exemptions.rust-fontconfig]]
-version = "5.0.0"
+version = "5.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustc-demangle]]
