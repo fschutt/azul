@@ -751,3 +751,148 @@ fn escape_in_the_owner_of_a_modal_dialog_closes_it_and_tells_the_app() {
         root.children.len()
     );
 }
+
+/// What [`drag_and_drop_layout`] counts: the source's DragStarts, the
+/// target's Drops.
+struct DragAndDrop {
+    starts: usize,
+    drops: usize,
+}
+
+extern "C" fn dnd_drag_start(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut d) = data.downcast_mut::<DragAndDrop>() {
+        d.starts += 1;
+    }
+    azul_core::callbacks::Update::DoNothing
+}
+
+extern "C" fn dnd_drag_over(
+    _data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    info.accept_drop();
+    azul_core::callbacks::Update::DoNothing
+}
+
+extern "C" fn dnd_drop(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut d) = data.downcast_mut::<DragAndDrop>() {
+        d.drops += 1;
+    }
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// `body` (8 px UA margin) with a draggable 120x40 source at the top and a
+/// 120x40 drop target 60 px under it - AzTasks' planned month in miniature
+/// (a task dragged onto a day).
+extern "C" fn drag_and_drop_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::AttributeType,
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    let on = |event: HoverEventFilter, cb: usize| CoreCallbackData {
+        event: EventFilter::Hover(event),
+        callback: CoreCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        },
+        refany: data.clone(),
+    };
+    Dom::create_body()
+        .with_child(
+            Dom::create_div()
+                .with_css("width: 120px; height: 40px;")
+                .with_attribute(AttributeType::Draggable(true))
+                .with_callbacks(
+                    vec![on(HoverEventFilter::DragStart, dnd_drag_start as usize)].into(),
+                ),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css("width: 120px; height: 40px; margin-top: 60px;")
+                .with_callbacks(
+                    vec![
+                        on(HoverEventFilter::DragOver, dnd_drag_over as usize),
+                        on(HoverEventFilter::Drop, dnd_drop as usize),
+                    ]
+                    .into(),
+                ),
+        )
+}
+
+/// The debug server's `mouse_down` / `mouse_move` / `mouse_up` ops, as a
+/// script drags: a press on the source at (60, 28), moves down a frame each,
+/// the release on the target at (60, 128).
+extern "C" fn debug_drag_timer(
+    _data: RefAny,
+    mut info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::window::CursorPosition;
+    let at = |state: &azul_layout::window_state::FullWindowState, y: f32, down: bool| {
+        let mut s = state.clone();
+        s.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(60.0, y));
+        s.mouse_state.left_down = down;
+        s
+    };
+    let base = info.callback_info.get_current_window_state().clone();
+    let mut states = vec![at(&base, 28.0, false), at(&base, 28.0, true)];
+    for y in [34.0, 50.0, 80.0, 110.0, 128.0] {
+        states.push(at(&base, y, true));
+    }
+    states.push(at(&base, 128.0, false));
+    info.callback_info
+        .queue_window_state_sequence(states.into());
+    azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+}
+
+/// E2E-C, AzTasks / AzShow: a script's drag never became a drag. The debug
+/// server's pointer ops arrive as window-state changes (`ModifyWindowState`,
+/// `QueueWindowStateSequence`), which ran the event pass but never fed the
+/// gesture manager - every backend's mouse handler does
+/// (`record_input_sample`) - so no input session existed, `detect_drag`
+/// never saw one, no `DragStart` fired and a held-button move was only a
+/// text-selection drag: AzTasks' planned month and board, and AzShow's slide
+/// sorter, got no drop.
+#[test]
+fn a_scripted_drag_from_a_draggable_node_drops_on_the_target_under_the_release() {
+    let state = Arc::new(RefCell::new(RefAny::new(DragAndDrop {
+        starts: 0,
+        drops: 0,
+    })));
+    let mut window = make_window_with(&state, drag_and_drop_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    window.start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_drag_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..4 {
+        window.pump_once(true);
+    }
+
+    let (starts, drops) = state
+        .borrow_mut()
+        .downcast_ref::<DragAndDrop>()
+        .map(|d| (d.starts, d.drops))
+        .expect("the counters");
+    assert_eq!(
+        starts, 1,
+        "the press on the source and the moves past the threshold are a drag"
+    );
+    assert_eq!(drops, 1, "the release over the target drops there");
+}
