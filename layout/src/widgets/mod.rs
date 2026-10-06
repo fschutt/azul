@@ -370,6 +370,7 @@ pub mod tabs;
 pub mod text_area;
 /// Single line text input widget
 pub mod text_input;
+pub(crate) mod text_mirror;
 /// Tile widget.
 ///
 /// One item of a file manager's tile view: icon, title, capacity bar,

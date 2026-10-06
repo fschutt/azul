@@ -1486,7 +1486,7 @@ fn adopt_engine_text(state: &mut TextInputState, info: &CallbackInfo, node: DomN
     if state.kind == TextInputKind::Password {
         return;
     }
-    let Some(text) = info.get_node_text_content(node) else {
+    let Some(text) = crate::widgets::text_mirror::engine_text(info, node) else {
         return;
     };
     state.text = text.chars().map(|c| c as u32).collect::<Vec<_>>().into();
@@ -1515,22 +1515,7 @@ fn engine_selection(
     }))
 }
 
-/// The engine's live selection in `node` as the byte range `[from, to)` of
-/// `text` (the value before the edit), each end through its affinity
-/// (`caret_byte`: a trailing end stands after its cluster). `None` without a
-/// selection, for a collapsed one, or off `text`'s character boundaries.
-fn engine_selected_bytes(
-    info: &CallbackInfo,
-    node: DomNodeId,
-    text: &str,
-) -> Option<(usize, usize)> {
-    let ranges = info.get_node_selection_ranges(node);
-    let range = *ranges.as_ref().first()?;
-    let a = caret_byte(&range.start, text);
-    let b = caret_byte(&range.end, text);
-    let (from, to) = (a.min(b), a.max(b));
-    (from < to && text.is_char_boundary(from) && text.is_char_boundary(to)).then_some((from, to))
-}
+use crate::widgets::text_mirror::{engine_caret, engine_selected_bytes};
 
 /// Mirrors the insertion the engine is about to apply.
 ///
@@ -1546,53 +1531,10 @@ fn mirror_insertion(
     caret: Option<usize>,
     selected: Option<(usize, usize)>,
 ) {
-    let text = state.get_text();
-    let (from, to) = match selected.filter(|&(a, b)| {
-        a < b && b <= text.len() && text.is_char_boundary(a) && text.is_char_boundary(b)
-    }) {
-        Some(range) => range,
-        None => {
-            let at = caret
-                .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
-                .unwrap_or(text.len());
-            (at, at)
-        }
-    };
-
-    let mut next = String::with_capacity(text.len() + inserted.len());
-    next.push_str(&text[..from]);
-    next.push_str(inserted);
-    next.push_str(&text[to..]);
-
+    let (next, cursor) =
+        crate::widgets::text_mirror::insertion(&state.get_text(), inserted, caret, selected);
     state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
-    state.cursor_pos = from.saturating_add(inserted.len());
-}
-
-/// The caret's byte offset inside the edited node, if the engine has one.
-/// The byte offset in `text` a caret stands at: a LEADING caret before its
-/// grapheme cluster, a TRAILING one after it.
-fn caret_byte(cursor: &azul_core::selection::TextCursor, text: &str) -> usize {
-    let start = (cursor.cluster_id.start_byte_in_run as usize).min(text.len());
-    match cursor.affinity {
-        azul_core::selection::CursorAffinity::Leading => start,
-        azul_core::selection::CursorAffinity::Trailing => text
-            .get(start..)
-            .and_then(|rest| rest.graphemes(true).next())
-            .map_or(start, |cluster| start + cluster.len()),
-    }
-}
-
-/// The engine's caret in `node`, as a byte offset into the engine's buffer
-/// (the bullets of a password).
-fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
-    let cursor = info.get_node_cursor_position(node)?;
-    // An empty buffer has no cluster to measure: the cluster start then.
-    Some(
-        match info.get_node_text_content(node).filter(|t| !t.is_empty()) {
-            Some(text) => caret_byte(&cursor, &text),
-            None => cursor.cluster_id.start_byte_in_run as usize,
-        },
-    )
+    state.cursor_pos = cursor;
 }
 
 /// The engine's selection in the widget's public shape, as offsets into the
@@ -5403,7 +5345,7 @@ mod structure_tests {
 mod caret_tests {
     use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
 
-    use super::caret_byte;
+    use crate::widgets::text_mirror::caret_byte;
 
     fn at(start_byte_in_run: u32, affinity: CursorAffinity) -> TextCursor {
         TextCursor {
