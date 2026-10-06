@@ -876,7 +876,9 @@ class SubmissionRun(Run):
         self._focus_editor(window)
         self.must('text_input', window, text=SUBMISSION_LINE)
         self.frame(window, 2)
-        self.until('the typed line in the editor', lambda: self.shows(SUBMISSION_LINE, window))
+        # The caret, not the node texts: typing does not rebuild the editor's DOM (reply()).
+        self.until('the typed line in the editor', lambda: self.caret(window) == (
+            'p#__azmail_compose_body-0.__azul-rte-block', len(SUBMISSION_LINE.encode('utf-8'))))
         self.click_id(PREFIX + 'compose_send', window)
         sent = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
                                                if line.startswith(window + ' ')])
