@@ -10508,6 +10508,29 @@ impl LayoutWindow {
         )
     }
 
+    /// The adjustments [`Self::scroll_node_into_view`] would make, without
+    /// making them (computed on a copy of the scroll state): how far each
+    /// scroll container would move to reveal `node_id`.
+    #[must_use]
+    pub fn scroll_into_view_dry_run(
+        &self,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+        now: Instant,
+    ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        let hops = self.nested_dom_hops();
+        let hop = move |d: DomId| hops.get(&d).copied();
+        let mut scroll_manager = self.scroll_manager.clone();
+        crate::managers::scroll_into_view::scroll_node_into_view(
+            node_id,
+            &self.layout_results,
+            &mut scroll_manager,
+            options,
+            now,
+            &hop,
+        )
+    }
+
     /// Every nested dom mapped to `(host's dom, host node, the offset that
     /// converts geometry in the nested dom to the host's space)`.
     ///

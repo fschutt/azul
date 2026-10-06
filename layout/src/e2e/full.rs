@@ -6630,6 +6630,67 @@ fn node_centre_for_click(
         })
 }
 
+/// WebDriver's element click: a target outside its scroll containers'
+/// visible areas is scrolled into view first (instantly, the nearest edge),
+/// and clicked where it is then. `at` is its centre now; returns the centre
+/// after the queued scroll. The click op used to press wherever the node's
+/// centre was - below a settings page's fold, AzMail's "Sign my mail with
+/// DKIM" clicked the Save bar instead (E2E sweep, 2026-10-06).
+#[cfg(feature = "std")]
+fn reveal_click_target(
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    node_id: Option<&u64>,
+    selector: Option<&String>,
+    text: Option<&String>,
+    at: (f32, f32),
+) -> (f32, f32) {
+    use azul_core::{
+        dom::DomNodeId,
+        events::{ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition},
+        styled_dom::NodeHierarchyItemId,
+    };
+    let Some(node) = resolve_node_target(
+        callback_info,
+        dom_id,
+        selector.map(String::as_str),
+        node_id.copied(),
+        text.map(String::as_str),
+    ) else {
+        return at;
+    };
+    // A text node has no box of its own: reveal the nearest ancestor that has.
+    let mut target = DomNodeId {
+        dom: dom_id,
+        node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+    };
+    for _ in 0..64 {
+        if callback_info.get_node_rect(target).is_some() {
+            break;
+        }
+        let Some(parent) = callback_info.get_parent(target) else {
+            return at;
+        };
+        target = parent;
+    }
+    let options = ScrollIntoViewOptions {
+        block: ScrollLogicalPosition::Nearest,
+        inline_axis: ScrollLogicalPosition::Nearest,
+        behavior: ScrollIntoViewBehavior::Instant,
+    };
+    let adjustments = callback_info
+        .get_layout_window()
+        .scroll_into_view_dry_run(target, options, azul_core::task::Instant::now());
+    if adjustments.is_empty() {
+        return at;
+    }
+    callback_info.scroll_node_into_view(target, options);
+    let (dx, dy) = adjustments
+        .iter()
+        .fold((0.0, 0.0), |(x, y), a| (x + a.delta.x, y + a.delta.y));
+    (at.0 - dx, at.1 - dy)
+}
+
 #[cfg(feature = "std")]
 fn resolve_click_position(
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -15205,7 +15266,20 @@ pub fn process_debug_event(
                 node_id.as_ref(),
                 selector.as_ref(),
                 text.as_ref(),
-            );
+            )
+            .map(|at| {
+                if x.is_some() && y.is_some() {
+                    return at;
+                }
+                reveal_click_target(
+                    callback_info,
+                    target_dom(request),
+                    node_id.as_ref(),
+                    selector.as_ref(),
+                    text.as_ref(),
+                    at,
+                )
+            });
 
             match click_pos {
                 Some((cx, cy)) => {
@@ -15294,7 +15368,7 @@ pub fn process_debug_event(
             // CSS selector or text content. Coordinate-only double-clicks are
             // brittle against layout changes, and the ribbon's collapse
             // gesture is exactly the case that needs selector targeting.
-            let Some((x, y)) = resolve_click_position(
+            let Some(at) = resolve_click_position(
                 callback_info,
                 target_dom(request),
                 x.as_ref(),
@@ -15305,6 +15379,19 @@ pub fn process_debug_event(
             ) else {
                 send_err(request, "double_click: could not resolve a target position");
                 return true;
+            };
+            // Out of view: scrolled into view first, as `click` does.
+            let (x, y) = if x.is_some() && y.is_some() {
+                at
+            } else {
+                reveal_click_target(
+                    callback_info,
+                    target_dom(request),
+                    node_id.as_ref(),
+                    selector.as_ref(),
+                    text.as_ref(),
+                    at,
+                )
             };
             let (x, y) = (&x, &y);
 
