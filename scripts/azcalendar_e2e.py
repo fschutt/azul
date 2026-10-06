@@ -584,7 +584,9 @@ FILLS = ("rect", "linear_gradient", "radial_gradient", "conic_gradient")
 
 def contrast_findings(items, base):
     """Text items whose ink reads under 2:1 against the rectangles painted under their centre
-    (at the same scroll depth, in paint order) over the window's ground `base`."""
+    (in paint order, in the text's scroll frame or one enclosing it) over the window's ground
+    `base`. Only fills at EXACTLY the text's depth were counted: flora's title text sits in a
+    frame of its own inside the title bar's, and was measured against the white window."""
     rects = []
     found = []
     for it in items:
@@ -605,7 +607,7 @@ def contrast_findings(items, base):
         cy = it["y"] + it["height"] / 2.0
         bg = base
         for r in rects:
-            if r.get("scroll_depth") != it.get("scroll_depth"):
+            if (r.get("scroll_depth") or 0) > (it.get("scroll_depth") or 0):
                 continue
             if r["x"] <= cx <= r["x"] + r["width"] and r["y"] <= cy <= r["y"] + r["height"]:
                 bg = over(color(r["color"]), bg)
