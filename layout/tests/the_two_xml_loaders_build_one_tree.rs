@@ -204,3 +204,52 @@ fn an_outlook_o_p_is_an_inline_element_closed_by_its_own_end_tag() {
     assert_eq!(tree_loader(DOCUMENTS[3].1), expected, "tree loader");
     assert_eq!(document_loader(DOCUMENTS[3].1), expected, "document loader");
 }
+
+/// What a node of an SVG document carries besides its kind: its SVG data
+/// (`ViewBox` / `Path`) and, for an image, the `src` its placeholder holds.
+fn svg_shape(node: &azul_core::dom::NodeData) -> (String, Option<&'static str>, Option<String>) {
+    use azul_core::dom::SvgNodeData;
+    let data = node.get_svg_data().map(|d| match d {
+        SvgNodeData::ViewBox { .. } => "viewbox",
+        SvgNodeData::Path(_) => "path",
+        _ => "other",
+    });
+    let src = match &node.node_type {
+        NodeType::Image(image) => image.source_tag().map(String::from),
+        _ => None,
+    };
+    (kind(&node.node_type), data, src)
+}
+
+#[test]
+fn an_svg_and_an_img_are_built_alike_by_both_loaders() {
+    // Every loader instantiates its elements through the ONE set of builtin
+    // renderers (`azul_core::xml::element`). The document loader had a copy
+    // of its own, without SVG geometry or `<img src>`: its shapes were boxes
+    // with nothing to clip to, its images had no source.
+    let document = "<html><body><svg width=\"20\" height=\"10\"><rect x=\"1\" y=\"1\" \
+                    width=\"5\" height=\"5\" fill=\"red\"/><circle cx=\"5\" cy=\"5\" r=\"2\"/>\
+                    </svg><img src=\"pic.png\" width=\"4\" height=\"3\"/></body></html>";
+    let mut tree = Vec::new();
+    fn walk<'a>(dom: &'a Dom, out: &mut Vec<&'a azul_core::dom::NodeData>) {
+        out.push(&dom.root);
+        for child in dom.children.as_ref() {
+            walk(child, out);
+        }
+    }
+    let tree_dom = dom_from_parsed_xml(parse_xml(document).expect("parses"));
+    walk(&tree_dom, &mut tree);
+    let tree: Vec<_> = tree.into_iter().map(svg_shape).collect();
+    let styled = parse_xml_to_styled_dom(document).expect("parses");
+    let doc: Vec<_> = styled.node_data.as_ref().iter().map(svg_shape).collect();
+    assert_eq!(doc, tree, "the two loaders build different nodes");
+    assert!(
+        doc.iter().filter(|(_, data, _)| *data == Some("path")).count() == 2,
+        "both shapes have their geometry: {doc:?}"
+    );
+    assert!(doc.iter().any(|(_, data, _)| *data == Some("viewbox")), "{doc:?}");
+    assert!(
+        doc.iter().any(|(_, _, src)| src.as_deref() == Some("pic.png")),
+        "the image knows its source: {doc:?}"
+    );
+}

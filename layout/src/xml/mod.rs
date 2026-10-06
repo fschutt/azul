@@ -406,9 +406,11 @@ impl html::TreeSink for FastDomSink<'_> {
         // stylesheet is collected; the tree loader's DOM builder lifts it onto
         // its parent element), nor, inside an `<svg>`, an element that draws
         // nothing.
-        let hides = name == "head"
-            || name == "style"
-            || (self.svgs > 0 && element_draws_nothing(name, name));
+        use element::{child_role, ChildRole, ElementScope};
+        let scope = ElementScope {
+            inside_svg: self.svgs > 0,
+        };
+        let hides = name == "head" || child_role(scope, name) != ChildRole::Node;
         let emitted = self.hidden == 0 && !hides;
         if emitted {
             open_fast_node(
@@ -417,6 +419,7 @@ impl html::TreeSink for FastDomSink<'_> {
                 name,
                 attributes,
                 self.css_key_map,
+                scope,
             );
         }
         let style = name == "style";
@@ -475,130 +478,38 @@ impl html::TreeSink for FastDomSink<'_> {
     }
 }
 
-/// Open the arena node of a `tag` element (lower-case) with its attributes.
-#[allow(clippy::too_many_lines)] // large but cohesive: one element, every attribute kind
+/// Open the arena node of a `tag` element with its attributes: instantiated
+/// by its component, as every XML loader instantiates its elements
+/// ([`azul_core::xml::element::render_element`]), its `data-l10n` key the
+/// first child.
 fn open_fast_node(
     builder: &mut CompactDomBuilder,
     str_arena: &mut azul_css::corety::StringArena,
     tag: &str,
     attrs: &[(String, String)],
     css_key_map: &azul_css::props::property::CssKeyMap,
+    scope: element::ElementScope,
 ) {
-    use azul_core::dom::{NodeData, NodeType};
-
-    let node_type = tag_to_node_type(tag);
-    let mut nd = NodeData::create_node(node_type);
-
-    // `<transient-window open="true" anchor="bottom" …>`: the config rides
-    // INSIDE the NodeType, so its attributes are applied onto that payload
-    // rather than stored as generic attributes. Done before the generic
-    // loop so the keys it consumes never reach `attr_vec`.
-    let mut transient_cfg = match nd.get_node_type() {
-        NodeType::TransientWindow(c) => Some(*c),
-        _ => None,
-    };
-
-    // `attr_vec`: what the popup config leaves on the node
-    // (`tearoff-zone`); `settings`: every other attribute.
-    let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
-    let mut settings: Vec<(u8, azul_core::xml::attributes::NodeSetting)> = Vec::new();
-    for (key, value) in attrs {
-        if let Some(cfg) = transient_cfg.as_mut() {
-            if cfg.apply_attr(key.as_str(), value.as_str()) {
-                // `tearoff="zone:<selector>"`: the MODE rides in the
-                // config (it is `Copy`), the selector - a string - stays
-                // on the node as its `tearoff-zone` attribute, where the
-                // engine's drop handling reads it.
-                if key == "tearoff" {
-                    if let Some(selector) = value.trim().strip_prefix("zone:") {
-                        attr_vec.push(azul_core::dom::AttributeType::Custom(
-                            azul_core::dom::AttributeNameValue {
-                                attr_name: str_arena.intern("tearoff-zone"),
-                                value: str_arena.intern(selector.trim()),
-                            },
-                        ));
-                    }
-                }
-                continue;
-            }
-        }
-        // Every other attribute through the ONE table core's loader and
-        // the code generator read too (`azul_core::xml::attributes`).
-        if let Some(setting) =
-            azul_core::xml::attributes::setting_of(tag, key.as_str(), value.as_str())
-        {
-            settings.push(setting);
-        }
-    }
-    // HTML's presentational hints (`<font color>`, `<ol type>`, `<center>`,
-    // `<img align>` ...): the CSS of the element's builtin arguments, before
-    // its `style` attribute - the same function core's DOM builder asks.
-    let hints = azul_core::xml::builtin_presentational_hints(
-        tag,
-        attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+    let map = ComponentMap::default();
+    let tag = element::element_tag(&map, tag);
+    let pairs: Vec<(&str, &str)> = attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let node = element::render_element(
+        &map,
+        &element::Element {
+            tag: &tag,
+            attributes: &pairs,
+            scope,
+        },
+        &mut element::Landing {
+            css_key_map: Some(css_key_map),
+            intern: &mut |s: &str| str_arena.intern(s),
+        },
     );
-    let hint_props = if hints.is_empty() {
-        Vec::new()
-    } else {
-        azul_core::xml::attributes::style_declarations(&hints, css_key_map)
-    };
-    azul_core::xml::attributes::apply_settings(
-        &mut nd,
-        azul_core::xml::attributes::ordered(settings.into_iter()),
-        hint_props,
-        Some(css_key_map),
-        &mut |s: &str| str_arena.intern(s),
-    );
-
-    // The element's COMPONENT arguments (`<a href target rel>`,
-    // `<img src alt>`): the fields its builtin component declares,
-    // filled from the attributes and landed on the node by the same
-    // functions core's loader and the builtin render fn use.
-    azul_core::xml::apply_builtin_args_from_attributes(
-        tag,
-        attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
-        &mut nd,
-    );
-
-    // ---- Fluent / l10n handling ----
-    // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a
-    // `<p>`: its `data-l10n-*` arguments go on the element, and the key
-    // becomes its first child (below, once the element is open) - the
-    // shape core's XML builders produce. We do a second pass over the
-    // same attrs slice rather than keeping state inside the match
-    // because we need all of them to be visible at once.
-    let l10n_key = attrs
-        .iter()
-        .find(|(k, _)| k.as_str() == "data-l10n")
-        .map(|(_, v)| v.as_str())
-        .filter(|v| !v.is_empty());
-    if l10n_key.is_some() {
-        // Collect data-l10n-* arguments.
-        let fluent_args = azul_core::dom::FluentArgKVVec::from_l10n_attributes(
-            attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())),
-        );
-        if !fluent_args.is_empty() {
-            nd.fluent_args = Some(Box::new(fluent_args));
-        }
-    }
-
-    if !attr_vec.is_empty() {
-        let mut all = nd.attributes().clone().into_library_owned_vec();
-        all.extend(attr_vec);
-        nd.set_attributes(all.into());
-    }
-    // Write the parsed popup config back into the node's payload.
-    if let Some(cfg) = transient_cfg {
-        nd.set_node_type(NodeType::TransientWindow(cfg));
-    }
-
-    builder.open_node(nd);
-
-    // The key, marked localizable, as the element's first child.
-    if let Some(key) = l10n_key {
+    builder.open_node(node);
+    if let Some(key) = element::l10n_key(&pairs) {
         builder.add_leaf(
-            NodeData::create_text_do_not_use_without_block_level_wrapper(
-                azul_css::corety::AzString::tr(key),
+            azul_core::dom::NodeData::create_text_do_not_use_without_block_level_wrapper(
+                AzString::tr(key),
             ),
         );
     }

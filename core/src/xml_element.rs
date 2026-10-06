@@ -1,0 +1,437 @@
+//! One element of markup -> one DOM node: the BUILTIN RENDERERS.
+//!
+//! An element's tag names its component in the [`ComponentMap`] (`div` is
+//! `builtin:div`, `svg:rect` is `builtin:rect`). A builtin component's
+//! renderer is a Rust function here: it creates the node and lands the
+//! element's attributes on it - the ones every node carries (`id`, `class`,
+//! `href`, `style` ...) and the ones its kind reads (an `<svg>`'s `viewBox`, a
+//! shape's geometry and paint, an `<img>`'s `src`).
+//!
+//! Every XML -> DOM builder - core's tree walker ([`super::str_to_dom_unstyled`]),
+//! core's arena walker ([`super::str_to_dom`]) and layout's streaming document
+//! loader - instantiates its elements with [`render_element`] and nowhere else,
+//! and asks [`child_role`] what a child element contributes. The builders only
+//! walk the markup.
+
+use alloc::{boxed::Box, string::String, vec::Vec};
+
+use azul_css::{
+    dynamic_selector::CssPropertyWithConditions, props::property::CssKeyMap, AzString,
+};
+
+use super::{ComponentMap, ComponentSource};
+use crate::dom::{NodeData, NodeType};
+
+/// Where an element sits: what some tags mean depends on it (a `<rect>`
+/// inside an `<svg>` is a shape, outside one a `<div>`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ElementScope {
+    /// Inside an `<svg>`.
+    pub inside_svg: bool,
+}
+
+impl ElementScope {
+    /// The scope of the children of an element `tag` (lowercase) in this one.
+    #[must_use]
+    pub fn for_children_of(self, tag: &str) -> Self {
+        Self {
+            inside_svg: self.inside_svg || tag == "svg",
+        }
+    }
+}
+
+/// An element as a renderer reads it.
+#[derive(Debug, Clone, Copy)]
+pub struct Element<'a> {
+    /// The tag, lowercase, its namespace prefix (`svg:`) resolved.
+    pub tag: &'a str,
+    /// The attributes in document order, names as written.
+    pub attributes: &'a [(&'a str, &'a str)],
+    /// Where it sits.
+    pub scope: ElementScope,
+}
+
+impl<'a> Element<'a> {
+    /// The value of the attribute `name` (the first one of that name).
+    #[must_use]
+    pub fn attribute(&self, name: &str) -> Option<&'a str> {
+        self.attributes
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| *value)
+    }
+
+    /// The attributes as `(name, value)` pairs.
+    pub fn pairs(&self) -> impl Iterator<Item = (&'a str, &'a str)> + 'a {
+        self.attributes.iter().copied()
+    }
+}
+
+/// How a builder lands strings and styles: the CSS key map its `style`
+/// attributes parse with (`None`: built when one is needed) and the function
+/// that makes an id / class / attribute string (a document loader shares them
+/// in an arena).
+pub struct Landing<'m> {
+    pub css_key_map: Option<&'m CssKeyMap>,
+    pub intern: &'m mut dyn FnMut(&str) -> AzString,
+}
+
+impl core::fmt::Debug for Landing<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Landing")
+            .field("css_key_map", &self.css_key_map.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A builtin component's renderer.
+pub type BuiltinRenderFn = fn(&Element<'_>, &mut Landing<'_>) -> NodeData;
+
+/// What a child element contributes to its parent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildRole {
+    /// A node of its own.
+    Node,
+    /// A stylesheet: `<style>` is no node, its text is CSS for the parent's
+    /// subtree (an `<svg>`'s, wherever it sits inside it).
+    Stylesheet,
+    /// Nothing, subtree and all: an element that draws nothing
+    /// ([`super::element_draws_nothing`] - an icon's RDF metadata).
+    Nothing,
+}
+
+/// What a child element `raw_tag` contributes, in the scope of its parent's
+/// children.
+#[must_use]
+pub fn child_role(children_scope: ElementScope, raw_tag: &str) -> ChildRole {
+    if raw_tag.eq_ignore_ascii_case("style") {
+        ChildRole::Stylesheet
+    } else if children_scope.inside_svg
+        && super::element_draws_nothing(raw_tag, &raw_tag.to_ascii_lowercase())
+    {
+        ChildRole::Nothing
+    } else {
+        ChildRole::Node
+    }
+}
+
+/// The message key of a `data-l10n="key"` element (`None` without one, or
+/// with an empty one). Its translation is the element's text: every builder
+/// gives the element the key as its FIRST child, a text node marked
+/// localizable (`AzString::tr`).
+#[must_use]
+pub fn l10n_key<'a>(attributes: &[(&'a str, &'a str)]) -> Option<&'a str> {
+    attributes
+        .iter()
+        .find(|(key, _)| *key == "data-l10n")
+        .map(|(_, value)| *value)
+        .filter(|key| !key.is_empty())
+}
+
+/// The tag a builder hands [`render_element`]: lowercase (HTML and SVG names
+/// are ASCII-case-insensitive: `TABLE` is a table, `linearGradient` a
+/// gradient), the `svg:` / `html:` / `xhtml:` namespace prefix dropped (their
+/// elements ARE the builtins) unless a component library has that name. Any
+/// other prefix stays: Outlook's `<o:p>` is a foreign element, not a `<p>`.
+#[must_use]
+pub fn element_tag(map: &ComponentMap, raw_tag: &str) -> String {
+    let tag = raw_tag.to_ascii_lowercase();
+    match tag.split_once(':') {
+        Some((prefix, name))
+            if matches!(prefix, "svg" | "html" | "xhtml")
+                && !map.libraries.iter().any(|lib| lib.name.as_str() == prefix) =>
+        {
+            String::from(name)
+        }
+        _ => tag,
+    }
+}
+
+/// THE instantiation: the node `element` is, by the component its tag names
+/// in `map` - a builtin component by its renderer ([`builtin_renderer`]). A
+/// tag no library has is a `<div>` with its attributes (HTML's unknown
+/// element), as is a library component for now: the builders do not expand
+/// user components.
+#[must_use]
+pub fn render_element(
+    map: &ComponentMap,
+    element: &Element<'_>,
+    landing: &mut Landing<'_>,
+) -> NodeData {
+    let builtin = match map.get_by_qualified_name(element.tag) {
+        Some(def) if !matches!(def.source, ComponentSource::Builtin) => None,
+        Some(def) => Some(def.id.name.as_str()),
+        // A map without the builtin library still knows the builtins.
+        None => Some(element.tag),
+    };
+    let render: BuiltinRenderFn =
+        builtin.map_or(render_generic, |name| builtin_renderer(name, element.scope));
+    render(element, landing)
+}
+
+/// The renderer of the builtin component `name` in `scope`.
+#[must_use]
+pub fn builtin_renderer(name: &str, scope: ElementScope) -> BuiltinRenderFn {
+    match name {
+        "img" => render_img,
+        "svg" => render_svg,
+        "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
+            if scope.inside_svg =>
+        {
+            render_svg_shape
+        }
+        _ => render_generic,
+    }
+}
+
+// ---- the renderers ----
+
+/// Any element: its node type ([`super::tag_to_node_type`], a `<div>` for a
+/// tag it does not know) and the attributes every node carries.
+fn render_generic(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    let mut node = NodeData::create_node(super::tag_to_node_type(element.tag));
+    land_common(&mut node, element, Vec::new(), landing);
+    node
+}
+
+/// `<img src width height>`: an `Image` whose placeholder carries the `src`
+/// (as UTF-8 bytes in its tag). The bytes are not resolved here: a renderer
+/// (printpdf, the compositor ...) looks the image up by it. `width` /
+/// `height` are its intrinsic size (CSS still overrides).
+fn render_img(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    let mut node = NodeData::create_node(super::tag_to_node_type(element.tag));
+    if let Some(src) = element.attribute("src") {
+        let size = |key: &str| {
+            element
+                .attribute(key)
+                .and_then(|v| v.trim().trim_end_matches("px").trim().parse::<usize>().ok())
+                .unwrap_or(0)
+        };
+        let image = crate::resources::ImageRef::null_image(
+            size("width"),
+            size("height"),
+            crate::resources::RawImageFormat::RGBA8,
+            src.as_bytes().to_vec(),
+        );
+        node.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image)));
+    }
+    land_common(&mut node, element, Vec::new(), landing);
+    node
+}
+
+/// `<svg>`: its own viewport and the positioning context of its shapes.
+///
+/// Two things come off the element:
+///
+/// * the `viewBox`, the element's USER-SPACE coordinate system. An ABSENT one is not "no user
+///   space": user units then map straight onto the viewport, the same as `viewBox="0 0 <width>
+///   <height>"` (every window-control icon of a GTK theme writes `width="16" height="16"` and no
+///   viewBox);
+/// * an INTRINSIC size: an `<svg>` is a replaced element, as big as `width` / `height` say and
+///   failing that as big as its viewBox - pushed ahead of the `style` attribute, so a call site
+///   that says how big it wants it still wins.
+fn render_svg(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    use azul_css::props::{
+        layout::{LayoutHeight, LayoutPosition, LayoutWidth},
+        property::CssProperty,
+    };
+    let simple = CssPropertyWithConditions::simple;
+
+    let mut node = NodeData::create_node(NodeType::Svg);
+    let mut intrinsic = Vec::new();
+    let view_box = element
+        .attribute("viewBox")
+        .or_else(|| element.attribute("viewbox"))
+        .and_then(super::parse_svg_view_box);
+    let stated = |key: &str| super::parse_svg_length(element.attribute(key));
+    let usable = |v: f32| v.is_finite() && v > 0.0;
+    let implied = match (stated("width"), stated("height")) {
+        (Some(w), Some(h)) if usable(w) && usable(h) => Some((0.0, 0.0, w, h)),
+        _ => None,
+    };
+    if let Some((min_x, min_y, width, height)) = view_box.or(implied) {
+        node.set_svg_data(crate::dom::SvgNodeData::ViewBox {
+            min_x,
+            min_y,
+            width,
+            height,
+        });
+    }
+    if let Some(w) = stated("width")
+        .or_else(|| view_box.map(|(_, _, w, _)| w))
+        .filter(|w| usable(*w))
+    {
+        intrinsic.push(simple(CssProperty::width(LayoutWidth::px(w))));
+    }
+    if let Some(h) = stated("height")
+        .or_else(|| view_box.map(|(_, _, _, h)| h))
+        .filter(|h| usable(*h))
+    {
+        intrinsic.push(simple(CssProperty::height(LayoutHeight::px(h))));
+    }
+    intrinsic.push(simple(CssProperty::const_position(LayoutPosition::Relative)));
+    land_common(&mut node, element, intrinsic, landing);
+    node
+}
+
+/// An SVG shape (`path`, `circle`, `rect`, `ellipse`, `line`, `polygon`,
+/// `polyline`): painted by filling its own box and clipping that box to its
+/// geometry (`SvgNodeData::Path`, pushed as a clip mask by the display list).
+///
+/// The box is the `<svg>`'s viewport (the clip mask is rasterised into the
+/// node's paint rect, so a shape laid out in flow would be clipped against
+/// the wrong rectangle); `fill` / `stroke` / `stroke-width` are the box's
+/// background / border, which the display list paints as the shape's fill
+/// and stroke (`style="fill:..."` and stylesheets need nothing: `fill` is an
+/// accepted spelling of `background-color`). `fill="none"` lands NOTHING
+/// rather than a transparent background: it must not shadow a stylesheet rule
+/// that sets a fill.
+fn render_svg_shape(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    use azul_css::props::{
+        basic::color::{parse_color_or_system, parse_color_or_system_token, ColorOrSystem},
+        layout::{LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop},
+        property::CssProperty,
+        style::{
+            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
+            StyleBorderTopColor,
+        },
+    };
+    let simple = CssPropertyWithConditions::simple;
+
+    let mut node = NodeData::create_node(super::tag_to_node_type(element.tag));
+    let mut intrinsic = alloc::vec![
+        simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        simple(CssProperty::const_top(LayoutTop::const_px(0))),
+        simple(CssProperty::const_right(LayoutRight::const_px(0))),
+        simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+    ];
+    // Both take a `system:` colour keyword like their CSS spellings: the fill
+    // as an unresolved `SystemColor` layer, the stroke as the border colour's
+    // token - the getters resolve them against the cascade's theme.
+    if let Some(fill) = element.attribute("fill").map(str::trim).filter(|f| *f != "none") {
+        if let Ok(color) = parse_color_or_system(fill) {
+            let layer = match color {
+                ColorOrSystem::Color(c) => StyleBackgroundContent::Color(c),
+                ColorOrSystem::System(r) => StyleBackgroundContent::SystemColor(r),
+            };
+            intrinsic.push(simple(CssProperty::const_background_content(
+                StyleBackgroundContentVec::from_vec(alloc::vec![layer]),
+            )));
+        }
+    }
+    if let Some(stroke) = element.attribute("stroke").map(str::trim).filter(|s| *s != "none") {
+        if let Ok(color) = parse_color_or_system_token(stroke) {
+            intrinsic.extend([
+                simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: color })),
+                simple(CssProperty::const_border_right_color(StyleBorderRightColor {
+                    inner: color,
+                })),
+                simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+                    inner: color,
+                })),
+                simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+                    inner: color,
+                })),
+            ]);
+        }
+    }
+    // `stroke-width` is in USER UNITS, like every geometry attribute.
+    if let Some(width) = super::parse_svg_float(element.attribute("stroke-width")) {
+        if width.is_finite() && width > 0.0 {
+            let px = azul_css::props::basic::PixelValue::px(width);
+            intrinsic.extend([
+                simple(CssProperty::const_border_top_width(LayoutBorderTopWidth { inner: px })),
+                simple(CssProperty::const_border_right_width(LayoutBorderRightWidth {
+                    inner: px,
+                })),
+                simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth {
+                    inner: px,
+                })),
+                simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth {
+                    inner: px,
+                })),
+            ]);
+        }
+    }
+    land_common(&mut node, element, intrinsic, landing);
+    if let Some(geometry) = super::svg_shape_geometry(element) {
+        node.set_svg_data(crate::dom::SvgNodeData::Path(geometry));
+    }
+    node
+}
+
+// ---- what every element carries ----
+
+/// Lands what every node carries, after the renderer's own `intrinsic` CSS
+/// (an `<svg>`'s size, a shape's paint), which the `style` attribute
+/// overrides:
+///
+/// * a `<transient-window>`'s config (it rides INSIDE the node type) and its `tearoff="zone:<sel>"`
+///   selector, kept as the `tearoff-zone` attribute the engine's drop handling reads;
+/// * the ONE attribute table ([`super::attributes`]: ids and classes, focus, editing, the typed
+///   attributes, `dir`, the inline `style`);
+/// * HTML's presentational hints (`<font color>`, `<ol type>`, `<center>` ...);
+/// * the element's COMPONENT arguments (`<a href target rel>`, `<img src alt>`), filled from the
+///   attributes by the filler every component uses;
+/// * the `data-l10n-*` arguments of a localised element.
+fn land_common(
+    node: &mut NodeData,
+    element: &Element<'_>,
+    mut intrinsic: Vec<CssPropertyWithConditions>,
+    landing: &mut Landing<'_>,
+) {
+    if let NodeType::TransientWindow(cfg) = node.get_node_type() {
+        let mut cfg = *cfg;
+        let mut zone = None;
+        for (key, value) in element.pairs() {
+            if cfg.apply_attr(key, value) && key == "tearoff" {
+                zone = value.trim().strip_prefix("zone:").map(str::trim);
+            }
+        }
+        node.set_node_type(NodeType::TransientWindow(cfg));
+        if let Some(selector) = zone {
+            let mut all = node.attributes().clone().into_library_owned_vec();
+            all.push(crate::dom::AttributeType::Custom(
+                crate::dom::AttributeNameValue {
+                    attr_name: (landing.intern)("tearoff-zone"),
+                    value: (landing.intern)(selector),
+                },
+            ));
+            node.set_attributes(all.into());
+        }
+    }
+
+    let settings = super::attributes::ordered(
+        element
+            .pairs()
+            .filter_map(|(key, value)| super::attributes::setting_of(element.tag, key, value)),
+    );
+    let hints = super::builtin_presentational_hints(element.tag, element.pairs());
+    if !hints.is_empty() {
+        match landing.css_key_map {
+            Some(map) => intrinsic.extend(super::attributes::style_declarations(&hints, map)),
+            None => {
+                let map = azul_css::props::property::get_css_key_map();
+                intrinsic.extend(super::attributes::style_declarations(&hints, &map));
+            }
+        }
+    }
+    super::attributes::apply_settings(
+        node,
+        settings,
+        intrinsic,
+        landing.css_key_map,
+        &mut *landing.intern,
+    );
+    super::apply_builtin_args_from_attributes(element.tag, element.pairs(), node);
+
+    if l10n_key(element.attributes).is_some() {
+        let fluent_args = crate::dom::FluentArgKVVec::from_l10n_attributes(element.pairs());
+        if !fluent_args.is_empty() {
+            node.fluent_args = Some(Box::new(fluent_args));
+        }
+    }
+}

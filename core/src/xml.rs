@@ -5987,13 +5987,23 @@ fn str_to_dom_fast<'a>(
 }
 
 /// The root `Html` node of a loaded document: the `<html>` element's own
-/// attributes (its inline `style`, `lang`, `dir`, ids and classes) applied as
-/// every other element's are ([`apply_xml_node_attributes`]). Both loaders
+/// attributes (its inline `style`, `lang`, `dir`, ids and classes) landed as
+/// every other element's are ([`element::render_element`]). Both loaders
 /// built a bare `Html` node and dropped them (WPT8 found (c)).
 fn html_root_node_data(html_node: &XmlNode) -> NodeData {
-    let mut node = NodeData::create_node(NodeType::Html);
-    apply_xml_node_attributes(&mut node, html_node, "html", false);
-    node
+    let pairs = attribute_pairs(html_node);
+    element::render_element(
+        &ComponentMap::default(),
+        &element::Element {
+            tag: "html",
+            attributes: &pairs,
+            scope: element::ElementScope::default(),
+        },
+        &mut element::Landing {
+            css_key_map: None,
+            intern: &mut |s: &str| AzString::from(s),
+        },
+    )
 }
 
 /// Parses XML nodes and returns a `Dom` with CSS stylesheets attached (but not applied).
@@ -6058,8 +6068,8 @@ pub fn str_to_dom_unstyled<'a>(
 /// STRICT: a geometry attribute (`cx`, `r`, `x1`, ...) is a USER UNIT, and
 /// `cx="10px"` is not valid SVG. The `<svg>` element's own `width`/`height`
 /// are CSS lengths and a different thing entirely - see [`parse_svg_length`].
-fn parse_svg_float(attr: Option<&AzString>) -> Option<f32> {
-    attr?.as_str().trim().parse::<f32>().ok()
+fn parse_svg_float(attr: Option<&str>) -> Option<f32> {
+    attr?.trim().parse::<f32>().ok()
 }
 
 /// Parse the `<svg>` element's own `width`/`height`, which - unlike the
@@ -6069,8 +6079,8 @@ fn parse_svg_float(attr: Option<&AzString>) -> Option<f32> {
 /// `width="16"`. A relative unit (`%`, `em`) is REJECTED rather than guessed
 /// at: the caller then falls back to the viewBox, which is a real answer,
 /// instead of resolving a percentage against nothing.
-fn parse_svg_length(attr: Option<&AzString>) -> Option<f32> {
-    let raw = attr?.as_str().trim();
+fn parse_svg_length(attr: Option<&str>) -> Option<f32> {
+    let raw = attr?.trim();
     let number = raw.strip_suffix("px").unwrap_or(raw).trim();
     number.parse::<f32>().ok()
 }
@@ -6131,522 +6141,141 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
     })
 }
 
-/// Fast XML to Dom conversion that builds Dom tree directly without intermediate `StyledDom`
-/// This is O(n) instead of O(n²) for large documents
-/// Apply the shared set of XML attributes onto a single [`NodeData`] node.
-///
-/// Handles `<img src>` rebuild, every attribute of the ONE attribute table
-/// ([`attributes`]: `id`/`class`, `focusable`, `tabindex`, `contenteditable`,
-/// the typed attributes, `dir`, inline `style`), and SVG-shape geometry — the
-/// block that was previously duplicated
-/// verbatim between [`xml_node_to_dom_fast`] (operating on `dom.root`) and
-/// [`xml_node_to_fast_dom`] (operating on the arena `NodeData`). `component_name`
-/// must already be normalized (lowercased); the caller computes `child_inside_svg`.
-// Large but cohesive: one branch per input variant. Splitting the dispatch
-// would scatter the attribute table it exists to keep in one place.
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
-fn apply_xml_node_attributes(
-    node: &mut crate::dom::NodeData,
-    xml_node: &XmlNode,
-    component_name: &str,
-    inside_svg: bool,
-) {
-    use crate::dom::NodeType;
-
-    // `<transient-window open="true" anchor="bottom" ...>`: the config rides
-    // INSIDE the NodeType, so its attributes are applied onto that payload
-    // (the document loader's `open_fast_node` does the same) - else the tree
-    // loader built every popup closed with every default. `tearoff="zone:<selector>"`
-    // leaves its selector on the node as `tearoff-zone`, where the engine's
-    // drop handling reads it. The keys a config takes set nothing else (the
-    // attribute table has no entry for them).
-    if let NodeType::TransientWindow(cfg) = node.get_node_type() {
-        let mut cfg = *cfg;
-        let mut zone = None;
-        for pair in xml_node.attributes.as_slice() {
-            let (key, value) = (pair.key.as_str(), pair.value.as_str());
-            if cfg.apply_attr(key, value) && key == "tearoff" {
-                zone = value.trim().strip_prefix("zone:").map(|z| AzString::from(z.trim()));
-            }
-        }
-        node.set_node_type(NodeType::TransientWindow(cfg));
-        if let Some(selector) = zone {
-            let mut all = node.attributes().clone().into_library_owned_vec();
-            all.push(crate::dom::AttributeType::Custom(crate::dom::AttributeNameValue {
-                attr_name: AzString::from_const_str("tearoff-zone"),
-                value: selector,
-            }));
-            node.set_attributes(all.into());
-        }
-    }
-
-    // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
-    // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT
-    // resolved here — a downstream renderer (printpdf, the compositor, ...) uses
-    // the tag to look up and embed the actual image. Optional `width`/`height`
-    // attributes set the intrinsic size used for layout (CSS still overrides).
-    if component_name == "img" {
-        if let Some(src) = xml_node.attributes.get_key("src") {
-            let width = xml_node
-                .attributes
-                .get_key("width")
-                .and_then(|w| {
-                    w.as_str()
-                        .trim()
-                        .trim_end_matches("px")
-                        .trim()
-                        .parse::<usize>()
-                        .ok()
+/// The geometry of an SVG shape element (`path`, `circle`, `rect`,
+/// `ellipse`, `line`, `polygon`, `polyline`) in its user units: what its
+/// node's `SvgNodeData::Path` clips its box to. `None` for an empty or
+/// degenerate shape (a circle of no radius, a path that does not parse).
+fn svg_shape_geometry(element: &element::Element<'_>) -> Option<crate::svg::SvgMultiPolygon> {
+    let tag = element.tag;
+    match tag {
+        "path" => element
+            .attribute("d")
+            .and_then(|d| crate::path_parser::parse_svg_path_d(d).ok()),
+        "circle" => {
+            let cx = parse_svg_float(element.attribute("cx")).unwrap_or(0.0);
+            let cy = parse_svg_float(element.attribute("cy")).unwrap_or(0.0);
+            let r = parse_svg_float(element.attribute("r")).unwrap_or(0.0);
+            if r > 0.0 {
+                Some(crate::svg::SvgMultiPolygon {
+                    rings: crate::svg::SvgPathVec::from_vec(vec![
+                        crate::path_parser::svg_circle_to_paths(cx, cy, r),
+                    ]),
                 })
-                .unwrap_or(0);
-            let height = xml_node
-                .attributes
-                .get_key("height")
-                .and_then(|h| {
-                    h.as_str()
-                        .trim()
-                        .trim_end_matches("px")
-                        .trim()
-                        .parse::<usize>()
-                        .ok()
+            } else {
+                None
+            }
+        }
+        "rect" => {
+            let x = parse_svg_float(element.attribute("x")).unwrap_or(0.0);
+            let y = parse_svg_float(element.attribute("y")).unwrap_or(0.0);
+            let w = parse_svg_float(element.attribute("width")).unwrap_or(0.0);
+            let h = parse_svg_float(element.attribute("height")).unwrap_or(0.0);
+            let rx = parse_svg_float(element.attribute("rx")).unwrap_or(0.0);
+            let ry = parse_svg_float(element.attribute("ry")).unwrap_or(rx);
+            if w > 0.0 && h > 0.0 {
+                Some(crate::svg::SvgMultiPolygon {
+                    rings: crate::svg::SvgPathVec::from_vec(vec![
+                        crate::path_parser::svg_rect_to_path(x, y, w, h, rx, ry),
+                    ]),
                 })
-                .unwrap_or(0);
-            let image_ref = crate::resources::ImageRef::null_image(
-                width,
-                height,
-                crate::resources::RawImageFormat::RGBA8,
-                src.as_str().as_bytes().to_vec(),
-            );
-            node.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
-        }
-    }
-
-    // Every attribute that sets something on the node (ids, classes, focus,
-    // editing, typed attributes, the writing direction, the inline style):
-    // ONE table, `attributes`, which the code generator reads too.
-    let settings = attributes::node_settings(xml_node, component_name);
-
-    // `<svg>`: its own viewport. Two things have to come off the element, and
-    // both were being dropped.
-    //
-    //   * the `viewBox`, which is the element's USER-SPACE coordinate system.
-    //     `SvgNodeData::ViewBox` existed as a variant but nothing ever produced one, so a parsed
-    //     `<svg>` had no record of what coordinate space its children were drawn in.
-    //   * an INTRINSIC SIZE. An `<svg>` is a replaced element: it is as big as `width`/`height`
-    //     say, and failing that as big as its viewBox (SVG's own default sizing rule). Without one
-    //     the element lays out 0x0 and takes no space at all - which is what an icon parsed
-    //     straight from a theme file did, and why it came out blank.
-    //
-    // These are INTRINSIC dimensions, not a demand: they are pushed ahead of
-    // the inline `style` below, so a call site that says how big it wants the
-    // thing still wins.
-    let mut intrinsic_props: Vec<azul_css::dynamic_selector::CssPropertyWithConditions> =
-        Vec::new();
-    if component_name == "svg" {
-        let view_box = xml_node
-            .attributes
-            .get_key("viewBox")
-            .or_else(|| xml_node.attributes.get_key("viewbox"))
-            .and_then(|v| parse_svg_view_box(v.as_str()));
-        let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
-        let usable = |v: f32| v.is_finite() && v > 0.0;
-        // An ABSENT `viewBox` is not "no user space": SVG's sizing rules make
-        // user units map straight onto the viewport, which is the same thing
-        // as `viewBox="0 0 <width> <height>"`. Recording it only when the
-        // attribute was literally there left every shape in such a document
-        // without a coordinate system, and the mask rasteriser then drew it at
-        // half scale anchored at the box's origin rather than at its own
-        // coordinates. Every window-control icon in a GTK theme is this
-        // document - Mint-Y writes `height="16" width="16"` and no viewBox -
-        // so a titlebar's controls came out as an illegible cluster in the
-        // corner of each button, while azul's own close glyph, the one markup
-        // that carries a viewBox, drew correctly.
-        let implied = match (stated("width"), stated("height")) {
-            (Some(w), Some(h)) if usable(w) && usable(h) => Some((0.0, 0.0, w, h)),
-            _ => None,
-        };
-        if let Some((min_x, min_y, width, height)) = view_box.or(implied) {
-            node.set_svg_data(crate::dom::SvgNodeData::ViewBox {
-                min_x,
-                min_y,
-                width,
-                height,
-            });
-        }
-        if let Some(w) = stated("width")
-            .or_else(|| view_box.map(|(_, _, w, _)| w))
-            .filter(|w| usable(*w))
-        {
-            intrinsic_props.push(
-                azul_css::dynamic_selector::CssPropertyWithConditions::simple(
-                    azul_css::props::property::CssProperty::width(
-                        azul_css::props::layout::LayoutWidth::px(w),
-                    ),
-                ),
-            );
-        }
-        if let Some(h) = stated("height")
-            .or_else(|| view_box.map(|(_, _, _, h)| h))
-            .filter(|h| usable(*h))
-        {
-            intrinsic_props.push(
-                azul_css::dynamic_selector::CssPropertyWithConditions::simple(
-                    azul_css::props::property::CssProperty::height(
-                        azul_css::props::layout::LayoutHeight::px(h),
-                    ),
-                ),
-            );
-        }
-    }
-
-    // An SVG SHAPE is painted by filling its own box and clipping that box to
-    // its geometry (`SvgNodeData::*`, pushed as a clip mask by the display
-    // list). Two things make that work, and both are ordinary CSS:
-    //
-    //   * the box has to BE the `<svg>`'s viewport - the clip mask is rasterised into the node's
-    //     paint rect, so a shape that laid out as an ordinary in-flow block would be clipped
-    //     against the wrong rectangle (and, being empty, would be 0-high anyway);
-    //   * `fill` has to reach the cascade. The presentation ATTRIBUTE is translated here;
-    //     `style="fill:…"` and a stylesheet rule need nothing, because `fill` is an accepted
-    //     spelling of `background-color` (`COMBINED_CSS_PROPERTIES_KEY_MAP`).
-    //
-    // `fill="none"` deliberately emits NOTHING rather than a transparent
-    // background: it must not shadow a stylesheet rule that does set a fill.
-    if inside_svg
-        && matches!(
-            component_name,
-            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
-        )
-    {
-        use azul_css::props::{
-            layout::{LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop},
-            property::CssProperty,
-        };
-        let simple = azul_css::dynamic_selector::CssPropertyWithConditions::simple;
-        intrinsic_props.push(simple(CssProperty::const_position(
-            LayoutPosition::Absolute,
-        )));
-        intrinsic_props.push(simple(CssProperty::const_left(LayoutLeft::const_px(0))));
-        intrinsic_props.push(simple(CssProperty::const_top(LayoutTop::const_px(0))));
-        intrinsic_props.push(simple(CssProperty::const_right(LayoutRight::const_px(0))));
-        intrinsic_props.push(simple(CssProperty::const_bottom(
-            LayoutInsetBottom::const_px(0),
-        )));
-
-        // Both attributes take a `system:` colour keyword exactly like
-        // their CSS spellings do: the fill as an unresolved `SystemColor`
-        // layer, the stroke as the border colour's token - the background
-        // and border getters resolve them against the cascade's theme.
-        if let Some(fill) = xml_node.attributes.get_key("fill") {
-            let fill = fill.as_str().trim();
-            if fill != "none" {
-                use azul_css::props::{
-                    basic::color::{parse_color_or_system, ColorOrSystem},
-                    style::StyleBackgroundContent,
-                };
-                if let Ok(color) = parse_color_or_system(fill) {
-                    let layer = match color {
-                        ColorOrSystem::Color(c) => StyleBackgroundContent::Color(c),
-                        ColorOrSystem::System(r) => StyleBackgroundContent::SystemColor(r),
-                    };
-                    intrinsic_props.push(simple(CssProperty::const_background_content(
-                        azul_css::props::style::StyleBackgroundContentVec::from_vec(vec![layer]),
-                    )));
-                }
+            } else {
+                None
             }
         }
-
-        // The STROKE, as the box's border - the display list turns it into a
-        // stroked path rather than a rectangle. Both halves are translated
-        // here only for the presentation ATTRIBUTE; `style="stroke:…"` and a
-        // stylesheet rule need nothing, because `stroke`/`stroke-width` are
-        // accepted spellings of `border-color`/`border-width`.
-        if let Some(stroke) = xml_node.attributes.get_key("stroke") {
-            let stroke = stroke.as_str().trim();
-            if stroke != "none" {
-                if let Ok(color) =
-                    azul_css::props::basic::color::parse_color_or_system_token(stroke)
-                {
-                    use azul_css::props::style::{
-                        StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
-                        StyleBorderTopColor,
-                    };
-                    intrinsic_props.push(simple(CssProperty::const_border_top_color(
-                        StyleBorderTopColor { inner: color },
-                    )));
-                    intrinsic_props.push(simple(CssProperty::const_border_right_color(
-                        StyleBorderRightColor { inner: color },
-                    )));
-                    intrinsic_props.push(simple(CssProperty::const_border_bottom_color(
-                        StyleBorderBottomColor { inner: color },
-                    )));
-                    intrinsic_props.push(simple(CssProperty::const_border_left_color(
-                        StyleBorderLeftColor { inner: color },
-                    )));
-                }
-            }
-        }
-        // `stroke-width` is in USER UNITS, like every other geometry
-        // attribute - not a CSS length.
-        if let Some(width) = parse_svg_float(xml_node.attributes.get_key("stroke-width")) {
-            if width.is_finite() && width > 0.0 {
-                use azul_css::props::style::{
-                    LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
-                    LayoutBorderTopWidth,
-                };
-                let px = azul_css::props::basic::PixelValue::px(width);
-                intrinsic_props.push(simple(CssProperty::const_border_top_width(
-                    LayoutBorderTopWidth { inner: px },
-                )));
-                intrinsic_props.push(simple(CssProperty::const_border_right_width(
-                    LayoutBorderRightWidth { inner: px },
-                )));
-                intrinsic_props.push(simple(CssProperty::const_border_bottom_width(
-                    LayoutBorderBottomWidth { inner: px },
-                )));
-                intrinsic_props.push(simple(CssProperty::const_border_left_width(
-                    LayoutBorderLeftWidth { inner: px },
-                )));
-            }
-        }
-    }
-
-    // `<svg>` is the positioning context its shapes resolve against.
-    if component_name == "svg" {
-        intrinsic_props.push(
-            azul_css::dynamic_selector::CssPropertyWithConditions::simple(
-                azul_css::props::property::CssProperty::const_position(
-                    azul_css::props::layout::LayoutPosition::Relative,
-                ),
-            ),
-        );
-    }
-
-    // HTML's presentational hints: the CSS the element's builtin arguments
-    // stand for (`<font color>`, `<ol type>`, `<center>`, `<img align>` ...),
-    // before the `style` attribute, which wins over them.
-    let hints = builtin_presentational_hints(
-        component_name,
-        xml_node
-            .attributes
-            .as_slice()
-            .iter()
-            .map(|pair| (pair.key.as_str(), pair.value.as_str())),
-    );
-    if !hints.is_empty() {
-        let map = azul_css::props::property::get_css_key_map();
-        intrinsic_props.extend(attributes::style_declarations(&hints, &map));
-    }
-
-    // Land the table's settings: ids and classes, focus, the typed
-    // attributes, and ONE inline style - the intrinsic sizing above, the
-    // hints, the `dir` direction, then the `style` attribute (so author
-    // style wins).
-    attributes::apply_settings(node, settings, intrinsic_props, None, &mut |s: &str| {
-        AzString::from(s)
-    });
-
-    // The element's COMPONENT arguments (`<a href target rel>`, `<img src
-    // alt>`): the fields its builtin component declares, filled from these
-    // attributes by the filler every component uses, landed by the
-    // element's render side.
-    apply_builtin_args_from_attributes(
-        component_name,
-        xml_node
-            .attributes
-            .as_slice()
-            .iter()
-            .map(|pair| (pair.key.as_str(), pair.value.as_str())),
-        node,
-    );
-
-    // Handle SVG shape elements when inside an <svg> context
-    let tag = component_name;
-    let is_svg_shape = inside_svg
-        && matches!(
-            tag,
-            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
-        );
-
-    if is_svg_shape {
-        let clip = match tag {
-            "path" => xml_node
-                .attributes
-                .get_key("d")
-                .and_then(|d| crate::path_parser::parse_svg_path_d(d.as_str()).ok()),
-            "circle" => {
-                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
-                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
-                let r = parse_svg_float(xml_node.attributes.get_key("r")).unwrap_or(0.0);
-                if r > 0.0 {
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::path_parser::svg_circle_to_paths(cx, cy, r),
-                        ]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "rect" => {
-                let x = parse_svg_float(xml_node.attributes.get_key("x")).unwrap_or(0.0);
-                let y = parse_svg_float(xml_node.attributes.get_key("y")).unwrap_or(0.0);
-                let w = parse_svg_float(xml_node.attributes.get_key("width")).unwrap_or(0.0);
-                let h = parse_svg_float(xml_node.attributes.get_key("height")).unwrap_or(0.0);
-                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
-                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(rx);
-                if w > 0.0 && h > 0.0 {
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![
-                            crate::path_parser::svg_rect_to_path(x, y, w, h, rx, ry),
-                        ]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "ellipse" => {
-                let cx = parse_svg_float(xml_node.attributes.get_key("cx")).unwrap_or(0.0);
-                let cy = parse_svg_float(xml_node.attributes.get_key("cy")).unwrap_or(0.0);
-                let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
-                let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
-                if rx > 0.0 && ry > 0.0 {
-                    // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for
-                    // y-kappa)
-                    use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
-                    const KAPPA: f32 = 0.552_284_8;
-                    let kx = rx * KAPPA;
-                    let ky = ry * KAPPA;
-                    let elements = vec![
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx, y: cy - ry },
-                            ctrl_1: SvgPoint {
-                                x: cx + kx,
-                                y: cy - ry,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx + rx,
-                                y: cy - ky,
-                            },
-                            end: SvgPoint { x: cx + rx, y: cy },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx + rx, y: cy },
-                            ctrl_1: SvgPoint {
-                                x: cx + rx,
-                                y: cy + ky,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx + kx,
-                                y: cy + ry,
-                            },
-                            end: SvgPoint { x: cx, y: cy + ry },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx, y: cy + ry },
-                            ctrl_1: SvgPoint {
-                                x: cx - kx,
-                                y: cy + ry,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx - rx,
-                                y: cy + ky,
-                            },
-                            end: SvgPoint { x: cx - rx, y: cy },
-                        }),
-                        crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
-                            start: SvgPoint { x: cx - rx, y: cy },
-                            ctrl_1: SvgPoint {
-                                x: cx - rx,
-                                y: cy - ky,
-                            },
-                            ctrl_2: SvgPoint {
-                                x: cx - kx,
-                                y: cy - ry,
-                            },
-                            end: SvgPoint { x: cx, y: cy - ry },
-                        }),
-                    ];
-                    Some(crate::svg::SvgMultiPolygon {
-                        rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                            items: crate::svg::SvgPathElementVec::from_vec(elements),
-                        }]),
-                    })
-                } else {
-                    None
-                }
-            }
-            "line" => {
-                let x1 = parse_svg_float(xml_node.attributes.get_key("x1")).unwrap_or(0.0);
-                let y1 = parse_svg_float(xml_node.attributes.get_key("y1")).unwrap_or(0.0);
-                let x2 = parse_svg_float(xml_node.attributes.get_key("x2")).unwrap_or(0.0);
-                let y2 = parse_svg_float(xml_node.attributes.get_key("y2")).unwrap_or(0.0);
+        "ellipse" => {
+            let cx = parse_svg_float(element.attribute("cx")).unwrap_or(0.0);
+            let cy = parse_svg_float(element.attribute("cy")).unwrap_or(0.0);
+            let rx = parse_svg_float(element.attribute("rx")).unwrap_or(0.0);
+            let ry = parse_svg_float(element.attribute("ry")).unwrap_or(0.0);
+            if rx > 0.0 && ry > 0.0 {
+                // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for
+                // y-kappa)
+                use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
+                const KAPPA: f32 = 0.552_284_8;
+                let kx = rx * KAPPA;
+                let ky = ry * KAPPA;
+                let elements = vec![
+                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: cx, y: cy - ry },
+                        ctrl_1: SvgPoint {
+                            x: cx + kx,
+                            y: cy - ry,
+                        },
+                        ctrl_2: SvgPoint {
+                            x: cx + rx,
+                            y: cy - ky,
+                        },
+                        end: SvgPoint { x: cx + rx, y: cy },
+                    }),
+                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: cx + rx, y: cy },
+                        ctrl_1: SvgPoint {
+                            x: cx + rx,
+                            y: cy + ky,
+                        },
+                        ctrl_2: SvgPoint {
+                            x: cx + kx,
+                            y: cy + ry,
+                        },
+                        end: SvgPoint { x: cx, y: cy + ry },
+                    }),
+                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: cx, y: cy + ry },
+                        ctrl_1: SvgPoint {
+                            x: cx - kx,
+                            y: cy + ry,
+                        },
+                        ctrl_2: SvgPoint {
+                            x: cx - rx,
+                            y: cy + ky,
+                        },
+                        end: SvgPoint { x: cx - rx, y: cy },
+                    }),
+                    crate::svg::SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: cx - rx, y: cy },
+                        ctrl_1: SvgPoint {
+                            x: cx - rx,
+                            y: cy - ky,
+                        },
+                        ctrl_2: SvgPoint {
+                            x: cx - kx,
+                            y: cy - ry,
+                        },
+                        end: SvgPoint { x: cx, y: cy - ry },
+                    }),
+                ];
                 Some(crate::svg::SvgMultiPolygon {
                     rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
-                        items: crate::svg::SvgPathElementVec::from_vec(vec![
-                            crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
-                                azul_css::props::basic::SvgPoint { x: x1, y: y1 },
-                                azul_css::props::basic::SvgPoint { x: x2, y: y2 },
-                            )),
-                        ]),
+                        items: crate::svg::SvgPathElementVec::from_vec(elements),
                     }]),
                 })
+            } else {
+                None
             }
-            "polygon" | "polyline" => xml_node
-                .attributes
-                .get_key("points")
-                .and_then(|pts| parse_svg_points(pts.as_str(), tag == "polygon")),
-            _ => None,
-        };
-
-        if let Some(mp) = clip {
-            node.set_svg_data(crate::dom::SvgNodeData::Path(mp));
         }
-    }
-
-    // ---- Fluent / l10n: `data-l10n="key"` ----
-    // `<p data-l10n="greeting_key" data-l10n-name="Alice">` stays a `<p>`: the
-    // builders give it the key as a localizable text child (see
-    // `l10n_key_of`), and the `data-l10n-*` arguments go on the element,
-    // where `translate_texts_in_dom` looks for them when it translates that
-    // child.
-    if l10n_key_of(xml_node).is_some() {
-        // Collect data-l10n-* arguments.
-        let fluent_args = crate::dom::FluentArgKVVec::from_l10n_attributes(
-            xml_node
-                .attributes
-                .as_slice()
-                .iter()
-                .map(|pair| (pair.key.as_str(), pair.value.as_str())),
-        );
-        if !fluent_args.is_empty() {
-            node.fluent_args = Some(Box::new(fluent_args));
+        "line" => {
+            let x1 = parse_svg_float(element.attribute("x1")).unwrap_or(0.0);
+            let y1 = parse_svg_float(element.attribute("y1")).unwrap_or(0.0);
+            let x2 = parse_svg_float(element.attribute("x2")).unwrap_or(0.0);
+            let y2 = parse_svg_float(element.attribute("y2")).unwrap_or(0.0);
+            Some(crate::svg::SvgMultiPolygon {
+                rings: crate::svg::SvgPathVec::from_vec(vec![crate::svg::SvgPath {
+                    items: crate::svg::SvgPathElementVec::from_vec(vec![
+                        crate::svg::SvgPathElement::Line(crate::svg::SvgLine::new(
+                            azul_css::props::basic::SvgPoint { x: x1, y: y1 },
+                            azul_css::props::basic::SvgPoint { x: x2, y: y2 },
+                        )),
+                    ]),
+                }]),
+            })
         }
+        "polygon" | "polyline" => element
+            .attribute("points")
+            .and_then(|pts| parse_svg_points(pts, tag == "polygon")),
+        _ => None,
     }
 }
 
-/// The message key of a `data-l10n="key"` element, `None` without one (or
-/// with an empty one).
-///
-/// The key's translation is the element's text: every XML-to-DOM builder
-/// gives such an element the key as its FIRST child, a text node marked
-/// localizable (`AzString::tr`), and keeps the element itself - a
-/// `<p data-l10n>` is still a `<p>`.
-fn l10n_key_of(xml_node: &XmlNode) -> Option<&str> {
-    xml_node
-        .attributes
-        .get_key("data-l10n")
-        .map(AzString::as_str)
-        .filter(|key| !key.is_empty())
-}
-
-#[allow(clippy::result_large_err)]
-// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// component_map is threaded through the whole fast-DOM pipeline for parity with the
-// component-expanding interpreter path (see ~xml.rs:2845); this fast path never expands
-// components, so it only forwards the map into recursive calls. Removing it here would
-// cascade unused-param removals up the entire pipeline.
-#[allow(clippy::only_used_in_recursion)]
 /// Every `<style>` element's text in this subtree, in document order.
 ///
 /// Depth-bounded for the same reason the DOM conversion is: this reads files
@@ -6715,121 +6344,186 @@ pub fn is_foreign_element(tag: &str) -> bool {
     }
 }
 
-// `component_map` is threaded through purely to reach the recursive calls; it
-// stays in the signature because the sibling `xml_node_to_fast_dom` reads it and
-// the two must keep the same shape. `RenderDomError` is large but is the crate's
-// public XML error type, shared with the C ABI, so it is not boxed here.
-#[allow(clippy::only_used_in_recursion, clippy::result_large_err)]
+/// Convert an XML node tree into a `Dom` tree: [`walk_element`] into a
+/// [`DomTreeSink`]. `RenderDomError` is large but is the crate's public XML
+/// error type, shared with the C ABI, so it is not boxed here.
+#[allow(clippy::result_large_err)]
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
     inside_svg: bool,
     depth: usize,
 ) -> Result<Dom, RenderDomError> {
-    use crate::dom::Dom;
+    let mut sink = DomTreeSink::default();
+    walk_element(
+        xml_node,
+        component_map,
+        element::ElementScope { inside_svg },
+        &mut sink,
+        depth,
+    )?;
+    Ok(sink.finish())
+}
 
-    // HTML and SVG element names are ASCII-case-insensitive: `TABLE` is a
-    // table, `linearGradient` a gradient, `transient-window` a transient
-    // window (`normalize_casing` made them `t_a_b_l_e`, `linear_gradient`,
-    // `transient_window` - three unknown divs - and the document loader read
-    // them right).
-    let component_name = xml_node.node_type.as_str().to_ascii_lowercase();
+/// Where a walk of the markup ([`walk_element`]) puts what it builds: a `Dom`
+/// tree ([`DomTreeSink`]) or a `FastDom` arena ([`CompactDomBuilder`]) - ONE
+/// walk for both.
+trait DomSink {
+    /// Open an element node; its children follow until [`Self::close`].
+    fn open(&mut self, node: NodeData);
+    /// A node without children (a text).
+    fn leaf(&mut self, node: NodeData);
+    /// A stylesheet for the OPEN node's subtree.
+    fn scope_css(&mut self, css: Css);
+    /// Close the open node.
+    fn close(&mut self);
+}
 
-    // Look up the component definition
-    let node_type = tag_to_node_type(&component_name);
-    let mut dom = Dom::create_node(node_type);
+/// A [`DomSink`] that builds a `Dom` tree.
+#[derive(Default)]
+struct DomTreeSink {
+    /// The open elements, innermost last.
+    open: Vec<Dom>,
+    /// The closed root.
+    done: Option<Dom>,
+}
 
-    apply_xml_node_attributes(&mut dom.root, xml_node, &component_name, inside_svg);
-
-    let child_inside_svg = inside_svg || component_name == "svg";
-
-    // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
-    // pathologically deep markup. At the cap, this node is emitted without its
-    // children (truncation) rather than crashing the process.
-    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
-    if depth >= MAX_XML_NESTING_DEPTH {
-        return Ok(dom);
+impl DomTreeSink {
+    fn finish(self) -> Dom {
+        self.done.unwrap_or_else(Dom::create_div)
     }
+}
 
-    // Recursively convert children
-    let mut children = Vec::new();
-    // `data-l10n="key"`: the key goes in first, as the element's text.
-    if let Some(key) = l10n_key_of(xml_node) {
-        children.push(Dom::create_text_do_not_use_without_block_level_wrapper(
-            AzString::tr(key),
-        ));
+impl DomSink for DomTreeSink {
+    fn open(&mut self, node: NodeData) {
+        let mut dom = Dom::create_div();
+        dom.root = node;
+        self.open.push(dom);
     }
-    // A `<style>` found INSIDE the tree - an SVG's own `<defs><style>`, above
-    // all - is a stylesheet, not content. In azul a stylesheet is an ATTRIBUTE
-    // of a node (`Dom.css`, scoped to that subtree by `scope_inline_css`)
-    // rather than a node of its own, so it has to be recognised HERE, at the
-    // input, and hung on the element that contains it. Leaving it as a node
-    // rendered the CSS source as visible text.
-    //
-    // Scoping to the subtree is exactly right for the case that motivates it:
-    // an icon's `.ColorScheme-Text { color:… }` is meant for that icon, and
-    // must not reach the rest of the document.
-    let mut scoped_css: Vec<Css> = Vec::new();
-    // An `<svg>`'s stylesheet is SVG-GLOBAL: it is nearly always written in
-    // `<defs><style>`, and `<defs>` is a definition container that draws
-    // nothing - attaching the sheet there would scope it to a subtree with no
-    // shapes in it. Collected from the whole subtree and hung on the `<svg>`,
-    // which is as global as it should ever get.
-    if component_name == "svg" {
-        let mut texts = Vec::new();
-        collect_style_text(xml_node, &mut texts, 0);
-        for text in texts {
-            scoped_css.push(Css::from_string(text.into()));
+    fn leaf(&mut self, node: NodeData) {
+        self.open(node);
+        self.close();
+    }
+    fn scope_css(&mut self, css: Css) {
+        if let Some(dom) = self.open.last_mut() {
+            dom.add_component_css(css);
         }
     }
-    for child in xml_node.children.as_ref() {
-        match child {
-            XmlNodeChild::Element(child_node)
-                if child_node.node_type.as_str().eq_ignore_ascii_case("style") =>
-            {
-                // Never a rendered node. Inside an `<svg>` it was already
-                // hoisted above; elsewhere it scopes to THIS element.
-                if component_name != "svg" {
-                    let text = child_node.get_text_content();
-                    if !text.is_empty() {
-                        scoped_css.push(Css::from_string(text.into()));
+    fn close(&mut self) {
+        let Some(dom) = self.open.pop() else {
+            return;
+        };
+        match self.open.last_mut() {
+            Some(parent) => parent.add_child(dom),
+            None => self.done = Some(dom),
+        }
+    }
+}
+
+impl DomSink for CompactDomBuilder {
+    fn open(&mut self, node: NodeData) {
+        self.open_node(node);
+    }
+    fn leaf(&mut self, node: NodeData) {
+        self.add_leaf(node);
+    }
+    fn scope_css(&mut self, css: Css) {
+        if let Some(&(open, _)) = self.stack.last() {
+            self.add_css(open, css);
+        }
+    }
+    fn close(&mut self) {
+        self.close_node();
+    }
+}
+
+/// An element's attributes as `(name, value)` pairs, in document order.
+fn attribute_pairs(xml_node: &XmlNode) -> Vec<(&str, &str)> {
+    xml_node
+        .attributes
+        .as_slice()
+        .iter()
+        .map(|pair| (pair.key.as_str(), pair.value.as_str()))
+        .collect()
+}
+
+/// THE walk of core's XML -> DOM builders: `xml_node` instantiated by its
+/// component ([`element::render_element`]), then its children - a
+/// `data-l10n` key first, as a localizable text; a `<style>` as a stylesheet
+/// of this element's subtree (an `<svg>` takes every sheet inside it); an
+/// element that draws nothing not at all ([`element::child_role`]).
+///
+/// Recursion is bounded: at [`MAX_XML_NESTING_DEPTH`] the element is emitted
+/// without its children rather than overflowing the native stack.
+fn walk_element(
+    xml_node: &XmlNode,
+    component_map: &ComponentMap,
+    scope: element::ElementScope,
+    sink: &mut dyn DomSink,
+    depth: usize,
+) -> Result<(), RenderDomError> {
+    let tag = element::element_tag(component_map, xml_node.node_type.as_str());
+    let pairs = attribute_pairs(xml_node);
+    let node = element::render_element(
+        component_map,
+        &element::Element {
+            tag: &tag,
+            attributes: &pairs,
+            scope,
+        },
+        &mut element::Landing {
+            css_key_map: None,
+            intern: &mut |s: &str| AzString::from(s),
+        },
+    );
+    sink.open(node);
+    if depth < MAX_XML_NESTING_DEPTH {
+        if let Some(key) = element::l10n_key(&pairs) {
+            sink.leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
+                AzString::tr(key),
+            ));
+        }
+        // An `<svg>`'s stylesheet is SVG-GLOBAL: nearly always written in
+        // `<defs><style>`, and `<defs>` draws nothing - hung on the `<svg>`.
+        if tag == "svg" {
+            let mut texts = Vec::new();
+            collect_style_text(xml_node, &mut texts, 0);
+            for text in texts {
+                sink.scope_css(Css::from_string(text.into()));
+            }
+        }
+        let children_scope = scope.for_children_of(&tag);
+        for child in xml_node.children.as_ref() {
+            match child {
+                XmlNodeChild::Element(child_node) => {
+                    match element::child_role(children_scope, child_node.node_type.as_str()) {
+                        element::ChildRole::Node => walk_element(
+                            child_node,
+                            component_map,
+                            children_scope,
+                            sink,
+                            depth + 1,
+                        )?,
+                        // Inside an `<svg>` it was taken above.
+                        element::ChildRole::Stylesheet if tag != "svg" => {
+                            let text = child_node.get_text_content();
+                            if !text.is_empty() {
+                                sink.scope_css(Css::from_string(text.into()));
+                            }
+                        }
+                        element::ChildRole::Stylesheet | element::ChildRole::Nothing => {}
                     }
                 }
-            }
-            // Draws nothing, subtree and all - see `element_draws_nothing`.
-            // Dropped rather than emitted-and-hidden because there is no node
-            // type to hang a `display: none` on: an unrecognised tag becomes a
-            // `<div>`, and a `<div>` full of an icon's RDF block renders the
-            // RDF.
-            XmlNodeChild::Element(child_node)
-                if child_inside_svg
-                    && element_draws_nothing(
-                        child_node.node_type.as_str(),
-                        &child_node.node_type.as_str().to_ascii_lowercase(),
-                    ) => {}
-            XmlNodeChild::Element(child_node) => {
-                let child_dom =
-                    xml_node_to_dom_fast(child_node, component_map, child_inside_svg, depth + 1)?;
-                children.push(child_dom);
-            }
-            XmlNodeChild::Text(text) => {
-                let text_dom = Dom::create_text_do_not_use_without_block_level_wrapper(
-                    AzString::from(text.as_str()),
-                );
-                children.push(text_dom);
+                XmlNodeChild::Text(text) => {
+                    sink.leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
+                        AzString::from(text.as_str()),
+                    ));
+                }
             }
         }
     }
-
-    if !children.is_empty() {
-        dom = dom.with_children(children.into());
-    }
-
-    for css in scoped_css {
-        dom.add_component_css(css);
-    }
-
-    Ok(dom)
+    sink.close();
+    Ok(())
 }
 
 /// Builder for arena-based DOM construction (`FastDom`).
@@ -6946,12 +6640,10 @@ impl CompactDomBuilder {
     }
 }
 
-/// Convert an XML node tree into a `FastDom` (arena-based) in a single DFS pass.
-/// This is the fast path equivalent of `xml_node_to_dom_fast`.
+/// Convert an XML node tree into a `FastDom` (arena-based) in a single DFS
+/// pass: [`walk_element`] into a [`CompactDomBuilder`].
 #[allow(clippy::result_large_err)]
 // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// See xml_node_to_dom_fast: component_map is forwarded for pipeline parity, not read here.
-#[allow(clippy::only_used_in_recursion)]
 fn xml_node_to_fast_dom<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
@@ -6959,67 +6651,13 @@ fn xml_node_to_fast_dom<'a>(
     builder: &mut CompactDomBuilder,
     depth: usize,
 ) -> Result<(), RenderDomError> {
-    use crate::dom::NodeData;
-
-    // Names read as `xml_node_to_dom_fast` reads them (case-insensitive).
-    let component_name = xml_node.node_type.as_str().to_ascii_lowercase();
-    let node_type = tag_to_node_type(&component_name);
-    let mut node_data = NodeData::create_node(node_type);
-
-    apply_xml_node_attributes(&mut node_data, xml_node, &component_name, inside_svg);
-
-    let child_inside_svg = inside_svg || component_name == "svg";
-
-    // Open this node in the builder
-    builder.open_node(node_data);
-
-    // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
-    // pathologically deep markup. At the cap, children are dropped (the node is
-    // still opened+closed) rather than crashing the process.
-    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
-    if depth < MAX_XML_NESTING_DEPTH {
-        // `data-l10n="key"`: the key goes in first, as the element's text -
-        // the same shape `xml_node_to_dom_fast` builds.
-        if let Some(key) = l10n_key_of(xml_node) {
-            builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(
-                AzString::tr(key),
-            ));
-        }
-        // Recursively convert children
-        for child in xml_node.children.as_ref() {
-            match child {
-                // The same law as in the tree builder: an element that draws
-                // nothing contributes nothing, subtree and all.
-                XmlNodeChild::Element(child_node)
-                    if child_inside_svg
-                        && element_draws_nothing(
-                            child_node.node_type.as_str(),
-                            &child_node.node_type.as_str().to_ascii_lowercase(),
-                        ) => {}
-                XmlNodeChild::Element(child_node) => {
-                    xml_node_to_fast_dom(
-                        child_node,
-                        component_map,
-                        child_inside_svg,
-                        builder,
-                        depth + 1,
-                    )?;
-                }
-                XmlNodeChild::Text(text) => {
-                    builder.add_leaf(
-                        NodeData::create_text_do_not_use_without_block_level_wrapper(
-                            AzString::from(text.as_str()),
-                        ),
-                    );
-                }
-            }
-        }
-    }
-
-    // Close this node
-    builder.close_node();
-
-    Ok(())
+    walk_element(
+        xml_node,
+        component_map,
+        element::ElementScope { inside_svg },
+        builder,
+        depth,
+    )
 }
 
 /// Render a DOM from an XML body node using the fast arena-based path.
@@ -7336,6 +6974,11 @@ pub fn parse_bool(input: &str) -> Option<bool> {
 /// builders and the code generator both read it).
 #[path = "xml_attributes.rs"]
 pub mod attributes;
+
+/// One element of markup -> one DOM node: the builtin renderers every XML
+/// loader instantiates its elements with.
+#[path = "xml_element.rs"]
+pub mod element;
 
 /// HTML as a browser reads it (the lenient loader), and the ONE tree
 /// construction every XML loader shares.

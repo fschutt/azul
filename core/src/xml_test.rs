@@ -2335,36 +2335,36 @@ mod autotest_generated {
     fn parse_svg_float_none_empty_whitespace_garbage() {
         assert_eq!(parse_svg_float(None), None);
         let empty = AzString::from("");
-        assert_eq!(parse_svg_float(Some(&empty)), None);
+        assert_eq!(parse_svg_float(Some(empty.as_str())), None);
         let ws = AzString::from("   \t\n");
-        assert_eq!(parse_svg_float(Some(&ws)), None);
+        assert_eq!(parse_svg_float(Some(ws.as_str())), None);
         let junk = AzString::from("10px");
-        assert_eq!(parse_svg_float(Some(&junk)), None, "units are not stripped");
+        assert_eq!(parse_svg_float(Some(junk.as_str())), None, "units are not stripped");
         let uni = AzString::from("\u{1F600}");
-        assert_eq!(parse_svg_float(Some(&uni)), None);
+        assert_eq!(parse_svg_float(Some(uni.as_str())), None);
     }
 
     #[test]
     fn parse_svg_float_valid_and_boundary_numbers() {
         let padded = AzString::from("  1.5  ");
         assert_eq!(
-            parse_svg_float(Some(&padded)),
+            parse_svg_float(Some(padded.as_str())),
             Some(1.5),
             "value is trimmed"
         );
         let zero = AzString::from("0");
-        assert_eq!(parse_svg_float(Some(&zero)), Some(0.0));
+        assert_eq!(parse_svg_float(Some(zero.as_str())), Some(0.0));
         let negzero = AzString::from("-0");
-        assert!(parse_svg_float(Some(&negzero)).unwrap().is_sign_negative());
+        assert!(parse_svg_float(Some(negzero.as_str())).unwrap().is_sign_negative());
         let huge = AzString::from("1e400");
         assert!(
-            parse_svg_float(Some(&huge)).unwrap().is_infinite(),
+            parse_svg_float(Some(huge.as_str())).unwrap().is_infinite(),
             "overflow saturates to inf rather than erroring"
         );
         let nan = AzString::from("NaN");
-        assert!(parse_svg_float(Some(&nan)).unwrap().is_nan());
+        assert!(parse_svg_float(Some(nan.as_str())).unwrap().is_nan());
         let inf = AzString::from("-inf");
-        assert_eq!(parse_svg_float(Some(&inf)), Some(f32::NEG_INFINITY));
+        assert_eq!(parse_svg_float(Some(inf.as_str())), Some(f32::NEG_INFINITY));
     }
 
     #[test]
