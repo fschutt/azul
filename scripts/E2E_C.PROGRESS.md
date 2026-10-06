@@ -55,8 +55,22 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
   injecting a native DoubleClick, which would now be a second one).
 - With the drag steps skipped (/tmp/e2e-c/tasks_skipdnd.py) everything else PASSES on today's binary.
 
-## AzTerm / AzVideoCut / AzWriter
-- status: not run yet
+## AzTerm - PASS (after the helper's bare-line fix)
+
+## AzVideoCut - PASS (after script fixes, c6beb5121)
+- SCRIPT: the export Dialog is modal (window "azul-transient"): its controls were clicked in the owner.
+- SCRIPT: AZVIDEOCUT_EXPORTED's key has spaces ("Sample cut.mp4"); the \S+ pattern never matched.
+- SCRIPT: key_up carried the chord's modifiers (held for the next click); click now settles (shared settle).
+
+## AzWriter - SCRIPT fixed + ENGINE fix, unverified
+- SCRIPT: `get_node_layout text="Undo"` answers the text node (rect null) -> helper `text_rect`.
+- SCRIPT: the close question's Save was clicked in the owner -> clicked in "azul-transient".
+- ENGINE: Save saved, then the write-back's close_window() closed the QUESTION's window (the thread was
+  started by the question's button, so it replies in the popup); the document window stayed. RED fcfce42a2,
+  GREEN 199df4129 (mailbox `close_owner`; CloseWindow in a popup closes the owner through its close protocol).
+- With the guard step replaced by Cancel + Ctrl+S (/tmp/e2e-c/writer_skipguard.py) the rest PASSES, the
+  restart included.
 
 ## NEXT
-- run AzTerm
+- look at the "seen" visual bugs if time permits (AzReader page 2, AzSheets stale grid borders); then the
+  final report scripts/E2E_C_2026_10_06.md
