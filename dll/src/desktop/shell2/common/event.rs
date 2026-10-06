@@ -7351,6 +7351,17 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
             }
 
+            CallbackChange::PlaceCaretAfterRebuild {
+                host,
+                node_path,
+                position,
+            } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let _ = lw.place_caret_after_rebuild(*host, node_path.clone(), *position);
+                }
+                ProcessEventResult::DoNothing
+            }
+
             // === Cursor Movement ===
             CallbackChange::MoveCursorLeft { .. }
             | CallbackChange::MoveCursorRight { .. }

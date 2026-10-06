@@ -2986,6 +2986,18 @@ impl Runner {
                     .reset_editor_content(*host, *caret_at_end);
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
             }
+            CallbackChange::PlaceCaretAfterRebuild {
+                host,
+                node_path,
+                position,
+            } => {
+                let _ = self.layout_window.place_caret_after_rebuild(
+                    *host,
+                    node_path.clone(),
+                    *position,
+                );
+                ProcessEventResult::DoNothing
+            }
 
             // === Cursor movement ===
             CallbackChange::MoveCursorLeft { .. }

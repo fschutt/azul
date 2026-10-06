@@ -10275,17 +10275,19 @@ mod tests {
             "premise: Enter left the list: {kinds:?}"
         );
 
+        let caret = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.document_caret())
+            .expect("a caret after the rebuild");
         step(&mut window, HeadlessEvent::TextInput { text: "x".to_string() });
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: VirtualKeyCode::Escape });
-        let last = state
-            .borrow_mut()
-            .downcast_ref::<NotesEditor>()
-            .and_then(|app| app.editor.doc.blocks.as_ref().last().map(RichBlock::flat))
-            .expect("the app's state");
-        let caret = window.common.layout_window.as_ref().and_then(|lw| lw.document_caret());
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let paragraph = caret.node.node.into_crate_internal().expect("the caret's block");
+        let text = lw.extract_text_from_inline_content(&lw.get_text_before_textinput(dom, paragraph));
         assert_eq!(
-            last, "x",
-            "the keystroke typed after leaving the list is in the new paragraph (caret {caret:?})"
+            text, "x",
+            "the keystroke typed after leaving the list is in the new paragraph"
         );
     }
 

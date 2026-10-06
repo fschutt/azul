@@ -12971,6 +12971,38 @@ impl LayoutWindow {
     /// document selection, the typing style. The caret is placed against
     /// the NEW content when that is laid out ([`Self::place_pending_caret`]):
     /// at the end of the host's last block, or at the start of its first.
+    /// [`crate::callbacks::CallbackInfo::place_caret_after_rebuild`]: the
+    /// caret goes to `position` in the node `node_path` leads to from the
+    /// editing host `host`, placed by the tail of the next layout (the same
+    /// resume a committed structural edit gets). Returns whether `host` is a
+    /// live editing host.
+    pub fn place_caret_after_rebuild(
+        &mut self,
+        host: DomNodeId,
+        node_path: azul_css::corety::U32Vec,
+        position: crate::managers::changeset::NodePosition,
+    ) -> bool {
+        let dom_id = host.dom;
+        let Some(host_node) = host.node.into_crate_internal() else {
+            return false;
+        };
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        if host_node.index() >= lr.styled_dom.node_data.as_container().len()
+            || !crate::solver3::getters::is_node_contenteditable_inherited(&lr.styled_dom, host_node)
+        {
+            return false;
+        }
+        let anchor_key = self.contenteditable_session_key(dom_id, host_node);
+        self.pending_caret_restore = Some(crate::managers::changeset::EditResumePoint {
+            anchor_key,
+            node_path,
+            position,
+        });
+        true
+    }
+
     pub fn reset_editor_content(&mut self, host: DomNodeId, caret_at_end: bool) -> bool {
         let dom_id = host.dom;
         let Some(host_node) = host.node.into_crate_internal() else {

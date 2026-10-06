@@ -992,6 +992,7 @@ fn with_runs(node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock) -> Dom {
 /// sibling has no line box of its own (dom_lint). The span keeps the run's
 /// child index, and a span without run classes reads back as a plain run.
 fn with_runs_in(mut node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock, wrap_plain: bool) -> Dom {
+    let mut any = false;
     for run in block.runs.as_ref() {
         if !run.text.as_str().is_empty() {
             let child = run_dom(ctx, run);
@@ -1000,7 +1001,16 @@ fn with_runs_in(mut node: Dom, ctx: &RenderCtx<'_>, block: &RichBlock, wrap_plai
             } else {
                 child
             });
+            any = true;
         }
+    }
+    // An EMPTY block keeps one empty text node: its line, where the caret
+    // stands and typing lands. A childless paragraph has no inline content -
+    // no line to type on: the paragraph Enter makes of an empty list item
+    // took the next keystroke nowhere (AzNotes, 2026-10-06).
+    if !any {
+        let text = Dom::create_text_do_not_use_without_block_level_wrapper("");
+        node.add_child(if wrap_plain { Dom::create_span().with_child(text) } else { text });
     }
     node
 }
@@ -2511,6 +2521,27 @@ extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         editor.state.history.record(&before, RichEditGroup::None);
         editor.state.revision += 1;
         editor.state.typing = OptionRichTypingStyle::None;
+        // The block changed kind at its start (Enter on an empty item,
+        // Backspace at a block's start): the rebuild replaces its node - a
+        // list item's by a paragraph's - and the caret on it goes with it.
+        // Put it at the start of the block's new node.
+        if byte == 0 {
+            if let Some((page_host, first)) = info
+                .get_document_caret()
+                .into_option()
+                .and_then(|p| host_of(&info, editor.state.host_id.as_str(), p.node))
+            {
+                let index = u32::try_from(block.saturating_sub(first)).unwrap_or(u32::MAX);
+                info.place_caret_after_rebuild(
+                    page_host,
+                    azul_css::corety::U32Vec::from_vec(alloc::vec![index]),
+                    crate::managers::changeset::NodePosition {
+                        child_index: 0,
+                        text_byte: azul_css::corety::OptionU32::Some(0),
+                    },
+                );
+            }
+        }
     }
     if !changed && !synced {
         return Update::DoNothing;

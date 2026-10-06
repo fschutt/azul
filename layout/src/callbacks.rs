@@ -713,6 +713,15 @@ pub enum CallbackChange {
         host: DomNodeId,
         caret_at_end: bool,
     },
+    /// A widget rebuilt its editing host's blocks (`Update::RefreshDom`) and
+    /// wants the caret at `position` in the node `node_path` leads to from
+    /// `host` once the rebuild is laid out
+    /// (`LayoutWindow::place_caret_after_rebuild`).
+    PlaceCaretAfterRebuild {
+        host: DomNodeId,
+        node_path: azul_css::corety::U32Vec,
+        position: crate::managers::changeset::NodePosition,
+    },
 
     // Cursor Movement Operations
     /// Move cursor left (arrow left)
@@ -3584,6 +3593,24 @@ impl CallbackInfo {
     /// callback returns.
     pub fn reset_editor_content(&mut self, host: DomNodeId, caret_at_end: bool) {
         self.push_change(CallbackChange::ResetEditorContent { host, caret_at_end });
+    }
+
+    /// Place the caret at `position` in the node `node_path` (child indices)
+    /// leads to from the editing host `host`, once the DOM the callback asks
+    /// for (`Update::RefreshDom`) is laid out: a block that changes KIND (a
+    /// list item becoming a paragraph) is a new node, and the caret that was
+    /// on the old one goes with it.
+    pub(crate) fn place_caret_after_rebuild(
+        &mut self,
+        host: DomNodeId,
+        node_path: azul_css::corety::U32Vec,
+        position: crate::managers::changeset::NodePosition,
+    ) {
+        self.push_change(CallbackChange::PlaceCaretAfterRebuild {
+            host,
+            node_path,
+            position,
+        });
     }
 
     // === Multi-Cursor Operations ===
