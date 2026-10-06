@@ -2,12 +2,32 @@
 
 Gate run (built from 889dccf30): 131 pass / 79 fail; 60 expected, 19 regressions, 44 unexpected passes.
 Snapshot of the run's results/diffs: /tmp/wpt/gate_snapshot (copied from target/wpt).
+Tools: /tmp/wpt/tools (mk.py builds an E2E mount scenario from WPT pages, run_e2e.sh runs it on
+AzPaint headless through run_capped, resp.py prints display list / layout tree).
+
+KEY FINDING: tests/wpt/reftest_expectations.txt was SEEDED from a debug-server sweep, never
+blessed from this runner; 12 of the 19 "regressions" were removed from it by agents PREDICTING
+their fix (8fba0bcdf, 8a8d980ea, 978441b69, 4958a31e7, 03ba7769c) - never verified.
+
+## Root-cause groups (19)
+- A abspos static position never computed in block flow: height-table-cell-001, height-width-table-001
+- B inside marker rides a nested first line (116feca4d): list-style-position-023
+- C marker of an empty item 4px off (own-line vs riding marker): list-style-type-applies-to-009
+- D font-size keywords (smaller/larger/x-small..) not parsed: local/ua/small-is-smaller
+- E needs `display: inline flow-root list-item` (expectation): inline-block-list
+- F needs list-style-type <string> + ::before (expectation): list-style-type-string-001a
+- G table cell vertical-align uses item bounds not line-box extent: table-cell-nowrap-with-fixed-width
+- H text clipped to a shrink-wrapped box's advance edge (glyph AA spill): anonymous-table-ws-001, table-width-s
+- tables (TODO analyse): collapsing-border-model-003/009, border-collapse-offset-002,
+  border-collapse-empty-row, calc-percent-plus-0px-auto, col-definite-size-001, th-text-align,
+  table-cell-width-s
+- gradient seams: background-gradient-subpixel-fills-area
 
 ## DONE
-- the 44 unexpected passes leave tests/wpt/reftest_expectations.txt (commit "test(wpt): the 44 reftests ...")
-
-## IN PROGRESS
-- triage of the 19 regressions by root cause
+- 98187c0ac the 44 unexpected passes leave tests/wpt/reftest_expectations.txt
+- 264f41dba RED / 879830f93 GREEN (A) abspos static position (LayoutOutput::static_positions)
 
 ## NEXT
-- group regressions, RED test + fix per engine bug, expectation where the expectation is wrong
+- B: marker_line_host only for OUTSIDE markers past the item itself; inside marker with no own
+  line host stays in flow (layout_bfc marker branch + sizing.rs max)
+- C, D, G, H, tables, gradient; expectations for E, F
