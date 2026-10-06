@@ -2904,6 +2904,39 @@ mod autotest_generated {
         }
 
         #[test]
+        fn a_relatively_positioned_block_moves_its_contents_with_it() {
+            // CSS 2.2 9.4.3: the box is shifted "as a unit" - its content goes with it.
+            // AzReader shows page 2 of a chapter as the reading column shifted up by page 1's
+            // height inside a clip (`position: relative; top: -502px`): the shifted box moved,
+            // the column in it stayed, and page 2 showed the chapter's start again (E2E-C).
+            let (sd, mut tree) =
+                three_level(".mid { position: relative; top: -50px; left: 5px; }");
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 300.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(200.0, 300.0));
+            let mut pos = positions(&[(0.0, 0.0), (10.0, 20.0), (10.0, 20.0)]);
+            let mut env = Env::new(sd);
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1], LogicalPosition::new(15.0, -30.0), "the box itself");
+            assert_eq!(pos[2], LogicalPosition::new(15.0, -30.0), "its content goes with it");
+        }
+
+        #[test]
+        fn nested_relative_offsets_add_up() {
+            let (sd, mut tree) = three_level(
+                ".mid { position: relative; top: 10px; } .child { position: relative; top: 5px; }",
+            );
+            tree.nodes[0].used_size = Some(LogicalSize::new(200.0, 100.0));
+            tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 50.0));
+            tree.nodes[2].used_size = Some(LogicalSize::new(100.0, 50.0));
+            let mut pos = positions(&[(0.0, 0.0), (10.0, 20.0), (10.0, 20.0)]);
+            let mut env = Env::new(sd);
+            run_rel(&mut env, &tree, &mut pos);
+            assert_eq!(pos[1], LogicalPosition::new(10.0, 30.0), "the outer box");
+            assert_eq!(pos[2], LogicalPosition::new(10.0, 35.0), "the inner box: both shifts");
+        }
+
+        #[test]
         fn relative_short_position_vec_is_skipped_not_panicked_on() {
             let (mut env, tree, _pos) =
                 rel_fixture(".child { position: relative; top: 10px; left: 5px; }");
