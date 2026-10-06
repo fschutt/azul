@@ -8006,6 +8006,131 @@ mod tests {
         assert_eq!(saved.load(Ordering::SeqCst), 2, "…and nothing else fired");
     }
 
+    // --- A fired menu chord is the menu's: the DOM does not see its key ---
+    //
+    // AppKit runs a menu item's key equivalent INSTEAD of delivering the
+    // key-down to the view, and Win32's TranslateAccelerator turns it into
+    // a WM_COMMAND: the key never reaches the window's key handlers. The
+    // shared dispatch ran the item and then dispatched the key-down to the
+    // DOM as well, so an app that binds Mod+Z in its menu bar AND in its key
+    // handler undid twice on Windows / Linux / headless and once on macOS
+    // (AzPhoto's E2E, 2026-10-06: one Cmd+Z, History 3 -> 2 -> 1).
+
+    struct ChordLog {
+        saved: Arc<core::sync::atomic::AtomicUsize>,
+        keys_seen: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn chord_save(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(s) = data.downcast_ref::<ChordLog>() {
+            s.saved.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn chord_key_seen(
+        mut data: RefAny,
+        info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        let key = info
+            .get_current_keyboard_state()
+            .current_virtual_keycode
+            .into_option();
+        if key == Some(azul_core::window::VirtualKeyCode::S) {
+            if let Some(s) = data.downcast_ref::<ChordLog>() {
+                s.keys_seen.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn chord_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::{
+            callbacks::{CoreCallback, CoreCallbackData},
+            events::{EventFilter, WindowEventFilter},
+            menu::{Menu, MenuItem, StringMenuItem},
+            window::{VirtualKeyCode as K, VirtualKeyCodeCombo, VirtualKeyCodeVec},
+        };
+
+        let log = data.downcast_ref::<ChordLog>().map(|l| ChordLog {
+            saved: l.saved.clone(),
+            keys_seen: l.keys_seen.clone(),
+        });
+        let Some(log) = log else {
+            return Dom::create_body();
+        };
+        let state = RefAny::new(log);
+        let mut save = StringMenuItem::create("Save".into()).with_callback(
+            state.clone(),
+            CoreCallback {
+                cb: chord_save as usize,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+        );
+        save.accelerator = Some(VirtualKeyCodeCombo {
+            keys: VirtualKeyCodeVec::from_vec(vec![K::LWin, K::S]),
+        })
+        .into();
+        let file = StringMenuItem::create("File".into())
+            .with_children(vec![MenuItem::String(save)].into());
+        Dom::create_body()
+            .with_menu_bar(Menu::create(vec![MenuItem::String(file)].into()))
+            .with_css("width: 100%; height: 100%;")
+            .with_callbacks(
+                vec![CoreCallbackData {
+                    event: EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+                    callback: CoreCallback {
+                        cb: chord_key_seen as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                    refany: state,
+                }]
+                .into(),
+            )
+    }
+
+    #[test]
+    fn a_fired_menu_chord_does_not_reach_the_windows_key_handlers() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        use azul_core::window::VirtualKeyCode as K;
+
+        let log = ChordLog {
+            saved: Arc::new(AtomicUsize::new(0)),
+            keys_seen: Arc::new(AtomicUsize::new(0)),
+        };
+        let (saved, keys_seen) = (log.saved.clone(), log.keys_seen.clone());
+        let state = Arc::new(RefCell::new(RefAny::new(log)));
+        let mut window = make_window_sized(&state, chord_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let primary = if cfg!(target_os = "macos") {
+            K::LWin
+        } else {
+            K::LControl
+        };
+
+        // S alone: no chord, the key handler sees it (the premise).
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        assert_eq!(keys_seen.load(Ordering::SeqCst), 1, "premise: a plain S reaches the handler");
+
+        // Mod+S: the menu's Save runs, the key handler does not see the S.
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: primary });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        assert_eq!(saved.load(Ordering::SeqCst), 1, "premise: Mod+S runs File > Save");
+        assert_eq!(
+            keys_seen.load(Ordering::SeqCst),
+            1,
+            "the chord the menu took never reached the window's key handler"
+        );
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: primary });
+    }
+
     // --- An empty, focused editable shows a caret --------------------------
     //
     // REPORTED (AzWidgets, 2026-08-21): "TextInput not working" — clicking
