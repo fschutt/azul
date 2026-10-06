@@ -28,9 +28,19 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App>; libazul.dylib is
   - ENGINE already fixed in base, not in today's libazul: 30fb9f06b (the question's window stays open
     after Kill; the next click in the main window is eaten by the menu sweep).
   - Probes on today's build: steps 1-3 pass, the kill passes (AZMON_END 812 true), steps 6-8 pass.
-- AzMusic: todo
-- AzNews: todo
-- AzNotes: todo
+- AzMusic: PASS (no change).
+- AzNews: library + sample runs PASS (SCRIPT: click_exact walks to the nearest ancestor with a box,
+  helper commit); the rename run passes ALONE but the full script is CAPPED (1542-1616 MB tree RSS):
+  AzNews --sample's first layout of its 4868-node DOM (all 891 articles, no virtualization) takes
+  2.1 s and RSS climbs 304 MB -> 1.38 GB (peak 1.47 GB, steady 1.07 GB); vmmap: 696 MB resident in the
+  nano malloc zone with 14 MB allocated (74 % frag., 50 MB dirty) = a burst of tiny allocations in
+  layout_and_dl. ENGINE (layout allocation churn) + APP (unvirtualized list). Not fixed.
+- AzNotes: FAILS "the note's file on disk" (the check item "[ ] call the bakery" never reaches the
+  model). ENGINE race, not pinned: text typed within ~0.4-1 s after Enter on an EMPTY bullet (the
+  editor turns it into a paragraph) is dropped - the caret stays at offset 0 of p#__aznotes_note-body-3,
+  no TextChanged, nothing painted; flaky (extra debug ops in between make it pass). With 0.5 s after
+  each type/key the WHOLE script passes (probe /tmp/e2e-b/aznotes_probe.py). Second bug seen: Enter
+  in a check item, then typing, saves "- [ ] plain\ue835" (the check box's icon glyph in the text).
 - AzPaint: todo
 - AzPdf: todo
 - AzPhoto: todo
@@ -45,4 +55,4 @@ see `git log --oneline 05ef3a8f4..HEAD`
 - AzMonitor look: the process table stops at ~810 px of 1280 (columns do not fill the width).
 
 ## NEXT
-- run azmusic_e2e.py
+- run azpaint_e2e.py
