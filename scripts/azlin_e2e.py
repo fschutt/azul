@@ -272,9 +272,8 @@ class App:
     def nodes_with_class(self, cls):
         return [n["index"] for n in self.hierarchy() if cls in (n.get("classes") or [])]
 
-    def texts_within(self, cls):
-        """The texts of the window whose node lies inside a node carrying the class `cls`
-        (`shows` reads every text - a search field holding the word included)."""
+    def _within(self, cls):
+        """The window's nodes, and a test: does a node lie inside a node of the class `cls`?"""
         nodes = self.hierarchy()
         by_index = {n["index"]: n for n in nodes}
 
@@ -287,7 +286,28 @@ class App:
                 node = by_index.get(node.get("parent"))
             return False
 
+        return nodes, inside
+
+    def texts_within(self, cls):
+        """The texts of the window whose node lies inside a node carrying the class `cls`
+        (`shows` reads every text - a search field holding the word included)."""
+        nodes, inside = self._within(cls)
         return [n["text"] for n in nodes if n.get("text") and inside(n)]
+
+    def click_within(self, cls, text, frames=2):
+        """Clicks the node holding exactly `text` inside a node of the class `cls`, once it is
+        there (a click by text takes the first node CONTAINING the text anywhere: a chart's
+        "Sales by row" before the table's "Sales" header)."""
+        def found():
+            nodes, inside = self._within(cls)
+            for n in nodes:
+                if n.get("text") == text and inside(n):
+                    return n.get("parent", n["index"])
+            return None
+        node = self.until('the text "%s" in .%s' % (text, cls), found)
+        self.settle(limit=2.0)
+        self.must("click", node_id=node)
+        self.frame(frames)
 
     def exact(self, text):
         """The node holding the text node whose text is exactly `text` (the first one)."""

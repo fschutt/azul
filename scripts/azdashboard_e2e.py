@@ -33,6 +33,9 @@ TAG = "azdash"
 ROWS = 500000
 UP = "▲"
 DOWN = "▼"
+# A column header of the DataTable: a click by text alone takes the first node containing it
+# (the charts' "Sales by row" and their "Sales" axis come before the table's "Sales").
+HEADER = "__azul-native-data-table-header"
 
 
 def number(text):
@@ -84,7 +87,7 @@ def body(args, logs, out):
 
         # ---- sort by a text column, then descending ----
         n = len(app.printed("AZDASH_SHOWN"))
-        app.click(text="Customer")
+        app.click_within(HEADER, "Customer")
         app.until("the sort to start", lambda: app.last("AZDASH_SORT") == "Sorted by Customer " + UP)
         (count, total), keys = wait_order(app, "the customers sorted", n)
         if (count, total) != (ROWS, ROWS):
@@ -94,7 +97,7 @@ def body(args, logs, out):
             raise Failure("the first customers do not ascend: %r" % names)
         app.log("sorted by Customer: %s" % keys)
         n = len(app.printed("AZDASH_SHOWN"))
-        app.click(text="Customer " + UP)
+        app.click_within(HEADER, "Customer " + UP)
         (count, _), keys = wait_order(app, "the customers sorted descending", n)
         names = [k.lower() for k in keys_of(keys)]
         if names != sorted(names, reverse=True):
@@ -108,10 +111,10 @@ def body(args, logs, out):
         app.key("end")
         app.frame(2)
         n = len(app.printed("AZDASH_SHOWN"))
-        app.click(text="Sales")
+        app.click_within(HEADER, "Sales")
         (count, _), keys = wait_order(app, "the sales sorted", n)
         n = len(app.printed("AZDASH_SHOWN"))
-        app.click(text="Sales " + UP)
+        app.click_within(HEADER, "Sales " + UP)
         (count, _), keys = wait_order(app, "the sales sorted descending", n)
         sales = [number(k) for k in keys_of(keys)]
         if sales != sorted(sales, reverse=True):
