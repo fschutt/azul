@@ -681,4 +681,27 @@ mod tests {
         assert!(close(&w, &[5.0]), "{w:?}");
         assert!(distribute_to_columns(&[], 100.0).is_empty());
     }
+
+    #[test]
+    fn a_calc_width_with_a_percentage_sizes_its_column_like_that_percentage() {
+        // WPT css/css-tables/calc-percent-plus-0px-auto: `width: calc(50% +
+        // 0px)` on a cell of an auto-layout table makes a 50% column, as
+        // `width: 50%` does (Chrome: the reference's 50% cell, the
+        // percentage of a calc() mixing it with a length). Every calc() was
+        // `Auto` here: the cell shrank to its content. A calc() without a
+        // percentage is the length it adds up to.
+        let width = |css: &str| {
+            let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+                azul_core::dom::Dom::create_body()
+                    .with_child(azul_core::dom::Dom::create_div().with_css(css)),
+            );
+            specified_width(&styled, NodeId::new(1), 0.0)
+        };
+        assert_eq!(width("width: 50%;"), SpecifiedWidth::Percent(50.0), "harness");
+        assert_eq!(
+            width("width: calc(50% + 0px);"),
+            SpecifiedWidth::Percent(50.0)
+        );
+        assert_eq!(width("width: calc(40px + 2px);"), SpecifiedWidth::Fixed(42.0));
+    }
 }
