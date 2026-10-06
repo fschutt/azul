@@ -279,6 +279,23 @@ class App:
                 return n.get("parent", n["index"])
         return None
 
+    def text_rect(self, text):
+        """The laid-out rect ({x, y, width, height}) of the first node showing exactly `text`, or
+        None. A text node has no box of its own (`get_node_layout text=...` answers it with
+        `rect: null`), so this is its nearest ancestor that has one - the label's button, cell or
+        row."""
+        nodes = self.hierarchy()
+        by_index = {n["index"]: n for n in nodes}
+        for n in nodes:
+            if (n.get("text") or "").strip() != text:
+                continue
+            at, seen = n, 0
+            while at is not None and not at.get("rect") and seen < 64:
+                at, seen = by_index.get(at.get("parent")), seen + 1
+            if at is not None and at.get("rect"):
+                return {key: float(at["rect"].get(key, 0)) for key in ("x", "y", "width", "height")}
+        return None
+
     def click_exact(self, text, button="left", double=False, frames=2):
         """Clicks (or double-clicks) the node holding exactly `text`, once it is there."""
         node = self.until('the text "%s"' % text, lambda: self.exact(text))
@@ -353,16 +370,20 @@ class App:
 
     # ---- input ----
 
-    def click(self, selector=None, text=None, frames=2):
+    def click(self, selector=None, text=None, frames=2, window=None):
         # A click lands where the node IS: an entrance animation (AzCalculator's
         # Scientific keys slide in) moves it off its layout rect, and the engine
         # hits what is painted, as a user would. Settle first, or the click
         # misses the key it names (it hit a neighbour or nothing).
+        # `window`: the window that shows the node (`list_windows`). A Modal / MessageBox /
+        # popover is a window of its own ("azul-transient"): its content is also in the owner's
+        # node hierarchy, but a click there lands in the owner, on whatever lies under it.
         self.settle(limit=2.0)
+        target = {"window_id": window} if window else {}
         if selector:
-            self.must("click", selector=selector)
+            self.must("click", selector=selector, **target)
         else:
-            self.must("click", text=text)
+            self.must("click", text=text, **target)
         self.frame(frames)
 
     def key(self, key, shift=False, ctrl=False, alt=False, meta=False, frames=2, primary=False):
@@ -412,11 +433,16 @@ class App:
     # ---- stdout ----
 
     def printed(self, key, pattern=r".*"):
+        """The values of the lines `<KEY> <value>` whose value matches `pattern`. A bare line
+        `<KEY>` (AZREADER_READY, AZWRITER_READY, AZTERM_READY print no value) counts as the
+        value "" when `pattern` can match an empty value (the default `.*`)."""
         try:
             with open(self.out_path, "r", encoding="utf-8", errors="replace") as f:
                 text = f.read()
         except OSError:
             return []
+        if re.fullmatch(pattern, "") is not None:
+            return re.findall(r"^%s(?: (%s))?$" % (re.escape(key), pattern), text, re.M)
         return re.findall(r"^%s (%s)$" % (re.escape(key), pattern), text, re.M)
 
     def last(self, key):
@@ -457,6 +483,10 @@ class App:
             raise Failure("%s: expected %r, last %r" % (what or key, expected, self.last(key)))
 
     def screenshot(self, path):
+        # Settle first (the house rule: nothing moving when the picture is taken). A rebuild
+        # slides every moved node to its new place: AzSheets' Budget sample, shot mid-slide,
+        # showed the grid's cell borders strewn over the empty rows.
+        self.settle()
         value = self.value("take_screenshot")
         data = value.get("data") if isinstance(value, dict) else None
         if not isinstance(data, str) or "base64," not in data:

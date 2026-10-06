@@ -641,3 +641,443 @@ fn a_modal_button_that_changes_app_state_rebuilds_its_parent_window() {
         root.children.len()
     );
 }
+
+/// E2E-C, AzReview: every `<transient-window>` is a `WindowType::Menu` window
+/// (`transient::popup_window_state` - borderless, on top, parent-owned), and
+/// the headless owner took every Menu-type child for a window-based MENU: an
+/// Escape (or a press) that reached the owner closed an open modal as it
+/// closes a menu - silently, with no `Dismissed` for the widget, and with the
+/// key spent. A window-based menu is a Menu window WITHOUT a mailbox (the rule
+/// `process_transient_dismissal` already uses); a modal's Escape is its own.
+#[test]
+fn an_escape_in_the_owner_of_an_open_modal_does_not_close_it_as_a_menu() {
+    let state = Arc::new(RefCell::new(RefAny::new(RecordPage { deleted: false })));
+    let mut root = make_window_with(&state, record_page_layout);
+    root.regenerate_layout().expect("the page's first layout");
+    let _ = root.common.take_regeneration();
+    root.pump_children();
+    assert_eq!(root.children.len(), 1, "harness: the question is open");
+
+    press_escape(&mut root);
+    root.pump_children();
+    assert_eq!(
+        root.children.len(),
+        1,
+        "the question has no Escape of its own (dismiss=none), so it stays open: the owner \
+         closed it as if it were a menu"
+    );
+}
+
+/// What [`about_page_layout`] shows: azul-appkit's settings page with its
+/// About box, a `Modal` the app keeps open while `open` says so.
+struct AboutPage {
+    open: bool,
+    closes: usize,
+}
+
+/// The Modal's `on_close`: the app drops its flag (azul-appkit's
+/// `on_about_close` prints `<APP>_ABOUT closed` here).
+extern "C" fn about_closed(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+    state: azul_layout::widgets::modal::ModalState,
+) -> azul_core::callbacks::Update {
+    if let Some(mut page) = data.downcast_mut::<AboutPage>() {
+        page.open = state.open;
+        page.closes += 1;
+    }
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// `body > p "Settings"` and the About box: a `Modal` holding one line.
+extern "C" fn about_page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::modal::{Modal, ModalOnCloseCallbackType};
+    let open = data.downcast_ref::<AboutPage>().is_some_and(|p| p.open);
+    let on_close: ModalOnCloseCallbackType = about_closed;
+    Dom::create_body()
+        .with_child(Dom::create_p_with_text("Settings"))
+        .with_child(
+            Modal::create(Dom::create_p_with_text("AzReview 0.1.0"))
+                .with_title("About AzReview".into())
+                .with_open(open)
+                .with_on_close(data.clone(), on_close)
+                .dom(),
+        )
+}
+
+/// E2E-C, AzReview: a script opens the About box and presses Escape. The key
+/// reaches the app's first window (the debug server's default), which hands
+/// it to the modal - the popup that holds the keyboard - and the modal's own
+/// Escape closes it and tells the app through `on_close`. Headless did
+/// neither: the owner closed the modal as a menu (see above), and a key
+/// forwarded to a popup waited for a pass the headless loop never ran (the
+/// desktop backends run it at once, `deliver_forwarded_keys`).
+#[test]
+fn escape_in_the_owner_of_a_modal_dialog_closes_it_and_tells_the_app() {
+    let state = Arc::new(RefCell::new(RefAny::new(AboutPage {
+        open: true,
+        closes: 0,
+    })));
+    let mut root = make_window_with(&state, about_page_layout);
+    root.regenerate_layout().expect("the page's first layout");
+    let _ = root.common.take_regeneration();
+    root.pump_children();
+    assert_eq!(
+        root.children.len(),
+        1,
+        "harness: the About box is a window of its own"
+    );
+    root.pump_children();
+
+    press_escape(&mut root);
+    for _ in 0..6 {
+        root.pump_children();
+        root.pump_once(true);
+    }
+
+    let (open, closes) = state
+        .borrow_mut()
+        .downcast_ref::<AboutPage>()
+        .map(|p| (p.open, p.closes))
+        .expect("the page");
+    assert_eq!(
+        (open, closes),
+        (false, 1),
+        "the modal's Escape closed it and its on_close told the app, once"
+    );
+    assert!(
+        root.children.is_empty(),
+        "the About box is gone: {} window(s) still open",
+        root.children.len()
+    );
+}
+
+/// What [`drag_and_drop_layout`] counts: the source's DragStarts, the
+/// target's Drops.
+struct DragAndDrop {
+    starts: usize,
+    drops: usize,
+}
+
+extern "C" fn dnd_drag_start(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut d) = data.downcast_mut::<DragAndDrop>() {
+        d.starts += 1;
+    }
+    azul_core::callbacks::Update::DoNothing
+}
+
+extern "C" fn dnd_drag_over(
+    _data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    info.accept_drop();
+    azul_core::callbacks::Update::DoNothing
+}
+
+extern "C" fn dnd_drop(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut d) = data.downcast_mut::<DragAndDrop>() {
+        d.drops += 1;
+    }
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// `body` (8 px UA margin) with a draggable 120x40 source at the top and a
+/// 120x40 drop target 60 px under it - AzTasks' planned month in miniature
+/// (a task dragged onto a day).
+extern "C" fn drag_and_drop_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::AttributeType,
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    let on = |event: HoverEventFilter, cb: usize| CoreCallbackData {
+        event: EventFilter::Hover(event),
+        callback: CoreCallback {
+            cb,
+            ctx: OptionRefAny::None,
+        },
+        refany: data.clone(),
+    };
+    Dom::create_body()
+        .with_child(
+            Dom::create_div()
+                .with_css("width: 120px; height: 40px;")
+                .with_attribute(AttributeType::Draggable(true))
+                .with_callbacks(
+                    vec![on(HoverEventFilter::DragStart, dnd_drag_start as usize)].into(),
+                ),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css("width: 120px; height: 40px; margin-top: 60px;")
+                .with_callbacks(
+                    vec![
+                        on(HoverEventFilter::DragOver, dnd_drag_over as usize),
+                        on(HoverEventFilter::Drop, dnd_drop as usize),
+                    ]
+                    .into(),
+                ),
+        )
+}
+
+/// The debug server's `mouse_down` / `mouse_move` / `mouse_up` ops, as a
+/// script drags: a press on the source at (60, 28), moves down a frame each,
+/// the release on the target at (60, 128).
+extern "C" fn debug_drag_timer(
+    _data: RefAny,
+    mut info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::window::CursorPosition;
+    let at = |state: &azul_layout::window_state::FullWindowState, y: f32, down: bool| {
+        let mut s = state.clone();
+        s.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(60.0, y));
+        s.mouse_state.left_down = down;
+        s
+    };
+    let base = info.callback_info.get_current_window_state().clone();
+    let mut states = vec![at(&base, 28.0, false), at(&base, 28.0, true)];
+    for y in [34.0, 50.0, 80.0, 110.0, 128.0] {
+        states.push(at(&base, y, true));
+    }
+    states.push(at(&base, 128.0, false));
+    info.callback_info
+        .queue_window_state_sequence(states.into());
+    azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+}
+
+/// E2E-C, AzTasks / AzShow: a script's drag never became a drag. The debug
+/// server's pointer ops arrive as window-state changes (`ModifyWindowState`,
+/// `QueueWindowStateSequence`), which ran the event pass but never fed the
+/// gesture manager - every backend's mouse handler does
+/// (`record_input_sample`) - so no input session existed, `detect_drag`
+/// never saw one, no `DragStart` fired and a held-button move was only a
+/// text-selection drag: AzTasks' planned month and board, and AzShow's slide
+/// sorter, got no drop.
+#[test]
+fn a_scripted_drag_from_a_draggable_node_drops_on_the_target_under_the_release() {
+    let state = Arc::new(RefCell::new(RefAny::new(DragAndDrop {
+        starts: 0,
+        drops: 0,
+    })));
+    let mut window = make_window_with(&state, drag_and_drop_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    window.start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_drag_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..4 {
+        window.pump_once(true);
+    }
+
+    let (starts, drops) = state
+        .borrow_mut()
+        .downcast_ref::<DragAndDrop>()
+        .map(|d| (d.starts, d.drops))
+        .expect("the counters");
+    assert_eq!(
+        starts, 1,
+        "the press on the source and the moves past the threshold are a drag"
+    );
+    assert_eq!(drops, 1, "the release over the target drops there");
+}
+
+/// How many DoubleClicks [`double_click_layout`]'s box heard.
+struct DoubleClicks {
+    count: usize,
+}
+
+extern "C" fn count_double_click(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut d) = data.downcast_mut::<DoubleClicks>() {
+        d.count += 1;
+    }
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// `body` with one 120x40 box that counts its DoubleClicks (AzReader's
+/// library tile opens its book on one).
+extern "C" fn double_click_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+    };
+    Dom::create_body().with_child(
+        Dom::create_div()
+            .with_css("width: 120px; height: 40px;")
+            .with_callbacks(
+                vec![CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::DoubleClick),
+                    callback: CoreCallback {
+                        cb: count_double_click as usize,
+                        ctx: OptionRefAny::None,
+                    },
+                    refany: data.clone(),
+                }]
+                .into(),
+            ),
+    )
+}
+
+/// The debug server's `double_click` op: two press / release cycles at the
+/// box's centre, each its own window-state change.
+extern "C" fn debug_double_click_timer(
+    _data: RefAny,
+    mut info: azul_layout::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::window::CursorPosition;
+    let mut state = info.callback_info.get_current_window_state().clone();
+    state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(60.0, 28.0));
+    for _ in 0..2 {
+        state.mouse_state.left_down = true;
+        info.callback_info.modify_window_state(state.clone());
+        state.mouse_state.left_down = false;
+        info.callback_info.modify_window_state(state.clone());
+    }
+    azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+}
+
+/// E2E-C: with the scripted pointer feeding the gesture sessions (see the
+/// drag above), the `double_click` op's two press / release cycles ARE a
+/// double click - exactly one, raised by the release that completes it. The
+/// op also injected a native DoubleClick (its stand-in while scripts fed no
+/// sessions), which would now be a second one.
+#[test]
+fn two_scripted_press_release_cycles_on_one_spot_are_one_double_click() {
+    let state = Arc::new(RefCell::new(RefAny::new(DoubleClicks { count: 0 })));
+    let mut window = make_window_with(&state, double_click_layout);
+    window.regenerate_layout().expect("the first layout");
+    let _ = window.common.take_regeneration();
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    window.start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_double_click_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..4 {
+        window.pump_once(true);
+    }
+
+    let count = state
+        .borrow_mut()
+        .downcast_ref::<DoubleClicks>()
+        .map(|d| d.count)
+        .expect("the counter");
+    assert_eq!(
+        count, 1,
+        "two press / release cycles on one spot are one double click"
+    );
+}
+
+/// The question's "Close": what a CloseGuard's Don't Save does, and what
+/// AzWriter's save write-back does after a Save the question started.
+extern "C" fn close_from_the_question(
+    _data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    info.close_window();
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// `body > p` and a `<transient-window open>` covering the viewport with no
+/// light-dismiss - a `Modal` - whose only content is a 120x40 button at its
+/// top-left that closes the window.
+extern "C" fn closing_question_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{NodeData, NodeType},
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+        transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
+    };
+    let close_button = Dom::create_div()
+        .with_css("width: 120px; height: 40px;")
+        .with_callbacks(
+            vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                callback: CoreCallback {
+                    cb: close_from_the_question as usize,
+                    ctx: OptionRefAny::None,
+                },
+                refany: data.clone(),
+            }]
+            .into(),
+        );
+    let question = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+        TransientWindowConfig::opened()
+            .with_anchor(TransientAnchor::Viewport)
+            .with_dismiss(TransientDismiss::None),
+    )))
+    .with_child(close_button);
+    Dom::create_body()
+        .with_child(Dom::create_p_with_text("Report.md"))
+        .with_child(Dom::create_div().with_child(question))
+}
+
+/// E2E-C, AzWriter: "Save changes?" > Save saved the document, and the
+/// write-back's `close_window()` closed - the question's own window. A
+/// Modal's content is its OWNER's subtree (`common::transient`): a callback
+/// there that closes "the window" means the window the user sees it in, the
+/// owner; the popup goes with it. (The CloseGuard's Don't Save calls
+/// `close_window()` from inside its question too.)
+#[test]
+fn close_window_from_inside_a_modal_closes_the_window_that_owns_it() {
+    let state = Arc::new(RefCell::new(RefAny::new(())));
+    let mut root = make_window_with(&state, closing_question_layout);
+    root.regenerate_layout().expect("the page's first layout");
+    let _ = root.common.take_regeneration();
+    root.pump_children();
+    assert_eq!(
+        root.children.len(),
+        1,
+        "harness: the question is a window of its own"
+    );
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    root.children[0].start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_click_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..8 {
+        if !root.is_open() {
+            break;
+        }
+        root.pump_children();
+        root.pump_once(true);
+    }
+    assert!(
+        !root.is_open(),
+        "close_window() inside the modal closes the window that owns it ({} popup(s) open)",
+        root.children.len()
+    );
+}
