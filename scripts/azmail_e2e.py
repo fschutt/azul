@@ -56,6 +56,8 @@ import time
 import urllib.error
 import urllib.request
 
+import azlin_e2e
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..'))
 MAIL_SCRIPTS = os.path.join(REPO, 'examples', 'azul-mail', 'scripts')
@@ -226,12 +228,60 @@ class Run:
     def shows(self, text, window=None):
         return any(text in t for t in self.texts(window))
 
+    def settle(self, window=None, limit=2.0):
+        """Waits for the window's animations: a click lands where a node is PAINTED, and the
+        wizard's pages slide in (azlin_e2e.settle_animations, the settle of 05ef3a8f4)."""
+        def animations():
+            answer = self.must('get_animations', window)
+            data = answer.get('data') if isinstance(answer, dict) else None
+            return data.get('value') if isinstance(data, dict) and 'value' in data else data
+        azlin_e2e.settle_animations(animations, lambda: self.frame(window), limit)
+
     def click(self, text, window=None):
+        self.settle(window)
         self.must('click', window, text=text)
         self.frame(window)
 
     def click_id(self, dom_id, window=None):
+        self.settle(window)
         self.must('click', window, selector=f'#{dom_id}')
+        self.frame(window)
+
+    def node_with_text(self, text, window=None, within=None):
+        """The index of the first node whose text is exactly `text` (in a 1-tuple: index 0 is
+        a node too) - inside a node of the class `within` if given - else None.
+        `click(text=...)` takes the first node CONTAINING the text, and a note can hold a
+        button's word ("Save puts it into the system keyring", "Finish adds the account"); a
+        wizard's step names its last step "Finish" like its button."""
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        by_index = {n.get('index'): n for n in nodes}
+
+        def inside(node):
+            for _ in range(256):
+                if node is None:
+                    return False
+                if within in (node.get('classes') or []):
+                    return True
+                node = by_index.get(node.get('parent'))
+            return False
+
+        for n in nodes:
+            if (n.get('text') or '').strip() == text and n.get('index') is not None:
+                if within and not inside(n):
+                    continue
+                # A text node has no box of its own: its nearest ancestor that has one.
+                target = n
+                while target is not None and not target.get('rect'):
+                    target = by_index.get(target.get('parent'))
+                return ((target or n)['index'],)
+        return None
+
+    def click_exact(self, text, window=None, within=None):
+        found = self.until(f'a node reading exactly "{text}"',
+                           lambda: self.node_with_text(text, window, within), limit=20)
+        self.settle(window)
+        self.must('click', window, node_id=found[0])
         self.frame(window)
 
     def type_into(self, dom_id, text, window=None):
@@ -239,6 +289,27 @@ class Run:
         self.must('focus_node', window, selector=f'#{dom_id}')
         self.frame(window)
         self.must('focus_node', window, selector=f'#{dom_id}')
+        self.must('text_input', window, text=text)
+        self.frame(window, 2)
+
+    def key(self, key, window=None, primary=False):
+        """A tap of `key` (with the platform's shortcut modifier: Cmd on macOS, Ctrl
+        elsewhere); the key_up releases every modifier (the E2E key_up rule)."""
+        mods = {'shift': False, 'ctrl': False, 'alt': False, 'meta': False}
+        if primary:
+            mods['meta' if sys.platform == 'darwin' else 'ctrl'] = True
+        self.must('key_down', window, key=key, modifiers=mods)
+        self.must('key_up', window, key=key,
+                  modifiers={'shift': False, 'ctrl': False, 'alt': False, 'meta': False})
+        self.frame(window)
+
+    def replace_in(self, dom_id, text, window=None):
+        """Types `text` over what a field holds - a pre-filled default (the Sending page's
+        port says 587): focus, select all, type."""
+        self.must('focus_node', window, selector=f'#{dom_id}')
+        self.frame(window)
+        self.must('focus_node', window, selector=f'#{dom_id}')
+        self.key('a', window, primary=True)
         self.must('text_input', window, text=text)
         self.frame(window, 2)
 
@@ -298,11 +369,14 @@ class Run:
         self.click('Through an SMTP server')
         self.until('the SMTP fields', lambda: self.shows('Outgoing mail server'))
         self.type_into('__azmail_send_host', '127.0.0.1')
-        self.type_into('__azmail_send_port', str(self.smtp_port))
+        # The port field is pre-filled with the submission port (587): typed over, not after.
+        self.replace_in('__azmail_send_port', str(self.smtp_port))
         self.click('Use STARTTLS when the server offers it')
         self.click('Next >')
         self.until('the last page', lambda: self.shows('Finish adds the account'))
-        self.click('Finish')
+        # The page's own text says "Finish adds the account ..." and the wizard's last step is
+        # named "Finish" too: the button in the wizard's button row.
+        self.click_exact('Finish', within='__azul-native-wizard-layout-buttons')
         saved = self.until('AZMAIL_ACCOUNT_SAVED', lambda: self.printed('AZMAIL_ACCOUNT_SAVED'))
         log(f'account saved: {saved[0]}')
         done = self.until('the first Send/Receive', lambda: self.printed('AZMAIL_SYNC_DONE') or
@@ -705,23 +779,6 @@ class SubmissionRun(Run):
             except OSError:
                 pass
         return text + self.output('azmail') + self.output('azmail', 'err')
-
-    def node_with_text(self, text, window=None):
-        """The index of the first node whose text is exactly `text` (in a 1-tuple: index 0 is
-        a node too), else None. `click(text=...)` takes the first node CONTAINING the text,
-        and a note can hold a button's word ("Save puts it into the system keyring")."""
-        answer = self.op('get_node_hierarchy', window)
-        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
-        for n in nodes:
-            if (n.get('text') or '').strip() == text and n.get('index') is not None:
-                return (n['index'],)
-        return None
-
-    def click_exact(self, text, window=None):
-        found = self.until(f'a node reading exactly "{text}"',
-                           lambda: self.node_with_text(text, window), limit=20)
-        self.must('click', window, node_id=found[0])
-        self.frame(window)
 
     def point_outgoing_server_at_sink(self):
         """The account's own outgoing server - account.json `smtp`, which the wizard fills from

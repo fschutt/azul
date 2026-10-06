@@ -153,6 +153,22 @@ def dark_pixels(path, rect, scale=1.0, threshold=100):
     return count
 
 
+def settle_animations(animations, frame, limit=3.0):
+    """Waits (at most `limit` seconds) until no animation, exit or transition runs: a click
+    lands where the node is PAINTED (an entrance animation moves it off its layout rect), and
+    a screenshot should not catch a slide midway. `animations()` answers the debug op
+    `get_animations` (its value), `frame()` lets the app run one frame. For drivers of their
+    own (azmail_e2e.py) as much as for `App`."""
+    end = time.time() + limit
+    while time.time() < end:
+        value = animations()
+        if not isinstance(value, dict) or not (
+                value.get("active") or value.get("zombies") or value.get("transitions")):
+            return
+        time.sleep(0.1)
+        frame()
+
+
 def tail(path, lines=40):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -335,14 +351,7 @@ class App:
     def settle(self, limit=3.0):
         """Waits (at most `limit` seconds) until no animation, exit or transition runs, so a
         screenshot does not catch a slide or a fade midway."""
-        end = time.time() + limit
-        while time.time() < end:
-            value = self.value("get_animations")
-            if not isinstance(value, dict) or not (
-                    value.get("active") or value.get("zombies") or value.get("transitions")):
-                return
-            time.sleep(0.1)
-            self.frame(1)
+        settle_animations(lambda: self.value("get_animations"), lambda: self.frame(1), limit)
 
     def has_id(self, node_id):
         return self.has("#%s" % node_id)
