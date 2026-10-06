@@ -1939,8 +1939,12 @@ fn layout_bfc<T: ParsedFontTrait>(
         // own above the first block: `<li><div style="height: 50px">` was
         // a line too tall. Checked before the position / float tests: the
         // marker carries its LIST ITEM's DOM node, whose `position` and
-        // `float` are not the marker's.
-        if is_marker_box(tree, child_index) {
+        // `float` are not the marker's. An OUTSIDE marker only: an inside
+        // one is an inline box of the item's flow - with no line of the
+        // item's own to share it is one in an anonymous block, a line before
+        // the first block (CSS 2.2 12.5.1; it hung over that block here).
+        let child_is_marker = is_marker_box(tree, child_index);
+        if child_is_marker && is_outside_marker(tree, ctx.styled_dom, child_index) {
             marker_without_line_main = marker_without_line_main.max(
                 child_node
                     .used_size
@@ -1955,7 +1959,13 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // +spec:floats:2cec1b - 'position' and 'float' determine the positioning algorithm
         // +spec:positioning:dccad6 - floats only apply to non-absolutely-positioned boxes
-        let position_type = get_position_type(ctx.styled_dom, child_dom_id);
+        // (An inside marker in this flow carries its ITEM's DOM node: the
+        // item's `position` and `float` are not the marker's.)
+        let position_type = if child_is_marker {
+            LayoutPosition::Static
+        } else {
+            get_position_type(ctx.styled_dom, child_dom_id)
+        };
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
             // Its STATIC position (CSS 2.2 10.3.7 / 10.6.4): the border-box
             // origin it would have had as a block of this flow - after the
@@ -1982,7 +1992,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         // +spec:floats:f6c0b2 - floats only processed in BFC; other formatting contexts (flex/grid)
         // inhibit floating Check if this child is a float - if so, position it at current
         // main_pen
-        if let Some(node_id) = child_dom_id {
+        if let Some(node_id) = child_dom_id.filter(|_| !child_is_marker) {
             let float_type = get_float_property(ctx.styled_dom, Some(node_id));
 
             if float_type != LayoutFloat::None {
@@ -12419,6 +12429,26 @@ pub(crate) fn is_marker_box(tree: &LayoutTree, index: usize) -> bool {
         .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
 }
 
+/// Whether the list item whose box is `list_item` puts its marker INSIDE
+/// (`list-style-position: inside`; the initial value is `outside`). A
+/// `::marker` box carries its item's DOM node, so this answers for a
+/// marker box too.
+fn has_inside_marker(tree: &LayoutTree, styled_dom: &StyledDom, list_item: usize) -> bool {
+    tree.get(LayoutNodeId::new(list_item))
+        .and_then(|n| n.dom_node_id)
+        .is_some_and(|dom| {
+            matches!(
+                get_list_style_position(styled_dom, Some(dom)),
+                StyleListStylePosition::Inside
+            )
+        })
+}
+
+/// Whether the box at `index` is a `::marker` hanging OUTSIDE its item.
+pub(crate) fn is_outside_marker(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
+    is_marker_box(tree, index) && !has_inside_marker(tree, styled_dom, index)
+}
+
 /// Whether the box at `index` is in its parent's flow: not a `::marker`,
 /// not absolutely positioned, not floated. Anonymous boxes are.
 fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
@@ -12562,12 +12592,33 @@ pub(crate) fn anonymous_block_holds_the_first_line(
 ///
 /// `None` when there is no line box there (an empty item, or a first child
 /// that is a table, a flex box, a replaced element): the marker box is then
-/// laid out as a line of its own, as before.
+/// laid out by the item's block flow (`layout_bfc`).
+///
+/// An INSIDE marker is an inline box at the very start of its item (CSS 2.2
+/// 12.5.1): it shares the item's OWN first line - the item's IFC, or the
+/// anonymous block wrapping the item's leading inline content - and nothing
+/// deeper. Before a first block child it is a line of its own (an anonymous
+/// block): it never rides a nested block's line (WPT
+/// list-style-position-023: three nested inside markers piled onto the
+/// innermost item's line).
 pub(crate) fn marker_line_host(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     list_item: usize,
 ) -> Option<usize> {
+    if has_inside_marker(tree, styled_dom, list_item) {
+        return match tree.get(LayoutNodeId::new(list_item))?.formatting_context {
+            FormattingContext::Inline => Some(list_item),
+            FormattingContext::Block { .. } => {
+                let first = first_in_flow_child(tree, styled_dom, list_item)?;
+                let first_node = tree.get(LayoutNodeId::new(first))?;
+                let leading_inline_content = first_node.dom_node_id.is_none()
+                    && matches!(first_node.formatting_context, FormattingContext::Inline);
+                leading_inline_content.then_some(first)
+            }
+            _ => None,
+        };
+    }
     let mut node = list_item;
     for _ in 0..MARKER_WALK_LIMIT {
         match tree.get(LayoutNodeId::new(node))?.formatting_context {
