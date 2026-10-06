@@ -108,6 +108,9 @@ class Drive(e2e.App):
             return None
         self.click_exact("HOME")
         node = self.until('the ribbon\'s "%s"' % label, found)
+        # The HOME tab's groups slide in: a click lands where the button is painted (the
+        # settle of App.click, 05ef3a8f4).
+        self.settle(limit=2.0)
         self.must("click", node_id=node, button="left")
         self.frame()
         self.click_exact("VIEW")
