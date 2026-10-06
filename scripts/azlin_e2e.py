@@ -279,6 +279,23 @@ class App:
                 return n.get("parent", n["index"])
         return None
 
+    def text_rect(self, text):
+        """The laid-out rect ({x, y, width, height}) of the first node showing exactly `text`, or
+        None. A text node has no box of its own (`get_node_layout text=...` answers it with
+        `rect: null`), so this is its nearest ancestor that has one - the label's button, cell or
+        row."""
+        nodes = self.hierarchy()
+        by_index = {n["index"]: n for n in nodes}
+        for n in nodes:
+            if (n.get("text") or "").strip() != text:
+                continue
+            at, seen = n, 0
+            while at is not None and not at.get("rect") and seen < 64:
+                at, seen = by_index.get(at.get("parent")), seen + 1
+            if at is not None and at.get("rect"):
+                return {key: float(at["rect"].get(key, 0)) for key in ("x", "y", "width", "height")}
+        return None
+
     def click_exact(self, text, button="left", double=False, frames=2):
         """Clicks (or double-clicks) the node holding exactly `text`, once it is there."""
         node = self.until('the text "%s"' % text, lambda: self.exact(text))

@@ -54,10 +54,12 @@ def saved_count(app, doc_id):
 DIALOG_BUTTONS = "__azul-native-standard-dialog-buttons"
 
 
-def click_dialog_button(app, label):
+def click_dialog_button(app, label, window="azul-transient"):
     """Clicks the button `label` of the standard dialog showing (the text "Save" is in the
-    document too, so a click by text could land in the page)."""
-    answer = app.op("get_node_hierarchy")
+    document too, so a click by text could land in the page). The dialog is a Modal: a window
+    of its own (`window`). Its nodes are in the owner's hierarchy too, but a click there lands in
+    the owner, on whatever lies under them - the question stayed and nothing was saved."""
+    answer = app.op("get_node_hierarchy", window_id=window)
     nodes = [d for d in e.dicts(answer) if "index" in d and "parent" in d]
     by_index = {d["index"]: d for d in nodes}
 
@@ -76,7 +78,7 @@ def click_dialog_button(app, label):
             target = node
             while target is not None and not target.get("rect"):
                 target = by_index.get(target.get("parent"))
-            app.must("click", node_id=(target or node)["index"])
+            app.must("click", node_id=(target or node)["index"], window_id=window)
             app.frame(2)
             return
     raise e.Failure("no dialog button %r" % label)
@@ -108,8 +110,8 @@ def first_session(app, data, out):
 
     # HOME fits a 1280 px window: the styles gallery shows a row of a few
     # styles (More shows all), so the Editing group's Undo is on screen.
-    undo = app.value("get_node_layout", text="Undo")
-    rect = (undo or {}).get("rect") if isinstance(undo, dict) else None
+    # The label's box: `get_node_layout text=` answers the text node, which has no rect.
+    rect = app.text_rect("Undo")
     if not rect or rect.get("x", 0) + rect.get("width", 0) > 1280:
         raise e.Failure("HOME runs out of the 1280 px window: Undo at %s" % rect)
     app.log("HOME fits the window (Undo at x %.0f)" % rect["x"])
