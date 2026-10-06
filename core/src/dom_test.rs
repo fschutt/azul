@@ -294,7 +294,7 @@ mod autotest_generated {
             NodeType::Td,
             NodeType::Svg,
             NodeType::SvgPath,
-            NodeType::SvgText("svg text".into()),
+            NodeType::SvgText,
             NodeType::SvgImage(ImageRef::null_image(
                 1,
                 1,

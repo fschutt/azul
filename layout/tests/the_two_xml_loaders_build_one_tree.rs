@@ -253,3 +253,77 @@ fn an_svg_and_an_img_are_built_alike_by_both_loaders() {
         "the image knows its source: {doc:?}"
     );
 }
+
+#[test]
+fn svg_elements_keep_their_attributes_and_a_text_is_its_characters() {
+    // A page as printpdf writes it: a group with a transform, a path, a text
+    // whose characters are its Text children (one of them in a tspan), an
+    // image. Each builtin renderer keeps the element's own attributes on its
+    // node (the SVG can be written back from the DOM, and layout and paint
+    // read them there).
+    let document = "<html><body><svg width=\"612\" height=\"792\" viewBox=\"0 0 612 792\">\
+                    <g transform=\"matrix(1 0 0 1 10 20)\"><path d=\"M0,0 L10,0 L10,10 Z\" \
+                    fill=\"#ff0000\" fill-rule=\"evenodd\"/></g>\
+                    <text x=\"72\" y=\"700\" font-family=\"F1\" font-size=\"12\" \
+                    transform=\"matrix(1 0 0 -1 0 792)\">Hello<tspan dx=\"2\">World</tspan></text>\
+                    <image x=\"0\" y=\"0\" width=\"4\" height=\"2\" href=\"data:image/png;base64,AAAA\"/>\
+                    </svg></body></html>";
+    for (loader, nodes) in [
+        ("tree loader", {
+            let mut out = Vec::new();
+            fn walk(dom: &Dom, out: &mut Vec<azul_core::dom::NodeData>) {
+                out.push(dom.root.clone());
+                for child in dom.children.as_ref() {
+                    walk(child, out);
+                }
+            }
+            walk(&dom_from_parsed_xml(parse_xml(document).expect("parses")), &mut out);
+            out
+        }),
+        (
+            "document loader",
+            parse_xml_to_styled_dom(document)
+                .expect("parses")
+                .node_data
+                .as_ref()
+                .to_vec(),
+        ),
+    ] {
+        let find = |kind_of: fn(&NodeType) -> bool| {
+            nodes
+                .iter()
+                .find(|n| kind_of(&n.node_type))
+                .unwrap_or_else(|| panic!("{loader}: no such node in {nodes:?}"))
+        };
+        let attr = |node: &azul_core::dom::NodeData, name: &str| {
+            node.get_attribute(name).map(|v| v.as_str().to_string())
+        };
+        let group = find(|t| matches!(t, NodeType::SvgG));
+        assert_eq!(attr(group, "transform").as_deref(), Some("matrix(1 0 0 1 10 20)"), "{loader}");
+        let path = find(|t| matches!(t, NodeType::SvgPath));
+        assert_eq!(attr(path, "d").as_deref(), Some("M0,0 L10,0 L10,10 Z"), "{loader}");
+        assert_eq!(attr(path, "fill-rule").as_deref(), Some("evenodd"), "{loader}");
+        let text = find(|t| matches!(t, NodeType::SvgText));
+        assert_eq!(attr(text, "font-family").as_deref(), Some("F1"), "{loader}");
+        assert_eq!(attr(text, "y").as_deref(), Some("700"), "{loader}");
+        let tspan = find(|t| matches!(t, NodeType::SvgTspan));
+        assert_eq!(attr(tspan, "dx").as_deref(), Some("2"), "{loader}");
+        let texts: Vec<String> = nodes
+            .iter()
+            .filter_map(|n| match &n.node_type {
+                NodeType::Text(t) => Some(t.as_str().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            texts.contains(&"Hello".to_string()) && texts.contains(&"World".to_string()),
+            "{loader}: the text's characters are Text nodes: {texts:?}"
+        );
+        let image = find(|t| matches!(t, NodeType::SvgImage(_)));
+        assert!(
+            matches!(&image.node_type, NodeType::SvgImage(i)
+                if i.source_tag() == Some("data:image/png;base64,AAAA")),
+            "{loader}: the image carries its href"
+        );
+    }
+}

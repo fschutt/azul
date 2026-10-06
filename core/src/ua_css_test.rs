@@ -190,7 +190,7 @@ mod autotest_generated {
             NT::SvgG,
             NT::SvgPath,
             NT::SvgRect,
-            NT::SvgText(AzString::from("svg-text")),
+            NT::SvgText,
             // payload-carrying variants
             text_node(""),
             text_node("hello"),

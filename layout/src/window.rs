@@ -21304,7 +21304,7 @@ impl LayoutWindow {
             // and the metadata elements (`Title`, `Meta`, `Script`, `Style`,
             // ...), which are never rendered; the non-rendered option model of
             // a form control (`DataList`, `OptGroup`, `SelectOption`); the
-            // `Svg*` family, which carries its text in `SvgText`; the
+            // `Svg*` family, whose text is drawn by its `SvgText` elements; the
             // pseudo-element nodes (`Before`, `After`, `Marker`, `Placeholder`),
             // which are generated content and not document text; and the void
             // elements (`Hr`, `Wbr`, `Col`), which have no children (`Br` is

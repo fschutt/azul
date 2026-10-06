@@ -506,8 +506,9 @@ pub enum NodeType {
     SvgPolyline,
 
     // SVG elements — text
-    /// SVG `<text>` element.
-    SvgText(AzString),
+    /// SVG `<text>` element. Its characters are its `Text` children, as
+    /// every element's are; its position, font and paint are its attributes.
+    SvgText,
     /// SVG `<tspan>` element.
     SvgTspan,
     /// SVG `<textPath>` element.
@@ -833,7 +834,7 @@ impl NodeType {
             SvgPolygon => SvgPolygon,
             SvgPolyline => SvgPolyline,
             // SVG text
-            SvgText(s) => SvgText(s.clone_self()),
+            SvgText => SvgText,
             SvgTspan => SvgTspan,
             SvgTextPath => SvgTextPath,
             // SVG paint
@@ -1063,7 +1064,7 @@ impl NodeType {
             Self::SvgLine => NodeTypeTag::SvgLine,
             Self::SvgPolygon => NodeTypeTag::SvgPolygon,
             Self::SvgPolyline => NodeTypeTag::SvgPolyline,
-            Self::SvgText(_) => NodeTypeTag::SvgText,
+            Self::SvgText => NodeTypeTag::SvgText,
             Self::SvgTspan => NodeTypeTag::SvgTspan,
             Self::SvgTextPath => NodeTypeTag::SvgTextPath,
             Self::SvgLinearGradient => NodeTypeTag::SvgLinearGradient,

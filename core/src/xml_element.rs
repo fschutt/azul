@@ -180,6 +180,10 @@ pub fn builtin_renderer(name: &str, scope: ElementScope) -> BuiltinRenderFn {
         {
             render_svg_shape
         }
+        "g" if scope.inside_svg => render_svg_group,
+        "text" if scope.inside_svg => render_svg_text,
+        "tspan" if scope.inside_svg => render_svg_tspan,
+        "image" if scope.inside_svg => render_svg_image,
         _ => render_generic,
     }
 }
@@ -271,6 +275,7 @@ fn render_svg(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
     }
     intrinsic.push(simple(CssProperty::const_position(LayoutPosition::Relative)));
     land_common(&mut node, element, intrinsic, landing);
+    keep_svg_attributes(&mut node, element, landing);
     node
 }
 
@@ -289,7 +294,6 @@ fn render_svg(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
 fn render_svg_shape(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
     use azul_css::props::{
         basic::color::{parse_color_or_system, parse_color_or_system_token, ColorOrSystem},
-        layout::{LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop},
         property::CssProperty,
         style::{
             LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
@@ -301,13 +305,7 @@ fn render_svg_shape(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
     let simple = CssPropertyWithConditions::simple;
 
     let mut node = NodeData::create_node(super::tag_to_node_type(element.tag));
-    let mut intrinsic = alloc::vec![
-        simple(CssProperty::const_position(LayoutPosition::Absolute)),
-        simple(CssProperty::const_left(LayoutLeft::const_px(0))),
-        simple(CssProperty::const_top(LayoutTop::const_px(0))),
-        simple(CssProperty::const_right(LayoutRight::const_px(0))),
-        simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
-    ];
+    let mut intrinsic = viewport_box();
     // Both take a `system:` colour keyword like their CSS spellings: the fill
     // as an unresolved `SystemColor` layer, the stroke as the border colour's
     // token - the getters resolve them against the cascade's theme.
@@ -357,9 +355,83 @@ fn render_svg_shape(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
         }
     }
     land_common(&mut node, element, intrinsic, landing);
+    keep_svg_attributes(&mut node, element, landing);
     if let Some(geometry) = super::svg_shape_geometry(element) {
         node.set_svg_data(crate::dom::SvgNodeData::Path(geometry));
     }
+    node
+}
+
+/// The box of an SVG element drawn in its `<svg>`'s user space: the `<svg>`'s
+/// viewport (`position: absolute` at `inset: 0`). What it draws is placed by
+/// its attributes, through the `<svg>`'s viewBox mapping and the `transform`s
+/// above it, at layout and paint time.
+fn viewport_box() -> Vec<CssPropertyWithConditions> {
+    use azul_css::props::{
+        layout::{LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop},
+        property::CssProperty,
+    };
+    let simple = CssPropertyWithConditions::simple;
+    alloc::vec![
+        simple(CssProperty::const_position(LayoutPosition::Absolute)),
+        simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        simple(CssProperty::const_top(LayoutTop::const_px(0))),
+        simple(CssProperty::const_right(LayoutRight::const_px(0))),
+        simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+    ]
+}
+
+/// `<g>`: a group, its `transform` (kept on the node) applying to everything
+/// in it. Its box is the viewport, like its shapes'.
+fn render_svg_group(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    let mut node = NodeData::create_node(NodeType::SvgG);
+    land_common(&mut node, element, viewport_box(), landing);
+    keep_svg_attributes(&mut node, element, landing);
+    node
+}
+
+/// `<text>`: an element whose characters are its `Text` children (and its
+/// `<tspan>`s'), as every element's are; `x` / `y` (its baseline),
+/// `font-*`, `fill`, `transform` stay on the node, where layout and paint
+/// read them.
+fn render_svg_text(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    let mut node = NodeData::create_node(NodeType::SvgText);
+    land_common(&mut node, element, Vec::new(), landing);
+    keep_svg_attributes(&mut node, element, landing);
+    node
+}
+
+/// `<tspan>`: a run of an SVG text (`dx` / `dy`, its own `font-*` and `fill`
+/// kept on the node).
+fn render_svg_tspan(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    let mut node = NodeData::create_node(NodeType::SvgTspan);
+    land_common(&mut node, element, Vec::new(), landing);
+    keep_svg_attributes(&mut node, element, landing);
+    node
+}
+
+/// `<image href x y width height>`: an `SvgImage` whose placeholder carries the
+/// `href` (a URL or a `data:` URI, resolved like an `<img src>`), its
+/// `width` / `height` its size in user units.
+fn render_svg_image(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
+    let href = element
+        .attribute("href")
+        .or_else(|| element.attribute("xlink:href"))
+        .unwrap_or_default();
+    let size = |key: &str| {
+        super::parse_svg_float(element.attribute(key))
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .map_or(0, |v| v.round() as usize)
+    };
+    let image = crate::resources::ImageRef::null_image(
+        size("width"),
+        size("height"),
+        crate::resources::RawImageFormat::RGBA8,
+        href.as_bytes().to_vec(),
+    );
+    let mut node = NodeData::create_node(NodeType::SvgImage(image));
+    land_common(&mut node, element, viewport_box(), landing);
+    keep_svg_attributes(&mut node, element, landing);
     node
 }
 
@@ -434,4 +506,28 @@ fn land_common(
             node.fluent_args = Some(Box::new(fluent_args));
         }
     }
+}
+
+/// Keeps an SVG element's own attributes on its node - every one the
+/// attribute table did not take (`d`, `fill`, `stroke`, `transform`, `x`,
+/// `font-size`, `href`, `viewBox` ...), as written: layout and paint read them
+/// there (`NodeData::get_attribute`), and the node says what the markup said
+/// (the SVG can be written back from the DOM).
+fn keep_svg_attributes(node: &mut NodeData, element: &Element<'_>, landing: &mut Landing<'_>) {
+    let kept: Vec<_> = element
+        .pairs()
+        .filter(|(key, value)| super::attributes::setting_of(element.tag, key, value).is_none())
+        .map(|(key, value)| {
+            crate::dom::AttributeType::Custom(crate::dom::AttributeNameValue {
+                attr_name: (landing.intern)(key),
+                value: (landing.intern)(value),
+            })
+        })
+        .collect();
+    if kept.is_empty() {
+        return;
+    }
+    let mut all = node.attributes().clone().into_library_owned_vec();
+    all.extend(kept);
+    node.set_attributes(all.into());
 }

@@ -29050,9 +29050,7 @@
                                 "SvgLine": {},
                                 "SvgPolygon": {},
                                 "SvgPolyline": {},
-                                "SvgText": {
-                                    "type": "String"
-                                },
+                                "SvgText": {},
                                 "SvgTspan": {},
                                 "SvgTextPath": {},
                                 "SvgLinearGradient": {},

@@ -969,7 +969,7 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
         NodeType::SvgLine => "line",
         NodeType::SvgPolygon => "polygon",
         NodeType::SvgPolyline => "polyline",
-        NodeType::SvgText(_) => "text",
+        NodeType::SvgText => "text",
         NodeType::SvgTspan => "tspan",
         NodeType::SvgTextPath => "textPath",
         NodeType::SvgLinearGradient => "linearGradient",
@@ -1001,7 +1001,6 @@ fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
 fn node_type_inline_text(node_type: &NodeType) -> Option<&str> {
     match node_type {
         NodeType::Text(s) => Some(s.as_str()),
-        NodeType::SvgText(s) => Some(s.as_str()),
         _ => None,
     }
 }
