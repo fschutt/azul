@@ -444,11 +444,13 @@ class Run:
         self.must('text_input', window, text=TYPED)
         self.frame(window, 2)
         # Typing in the rich-text editor does not rebuild its DOM (the engine edits, the editor
-        # follows: RichTextEditor's "Path 2"), so the window's node texts never show the line;
-        # the caret does - past the typed line, in the first block. The mail the sink gets
-        # carries the line itself (check_sink).
+        # follows: RichTextEditor's "Path 2"): the node texts show what the content overlay
+        # holds, and the caret sits past the typed line, in the first block. The mail the sink
+        # gets carries the line itself (check_sink).
         self.until('the typed line in the editor', lambda: self.caret(window) == (
             'p#__azmail_compose_body-0.__azul-rte-block', len(TYPED.encode('utf-8'))))
+        if not self.shows(TYPED, window):
+            raise Failure(f'the node texts of the reply window do not show the typed {TYPED!r}')
         self.click_id('__azmail_compose_send', window)
         sent = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
                                                if line.startswith(window + ' ')])

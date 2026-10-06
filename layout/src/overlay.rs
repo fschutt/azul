@@ -915,6 +915,94 @@ impl ResolvedContent<'_> {
     }
 }
 
+impl ResolvedContent<'_> {
+    /// The text every node of the DOM SHOWS, by node index (`None` for an
+    /// element): what an inspector lists, where the DOM's own text is stale
+    /// while an edit lives in the overlay (typing that did not rebuild the
+    /// DOM).
+    ///
+    /// An edit's runs go back to the text nodes they came from
+    /// (`source_node_id`; a space, a break or a tab to the run before it), and
+    /// a direct text child of the edited node that no run came from was
+    /// emptied by the edit. Runs without a source fill the edited node
+    /// itself when it is a text, else its only direct text child, else the
+    /// edited element (nothing else could show them).
+    #[must_use]
+    pub fn displayed_texts(&self) -> Vec<Option<String>> {
+        let node_data = self.styled_dom.node_data.as_container();
+        let is_text = |n: NodeId| matches!(node_data.get(n).map(|d| d.get_node_type()), Some(NodeType::Text(_)));
+        let mut texts: Vec<Option<String>> = node_data
+            .iter()
+            .map(|n| match n.get_node_type() {
+                NodeType::Text(s) => Some(s.as_str().to_string()),
+                _ => None,
+            })
+            .collect();
+        let Some(overlay) = self.overlay else {
+            return texts;
+        };
+        let hierarchy = self.styled_dom.node_hierarchy.as_container();
+        let direct_texts = |node: NodeId| {
+            let mut found = Vec::new();
+            let mut child = hierarchy.get(node).and_then(|n| n.first_child_id(node));
+            while let Some(c) = child {
+                if is_text(c) {
+                    found.push(c);
+                }
+                child = hierarchy
+                    .get(c)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+            }
+            found
+        };
+        for (&(dom_id, node_id), dirty) in overlay.iter_text() {
+            if dom_id != self.dom_id || node_id.index() >= texts.len() {
+                continue;
+            }
+            let mut shares: BTreeMap<NodeId, String> = BTreeMap::new();
+            let mut owner = dirty.content.iter().find_map(|item| match item {
+                InlineContent::Text(run) => run.source_node_id,
+                _ => None,
+            });
+            if let Some(first) = owner {
+                for item in &dirty.content {
+                    let piece = match item {
+                        InlineContent::Text(run) => {
+                            owner = run.source_node_id.or(owner);
+                            run.text.to_string()
+                        }
+                        InlineContent::Marker { .. }
+                        | InlineContent::Image(_)
+                        | InlineContent::Shape(_) => continue,
+                        other => flatten_inline_content(core::slice::from_ref(other)),
+                    };
+                    shares.entry(owner.unwrap_or(first)).or_default().push_str(&piece);
+                }
+                for c in direct_texts(node_id) {
+                    shares.entry(c).or_default();
+                }
+                for (n, text) in shares {
+                    if n.index() < texts.len() && is_text(n) {
+                        texts[n.index()] = Some(text);
+                    }
+                }
+                continue;
+            }
+            let whole = flatten_inline_content(&dirty.content);
+            let target = if is_text(node_id) {
+                node_id
+            } else {
+                match direct_texts(node_id).as_slice() {
+                    [only] => *only,
+                    _ => node_id,
+                }
+            };
+            texts[target.index()] = Some(whole);
+        }
+        texts
+    }
+}
+
 /// One journaled content mutation.
 #[derive(Debug, Clone)]
 pub struct JournalEntry {
@@ -1365,6 +1453,94 @@ mod tests {
             overlay.text_for_node(dom0(), NodeId::new(0)).is_none(),
             "host-keyed entry converges against its direct text children"
         );
+    }
+
+    fn edited(runs: &[(Option<usize>, &str)]) -> DirtyTextNode {
+        use std::sync::Arc;
+
+        use crate::text3::cache::{InlineContent, StyledRun};
+        DirtyTextNode {
+            content: runs
+                .iter()
+                .map(|(source, text)| {
+                    InlineContent::Text(StyledRun {
+                        text: Arc::from(*text),
+                        style: Arc::new(Default::default()),
+                        logical_start_byte: 0,
+                        source_node_id: source.map(NodeId::new),
+                    })
+                })
+                .collect(),
+            cursor: None,
+            needs_ancestor_relayout: false,
+            revision: 0,
+            typed_over: None,
+        }
+    }
+
+    #[test]
+    fn the_displayed_texts_are_the_edits_not_the_doms_stale_text() {
+        use azul_core::dom::Dom;
+        let text = Dom::create_text_do_not_use_without_block_level_wrapper;
+
+        // A field: div > [text "kru"], the user typed "g" over it (the edit
+        // keyed on the host, as a contenteditable's is).
+        let field = StyledDom::create_from_dom(Dom::create_div().with_child(text("kru")));
+        let mut overlay = ContentOverlay::default();
+        overlay.set_text(dom0(), NodeId::new(0), edited(&[(Some(1), "krug")]));
+        let shown = ResolvedContent {
+            overlay: Some(&overlay),
+            styled_dom: &field,
+            dom_id: dom0(),
+            image_cache: None,
+        }
+        .displayed_texts();
+        assert_eq!(shown, vec![None, Some("krug".to_string())], "the field shows the typing");
+
+        // An edit keyed on the text node itself.
+        overlay.clear_dom(dom0());
+        overlay.set_text(dom0(), NodeId::new(1), edited(&[(None, "kr")]));
+        let shown = ResolvedContent {
+            overlay: Some(&overlay),
+            styled_dom: &field,
+            dom_id: dom0(),
+            image_cache: None,
+        }
+        .displayed_texts();
+        assert_eq!(shown[1].as_deref(), Some("kr"), "a backspace shows too");
+
+        // A paragraph of two texts, one in a span: p > [span > [text "bold"],
+        // text " tail"]. Each run goes back to the text node it came from;
+        // the one the edit emptied shows nothing.
+        let paragraph = StyledDom::create_from_dom(
+            Dom::create_p()
+                .with_child(Dom::create_span().with_child(text("bold")))
+                .with_child(text(" tail")),
+        );
+        overlay.clear_dom(dom0());
+        overlay.set_text(dom0(), NodeId::new(0), edited(&[(Some(2), "bolder")]));
+        let shown = ResolvedContent {
+            overlay: Some(&overlay),
+            styled_dom: &paragraph,
+            dom_id: dom0(),
+            image_cache: None,
+        }
+        .displayed_texts();
+        assert_eq!(
+            shown,
+            vec![None, None, Some("bolder".to_string()), Some(String::new())],
+            "the span's text took the typing, the deleted tail shows nothing"
+        );
+
+        // Without an overlay: the DOM's texts.
+        let shown = ResolvedContent {
+            overlay: None,
+            styled_dom: &field,
+            dom_id: dom0(),
+            image_cache: None,
+        }
+        .displayed_texts();
+        assert_eq!(shown, vec![None, Some("kru".to_string())]);
     }
 
     #[test]

@@ -50,6 +50,30 @@ fn target_dom(request: &DebugRequest) -> azul_core::dom::DomId {
         })
 }
 
+/// What each node of `dom_id` SHOWS, by node index
+/// ([`crate::overlay::ResolvedContent::displayed_texts`]): typing that did
+/// not rebuild the DOM lives in the content overlay, the DOM's text is stale.
+/// Empty without a layout of `dom_id`.
+#[cfg(feature = "std")]
+fn shown_texts(
+    layout_window: &crate::window::LayoutWindow,
+    dom_id: azul_core::dom::DomId,
+) -> Vec<Option<String>> {
+    layout_window
+        .layout_results
+        .get(&dom_id)
+        .map(|result| {
+            crate::overlay::ResolvedContent {
+                overlay: Some(&layout_window.content_overlay),
+                styled_dom: &result.styled_dom,
+                dom_id,
+                image_cache: None,
+            }
+            .displayed_texts()
+        })
+        .unwrap_or_default()
+}
+
 /// Wall-clock `wall_clock_now()` for the E2E runner's own bookkeeping
 /// (per-step durations and the `wait` op's resume deadline).
 ///
@@ -4070,21 +4094,14 @@ fn resolve_node_target(
         }
     }
 
-    // Text content
+    // Text content: what the node shows (typed text included).
     if let Some(txt) = text {
-        let layout_window = callback_info.get_layout_window();
-        if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
-            let styled_dom = &layout_result.styled_dom;
-            let node_data = styled_dom.node_data.as_container();
-
-            for i in 0..node_data.len() {
-                let data = &node_data[NodeId::new(i)];
-                if let azul_core::dom::NodeType::Text(t) = data.get_node_type() {
-                    if t.as_str().contains(txt) {
-                        return Some(NodeId::new(i));
-                    }
-                }
-            }
+        let shown = shown_texts(callback_info.get_layout_window(), dom_id);
+        if let Some(i) = shown
+            .iter()
+            .position(|t| t.as_deref().is_some_and(|t| t.contains(txt)))
+        {
+            return Some(NodeId::new(i));
         }
     }
 
@@ -6461,7 +6478,10 @@ fn eval_assert_dom(
         return bad;
     }
     let Some(dom) = build_dom_response(callback_info, params_dom(params)) else {
-        return AssertionResult::fail("assert_dom: no layout result for DOM 0");
+        return AssertionResult::fail(format!(
+            "assert_dom: no layout result for DOM {}",
+            params_dom(params).inner
+        ));
     };
 
     let mut checks = 0usize;
@@ -14580,11 +14600,9 @@ fn build_dom_response(
         }
     }
 
-    let dom_id = ROOT_DOM_ID;
-    let layout_result = callback_info
-        .get_layout_window()
-        .layout_results
-        .get(&dom_id)?;
+    let layout_window = callback_info.get_layout_window();
+    let layout_result = layout_window.layout_results.get(&dom_id)?;
+    let mut shown = shown_texts(layout_window, dom_id);
     let styled_dom = &layout_result.styled_dom;
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let node_data = styled_dom.node_data.as_container();
@@ -14605,10 +14623,7 @@ fn build_dom_response(
             }
         }
 
-        let text = match data.get_node_type() {
-            azul_core::dom::NodeType::Text(t) => Some(t.as_str().to_string()),
-            _ => None,
-        };
+        let text = shown.get_mut(i).and_then(Option::take);
 
         flat.push(Flat {
             node_type: data.get_node_type().get_path().to_string(),
@@ -16797,6 +16812,8 @@ pub fn process_debug_event(
                     .map(|n| n.index() as i64)
                     .unwrap_or(-1);
 
+                let mut shown = shown_texts(layout_window, dom_id);
+
                 let mut nodes = Vec::new();
                 for i in 0..hierarchy.len() {
                     let node_id = NodeId::new(i);
@@ -16824,17 +16841,18 @@ pub fn process_debug_event(
                         }
                     }
 
-                    let text_content = match data.get_node_type() {
-                        azul_core::dom::NodeType::Text(t) => {
-                            let s = t.as_str();
-                            if s.len() > 200 {
-                                Some(format!("{}...", &s[..197]))
-                            } else {
-                                Some(s.to_string())
+                    let text_content = shown.get_mut(i).and_then(Option::take).map(|s| {
+                        if s.len() > 200 {
+                            // At a char boundary: a byte cut inside "ü" panicked.
+                            let mut end = 197;
+                            while !s.is_char_boundary(end) {
+                                end -= 1;
                             }
+                            format!("{}...", &s[..end])
+                        } else {
+                            s
                         }
-                        _ => None,
-                    };
+                    });
 
                     let parent_decoded = if hier.parent == 0 {
                         -1i64
@@ -17736,25 +17754,20 @@ pub fn process_debug_event(
             let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
-            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
-                let styled_dom = &layout_result.styled_dom;
-                let node_data = styled_dom.node_data.as_container();
-                let node_count = node_data.len();
-
-                let mut found_node = None;
-                for i in 0..node_count {
-                    let data = &node_data[NodeId::new(i)];
-                    if let azul_core::dom::NodeType::Text(t) = data.get_node_type() {
-                        if t.as_str().contains(text.as_str()) {
-                            let dom_node_id = DomNodeId {
+            if layout_window.layout_results.contains_key(&dom_id) {
+                // What the node shows (typed text included).
+                let found_node = shown_texts(layout_window, dom_id)
+                    .iter()
+                    .position(|t| t.as_deref().is_some_and(|t| t.contains(text.as_str())))
+                    .map(|i| {
+                        (
+                            i,
+                            DomNodeId {
                                 dom: dom_id,
                                 node: Some(NodeId::new(i)).into(),
-                            };
-                            found_node = Some((i, dom_node_id));
-                            break;
-                        }
-                    }
-                }
+                            },
+                        )
+                    });
 
                 if let Some((node_idx, dom_node_id)) = found_node {
                     let rect = callback_info.get_node_rect(dom_node_id);
