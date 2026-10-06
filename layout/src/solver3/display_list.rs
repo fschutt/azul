@@ -5809,6 +5809,15 @@ where
         let Some((path, color, width)) = self.svg_stroke_for(dom_id, &border_info) else {
             return;
         };
+        // Its user space mapped into its `<svg>`'s: the path and the width.
+        let user = self.svg_user_transform(dom_id);
+        let (path, width) = if user.is_identity() {
+            (path, width)
+        } else {
+            #[allow(clippy::cast_possible_truncation)] // a stroke width in user units
+            let scaled = width * user.length_scale() as f32;
+            (path.transformed(&user), scaled)
+        };
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
             return;
         };
@@ -5878,26 +5887,67 @@ where
     /// ordinary element - which has no user space and whose geometry is
     /// already window-logical.
     fn enclosing_view_box(&self, node: NodeId) -> Option<(f32, f32, f32, f32)> {
+        self.svg_ancestor(node).and_then(|svg| {
+            match self
+                .ctx
+                .styled_dom
+                .node_data
+                .as_container()
+                .get(svg)
+                .and_then(azul_core::dom::NodeData::get_svg_data)
+            {
+                Some(azul_core::dom::SvgNodeData::ViewBox {
+                    min_x,
+                    min_y,
+                    width,
+                    height,
+                }) => Some((*min_x, *min_y, *width, *height)),
+                _ => None,
+            }
+        })
+    }
+
+    /// The nearest `<svg>` (a node with a viewBox) at or above `node`.
+    fn svg_ancestor(&self, node: NodeId) -> Option<NodeId> {
         let node_data = self.ctx.styled_dom.node_data.as_container();
         let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
         let mut cursor = Some(node);
         while let Some(id) = cursor {
-            if let Some(azul_core::dom::SvgNodeData::ViewBox {
-                min_x,
-                min_y,
-                width,
-                height,
-            }) = node_data
+            if let Some(azul_core::dom::SvgNodeData::ViewBox { .. }) = node_data
                 .get(id)
                 .and_then(azul_core::dom::NodeData::get_svg_data)
             {
-                return Some((*min_x, *min_y, *width, *height));
+                return Some(id);
             }
             cursor = hierarchy
                 .get(id)
                 .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
+    }
+
+    /// The `transform`s between `node` and its `<svg>` composed (its own
+    /// first, then each group's above it - SVG 1.1 7.4: a group's transform
+    /// applies to everything in it): what maps `node`'s user space into its
+    /// `<svg>`'s, where the viewBox takes over. Read off the nodes'
+    /// `transform` attributes; identity outside an `<svg>`.
+    fn svg_user_transform(&self, node: NodeId) -> azul_core::svg::SvgAffine {
+        let mut user = azul_core::svg::SvgAffine::IDENTITY;
+        let Some(svg) = self.svg_ancestor(node) else {
+            return user;
+        };
+        let node_data = self.ctx.styled_dom.node_data.as_container();
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let mut cursor = Some(node);
+        while let Some(id) = cursor.filter(|id| *id != svg) {
+            if let Some(transform) = node_data.get(id).and_then(|n| n.get_attribute("transform")) {
+                user = user.then(&azul_core::svg::parse_svg_transform(transform.as_str()));
+            }
+            cursor = hierarchy
+                .get(id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        user
     }
 
     fn push_image_mask_clip(&self, builder: &mut DisplayListBuilder, node_index: usize) -> bool {
@@ -5942,6 +5992,16 @@ where
                 // nearest `<svg>` ancestor's viewBox. Without it a shape drawn
                 // at 16 units paints a sixteenth of a 256px slot.
                 let view_box = self.enclosing_view_box(dom_id);
+                // ... reached through the `transform`s of the shape and its
+                // groups.
+                let user = self.svg_user_transform(dom_id);
+                let transformed;
+                let svg_clip = if user.is_identity() {
+                    svg_clip
+                } else {
+                    transformed = svg_clip.transformed(&user);
+                    &transformed
+                };
                 svg_mask_memo::get_or_rasterise(
                     svg_mask_memo::MaskKind::Clip,
                     svg_clip,

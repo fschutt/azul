@@ -941,95 +941,14 @@ fn svg_multi_polygon_to_path_storage(mp: &azul_core::svg::SvgMultiPolygon) -> Pa
     path
 }
 
-/// Parse an SVG `transform` attribute: a LIST of transform functions -
-/// `matrix(a b c d e f)`, `translate(tx [ty])`, `scale(sx [sy])`,
-/// `rotate(angle [cx cy])`, `skewX(angle)`, `skewY(angle)` - separated by
-/// whitespace and / or commas. The list applies RIGHT TO LEFT (SVG 1.1 7.6:
-/// `translate(8) scale(2)` scales first, then moves). A list with an unknown
-/// function or junk is in error and means no transform (identity). The
-/// result maps the element's user space into its parent's: compose it with
-/// the parent's as `own.multiply(&parent)` (own first, then the parent's).
+/// An SVG `transform` attribute as the rasteriser's matrix: azul's one
+/// parser ([`azul_core::svg::parse_svg_transform`]: the list applies right to
+/// left, junk is identity). Compose it with the parent's as
+/// `own.multiply(&parent)` (own first, then the parent's).
 #[cfg(all(feature = "std", feature = "xml"))]
 fn parse_svg_transform(s: &str) -> TransAffine {
-    let parse_nums = |inner: &str| -> Vec<f64> {
-        inner
-            .split(|c: char| c == ',' || c.is_ascii_whitespace())
-            .filter(|s| !s.is_empty())
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
-    let is_separator = |c: char| c == ',' || c.is_ascii_whitespace();
-
-    // `None` until the first function: a one-function list is that function
-    // EXACTLY (no multiply by identity, which turns +-inf into NaN).
-    let mut result: Option<TransAffine> = None;
-    let mut rest = s;
-    loop {
-        rest = rest.trim_start_matches(is_separator);
-        if rest.is_empty() {
-            break;
-        }
-        let Some(open) = rest.find('(') else {
-            return TransAffine::new();
-        };
-        let Some(len) = rest[open..].find(')') else {
-            return TransAffine::new();
-        };
-        let close = open + len;
-        let Some(function) =
-            svg_transform_function(rest[..open].trim(), &parse_nums(&rest[open + 1..close]))
-        else {
-            return TransAffine::new();
-        };
-        // Each later function applies BEFORE the ones already read.
-        result = Some(match result {
-            None => function,
-            Some(mut so_far) => {
-                so_far.premultiply(&function);
-                so_far
-            }
-        });
-        rest = &rest[close + 1..];
-    }
-    result.unwrap_or_else(TransAffine::new)
-}
-
-/// One SVG transform function `name(args)` as a matrix; `None` for an unknown
-/// name or a `matrix` without exactly six numbers.
-#[cfg(all(feature = "std", feature = "xml"))]
-fn svg_transform_function(name: &str, args: &[f64]) -> Option<TransAffine> {
-    let arg = |i: usize, default: f64| args.get(i).copied().unwrap_or(default);
-    let translate = |tx: f64, ty: f64| TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, tx, ty);
-    Some(match name {
-        "matrix" => {
-            if args.len() != 6 {
-                return None;
-            }
-            TransAffine::new_custom(args[0], args[1], args[2], args[3], args[4], args[5])
-        }
-        "translate" => translate(arg(0, 0.0), arg(1, 0.0)),
-        "scale" => {
-            let sx = arg(0, 1.0);
-            TransAffine::new_custom(sx, 0.0, 0.0, arg(1, sx), 0.0, 0.0)
-        }
-        "rotate" => {
-            let (sin_a, cos_a) = arg(0, 0.0).to_radians().sin_cos();
-            let rotation = TransAffine::new_custom(cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0);
-            if args.len() >= 3 {
-                // rotate(a cx cy) = translate(cx cy) rotate(a) translate(-cx -cy)
-                let (cx, cy) = (args[1], args[2]);
-                let mut about = translate(-cx, -cy);
-                about.multiply(&rotation);
-                about.multiply(&translate(cx, cy));
-                about
-            } else {
-                rotation
-            }
-        }
-        "skewX" => TransAffine::new_custom(1.0, 0.0, arg(0, 0.0).to_radians().tan(), 1.0, 0.0, 0.0),
-        "skewY" => TransAffine::new_custom(1.0, arg(0, 0.0).to_radians().tan(), 0.0, 1.0, 0.0, 0.0),
-        _ => return None,
-    })
+    let m = azul_core::svg::parse_svg_transform(s);
+    TransAffine::new_custom(m.a, m.b, m.c, m.d, m.e, m.f)
 }
 
 /// Parse an SVG paint colour: any CSS colour - `#rgb`, `#rgba`, `#rrggbb`,

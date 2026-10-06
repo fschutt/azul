@@ -480,6 +480,219 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
+/// A 2D affine transform as SVG writes it: `matrix(a b c d e f)` maps
+/// `(x, y)` to `(a x + c y + e, b x + d y + f)`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SvgAffine {
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+    pub d: f64,
+    pub e: f64,
+    pub f: f64,
+}
+
+impl SvgAffine {
+    /// No transform.
+    pub const IDENTITY: Self = Self {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
+
+    /// A move by `(tx, ty)`.
+    #[must_use]
+    pub const fn translate(tx: f64, ty: f64) -> Self {
+        Self {
+            e: tx,
+            f: ty,
+            ..Self::IDENTITY
+        }
+    }
+
+    /// This transform, then `outer` (`outer . self`).
+    #[must_use]
+    pub fn then(&self, outer: &Self) -> Self {
+        Self {
+            a: outer.a * self.a + outer.c * self.b,
+            b: outer.b * self.a + outer.d * self.b,
+            c: outer.a * self.c + outer.c * self.d,
+            d: outer.b * self.c + outer.d * self.d,
+            e: outer.a * self.e + outer.c * self.f + outer.e,
+            f: outer.b * self.e + outer.d * self.f + outer.f,
+        }
+    }
+
+    /// Where `(x, y)` lands.
+    #[must_use]
+    pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        )
+    }
+
+    /// Whether it leaves everything where it is.
+    #[must_use]
+    pub fn is_identity(&self) -> bool {
+        *self == Self::IDENTITY
+    }
+
+    /// How much it scales a length, on average over directions: the square
+    /// root of its area scale (a stroke's width under it).
+    #[must_use]
+    pub fn length_scale(&self) -> f64 {
+        (self.a * self.d - self.b * self.c).abs().sqrt()
+    }
+}
+
+/// Parse an SVG `transform` attribute: a LIST of transform functions -
+/// `matrix(a b c d e f)`, `translate(tx [ty])`, `scale(sx [sy])`,
+/// `rotate(angle [cx cy])`, `skewX(angle)`, `skewY(angle)` - separated by
+/// whitespace and / or commas. The list applies RIGHT TO LEFT (SVG 1.1 7.6:
+/// `translate(8) scale(2)` scales first, then moves). An empty list, or one
+/// with an unknown function or junk, is no transform (identity). The result
+/// maps the element's user space into its parent's.
+#[must_use]
+pub fn parse_svg_transform(s: &str) -> SvgAffine {
+    let is_separator = |c: char| c == ',' || c.is_ascii_whitespace();
+    // `None` until the first function: a one-function list is that function
+    // EXACTLY (no multiply by identity, which turns +-inf into NaN).
+    let mut result: Option<SvgAffine> = None;
+    let mut rest = s;
+    loop {
+        rest = rest.trim_start_matches(is_separator);
+        if rest.is_empty() {
+            break;
+        }
+        let Some(open) = rest.find('(') else {
+            return SvgAffine::IDENTITY;
+        };
+        let Some(len) = rest[open..].find(')') else {
+            return SvgAffine::IDENTITY;
+        };
+        let close = open + len;
+        let args: Vec<f64> = rest[open + 1..close]
+            .split(is_separator)
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        let Some(function) = svg_transform_function(rest[..open].trim(), &args) else {
+            return SvgAffine::IDENTITY;
+        };
+        // Each later function applies BEFORE the ones already read.
+        result = Some(match result {
+            None => function,
+            Some(so_far) => function.then(&so_far),
+        });
+        rest = &rest[close + 1..];
+    }
+    result.unwrap_or(SvgAffine::IDENTITY)
+}
+
+/// One SVG transform function `name(args)`; `None` for an unknown name or a
+/// `matrix` without exactly six numbers.
+fn svg_transform_function(name: &str, args: &[f64]) -> Option<SvgAffine> {
+    let arg = |i: usize, default: f64| args.get(i).copied().unwrap_or(default);
+    let custom = |a, b, c, d| SvgAffine {
+        a,
+        b,
+        c,
+        d,
+        e: 0.0,
+        f: 0.0,
+    };
+    Some(match name {
+        "matrix" => {
+            if args.len() != 6 {
+                return None;
+            }
+            SvgAffine {
+                a: args[0],
+                b: args[1],
+                c: args[2],
+                d: args[3],
+                e: args[4],
+                f: args[5],
+            }
+        }
+        "translate" => SvgAffine::translate(arg(0, 0.0), arg(1, 0.0)),
+        "scale" => {
+            let sx = arg(0, 1.0);
+            custom(sx, 0.0, 0.0, arg(1, sx))
+        }
+        "rotate" => {
+            let angle = arg(0, 0.0).to_radians();
+            let (sin_a, cos_a) = (libm::sin(angle), libm::cos(angle));
+            let rotation = custom(cos_a, sin_a, -sin_a, cos_a);
+            if args.len() >= 3 {
+                // rotate(a cx cy) = translate(cx cy) rotate(a) translate(-cx -cy)
+                let (cx, cy) = (args[1], args[2]);
+                SvgAffine::translate(-cx, -cy)
+                    .then(&rotation)
+                    .then(&SvgAffine::translate(cx, cy))
+            } else {
+                rotation
+            }
+        }
+        "skewX" => custom(1.0, 0.0, libm::tan(arg(0, 0.0).to_radians()), 1.0),
+        "skewY" => custom(1.0, libm::tan(arg(0, 0.0).to_radians()), 0.0, 1.0),
+        _ => return None,
+    })
+}
+
+impl SvgMultiPolygon {
+    /// The same shape mapped through `m` (exact: an affine map takes a line
+    /// to a line and a Bezier curve to the curve of its mapped controls).
+    #[must_use]
+    pub fn transformed(&self, m: &SvgAffine) -> Self {
+        let point = |p: SvgPoint| {
+            let (x, y) = m.apply(f64::from(p.x), f64::from(p.y));
+            #[allow(clippy::cast_possible_truncation)] // user units, f32 like the input
+            SvgPoint {
+                x: x as f32,
+                y: y as f32,
+            }
+        };
+        let rings = self
+            .rings
+            .iter()
+            .map(|ring| SvgPath {
+                items: ring
+                    .items
+                    .iter()
+                    .map(|item| match item {
+                        SvgPathElement::Line(l) => SvgPathElement::Line(SvgLine {
+                            start: point(l.start),
+                            end: point(l.end),
+                        }),
+                        SvgPathElement::QuadraticCurve(q) => {
+                            SvgPathElement::QuadraticCurve(SvgQuadraticCurve {
+                                start: point(q.start),
+                                ctrl: point(q.ctrl),
+                                end: point(q.end),
+                            })
+                        }
+                        SvgPathElement::CubicCurve(c) => SvgPathElement::CubicCurve(SvgCubicCurve {
+                            start: point(c.start),
+                            ctrl_1: point(c.ctrl_1),
+                            ctrl_2: point(c.ctrl_2),
+                            end: point(c.end),
+                        }),
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+            })
+            .collect::<Vec<_>>();
+        Self {
+            rings: rings.into(),
+        }
+    }
+}
+
 impl SvgMultiPolygon {
     /// How finely a curve is subdivided when the path is treated as an area.
     ///
