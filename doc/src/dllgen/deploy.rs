@@ -2297,7 +2297,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // Self-contained release binaries of the demo "goal apps" (Rust apps built
     // statically against azul). The build_demos CI job stages them as
     // <crate>-<os>[.exe] and the deploy lays them into release/{version}/demos/.
-    // Each demo has up to three OS variants (linux/macos/windows). We link them
+    // Each demo has up to four desktop variants (linux, macos = Apple Silicon, macos-intel =
+    // x86_64, windows). We link them
     // unconditionally (like the exotic-arch/package links) since the skeleton
     // build doesn't placeholder these — a not-yet-built one 404s rather than
     // vanishing. (crate, friendly name, one-line description.)
@@ -2334,10 +2335,11 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ),
     ];
     // OS suffix → label + filename extension, matching the build_demos staging
-    // names (AzMaps-linux, AzMaps-macos, AzMaps-windows.exe).
+    // names (AzMaps-linux, AzMaps-macos, AzMaps-macos-intel, AzMaps-windows.exe).
     const DEMO_OSES: &[(&str, &str, &str)] = &[
         ("linux", "Linux", ""),
-        ("macos", "macOS", ""),
+        ("macos", "macOS (M1+)", ""),
+        ("macos-intel", "macOS (Intel)", ""),
         ("windows", "Windows", ".exe"),
     ];
     // Grouped by OS: each OS is a heading with a sub-list of "Name: what it is",
@@ -2348,7 +2350,10 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // mobile = mobile-apps/<crate>-{ios.app.zip,android.apk} (Pages-hosted).
     let os_groups: &[(&str, &str, fn(&str) -> bool)] = &[
         ("Linux", "demos/{c}-linux", |_| true),
-        ("macOS", "demos/{c}-macos", |_| true),
+        // Apple Silicon and Intel apart: an arm64 binary on an Intel Mac only says "bad CPU
+        // type in executable". The Intel ones run on macOS 10.13 (High Sierra) and later.
+        ("macOS (M1+)", "demos/{c}-macos", |_| true),
+        ("macOS (Intel, 10.13+)", "demos/{c}-macos-intel", |_| true),
         ("Windows", "demos/{c}-windows.exe", |_| true),
         (
             "iOS device (.ipa, signed)",
