@@ -641,3 +641,113 @@ fn a_modal_button_that_changes_app_state_rebuilds_its_parent_window() {
         root.children.len()
     );
 }
+
+/// E2E-C, AzReview: every `<transient-window>` is a `WindowType::Menu` window
+/// (`transient::popup_window_state` - borderless, on top, parent-owned), and
+/// the headless owner took every Menu-type child for a window-based MENU: an
+/// Escape (or a press) that reached the owner closed an open modal as it
+/// closes a menu - silently, with no `Dismissed` for the widget, and with the
+/// key spent. A window-based menu is a Menu window WITHOUT a mailbox (the rule
+/// `process_transient_dismissal` already uses); a modal's Escape is its own.
+#[test]
+fn an_escape_in_the_owner_of_an_open_modal_does_not_close_it_as_a_menu() {
+    let state = Arc::new(RefCell::new(RefAny::new(RecordPage { deleted: false })));
+    let mut root = make_window_with(&state, record_page_layout);
+    root.regenerate_layout().expect("the page's first layout");
+    let _ = root.common.take_regeneration();
+    root.pump_children();
+    assert_eq!(root.children.len(), 1, "harness: the question is open");
+
+    press_escape(&mut root);
+    root.pump_children();
+    assert_eq!(
+        root.children.len(),
+        1,
+        "the question has no Escape of its own (dismiss=none), so it stays open: the owner \
+         closed it as if it were a menu"
+    );
+}
+
+/// What [`about_page_layout`] shows: azul-appkit's settings page with its
+/// About box, a `Modal` the app keeps open while `open` says so.
+struct AboutPage {
+    open: bool,
+    closes: usize,
+}
+
+/// The Modal's `on_close`: the app drops its flag (azul-appkit's
+/// `on_about_close` prints `<APP>_ABOUT closed` here).
+extern "C" fn about_closed(
+    mut data: RefAny,
+    _info: azul_layout::callbacks::CallbackInfo,
+    state: azul_layout::widgets::modal::ModalState,
+) -> azul_core::callbacks::Update {
+    if let Some(mut page) = data.downcast_mut::<AboutPage>() {
+        page.open = state.open;
+        page.closes += 1;
+    }
+    azul_core::callbacks::Update::RefreshDom
+}
+
+/// `body > p "Settings"` and the About box: a `Modal` holding one line.
+extern "C" fn about_page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::modal::{Modal, ModalOnCloseCallbackType};
+    let open = data.downcast_ref::<AboutPage>().is_some_and(|p| p.open);
+    let on_close: ModalOnCloseCallbackType = about_closed;
+    Dom::create_body()
+        .with_child(Dom::create_p_with_text("Settings"))
+        .with_child(
+            Modal::create(Dom::create_p_with_text("AzReview 0.1.0"))
+                .with_title("About AzReview".into())
+                .with_open(open)
+                .with_on_close(data.clone(), on_close)
+                .dom(),
+        )
+}
+
+/// E2E-C, AzReview: a script opens the About box and presses Escape. The key
+/// reaches the app's first window (the debug server's default), which hands
+/// it to the modal - the popup that holds the keyboard - and the modal's own
+/// Escape closes it and tells the app through `on_close`. Headless did
+/// neither: the owner closed the modal as a menu (see above), and a key
+/// forwarded to a popup waited for a pass the headless loop never ran (the
+/// desktop backends run it at once, `deliver_forwarded_keys`).
+#[test]
+fn escape_in_the_owner_of_a_modal_dialog_closes_it_and_tells_the_app() {
+    let state = Arc::new(RefCell::new(RefAny::new(AboutPage {
+        open: true,
+        closes: 0,
+    })));
+    let mut root = make_window_with(&state, about_page_layout);
+    root.regenerate_layout().expect("the page's first layout");
+    let _ = root.common.take_regeneration();
+    root.pump_children();
+    assert_eq!(
+        root.children.len(),
+        1,
+        "harness: the About box is a window of its own"
+    );
+    root.pump_children();
+
+    press_escape(&mut root);
+    for _ in 0..6 {
+        root.pump_children();
+        root.pump_once(true);
+    }
+
+    let (open, closes) = state
+        .borrow_mut()
+        .downcast_ref::<AboutPage>()
+        .map(|p| (p.open, p.closes))
+        .expect("the page");
+    assert_eq!(
+        (open, closes),
+        (false, 1),
+        "the modal's Escape closed it and its on_close told the app, once"
+    );
+    assert!(
+        root.children.is_empty(),
+        "the About box is gone: {} window(s) still open",
+        root.children.len()
+    );
+}
