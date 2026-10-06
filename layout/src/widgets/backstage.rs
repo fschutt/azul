@@ -340,6 +340,10 @@ fn theme_root(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        // The height it is given, not its page's: a flex item's automatic minimum size is
+        // its content's, and a page taller than the window then grew the backstage past the
+        // window's edge instead of scrolling (AzMail's Account Settings).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
         Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(NAV_TEXT_PX))),
     ];
@@ -435,6 +439,8 @@ fn theme_right(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        // As the root: the page's scroller scrolls, the column does not grow (theme_root).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
     ];
     v.extend(page_bg(t));
     CssPropertyWithConditionsVec::from_vec(v)
@@ -446,6 +452,8 @@ fn theme_content(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        // As the root: the page's scroller scrolls, the column does not grow (theme_root).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
     ];
     v.extend(page_bg(t));
     CssPropertyWithConditionsVec::from_vec(v)
