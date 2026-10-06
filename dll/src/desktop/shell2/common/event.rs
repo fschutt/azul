@@ -5255,6 +5255,24 @@ pub trait PlatformWindow {
         if outcome.wake_all {
             self.request_regeneration_all_windows();
         }
+        // A callback in one of the popups closed "the window": this one.
+        if outcome.close_owner {
+            self.request_close_by_app();
+        }
+    }
+
+    /// The app asks this window to close (`CallbackInfo::close_window`, here
+    /// or in one of its popups): a REQUEST, like the window manager's - the
+    /// backend's loop runs the close protocol for it (`confirm_app_close`)
+    /// after this frame, so the app's CloseRequested callbacks can veto it.
+    fn request_close_by_app(&mut self) {
+        if !self.get_current_window_state().flags.close_requested {
+            self.get_common_mut().close_unconfirmed = true;
+        }
+        self.get_common_mut()
+            .update_window_state(WindowStateSource::App, |ws| {
+                ws.flags.close_requested = true;
+            });
     }
 
     /// Give the OS the window's shape: `rects` (physical pixels of the
@@ -6170,16 +6188,17 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::CloseWindow => {
-                // A REQUEST, like the window manager's: the backend's loop runs
-                // the close protocol for it (`confirm_app_close`) after this
-                // frame, so the app's CloseRequested callbacks can veto it.
-                if !self.get_current_window_state().flags.close_requested {
-                    self.get_common_mut().close_unconfirmed = true;
+                // A callback that ran in a transient popup asked to close "the
+                // window": the window its node belongs to. The popup only shows
+                // a subtree of its owner's DOM - a refresh it asks for is the
+                // owner's too - so the close goes to the owner, whose next sync
+                // takes it (`SyncOutcome::close_owner`). It closed the popup: a
+                // CloseGuard's "Don't Save" left the guarded window open.
+                if super::transient::post_close_owner(self.get_current_window_state()) {
+                    self.request_regeneration_all_windows();
+                } else {
+                    self.request_close_by_app();
                 }
-                self.get_common_mut()
-                    .update_window_state(WindowStateSource::App, |ws| {
-                        ws.flags.close_requested = true;
-                    });
                 ProcessEventResult::DoNothing
             }
 
