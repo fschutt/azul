@@ -294,7 +294,7 @@ fn render_linear_gradient(
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -392,7 +392,7 @@ fn render_radial_gradient(
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -455,7 +455,7 @@ fn render_conic_gradient(
     let d2 = 100.0;
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -5660,6 +5660,26 @@ fn horizontal_lerp_row(rgba: &[u8], cols: &[(u32, u32, f32)], out: &mut [f32]) {
     }
 }
 
+/// The path of `rect` with its edges ROUNDED to whole device pixels - the
+/// rule an opaque [`render_rect`] fills by ([`round_edge`]) and browsers
+/// paint a box's background by: a box's fractional edge is not an
+/// anti-aliased one. Two gradient boxes sharing a pixel each covered part of
+/// it, and what lay under them showed through (a red seam between floats,
+/// WPT background-gradient-subpixel-fills-area).
+fn build_pixel_snapped_rect_path(rect: &AzRect) -> PathStorage {
+    let x0 = f64::from(round_edge(rect.x));
+    let y0 = f64::from(round_edge(rect.y));
+    let x1 = f64::from(round_edge(rect.x + rect.width));
+    let y1 = f64::from(round_edge(rect.y + rect.height));
+    let mut path = PathStorage::new();
+    path.move_to(x0, y0);
+    path.line_to(x1, y0);
+    path.line_to(x1, y1);
+    path.line_to(x0, y1);
+    path.close_polygon(PATH_FLAGS_NONE);
+    path
+}
+
 fn build_rect_path(rect: &AzRect) -> PathStorage {
     let mut path = PathStorage::new();
     let x = f64::from(rect.x);
@@ -7644,6 +7664,44 @@ mod autotest_generated {
         assert!(
             top < bottom,
             "the default Top->Bottom direction must ramp dark->light (top {top}, bottom {bottom})"
+        );
+    }
+
+    #[test]
+    fn adjacent_gradients_at_a_fractional_edge_leave_no_seam() {
+        // WPT css/css-backgrounds/background-gradient-subpixel-fills-area:
+        // ten floats 39.6875px wide, each with a gradient background, over
+        // a red list - a red seam showed at every boundary. Each gradient's
+        // fractional edge was an anti-aliased PATH edge, so the shared pixel
+        // was covered 0.6875 by one and 0.3125 by the other: a quarter of
+        // the red stayed. Opaque rects are snapped to whole pixels
+        // (`render_rect`, round_edge) and so are a browser's backgrounds;
+        // the column the two gradients share is theirs, not red.
+        let mut p = pixmap(24, 4);
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, 24.0, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        let blue = linear(lin_stops(&[(0.0, BLUE), (100.0, BLUE)]));
+        for x in [0.0, 9.6875] {
+            render_linear_gradient(
+                &mut p,
+                &lrect(x, 0.0, 9.6875, 4.0),
+                &blue,
+                &BorderRadius::default(),
+                None,
+                1.0,
+                None,
+            );
+        }
+        let seam = px_at(&p, 9, 2);
+        assert!(
+            seam[0] < 8 && seam[2] > 247,
+            "the shared column is the gradients' blue, no red under a seam: {seam:?}"
         );
     }
 

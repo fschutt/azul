@@ -8759,8 +8759,15 @@ impl TextShapingCache {
             // the shared fold is untouched there.
             let (edge_start, edge_end) = inline_box_edge_advances(scan_items, item_idx);
             let edges = edge_start + edge_end;
-            let adv =
-                (get_item_measure_with_spacing(item, scan_is_vertical).max(0.0) + edges).max(0.0);
+            // An outside marker hangs in the gutter: no width and no part
+            // of a word (`is_hanging_marker`, the line breaker's rule; its
+            // line height still counts below).
+            let hanging = is_hanging_marker(item);
+            let adv = if hanging {
+                0.0
+            } else {
+                (get_item_measure_with_spacing(item, scan_is_vertical).max(0.0) + edges).max(0.0)
+            };
             let removable_space = collapsing && is_collapsible_whitespace(item);
             if line_has_content || !removable_space {
                 total = fold_line_width(total, item, scan_is_vertical);
@@ -8769,7 +8776,7 @@ impl TextShapingCache {
             if boxed {
                 total += edges;
             }
-            if !removable_space || boxed {
+            if (!removable_space || boxed) && !hanging {
                 line_has_content = true;
                 line_content = total;
             }
@@ -12383,8 +12390,17 @@ pub fn break_one_line<T: ParsedFontTrait>(
         WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
     );
     if strip_trailing {
+        // A list marker's own space ("1. ", "\u{2022} ") is part of the
+        // marker, never the line's trailing white space (Chrome's UA sheet:
+        // `::marker { white-space: pre }`): alone on its line - an empty
+        // item's marker - it was stripped, and the marker, placed by its
+        // width, moved a space closer to the content than a full item's.
         while let Some(last) = line_items.last() {
-            if is_collapsible_whitespace(last) {
+            let is_marker = matches!(
+                last,
+                ShapedItem::Cluster(c) if c.marker_position_outside.is_some()
+            );
+            if is_collapsible_whitespace(last) && !is_marker {
                 line_items.pop();
             } else {
                 break;
@@ -13571,7 +13587,12 @@ fn is_arabic_cluster(cluster: &ShapedCluster) -> bool {
 fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
     let mut trailing_ws = 0.0;
     for item in items.iter().rev() {
-        if is_collapsible_whitespace(item) {
+        // A list marker's space belongs to the marker (`break_one_line`).
+        let is_marker = matches!(
+            item,
+            ShapedItem::Cluster(c) if c.marker_position_outside.is_some()
+        );
+        if is_collapsible_whitespace(item) && !is_marker {
             trailing_ws += get_item_measure(item, is_vertical);
         } else {
             break;
@@ -13848,7 +13869,20 @@ pub fn get_item_measure_with_spacing(item: &ShapedItem, is_vertical: bool) -> f3
 #[inline]
 #[must_use]
 pub fn fold_line_width(current: f32, item: &ShapedItem, is_vertical: bool) -> f32 {
+    if is_hanging_marker(item) {
+        return current;
+    }
     current + get_item_measure_with_spacing(item, is_vertical).max(0.0)
+}
+
+/// A cluster of an OUTSIDE list marker: it hangs in the gutter before the
+/// line (`position_one_line` places it at a negative offset and never
+/// advances the pen for it), so it takes no room on the line - neither in
+/// the line breaker's fit nor in the intrinsic widths. Counted there, a
+/// list item as wide as its text (`width: fit-content`, shrink-to-fit) no
+/// longer fitted its text beside its marker and wrapped it below.
+fn is_hanging_marker(item: &ShapedItem) -> bool {
+    matches!(item, ShapedItem::Cluster(c) if c.marker_position_outside == Some(true))
 }
 
 /// How far the inline box (`<span>`) around the cluster `items[idx]` moves

@@ -7542,6 +7542,28 @@ where
                     viewport_clip_rect.origin.y += ink.y;
                     viewport_clip_rect.size.height -= ink.y;
                 }
+                // Glyph INK reaches past the advances the layout measures -
+                // a side bearing, the anti-aliased edge of the last glyph,
+                // an italic overhang - and a box shrink-wrapped to its text
+                // (a table cell, an inline-block) ends exactly at the last
+                // advance: on a visible x axis the run was cut there, the
+                // right edge of a cell's last "b" one pixel short (WPT
+                // anonymous-table-ws-001, table-width-s). One em of the
+                // largest run each side, the allowance the text damage
+                // (`visual_bounds`) pads with. Horizontal only: a text
+                // clip's VERTICAL extent is its lines', which the page
+                // breaks read (azul#478 above).
+                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                    let em = cached_layout
+                        .glyph_runs
+                        .iter()
+                        .map(|run| run.font_size_px)
+                        .fold(0.0f32, f32::max);
+                    if em.is_finite() && em > 0.0 {
+                        viewport_clip_rect.origin.x -= em;
+                        viewport_clip_rect.size.width += em * 2.0;
+                    }
+                }
                 // The runs a relatively positioned inline box moves paint as
                 // far past that ink as it moved them (a visible axis only).
                 if let Some(shifts) = run_shifts.as_deref() {
@@ -9171,6 +9193,39 @@ where
         // Get border information
         let border_info = get_border_info(self.ctx.styled_dom, node_id, styled_node_state);
 
+        // An inline TABLE (CSS 2.2 17.5.1): its own box here is layer 1; the
+        // layers above it - column, row and cell backgrounds, the resolved
+        // collapsed borders - are `paint_table_items`, below, which a block
+        // table's box painting calls and this one did not (an inline table
+        // painted no cell background and no collapsed border at all). In the
+        // collapsing model the table's border is part of the resolved grid,
+        // so its box paints none, as a block table's.
+        let inline_table = self
+            .positioned_tree
+            .tree
+            .dom_to_layout
+            .get(&node_id)
+            .and_then(|indices| indices.first())
+            .map(|idx| idx.index())
+            .filter(|&index| {
+                self.positioned_tree
+                    .tree
+                    .get(LayoutNodeId::new(index))
+                    .is_some_and(|n| matches!(n.formatting_context, FormattingContext::Table))
+            });
+        let border_info = if inline_table.is_some_and(|t| self.table_is_border_collapsed(t)) {
+            let mut without_border = border_info;
+            without_border.widths = StyleBorderWidths {
+                top: None,
+                right: None,
+                bottom: None,
+                left: None,
+            };
+            without_border
+        } else {
+            border_info
+        };
+
         // FIX: object_bounds is the margin-box position from text3.
         // We need to convert to border-box for painting backgrounds/borders.
         let (margins, border, padding) = self
@@ -9240,6 +9295,12 @@ where
             simple_border_radius,
             style_border_radius,
         );
+
+        // The table layers 2-6 over the inline table's own box (see above).
+        // A grid that cannot be analysed leaves the box as painted.
+        if let Some(table) = inline_table {
+            let _ = self.paint_table_items(builder, table);
+        }
 
         // Push hit-test area for this inline-block element
         // This is critical for buttons and other inline-block elements to receive
@@ -16288,5 +16349,172 @@ mod svg_mask_memo_tests {
             "the second build reuses the first build's clip mask images"
         );
         assert_eq!(strokes_a, strokes_b, "and its stroke mask images");
+    }
+}
+
+/// An `inline-table` is painted from its parent's line (`paint_inline_shape`,
+/// like every atomic inline) - all of its table layers too.
+#[cfg(test)]
+mod inline_table_paint_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_css::props::basic::ColorU;
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The colours of every `Rect` item the page `css` paints:
+    /// `body(0) > div.t(1) > div.r(2) > div.c(3)`.
+    fn rect_colours(css: &str) -> Vec<ColorU> {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        let mut dom = Dom::create_body()
+            .with_child(div("t").with_child(div("r").with_child(div("c"))));
+        let (css, _) = azul_css::parser2::new_from_str(css);
+        let styled = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_inline_table_paints_its_cells_and_its_collapsed_borders() {
+        // WPT css/CSS2/tables/border-collapse-empty-row (test AND reference):
+        // the `td { border: 10px solid black }` of its `display: inline-table`
+        // tables were never drawn. An inline table is an atomic inline: its
+        // parent's line paints it (`paint_inline_shape`), which painted the
+        // table's own box only - the table layers above it (cell
+        // backgrounds, the resolved collapsed borders: `paint_table_items`)
+        // are painted by a block table's own box painting alone. Its cells
+        // paint neither themselves (layer 6 belongs to the table).
+        let colours = rect_colours(
+            "body { margin: 0; } .t { display: inline-table; border-collapse: collapse; } .r { \
+             display: table-row; } .c { display: table-cell; width: 20px; height: 20px; \
+             background: rgb(255, 0, 0); border: 4px solid rgb(0, 0, 255); }",
+        );
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+        assert!(
+            colours.contains(&red),
+            "the cell's background is painted: {colours:?}"
+        );
+        assert!(
+            colours.contains(&blue),
+            "the cell's collapsed border is painted (solid: one rect per edge): {colours:?}"
+        );
+    }
+}
+
+/// What clips a run of text: its IFC's box, widened on a visible axis.
+#[cfg(test)]
+mod text_clip_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    #[test]
+    fn text_on_a_visible_axis_is_not_cut_at_the_edge_of_its_shrink_wrapped_box() {
+        // WPT css/css-tables/anonymous-table-ws-001 and html/rendering/non-
+        // replaced-elements/tables/table-width-s: the anti-aliased right
+        // edge of a table cell's last glyph ("b") was missing - 2 and 4
+        // pixels against the same text in a block. A box shrink-wrapped to
+        // its text ends at the last ADVANCE, the glyph's ink reaches a
+        // little past it, and every text run carries its IFC's content box
+        // as its clip: on an `overflow: visible` axis the ink was cut there
+        // (the renderer clips to whole pixels inside the clip). Chrome
+        // clips nothing on a visible axis. The run's clip reaches at least
+        // half an em (8px) past the inline-block's content box.
+        // `body(0) > div.ib(1) > span(2) > "a b"(3)`.
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("ib".into())].into())
+                .with_child(Dom::create_span_with_text("a b")),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "body { margin: 0; font-size: 16px; } .ib { display: inline-block; }",
+        );
+        let styled = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let result = &lw.layout_results[&DomId::ROOT_ID];
+        let ib = *result
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the inline-block is laid out");
+        let width = result
+            .layout_tree
+            .get(ib)
+            .and_then(|n| n.used_size)
+            .expect("the inline-block has a size")
+            .width;
+        let clips: Vec<f32> = result
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text {
+                    glyphs, clip_rect, ..
+                } if !glyphs.is_empty() => {
+                    let c = clip_rect.inner();
+                    Some(c.origin.x + c.size.width)
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(!clips.is_empty(), "harness: the text is painted");
+        for right in clips {
+            assert!(
+                right >= width + 8.0,
+                "the run's clip ends {right}, the {width}px box's text must not be cut at its \
+                 edge"
+            );
+        }
     }
 }

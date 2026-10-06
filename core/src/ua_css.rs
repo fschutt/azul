@@ -610,16 +610,17 @@ static MARGIN_RIGHT_40PX: CssProperty =
 
 /// `small, sub, sup { font-size: smaller }`. CSS Fonts leaves the ratio to
 /// the UA; 0.83em is the step the heading table uses (`h5`) and the browsers'
-/// 1/1.2.
+/// 1/1.2 - the value an author's `font-size: smaller` parses to, so the two
+/// are the same size.
 static FONT_SIZE_SMALLER: CssProperty =
     CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
-        inner: PixelValue::const_em_fractional(0, 83),
+        inner: azul_css::props::basic::font::FONT_SIZE_SMALLER,
     }));
 
 /// `big { font-size: larger }`: 1.2em, the inverse step.
 static FONT_SIZE_LARGER: CssProperty =
     CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
-        inner: PixelValue::const_em_fractional(1, 2),
+        inner: azul_css::props::basic::font::FONT_SIZE_LARGER,
     }));
 
 /// `sub { vertical-align: sub }`

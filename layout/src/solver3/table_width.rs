@@ -62,22 +62,52 @@ pub enum SpecifiedWidth {
 #[must_use]
 pub fn specified_width(styled_dom: &StyledDom, dom_id: NodeId, h_extras: f32) -> SpecifiedWidth {
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-    let MultiValue::Exact(LayoutWidth::Px(px)) = get_css_width(styled_dom, dom_id, node_state)
-    else {
-        return SpecifiedWidth::Auto;
-    };
-    if let Some(p) = px.to_percent() {
-        let percent = p.get() * 100.0;
-        return if percent.is_finite() && percent > 0.0 {
+    let as_percent = |percent: f32| {
+        if percent.is_finite() && percent > 0.0 {
             SpecifiedWidth::Percent(percent.min(100.0))
         } else {
             SpecifiedWidth::Auto
-        };
-    }
-    let em = get_element_font_size(styled_dom, dom_id, node_state);
-    let rem = get_root_font_size(styled_dom, node_state);
-    let Some(w) = crate::solver3::calc::resolve_pixel_value_no_percent(&px, em, rem) else {
-        return SpecifiedWidth::Auto;
+        }
+    };
+    // The font sizes `em` / `rem` lengths resolve against (only a length needs them).
+    let font_sizes = || {
+        (
+            get_element_font_size(styled_dom, dom_id, node_state),
+            get_root_font_size(styled_dom, node_state),
+        )
+    };
+    let w = match get_css_width(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(LayoutWidth::Px(px)) => {
+            if let Some(p) = px.to_percent() {
+                return as_percent(p.get() * 100.0);
+            }
+            let (em, rem) = font_sizes();
+            let Some(w) = crate::solver3::calc::resolve_pixel_value_no_percent(&px, em, rem)
+            else {
+                return SpecifiedWidth::Auto;
+            };
+            w
+        }
+        // A `calc()` with a percentage in it is that percentage, its length
+        // part dropped (browsers: `calc(50% + 0px)` sizes its column like
+        // `50%`, WPT calc-percent-plus-0px-auto); one without is the length
+        // it adds up to. The percentage is the calc's growth per 100% of its
+        // basis (the sums and products of calc() are linear in it).
+        MultiValue::Exact(LayoutWidth::Calc(items)) => {
+            let (em, rem) = font_sizes();
+            let calc = crate::solver3::calc::CalcResolveContext {
+                items,
+                em_size: em,
+                rem_size: rem,
+            };
+            let at_zero = crate::solver3::calc::evaluate_calc(&calc, 0.0);
+            let percent = crate::solver3::calc::evaluate_calc(&calc, 100.0) - at_zero;
+            if percent.abs() > 1e-4 {
+                return as_percent(percent);
+            }
+            at_zero
+        }
+        _ => return SpecifiedWidth::Auto,
     };
     if !w.is_finite() {
         return SpecifiedWidth::Auto;
@@ -680,5 +710,28 @@ mod tests {
         let w = distribute_to_columns(&[auto(1.0, 5.0)], f32::INFINITY);
         assert!(close(&w, &[5.0]), "{w:?}");
         assert!(distribute_to_columns(&[], 100.0).is_empty());
+    }
+
+    #[test]
+    fn a_calc_width_with_a_percentage_sizes_its_column_like_that_percentage() {
+        // WPT css/css-tables/calc-percent-plus-0px-auto: `width: calc(50% +
+        // 0px)` on a cell of an auto-layout table makes a 50% column, as
+        // `width: 50%` does (Chrome: the reference's 50% cell, the
+        // percentage of a calc() mixing it with a length). Every calc() was
+        // `Auto` here: the cell shrank to its content. A calc() without a
+        // percentage is the length it adds up to.
+        let width = |css: &str| {
+            let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+                azul_core::dom::Dom::create_body()
+                    .with_child(azul_core::dom::Dom::create_div().with_css(css)),
+            );
+            specified_width(&styled, NodeId::new(1), 0.0)
+        };
+        assert_eq!(width("width: 50%;"), SpecifiedWidth::Percent(50.0), "harness");
+        assert_eq!(
+            width("width: calc(50% + 0px);"),
+            SpecifiedWidth::Percent(50.0)
+        );
+        assert_eq!(width("width: calc(40px + 2px);"), SpecifiedWidth::Fixed(42.0));
     }
 }

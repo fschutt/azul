@@ -2875,6 +2875,17 @@ pub fn used_border_width(
     }
 }
 
+/// Whether a border width read from the compact cache has to be read from
+/// the cascade instead: the cache stores resolved px only, so a width in
+/// another unit (`1in`, `0.25em`) or an explicit `inherit` is a sentinel
+/// (`I16_SENTINEL` / `I16_INHERIT`) that means "ask the cascade", not "no
+/// width". (`auto` / `initial` are the initial `medium`.)
+pub(crate) fn compact_border_width_needs_cascade(raw: i16) -> bool {
+    raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD
+        && raw != azul_css::compact_cache::I16_AUTO
+        && raw != azul_css::compact_cache::I16_INITIAL
+}
+
 /// The border of `node_id` as the cascade declared it: `None` for a side
 /// that declares nothing. [`get_border_info`] turns it into the used one.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
@@ -2921,15 +2932,43 @@ fn declared_border_info(
                     Some(PixelValue::px(f32::from(raw) / 10.0))
                 }
             };
+            // A width the cache could not resolve (`1in`, `0.25em`:
+            // `compact_border_width_needs_cascade`) is read from the
+            // cascade - decoded as "no width" it painted `medium` (3px)
+            // around a box the layout gave the real width.
+            let cascade = &styled_dom.css_property_cache.ptr;
+            let node_data = &styled_dom.node_data.as_container()[node_id];
+            let (top_raw, right_raw, bottom_raw, left_raw) = (
+                cc.get_border_top_width_raw(idx),
+                cc.get_border_right_width_raw(idx),
+                cc.get_border_bottom_width_raw(idx),
+                cc.get_border_left_width_raw(idx),
+            );
             let widths = StyleBorderWidths {
-                top: make_width_px(cc.get_border_top_width_raw(idx))
-                    .map(|px| CssPropertyValue::Exact(LayoutBorderTopWidth { inner: px })),
-                right: make_width_px(cc.get_border_right_width_raw(idx))
-                    .map(|px| CssPropertyValue::Exact(LayoutBorderRightWidth { inner: px })),
-                bottom: make_width_px(cc.get_border_bottom_width_raw(idx))
-                    .map(|px| CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: px })),
-                left: make_width_px(cc.get_border_left_width_raw(idx))
-                    .map(|px| CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: px })),
+                top: if compact_border_width_needs_cascade(top_raw) {
+                    cascade.get_border_top_width(node_data, &node_id, node_state).copied()
+                } else {
+                    make_width_px(top_raw)
+                        .map(|px| CssPropertyValue::Exact(LayoutBorderTopWidth { inner: px }))
+                },
+                right: if compact_border_width_needs_cascade(right_raw) {
+                    cascade.get_border_right_width(node_data, &node_id, node_state).copied()
+                } else {
+                    make_width_px(right_raw)
+                        .map(|px| CssPropertyValue::Exact(LayoutBorderRightWidth { inner: px }))
+                },
+                bottom: if compact_border_width_needs_cascade(bottom_raw) {
+                    cascade.get_border_bottom_width(node_data, &node_id, node_state).copied()
+                } else {
+                    make_width_px(bottom_raw)
+                        .map(|px| CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: px }))
+                },
+                left: if compact_border_width_needs_cascade(left_raw) {
+                    cascade.get_border_left_width(node_data, &node_id, node_state).copied()
+                } else {
+                    make_width_px(left_raw)
+                        .map(|px| CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: px }))
+                },
             };
 
             // Border colors from compact cache.

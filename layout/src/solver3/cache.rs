@@ -3602,14 +3602,17 @@ pub(super) fn position_bfc_child_descendants(
 /// Processes out-of-flow children (absolute/fixed positioned elements).
 ///
 /// Out-of-flow elements don't appear in `layout_output.positions` but still need
-/// a static position for when no explicit offsets are specified. This sets their
-/// static position to the parent's content-box origin.
+/// a static position for when no explicit offsets are specified: the one the
+/// formatting context recorded (`LayoutOutput::static_positions`, relative to
+/// the parent's content box - where the box would have been in the flow),
+/// else the parent's content-box origin.
 fn process_out_of_flow_children<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
     text_cache: &mut TextLayoutCache,
     node_index: usize,
     self_content_box_pos: LogicalPosition,
+    static_positions: &BTreeMap<usize, LogicalPosition>,
     cb: &super::geometry::ContainingBlock,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
@@ -3650,8 +3653,17 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             continue;
         }
 
-        // Set static position to parent's content-box origin
-        super::pos_set(calculated_positions, child_index, self_content_box_pos);
+        // Its static position: where the parent's flow would have put it,
+        // else the parent's content-box origin.
+        let static_pos = static_positions
+            .get(&child_index)
+            .map_or(self_content_box_pos, |rel| {
+                LogicalPosition::new(
+                    self_content_box_pos.x + rel.x,
+                    self_content_box_pos.y + rel.y,
+                )
+            });
+        super::pos_set(calculated_positions, child_index, static_pos);
 
         // Perform full layout for the absolutely positioned child so its
         // inline_layout_result is populated (text rendering needs this).
@@ -3661,7 +3673,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             tree,
             text_cache,
             child_index,
-            self_content_box_pos,
+            static_pos,
             cb,
             calculated_positions,
             reflow_needed_for_scrollbars,
@@ -4326,6 +4338,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         text_cache,
         node_index,
         self_content_box_pos,
+        &layout_result.output.static_positions,
         &super::geometry::ContainingBlock::definite(inner_size_after_scrollbars),
         calculated_positions,
         reflow_needed_for_scrollbars,

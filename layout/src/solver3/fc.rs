@@ -250,6 +250,12 @@ pub struct LayoutOutput {
     // +spec:inline-formatting-context:f7eebb - baseline along inline axis for glyph alignment
     /// The baseline of the context, if applicable, measured from the top of its content box.
     pub baseline: Option<f32>,
+    /// The STATIC positions of the out-of-flow (absolute / fixed) children
+    /// this context placed no box for: the border-box origin each would
+    /// have had in the flow (CSS 2.2 10.3.7 / 10.6.4), relative to the
+    /// container's content-box origin like `positions`. A child missing
+    /// here takes the content-box origin.
+    pub static_positions: BTreeMap<usize, LogicalPosition>,
 }
 
 /// Text alignment options
@@ -1933,8 +1939,12 @@ fn layout_bfc<T: ParsedFontTrait>(
         // own above the first block: `<li><div style="height: 50px">` was
         // a line too tall. Checked before the position / float tests: the
         // marker carries its LIST ITEM's DOM node, whose `position` and
-        // `float` are not the marker's.
-        if is_marker_box(tree, child_index) {
+        // `float` are not the marker's. An OUTSIDE marker only: an inside
+        // one is an inline box of the item's flow - with no line of the
+        // item's own to share it is one in an anonymous block, a line before
+        // the first block (CSS 2.2 12.5.1; it hung over that block here).
+        let child_is_marker = is_marker_box(tree, child_index);
+        if child_is_marker && is_outside_marker(tree, ctx.styled_dom, child_index) {
             marker_without_line_main = marker_without_line_main.max(
                 child_node
                     .used_size
@@ -1949,8 +1959,32 @@ fn layout_bfc<T: ParsedFontTrait>(
 
         // +spec:floats:2cec1b - 'position' and 'float' determine the positioning algorithm
         // +spec:positioning:dccad6 - floats only apply to non-absolutely-positioned boxes
-        let position_type = get_position_type(ctx.styled_dom, child_dom_id);
+        // (An inside marker in this flow carries its ITEM's DOM node: the
+        // item's `position` and `float` are not the marker's.)
+        let position_type = if child_is_marker {
+            LayoutPosition::Static
+        } else {
+            get_position_type(ctx.styled_dom, child_dom_id)
+        };
         if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
+            // Its STATIC position (CSS 2.2 10.3.7 / 10.6.4): the border-box
+            // origin it would have had as a block of this flow - after the
+            // blocks placed so far and the margin they leave, at its own
+            // start margins - which an `auto` inset resolves to
+            // (`positioning`). It takes no room: the pen stays. It was
+            // never recorded, and every absolute box sat at its parent's
+            // content-box origin, on top of the blocks before it.
+            let child_margin = child_node.box_props.unpack().margin;
+            let static_main = main_pen
+                + collapse_margins(last_margin_bottom, child_margin.main_start(writing_mode));
+            output.static_positions.insert(
+                child_index,
+                LogicalPosition::from_main_cross(
+                    static_main,
+                    child_margin.cross_start(writing_mode),
+                    writing_mode,
+                ),
+            );
             continue;
         }
 
@@ -1958,7 +1992,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         // +spec:floats:f6c0b2 - floats only processed in BFC; other formatting contexts (flex/grid)
         // inhibit floating Check if this child is a float - if so, position it at current
         // main_pen
-        if let Some(node_id) = child_dom_id {
+        if let Some(node_id) = child_dom_id.filter(|_| !child_is_marker) {
             let float_type = get_float_property(ctx.styled_dom, Some(node_id));
 
             if float_type != LayoutFloat::None {
@@ -4558,6 +4592,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                 positions: BTreeMap::new(),
                 overflow_size: LogicalSize::new(0.0, strut_height),
                 baseline: Some(strut_height * 0.8),
+                static_positions: BTreeMap::new(),
             });
         }
         // The node has no inline-level content this pass (e.g. its only
@@ -6627,8 +6662,23 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
     let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &ctx.styled_dom.css_property_cache.ptr;
 
-    // FAST PATH: compact cache for normal state
-    if let Some(ref cc) = cache.compact_cache {
+    // FAST PATH: compact cache for normal state - unless a width is one the
+    // cache could not resolve (`1in`, `0.25em`: a sentinel meaning "ask the
+    // cascade", `getters::compact_border_width_needs_cascade`). Decoded as 0
+    // here, a cell's `border-top: 1in` was no collapsed edge at all (WPT
+    // collapsing-border-model-003: the table 48px short).
+    let compact = cache.compact_cache.as_ref().filter(|cc| {
+        let idx = dom_id.index();
+        [
+            cc.get_border_top_width_raw(idx),
+            cc.get_border_right_width_raw(idx),
+            cc.get_border_bottom_width_raw(idx),
+            cc.get_border_left_width_raw(idx),
+        ]
+        .into_iter()
+        .all(|raw| !crate::solver3::getters::compact_border_width_needs_cascade(raw))
+    });
+    if let Some(cc) = compact {
         let idx = dom_id.index();
 
         // Border styles from packed u16
@@ -7630,6 +7680,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         positions: cell_positions,
         // First in-flow row's baseline (CSS 2.2 §10.8.1); None ⇒ bottom edge.
         baseline: table_baseline,
+        static_positions: BTreeMap::new(),
     };
 
     Ok(output)
@@ -7736,6 +7787,31 @@ pub(crate) fn analyze_table_structure<T: ParsedFontTrait>(
             _ => {}
         }
     }
+    // A column that only a `<col>` makes - past the last cell - is a grid
+    // column when the col gives it a definite LENGTH (it takes that room
+    // in the table); one with a percentage, a calc() with one, `auto` or a
+    // 0 width names none (browsers; WPT col-definite-size-001). The grid
+    // had a column only where a cell was.
+    let column_widths = crate::solver3::table_width::column_element_widths(
+        ctx.styled_dom,
+        tree,
+        &table_ctx.column_boxes,
+        table_ctx.column_box_end(),
+    );
+    let definite_columns = column_widths
+        .iter()
+        .rposition(|w| {
+            matches!(w, crate::solver3::table_width::SpecifiedWidth::Fixed(px) if *px > 0.0)
+        })
+        .map_or(0, |last| last + 1);
+    while table_ctx.columns.len() < definite_columns {
+        table_ctx.columns.push(TableColumnInfo {
+            min_width: 0.0,
+            max_width: 0.0,
+            computed_width: None,
+        });
+    }
+
     // A collapsed column box past the last cell names no grid column.
     let num_cols = table_ctx.columns.len();
     table_ctx.collapsed_columns.retain(|&c| c < num_cols);
@@ -9945,9 +10021,12 @@ fn position_table_cells<T: ParsedFontTrait>(
                     StyleVerticalAlign::Baseline
                 };
 
-                // Calculate content height from inline layout bounds
-                let content_bounds = inline_result.bounds();
-                let content_height = content_bounds.height;
+                // The content's height is its LINE BOXES' extent - what
+                // the cell was sized by (`layout_cell_for_height`: the
+                // IFC's `ifc_extent`), struts included. Its items' bounds
+                // alone left out the strut's descent below an inline-block
+                // and centred a cell's only line half of it low.
+                let content_height = ifc_extent(&inline_result).height;
 
                 // Get padding and border to calculate content-box height
                 // height is border-box, but vertical alignment should be within content-box
@@ -12393,6 +12472,26 @@ pub(crate) fn is_marker_box(tree: &LayoutTree, index: usize) -> bool {
         .is_some_and(|w| w.pseudo_element == Some(PseudoElement::Marker))
 }
 
+/// Whether the list item whose box is `list_item` puts its marker INSIDE
+/// (`list-style-position: inside`; the initial value is `outside`). A
+/// `::marker` box carries its item's DOM node, so this answers for a
+/// marker box too.
+fn has_inside_marker(tree: &LayoutTree, styled_dom: &StyledDom, list_item: usize) -> bool {
+    tree.get(LayoutNodeId::new(list_item))
+        .and_then(|n| n.dom_node_id)
+        .is_some_and(|dom| {
+            matches!(
+                get_list_style_position(styled_dom, Some(dom)),
+                StyleListStylePosition::Inside
+            )
+        })
+}
+
+/// Whether the box at `index` is a `::marker` hanging OUTSIDE its item.
+pub(crate) fn is_outside_marker(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
+    is_marker_box(tree, index) && !has_inside_marker(tree, styled_dom, index)
+}
+
 /// Whether the box at `index` is in its parent's flow: not a `::marker`,
 /// not absolutely positioned, not floated. Anonymous boxes are.
 fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: usize) -> bool {
@@ -12536,12 +12635,33 @@ pub(crate) fn anonymous_block_holds_the_first_line(
 ///
 /// `None` when there is no line box there (an empty item, or a first child
 /// that is a table, a flex box, a replaced element): the marker box is then
-/// laid out as a line of its own, as before.
+/// laid out by the item's block flow (`layout_bfc`).
+///
+/// An INSIDE marker is an inline box at the very start of its item (CSS 2.2
+/// 12.5.1): it shares the item's OWN first line - the item's IFC, or the
+/// anonymous block wrapping the item's leading inline content - and nothing
+/// deeper. Before a first block child it is a line of its own (an anonymous
+/// block): it never rides a nested block's line (WPT
+/// list-style-position-023: three nested inside markers piled onto the
+/// innermost item's line).
 pub(crate) fn marker_line_host(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     list_item: usize,
 ) -> Option<usize> {
+    if has_inside_marker(tree, styled_dom, list_item) {
+        return match tree.get(LayoutNodeId::new(list_item))?.formatting_context {
+            FormattingContext::Inline => Some(list_item),
+            FormattingContext::Block { .. } => {
+                let first = first_in_flow_child(tree, styled_dom, list_item)?;
+                let first_node = tree.get(LayoutNodeId::new(first))?;
+                let leading_inline_content = first_node.dom_node_id.is_none()
+                    && matches!(first_node.formatting_context, FormattingContext::Inline);
+                leading_inline_content.then_some(first)
+            }
+            _ => None,
+        };
+    }
     let mut node = list_item;
     for _ in 0..MARKER_WALK_LIMIT {
         match tree.get(LayoutNodeId::new(node))?.formatting_context {
@@ -13638,6 +13758,7 @@ mod autotest_generated {
             positions,
             overflow_size: size(f32::NAN, f32::INFINITY),
             baseline: Some(-0.0),
+            static_positions: BTreeMap::new(),
         };
         let res = BfcLayoutResult::from_output(output);
         assert!(res.escaped_top_margin.is_none());
@@ -15771,6 +15892,373 @@ mod window_layout_tests {
                 "the {name} fills the 600px body (Chrome 600): {h}"
             );
         }
+    }
+
+    /// `body(0) > [div.above(1), div.abs(2), div.below(3)]`.
+    fn an_absolute_box_between_two_blocks() -> Dom {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        Dom::create_body()
+            .with_child(div("above"))
+            .with_child(div("abs"))
+            .with_child(div("below"))
+    }
+
+    #[test]
+    fn an_absolute_box_with_auto_insets_sits_where_the_flow_would_have_put_it() {
+        // WPT css/CSS2/tables/height-table-cell-001 (and every "no red"
+        // test with an `overlapped-red-reference` after its `<p>`): an
+        // absolutely positioned box whose insets are all `auto` takes its
+        // STATIC position - where it would have been as a block in the flow
+        // (CSS 2.2 10.3.7 / 10.6.4): after the block above it and that
+        // block's bottom margin, at its own margin-left. Chrome: (5, 40),
+        // and the block below starts at 40 too (the absolute box takes no
+        // room). It sat at its parent's content-box origin, (0, 0): on top
+        // of the paragraph, the red reference showing above the green.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                an_absolute_box_between_two_blocks(),
+                "body { margin: 0; } .above { height: 30px; margin-bottom: 10px; } .abs { \
+                 position: absolute; width: 10px; height: 10px; margin-left: 5px; } .below { \
+                 height: 20px; }",
+            ),
+        );
+        let abs = position_of(&lw, 2);
+        assert!(
+            (abs.y - 40.0).abs() < 0.5 && (abs.x - 5.0).abs() < 0.5,
+            "the absolute box sits below the 30px block and its 10px margin, at its own 5px \
+             margin (Chrome (5, 40)): {abs:?}"
+        );
+        let below = position_of(&lw, 3);
+        assert!(
+            (below.y - 40.0).abs() < 0.5,
+            "the absolute box takes no room in the flow: the block below starts at 40: {below:?}"
+        );
+    }
+
+    /// `body(0) > [div.li(1) > div.block(2)], [div.li(3) > div.p(4) >
+    /// span(5) > "Text"(6)]`: two list items whose first child is a block.
+    fn two_list_items_starting_with_a_block() -> Dom {
+        let class = |c: &'static str| -> azul_core::dom::IdOrClassVec {
+            vec![IdOrClass::Class(c.into())].into()
+        };
+        Dom::create_body()
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(class("li"))
+                    .with_child(Dom::create_div().with_ids_and_classes(class("block"))),
+            )
+            .with_child(
+                Dom::create_div().with_ids_and_classes(class("li")).with_child(
+                    Dom::create_div()
+                        .with_ids_and_classes(class("p"))
+                        .with_child(Dom::create_span_with_text("Text")),
+                ),
+            )
+    }
+
+    #[test]
+    fn an_inside_marker_is_a_line_of_its_own_before_a_block_child() {
+        // WPT css/CSS2/lists/list-style-position-023: an INSIDE marker is an
+        // inline box at the start of its item (CSS 2.2 12.5.1). Before a
+        // block child it sits in an anonymous block of its own - one line -
+        // and the block starts below it; it never rides a nested block's
+        // first line. Chrome: each item is 20px (the marker's line) taller
+        // than its block, the block 20px down. The item's first line box
+        // was looked for down its first blocks (`marker_line_host`, the
+        // OUTSIDE marker's rule): the marker of the item with a text block
+        // rode that text's line (three nested `<li>`s piled "1. 1. 1." onto
+        // the innermost line), the one of the item with an empty block hung
+        // out of the flow at its top.
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                two_list_items_starting_with_a_block(),
+                "body { margin: 0; } .li { display: list-item; list-style-type: disc; \
+                 list-style-position: inside; line-height: 20px; margin: 0; padding: 0; } \
+                 .block { height: 50px; } .p { margin: 0; }",
+            ),
+        );
+        for (item, block, block_height, what) in [
+            (1, 2, 50.0, "an empty 50px block"),
+            (3, 4, 20.0, "a block of one 20px line"),
+        ] {
+            let h = size_of(&lw, item).height;
+            assert!(
+                (h - (block_height + 20.0)).abs() < 0.5,
+                "the item holding {what} is the marker's 20px line taller (Chrome {}): {h}",
+                block_height + 20.0
+            );
+            let down = position_of(&lw, block).y - position_of(&lw, item).y;
+            assert!(
+                (down - 20.0).abs() < 0.5,
+                "{what} starts below the marker's line, 20px into its item: {down}"
+            );
+        }
+    }
+
+    /// Where the first marker glyph of list item `item` (a DOM node) sits,
+    /// relative to the content box of the IFC holding it: the item's own
+    /// line layout, else its marker box's (which sits at the item's content
+    /// start).
+    fn marker_x(lw: &LayoutWindow, item: usize) -> f32 {
+        let tree = &lw.layout_results[&DomId::ROOT_ID].layout_tree;
+        let li = tree
+            .dom_to_layout
+            .get(&NodeId::new(item))
+            .and_then(|v| v.first())
+            .expect("the item is laid out")
+            .index();
+        std::iter::once(li)
+            .chain(tree.children(li).iter().copied())
+            .filter_map(|host| tree.materialized_inline_layout_for_node(host))
+            .find_map(|layout| {
+                layout.items.iter().find_map(|it| match &it.item {
+                    crate::text3::cache::ShapedItem::Cluster(c)
+                        if c.marker_position_outside.is_some() =>
+                    {
+                        Some(it.position.x)
+                    }
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| panic!("list item {item} has a marker"))
+    }
+
+    #[test]
+    fn an_empty_list_items_marker_hangs_where_a_full_ones_does() {
+        // WPT css/CSS2/lists/list-style-type-applies-to-009: the square of
+        // an EMPTY list item was 4px (a space) closer to the content than
+        // the square of an item with text. The marker text ends in a space
+        // ("\u{25AA} "); alone on its line - an empty item's marker is a
+        // line of its own - that space was the line's trailing white space
+        // and was stripped, so the marker, placed by its width, moved in by
+        // it. A marker's space is part of the marker (Chrome's UA sheet:
+        // `::marker { white-space: pre }`) whatever follows it.
+        // `body(0) > [div.li(1) > span(2) > "Item"(3)], [div.li(4)]`.
+        let page = || {
+            let li = || {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("li".into())].into())
+            };
+            Dom::create_body()
+                .with_child(li().with_child(Dom::create_span_with_text("Item")))
+                .with_child(li())
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; } .li { display: list-item; list-style-type: square; \
+                 margin-left: 96px; line-height: 20px; }",
+            ),
+        );
+        let full = marker_x(&lw, 1);
+        let empty = marker_x(&lw, 4);
+        assert!(
+            full < 0.0,
+            "harness: an outside marker hangs before its item's content: {full}"
+        );
+        assert!(
+            (full - empty).abs() < 0.01,
+            "the empty item's marker hangs where the full item's does: {empty} vs {full}"
+        );
+    }
+
+    #[test]
+    fn a_middle_aligned_cell_of_one_line_puts_its_line_at_its_top() {
+        // WPT html/rendering/non-replaced-elements/tables/table-cell-nowrap-
+        // with-fixed-width: a cell holding one line of a 100px inline-block.
+        // The line box is the inline-block on the baseline plus the strut's
+        // descent below it (20px text: 16 + 4, font-free), and the cell -
+        // sized by that line box - is exactly as tall: `vertical-align:
+        // middle` has nothing to centre. Chrome: the inline-block at the
+        // cell's top. The alignment measured the content by its ITEMS'
+        // bounds (the inline-block's 100px, not the line's 104px) and moved
+        // it down by half the strut's descent (the green square 2px low).
+        // `body(0) > div.t(1) > div.r(2) > div.c(3) > div.ib(4)`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body()
+                .with_child(div("t").with_child(div("r").with_child(div("c").with_child(div("ib")))))
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; font-size: 20px; line-height: 20px; } .t { display: table; \
+                 border-spacing: 0; } .r { display: table-row; } .c { display: table-cell; \
+                 vertical-align: middle; padding: 0; } .ib { display: inline-block; width: 50px; \
+                 height: 100px; }",
+            ),
+        );
+        let cell = size_of(&lw, 3).height;
+        assert!(
+            cell > 100.5,
+            "harness: the cell holds the inline-block and the strut's descent: {cell}"
+        );
+        let down = position_of(&lw, 4).y - position_of(&lw, 3).y;
+        assert!(
+            down.abs() < 0.5,
+            "the inline-block's line starts at the top of the cell it fills: {down}"
+        );
+    }
+
+    #[test]
+    fn a_border_width_in_inches_counts_in_a_collapsed_table_and_is_painted() {
+        // WPT css/CSS2/tables/collapsing-border-model-003 / -009: a cell's
+        // `border-top: 1in solid` is ONE collapsed edge of 96px, half in the
+        // table's border, half in the cell's (CSS 2.2 17.6.2): an empty cell
+        // makes the table 48 + 48 = 96px tall, the cell 48px down. The
+        // compact cache stores only px widths - a `1in` (or `0.25em`) width
+        // is a sentinel meaning "ask the cascade" - and the collapsed-border
+        // resolution read the sentinel as 0: no edge, a 0px table. The
+        // painter read it as no width (`medium`, 3px): a `0.5in` border
+        // drew 3px wide around a box laid out 48px wide.
+        // `body(0) > [div.t(1) > div.r(2) > div.c(3)], div.b(4)`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body()
+                .with_child(div("t").with_child(div("r").with_child(div("c"))))
+                .with_child(div("b"))
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; } .t { display: table; border-collapse: collapse; } .r { \
+                 display: table-row; } .c { display: table-cell; border-top: 1in solid orange; \
+                 padding: 0; width: 50px; } .b { border-top: 0.5in solid red; width: 10px; \
+                 height: 10px; }",
+            ),
+        );
+        let table = size_of(&lw, 1).height;
+        assert!(
+            (table - 96.0).abs() < 0.5,
+            "the 1in edge: 48px of table border + 48px of cell (Chrome 96): {table}"
+        );
+        let down = position_of(&lw, 3).y - position_of(&lw, 1).y;
+        assert!(
+            (down - 48.0).abs() < 0.5,
+            "the cell starts below the table's half of the edge: {down}"
+        );
+        let painted = lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::solver3::display_list::DisplayListItem::Border { widths, styles, .. }
+                    if styles
+                        .top
+                        .as_ref()
+                        .and_then(|s| s.get_property())
+                        .is_some_and(|s| {
+                            s.inner == azul_css::props::style::border::BorderStyle::Solid
+                        }) =>
+                {
+                    widths.top.as_ref().and_then(|w| w.get_property()).map(|w| w.inner)
+                }
+                _ => None,
+            });
+        assert_eq!(
+            painted,
+            Some(azul_css::props::basic::pixel::PixelValue::inch(0.5)),
+            "the 0.5in border is painted 0.5in wide, not `medium`"
+        );
+    }
+
+    #[test]
+    fn a_column_with_a_definite_width_counts_without_cells() {
+        // WPT css/css-tables/col-definite-size-001: four `<col style="width:
+        // 100px">` over a row of two cells make a table of four 100px
+        // columns (Chrome: as wide as the reference's four cells); a
+        // trailing column a `<col>` alone makes with a percentage, a calc()
+        // or no width names no column. The grid had a column only where a
+        // cell was: the definite columns were dropped (200px).
+        // `body(0) > div.t(1) > [div.g(2) > div.col(3..=6)], [div.r(7) > div.c(8), div.c(9)]`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body().with_child(
+                div("t")
+                    .with_child(
+                        div("g")
+                            .with_child(div("col"))
+                            .with_child(div("col"))
+                            .with_child(div("col"))
+                            .with_child(div("col")),
+                    )
+                    .with_child(div("r").with_child(div("c")).with_child(div("c"))),
+            )
+        };
+        let table_width = |col_width: &str| {
+            let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+            lay_out(
+                &mut lw,
+                styled(
+                    page(),
+                    &format!(
+                        "body {{ margin: 0; }} .t {{ display: table; border-spacing: 0; }} .g \
+                         {{ display: table-column-group; }} .col {{ display: table-column; \
+                         width: {col_width}; }} .r {{ display: table-row; }} .c {{ display: \
+                         table-cell; padding: 0; }}"
+                    ),
+                ),
+            );
+            size_of(&lw, 1).width
+        };
+        let definite = table_width("100px");
+        assert!(
+            (definite - 400.0).abs() < 0.5,
+            "four 100px columns, two of them without cells (Chrome 400): {definite}"
+        );
+        // (The percentage / calc() / auto halves of the WPT page match
+        // their reference already: those columns stay dropped.)
+    }
+
+    #[test]
+    fn a_shrink_wrapped_list_item_keeps_its_text_on_its_markers_line() {
+        // WPT css/css-lists/inline-block-list's reference: a list item as
+        // wide as its text (`width: fit-content`, or shrink-to-fit in an
+        // inline-block) showed its marker on one line and its text on the
+        // next. An OUTSIDE marker hangs in the gutter - the line placement
+        // never advances the pen for it, and the item's intrinsic width
+        // leaves it out - but the line breaker counted its width on the
+        // line, so the text no longer fitted beside it. Chrome: one 20px
+        // line. `body(0) > div.ib(1) > div.li(2) > span(3) > "B"(4)`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body().with_child(
+                div("ib").with_child(div("li").with_child(Dom::create_span_with_text("B"))),
+            )
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; padding-left: 40px; } .ib { display: inline-block; } .li { \
+                 display: list-item; list-style-type: decimal; line-height: 20px; }",
+            ),
+        );
+        let h = size_of(&lw, 2).height;
+        assert!(
+            (h - 20.0).abs() < 0.5,
+            "the item's text stays on its marker's line (Chrome 20): {h}"
+        );
     }
 }
 

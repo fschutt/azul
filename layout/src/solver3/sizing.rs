@@ -1273,8 +1273,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // item's content start, out of the flow (`fc::layout_bfc`):
                 // the item is as tall as the taller of it and the blocks,
                 // never their sum. (One on a line contributes nothing at
-                // all: `calculate_intrinsic_recursive` zeroes it.)
-                if crate::solver3::fc::is_marker_box(tree, child_index) {
+                // all: `calculate_intrinsic_recursive` zeroes it.) An
+                // OUTSIDE marker only: an inside one is a line of the flow
+                // and adds up like a block.
+                if crate::solver3::fc::is_outside_marker(tree, self.ctx.styled_dom, child_index) {
                     marker_main_size = marker_main_size.max(child_border_box_main);
                     continue;
                 }
