@@ -294,7 +294,7 @@ fn render_linear_gradient(
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -392,7 +392,7 @@ fn render_radial_gradient(
     transform.invert();
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -455,7 +455,7 @@ fn render_conic_gradient(
     let d2 = 100.0;
 
     let mut path = if border_radius.is_zero() {
-        build_rect_path(&rect)
+        build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
@@ -5658,6 +5658,26 @@ fn horizontal_lerp_row(rgba: &[u8], cols: &[(u32, u32, f32)], out: &mut [f32]) {
             o[c] = f32::from(a[c]) * w + f32::from(b[c]) * tx;
         }
     }
+}
+
+/// The path of `rect` with its edges ROUNDED to whole device pixels - the
+/// rule an opaque [`render_rect`] fills by ([`round_edge`]) and browsers
+/// paint a box's background by: a box's fractional edge is not an
+/// anti-aliased one. Two gradient boxes sharing a pixel each covered part of
+/// it, and what lay under them showed through (a red seam between floats,
+/// WPT background-gradient-subpixel-fills-area).
+fn build_pixel_snapped_rect_path(rect: &AzRect) -> PathStorage {
+    let x0 = f64::from(round_edge(rect.x));
+    let y0 = f64::from(round_edge(rect.y));
+    let x1 = f64::from(round_edge(rect.x + rect.width));
+    let y1 = f64::from(round_edge(rect.y + rect.height));
+    let mut path = PathStorage::new();
+    path.move_to(x0, y0);
+    path.line_to(x1, y0);
+    path.line_to(x1, y1);
+    path.line_to(x0, y1);
+    path.close_polygon(PATH_FLAGS_NONE);
+    path
 }
 
 fn build_rect_path(rect: &AzRect) -> PathStorage {
