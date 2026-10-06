@@ -1,6 +1,7 @@
 //! Clearing a text field tells its app: Backspace over the field's last
 //! character (or over a select-all) leaves the engine's buffer EMPTY, and the
-//! `TextInput`'s `on_text_input` hook must see the empty value.
+//! `TextInput`'s (and the `TextArea`'s) `on_text_input` hook must see the
+//! empty value.
 //!
 //! The widget mirrors the engine's buffer on every `Input` notification
 //! (`adopt_engine_text`), but refused to adopt an EMPTY read over a non-empty
@@ -20,7 +21,10 @@ use azul::desktop::shell2::{
     headless::HeadlessWindow,
 };
 use azul_core::{
-    callbacks::{FocusTarget, FocusTargetPath, LayoutCallback, LayoutCallbackInfo, Update},
+    callbacks::{
+        FocusTarget, FocusTargetPath, LayoutCallback, LayoutCallbackInfo, LayoutCallbackType,
+        Update,
+    },
     dom::{Dom, DomId},
     events::ProcessEventResult,
     geom::LogicalSize,
@@ -33,9 +37,12 @@ use azul_core::{
 use azul_css::css::{CssPath, CssPathSelector};
 use azul_layout::{
     callbacks::{CallbackChange, CallbackInfo},
-    widgets::text_input::{
-        OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType, TextInputState,
-        TextInputValid,
+    widgets::{
+        text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState},
+        text_input::{
+            OnTextInputReturn, TextInput, TextInputOnTextInputCallbackType, TextInputState,
+            TextInputValid,
+        },
     },
     window_state::WindowCreateOptions,
 };
@@ -59,6 +66,33 @@ extern "C" fn on_text(
     }
 }
 
+/// The `TextArea` twin of [`on_text`].
+extern "C" fn on_area_text(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextAreaState,
+) -> OnTextInputReturn {
+    if let Some(seen) = data.downcast_ref::<Seen>() {
+        seen.0.lock().unwrap().push(state.get_text());
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+/// body > TextArea#field holding "a". The model never changes.
+extern "C" fn area_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let hook: TextAreaOnTextInputCallbackType = on_area_text;
+    Dom::create_body().with_child(
+        TextArea::create()
+            .with_text("a".into())
+            .with_on_text_input(data, hook)
+            .dom()
+            .with_id("field".into()),
+    )
+}
+
 /// body > TextInput#field holding "a". The model never changes.
 extern "C" fn layout_cb(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let hook: TextInputOnTextInputCallbackType = on_text;
@@ -71,11 +105,11 @@ extern "C" fn layout_cb(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     )
 }
 
-fn make_window(seen: Seen) -> HeadlessWindow {
+fn make_window(seen: Seen, layout: LayoutCallbackType) -> HeadlessWindow {
     let mut options = WindowCreateOptions::default();
     options.window_state.size.dimensions = LogicalSize::new(400.0, 200.0);
     options.window_state.layout_callback = LayoutCallback {
-        cb: layout_cb,
+        cb: layout,
         ctx: OptionRefAny::None,
     };
     HeadlessWindow::new(
@@ -140,10 +174,10 @@ fn field_text(window: &HeadlessWindow) -> String {
     lw.extract_text_from_inline_content(&content)
 }
 
-#[test]
-fn backspace_over_the_last_character_tells_the_app_the_field_is_empty() {
+/// Focus the field holding "a", press Backspace: the app's hook must see "".
+fn backspace_clears_the_field_and_the_app_hears_it(layout: LayoutCallbackType) {
     let seen = Seen::default();
-    let mut window = make_window(seen.clone());
+    let mut window = make_window(seen.clone(), layout);
     window.regenerate_layout().expect("initial layout");
     let _ = window.common.take_regeneration();
 
@@ -172,4 +206,14 @@ fn backspace_over_the_last_character_tells_the_app_the_field_is_empty() {
         Some(""),
         "the app's on_text_input saw the empty field (it saw {values:?})"
     );
+}
+
+#[test]
+fn backspace_over_the_last_character_tells_the_app_the_field_is_empty() {
+    backspace_clears_the_field_and_the_app_hears_it(layout_cb);
+}
+
+#[test]
+fn backspace_over_the_last_character_tells_the_app_the_text_area_is_empty() {
+    backspace_clears_the_field_and_the_app_hears_it(area_layout);
 }
