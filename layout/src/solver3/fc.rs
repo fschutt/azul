@@ -6662,8 +6662,23 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
     let node_state = ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &ctx.styled_dom.css_property_cache.ptr;
 
-    // FAST PATH: compact cache for normal state
-    if let Some(ref cc) = cache.compact_cache {
+    // FAST PATH: compact cache for normal state - unless a width is one the
+    // cache could not resolve (`1in`, `0.25em`: a sentinel meaning "ask the
+    // cascade", `getters::compact_border_width_needs_cascade`). Decoded as 0
+    // here, a cell's `border-top: 1in` was no collapsed edge at all (WPT
+    // collapsing-border-model-003: the table 48px short).
+    let compact = cache.compact_cache.as_ref().filter(|cc| {
+        let idx = dom_id.index();
+        [
+            cc.get_border_top_width_raw(idx),
+            cc.get_border_right_width_raw(idx),
+            cc.get_border_bottom_width_raw(idx),
+            cc.get_border_left_width_raw(idx),
+        ]
+        .into_iter()
+        .all(|raw| !crate::solver3::getters::compact_border_width_needs_cascade(raw))
+    });
+    if let Some(cc) = compact {
         let idx = dom_id.index();
 
         // Border styles from packed u16
