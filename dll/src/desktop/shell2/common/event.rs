@@ -5917,6 +5917,10 @@ pub trait PlatformWindow {
                     && self.route_pointer_transition(&mut old_state.mouse_state, &state.mouse_state);
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
+                // For the gesture sessions below (`record_scripted_pointer_sample`).
+                let pointer_was_down = old_state.mouse_state.left_down
+                    || old_state.mouse_state.right_down
+                    || old_state.mouse_state.middle_down;
 
                 // A pushed light / dark is the WINDOW's own choice: an
                 // AZ_MODE pin and the app's mode still outrank it (the one
@@ -6093,6 +6097,11 @@ pub trait PlatformWindow {
                     if let Some(pos) = mouse_pos {
                         self.update_hit_test_at(pos);
                     }
+                    // A press, move or release a scrollbar did not take is an
+                    // input session's, as a device's is.
+                    if !pointer_to_scrollbar {
+                        self.record_scripted_pointer_sample(pointer_was_down);
+                    }
                 }
                 // Each other seat hit-tests at ITS OWN cursor, into its own
                 // hover history, so the event pass targets its press at the
@@ -6129,6 +6138,11 @@ pub trait PlatformWindow {
                             &mut old_state.mouse_state,
                             &queued_state.mouse_state,
                         );
+                    // The gesture sessions below (`record_scripted_pointer_sample`).
+                    let mouse_state_changed = old_state.mouse_state != queued_state.mouse_state;
+                    let pointer_was_down = old_state.mouse_state.left_down
+                        || old_state.mouse_state.right_down
+                        || old_state.mouse_state.middle_down;
                     self.set_previous_window_state(old_state);
 
                     self.get_common_mut()
@@ -6153,6 +6167,11 @@ pub trait PlatformWindow {
                     let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
                     if let (Some(pos), false) = (mouse_pos, pointer_to_scrollbar) {
                         self.update_hit_test_at(pos);
+                    }
+                    // As in `ModifyWindowState`: an input session's press /
+                    // move / release, as a device's is.
+                    if mouse_state_changed && !pointer_to_scrollbar {
+                        self.record_scripted_pointer_sample(pointer_was_down);
                     }
 
                     let nested = self.process_window_events(0);
@@ -10207,6 +10226,47 @@ pub trait PlatformWindow {
 
         // Periodically clear old samples (every frame is fine)
         manager.clear_old_sessions(current_time);
+    }
+
+    /// THE GESTURE SESSIONS for a scripted pointer: what every backend's mouse
+    /// handler does with a device press, move and release
+    /// ([`Self::record_input_sample`]), for a primary-pointer change a callback
+    /// pushed (`ModifyWindowState` / `QueueWindowStateSequence` - the debug
+    /// server's `mouse_down` / `mouse_move` / `mouse_up` / `click` /
+    /// `double_click` ops). `was_down`: a button was held before the change.
+    /// Without it no input session existed for a script, so `detect_drag`
+    /// never saw one: no `DragStart`, no node drag and drop (E2E-C: AzTasks'
+    /// planned month and board, AzShow's slide sorter), and a held-button move
+    /// was only a text-selection drag.
+    fn record_scripted_pointer_sample(&mut self, was_down: bool) {
+        let (position, buttons, is_down) = {
+            let ms = &self.get_current_window_state().mouse_state;
+            let Some(position) = ms.cursor_position.get_position() else {
+                return;
+            };
+            let mut buttons = BUTTON_STATE_NONE;
+            if ms.left_down {
+                buttons |= BUTTON_STATE_LEFT;
+            }
+            if ms.right_down {
+                buttons |= BUTTON_STATE_RIGHT;
+            }
+            if ms.middle_down {
+                buttons |= BUTTON_STATE_MIDDLE;
+            }
+            (
+                position,
+                buttons,
+                ms.left_down || ms.right_down || ms.middle_down,
+            )
+        };
+        self.record_input_sample(
+            position,
+            buttons,
+            is_down && !was_down,
+            was_down && !is_down,
+            None,
+        );
     }
 
     // PROVIDED: Event Processing (Cross-Platform Implementation)

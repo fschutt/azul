@@ -15279,17 +15279,13 @@ pub fn process_debug_event(
                 callback_info.modify_window_state(new_state.clone());
             }
 
-            // Two press/release cycles alone rely on the gesture manager's
-            // time+distance heuristic seeing two *ended* input sessions, which
-            // in turn depends on how many frames the injected window states
-            // are processed in. Platforms report a double click as a native
-            // gesture, and `GestureAndDragManager::detect_double_click`
-            // honours that directly, so inject it too: the op then delivers a
-            // `DoubleClick` deterministically instead of hoping the heuristic
-            // fires.
-            callback_info.inject_native_gesture(
-                azul_layout::managers::gesture::NativeGestureEvent::DoubleClick,
-            );
+            // The two cycles ARE the double click: each state is applied as
+            // its own change, and the shell feeds a scripted press / release
+            // into the gesture sessions as a device's
+            // (`record_scripted_pointer_sample`), so the second release raises
+            // exactly one `DoubleClick`. The op used to inject a native
+            // DoubleClick as well - its stand-in while scripts fed no sessions
+            // - which would now be a second one (E2E-C, 2026-10-06).
             // NO `needs_update` — see the note on `process_debug_event`.
 
             send_ok(request, None, None);
