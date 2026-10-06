@@ -4973,10 +4973,16 @@ fn layout_ifc<T: ParsedFontTrait>(
     Ok(output)
 }
 
+/// A containing-block size as taffy's `parent_size`. A non-finite side is the
+/// measurement passes' "indefinite" (`INFINITY` in `available_size`), not a
+/// size: handed to taffy as `Some(inf)`, a `height: 100%` resolved to an
+/// infinite height and spread up the OfficeShell chain (AzNews / AzCode
+/// painted blank). CSS 2.2 10.5: a percentage of an indefinite height is
+/// `auto` - taffy's `None`.
 const fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
     TaffySize {
-        width: Some(size.width),
-        height: Some(size.height),
+        width: if size.width.is_finite() { Some(size.width) } else { None },
+        height: if size.height.is_finite() { Some(size.height) } else { None },
     }
 }
 
@@ -14154,7 +14160,6 @@ mod autotest_generated {
             size(-0.0, 1.5),
             size(f32::MIN, f32::MAX),
             size(-1.0, -2.0),
-            size(f32::INFINITY, f32::NEG_INFINITY),
             size(f32::MIN_POSITIVE, f32::EPSILON),
         ] {
             let t = translate_taffy_size(s);
@@ -14172,14 +14177,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn translate_taffy_size_preserves_nan_without_panicking() {
-        let t = translate_taffy_size(size(f32::NAN, f32::NAN));
-        assert!(t.width.unwrap().is_nan());
-        let back = translate_taffy_size_back(TaffySize {
-            width: t.width.unwrap(),
-            height: t.height.unwrap(),
-        });
-        assert!(back.width.is_nan() && back.height.is_nan());
+    fn a_non_finite_parent_size_reaches_taffy_as_unknown() {
+        for s in [
+            size(f32::NAN, f32::NAN),
+            size(f32::INFINITY, f32::NEG_INFINITY),
+        ] {
+            let t = translate_taffy_size(s);
+            assert_eq!((t.width, t.height), (None, None), "{s:?}");
+        }
+        let half = translate_taffy_size(size(800.0, f32::INFINITY));
+        assert_eq!((half.width, half.height), (Some(800.0), None));
     }
 
     #[test]
