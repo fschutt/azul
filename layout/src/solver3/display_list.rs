@@ -16290,3 +16290,82 @@ mod svg_mask_memo_tests {
         assert_eq!(strokes_a, strokes_b, "and its stroke mask images");
     }
 }
+
+/// An `inline-table` is painted from its parent's line (`paint_inline_shape`,
+/// like every atomic inline) - all of its table layers too.
+#[cfg(test)]
+mod inline_table_paint_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_css::props::basic::ColorU;
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The colours of every `Rect` item the page `css` paints:
+    /// `body(0) > div.t(1) > div.r(2) > div.c(3)`.
+    fn rect_colours(css: &str) -> Vec<ColorU> {
+        let div = |c: &'static str| {
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+        };
+        let mut dom = Dom::create_body()
+            .with_child(div("t").with_child(div("r").with_child(div("c"))));
+        let (css, _) = azul_css::parser2::new_from_str(css);
+        let styled = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Rect { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_inline_table_paints_its_cells_and_its_collapsed_borders() {
+        // WPT css/CSS2/tables/border-collapse-empty-row (test AND reference):
+        // the `td { border: 10px solid black }` of its `display: inline-table`
+        // tables were never drawn. An inline table is an atomic inline: its
+        // parent's line paints it (`paint_inline_shape`), which painted the
+        // table's own box only - the table layers above it (cell
+        // backgrounds, the resolved collapsed borders: `paint_table_items`)
+        // are painted by a block table's own box painting alone. Its cells
+        // paint neither themselves (layer 6 belongs to the table).
+        let colours = rect_colours(
+            "body { margin: 0; } .t { display: inline-table; border-collapse: collapse; } .r { \
+             display: table-row; } .c { display: table-cell; width: 20px; height: 20px; \
+             background: rgb(255, 0, 0); border: 4px solid rgb(0, 0, 255); }",
+        );
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+        assert!(
+            colours.contains(&red),
+            "the cell's background is painted: {colours:?}"
+        );
+        assert!(
+            colours.contains(&blue),
+            "the cell's collapsed border is painted (solid: one rect per edge): {colours:?}"
+        );
+    }
+}
