@@ -10154,6 +10154,141 @@ mod tests {
         );
     }
 
+    /// [`notes_editor_layout`]'s app: the editor state the change callback keeps.
+    struct NotesEditor {
+        editor: azul_layout::widgets::rich_text_editor::RichTextEditorState,
+    }
+
+    extern "C" fn keep_editor_state(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+        state: azul_layout::widgets::rich_text_editor::RichTextEditorState,
+    ) -> azul_core::callbacks::Update {
+        if let Some(mut app) = data.downcast_mut::<NotesEditor>() {
+            app.editor = state;
+        }
+        azul_core::callbacks::Update::RefreshDom
+    }
+
+    /// `body > RichTextEditor` over the app's editor state - AzNotes' note body.
+    extern "C" fn notes_editor_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::rich_text_editor::{
+            RichTextEditor, RichTextEditorOnChangeCallbackType,
+        };
+        let state = data
+            .downcast_ref::<NotesEditor>()
+            .map(|app| app.editor.clone())
+            .expect("the app's state");
+        Dom::create_body().with_child(
+            RichTextEditor::create(state)
+                .with_on_change(data.clone(), keep_editor_state as RichTextEditorOnChangeCallbackType)
+                .dom(),
+        )
+    }
+
+    /// Enter on an empty list item turns it into a paragraph and the editor rebuilds: the
+    /// caret must stand in that paragraph, so the next keystroke lands there. The item's node
+    /// was replaced by the paragraph's, the caret on it went with it, and typing went nowhere
+    /// until something else placed a caret - AzNotes dropped "[ ] call the bakery" typed
+    /// after leaving a shopping list (E2E sweep, 2026-10-06).
+    #[test]
+    fn typing_after_enter_on_an_empty_list_item_lands_in_the_new_paragraph() {
+        use azul_core::{
+            dom::{DomId, DomNodeId, NodeId},
+            selection::{CursorAffinity, GraphemeClusterId, TextCursor},
+            styled_dom::NodeHierarchyItemId,
+        };
+        use azul_layout::widgets::rich_text::{RichBlock, RichBlockKind, RichTextDoc};
+
+        let doc = RichTextDoc::from_blocks(vec![
+            RichBlock::text(RichBlockKind::Bullet(0), "milk"),
+            RichBlock::text(RichBlockKind::Bullet(0), "eggs"),
+            RichBlock::text(RichBlockKind::Bullet(0), ""),
+        ]);
+        let editor = azul_layout::widgets::rich_text_editor::RichTextEditorState::create(doc);
+        let host_id = editor.host_id.as_str().to_string();
+        let state = Arc::new(RefCell::new(RefAny::new(NotesEditor { editor })));
+        let mut window = make_window_with(&state, notes_editor_layout);
+        window.regenerate_layout().expect("the editor's first layout");
+        let _ = window.common.take_regeneration();
+
+        let dom = DomId::ROOT_ID;
+        {
+            let lw = window.common.layout_window.as_mut().expect("a layout window");
+            let styled = &lw.layout_results[&dom].styled_dom;
+            let host = styled
+                .node_data
+                .as_container()
+                .internal
+                .iter()
+                .position(|n| n.has_id(&host_id))
+                .map(NodeId::new)
+                .expect("premise: the editing host");
+            let hierarchy = styled.node_hierarchy.as_container();
+            let mut block = hierarchy.get(host).and_then(|h| h.first_child_id(host));
+            for _ in 0..2 {
+                block = block.and_then(|b| hierarchy.get(b).and_then(|h| h.next_sibling_id()));
+            }
+            let empty_item = block.expect("premise: the third block");
+            lw.focus_manager.set_focused_node(Some(DomNodeId {
+                dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(host)),
+            }));
+            assert!(
+                lw.start_editing_at(
+                    TextCursor {
+                        cluster_id: GraphemeClusterId {
+                            source_run: 0,
+                            start_byte_in_run: 0,
+                        },
+                        affinity: CursorAffinity::Leading,
+                    },
+                    dom,
+                    empty_item,
+                    0,
+                ),
+                "premise: a caret in the empty item"
+            );
+        }
+
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: VirtualKeyCode::Return });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: VirtualKeyCode::Return });
+        if window.common.take_regeneration() {
+            window.regenerate_layout().expect("the rebuild");
+        }
+        let kinds = state
+            .borrow_mut()
+            .downcast_ref::<NotesEditor>()
+            .map(|app| {
+                app.editor
+                    .doc
+                    .blocks
+                    .as_ref()
+                    .iter()
+                    .map(|b| b.kind.clone())
+                    .collect::<Vec<_>>()
+            })
+            .expect("the app's state");
+        assert_eq!(
+            kinds.last(),
+            Some(&RichBlockKind::Paragraph),
+            "premise: Enter left the list: {kinds:?}"
+        );
+
+        step(&mut window, HeadlessEvent::TextInput { text: "x".to_string() });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: VirtualKeyCode::Escape });
+        let last = state
+            .borrow_mut()
+            .downcast_ref::<NotesEditor>()
+            .and_then(|app| app.editor.doc.blocks.as_ref().last().map(RichBlock::flat))
+            .expect("the app's state");
+        let caret = window.common.layout_window.as_ref().and_then(|lw| lw.document_caret());
+        assert_eq!(
+            last, "x",
+            "the keystroke typed after leaving the list is in the new paragraph (caret {caret:?})"
+        );
+    }
+
     /// `step()` drives a wheel `Scroll` the way `run()` does: the delta is
     /// queued against the scroll node under the pointer and the momentum timer
     /// applies it. It used to drop the event, so no test could scroll through
