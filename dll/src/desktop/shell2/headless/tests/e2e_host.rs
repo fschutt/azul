@@ -992,3 +992,92 @@ fn two_scripted_press_release_cycles_on_one_spot_are_one_double_click() {
         "two press / release cycles on one spot are one double click"
     );
 }
+
+/// The question's "Close": what a CloseGuard's Don't Save does, and what
+/// AzWriter's save write-back does after a Save the question started.
+extern "C" fn close_from_the_question(
+    _data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    info.close_window();
+    azul_core::callbacks::Update::DoNothing
+}
+
+/// `body > p` and a `<transient-window open>` covering the viewport with no
+/// light-dismiss - a `Modal` - whose only content is a 120x40 button at its
+/// top-left that closes the window.
+extern "C" fn closing_question_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{NodeData, NodeType},
+        events::{EventFilter, HoverEventFilter},
+        refany::OptionRefAny,
+        transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
+    };
+    let close_button = Dom::create_div()
+        .with_css("width: 120px; height: 40px;")
+        .with_callbacks(
+            vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                callback: CoreCallback {
+                    cb: close_from_the_question as usize,
+                    ctx: OptionRefAny::None,
+                },
+                refany: data.clone(),
+            }]
+            .into(),
+        );
+    let question = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+        TransientWindowConfig::opened()
+            .with_anchor(TransientAnchor::Viewport)
+            .with_dismiss(TransientDismiss::None),
+    )))
+    .with_child(close_button);
+    Dom::create_body()
+        .with_child(Dom::create_p_with_text("Report.md"))
+        .with_child(Dom::create_div().with_child(question))
+}
+
+/// E2E-C, AzWriter: "Save changes?" > Save saved the document, and the
+/// write-back's `close_window()` closed - the question's own window. A
+/// Modal's content is its OWNER's subtree (`common::transient`): a callback
+/// there that closes "the window" means the window the user sees it in, the
+/// owner; the popup goes with it. (The CloseGuard's Don't Save calls
+/// `close_window()` from inside its question too.)
+#[test]
+fn close_window_from_inside_a_modal_closes_the_window_that_owns_it() {
+    let state = Arc::new(RefCell::new(RefAny::new(())));
+    let mut root = make_window_with(&state, closing_question_layout);
+    root.regenerate_layout().expect("the page's first layout");
+    let _ = root.common.take_regeneration();
+    root.pump_children();
+    assert_eq!(
+        root.children.len(),
+        1,
+        "harness: the question is a window of its own"
+    );
+
+    let get_time = azul_core::task::GetSystemTimeCallback {
+        cb: azul_core::task::get_system_time_libstd,
+    };
+    root.children[0].start_timer(
+        azul_core::task::TimerId::unique().id,
+        azul_layout::timer::Timer::create(
+            RefAny::new(()),
+            debug_click_timer as azul_layout::timer::TimerCallbackType,
+            get_time,
+        ),
+    );
+    for _ in 0..8 {
+        if !root.is_open() {
+            break;
+        }
+        root.pump_children();
+        root.pump_once(true);
+    }
+    assert!(
+        !root.is_open(),
+        "close_window() inside the modal closes the window that owns it ({} popup(s) open)",
+        root.children.len()
+    );
+}
