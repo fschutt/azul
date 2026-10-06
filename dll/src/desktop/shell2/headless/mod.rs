@@ -2440,10 +2440,16 @@ impl HeadlessWindow {
         self.pending_window_creates.extend(opened_by_children);
     }
 
-    /// Is this window a window-based menu (`WindowType::Menu`)?
+    /// Is this window a window-based menu (`WindowType::Menu` with no mailbox)?
+    /// A `<transient-window>` popup has the `Menu` type too
+    /// (`transient::popup_window_state`), but it has a mailbox and closes
+    /// through its node in the parent (`transient::dismiss_on_escape`,
+    /// `dismiss_outside_on_press`), which tells the app: closing its window
+    /// here left the node open and the app never heard `Dismissed`.
     fn is_menu_window(&self) -> bool {
-        self.common.current_window_state().flags.window_type
-            == azul_core::window::WindowType::Menu
+        let state = self.common.current_window_state();
+        state.flags.window_type == azul_core::window::WindowType::Menu
+            && crate::desktop::shell2::common::transient::mailbox_of(state).is_none()
     }
 
     /// Whether this window's loop must poll (it has timers or threads in flight): the
