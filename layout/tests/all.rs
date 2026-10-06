@@ -318,6 +318,8 @@ mod an_arrow_collapses_a_document_selection_like_a_click;
 mod an_svg_without_a_viewbox;
 #[path = "a_mask_clip_on_a_half_pixel.rs"]
 mod a_mask_clip_on_a_half_pixel;
+#[path = "a_padded_table_cell_stays_in_its_row.rs"]
+mod a_padded_table_cell_stays_in_its_row;
 #[path = "pagination_dom_breaks.rs"]
 mod pagination_dom_breaks;
 #[path = "pagination_fits_its_card.rs"]
