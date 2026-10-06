@@ -37,8 +37,13 @@ Binaries: /Users/fschutt/Development/azul/target/release/<App> (engine 889dccf30
 - Seen (not a script failure): after File > New > Budget sample the grid shows stale cell borders of the
   previous layout all over the empty cells (headless CPU repaint / damage?), screenshot sample-flat-light.png.
 
-## AzShow / AzTasks / AzTerm / AzVideoCut / AzWriter
+## AzShow - PASS (after a script fix)
+- SCRIPT: the close question's Cancel is in the Modal's own window ("azul-transient").
+- NOTE the script already tolerates: the slide sorter's drag and drop delivers no drop headlessly (Mod+Down
+  reorders instead). Not investigated.
+
+## AzTasks / AzTerm / AzVideoCut / AzWriter
 - status: not run yet
 
 ## NEXT
-- run AzShow
+- run AzTasks
