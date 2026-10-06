@@ -94,4 +94,5 @@ Runs: `/Users/fschutt/Development/azul/scripts/waves/tools/run_capped.sh --cap-m
   sample / account / submission all PASS.
 
 ## NEXT
-- write scripts/E2E_A_2026_10_06.md (the report) and commit.
+- DONE: report scripts/E2E_A_2026_10_06.md (04da5c481). Left for others: the flex-grow layout bug
+  (RED 2ba1d6c3a, no GREEN), the TextArea twins, the visual bugs listed in the report.
