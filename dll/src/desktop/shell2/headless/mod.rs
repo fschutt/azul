@@ -3761,6 +3761,25 @@ impl PlatformWindow for HeadlessWindow {
         any
     }
 
+    /// The popups are this window's children ([`HeadlessWindow::pump_children`]):
+    /// run the pass of every one this window just forwarded a key to, right
+    /// now, as macOS and X11 run theirs - nothing else wakes a child that has
+    /// no input of its own, so the key (an Escape for a modal) waited forever.
+    fn deliver_forwarded_keys(&mut self) {
+        for child in &mut self.children {
+            if child.is_open()
+                && crate::desktop::shell2::common::transient::has_forwarded_keys(
+                    child.common.current_window_state(),
+                )
+            {
+                let r = child.process_window_events(0);
+                if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                    child.service_frame(r);
+                }
+            }
+        }
+    }
+
     fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {
         // No-op — no visual surface to show a tooltip on
     }
