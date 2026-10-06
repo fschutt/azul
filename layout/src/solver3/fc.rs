@@ -16025,6 +16025,48 @@ mod window_layout_tests {
             "the empty item's marker hangs where the full item's does: {empty} vs {full}"
         );
     }
+
+    #[test]
+    fn a_middle_aligned_cell_of_one_line_puts_its_line_at_its_top() {
+        // WPT html/rendering/non-replaced-elements/tables/table-cell-nowrap-
+        // with-fixed-width: a cell holding one line of a 100px inline-block.
+        // The line box is the inline-block on the baseline plus the strut's
+        // descent below it (20px text: 16 + 4, font-free), and the cell -
+        // sized by that line box - is exactly as tall: `vertical-align:
+        // middle` has nothing to centre. Chrome: the inline-block at the
+        // cell's top. The alignment measured the content by its ITEMS'
+        // bounds (the inline-block's 100px, not the line's 104px) and moved
+        // it down by half the strut's descent (the green square 2px low).
+        // `body(0) > div.t(1) > div.r(2) > div.c(3) > div.ib(4)`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body()
+                .with_child(div("t").with_child(div("r").with_child(div("c").with_child(div("ib")))))
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; font-size: 20px; line-height: 20px; } .t { display: table; \
+                 border-spacing: 0; } .r { display: table-row; } .c { display: table-cell; \
+                 vertical-align: middle; padding: 0; } .ib { display: inline-block; width: 50px; \
+                 height: 100px; }",
+            ),
+        );
+        let cell = size_of(&lw, 3).height;
+        assert!(
+            cell > 100.5,
+            "harness: the cell holds the inline-block and the strut's descent: {cell}"
+        );
+        let down = position_of(&lw, 4).y - position_of(&lw, 3).y;
+        assert!(
+            down.abs() < 0.5,
+            "the inline-block's line starts at the top of the cell it fills: {down}"
+        );
+    }
 }
 
 /// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
