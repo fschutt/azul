@@ -7496,16 +7496,32 @@ where
             // actually clips (hidden/scroll/auto) keeps the viewport bound;
             // a visible axis takes the full content extent computed above,
             // which `reshape_text_node` keeps fresh between relayouts.
-            if let Some(dom_id) = node.dom_node_id {
-                let st = self.get_styled_node_state(dom_id);
-                let clips = |ov: crate::solver3::getters::MultiValue<LayoutOverflow>| {
-                    matches!(
-                        ov,
-                        crate::solver3::getters::MultiValue::Exact(
-                            LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto
+            {
+                // Per axis: does this box clip its inline content? An
+                // ANONYMOUS box (the wrapper of text beside blocks) has no
+                // DOM node and `overflow` keeps its initial `visible` there:
+                // it clips nothing. It used to skip everything below - the
+                // ink allowance, a hanging marker, a grown IFC - and cut the
+                // anti-aliased left edge of its first glyph at the box (WPT
+                // text-decoration-propagation-04: "dolor" one pixel short of
+                // the same line in a div).
+                let (clips_x, clips_y) = node.dom_node_id.map_or((false, false), |dom_id| {
+                    let st = self.get_styled_node_state(dom_id);
+                    let clips = |ov: crate::solver3::getters::MultiValue<LayoutOverflow>| {
+                        matches!(
+                            ov,
+                            crate::solver3::getters::MultiValue::Exact(
+                                LayoutOverflow::Hidden
+                                    | LayoutOverflow::Scroll
+                                    | LayoutOverflow::Auto
+                            )
                         )
+                    };
+                    (
+                        clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)),
+                        clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)),
                     )
-                };
+                });
                 // `content_box_rect` was extended to `get_scroll_content_size`,
                 // which floors at the node's own BORDER box (`used_size`): for
                 // a padded box with nothing overflowing it is padding-box tall
@@ -7517,12 +7533,12 @@ where
                 // reached into the next row, the rows' page-break avoid-ranges
                 // overlapped, and the break climbed a third of the page.)
                 let own_box = node.used_size.unwrap_or_default();
-                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st))
+                if !clips_x
                     && content_size.width > own_box.width + 0.01
                 {
                     viewport_clip_rect.size.width = content_box_rect.size.width;
                 }
-                if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st))
+                if !clips_y
                     && content_size.height > own_box.height + 0.01
                 {
                     viewport_clip_rect.size.height = content_box_rect.size.height;
@@ -7544,11 +7560,11 @@ where
                 // ink began at 0 and this never fired (the marker of every
                 // `<li>` stayed clipped in the default build).
                 let ink = cached_layout.overflow.unclipped_bounds;
-                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) && ink.x < 0.0 {
+                if !clips_x && ink.x < 0.0 {
                     viewport_clip_rect.origin.x += ink.x;
                     viewport_clip_rect.size.width -= ink.x;
                 }
-                if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)) && ink.y < 0.0 {
+                if !clips_y && ink.y < 0.0 {
                     viewport_clip_rect.origin.y += ink.y;
                     viewport_clip_rect.size.height -= ink.y;
                 }
@@ -7563,7 +7579,7 @@ where
                 // (`visual_bounds`) pads with. Horizontal only: a text
                 // clip's VERTICAL extent is its lines', which the page
                 // breaks read (azul#478 above).
-                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                if !clips_x {
                     let em = cached_layout
                         .glyph_runs
                         .iter()
@@ -7586,11 +7602,11 @@ where
                             )
                         },
                     );
-                    if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                    if !clips_x {
                         viewport_clip_rect.origin.x += lo.x;
                         viewport_clip_rect.size.width += hi.x - lo.x;
                     }
-                    if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)) {
+                    if !clips_y {
                         viewport_clip_rect.origin.y += lo.y;
                         viewport_clip_rect.size.height += hi.y - lo.y;
                     }
@@ -16456,6 +16472,45 @@ mod text_clip_tests {
     use crate::{
         callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
     };
+
+    #[test]
+    fn text_in_an_anonymous_block_gets_the_same_ink_allowance_as_text_in_a_div() {
+        // WPT css/css-text-decor/text-decoration-propagation-04: "dolor"
+        // beside a block child is wrapped in an anonymous block, which has no
+        // DOM node - and the visible-axis clip logic ran only for boxes with
+        // one, so its run kept the bare content box as its clip and the
+        // anti-aliased left edge of the "d" was cut (4 pixels against the
+        // same line in a div).
+        let xml = "<html><head><style>body { margin: 8px; font-size: 16px; }</style></head>\
+                   <body><div>dolor<div>sit</div></div></body></html>";
+        let styled = crate::xml::parse_xml_to_styled_dom(xml).expect("the page parses");
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let clips: Vec<f32> = lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text { clip_rect, .. } => Some(clip_rect.0.origin.x),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(clips.len(), 2, "two runs: {clips:?}");
+        assert!(
+            clips.iter().all(|x| *x < 8.0),
+            "every run's clip reaches past the content box's left edge (x 8): {clips:?}"
+        );
+    }
 
     #[test]
     fn text_on_a_visible_axis_is_not_cut_at_the_edge_of_its_shrink_wrapped_box() {

@@ -52,12 +52,10 @@ FAIL css/css-lists/li-list-item-counter-001.html E-OL # match li-list-item-count
 FAIL css/css-lists/li-list-item-counter-002.html E-OL # match li-list-item-counter-002-ref.html: maxdiff 255 pixels 786
 FAIL css/css-lists/list-marker-alignment.html E-OL # match list-marker-alignment-ref.html: maxdiff 121 pixels 116
 FAIL css/css-lists/list-style-type-string-001a.html E-OL # needs list-style-type: <string> (test) and ::before generated content (reference); gate 2026-10-06: maxdiff 233 pixels 3563
-FAIL css/css-tables/anonymous-table-ws-001.html E-TABLE # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/css-tables/table-intrinsic-size-001.html E-TABLE # match ref-filled-green-100px-square-only.html: maxdiff 255 pixels 10000
 FAIL css/css-tables/table_grid_size_col_colspan.html E-TABLE # match table_grid_size_col_colspan-ref.html: maxdiff 255 pixels 29500
 FAIL css/css-tables/th-text-align.html E-TABLE # needs HTML's th rule: centred only under a parent whose text-align is the initial value, and an author `text-align: inherit` to beat the UA centre; gate 2026-10-06: maxdiff 233 pixels 283
 FAIL css/css-text-decor/text-decoration-color.html E-DECOR # match text-decoration-color-ref.html: maxdiff 210 pixels 11946
-FAIL css/css-text-decor/text-decoration-propagation-04.html E-DECOR # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/css-text-decor/text-decoration-subelements-003.html E-DECOR # match text-decoration-subelements-003-ref.html: maxdiff 232 pixels 808
 FAIL html/rendering/non-replaced-elements/tables/table-cell-width-s.html E-LEGACY # the reference's `.row { clear: both } .row div { float: left }` rows overlap: clearance does not see the floats of a previous sibling block (:first-child is fixed); gate 2026-10-06: maxdiff 255 pixels 4034
 FAIL html/rendering/non-replaced-elements/the-hr-element-0/color.html E-LEGACY # match color-ref.html: maxdiff 165 pixels 3136
