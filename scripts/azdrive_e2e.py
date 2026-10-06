@@ -87,10 +87,14 @@ class Drive(e2e.App):
     def frame(self, n=2):
         super().frame(n)
 
-    def texts(self):
+    def texts(self, every_dom=False):
+        if every_dom:
+            return super().texts(every_dom)
         return [n.get("text") for n in self.hierarchy() if n.get("text")]
 
-    def has(self, selector):
+    def has(self, selector, every_dom=False):
+        if every_dom:
+            return super().has(selector, every_dom)
         answer = self.op("get_node_layout", selector=selector)
         if not isinstance(answer, dict) or answer.get("status") == "error":
             return False

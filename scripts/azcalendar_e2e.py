@@ -534,7 +534,8 @@ def stage_occurrence(app, ctx):
     ed = reach_editor(app)
     ed.wait_for(wi.sel("editor-scope"))
     ed.type_into(wi.sel("editor-title"), " (moved)")
-    ed.click(selector=wi.sel("editor-save"))
+    # Save & Close closes the editor window: no frames are asked of it (see stage_editor).
+    ed.must({"op": "click", "selector": wi.sel("editor-save")})
     w.until("AZCAL_EDITOR closed", lambda: "closed" in app.printed("AZCAL_EDITOR")[opened:])
     new = w.until(
         "the occurrence's own event file",
