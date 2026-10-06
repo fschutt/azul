@@ -30,5 +30,17 @@ Runs: `/Users/fschutt/Development/azul/scripts/waves/tools/run_capped.sh --cap-m
   fills 0fc182265.
 - proof on today's binary: with a scroll_into_view before Save, import/editor/repeat/occurrence PASS.
 
+## AzClock - DONE pending rebuild
+- "the two alarms that are on schedule at least two notifications, got 0" (AZCLOCK_SCHEDULED 0 26):
+  ENGINE - AzClock probes PlatformCapability::notifications() before App::run; the headless switch
+  is set by the run loop -> macOS probe, unavailable. Fix: AzBackend::headless_selected() in
+  notifications::probe. ce6845526 RED, 2daacb34b GREEN.
+- editor / city search / ringing overlay are Modals (own windows): SCRIPT -> shared
+  e2e.InWindow / modal_window / laid_out in azlin_e2e.py (moved from azerp_e2e.py) 1e439d6b5;
+  clock script da968559e. Also click-by-text is "contains": "1 min" hit "+1 min" -> click_exact.
+- first click after a closed modal eaten: ENGINE, the modal window lingers in today's libazul
+  (built 03:14, before 30fb9f06b) and headless dismiss_menu_windows ate the press (49d34f0b0).
+- proof: with the schedule check relaxed and a second click after each modal, the script PASSES.
+
 ## Others
-- NEXT: AzClock.
+- NEXT: AzCode.
