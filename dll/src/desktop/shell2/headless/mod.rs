@@ -13254,4 +13254,118 @@ mod child_window_tests {
             "the root was rebuilt for the child's RefreshDomAllWindows"
         );
     }
+
+    /// A `<transient-window>`'s popup, as the owner's sync opens one (a Modal's window, a
+    /// Popover's, a combobox's list): a `Menu`-type window whose layout ctx is its mailbox.
+    fn transient_popup(owner: &HeadlessWindow) -> (WindowCreateOptions, RefAny) {
+        use azul_core::{
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            id::NodeId,
+            transient::TransientWindowConfig,
+        };
+        use azul_layout::transient::{placement_for, transient_dom_id, OpenTransientWindow};
+        let open = OpenTransientWindow {
+            source_node: NodeId::new(1),
+            content_dom: transient_dom_id(0),
+            placement: placement_for(
+                NodeId::new(1),
+                LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(300.0, 200.0)),
+                &TransientWindowConfig::opened(),
+            ),
+            content_size: LogicalSize::new(200.0, 120.0),
+            surface: OptionRefAny::None,
+            torn: None,
+            anchor_override: None,
+            attr_torn: false,
+        };
+        crate::desktop::shell2::common::transient::popup_create_options(
+            0,
+            owner.common.current_window_state(),
+            &open,
+            Dom::create_div(),
+            None,
+            false,
+        )
+    }
+
+    fn child_ids(owner: &HeadlessWindow) -> Vec<String> {
+        owner
+            .children
+            .iter()
+            .map(|c| c.common.current_window_state().window_id.as_str().to_string())
+            .collect()
+    }
+
+    /// A transient popup (a Modal's window, a Popover's, a combobox's list) is a `Menu`-type
+    /// window too (`transient::popup_window_state`), but it is no window-based MENU: its node
+    /// owns it, and the transient machinery closes it and tells the node (a Modal's on_close).
+    /// The owner's light dismissal of its menus - an Escape or a press that reached it - closed
+    /// every `Menu`-type child, the transient ones included, and told nobody: AzCalculator's
+    /// About box (a Modal) vanished on Escape while the app still held it open, and the Escape
+    /// never reached it (E2E-A, 2026-10-06).
+    #[test]
+    fn the_owner_dismisses_its_menu_windows_but_not_its_transient_popups() {
+        let mut root = root();
+        let mut menu = window(root_layout, "azul-menu");
+        menu.window_state.flags.window_type = azul_core::window::WindowType::Menu;
+        let (popup, _mailbox) = transient_popup(&root);
+        root.queue_window_create(menu);
+        root.queue_window_create(popup);
+        root.pump_children();
+        let mut ids = child_ids(&root);
+        ids.sort();
+        assert_eq!(ids, vec!["azul-menu".to_string(), "azul-transient".to_string()]);
+
+        assert!(root.dismiss_menu_windows(), "a window-based menu was open");
+        assert_eq!(
+            child_ids(&root),
+            vec!["azul-transient".to_string()],
+            "the menu closed; the transient popup is its node's to close"
+        );
+        assert!(
+            !root.dismiss_menu_windows(),
+            "a transient popup alone is no menu to dismiss"
+        );
+    }
+
+    /// A key that reached the owner while its transient popup holds the keyboard goes into the
+    /// popup's mailbox (`forward_keys_to_popup`: headless, like X11, makes no popup a key
+    /// window) - and the owner runs the popup's pass right away, as X11, macOS and Win32 do
+    /// (`deliver_forwarded_keys`). Headless left the key in the mailbox until some other input
+    /// reached the popup, which in a script is never: a Modal never heard the Escape that
+    /// closes it (E2E-A, 2026-10-06).
+    #[test]
+    fn a_key_the_owner_forwards_to_its_popup_is_replayed_by_the_popup_at_once() {
+        use azul_core::window::{KeyboardState, OptionVirtualKeyCode};
+
+        use crate::desktop::shell2::common::transient::{
+            forward_key, has_forwarded_keys, ForwardedKey,
+        };
+        let mut root = root();
+        let (popup, mailbox) = transient_popup(&root);
+        root.queue_window_create(popup);
+        root.pump_children();
+        assert_eq!(child_ids(&root), vec!["azul-transient".to_string()]);
+
+        let mut keyboard = KeyboardState::default();
+        keyboard.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
+        keyboard.pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
+        assert!(forward_key(
+            &mailbox,
+            ForwardedKey {
+                keyboard,
+                previous_key: OptionVirtualKeyCode::None,
+                text: None,
+            },
+        ));
+        assert!(has_forwarded_keys(root.children[0].common.current_window_state()));
+
+        root.deliver_forwarded_keys();
+        assert!(
+            root.children
+                .iter()
+                .all(|c| !has_forwarded_keys(c.common.current_window_state())),
+            "the popup replayed the forwarded key in the owner's pass"
+        );
+    }
 }
