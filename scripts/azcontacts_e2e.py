@@ -76,10 +76,15 @@ def sideways_scroll(app, stem):
     return next((float(s.get("max_scroll_x", 0)) for s in states if s.get("node_id") == node), 0.0)
 
 
+def focus_search(app):
+    """A click on the list's search field puts the caret in it."""
+    app.click(selector=app.sel("contacts-search"))
+
+
 def search(app, text):
     """Types `text` into the list's search field: a click puts the caret in it (the field's id names
     the search row around it, which holds no text)."""
-    app.click(selector=app.sel("contacts-search"))
+    focus_search(app)
     app.must("text_input", text=text)
     app.frame(2)
 
@@ -125,6 +130,9 @@ def body(args, logs, out):
         app.expect_line("AZCONTACTS_VIEW", "1", "searching krug")
         app.click(text="Ben Krüger")
         app.until("Ben to be selected", lambda: (app.last("AZCONTACTS_SELECTED") or "").endswith("Ben Krüger"))
+        # The click on Ben's row took the focus from the search field: back into it, then
+        # select its text and delete it.
+        focus_search(app)
         app.key("a", primary=True)
         app.key("backspace")
         app.until("the whole list again", lambda: app.last("AZCONTACTS_VIEW") == "302")

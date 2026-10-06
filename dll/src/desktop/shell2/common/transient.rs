@@ -135,10 +135,10 @@ pub struct TransientWindowData {
     /// happens ONCE per window: a click on nothing that clears focus later
     /// must not be undone by the next pass.
     pub autofocused: bool,
-    /// Popup → parent: a callback in the popup asked to close THE window
-    /// (`CallbackInfo::close_window`) - the parent, whose subtree the popup
-    /// shows ([`post_close_owner`]). A Modal's Don't Save, or a save
-    /// write-back a Modal's Save started (E2E-C, AzWriter).
+    /// Popup → parent: a callback that ran in this popup closed "the window"
+    /// (`CallbackInfo::close_window`) - the window its node belongs to, the
+    /// parent ([`post_close_owner`]). The parent's next sync takes it
+    /// ([`SyncOutcome::close_owner`]).
     pub close_owner: bool,
 }
 
@@ -618,11 +618,14 @@ pub struct SyncOutcome {
     pub create: Vec<WindowCreateOptions>,
     /// A mailbox was written: every window must be woken to read it.
     pub wake_all: bool,
+    /// A callback in one of the popups closed "the window" - the parent
+    /// ([`post_close_owner`]): the shell asks the parent to close.
+    pub close_owner: bool,
 }
 
 impl SyncOutcome {
     fn is_empty(&self) -> bool {
-        self.create.is_empty() && !self.wake_all
+        self.create.is_empty() && !self.wake_all && !self.close_owner
     }
 }
 
@@ -683,6 +686,15 @@ pub fn sync_parent(
         }
     }
 
+    // 0b. A close a callback in a popup asked for: the parent's (`post_close_owner`).
+    for w in lw.transient_windows.open_windows() {
+        if let OptionRefAny::Some(m) = &w.surface {
+            if take_close_owner(m) {
+                out.close_owner = true;
+            }
+        }
+    }
+
     // 1. Dismissals posted by popups.
     let dismissed: Vec<NodeId> = lw
         .transient_windows
@@ -721,6 +733,11 @@ pub fn sync_parent(
     //    (a_modal_button_that_changes_app_state_rebuilds_its_parent_window).
     for m in lw.transient_windows.take_closed_surfaces() {
         if let OptionRefAny::Some(m) = m {
+            // The answer that closed the parent also dropped its question
+            // (a CloseGuard's "Don't Save"): the close is still the parent's.
+            if take_close_owner(&m) {
+                out.close_owner = true;
+            }
             if write(&m, |d| d.closed = true) {
                 out.wake_all = true;
             }
@@ -1196,15 +1213,16 @@ pub fn post_dismissed(state: &FullWindowState) -> bool {
     })
 }
 
-/// The popup side: a callback in this popup asked to close THE window
-/// (`CallbackInfo::close_window`). The popup's content is the parent's
-/// subtree, so the window meant is the parent (a Modal's Don't Save, a save
-/// write-back a Modal's Save started): post it to the parent, which closes -
-/// through its close protocol - and takes the popup with it. `false` when
-/// this is no popup, or a torn-off toplevel (a window of its own, which
-/// closes itself and reports `dismissed`).
+/// The popup side: a callback that ran in this popup closed "the window"
+/// (`CallbackInfo::close_window`). The popup only shows a subtree of its
+/// owner's DOM, so that is the OWNER: post it for the parent's next sync
+/// ([`SyncOutcome::close_owner`]). Returns whether this window is a popup
+/// that took it - `false` for any other window, which closes itself.
 pub fn post_close_owner(state: &FullWindowState) -> bool {
     mailbox_of(state).is_some_and(|m| {
+        // A torn-off toplevel is a window of its own (it closes itself and
+        // reports `dismissed`); a popup the parent already closed has no
+        // owner to ask.
         if read(&m, |d| d.torn || d.closed).unwrap_or(true) {
             return false;
         }
@@ -1212,19 +1230,12 @@ pub fn post_close_owner(state: &FullWindowState) -> bool {
     })
 }
 
-/// The parent side: did one of this window's popups ask to close this window
-/// ([`post_close_owner`])? Takes the requests.
-pub fn take_close_owner(lw: &LayoutWindow) -> bool {
-    let mut any = false;
-    for w in lw.transient_windows.open_windows() {
-        if let OptionRefAny::Some(m) = &w.surface {
-            if read(m, |d| d.close_owner).unwrap_or(false) {
-                write(m, |d| d.close_owner = false);
-                any = true;
-            }
-        }
-    }
-    any
+/// The parent side: the close a popup posted ([`post_close_owner`]), taken
+/// once.
+fn take_close_owner(mailbox: &RefAny) -> bool {
+    let mut asked = false;
+    write(mailbox, |d| asked = core::mem::take(&mut d.close_owner));
+    asked
 }
 
 /// The popup side: the window is closing for ANY reason the parent did not

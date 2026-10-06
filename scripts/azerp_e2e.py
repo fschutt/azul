@@ -33,7 +33,7 @@ import glob
 import os
 
 import azlin_e2e as e2e
-from azlin_e2e import Failure
+from azlin_e2e import Failure, modal_window
 # The one "click a standard dialog's button by its label" (the page has a "Delete" too).
 from azwriter_e2e import click_dialog_button
 
@@ -41,6 +41,9 @@ TAG = "azerp"
 TODAY = "2026-10-03"
 SAMPLE_ASSETS = 12
 SAMPLE_FILES = 28
+# The asset page's tabs: a click by text alone takes the first node containing the text, and
+# the section tabs' "Maintenance" (the log of every asset) come before the asset's own tab.
+TABS = "#__azerp_detail-tabs"
 
 
 def files(data_dir, folder, suffix=".json"):
@@ -55,37 +58,6 @@ def start(args, logs, binary, data_dir, extra, tag):
 
 def saved(app):
     return len(app.printed("AZERP_SAVED"))
-
-
-class InWindow:
-    """`app` with every op addressed to its window `window_id` (the envelope's `window_id`): a
-    `Modal` is a transient window of its own, its buttons are not in the main window's tree."""
-
-    def __init__(self, app, window_id):
-        self.app = app
-        self.window_id = window_id
-
-    def op(self, op, **params):
-        return self.app.op(op, window_id=self.window_id, **params)
-
-    def must(self, op, **params):
-        return self.app.must(op, window_id=self.window_id, **params)
-
-    def frame(self, n=1):
-        self.app.frame(n)
-
-    # The App's own input helpers, run through this window's `must` / `frame`.
-    click = e2e.App.click
-    text_input = e2e.App.text_input
-
-
-def modal_window(app):
-    """The open modal's window (the one window that is not the app's own)."""
-    def other():
-        windows = (app.value("list_windows") or {}).get("windows") or []
-        ids = [w.get("window_id") for w in windows if not w.get("is_default")]
-        return ids[0] if ids else None
-    return InWindow(app, app.until("the modal's window", other))
 
 
 def delete_asks_first(app, data_dir, key, out):
@@ -163,7 +135,7 @@ def body(args, logs, out):
         app.frame(3)
         if not app.shows("Drill press"):
             raise Failure("the new asset's page does not show its name")
-        app.click(text="Depreciation schedule")
+        app.click_within(TABS, "Depreciation schedule")
         app.frame(2)
         if not app.has_id("__azerp_schedule-table"):
             raise Failure("the schedule tab shows no table")
@@ -172,7 +144,7 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "2-new-asset-schedule.png"))
 
         # ---- 3. check-out and check-in ----
-        app.click(text="Overview")
+        app.click_within(TABS, "Overview")
         app.after("the check-out form", "AZERP_FORM", r"\S+", lambda: app.click(text="Check out"))
         # A modal form (`form_modal`) is a Modal: a transient window of its own.
         form = modal_window(app)
@@ -200,7 +172,7 @@ def body(args, logs, out):
         app.until("the entry's file", lambda: saved(app) > before)
         if not app.last("AZERP_SAVED").startswith("erp/maintenance/"):
             raise Failure("the entry wrote %r" % app.last("AZERP_SAVED"))
-        app.click(text="Maintenance")
+        app.click_within(TABS, "Maintenance")
         app.frame(2)
         if not app.shows("First service"):
             raise Failure("the Maintenance tab does not list the entry")
@@ -212,9 +184,14 @@ def body(args, logs, out):
         # ---- 5. a wrong form ----
         app.click(text="Register")
         app.after("the asset form", "AZERP_FORM", r"\S+", lambda: app.click(text="New asset"))
+        # The form refuses every empty required field, one AZERP_REFUSED line each (name,
+        # cost, useful life): the name must be among them.
+        refused = len(app.printed("AZERP_REFUSED"))
         app.after("the refusal", "AZERP_REFUSED", r".*", lambda: app.click(selector="#__azerp_form-save"))
-        if not app.last("AZERP_REFUSED").startswith("name:"):
-            raise Failure("the refusal names %r, not the name" % app.last("AZERP_REFUSED"))
+        app.frame(2)
+        reasons = app.printed("AZERP_REFUSED")[refused:]
+        if not any(r.startswith("name:") for r in reasons):
+            raise Failure("the refusals %r do not name the name" % reasons)
         app.screenshot(os.path.join(out, "5-refused.png"))
         app.click(selector="#__azerp_form-cancel")
 

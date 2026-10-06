@@ -517,7 +517,12 @@ extern "C" fn answer_delete(
 /// question: a `<transient-window open>` covering the viewport with no
 /// light-dismiss - what a `Modal` is - whose only content is the 120x40
 /// Delete button at its top-left.
-extern "C" fn record_page_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+extern "C" fn record_page_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    record_page(data, answer_delete as usize)
+}
+
+/// [`record_page_layout`] with `answer` behind the question's Delete.
+fn record_page(mut data: RefAny, answer: usize) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{NodeData, NodeType},
@@ -540,7 +545,7 @@ extern "C" fn record_page_layout(mut data: RefAny, _info: LayoutCallbackInfo) ->
             vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),
                 callback: CoreCallback {
-                    cb: answer_delete as usize,
+                    cb: answer,
                     ctx: OptionRefAny::None,
                 },
                 refany: data.clone(),
@@ -589,8 +594,31 @@ extern "C" fn debug_click_timer(
 /// returned, never the result of the pass its changes ran.
 #[test]
 fn a_modal_button_that_changes_app_state_rebuilds_its_parent_window() {
+    let (state, root) = click_the_questions_delete(record_page_layout);
+    let deleted = state
+        .borrow_mut()
+        .downcast_ref::<RecordPage>()
+        .is_some_and(|p| p.deleted);
+    assert!(deleted, "harness: the click ran the question's Delete");
+    let texts = texts_of(&root);
+    assert!(
+        texts.iter().any(|t| t == "Deleted") && !texts.iter().any(|t| t == "Drill press"),
+        "the main window was rebuilt for the Delete inside its modal: {texts:?}"
+    );
+    assert!(
+        root.children.is_empty(),
+        "the question leaves with the rebuild that dropped it: {} window(s) still open",
+        root.children.len()
+    );
+}
+
+/// The record page under `layout` with its question open in a window of its own, after a
+/// script's click on the question's Delete and six turns of the loop.
+fn click_the_questions_delete(
+    layout: azul_core::callbacks::LayoutCallbackType,
+) -> (Arc<RefCell<RefAny>>, HeadlessWindow) {
     let state = Arc::new(RefCell::new(RefAny::new(RecordPage { deleted: false })));
-    let mut root = make_window_with(&state, record_page_layout);
+    let mut root = make_window_with(&state, layout);
     root.regenerate_layout().expect("the page's first layout");
     let _ = root.common.take_regeneration();
     root.pump_children();
@@ -624,21 +652,42 @@ fn a_modal_button_that_changes_app_state_rebuilds_its_parent_window() {
         root.pump_children();
         root.pump_once(true);
     }
+    (state, root)
+}
 
-    let deleted = state
+/// A "Don't Save" in a close guard's question: the edits go, and so does the window.
+extern "C" fn answer_discard(
+    mut data: RefAny,
+    mut info: azul_layout::callbacks::CallbackInfo,
+) -> azul_core::callbacks::Update {
+    if let Some(mut page) = data.downcast_mut::<RecordPage>() {
+        page.deleted = true;
+    }
+    info.close_window();
+    azul_core::callbacks::Update::RefreshDom
+}
+
+extern "C" fn discard_page_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    record_page(data, answer_discard as usize)
+}
+
+/// A callback in a modal that closes "the window" closes the window the modal belongs to.
+/// The modal's popup only shows a subtree of its owner's DOM: its callbacks are the owner's,
+/// and so is the window they mean - a refresh they ask for already is the owner's. The
+/// close closed the popup instead: the `CloseGuard`'s "Don't Save" (`close_window` in its
+/// answer) left AzCalendar's editor window open on "This appointment is closed.", and the
+/// next editor, under the same window id, was out of a script's reach (E2E-A, 2026-10-06).
+#[test]
+fn a_close_asked_from_a_modal_closes_the_window_that_owns_it() {
+    let (state, root) = click_the_questions_delete(discard_page_layout);
+    let discarded = state
         .borrow_mut()
         .downcast_ref::<RecordPage>()
         .is_some_and(|p| p.deleted);
-    assert!(deleted, "harness: the click ran the question's Delete");
-    let texts = texts_of(&root);
+    assert!(discarded, "harness: the click ran the question's answer");
     assert!(
-        texts.iter().any(|t| t == "Deleted") && !texts.iter().any(|t| t == "Drill press"),
-        "the main window was rebuilt for the Delete inside its modal: {texts:?}"
-    );
-    assert!(
-        root.children.is_empty(),
-        "the question leaves with the rebuild that dropped it: {} window(s) still open",
-        root.children.len()
+        !root.is_open() || root.common.current_window_state().flags.close_requested,
+        "the window that owns the modal closes"
     );
 }
 

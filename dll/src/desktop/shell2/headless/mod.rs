@@ -3762,22 +3762,26 @@ impl PlatformWindow for HeadlessWindow {
         any
     }
 
-    /// The popups are this window's children: run the pass of every one this
-    /// window just forwarded a key to, right now, as X11 / macOS / Win32 do.
-    /// Headless has no key window; the popup never ran a pass for the key on
-    /// its own, so a script's Escape in a modal's owner sat in the modal's
-    /// mailbox and the modal's own Escape never closed it (E2E-C, AzReview).
+    /// The popups are this window's children: run the pass of every one the
+    /// owner just forwarded a key to, right now, as X11, macOS and Win32 do -
+    /// headless makes no popup a key window, so a script's key always lands
+    /// in the owner, and nothing else would ever wake the popup to replay it.
     fn deliver_forwarded_keys(&mut self) {
+        use azul_core::events::ProcessEventResult as R;
         for child in &mut self.children {
-            if child.is_open()
-                && crate::desktop::shell2::common::transient::has_forwarded_keys(
+            if !child.is_open()
+                || !crate::desktop::shell2::common::transient::has_forwarded_keys(
                     child.common.current_window_state(),
                 )
             {
-                let r = child.process_window_events(0);
-                if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                    child.service_frame(r);
-                }
+                continue;
+            }
+            let r = child.process_window_events(0);
+            if r == R::ShouldRegenerateDomAllWindows {
+                child.request_regeneration_all_windows();
+            }
+            if r != R::DoNothing {
+                child.service_frame(r);
             }
         }
     }
@@ -13183,6 +13187,64 @@ mod tests {
             "the shell has stopped the unmounted node's timer (nothing left to stop)"
         );
     }
+
+    /// `body(0) > div[contenteditable](1) > [p(2) > "Re"(3), p(4) > "Ben"(5)]`: a reply's
+    /// editor, the same DOM on every build.
+    extern "C" fn reply_editor_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(Dom::create_p_with_text("Re"))
+                .with_child(Dom::create_p_with_text("Ben")),
+        )
+    }
+
+    /// An app that resets its editor's content (`CallbackInfo::reset_editor_content`, caret at
+    /// the start) and rebuilds the SAME DOM gets its caret: the reset's caret is placed by the
+    /// tail of a full layout, and an identical rebuild takes the shell's pre-cascade "layout
+    /// unchanged" exit, which lays nothing out - the caret waited for some later full layout,
+    /// and the focus the app gave the editor in the same callback seeded it at the END of the
+    /// text meanwhile. AzMail's reply: the caret stood after the quote's last line, and the
+    /// typed answer went under the quote (E2E-A, 2026-10-06).
+    #[test]
+    fn a_reset_editor_gets_its_caret_when_the_app_rebuilds_the_same_dom() {
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_with(&state, reply_editor_layout);
+        window
+            .regenerate_layout()
+            .expect("the editor's first layout");
+        let _ = window.common.take_regeneration();
+        let host = azul_core::dom::DomNodeId {
+            dom: azul_core::dom::DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                azul_core::id::NodeId::new(1),
+            )),
+        };
+        assert!(
+            window
+                .common
+                .layout_window
+                .as_mut()
+                .expect("a layout window")
+                .reset_editor_content(host, false),
+            "premise: the host is a live editor"
+        );
+        window.regenerate_layout().expect("the identical rebuild");
+        let _ = window.common.take_regeneration();
+
+        let caret = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.document_caret())
+            .expect("the reset placed the editor's caret");
+        assert_eq!(
+            caret.node.node.into_crate_internal(),
+            Some(azul_core::id::NodeId::new(2)),
+            "the caret is in the first block"
+        );
+        assert_eq!(caret.text_byte, 0, "at its start");
+    }
 }
 
 #[cfg(test)]
@@ -13404,6 +13466,120 @@ mod child_window_tests {
         assert!(
             ROOT_LAYOUTS.load(Ordering::SeqCst) > before,
             "the root was rebuilt for the child's RefreshDomAllWindows"
+        );
+    }
+
+    /// A `<transient-window>`'s popup, as the owner's sync opens one (a Modal's window, a
+    /// Popover's, a combobox's list): a `Menu`-type window whose layout ctx is its mailbox.
+    fn transient_popup(owner: &HeadlessWindow) -> (WindowCreateOptions, RefAny) {
+        use azul_core::{
+            geom::{LogicalPosition, LogicalRect, LogicalSize},
+            id::NodeId,
+            transient::TransientWindowConfig,
+        };
+        use azul_layout::transient::{placement_for, transient_dom_id, OpenTransientWindow};
+        let open = OpenTransientWindow {
+            source_node: NodeId::new(1),
+            content_dom: transient_dom_id(0),
+            placement: placement_for(
+                NodeId::new(1),
+                LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(300.0, 200.0)),
+                &TransientWindowConfig::opened(),
+            ),
+            content_size: LogicalSize::new(200.0, 120.0),
+            surface: OptionRefAny::None,
+            torn: None,
+            anchor_override: None,
+            attr_torn: false,
+        };
+        crate::desktop::shell2::common::transient::popup_create_options(
+            0,
+            owner.common.current_window_state(),
+            &open,
+            Dom::create_div(),
+            None,
+            false,
+        )
+    }
+
+    fn child_ids(owner: &HeadlessWindow) -> Vec<String> {
+        owner
+            .children
+            .iter()
+            .map(|c| c.common.current_window_state().window_id.as_str().to_string())
+            .collect()
+    }
+
+    /// A transient popup (a Modal's window, a Popover's, a combobox's list) is a `Menu`-type
+    /// window too (`transient::popup_window_state`), but it is no window-based MENU: its node
+    /// owns it, and the transient machinery closes it and tells the node (a Modal's on_close).
+    /// The owner's light dismissal of its menus - an Escape or a press that reached it - closed
+    /// every `Menu`-type child, the transient ones included, and told nobody: AzCalculator's
+    /// About box (a Modal) vanished on Escape while the app still held it open, and the Escape
+    /// never reached it (E2E-A, 2026-10-06).
+    #[test]
+    fn the_owner_dismisses_its_menu_windows_but_not_its_transient_popups() {
+        let mut root = root();
+        let mut menu = window(root_layout, "azul-menu");
+        menu.window_state.flags.window_type = azul_core::window::WindowType::Menu;
+        let (popup, _mailbox) = transient_popup(&root);
+        root.queue_window_create(menu);
+        root.queue_window_create(popup);
+        root.pump_children();
+        let mut ids = child_ids(&root);
+        ids.sort();
+        assert_eq!(ids, vec!["azul-menu".to_string(), "azul-transient".to_string()]);
+
+        assert!(root.dismiss_menu_windows(), "a window-based menu was open");
+        assert_eq!(
+            child_ids(&root),
+            vec!["azul-transient".to_string()],
+            "the menu closed; the transient popup is its node's to close"
+        );
+        assert!(
+            !root.dismiss_menu_windows(),
+            "a transient popup alone is no menu to dismiss"
+        );
+    }
+
+    /// A key that reached the owner while its transient popup holds the keyboard goes into the
+    /// popup's mailbox (`forward_keys_to_popup`: headless, like X11, makes no popup a key
+    /// window) - and the owner runs the popup's pass right away, as X11, macOS and Win32 do
+    /// (`deliver_forwarded_keys`). Headless left the key in the mailbox until some other input
+    /// reached the popup, which in a script is never: a Modal never heard the Escape that
+    /// closes it (E2E-A, 2026-10-06).
+    #[test]
+    fn a_key_the_owner_forwards_to_its_popup_is_replayed_by_the_popup_at_once() {
+        use azul_core::window::{KeyboardState, OptionVirtualKeyCode};
+
+        use crate::desktop::shell2::common::transient::{
+            forward_key, has_forwarded_keys, ForwardedKey,
+        };
+        let mut root = root();
+        let (popup, mailbox) = transient_popup(&root);
+        root.queue_window_create(popup);
+        root.pump_children();
+        assert_eq!(child_ids(&root), vec!["azul-transient".to_string()]);
+
+        let mut keyboard = KeyboardState::default();
+        keyboard.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
+        keyboard.pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
+        assert!(forward_key(
+            &mailbox,
+            ForwardedKey {
+                keyboard,
+                previous_key: OptionVirtualKeyCode::None,
+                text: None,
+            },
+        ));
+        assert!(has_forwarded_keys(root.children[0].common.current_window_state()));
+
+        root.deliver_forwarded_keys();
+        assert!(
+            root.children
+                .iter()
+                .all(|c| !has_forwarded_keys(c.common.current_window_state())),
+            "the popup replayed the forwarded key in the owner's pass"
         );
     }
 }

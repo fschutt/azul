@@ -1749,6 +1749,67 @@ pub struct BorderWidthsJson {
     pub left: Option<f32>,
 }
 
+/// A gradient fill as `get_display_list` lists it: its bounds, and as `color` the mean of its
+/// concrete stops (`stops`; system-colour stops are left out by the caller), so a reader that
+/// composites what is painted under a text - the E2E contrast checks - sees the fill. No
+/// concrete stop: no colour. `item_type` names the kind (`linear_gradient`, ...).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn gradient_item_info(
+    index: usize,
+    item_type: &str,
+    bounds: azul_core::geom::LogicalRect,
+    stops: &[azul_css::props::basic::color::ColorU],
+    clip_depth: i32,
+    scroll_depth: i32,
+) -> DisplayListItemInfo {
+    let color = (!stops.is_empty()).then(|| {
+        #[allow(clippy::cast_possible_truncation)] // the mean of u8 values fits a u8
+        let mean = |f: fn(&azul_css::props::basic::color::ColorU) -> u8| -> u8 {
+            (stops.iter().map(|c| u32::from(f(c))).sum::<u32>() / stops.len() as u32) as u8
+        };
+        format!(
+            "#{:02x}{:02x}{:02x}{:02x}",
+            mean(|c| c.r),
+            mean(|c| c.g),
+            mean(|c| c.b),
+            mean(|c| c.a)
+        )
+    });
+    DisplayListItemInfo {
+        index,
+        item_type: item_type.to_string(),
+        x: Some(bounds.origin.x),
+        y: Some(bounds.origin.y),
+        width: Some(bounds.size.width),
+        height: Some(bounds.size.height),
+        color,
+        font_size: None,
+        glyph_count: None,
+        z_index: None,
+        clip_depth: Some(clip_depth),
+        scroll_depth: Some(scroll_depth),
+        content_size: None,
+        scroll_id: None,
+        debug_info: None,
+        border_colors: None,
+        border_widths: None,
+    }
+}
+
+/// The concrete colours of a gradient's stops (a system-colour stop has none here).
+#[cfg(feature = "std")]
+fn concrete_stop_colors<'a>(
+    colors: impl Iterator<Item = &'a azul_css::props::basic::color::ColorOrSystem>,
+) -> Vec<azul_css::props::basic::color::ColorU> {
+    colors
+        .filter_map(|c| match c {
+            azul_css::props::basic::color::ColorOrSystem::Color(c) => Some(*c),
+            azul_css::props::basic::color::ColorOrSystem::System(_) => None,
+        })
+        .collect()
+}
+
 /// Response for GetScrollStates
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
@@ -17202,6 +17263,21 @@ pub fn process_debug_event(
                                 border_widths: None,
                             }
                         }
+                        azul_layout::solver3::display_list::DisplayListItem::LinearGradient { bounds, gradient, .. } => {
+                            other_count += 1;
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            gradient_item_info(idx, "linear_gradient", bounds.0, &stops, clip_depth, scroll_depth)
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::RadialGradient { bounds, gradient, .. } => {
+                            other_count += 1;
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            gradient_item_info(idx, "radial_gradient", bounds.0, &stops, clip_depth, scroll_depth)
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::ConicGradient { bounds, gradient, .. } => {
+                            other_count += 1;
+                            let stops = concrete_stop_colors(gradient.stops.as_ref().iter().map(|s| &s.color));
+                            gradient_item_info(idx, "conic_gradient", bounds.0, &stops, clip_depth, scroll_depth)
+                        }
                         _ => {
                             other_count += 1;
                             DisplayListItemInfo {
@@ -22643,5 +22719,53 @@ mod debug_routing_tests {
             .map(|w| w.window_id.as_str())
             .collect();
         assert_eq!(this, vec!["azmail-compose-1"]);
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod display_list_gradient_tests {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_css::props::basic::color::ColorU;
+
+    use super::gradient_item_info;
+
+    /// `get_display_list` lists a gradient fill with its bounds and, as its colour, the mean of
+    /// its stops: a reader that composites what is painted under a text (the E2E contrast
+    /// checks) must see it. It was `unknown`, without bounds, so flora's title bar text - light
+    /// on a dark gradient - read as light on the white painted before it (AzCalendar's E2E,
+    /// 2026-10-06).
+    #[test]
+    fn a_gradient_is_listed_with_its_bounds_and_the_mean_of_its_stops() {
+        let bounds = LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(1280.0, 28.0),
+        );
+        let stops = [
+            ColorU {
+                r: 0x80,
+                g: 0x78,
+                b: 0x6e,
+                a: 255,
+            },
+            ColorU {
+                r: 0x40,
+                g: 0x38,
+                b: 0x2e,
+                a: 255,
+            },
+        ];
+        let info = gradient_item_info(7, "linear_gradient", bounds, &stops, 1, 2);
+        assert_eq!(info.item_type, "linear_gradient");
+        assert_eq!(
+            (info.x, info.y, info.width, info.height),
+            (Some(0.0), Some(0.0), Some(1280.0), Some(28.0))
+        );
+        assert_eq!(info.color.as_deref(), Some("#60584eff"));
+        assert_eq!(
+            (info.index, info.clip_depth, info.scroll_depth),
+            (7, Some(1), Some(2))
+        );
+        let unresolved = gradient_item_info(0, "conic_gradient", bounds, &[], 0, 0);
+        assert_eq!(unresolved.color, None, "no concrete stop: no colour");
     }
 }

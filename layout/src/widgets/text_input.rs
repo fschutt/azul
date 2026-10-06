@@ -1515,25 +1515,57 @@ fn engine_selection(
     }))
 }
 
+/// The engine's live selection in `node` as the byte range `[from, to)` of
+/// `text` (the value before the edit), each end through its affinity
+/// (`caret_byte`: a trailing end stands after its cluster). `None` without a
+/// selection, for a collapsed one, or off `text`'s character boundaries.
+fn engine_selected_bytes(
+    info: &CallbackInfo,
+    node: DomNodeId,
+    text: &str,
+) -> Option<(usize, usize)> {
+    let ranges = info.get_node_selection_ranges(node);
+    let range = *ranges.as_ref().first()?;
+    let a = caret_byte(&range.start, text);
+    let b = caret_byte(&range.end, text);
+    let (from, to) = (a.min(b), a.max(b));
+    (from < to && text.is_char_boundary(from) && text.is_char_boundary(to)).then_some((from, to))
+}
+
 /// Mirrors the insertion the engine is about to apply.
 ///
-/// The engine inserts at the caret, so the mirror does too whenever the caret
-/// is readable and lands on a character boundary; otherwise it appends, which
-/// is where the caret sits for every append-only path. `cursor_pos` stays a
-/// byte offset, as it has always been.
-fn mirror_insertion(state: &mut TextInputState, inserted: &str, caret: Option<usize>) {
+/// The engine replaces a live selection (`selected`, from
+/// [`engine_selected_bytes`]) with the typed text - select-all and typing
+/// replaces the value - and otherwise inserts at the caret; the mirror does
+/// the same whenever the caret is readable and lands on a character boundary,
+/// else it appends, which is where the caret sits for every append-only path.
+/// `cursor_pos` stays a byte offset, as it has always been.
+fn mirror_insertion(
+    state: &mut TextInputState,
+    inserted: &str,
+    caret: Option<usize>,
+    selected: Option<(usize, usize)>,
+) {
     let text = state.get_text();
-    let at = caret
-        .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
-        .unwrap_or(text.len());
+    let (from, to) = match selected.filter(|&(a, b)| {
+        a < b && b <= text.len() && text.is_char_boundary(a) && text.is_char_boundary(b)
+    }) {
+        Some(range) => range,
+        None => {
+            let at = caret
+                .filter(|at| *at <= text.len() && text.is_char_boundary(*at))
+                .unwrap_or(text.len());
+            (at, at)
+        }
+    };
 
     let mut next = String::with_capacity(text.len() + inserted.len());
-    next.push_str(&text[..at]);
+    next.push_str(&text[..from]);
     next.push_str(inserted);
-    next.push_str(&text[at..]);
+    next.push_str(&text[to..]);
 
     state.text = next.chars().map(|c| c as u32).collect::<Vec<_>>().into();
-    state.cursor_pos = at.saturating_add(inserted.len());
+    state.cursor_pos = from.saturating_add(inserted.len());
 }
 
 /// The caret's byte offset inside the edited node, if the engine has one.
@@ -2083,6 +2115,9 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_input.inner, &info, container);
+    // The selection the engine replaces with the typed text, in the value as
+    // it stands before the edit.
+    let selected = engine_selected_bytes(&info, container, &text_input.inner.get_text());
 
     // maxlength: veto an insertion that would GROW the value past `max_len`
     // (counted in characters, the stored unit). Replacement-aware: the engine
@@ -2124,7 +2159,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
         // inner_clone has the new text
         let mut inner_clone = text_input.inner.clone();
-        mirror_insertion(&mut inner_clone, &inserted_text, caret);
+        mirror_insertion(&mut inner_clone, &inserted_text, caret, selected);
         let len = inner_clone.get_text().len();
         inner_clone.selection = engine_selection(&info, container, len).into();
         inner_clone.validity = validity_of(&inner_clone);
@@ -2144,7 +2179,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         // No placeholder bookkeeping: the first accepted character makes the
         // line non-empty, and the engine simply stops painting the prompt on
         // the next display list.
-        mirror_insertion(&mut text_input.inner, &inserted_text, caret);
+        mirror_insertion(&mut text_input.inner, &inserted_text, caret, selected);
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
         text_input.inner.validity = validity_of(&text_input.inner);
@@ -2523,6 +2558,7 @@ mod autotest_generated {
         hit: DomNodeId,
         keycode: Option<VirtualKeyCode>,
         changeset: Option<PendingTextEdit>,
+        selection: Option<azul_core::selection::SelectionRange>,
     }
 
     impl Env {
@@ -2532,7 +2568,29 @@ mod autotest_generated {
                 hit: dom_node(CONTAINER),
                 keycode: None,
                 changeset: None,
+                selection: None,
             }
+        }
+
+        /// A live selection in the field, as the engine holds it: from before the cluster
+        /// at byte `from` to after the cluster at byte `last` (a Ctrl+A over "krug" is
+        /// `selecting(0, 3)`).
+        fn selecting(mut self, from: u32, last: u32) -> Self {
+            use azul_core::selection::{
+                CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor,
+            };
+            let cursor = |byte: u32, affinity: CursorAffinity| TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: byte,
+                },
+                affinity,
+            };
+            self.selection = Some(SelectionRange {
+                start: cursor(from, CursorAffinity::Leading),
+                end: cursor(last, CursorAffinity::Trailing),
+            });
+            self
         }
 
         fn hit(mut self, hit: DomNodeId) -> Self {
@@ -2576,6 +2634,14 @@ mod autotest_generated {
             .insert(DomId::ROOT_ID, layout_result(env.styled_dom));
         if let Some(changeset) = env.changeset {
             layout_window.text_input_manager.set_changeset(changeset);
+        }
+        if let Some(range) = env.selection {
+            use azul_core::selection::{MultiCursorState, TextBlock, TextBlockKey};
+            let block =
+                TextBlock::from_resolved(DomId::ROOT_ID, TextBlockKey::Element(NodeId::new(0)));
+            let mut session = MultiCursorState::new_with_cursor(range.end, block, 0);
+            session.set_single_range(range);
+            layout_window.text_edit_manager.multi_cursor = Some(session);
         }
         let layout_window = layout_window;
 
@@ -4024,6 +4090,72 @@ mod autotest_generated {
         });
         assert_eq!(state_of(&state).get_text(), "abcd");
         assert!(pushed_texts(&changes).is_empty());
+    }
+
+    /// Backspace over the last character, or select-all and Backspace, EMPTIES the field: the
+    /// engine's buffer is "" and its post-edit notification must reach the hook with the empty
+    /// value. The mirror refused every empty read while it held text ("an empty read is
+    /// ambiguous" - no longer: `get_node_text_content` answers `None` for a missing node, and
+    /// the container's read descends into its value line), so the hook never heard it:
+    /// AzContacts' search, once typed into, could never be cleared (E2E-A, 2026-10-06).
+    #[test]
+    fn a_notification_that_emptied_the_field_tells_the_hook_the_empty_value() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(TextInput::create().with_on_text_input(
+            probe.clone(),
+            record_text_input as TextInputOnTextInputCallbackType,
+        ));
+        // The engine's buffer (the DOM's value line) is empty; the mirror still holds what
+        // was typed before the deletion.
+        poke(&state, |w| {
+            w.inner.text = "krug".chars().map(|c| c as u32).collect::<Vec<_>>().into();
+        });
+        let (update, _, _) = run(Env::new(styled_dom), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(
+            state_of(&state).get_text(),
+            "",
+            "the mirror kept the deleted text"
+        );
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the hook was not told the field is empty"
+        );
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].get_text(), "");
+    }
+
+    /// Typing over a selection REPLACES it: the engine deletes the live selection before it
+    /// inserts, so the hook's preview - and the mirror - must too. Select-all + "e" in a field
+    /// holding "krug" handed the hook "kruge": AzContacts searched for that, and its rebuild
+    /// wrote it back into the field (E2E-A, 2026-10-06).
+    #[test]
+    fn typing_over_a_select_all_replaces_the_value() {
+        let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
+        let (styled_dom, state) = rendered(
+            TextInput::create()
+                .with_text("krug".into())
+                .with_on_text_input(
+                    probe.clone(),
+                    record_text_input as TextInputOnTextInputCallbackType,
+                ),
+        );
+        // Ctrl+A over "krug": before 'k' to after 'g' (its cluster starts at byte 3).
+        let (update, _, _) = run(Env::new(styled_dom).insert("e").selecting(0, 3), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(update, Update::RefreshDom);
+        let seen = recorded(&probe);
+        assert_eq!(seen.len(), 1);
+        assert_eq!(
+            seen[0].get_text(),
+            "e",
+            "the hook was shown the typed text appended to the selected value"
+        );
+        assert_eq!(state_of(&state).get_text(), "e");
     }
 
     #[test]

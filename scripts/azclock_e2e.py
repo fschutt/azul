@@ -92,12 +92,16 @@ def body(args, logs, out):
                   lambda: app.click(selector="." + P + "alarm-switch"))
         app.after("the first switch to turn Gym on", "AZCLOCK_ALARM_SWITCH", r"\S+ on",
                   lambda: app.click(selector="." + P + "alarm-switch"))
+        # The editor, the city search and the ringing overlay are Modals: windows of their
+        # own, where their nodes are laid out and clicked (e2e.modal_window).
         app.click(selector="#" + P + "new")
         app.until("the alarm editor", lambda: app.has_id(P + "editor"))
-        app.screenshot(os.path.join(out, "editor.png"))
-        app.click(text="Weekdays")
+        editor = e2e.modal_window(app)
+        editor.until("the editor in its window", lambda: editor.laid_out("#" + P + "editor-save"))
+        editor.screenshot(os.path.join(out, "editor.png"))
+        editor.click(text="Weekdays")
         app.after("the new alarm to be saved", "AZCLOCK_ALARM_SAVED", r"\S+",
-                  lambda: app.click(selector="#" + P + "editor-save"))
+                  lambda: editor.click(selector="#" + P + "editor-save"))
         app.until("a fourth alarm file", lambda: len(files(data_dir, "alarms/*.json")) == 4)
         app.until("the editor to close", lambda: not app.has_id(P + "editor"))
         app.log("a new weekday alarm is a fourth file")
@@ -114,10 +118,12 @@ def body(args, logs, out):
         app.screenshot(os.path.join(out, "world.png"))
         app.click(selector="#" + P + "new")
         app.until("the city search", lambda: app.has_id(P + "city-query"))
-        app.text_input("#" + P + "city-query", "lima")
-        app.until("Lima among the results", lambda: app.shows("Lima - America/Lima"))
+        search = e2e.modal_window(app)
+        search.until("the search in its window", lambda: search.laid_out("#" + P + "city-query"))
+        search.text_input("#" + P + "city-query", "lima")
+        search.until("Lima among the results", lambda: search.shows("Lima - America/Lima"))
         app.after("Lima to be added", "AZCLOCK_CITY_ADDED", r"\S+",
-                  lambda: app.click(text="Lima - America/Lima"))
+                  lambda: search.click(text="Lima - America/Lima"))
         app.until("world.json to hold Lima",
                   lambda: any(c.get("zone") == "America/Lima"
                               for c in read_json(os.path.join(data_dir, "clock", "world.json")).get("cities", [])))
@@ -130,7 +136,9 @@ def body(args, logs, out):
         if not app.shows("Tea") or not app.has_id(P + "timer-time"):
             raise Failure("the timer screen does not show Tea")
         app.screenshot(os.path.join(out, "timer.png"))
-        app.click(text="1 min")
+        # A click by text takes the first node CONTAINING it: "+1 min" (the selected timer's
+        # button) comes before the "1 min" preset, "Stopwatch" before "Stop". Exact texts.
+        app.click_exact("1 min")
         app.until("a third timer file", lambda: len(files(data_dir, "timers/*.json")) == 3)
         app.log("the 1 min preset started a timer")
 
@@ -141,12 +149,12 @@ def body(args, logs, out):
         if not app.shows("00:04:17.36") or len(app.nodes_with_class(P + "lap-row")) != 5:
             raise Failure("the sample stopwatch (04:17.36, five laps) is not shown")
         app.screenshot(os.path.join(out, "stopwatch.png"))
-        app.click(text="Reset")
+        app.click_exact("Reset")
         app.until("the stopwatch reset", lambda: app.shows("00:00:00.00"))
-        app.click(text="Start")
+        app.click_exact("Start")
         time.sleep(1.2)
-        app.click(text="Lap")
-        app.click(text="Stop")
+        app.click_exact("Lap")
+        app.click_exact("Stop")
         app.frame(2)
         if len(app.nodes_with_class(P + "lap-row")) != 1:
             raise Failure("one lap after Start, Lap, Stop")
@@ -175,8 +183,11 @@ def body(args, logs, out):
         if RING:
             app.until("the 1 min timer to ring", lambda: app.printed("AZCLOCK_RING", r"timer \S+"))
             app.until("the ringing overlay", lambda: app.shows("Time is up"))
-            app.screenshot(os.path.join(out, "ringing.png"))
-            app.after("Dismiss", "AZCLOCK_DISMISSED", r"\S+", lambda: app.click(selector="#" + P + "ring-dismiss"))
+            overlay = e2e.modal_window(app)
+            overlay.until("the overlay in its window", lambda: overlay.laid_out("#" + P + "ring-dismiss"))
+            overlay.screenshot(os.path.join(out, "ringing.png"))
+            app.after("Dismiss", "AZCLOCK_DISMISSED", r"\S+",
+                      lambda: overlay.click(selector="#" + P + "ring-dismiss"))
             app.log("the timer rang and was dismissed")
 
         app.log("PASS")

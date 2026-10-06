@@ -340,6 +340,10 @@ fn theme_root(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        // The height it is given, not its page's: a flex item's automatic minimum size is
+        // its content's, and a page taller than the window then grew the backstage past the
+        // window's edge instead of scrolling (AzMail's Account Settings).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
         Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(NAV_TEXT_PX))),
     ];
@@ -435,6 +439,11 @@ fn theme_right(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        // As the root: the page's scroller scrolls, the column does not grow (theme_root).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
+        // The flex item beside the navigation: the width it is given, not its page's widest
+        // word (a DKIM key's record pushed AzMail's settings past the window's edge).
+        Cond::simple(P::const_min_width(LayoutMinWidth::const_px(0))),
     ];
     v.extend(page_bg(t));
     CssPropertyWithConditionsVec::from_vec(v)
@@ -446,6 +455,8 @@ fn theme_content(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        // As the root: the page's scroller scrolls, the column does not grow (theme_root).
+        Cond::simple(P::const_min_height(LayoutMinHeight::const_px(0))),
     ];
     v.extend(page_bg(t));
     CssPropertyWithConditionsVec::from_vec(v)
@@ -1900,6 +1911,128 @@ mod flora_tests {
                 face(part, true, None),
                 fill(flat::DARK_PG),
                 "the page at night"
+            );
+        }
+    }
+}
+
+/// A backstage page taller than the window scrolls inside the backstage: the backstage (a
+/// flex item of the window's column) and its page column take the height they are given, not
+/// their content's - CSS's automatic minimum size of a flex item is its content's, so every
+/// flex level between the window and the page's scroller declares `min-height: 0`. AzMail's
+/// File > Account Settings (E2E-A, 2026-10-06): the backstage was 1016 px in an 832 px shell,
+/// the settings never scrolled, and "Create a key" stood below the window's edge.
+#[cfg(test)]
+mod a_backstage_page_scrolls_inside_the_window_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::Backstage;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// The used size of the first node carrying the class `class`, in a 800 x 400 window.
+    fn size_of_class(mut dom: Dom, class: &str) -> LogicalSize {
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 400.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let node = lr
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|n| n.has_class(class))
+            .unwrap_or_else(|| panic!("no node .{class}"));
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the node has a size")
+    }
+
+    /// The window's column (as OfficeShell's backstage slot: `min-height: 0`) holding a
+    /// backstage whose page is `page`.
+    fn window_with(page: Dom) -> Dom {
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;",
+                    )
+                    .with_child(Backstage::office_2013().with_content(page).dom()),
+            )
+    }
+
+    /// A page whose one line is a 600-character word (a DKIM key's TXT record): its
+    /// min-content width is the word's.
+    fn window_with_a_wide_word() -> Dom {
+        window_with(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;")
+                .with_child(Dom::create_span_with_text("k".repeat(600))),
+        )
+    }
+
+    /// The right side - the backstage's flex item beside the navigation - takes the width
+    /// it is given, not its page's widest word: AzMail's Account Settings with a DKIM key's
+    /// record pushed the settings' Save button to x 1676 in a 1280 px window.
+    #[test]
+    fn a_wide_page_does_not_widen_the_backstage_past_the_window() {
+        let w = size_of_class(window_with_a_wide_word(), "__azul-native-backstage-right").width;
+        assert!(
+            w <= 800.5,
+            "the backstage's right side is {w} px wide in an 800 px window: it grew to its \
+             page's widest word"
+        );
+    }
+
+    /// A backstage whose page is a scroller over 2000 px of content.
+    fn window_with_a_tall_page() -> Dom {
+        window_with(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                     overflow-y: auto;",
+                )
+                .with_child(Dom::create_div().with_css("height: 2000px; flex-shrink: 0;")),
+        )
+    }
+
+    #[test]
+    fn a_tall_page_scrolls_inside_the_backstage_instead_of_growing_it() {
+        for class in [
+            "__azul-native-backstage",
+            "__azul-native-backstage-right",
+            "__azul-native-backstage-content",
+        ] {
+            let h = size_of_class(window_with_a_tall_page(), class).height;
+            assert!(
+                h <= 400.5,
+                ".{class} is {h} px tall in a 400 px window: it grew to its page's content"
             );
         }
     }

@@ -750,7 +750,11 @@ fn cap(available: bool, backend: String, reason: String) -> PlatformCapability {
 /// `UNUserNotificationCenter` before the bundle check has passed).
 #[must_use]
 pub fn probe() -> PlatformCapability {
-    if HEADLESS.load(Ordering::Relaxed) {
+    // `AZ_BACKEND=headless`, asked before the run loop set the switch: an app
+    // probes while it builds its state, before `App::run` (AzClock).
+    if HEADLESS.load(Ordering::Relaxed)
+        || crate::desktop::shell2::common::compositor::AzBackend::headless_selected()
+    {
         return cap(
             false,
             "headless (recorded)".to_string(),

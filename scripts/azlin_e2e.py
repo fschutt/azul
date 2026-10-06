@@ -153,6 +153,22 @@ def dark_pixels(path, rect, scale=1.0, threshold=100):
     return count
 
 
+def settle_animations(animations, frame, limit=3.0):
+    """Waits (at most `limit` seconds) until no animation, exit or transition runs: a click
+    lands where the node is PAINTED (an entrance animation moves it off its layout rect), and
+    a screenshot should not catch a slide midway. `animations()` answers the debug op
+    `get_animations` (its value), `frame()` lets the app run one frame. For drivers of their
+    own (azmail_e2e.py) as much as for `App`."""
+    end = time.time() + limit
+    while time.time() < end:
+        value = animations()
+        if not isinstance(value, dict) or not (
+                value.get("active") or value.get("zombies") or value.get("transitions")):
+            return
+        time.sleep(0.1)
+        frame()
+
+
 def tail(path, lines=40):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -301,6 +317,52 @@ class App:
     def nodes_with_class(self, cls):
         return [n["index"] for n in self.hierarchy() if cls in (n.get("classes") or [])]
 
+    def _within(self, scope):
+        """The window's nodes, and a test: does a node lie inside the node(s) `scope` names -
+        `#id` an id, anything else a class (a leading `.` optional)?"""
+        nodes = self.hierarchy()
+        by_index = {n["index"]: n for n in nodes}
+        if scope.startswith("#"):
+            def matches(node):
+                return node.get("id") == scope[1:]
+        else:
+            cls = scope[1:] if scope.startswith(".") else scope
+
+            def matches(node):
+                return cls in (node.get("classes") or [])
+
+        def inside(node):
+            for _ in range(256):
+                if node is None:
+                    return False
+                if matches(node):
+                    return True
+                node = by_index.get(node.get("parent"))
+            return False
+
+        return nodes, inside
+
+    def texts_within(self, scope):
+        """The texts of the window whose node lies inside the node(s) `scope` names (`#id` or a
+        class; `shows` reads every text - a search field holding the word included)."""
+        nodes, inside = self._within(scope)
+        return [n["text"] for n in nodes if n.get("text") and inside(n)]
+
+    def click_within(self, scope, text, frames=2):
+        """Clicks the node holding exactly `text` inside the node(s) `scope` names (`#id` or a
+        class), once it is there (a click by text takes the first node CONTAINING the text
+        anywhere: a chart's "Sales by row" before the table's "Sales" header)."""
+        def found():
+            nodes, inside = self._within(scope)
+            for n in nodes:
+                if n.get("text") == text and inside(n):
+                    return n.get("parent", n["index"])
+            return None
+        node = self.until('the text "%s" in %s' % (text, scope), found)
+        self.settle(limit=2.0)
+        self.must("click", node_id=node)
+        self.frame(frames)
+
     def exact(self, text, window=None):
         """The node holding the text node whose text is exactly `text` (the first one)."""
         for n in self.hierarchy(window):
@@ -402,6 +464,11 @@ class App:
         data = answer.get("data") or {}
         value = data.get("value") if isinstance(data, dict) else None
         return isinstance(value, dict) and value.get("node_id") is not None
+
+    def laid_out(self, selector):
+        """Whether `selector` names a node with a box in this window (a Modal's nodes are in
+        its owner's DOM too, without one)."""
+        return self.has(selector) and self.box(selector)["width"] > 0
 
     def box(self, selector):
         """The laid-out rect of `selector` (window coordinates before scrolling) as floats."""
@@ -571,6 +638,40 @@ class App:
         with open(path, "wb") as f:
             f.write(base64.b64decode(data.split("base64,", 1)[1]))
         self.log("screenshot %s (%d bytes)" % (path, os.path.getsize(path)))
+
+
+class InWindow(App):
+    """`app` with every op addressed to one of its windows (the request's `window_id`): a
+    `Modal` is a transient window of its own, and its nodes are laid out - and clicked - there,
+    not in the main window (they are in the main window's DOM, without a box). Everything else
+    (stdout, waits) is the app's; frames are the app's loop turns, so a click that closes the
+    window still gets its frames."""
+
+    def __init__(self, app, window_id):
+        self.__dict__.update(app.__dict__)
+        self.app = app
+        self.window_id = window_id
+
+    def op(self, op, **params):
+        params.setdefault("window_id", self.window_id)
+        return self.app.op(op, **params)
+
+    def frame(self, n=1):
+        self.app.frame(n)
+
+    def stop(self):
+        raise Failure("stop the app, not one of its windows")
+
+
+def modal_window(app, known=()):
+    """The open modal's window: the one window that is neither the app's own (the default) nor
+    in `known`."""
+    def other():
+        windows = (app.value("list_windows") or {}).get("windows") or []
+        ids = [w.get("window_id") for w in windows
+               if not w.get("is_default") and w.get("window_id") not in known]
+        return ids[0] if ids else None
+    return InWindow(app, app.until("the modal's window", other))
 
 
 def run(tag, body, argv=None, default_port=8781, binary_name=None, binary_env=None):

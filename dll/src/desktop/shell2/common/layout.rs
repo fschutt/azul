@@ -819,6 +819,12 @@ pub fn regenerate_layout(
             // event relaid out. Queue them all — the frame path drains the
             // queue (`drain_virtual_view_updates`) before it paints.
             layout_window.queue_all_virtual_view_reinvoke();
+            // A caret an app asked for with this rebuild (it reset an editor's
+            // content - AzMail's reply puts it at the top - or acked a structural
+            // edit) is placed by the tail of a full layout, which this exit never
+            // reaches: place it on the retained layout, before the focus the app
+            // gave the editor in the same callback seeds one at the end of the text.
+            let _ = layout_window.place_pending_caret_without_layout();
             log_debug!(
                 LogCategory::Layout,
                 "[regenerate_layout] COMPLETE (pre-cascade skip, layout unchanged)"
@@ -1416,6 +1422,9 @@ pub fn regenerate_layout(
                 // equivalent, the transferred datasets / VirtualView refanys
                 // are not necessarily — re-invoke every view in place.
                 layout_window.queue_all_virtual_view_reinvoke();
+                // And the caret an app asked for with this rebuild (the pre-cascade
+                // exit above says why).
+                let _ = layout_window.place_pending_caret_without_layout();
                 log_debug!(
                     LogCategory::Layout,
                     "[regenerate_layout] COMPLETE (layout unchanged)"

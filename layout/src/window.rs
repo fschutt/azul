@@ -5327,6 +5327,24 @@ impl LayoutWindow {
         self.caret_text_snapshot = Some((key, node_id, now));
     }
 
+    /// [`Self::place_pending_caret`] for a rebuild that laid nothing out: the
+    /// shell's pre-cascade "layout unchanged" exit (the app rebuilt the same
+    /// DOM) never reaches the tail of a full layout that places it, so a reset
+    /// editor's caret ([`Self::reset_editor_content`]) waited for some later
+    /// full layout - while the focus the app gave the editor in the same
+    /// callback seeded the caret at the END of its text (AzMail's reply: the
+    /// answer went under the quote). Rebuilds the display list of the DOM the
+    /// caret landed in and asks for the caret to be shown. Returns whether a
+    /// caret was placed.
+    pub fn place_pending_caret_without_layout(&mut self) -> bool {
+        let Some(dom_id) = self.place_pending_caret() else {
+            return false;
+        };
+        self.regenerate_display_list_for_dom(dom_id);
+        self.request_session_reveal();
+        true
+    }
+
     /// Place the caret an earlier pass left for the generation just laid
     /// out: an acked structural edit's resume point
     /// ([`Self::restore_caret_from_resume_point`]), or a reset editor's
