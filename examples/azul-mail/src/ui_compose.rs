@@ -648,8 +648,9 @@ fn attachments_row(c: &Compose, app: &RefAny) -> Dom {
     row
 }
 
-/// The editor: the shared rich-text editor on white paper (a mail body, whatever the app's
-/// mode); every change comes back through `on_compose_body_change`.
+/// The editor: the shared rich-text editor on paper in the app's mode (the editor's quote and
+/// rule colours follow the mode, so a white paper hid the quote in the dark mode); every change
+/// comes back through `on_compose_body_change`.
 fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
     let editor = RichTextEditor::create(c.body.clone())
         .with_id(ids::COMPOSE_BODY)
@@ -662,7 +663,8 @@ fn editor_dom(c: &Compose, app: &RefAny) -> Dom {
     let paper = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 160px; \
-             background: #ffffff; color: #1a1a1a; font-family: sans-serif; overflow-y: auto;",
+             background: system:background; color: system:text; font-family: sans-serif; \
+             overflow-y: auto;",
         )
         .with_child(editor.content_dom());
     Dom::create_div()

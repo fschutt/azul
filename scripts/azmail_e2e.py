@@ -426,6 +426,7 @@ class Run:
                      'Shall we plant the bulbs before the first frost?'):
             if not any(want in t for t in texts):
                 raise Failure(f'the reply window does not show {want!r}')
+        self.check_reads_in_dark(window)
         # The caret is in the editor, at the top (above the quote).
         self.until('the editor to take the focus',
                    lambda: '__azmail_compose_body' in self.focused_selector(window) or self._focus_editor(window))
@@ -447,6 +448,27 @@ class Run:
         self.until('the compose window to close', lambda: window in self.printed(
             'AZMAIL_COMPOSE_CLOSED'))
         return window
+
+    def check_reads_in_dark(self, window):
+        """Every text of the reply window - the quote too - reads in the dark mode. The editor's
+        paper was white in either mode while the quote's ink (`system:secondary-text`) followed
+        the mode: light grey on white."""
+        def value(answer):
+            data = answer.get('data') if isinstance(answer, dict) else None
+            return data.get('value') if isinstance(data, dict) and 'value' in data else data
+        was = (value(self.must('get_mode', window)) or {}).get('mode') or 'system'
+        self.must('set_mode', window, mode='dark')
+        try:
+            self.frame(window, 3)
+            items = (value(self.must('get_display_list', window)) or {}).get('items') or []
+            findings = azlin_e2e.contrast_findings(items, (30.0, 30.0, 30.0))
+        finally:
+            self.must('set_mode', window, mode=was)
+            self.frame(window, 3)
+        if findings:
+            raise Failure(f'{len(findings)} text(s) of the reply window under 2:1 in the dark '
+                          'mode:\n  ' + '\n  '.join(findings[:20]))
+        log(f'every text of the reply window reads in the dark mode ({len(items)} items)')
 
     def _focus_editor(self, window):
         self.must('focus_node', window, selector='#__azmail_compose_body')

@@ -67,6 +67,7 @@ REPO = os.path.abspath(os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(REPO, "examples", "azul-calendar", "scripts"))
 sys.dont_write_bytecode = True
 import week_interactions as wi  # noqa: E402  (the same debug-server client and week helpers)
+import azlin_e2e  # noqa: E402  (contrast_findings)
 
 MAIN = "azcalendar"
 EDITOR = "azcalendar-editor"
@@ -552,75 +553,6 @@ def stage_occurrence(app, ctx):
 
 # ==== contrast ====
 
-def color(text):
-    """`#rrggbbaa` / `#rrggbb` as (r, g, b, a) with a in 0..1."""
-    h = text.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    a = int(h[6:8], 16) / 255.0 if len(h) >= 8 else 1.0
-    return r, g, b, a
-
-
-def over(top, base):
-    r, g, b, a = top
-    return tuple(c * a + d * (1.0 - a) for c, d in zip((r, g, b), base))
-
-
-def luminance(rgb):
-    def lin(v):
-        v /= 255.0
-        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
-
-    r, g, b = rgb
-    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-
-
-def ratio(a, b):
-    la, lb = luminance(a), luminance(b)
-    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
-
-
-FILLS = ("rect", "linear_gradient", "radial_gradient", "conic_gradient")
-
-
-def contrast_findings(items, base):
-    """Text items whose ink reads under 2:1 against the rectangles painted under their centre
-    (in paint order, in the text's scroll frame or one enclosing it) over the window's ground
-    `base`. Only fills at EXACTLY the text's depth were counted: flora's title text sits in a
-    frame of its own inside the title bar's, and was measured against the white window."""
-    rects = []
-    found = []
-    for it in items:
-        kind = it.get("type")
-        if not it.get("color") or it.get("width") is None or it.get("height") is None:
-            continue
-        # A gradient (flora's title bar, its active ribbon tab) is a fill too: the debug server
-        # lists it with its bounds and the mean of its stops.
-        if kind in FILLS:
-            rects.append(it)
-            continue
-        if kind not in ("text", "text_layout"):
-            continue
-        ink = color(it["color"])
-        if ink[3] == 0 or it["width"] <= 0 or it["height"] <= 0:
-            continue
-        cx = it["x"] + it["width"] / 2.0
-        cy = it["y"] + it["height"] / 2.0
-        bg = base
-        for r in rects:
-            if (r.get("scroll_depth") or 0) > (it.get("scroll_depth") or 0):
-                continue
-            if r["x"] <= cx <= r["x"] + r["width"] and r["y"] <= cy <= r["y"] + r["height"]:
-                bg = over(color(r["color"]), bg)
-        seen = over(ink, bg)
-        q = ratio(seen, bg)
-        if q < 2.0:
-            found.append(
-                f"item {it.get('index')} at ({it['x']:.0f}, {it['y']:.0f}) {it['width']:.0f}x"
-                f"{it['height']:.0f}: ink {it['color']} on {tuple(round(c) for c in bg)} = {q:.2f}:1"
-            )
-    return found
-
-
 def stage_contrast(app, ctx):
     w = app.main
     out = ctx["out"]
@@ -639,7 +571,7 @@ def stage_contrast(app, ctx):
                 w.wait_for(wi.sel(f"view-{name}"))
                 w.frames(3)
                 items = (w.value({"op": "get_display_list"}) or {}).get("items", [])
-                for f in contrast_findings(items, base):
+                for f in azlin_e2e.contrast_findings(items, base):
                     findings.append(f"{theme}/{mode}/{name}: {f}")
                 w.screenshot(os.path.join(out, f"{theme}-{mode}-{name}.png"))
                 shots += 1
@@ -649,7 +581,7 @@ def stage_contrast(app, ctx):
             w.wait_for(wi.sel("import-path"))
             w.frames(3)
             items = (w.value({"op": "get_display_list"}) or {}).get("items", [])
-            for f in contrast_findings(items, base):
+            for f in azlin_e2e.contrast_findings(items, base):
                 findings.append(f"{theme}/{mode}/backstage: {f}")
             w.screenshot(os.path.join(out, f"{theme}-{mode}-backstage.png"))
             shots += 1
