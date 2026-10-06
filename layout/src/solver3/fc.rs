@@ -7787,6 +7787,31 @@ pub(crate) fn analyze_table_structure<T: ParsedFontTrait>(
             _ => {}
         }
     }
+    // A column that only a `<col>` makes - past the last cell - is a grid
+    // column when the col gives it a definite LENGTH (it takes that room
+    // in the table); one with a percentage, a calc() with one, `auto` or a
+    // 0 width names none (browsers; WPT col-definite-size-001). The grid
+    // had a column only where a cell was.
+    let column_widths = crate::solver3::table_width::column_element_widths(
+        ctx.styled_dom,
+        tree,
+        &table_ctx.column_boxes,
+        table_ctx.column_box_end(),
+    );
+    let definite_columns = column_widths
+        .iter()
+        .rposition(|w| {
+            matches!(w, crate::solver3::table_width::SpecifiedWidth::Fixed(px) if *px > 0.0)
+        })
+        .map_or(0, |last| last + 1);
+    while table_ctx.columns.len() < definite_columns {
+        table_ctx.columns.push(TableColumnInfo {
+            min_width: 0.0,
+            max_width: 0.0,
+            computed_width: None,
+        });
+    }
+
     // A collapsed column box past the last cell names no grid column.
     let num_cols = table_ctx.columns.len();
     table_ctx.collapsed_columns.retain(|&c| c < num_cols);
