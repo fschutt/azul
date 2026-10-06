@@ -30,8 +30,15 @@ their fix (8fba0bcdf, 8a8d980ea, 978441b69, 4958a31e7, 03ba7769c) - never verifi
 - 20f62e7d2 RED / f3312a48d GREEN (C) a marker's space is never stripped as trailing white space
 - 888b7fac7 RED / c766ce0c0 GREEN (D) font-size keywords (css), one table (ua_css, core xml legacy)
 - 320874a95 RED / d1f8fbeee GREEN (G) middle-aligned cell measured by ifc_extent
+- a48f2d8d2 RED / 3bd138be7 GREEN :first-child/:last-child parse (table-cell-width-s test side;
+  its REF still broken: float clearance across sibling blocks -> expectation)
+- a2dbb0014 RED / 680501c46 GREEN compact-cache border width sentinel (1in/em) in collapsed
+  tables + painter (collapsing-border-model-003/009)
+- 6a7a6a495 RED / f7c45f50a GREEN inline-table paints cells + collapsed borders
+  (border-collapse-empty-row; its REF needs :not() -> expectation)
+- ebf70029d RED / 14e8e18f1 GREEN calc() cell width with % (calc-percent-plus-0px-auto)
 
 ## NEXT
-- H text clip; tables (collapsing-border-model-003/009, border-collapse-offset-002,
-  border-collapse-empty-row, calc-percent-plus-0px-auto, col-definite-size-001, th-text-align,
-  table-cell-width-s); gradient seams; expectations for E, F and any gap left unfixed
+- col-definite-size-001, th-text-align (likely expectation), border-collapse-offset-002 (caption
+  inside table box -> expectation), H text clip, gradient seams; expectations for E, F and every
+  gap left unfixed (table-cell-width-s, border-collapse-empty-row, ...)
