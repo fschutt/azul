@@ -4012,3 +4012,37 @@ fn an_escape_at_the_owner_of_a_popup_child_window_tells_the_app_it_was_dismissed
     parent.regenerate_layout().expect("drain");
     assert_eq!(dismissed_calls(&parent), 1, "the app heard Dismissed once");
 }
+
+/// A key that reaches the OWNER while its modal dialog holds the keyboard is
+/// forwarded to the dialog (`forward_keys_to_popup`), and headless spawns
+/// the dialog's window as the owner's child - so the owner runs the child's
+/// pass at once, as macOS and X11 run their popup's
+/// (`deliver_forwarded_keys`). Headless ran none: the key sat in the
+/// dialog's mailbox until the child's own next input, which a script typing
+/// into the app's (first) window never sends (AzMaps' About box stayed open
+/// on Escape, 2026-10-06).
+#[test]
+fn an_escape_at_the_owner_reaches_its_modal_dialogs_child_window_at_once() {
+    let mut parent = dialog_parent(DialogClosedBy::Auto, false);
+    with_probe(&parent, |p| p.open = true);
+    relayout(&mut parent);
+    parent.pump_children();
+    assert_eq!(
+        parent.children.len(),
+        1,
+        "premise: the dialog is the owner's child window"
+    );
+    // Its first pass (the run loop's next turn) focuses its first control.
+    let _ = parent.children[0].process_window_events(0);
+
+    key_down(&mut parent, VirtualKeyCode::Escape, &[], "t.owner.escape");
+    assert_eq!(
+        with_probe(&parent, |p| p.cancels),
+        1,
+        "the dialog's window answered the Escape: cancel ran"
+    );
+    assert!(
+        close_requested(&parent.children[0]),
+        "then the dialog closed its window"
+    );
+}
