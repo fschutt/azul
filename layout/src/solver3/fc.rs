@@ -9981,9 +9981,12 @@ fn position_table_cells<T: ParsedFontTrait>(
                     StyleVerticalAlign::Baseline
                 };
 
-                // Calculate content height from inline layout bounds
-                let content_bounds = inline_result.bounds();
-                let content_height = content_bounds.height;
+                // The content's height is its LINE BOXES' extent - what
+                // the cell was sized by (`layout_cell_for_height`: the
+                // IFC's `ifc_extent`), struts included. Its items' bounds
+                // alone left out the strut's descent below an inline-block
+                // and centred a cell's only line half of it low.
+                let content_height = ifc_extent(&inline_result).height;
 
                 // Get padding and border to calculate content-box height
                 // height is border-box, but vertical alignment should be within content-box
