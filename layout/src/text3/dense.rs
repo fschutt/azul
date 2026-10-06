@@ -1074,7 +1074,15 @@ impl DenseText {
         if stops.is_empty() {
             return cursor;
         }
-        let Some(offset) = UnifiedLayout::grapheme_caret_offset(&stops, &cursor) else {
+        let is_cluster = |id: &azul_core::selection::GraphemeClusterId| {
+            self.runs.iter().any(|r| {
+                r.source_run == id.source_run
+                    && (r.clusters.start..r.clusters.end)
+                        .any(|ci| self.clusters[ci as usize].start_byte == id.start_byte_in_run)
+            })
+        };
+        let Some(offset) = UnifiedLayout::grapheme_caret_offset_in(&stops, &cursor, &is_cluster)
+        else {
             return cursor;
         };
         UnifiedLayout::cursor_from_grapheme_offset(&stops, offset.saturating_sub(1))
@@ -1091,7 +1099,15 @@ impl DenseText {
         if stops.is_empty() {
             return cursor;
         }
-        let Some(offset) = UnifiedLayout::grapheme_caret_offset(&stops, &cursor) else {
+        let is_cluster = |id: &azul_core::selection::GraphemeClusterId| {
+            self.runs.iter().any(|r| {
+                r.source_run == id.source_run
+                    && (r.clusters.start..r.clusters.end)
+                        .any(|ci| self.clusters[ci as usize].start_byte == id.start_byte_in_run)
+            })
+        };
+        let Some(offset) = UnifiedLayout::grapheme_caret_offset_in(&stops, &cursor, &is_cluster)
+        else {
             return cursor;
         };
         UnifiedLayout::cursor_from_grapheme_offset(&stops, (offset + 1).min(stops.len()))

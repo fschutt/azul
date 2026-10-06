@@ -8242,6 +8242,224 @@ mod tests {
         );
     }
 
+    extern "C" fn krug_text_input_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_input::TextInput;
+        Dom::create_body()
+            .with_css("padding: 20px;")
+            .with_child(TextInput::create().with_text("krug".into()).dom())
+    }
+
+    /// One Shift+Left from the end of a field selects ONE character. E2E-A (2026-10-06): it
+    /// selected two in AzContacts' search field (range 4..2 on "krug").
+    #[test]
+    fn one_shift_left_selects_one_character() {
+        use azul_core::events::MouseButton;
+        use VirtualKeyCode as K;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, krug_text_input_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let containers = rects_by_class(&window, "__azul-native-text-input-container");
+        assert_eq!(containers.len(), 1, "{containers:?}");
+        let c = containers[0];
+        let (x, y) = (c.origin.x + c.size.width - 4.0, c.origin.y + c.size.height * 0.5);
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        for key in [K::End] {
+            step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: key });
+            step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: key });
+        }
+        let caret = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.document_caret())
+            .expect("premise: a caret in the field");
+        assert_eq!(caret.text_byte, 4, "premise: the caret at the end of \"krug\"");
+
+        // The chord as ONE state change, the way a script's `key_down` op (and a backend
+        // that reports a modifier with its key) delivers it: Shift and Left pressed together.
+        window.snapshot_window_state_baseline("test.shift_left");
+        {
+            let keyboard = window.common.keyboard_state_mut();
+            keyboard.pressed_virtual_keycodes.insert_hm_item(K::LShift);
+            keyboard.pressed_virtual_keycodes.insert_hm_item(K::Left);
+            keyboard.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::Some(K::Left);
+        }
+        let tier = window.process_window_events(0);
+        if tier > azul_core::events::ProcessEventResult::DoNothing {
+            window.service_frame(tier);
+        }
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::Left });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::LShift });
+
+        let spans = window
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.document_selection_spans())
+            .unwrap_or_default();
+        let selected: Vec<(u32, u32)> =
+            spans.iter().map(|s| (s.start_byte, s.end_byte)).collect();
+        assert_eq!(selected, vec![(3, 4)], "one Shift+Left selects \"g\" alone");
+    }
+
+    /// The debug server's `key_down` op: Shift and Left pressed in ONE window-state change,
+    /// pushed from a callback (`modify_window_state`).
+    extern "C" fn shift_left_timer(
+        _data: RefAny,
+        mut info: azul_layout::timer::TimerCallbackInfo,
+    ) -> azul_core::callbacks::TimerCallbackReturn {
+        use VirtualKeyCode as K;
+        let mut state = info.callback_info.get_current_window_state().clone();
+        state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(K::LShift);
+        state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(K::Left);
+        state.keyboard_state.current_virtual_keycode =
+            azul_core::window::OptionVirtualKeyCode::Some(K::Left);
+        state.keyboard_state.sync_modifiers();
+        info.callback_info.modify_window_state(state);
+        azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()
+    }
+
+    /// [`one_shift_left_selects_one_character`] through a callback's window-state change - the
+    /// route a script's `key_down {"shift": true}` takes, where the two characters were
+    /// selected.
+    #[test]
+    fn one_shift_left_pushed_by_a_callback_selects_one_character() {
+        use azul_core::events::MouseButton;
+        use VirtualKeyCode as K;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, krug_text_input_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let c = rects_by_class(&window, "__azul-native-text-input-container")[0];
+        let (x, y) = (c.origin.x + c.size.width - 4.0, c.origin.y + c.size.height * 0.5);
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::End });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::End });
+        assert_eq!(
+            window.common.layout_window.as_ref().and_then(|lw| lw.document_caret()).map(|c| c.text_byte),
+            Some(4),
+            "premise: the caret at the end of \"krug\""
+        );
+
+        let get_time = azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        };
+        window.start_timer(
+            azul_core::task::TimerId::unique().id,
+            azul_layout::timer::Timer::create(
+                RefAny::new(()),
+                shift_left_timer as azul_layout::timer::TimerCallbackType,
+                get_time,
+            ),
+        );
+        for _ in 0..3 {
+            window.pump_once(true);
+        }
+        let selected: Vec<(u32, u32)> = window
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.document_selection_spans())
+            .unwrap_or_default()
+            .iter()
+            .map(|s| (s.start_byte, s.end_byte))
+            .collect();
+        assert_eq!(selected, vec![(3, 4)], "one Shift+Left selects \"g\" alone");
+    }
+
+    /// AzContacts' search field: the hook keeps the query, the field is rebuilt from it.
+    struct Query {
+        text: String,
+    }
+
+    extern "C" fn keep_query(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+        field: azul_layout::widgets::text_input::TextInputState,
+    ) -> azul_layout::widgets::text_input::OnTextInputReturn {
+        if let Some(mut q) = data.downcast_mut::<Query>() {
+            q.text = field.get_text();
+        }
+        azul_layout::widgets::text_input::OnTextInputReturn {
+            update: azul_core::callbacks::Update::RefreshDom,
+            valid: azul_layout::widgets::text_input::TextInputValid::Yes,
+        }
+    }
+
+    extern "C" fn search_field_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_input::{TextInput, TextInputOnTextInputCallbackType};
+        let text = data.downcast_ref::<Query>().map(|q| q.text.clone()).unwrap_or_default();
+        Dom::create_body().with_css("padding: 20px;").with_child(
+            TextInput::create_search()
+                .with_text(text.as_str().into())
+                .with_on_text_input(data.clone(), keep_query as TextInputOnTextInputCallbackType)
+                .dom(),
+        )
+    }
+
+    /// [`one_shift_left_pushed_by_a_callback_selects_one_character`] in a search field whose
+    /// text was TYPED and whose hook rebuilds it from the app's query - AzContacts' list
+    /// search, where the two characters were selected.
+    #[test]
+    fn one_shift_left_in_a_typed_search_field_selects_one_character() {
+        use azul_core::events::MouseButton;
+        use VirtualKeyCode as K;
+
+        let state = Arc::new(RefCell::new(RefAny::new(Query { text: String::new() })));
+        let mut window = make_window_sized(&state, search_field_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let c = rects_by_class(&window, "__azul-native-text-input-container")[0];
+        let (x, y) = (c.origin.x + 10.0, c.origin.y + c.size.height * 0.5);
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::TextInput { text: "krug".to_string() });
+        for _ in 0..2 {
+            if window.common.take_regeneration() {
+                window.regenerate_layout().expect("the rebuild");
+            }
+        }
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::End });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::End });
+        assert_eq!(
+            window.common.layout_window.as_ref().and_then(|lw| lw.document_caret()).map(|c| c.text_byte),
+            Some(4),
+            "premise: the caret at the end of the typed \"krug\""
+        );
+        let get_time = azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        };
+        window.start_timer(
+            azul_core::task::TimerId::unique().id,
+            azul_layout::timer::Timer::create(
+                RefAny::new(()),
+                shift_left_timer as azul_layout::timer::TimerCallbackType,
+                get_time,
+            ),
+        );
+        for _ in 0..3 {
+            window.pump_once(true);
+        }
+        let selected: Vec<(u32, u32)> = window
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.document_selection_spans())
+            .unwrap_or_default()
+            .iter()
+            .map(|s| (s.start_byte, s.end_byte))
+            .collect();
+        assert_eq!(selected, vec![(3, 4)], "one Shift+Left selects \"g\" alone");
+    }
+
     #[test]
     fn an_empty_focused_text_input_shows_a_caret() {
         use azul_core::events::MouseButton;

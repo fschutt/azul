@@ -6648,6 +6648,31 @@ impl UnifiedLayout {
         Some(idx + trailing)
     }
 
+    /// [`Self::grapheme_caret_offset`] for a caret that may stand where NO
+    /// cluster starts (`is_cluster` says which ids are clusters of the
+    /// layout): past the last stop that is the END of the text - `(len,
+    /// Leading)`, what a typed insertion leaves - so the offset after it. A
+    /// caret on a folded mark (a cluster that is no stop) still snaps back to
+    /// its grapheme. Read as the last stop, one Shift+Left from the end of a
+    /// typed "krug" selected "ug" (E2E-A, 2026-10-06).
+    #[doc(hidden)] // pub for the dense movement twins
+    pub fn grapheme_caret_offset_in(
+        stops: &[GraphemeClusterId],
+        cursor: &TextCursor,
+        is_cluster: &dyn Fn(&GraphemeClusterId) -> bool,
+    ) -> Option<usize> {
+        let offset = Self::grapheme_caret_offset(stops, cursor)?;
+        let on_a_stop = stops.contains(&cursor.cluster_id);
+        if !on_a_stop && !is_cluster(&cursor.cluster_id) {
+            let key = (cursor.cluster_id.source_run, cursor.cluster_id.start_byte_in_run);
+            let idx = stops
+                .iter()
+                .rposition(|id| (id.source_run, id.start_byte_in_run) <= key)?;
+            return Some((idx + 1).min(stops.len()));
+        }
+        Some(offset)
+    }
+
     /// Canonical cursor for a grapheme-stop `offset` (0..=len): interior/first
     /// offsets are the Leading edge of the stop that begins there; `len` is the
     /// Trailing edge of the last stop (the document end).
@@ -6681,7 +6706,12 @@ impl UnifiedLayout {
         if stops.is_empty() {
             return cursor;
         }
-        let Some(offset) = Self::grapheme_caret_offset(&stops, &cursor) else {
+        let is_cluster = |id: &GraphemeClusterId| {
+            self.items
+                .iter()
+                .any(|it| it.item.as_cluster().is_some_and(|c| c.source_cluster_id == *id))
+        };
+        let Some(offset) = Self::grapheme_caret_offset_in(&stops, &cursor, &is_cluster) else {
             return cursor;
         };
         let moved = Self::cursor_from_grapheme_offset(&stops, offset.saturating_sub(1));
@@ -6707,7 +6737,12 @@ impl UnifiedLayout {
         if stops.is_empty() {
             return cursor;
         }
-        let Some(offset) = Self::grapheme_caret_offset(&stops, &cursor) else {
+        let is_cluster = |id: &GraphemeClusterId| {
+            self.items
+                .iter()
+                .any(|it| it.item.as_cluster().is_some_and(|c| c.source_cluster_id == *id))
+        };
+        let Some(offset) = Self::grapheme_caret_offset_in(&stops, &cursor, &is_cluster) else {
             return cursor;
         };
         let moved = Self::cursor_from_grapheme_offset(&stops, (offset + 1).min(stops.len()));
@@ -19830,3 +19865,55 @@ mod a_run_shaped_before_its_font_loads {
         );
     }
 }
+
+#[cfg(test)]
+mod a_caret_past_the_last_stop_tests {
+    use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
+
+    use super::UnifiedLayout;
+
+    fn stop(byte: u32) -> GraphemeClusterId {
+        GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: byte,
+        }
+    }
+
+    /// The end of "krug" written as the typed insertion leaves it - `(4, Leading)`, past the
+    /// last stop - is offset 4, the same as `(3, Trailing)`: one step left is "g"'s start.
+    #[test]
+    fn the_end_of_a_typed_text_is_the_offset_after_its_last_stop() {
+        let stops = [stop(0), stop(1), stop(2), stop(3)];
+        let typed_end = TextCursor {
+            cluster_id: stop(4),
+            affinity: CursorAffinity::Leading,
+        };
+        let canonical_end = TextCursor {
+            cluster_id: stop(3),
+            affinity: CursorAffinity::Trailing,
+        };
+        let is_cluster = |id: &GraphemeClusterId| id.start_byte_in_run < 4;
+        assert_eq!(
+            UnifiedLayout::grapheme_caret_offset_in(&stops, &typed_end, &is_cluster),
+            Some(4)
+        );
+        assert_eq!(
+            UnifiedLayout::grapheme_caret_offset_in(&stops, &canonical_end, &is_cluster),
+            Some(4)
+        );
+        // A caret on a folded mark (a cluster, no stop) still snaps back to its grapheme.
+        let mark_stops = [stop(0), stop(1), stop(3)];
+        let on_a_mark = TextCursor {
+            cluster_id: stop(2),
+            affinity: CursorAffinity::Leading,
+        };
+        assert_eq!(
+            UnifiedLayout::grapheme_caret_offset_in(&mark_stops, &on_a_mark, &is_cluster),
+            Some(1)
+        );
+        let left = UnifiedLayout::cursor_from_grapheme_offset(&stops, 3);
+        assert_eq!(left.cluster_id, stop(3));
+        assert_eq!(left.affinity, CursorAffinity::Leading);
+    }
+}
+
