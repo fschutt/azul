@@ -707,6 +707,19 @@ pub fn sync_parent(
         lw.refresh_focus_ring();
     }
 
+    // 4 (first). Closed by the app (`open=false`) or by a node going away: the manager already
+    //    dropped them; their mailboxes are handed over here. BEFORE the early return below: a
+    //    rebuild that drops a window's node leaves no open window and may leave no diff, and the
+    //    popup was never told - a Modal whose Delete removed it from the DOM stayed open
+    //    (a_modal_button_that_changes_app_state_rebuilds_its_parent_window).
+    for m in lw.transient_windows.take_closed_surfaces() {
+        if let OptionRefAny::Some(m) = m {
+            if write(&m, |d| d.closed = true) {
+                out.wake_all = true;
+            }
+        }
+    }
+
     let diff = lw.take_transient_diff();
     if diff.is_empty() && lw.transient_windows.open_windows().is_empty() {
         return out;
@@ -828,16 +841,6 @@ pub fn sync_parent(
                     });
                     out.wake_all = true;
                 }
-            }
-        }
-    }
-
-    // 4. Closed by the app (`open=false`) or by a node going away: the manager already dropped
-    //    them; their mailboxes are handed over here.
-    for m in lw.transient_windows.take_closed_surfaces() {
-        if let OptionRefAny::Some(m) = m {
-            if write(&m, |d| d.closed = true) {
-                out.wake_all = true;
             }
         }
     }
