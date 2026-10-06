@@ -316,7 +316,20 @@ class App:
         node = self.until('the text "%s"' % text, lambda: self.exact(text, window))
         self.settle(limit=2.0, window=window)
         target = {"window_id": window} if window else {}
-        self.must("double_click" if double else "click", node_id=node, button=button, **target)
+        op = "double_click" if double else "click"
+        # An inline box (the <span> around a list item's title) has no rect of its own, and a
+        # click by node id resolves no position for it: the click goes to the nearest ancestor
+        # that has a box, as the server's own text click does.
+        parents = {n["index"]: n.get("parent") for n in self.hierarchy(window)}
+        last = None
+        while isinstance(node, int) and node >= 0:
+            last = self.op(op, node_id=node, button=button, **target)
+            if isinstance(last, dict) and last.get("status") != "error":
+                break
+            node = parents.get(node)
+        else:
+            raise Failure("%s on %r: no node from its text up has a box (%s)"
+                          % (op, text, json.dumps(last)[:200]))
         self.frame(frames)
 
     def settle(self, limit=3.0, window=None):
