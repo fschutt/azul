@@ -16408,3 +16408,91 @@ mod inline_table_paint_tests {
         );
     }
 }
+
+/// What clips a run of text: its IFC's box, widened on a visible axis.
+#[cfg(test)]
+mod text_clip_tests {
+    use azul_core::{
+        dom::{Dom, DomId, IdOrClass, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    #[test]
+    fn text_on_a_visible_axis_is_not_cut_at_the_edge_of_its_shrink_wrapped_box() {
+        // WPT css/css-tables/anonymous-table-ws-001 and html/rendering/non-
+        // replaced-elements/tables/table-width-s: the anti-aliased right
+        // edge of a table cell's last glyph ("b") was missing - 2 and 4
+        // pixels against the same text in a block. A box shrink-wrapped to
+        // its text ends at the last ADVANCE, the glyph's ink reaches a
+        // little past it, and every text run carries its IFC's content box
+        // as its clip: on an `overflow: visible` axis the ink was cut there
+        // (the renderer clips to whole pixels inside the clip). Chrome
+        // clips nothing on a visible axis. The run's clip reaches at least
+        // half an em (8px) past the inline-block's content box.
+        // `body(0) > div.ib(1) > span(2) > "a b"(3)`.
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("ib".into())].into())
+                .with_child(Dom::create_span_with_text("a b")),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "body { margin: 0; font-size: 16px; } .ib { display: inline-block; }",
+        );
+        let styled = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let result = &lw.layout_results[&DomId::ROOT_ID];
+        let ib = *result
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the inline-block is laid out");
+        let width = result
+            .layout_tree
+            .get(ib)
+            .and_then(|n| n.used_size)
+            .expect("the inline-block has a size")
+            .width;
+        let clips: Vec<f32> = result
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text {
+                    glyphs, clip_rect, ..
+                } if !glyphs.is_empty() => {
+                    let c = clip_rect.inner();
+                    Some(c.origin.x + c.size.width)
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(!clips.is_empty(), "harness: the text is painted");
+        for right in clips {
+            assert!(
+                right >= width + 8.0,
+                "the run's clip ends {right}, the {width}px box's text must not be cut at its \
+                 edge"
+            );
+        }
+    }
+}
