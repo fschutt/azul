@@ -15905,3 +15905,156 @@ mod vertical_align_of_nested_inline_boxes_tests {
         );
     }
 }
+
+/// A `flex-grow: 1` item of a flex row lays its content out at the width the row gave it, on
+/// the FIRST layout. AzContacts (E2E-A, 2026-10-06): the list's search field - a
+/// `TextInput::create_search()` in a `flex-grow: 1` block next to a fixed-width segmented
+/// control - painted a 6 px input (its border and padding) inside a 148 px field box, so a
+/// click on the search row reached no input; the card's notes value wrapped one word per line.
+/// A window resize relaid both out correctly; the first layout and every restyle relayout (a
+/// CSS override on any node) did not. Seen on the libazul of 2026-10-06 03:14 (889dccf30,
+/// e1688c746 in it).
+#[cfg(test)]
+mod a_flex_items_content_takes_its_final_width_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, widgets::text_input::TextInput, window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    fn laid_out(mut dom: Dom) -> LayoutWindow {
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        lw
+    }
+
+    /// The used size of the first node carrying the class `class`.
+    fn size_of_class(lw: &LayoutWindow, class: &str) -> LogicalSize {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let node = lr
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .position(|n| n.has_class(class))
+            .unwrap_or_else(|| panic!("no node .{class}"));
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the node is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the node has a size")
+    }
+
+    /// `body > row(flex, padding 6px 8px) > [block(flex-grow: 1) > search field, 177px box]`:
+    /// AzContacts' list header.
+    #[test]
+    fn a_search_field_in_a_flex_grow_block_fills_it() {
+        let page = Dom::create_body()
+            .with_css("display: flex; flex-direction: column; margin: 0px; width: 360px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: flex; flex-direction: row; align-items: center; padding: 6px \
+                         8px;",
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("flex-grow: 1; margin-right: 6px;")
+                            .with_child(
+                                TextInput::create_search()
+                                    .with_placeholder("Search contacts".into())
+                                    .dom(),
+                            ),
+                    )
+                    .with_child(
+                        Dom::create_div().with_css("width: 177px; height: 30px; flex-shrink: 0;"),
+                    ),
+            );
+        let lw = laid_out(page);
+        let field = size_of_class(&lw, "__azul-native-search-field");
+        let input = size_of_class(&lw, "__azul-native-text-input-container");
+        // 360 - 2 x 8 padding - 177 - 6 margin = 161.
+        assert!(
+            field.width > 150.0,
+            "the search field is {} px wide in a 161 px block",
+            field.width
+        );
+        assert!(
+            (input.width - field.width).abs() < 1.0,
+            "the search field's input is {} px wide in a {} px field: its flex-grow left it at \
+             its border and padding",
+            input.width,
+            field.width
+        );
+    }
+
+    /// `body > row(flex) > [96px label, value(flex-grow: 1) > text]`: AzContacts' card rows.
+    #[test]
+    fn a_flex_grow_values_text_wraps_at_the_values_width() {
+        let page = Dom::create_body()
+            .with_css(
+                "display: flex; flex-direction: column; margin: 0px; width: 400px; font-size: \
+                 13px; line-height: 16px;",
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "display: flex; flex-direction: row; align-items: flex-start; padding: \
+                         3px 0px;",
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("width: 96px; flex-shrink: 0;")
+                            .with_child(Dom::create_span_with_text("notes")),
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_class("value".into())
+                            .with_css("flex-grow: 1;")
+                            .with_child(Dom::create_span_with_text(
+                                "A note long enough to be folded",
+                            )),
+                    ),
+            );
+        let lw = laid_out(page);
+        let value = size_of_class(&lw, "value");
+        assert!(
+            value.width > 290.0,
+            "the value is {} px wide next to a 96 px label in 400 px",
+            value.width
+        );
+        // Seven words of 13 px text fit one 304 px line (about 200 px).
+        assert!(
+            value.height < 20.0,
+            "the value's text takes {} px - {} line(s) of 16 px in a {} px value: it wrapped at \
+             its longest word",
+            value.height,
+            (value.height / 16.0).round(),
+            value.width
+        );
+    }
+}
