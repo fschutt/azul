@@ -16070,6 +16070,72 @@ mod window_layout_tests {
             "the inline-block's line starts at the top of the cell it fills: {down}"
         );
     }
+
+    #[test]
+    fn a_border_width_in_inches_counts_in_a_collapsed_table_and_is_painted() {
+        // WPT css/CSS2/tables/collapsing-border-model-003 / -009: a cell's
+        // `border-top: 1in solid` is ONE collapsed edge of 96px, half in the
+        // table's border, half in the cell's (CSS 2.2 17.6.2): an empty cell
+        // makes the table 48 + 48 = 96px tall, the cell 48px down. The
+        // compact cache stores only px widths - a `1in` (or `0.25em`) width
+        // is a sentinel meaning "ask the cascade" - and the collapsed-border
+        // resolution read the sentinel as 0: no edge, a 0px table. The
+        // painter read it as no width (`medium`, 3px): a `0.5in` border
+        // drew 3px wide around a box laid out 48px wide.
+        // `body(0) > [div.t(1) > div.r(2) > div.c(3)], div.b(4)`.
+        let page = || {
+            let div = |c: &'static str| {
+                Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class(c.into())].into())
+            };
+            Dom::create_body()
+                .with_child(div("t").with_child(div("r").with_child(div("c"))))
+                .with_child(div("b"))
+        };
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            styled(
+                page(),
+                "body { margin: 0; } .t { display: table; border-collapse: collapse; } .r { \
+                 display: table-row; } .c { display: table-cell; border-top: 1in solid orange; \
+                 padding: 0; width: 50px; } .b { border-top: 0.5in solid red; width: 10px; \
+                 height: 10px; }",
+            ),
+        );
+        let table = size_of(&lw, 1).height;
+        assert!(
+            (table - 96.0).abs() < 0.5,
+            "the 1in edge: 48px of table border + 48px of cell (Chrome 96): {table}"
+        );
+        let down = position_of(&lw, 3).y - position_of(&lw, 1).y;
+        assert!(
+            (down - 48.0).abs() < 0.5,
+            "the cell starts below the table's half of the edge: {down}"
+        );
+        let painted = lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::solver3::display_list::DisplayListItem::Border { widths, styles, .. }
+                    if styles
+                        .top
+                        .as_ref()
+                        .and_then(|s| s.get_property())
+                        .is_some_and(|s| {
+                            s.inner == azul_css::props::style::border::BorderStyle::Solid
+                        }) =>
+                {
+                    widths.top.as_ref().and_then(|w| w.get_property()).map(|w| w.inner)
+                }
+                _ => None,
+            });
+        assert_eq!(
+            painted,
+            Some(azul_css::props::basic::pixel::PixelValue::inch(0.5)),
+            "the 0.5in border is painted 0.5in wide, not `medium`"
+        );
+    }
 }
 
 /// `<sup>`, `<sub>` and `vertical-align: super` move their text off the line's
