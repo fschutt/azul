@@ -6535,6 +6535,16 @@ where
             .get(LayoutNodeId::new(node_index))
             .ok_or(LayoutError::InvalidTree)?;
 
+        // A `::marker` box carries its LIST ITEM's DOM node (the item's font
+        // and colour shape its text): the item's background, border, shadows
+        // and page breaks are the item's, painted once by the item. Here they
+        // framed the marker's own line a second time (WPT
+        // list-style-position-023: an inside marker on a line of its own in
+        // the item's silver border).
+        if super::fc::is_marker_box(&self.positioned_tree.tree, node_index) {
+            return Ok(());
+        }
+
         // Set current node for node mapping (for pagination break properties)
         builder.set_current_node(node.dom_node_id);
 
@@ -16516,5 +16526,53 @@ mod text_clip_tests {
                  edge"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod a_list_marker_paints_no_box_of_its_items_tests {
+    use azul_core::{dom::DomId, geom::LogicalSize, resources::RendererResources};
+    use rust_fontconfig::FcFontCache;
+
+    use super::DisplayListItem;
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// WPT css/CSS2/lists/list-style-position-023: an INSIDE marker of an
+    /// item whose content starts with a block has no line of the item's own
+    /// to ride - it is a line of its own (an anonymous box carrying the
+    /// ITEM's DOM node). That box painted the item's background and border
+    /// as if it were the item: a second silver frame around the "1." line.
+    #[test]
+    fn an_inside_marker_on_a_line_of_its_own_is_not_framed_by_the_items_border() {
+        let xml = "<html><head><style>\
+                   ol, li { margin: 0; padding: 0; } \
+                   li { border: solid silver 4px; padding: 8px 8px 8px 48px; \
+                        list-style-position: inside; }\
+                   </style></head><body><ol><li><div>Text</div></li></ol></body></html>";
+        let styled = crate::xml::parse_xml_to_styled_dom(xml).expect("the page parses");
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let borders: Vec<_> = lw.layout_results[&DomId::ROOT_ID]
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Border { bounds, .. } => Some(*bounds),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(borders.len(), 1, "the item's border, once: {borders:?}");
     }
 }

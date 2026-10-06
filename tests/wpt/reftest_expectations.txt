@@ -24,7 +24,6 @@ FAIL css/CSS2/linebox/vertical-align-super-001.xht E-INLINE # match vertical-ali
 FAIL css/CSS2/lists/counter-increment-055.xht E-OL # match counter-increment-055-ref.html: maxdiff 250 pixels 4154
 FAIL css/CSS2/lists/counter-reset-055.xht E-OL # match pass-if-number-0-30px.xht: maxdiff 201 pixels 4347
 FAIL css/CSS2/lists/increment-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
-FAIL css/CSS2/lists/list-style-position-023.xht E-OL # OPEN 2026-10-06: WPT-REG wrote a fix that did not turn it green (see scripts/WPT_REG_2026_10_06.md)
 FAIL css/CSS2/lists/reset-counter-001.xht E-OL # match pass_if_number_5.xht: maxdiff 191 pixels 3815
 FAIL css/CSS2/tables/border-collapse-empty-row.html E-TABLE-BC # needs :not() - the reference thickens its cells with `tr:not(:last-child) td` (the inline-table painting is fixed); gate 2026-10-06: maxdiff 127 pixels 4000
 FAIL css/CSS2/tables/border-collapse-offset-002.xht E-TABLE-BC # the caption is laid out INSIDE the table box: a collapsed table's half border (2px) offsets it, Chrome's wrapper box keeps it outside; gate 2026-10-06: maxdiff 255 pixels 1051
