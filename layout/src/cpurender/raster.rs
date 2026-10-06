@@ -7648,6 +7648,44 @@ mod autotest_generated {
     }
 
     #[test]
+    fn adjacent_gradients_at_a_fractional_edge_leave_no_seam() {
+        // WPT css/css-backgrounds/background-gradient-subpixel-fills-area:
+        // ten floats 39.6875px wide, each with a gradient background, over
+        // a red list - a red seam showed at every boundary. Each gradient's
+        // fractional edge was an anti-aliased PATH edge, so the shared pixel
+        // was covered 0.6875 by one and 0.3125 by the other: a quarter of
+        // the red stayed. Opaque rects are snapped to whole pixels
+        // (`render_rect`, round_edge) and so are a browser's backgrounds;
+        // the column the two gradients share is theirs, not red.
+        let mut p = pixmap(24, 4);
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, 24.0, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        let blue = linear(lin_stops(&[(0.0, BLUE), (100.0, BLUE)]));
+        for x in [0.0, 9.6875] {
+            render_linear_gradient(
+                &mut p,
+                &lrect(x, 0.0, 9.6875, 4.0),
+                &blue,
+                &BorderRadius::default(),
+                None,
+                1.0,
+                None,
+            );
+        }
+        let seam = px_at(&p, 9, 2);
+        assert!(
+            seam[0] < 8 && seam[2] > 247,
+            "the shared column is the gradients' blue, no red under a seam: {seam:?}"
+        );
+    }
+
+    #[test]
     fn linear_gradient_without_stops_is_a_noop() {
         let mut p = pixmap(8, 8);
         let before = snap(&p);
