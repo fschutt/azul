@@ -734,7 +734,7 @@ impl ScrollManager {
     /// `-1.0` traditional (default), `+1.0` natural. Centralises what used to be a
     /// hardcoded `-delta` at every platform call site.
     #[inline]
-    const fn scroll_sign(&self) -> f32 {
+    pub(crate) const fn scroll_sign(&self) -> f32 {
         if self.natural_scroll {
             1.0
         } else {

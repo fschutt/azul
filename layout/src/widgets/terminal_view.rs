@@ -2770,11 +2770,9 @@ extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let Some(s) = snap(&mut data) else {
         return Update::DoNothing;
     };
-    let hit = info.get_hit_node();
-    let Some(node_id) = hit.node.into_crate_internal() else {
-        return Update::DoNothing;
-    };
-    let Some(delta) = info.get_scroll_delta(hit.dom, node_id) else {
+    // The offset change the wheel asks for, the user's direction preference
+    // applied; `wheel_delta_action` takes it as a wheel delta (+y = up).
+    let Some(by) = info.get_wheel_scroll_by() else {
         return Update::DoNothing;
     };
     info.prevent_default();
@@ -2786,7 +2784,7 @@ extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let action = wheel_delta_action(
         &s.screen,
         &mut travel,
-        delta.y,
+        -by.y,
         point,
         info.get_key_modifiers(),
     );

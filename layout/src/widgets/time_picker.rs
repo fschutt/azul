@@ -1028,14 +1028,15 @@ fn take_scroll_steps(_which: u8, dy: f32) -> i64 {
 /// Wheel over a spinner column: scroll the value, not the page.
 ///
 /// Registered on the SPINNER div, so the whole column is the target (the arrows
-/// are tiny). Scrolling UP (negative dy in platform terms) increases the value,
-/// which is what a native stepper does.
+/// are tiny). The wheel turned UP increases the value, which is what a native
+/// stepper does.
 fn spin_on_scroll(data: RefAny, mut info: CallbackInfo, is_hour: bool) -> Update {
     let spinner = info.get_hit_node();
-    let Some(node_id) = spinner.node.into_crate_internal() else {
+    if spinner.node.into_crate_internal().is_none() {
         return Update::DoNothing;
-    };
-    let Some(delta) = info.get_scroll_delta(spinner.dom, node_id) else {
+    }
+    // The offset change the wheel asks for (+y = down), not the raw delta.
+    let Some(delta) = info.get_wheel_scroll_by() else {
         return Update::DoNothing;
     };
     // A platform can hand us NaN/Inf (they are forwarded unchanged); an
@@ -1052,7 +1053,7 @@ fn spin_on_scroll(data: RefAny, mut info: CallbackInfo, is_hour: bool) -> Update
         return Update::DoNothing;
     }
 
-    // Wheel-up (dy < 0) must INCREASE the value.
+    // Up (an offset change toward the top, dy < 0) must INCREASE the value.
     let update = adjust_spinner_at(data, info, spinner, is_hour, -steps);
     claim_the_wheel(&mut info);
     update
@@ -4224,12 +4225,44 @@ mod autotest_generated {
 
         let (styled, _) = laid_out(TimePicker::create(9, 30));
         let (hit, payload) = wired_to(&styled, on_hour_scroll as usize);
-        let (_, changes) = wheel(styled, &payload, hit, on_hour_scroll, -120.0);
+        // The wheel turned UP (a raw +y, the platform's - macOS's
+        // scrollingDeltaY - and the engine's convention) raises the value.
+        let (_, changes) = wheel(styled, &payload, hit, on_hour_scroll, 120.0);
         assert_eq!(
             rv::announced_values(&changes),
             vec![(node(N_HOUR_SPINNER), "10".to_string())],
             "by wheel",
         );
+    }
+
+    #[test]
+    fn the_wheel_turned_up_raises_the_value_and_turned_down_lowers_it() {
+        // A raw wheel delta is +y for "up" (toward the top of a page): the
+        // scroll boxes move by `-raw` (ScrollManager::record_scroll_input, the
+        // traditional sign). The column read the raw sign the other way round,
+        // so the wheel spun every picker backwards.
+        for (dy, want) in [(120.0, "10"), (-120.0, "8")] {
+            let (styled, _) = laid_out(TimePicker::create(9, 30));
+            let (hit, payload) = wired_to(&styled, on_hour_scroll as usize);
+            let (_, changes) = wheel(styled, &payload, hit, on_hour_scroll, dy);
+            assert_eq!(
+                rv::announced_values(&changes),
+                vec![(node(N_HOUR_SPINNER), want.to_string())],
+                "a raw wheel delta of {dy}",
+            );
+        }
+    }
+
+    #[test]
+    fn the_wheel_asks_a_self_scrolling_widget_to_move_the_way_a_scroll_box_moves() {
+        // `get_wheel_scroll_by`: the change of a scroll offset the wheel asks
+        // for (+y = toward the end), the direction preference applied - what a
+        // grid that scrolls by rows must read instead of the raw delta.
+        let (styled, _) = laid_out(TimePicker::create(9, 30));
+        let (hit, _) = wired_to(&styled, on_hour_scroll as usize);
+        let up = Some(azul_core::geom::LogicalPosition::new(0.0, 120.0));
+        let (by, _) = with_info_wheel(styled, hit, up, |info| info.get_wheel_scroll_by());
+        assert_eq!(by, Some(azul_core::geom::LogicalPosition::new(0.0, -120.0)));
     }
 
     #[test]

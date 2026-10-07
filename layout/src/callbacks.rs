@@ -6835,6 +6835,23 @@ impl CallbackInfo {
         self.get_scroll_manager().pending_wheel_event
     }
 
+    /// The pending wheel / trackpad scroll as the change of a scroll offset
+    /// it asks for: `+y` toward the end (down the page), `+x` to the right,
+    /// the user's direction preference applied - the way the engine moves a
+    /// scroll box by it (`ScrollManager::record_scroll_input`). What a widget
+    /// that scrolls itself (a grid by rows, a picker by values) reads;
+    /// [`Self::get_scroll_delta`] is the raw device delta (`+y` = the wheel
+    /// turned up), which read as rows scrolled every grid backwards.
+    #[must_use]
+    pub(crate) fn get_wheel_scroll_by(&self) -> Option<LogicalPosition> {
+        let manager = self.get_scroll_manager();
+        let sign = manager.scroll_sign();
+        manager.pending_wheel_event.map(|raw| LogicalPosition {
+            x: raw.x * sign,
+            y: raw.y * sign,
+        })
+    }
+
     /// The closest scrollable STRICT ancestor of a node - `node_id` itself is
     /// never the answer.
     ///

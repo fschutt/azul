@@ -3622,11 +3622,9 @@ extern "C" fn on_grid_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update 
     let Some((grid, geo)) = shared_of(&mut data) else {
         return Update::DoNothing;
     };
-    let hit = info.get_hit_node();
-    let Some(node_id) = hit.node.into_crate_internal() else {
-        return Update::DoNothing;
-    };
-    let Some(delta) = info.get_scroll_delta(hit.dom, node_id) else {
+    // The offset change the wheel asks for (+y = down: rows forward), not
+    // the raw delta (+y = the wheel turned up), which scrolled backwards.
+    let Some(delta) = info.get_wheel_scroll_by() else {
         return Update::DoNothing;
     };
     // THE WHEEL HAS ONE CONSUMER (see the time picker): `stop_propagation`
