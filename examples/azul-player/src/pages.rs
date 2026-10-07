@@ -151,7 +151,11 @@ impl Tile {
     #[must_use]
     pub fn key(&self, library: &Library, history: &History) -> String {
         match self {
-            Tile::Group { shelf, group } => format!("g-{shelf:?}-{}", short_hash(&group.title)),
+            // Two albums of one title by two artists are two tiles.
+            Tile::Group { shelf, group } => format!(
+                "g-{shelf:?}-{}",
+                short_hash(&format!("{}\u{1}{}", group.title, group.subtitle))
+            ),
             Tile::Item { shelf, index } => {
                 let path = library
                     .shelf(*shelf)
@@ -316,7 +320,10 @@ impl Screen {
         match self {
             Screen::Start => String::from("page-start"),
             Screen::Section(s) => format!("page-{}", s.screen_name()),
-            Screen::Group { group, .. } => format!("page-group-{}", short_hash(&group.title)),
+            Screen::Group { group, .. } => format!(
+                "page-group-{}",
+                short_hash(&format!("{}\u{1}{}", group.title, group.subtitle))
+            ),
             Screen::Search => String::from("page-search"),
             Screen::Address => String::from("page-address"),
             Screen::NowPlaying => String::from("page-now-playing"),
