@@ -103,6 +103,60 @@ pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
     }
 }
 
+/// The CONTENT of an already-parsed document as a `Dom`: what its `<body>`
+/// holds, without the `<html>` / `<body>` [`dom_from_parsed_xml`] puts around
+/// it - its one element, or all of its content in a `<div>`. For markup that
+/// is a PART of another DOM: the SVG of a PDF page in a document view is an
+/// `<svg>` among the view's nodes, not a second document. The document's
+/// `<head>` stylesheets come along on the returned node; an `<svg>` carries
+/// its own.
+// FFI-exported (api.json fn_body azul_layout::xml::dom_fragment_from_parsed_xml(xml)): owned Xml.
+#[allow(clippy::needless_pass_by_value)]
+#[must_use]
+pub fn dom_fragment_from_parsed_xml(xml: Xml) -> Dom {
+    body_content(dom_from_parsed_xml(xml))
+}
+
+/// The content of the `<body>` of a document's `Dom`
+/// ([`dom_fragment_from_parsed_xml`]): its one element (the white space
+/// around it is not content), or all of it in a `<div>`; the document's
+/// stylesheets on it.
+pub(crate) fn body_content(html: Dom) -> Dom {
+    use azul_core::dom::NodeType;
+
+    let is_text_space = |dom: &Dom| match dom.root.get_node_type() {
+        NodeType::Text(text) => text.as_str().trim().is_empty(),
+        _ => false,
+    };
+    let body = if matches!(html.root.get_node_type(), NodeType::Body) {
+        Some(html.clone())
+    } else {
+        html.children
+            .as_ref()
+            .iter()
+            .find(|c| matches!(c.root.get_node_type(), NodeType::Body))
+            .cloned()
+    };
+    let Some(body) = body else {
+        return Dom::create_div();
+    };
+    let content: Vec<&Dom> = body
+        .children
+        .as_ref()
+        .iter()
+        .filter(|c| !is_text_space(c))
+        .collect();
+    let mut out = match content.as_slice() {
+        [only] => (*only).clone(),
+        _ => Dom::create_div().with_children(body.children.clone()),
+    };
+    for css in html.css.as_ref() {
+        out.add_component_css(css.clone());
+    }
+    let _ = out.fixup_children_estimated();
+    out
+}
+
 /// Fastest path: parse XML string directly into `FastDom` without intermediate `XmlNode` tree.
 ///
 /// Feeds XML tokenizer events directly into `CompactDomBuilder`, skipping both the

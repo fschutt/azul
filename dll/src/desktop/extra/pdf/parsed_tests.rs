@@ -229,3 +229,107 @@ fn the_legacy_all_pages_call_and_the_handle_render_the_same_svg() {
         );
     }
 }
+
+/// A page whose text is in an EMBEDDED font - azul-mock-prop, whose `M` is
+/// 900 units wide and `i` 200 - "Mi" at 100 pt, 20 mm from the left.
+fn embedded_font_pdf() -> Vec<u8> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../layout/tests/fonts/azul-mock-prop.ttf");
+    let bytes = std::fs::read(path).expect("the test font");
+    let font =
+        printpdf::ParsedFont::from_bytes(&bytes, 0, &mut Vec::new()).expect("the font parses");
+    let mut doc = PdfDocument::new("embedded");
+    let id = doc.add_font(&font);
+    let ops = vec![
+        Op::StartTextSection,
+        Op::SetTextCursor {
+            pos: Point::new(Mm(20.0), Mm(200.0)),
+        },
+        Op::SetFont {
+            font: PdfFontHandle::External(id),
+            size: Pt(100.0),
+        },
+        Op::ShowText {
+            items: vec![TextItem::Text("Mi".to_string())],
+        },
+        Op::EndTextSection,
+    ];
+    doc.pages.push(PdfPage::new(Mm(210.0), Mm(297.0), ops));
+    save(&doc)
+}
+
+/// THE page pipeline of a PDF viewer on azul: page -> SVG
+/// (`ParsedPdf::page_to_svg`) -> XML -> a DOM subtree
+/// (`dom_fragment_from_parsed_xml`), laid out like any other. Its text is
+/// real text - the characters in the DOM, selectable - drawn in the page's
+/// own font, the one the SVG embeds; no picture of the page.
+#[test]
+fn a_page_is_a_dom_whose_text_is_text_in_the_pages_own_font() {
+    use azul_core::{
+        dom::{Dom, DomId, NodeType},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+        window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    let pdf = ParsedPdf::create_from_bytes(&embedded_font_pdf());
+    assert!(pdf.is_valid(), "error: {}", pdf.get_error().as_str());
+    let svg = pdf.page_to_svg(0).into_option().expect("an SVG of page 1");
+    let svg = svg.as_str();
+    assert!(svg.contains("@font-face"), "the page embeds its font: {}", &svg[..svg.len().min(400)]);
+
+    let xml = azul_layout::xml::parse_xml(svg).expect("the page's SVG is XML");
+    let page = azul_layout::xml::dom_fragment_from_parsed_xml(xml);
+    assert!(
+        matches!(page.root.get_node_type(), NodeType::Svg),
+        "the fragment is the <svg>, not a document: {:?}",
+        page.root.get_node_type()
+    );
+    fn texts(dom: &Dom, out: &mut String) {
+        if let NodeType::Text(text) = dom.root.get_node_type() {
+            out.push_str(text.as_str());
+        }
+        for child in dom.children.as_ref() {
+            texts(child, out);
+        }
+    }
+    let mut text = String::new();
+    texts(&page, &mut text);
+    assert!(text.contains("Mi"), "the page's characters are in the DOM: {text:?}");
+
+    // The page at 1 px per pt (the SVG's own size).
+    let mut body = Dom::create_body().with_css("margin: 0px").with_child(page);
+    let styled = StyledDom::create(&mut body, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(800.0, 900.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .unwrap();
+    let dl = &lw.get_layout_result(&DomId::ROOT_ID).unwrap().display_list;
+    let xs: Vec<f32> = dl
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Text { glyphs, .. } => Some(glyphs.iter().map(|g| g.point.x)),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(xs.len(), 2, "the two characters are drawn: {xs:?}");
+    // 20 mm = 56.7 pt from the left; M is 0.9 em of 100 pt.
+    assert!((xs[0] - 56.69).abs() < 1.0, "the text starts where the PDF puts it: {xs:?}");
+    assert!(
+        (xs[1] - xs[0] - 90.0).abs() < 1.0,
+        "in the page's own font (M is 90 pt wide), not a system font: {xs:?}"
+    );
+}

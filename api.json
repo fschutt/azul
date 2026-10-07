@@ -27254,6 +27254,23 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_geolocation_probe(config)"
+                            },
+                            "create_from_parsed_xml_fragment": {
+                                "doc": [
+                                    "Creates a Dom from the CONTENT of an already-parsed Xml document: what its",
+                                    "<body> holds, without the <html> / <body> that create_from_parsed_xml puts",
+                                    "around it - its one element, or all of its content in a <div>.",
+                                    "For markup that is a part of another DOM: the SVG of a PDF page",
+                                    "(ParsedPdf.page_to_svg) is one <svg> among a document view's nodes, its text",
+                                    "real text in the fonts the SVG embeds. The document's <head> stylesheets",
+                                    "come along on the returned node; an <svg> carries its own."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "xml": "Xml"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::xml::dom_fragment_from_parsed_xml(xml)"
                             }
                         },
                         "functions": {

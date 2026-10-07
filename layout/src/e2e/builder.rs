@@ -2044,33 +2044,7 @@ fn template_to_dom(
         crate::xml::FONT_SOURCE,
     )
     .map_err(|e| format!("{e:?}"))?;
-    Ok((body_content(html), w.css))
-}
-
-/// The `<body>`'s content of a parsed `<html><body>…</body></html>`: its only
-/// child, or all of them wrapped in a `<div>`.
-fn body_content(html: Dom) -> Dom {
-    let is_body = matches!(html.root.get_node_type(), NodeType::Body);
-    let body = if is_body {
-        Some(html)
-    } else {
-        html.children
-            .as_ref()
-            .iter()
-            .find(|c| matches!(c.root.get_node_type(), NodeType::Body))
-            .cloned()
-    };
-    let Some(body) = body else {
-        return Dom::create_div();
-    };
-    let kids = body.children.as_ref();
-    let mut out = if kids.len() == 1 {
-        kids[0].clone()
-    } else {
-        Dom::create_div().with_children(body.children.clone())
-    };
-    let _ = out.fixup_children_estimated();
-    out
+    Ok((crate::xml::body_content(html), w.css))
 }
 
 /// Replace `{name}` by `args[name]` (XML-escaped); `{{` / `}}` are literal
