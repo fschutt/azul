@@ -22,11 +22,16 @@ started from fix/input-bugs-2026-09-19 @ 86c0e821e. No cargo (the lead builds).
   repaired: it called an App signature azmeet_e2e.py no longer had), fb1/azmeet_resize_probe.py
   onto the switches.
 
+- C5 waiting room: who is in the meeting already (read-only peers poll while waiting, faces +
+  "Ada is in this meeting", E2E checks it), the test pattern's still in the own tile / preview
+  (mirrored), `--screen waiting` = a real waiting room or an offline preview (never the demo),
+  appkit `--shot` / `--size` wired (AzMeet ignored both before).
+
 ## IN PROGRESS
-- C5 waiting room.
+- final report.
 
 ## NEXT
-- C5 waiting room: `--screen waiting` without a server, `--shot` / `--size`, who is here, pattern preview.
+- (lead) autofix IrohConfig.relay_only + with_relay_only, build, run the suites and the E2E.
 - C7 two-clients.mjs, three-clients.mjs, meet-e2e.mjs, azmeet_cpu.py, fb1 probe onto the flags.
 
 ## Facts found

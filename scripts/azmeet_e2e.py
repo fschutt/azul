@@ -13,7 +13,9 @@ Phase `direct` (the call on this machine, no relay):
        statistics`, ...; AzMeet's --help); the AZMEET_* variables of this shell are blanked
        for the apps, so none changes a run behind its back;
     2b. Ben's waiting room: `AZMEET_WAITING <link>` on his stdout, the preview
-       (`#__azmeet_preview`) laid out, the meeting's code and "Join now"; the microphone switch
+       (`#__azmeet_preview`) laid out, the meeting's code and "Join now", and who is in the
+       meeting already ("Ada is in this meeting", read from the meeting server while he waits,
+       nothing announced); the microphone switch
        (`#__azmeet_mic`) flips "Mute" -> "Unmute" -> "Mute" and the camera switch (`#__azmeet_cam`)
        "Stop video" -> "Start video" -> "Stop video"; the gear (`#__azmeet_settings`, top right)
        opens azul-appkit's settings page with AzMeet's categories (Audio & Video, Meetings,
@@ -322,9 +324,10 @@ def check_files(app, data, other, deadline, procs):
 SETTINGS_CATEGORIES = ("Audio & Video", "Meetings", "Recording")
 
 
-def waiting_room(app, width, height, deadline, procs):
+def waiting_room(app, width, height, deadline, procs, here="Ada is in this meeting"):
     """`app` (started with `--join <link> --waiting-room`) stops in the meeting's waiting room:
-    its preview is laid out, the switches say what a click does and flip with each click, the
+    its preview is laid out, it says who is in the meeting already (`here`: the meeting server's
+    list, read while waiting), the switches say what a click does and flip with each click, the
     gear opens the settings page with AzMeet's categories (Escape closes it), and "Join now"
     enters the meeting."""
     until("%s's waiting room (AZMEET_WAITING)" % app.tag, lambda: app.printed("AZMEET_WAITING"),
@@ -340,6 +343,9 @@ def waiting_room(app, width, height, deadline, procs):
         raise Failure("%s's preview is %s (at least 200 px wide)" % (app.tag, rect or "not there"))
     if app.node_rect(app.id("meeting-code"))[0] is None:
         raise Failure("%s's waiting room shows no meeting code" % app.tag)
+    if here:
+        until("%s's waiting room saying %r" % (app.tag, here), lambda: here in app.texts(), deadline, procs)
+        log("%s's waiting room says %r" % (app.tag, here))
     if app.printed("AZMEET_ROOM"):
         raise Failure("%s entered the meeting before Join now" % app.tag)
     # The test tone and the test pattern start on: each switch says what a click does, and says

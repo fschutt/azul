@@ -3,10 +3,12 @@
 //! With a meeting server (the `meet` Worker, azul-apps `cf-workers/meet`) AzMeet opens a start
 //! screen: "New meeting" asks the server for a room; "Join with a link" looks that link up.
 //! Either way the meeting opens in the waiting room first (`ui.rs`): the camera preview, the
-//! microphone and camera switches, the devices, the name, the meeting's code and link, and "Start
-//! meeting" / "Join now". Only then does the app announce its iroh ticket to the room every 20
-//! seconds, read everyone else's every 2 seconds, and dial the peers whose endpoint id is higher
-//! than its own.
+//! microphone and camera switches, the devices, the name, the meeting's code and link, who is in
+//! the meeting already (its peers list, read every 2 seconds while waiting; nothing is
+//! announced), and "Start meeting" / "Join now". Only then does the app announce its iroh ticket
+//! to the room every 20 seconds, read everyone else's every 2 seconds, and dial the peers whose
+//! endpoint id is higher than its own. `--screen waiting` opens a new meeting's waiting room (a
+//! preview of one when no meeting server answers); with `--shot <png>` that is a screenshot.
 //! Every HTTP request runs on an azul `Thread` and resumes on the UI thread, so no callback waits
 //! on the network. The start screen's "Meeting server" field holds the Worker's address: prefilled
 //! with the one saved last time, else `AZMEET_WORKER`, else the built-in default; a new address
@@ -192,6 +194,8 @@ const ECHO_TAIL_MS: u32 = 300;
 const TONE_HZ: f32 = 440.0;
 const FEED_W: u32 = 320;
 const FEED_H: u32 = 180;
+/// The size of the test pattern's still in the own tile and the waiting room's preview.
+const PATTERN_STILL: (u32, u32) = (640, 360);
 /// The pixel format video travels in: NV12 (4:2:0 YCbCr in two planes, the
 /// camera's own format), which the H.264 encoder takes and the decoder gives
 /// without a conversion, and which a tile shows through the GPU's YUV shader
@@ -340,6 +344,15 @@ struct RoomSession {
     relay: Relay,
     /// The meeting the waiting room shows (`Stage::Waiting`), entered with "Join now".
     waiting: Option<RoomInfo>,
+    /// Who is in the waiting room's meeting already (its peers list, read every poll while
+    /// waiting, nothing announced); `None` until the first answer.
+    waiting_people: Option<Vec<String>>,
+    /// A read of that list is in flight; `waiting_polls` counts the polls it has been.
+    waiting_busy: bool,
+    waiting_polls: u32,
+    /// The waiting room is a preview: `--screen waiting` with no meeting server answering (a
+    /// screenshot's), so its meeting exists only here and "Join now" says so.
+    preview: bool,
     /// The meeting being opened or waited for was made by this side ("New meeting"), not looked
     /// up: the waiting room says "Start meeting".
     created: bool,
@@ -352,6 +365,10 @@ impl RoomSession {
     fn new(worker: String, name: String, relay: Relay) -> Self {
         RoomSession {
             waiting: None,
+            waiting_people: None,
+            waiting_busy: false,
+            waiting_polls: 0,
+            preview: false,
             created: false,
             straight_in: false,
             session: 0,
@@ -384,6 +401,7 @@ impl RoomSession {
         self.session = self.session.wrapping_add(1);
         self.stage = Stage::InRoom;
         self.waiting = None;
+        self.close_waiting();
         self.straight_in = false;
         self.room_id = found.room;
         self.code = found.code;
@@ -399,6 +417,7 @@ impl RoomSession {
         self.session = self.session.wrapping_add(1);
         self.stage = Stage::Start;
         self.waiting = None;
+        self.close_waiting();
         self.created = false;
         self.straight_in = false;
         self.room_id.clear();
@@ -408,6 +427,33 @@ impl RoomSession {
         self.dialed.clear();
         self.announced_at = None;
         self.busy = false;
+    }
+
+    /// The waiting room is left (joined, Back, or the meeting left): who was in its meeting is
+    /// forgotten, and a read of that still in flight is not waited for.
+    fn close_waiting(&mut self) {
+        self.waiting_people = None;
+        self.waiting_busy = false;
+        self.waiting_polls = 0;
+        self.preview = false;
+    }
+
+    /// In the waiting room: a read of its meeting's peers list (who is in it already), nothing
+    /// announced; one at a time, a stuck one given up after `STUCK_REQUEST_POLLS`. None for a
+    /// preview, whose meeting no server knows.
+    fn waiting_job(&mut self) -> Option<HttpJob> {
+        if self.stage != Stage::Waiting || self.preview || self.waiting.is_none() {
+            return None;
+        }
+        if self.waiting_busy {
+            self.waiting_polls += 1;
+            if self.waiting_polls < STUCK_REQUEST_POLLS {
+                return None;
+            }
+        }
+        self.waiting_busy = true;
+        self.waiting_polls = 0;
+        Some(HttpJob::waiting_peers(self))
     }
 
     /// The announcement to send right away, when the ticket is already known.
@@ -421,8 +467,12 @@ impl RoomSession {
         Some(HttpJob::announce(self))
     }
 
-    /// What this poll sends: an announcement when one is due, else a read of the peers list.
+    /// What this poll sends: an announcement when one is due, else a read of the peers list; in
+    /// the waiting room only that read (`waiting_job`).
     fn next_job(&mut self) -> Option<HttpJob> {
+        if self.stage == Stage::Waiting {
+            return self.waiting_job();
+        }
         if self.stage != Stage::InRoom {
             return None;
         }
@@ -522,6 +572,9 @@ struct MeetState {
     /// The camera and the screen share are test patterns (`AZMEET_TEST_PATTERN=1`, and every
     /// headless run).
     pattern_video: bool,
+    /// A still of the test pattern, made once with `pattern_video`: the own camera tile and the
+    /// waiting room's preview show it as a camera would show its picture.
+    pattern_still: Option<ImageRef>,
     /// When each test pattern's next frame is due, by `track_slot`.
     pattern_clocks: [video_wire::PatternClock; 2],
     /// Shows the "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`).
@@ -648,6 +701,7 @@ impl MeetState {
             },
             video_out: BTreeMap::new(),
             pattern_video: false,
+            pattern_still: None,
             pattern_clocks: [
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
@@ -1052,6 +1106,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
             link: found.link.clone(),
             copied: room.copied,
             created: room.created,
+            people: room.waiting_people.clone(),
         })
     });
     ui::CallView {
@@ -1098,6 +1153,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         in_room: s.room.is_some(),
         tone_mic: s.tone_mic,
         pattern_video: s.pattern_video,
+        pattern_still: s.pattern_still.clone(),
         mirror: s.mirror,
         screen_renditions: my_renditions(s, SCREEN_TRACK),
         camera_renditions,
@@ -2224,6 +2280,11 @@ fn configure_video(s: &mut MeetState, support: &VideoSupport) {
     let devices = devices_allowed();
     s.video = support.clone();
     s.pattern_video = pattern || !devices;
+    if s.pattern_video && s.pattern_still.is_none() {
+        let (width, height) = PATTERN_STILL;
+        s.pattern_still =
+            ImageRef::create_rawimage(frame_image(pattern_frame(0, width, height))).into_option();
+    }
     s.video_debug = pattern;
     if pattern {
         s.cam_on = true;
@@ -3953,6 +4014,24 @@ impl HttpJob {
         }
     }
 
+    /// The waiting room's read of its meeting's peers list (this side is not announced there).
+    fn waiting_peers(room: &RoomSession) -> Self {
+        let meeting = room
+            .waiting
+            .as_ref()
+            .map_or("", |found| found.room.as_str());
+        HttpJob {
+            verb: Verb::Get,
+            url: format!(
+                "{}/rooms/{}/peers?except={}",
+                room.worker, meeting, room.node_id
+            ),
+            body: String::new(),
+            on_result: on_waiting_peers,
+            session: room.session,
+        }
+    }
+
     /// Whether the meeting server answers (`GET /health`); the answer is matched to the check by
     /// `session`, which holds the check's number here.
     fn health(room: &RoomSession) -> Self {
@@ -4189,9 +4268,12 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
                 room.stage = Stage::Waiting;
                 room.copied = false;
                 room.waiting = Some(found);
+                room.close_waiting();
+                // Who is in the meeting already: asked now, then every poll while waiting.
+                let job = room.waiting_job();
                 s.notice.clear();
                 apply_join_defaults(s);
-                None
+                job
             }
             None => {
                 room.stage = Stage::Start;
@@ -4338,6 +4420,57 @@ extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upd
             s.notice = server_trouble(&room.worker, &other);
             Update::RefreshDom
         }
+    }
+}
+
+/// The waiting room's read of its meeting's peers list: who is in the meeting already ("Ada is in
+/// this meeting"). An answer for a waiting room since left is ignored; a meeting that ended says
+/// so.
+extern "C" fn on_waiting_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut data, session)) = reply_parts(data) else {
+        return Update::DoNothing;
+    };
+    let answer = http_answer(result);
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(room) = s.room.as_mut() else {
+        return Update::DoNothing;
+    };
+    if room.session != session || room.stage != Stage::Waiting {
+        return Update::DoNothing;
+    }
+    room.waiting_busy = false;
+    match answer {
+        Ok((200, Some(json))) => {
+            let names: Vec<String> = peers_from(&json)
+                .into_iter()
+                .filter(|p| p.node_id != room.node_id)
+                .map(|p| {
+                    if p.name.trim().is_empty() {
+                        short_id(&p.node_id).to_string()
+                    } else {
+                        p.name
+                    }
+                })
+                .collect();
+            if room.waiting_people.as_ref() == Some(&names) {
+                return Update::DoNothing;
+            }
+            eprintln!(
+                "[azmeet] {}: in the waiting room: {}",
+                s.name,
+                ui::who_is_here(&names)
+            );
+            room.waiting_people = Some(names);
+            Update::RefreshDom
+        }
+        Ok((404, _)) => {
+            s.notice = String::from("This meeting has ended, or the link is wrong.");
+            Update::RefreshDom
+        }
+        _ => Update::DoNothing,
     }
 }
 
@@ -4883,6 +5016,15 @@ extern "C" fn on_join_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return Update::DoNothing;
         };
         let s = &mut *guard;
+        if let Some(room) = s.room.as_ref().filter(|room| room.preview) {
+            // The preview's meeting exists only here: nobody could join it.
+            s.notice = format!(
+                "This waiting room is a preview: no meeting server answers at {}. Start one (the \
+                 meet Worker's dev server) or pick another on the start screen to meet people.",
+                room.worker
+            );
+            return Update::RefreshDom;
+        }
         let found = s
             .room
             .as_mut()
@@ -4909,8 +5051,12 @@ extern "C" fn on_waiting_back(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some(room) = s.room.as_mut().filter(|room| room.stage == Stage::Waiting) else {
         return Update::DoNothing;
     };
+    // A new session: the answer to a read of this waiting room's peers still in flight is
+    // ignored, whatever waiting room opens next.
+    room.session = room.session.wrapping_add(1);
     room.stage = Stage::Start;
     room.waiting = None;
+    room.close_waiting();
     room.created = false;
     room.copied = false;
     s.notice.clear();
@@ -4961,7 +5107,8 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 /// `--join <link>` / `--autocreate` / `--screen call`: start in a meeting without a click, past
-/// the waiting room unless `--waiting-room`; `--screen waiting`: a new meeting's waiting room.
+/// the waiting room unless `--waiting-room`; `--screen waiting`: a new meeting's waiting room, or
+/// a preview of one when no meeting server answers.
 fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let straight_in = !setting_on("AZMEET_WAITING_ROOM");
     if let Some(link) = setting("AZMEET_JOIN") {
@@ -4972,12 +5119,56 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         }
         return begin_join(data, info, &link, straight_in);
     }
+    let server_ok = data
+        .downcast_ref::<MeetState>()
+        .is_some_and(|s| s.room.as_ref().is_some_and(|room| room.server_ok));
     match launch_args().screen {
         args::Screen::Call => begin_new_meeting(data, info, straight_in),
-        args::Screen::Waiting => begin_new_meeting(data, info, false),
+        args::Screen::Waiting if server_ok => begin_new_meeting(data, info, false),
+        args::Screen::Waiting => preview_waiting_room(data),
         _ if setting_on("AZMEET_AUTOCREATE") => begin_new_meeting(data, info, straight_in),
         _ => Update::DoNothing,
     }
+}
+
+/// `--screen waiting` with no meeting server answering (a screenshot of the waiting room): the
+/// waiting room of a meeting that exists only here - a code made up here, its link, nobody in
+/// it; "Join now" says that no meeting server answers. stdout: `AZMEET_WAITING <link>`, as for a
+/// real one.
+fn preview_waiting_room(data: &mut RefAny) -> Update {
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(room) = s.room.as_mut() else {
+        return Update::DoNothing;
+    };
+    if room.stage != Stage::Start {
+        return Update::DoNothing;
+    }
+    let code = gen_link();
+    let found = RoomInfo {
+        room: code.clone(),
+        link: format!("{}{code}", rooms::APP_LINK_PREFIX),
+        code,
+    };
+    println!("AZMEET_WAITING {}", found.link);
+    eprintln!(
+        "[azmeet] {}: a preview of the waiting room (meeting {}): no meeting server answers at {}",
+        s.name, found.code, room.worker
+    );
+    room.stage = Stage::Waiting;
+    room.created = true;
+    room.copied = false;
+    room.waiting = Some(found);
+    room.close_waiting();
+    room.preview = true;
+    s.notice = format!(
+        "A preview of the waiting room: no meeting server answers at {}.",
+        room.worker
+    );
+    apply_join_defaults(s);
+    Update::RefreshDom
 }
 
 extern "C" fn startup_first(data: RefAny, info: CallbackInfo) -> Update {
@@ -4992,6 +5183,13 @@ fn start_pumping(data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     let Some(mut peer) = room_peer(&data, index) else {
         return Update::DoNothing;
     };
+    if index == 0 {
+        // azul-appkit's `--shot <png>`: the first window as a PNG after its settle time, then
+        // the process ends (`AzMeet --screen waiting --test-pattern --shot waiting.png`).
+        if let Some(kit_ref) = peer.downcast_ref::<MeetState>().map(|s| s.kit.clone()) {
+            kit::on_window_created(&kit_ref, &mut info);
+        }
+    }
     let get_time = info.get_system_time_fn();
     info.add_timer(
         TimerId::unique(),
@@ -5621,7 +5819,9 @@ pub fn start() {
         }
     }
     let (worker, source, answer) = meeting_server();
-    if rooms::opens_demo(source, answer.is_ok()) {
+    // `--screen waiting` always shows the waiting room: a preview of one when nothing answers.
+    let waiting = launch_args().screen == args::Screen::Waiting;
+    if rooms::opens_demo(source, answer.is_ok()) && !waiting {
         let why = answer.err().unwrap_or_default();
         start_demo(&format!(
             "Local demo: no meeting server is set, and none answers at {worker} ({why}). Start the \
@@ -5775,7 +5975,9 @@ fn run(peers: Vec<RefAny>, linked: bool) {
         second.renderer = renderer(HwAcceleration::Enabled);
         app.add_window(second);
     } else {
-        first.window_state.size.dimensions = LogicalSize::create(1100.0, 720.0);
+        // azul-appkit's `--size WxH`, else 1100 x 720.
+        let (width, height) = launch_args().kit.size.unwrap_or((1100.0, 720.0));
+        first.window_state.size.dimensions = LogicalSize::create(width, height);
         first.window_state.title = AzString::from("AzMeet");
     }
     app.run(first);

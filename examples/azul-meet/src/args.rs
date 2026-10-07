@@ -18,7 +18,8 @@ pub enum Screen {
     #[default]
     Lobby,
     /// A new meeting's waiting room: the camera preview, the switches, the devices, the name,
-    /// the link, "Start meeting".
+    /// the link, "Start meeting"; a preview of one when no meeting server answers (with
+    /// `--shot`, a screenshot of it).
     Waiting,
     /// The call view (the in-process demo opens it on its own).
     Call,
