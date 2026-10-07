@@ -277,4 +277,25 @@ mod tests {
             );
         }
     }
+
+    /// AzCode is dark by default, as VSCode is: only a settings file that names a mode
+    /// (the settings page's Mode writes it) or a `--mode` switch picks another.
+    #[test]
+    fn azcode_is_dark_until_the_settings_file_names_a_mode() {
+        let dir = std::env::temp_dir().join(format!("azcode-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temporary folder");
+        let file = dir.join("settings.json");
+        assert!(!super::names_a_mode(&file), "no file names no mode");
+        for (text, named) in [
+            ("{\"theme\": \"flat\", \"mode\": \"light\"}", true),
+            ("{\"theme\": \"flat\", \"mode\": \"system\"}", true),
+            ("{\"theme\": \"flat\", \"mode\": \"\"}", false),
+            ("{\"theme\": \"flora\"}", false),
+            ("not json", false),
+        ] {
+            std::fs::write(&file, text).expect("the settings file");
+            assert_eq!(super::names_a_mode(&file), named, "{text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
