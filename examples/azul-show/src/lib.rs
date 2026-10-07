@@ -634,6 +634,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 /// switches; the window is the kit's (`NoTitle`, `--size`, a minimum).
 pub fn start(args: Args) {
     let kit_ref = kit::create_kit(args::SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
+    // AzShow is always set in flora's red, whatever the other apps show.
+    kit::pin_theme(&kit_ref, azul_appkit::Theme::FloraRed);
     let root = kit_data_root(&kit_ref);
     let mut st = AppState::new(args.clone(), root.clone());
     st.kit = Some(kit_ref.clone());

@@ -121,6 +121,8 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.clone());
+    // AzWriter is always set in flora's blue, whatever the other apps show.
+    kit::pin_theme(&kit_ref, azul_appkit::Theme::Flora);
     let data_root = {
         let mut k = kit_ref.clone();
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());

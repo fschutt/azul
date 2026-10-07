@@ -255,7 +255,7 @@ fn with_remembered(
     for setting in &mut settings {
         let id = setting.id.as_str().to_string();
         let value = match id.as_str() {
-            "appearance.theme" => restored(&setting.value, if theme == Theme::Flora { "1" } else { "0" }),
+            "appearance.theme" => restored(&setting.value, if theme.is_flora() { "1" } else { "0" }),
             "appearance.mode" => restored(
                 &setting.value,
                 match mode {
@@ -289,8 +289,12 @@ fn remember(st: &Setup, info: &mut CallbackInfo) {
             let id = setting.id.as_str();
             match id {
                 "appearance.theme" => {
-                    k.settings.theme =
-                        if setting.applied.as_index() == 1 { Theme::Flora } else { Theme::Flat };
+                    // Flora keeps the stone the user chose (a spin, `flora:green`).
+                    k.settings.theme = match (setting.applied.as_index(), k.settings.theme) {
+                        (1, current) if current.is_flora() => current,
+                        (1, _) => Theme::Flora,
+                        _ => Theme::Flat,
+                    };
                     k.args.theme = None;
                 }
                 "appearance.mode" => {
@@ -912,7 +916,19 @@ extern "C" fn on_settings(
             | ShellSettingsEventKind::Changed
     ) {
         if let Some(t) = theme {
-            info.set_theme(s(if t == 1 { "flora" } else { "flat" }));
+            // Flora in the stone the user chose (a spin, `flora:green`).
+            let current = {
+                let mut kit_ref = st.kit.clone();
+                kit_ref
+                    .downcast_ref::<kit::Kit>()
+                    .map_or(Theme::Flat, |k| k.settings.theme)
+            };
+            let name = match (t, current.is_flora()) {
+                (1, true) => current.name(),
+                (1, false) => "flora",
+                _ => "flat",
+            };
+            info.set_theme(s(name));
         }
         match mode {
             Some(0) => info.set_mode(OptionDarkLightMode::Some(DarkLightMode::Light)),

@@ -2,8 +2,10 @@
 //!
 //! The app keeps the kit's `RefAny` in its own state and asks it for:
 //! - the window ([`window_options`]: `NoTitle`, `--size`, a compact minimum
-//!   size) and the app config ([`app_config`]: the app theme and mode from
-//!   `settings.json`, a `--theme` / `--mode` switch winning for one run);
+//!   size) and the app config ([`app_config`]: the app theme and mode the
+//!   user chose in any Azlin app - `~/.azlin/config.json`, over the app's
+//!   `settings.json` - unless the app pins its theme ([`pin_theme`]), a
+//!   `--theme` / `--mode` switch winning for one run);
 //! - the title row ([`title_row`]: azul's `Titlebar`, drawn by the app as
 //!   every azul app does);
 //! - the settings page ([`settings_page`]) in the shape of Outlook 2010's
@@ -51,6 +53,7 @@ use azul_storage::LocalDrive;
 use crate::{
     about::{about_rows, AboutInfo},
     args::{AppArgs, AppSpec, ModePref, Theme},
+    azlin_config::{self, AzlinConfig},
     data::{self, app_key},
     files::{run_jobs, FileJob, FileOutcome},
     look::{self, CategoryItem},
@@ -98,6 +101,14 @@ pub struct Kit {
     keys_routed: bool,
     /// The prefixes of the values Cancel leaves as they are ([`keep_on_cancel`]).
     kept_on_cancel: Vec<String>,
+    /// The theme this app always shows ([`pin_theme`]: AzWriter's flora,
+    /// AzSheets' flora:green, AzShow's flora:red), whatever the user chose
+    /// for the others; `None` = the shared choice.
+    pub pinned_theme: Option<Theme>,
+    /// The shared config every Azlin app reads at its start and writes when
+    /// the look changes ([`crate::azlin_config`]); `None` = none
+    /// (`AZLIN_CONFIG=off`, no home directory).
+    pub config_path: Option<PathBuf>,
 }
 
 /// What an app does after Cancel put its settings back: re-read its own copies of its values
@@ -131,10 +142,16 @@ impl Kit {
         app_key(self.about.app_folder, name)
     }
 
-    /// The theme and mode this run shows.
+    /// The theme and mode this run shows: a `--theme` / `--mode` switch,
+    /// else the app's pinned theme, else the user's choice.
     #[must_use]
     pub fn effective(&self) -> (Theme, ModePref) {
-        self.settings.effective(&self.args)
+        let (theme, mode) = self.settings.effective(&self.args);
+        let theme = match (self.args.theme, self.pinned_theme) {
+            (None, Some(pinned)) => pinned,
+            _ => theme,
+        };
+        (theme, mode)
     }
 }
 
@@ -192,6 +209,28 @@ pub fn create_kit(
         }
         _ => AppSettings::default(),
     };
+    // The shared config: the look the user chose in any Azlin app is this
+    // one's too, over the app's own file (`crate::azlin_config`).
+    let home = FilePath::get_home_dir()
+        .into_option()
+        .map(|dir| PathBuf::from(dir.inner.as_str()));
+    let config_path = azlin_config::config_path(
+        std::env::var(azlin_config::CONFIG_VAR).ok().as_deref(),
+        home.as_deref(),
+    );
+    let mut settings = settings;
+    if let Some(path) = config_path.as_deref() {
+        let (shared, problem) = AzlinConfig::load(path);
+        if let Some(problem) = problem {
+            eprintln!("[{}] {}: {problem}", spec.binary, path.display());
+        }
+        if let Some(theme) = shared.theme {
+            settings.theme = theme;
+        }
+        if let Some(mode) = shared.mode {
+            settings.mode = mode;
+        }
+    }
     let mut shortcuts = app_shortcuts.to_vec();
     shortcuts.extend(KIT_SHORTCUTS);
     RefAny::new(Kit {
@@ -211,7 +250,21 @@ pub fn create_kit(
         reload: None,
         keys_routed: false,
         kept_on_cancel: Vec::new(),
+        pinned_theme: None,
+        config_path,
     })
+}
+
+/// Pins the app's theme: the app always shows `theme` (AzWriter flora,
+/// AzSheets flora:green, AzShow flora:red), the user's shared choice is
+/// neither read nor written by it, and the settings page says so instead of
+/// offering a picker. The mode stays shared. Call it after [`create_kit`],
+/// before [`app_config`]; a `--theme` switch still wins for one run.
+pub fn pin_theme(kit_ref: &RefAny, theme: Theme) {
+    let mut kit = kit_ref.clone();
+    if let Some(mut k) = kit.downcast_mut::<Kit>() {
+        k.pinned_theme = Some(theme);
+    };
 }
 
 /// The mode azul is told: `None` follows the OS.
@@ -418,15 +471,26 @@ fn spawn_jobs_at(
     );
 }
 
-/// Saves the kit's settings file (on a Thread).
+/// Saves the kit's settings file (on a Thread), and the look into the
+/// shared config every Azlin app starts from (`crate::azlin_config`: the
+/// theme unless the app pins its own, the mode always; written only when it
+/// changed, a few bytes, at once).
 pub fn save_settings(kit_ref: &RefAny, info: &mut CallbackInfo) {
     let mut kit = kit_ref.clone();
-    let Some((root, key, json)) = kit
-        .downcast_ref::<Kit>()
-        .map(|k| (k.data_root.clone(), k.settings_key(), k.settings.to_json()))
-    else {
+    let Some((root, key, json, shared)) = kit.downcast_ref::<Kit>().map(|k| {
+        let shared = k.config_path.clone().map(|path| {
+            let theme = k.pinned_theme.is_none().then_some(k.settings.theme);
+            (path, theme, k.settings.mode, k.spec.binary)
+        });
+        (k.data_root.clone(), k.settings_key(), k.settings.to_json(), shared)
+    }) else {
         return;
     };
+    if let Some((path, theme, mode, binary)) = shared {
+        if let Err(e) = AzlinConfig::update(&path, theme, mode) {
+            eprintln!("[{binary}] {}: {e}", path.display());
+        }
+    }
     spawn_file_jobs(
         info,
         &root,
@@ -512,7 +576,7 @@ pub fn close_settings(kit_ref: &RefAny) {
 /// (on every Cancel). `Some` = the kit's settings changed back.
 pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppSettings> {
     let mut kit = kit_ref.clone();
-    let (restored, settings, reload) = {
+    let (restored, settings, reload, pinned) = {
         let mut guard = kit.downcast_mut::<Kit>()?;
         let k: &mut Kit = &mut guard;
         let open = k.settings_open;
@@ -524,10 +588,13 @@ pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppS
             println!("{}_SETTINGS_CLOSED cancel", k.spec.binary.to_uppercase());
         }
         let restored = snapshot.restore_keeping(&mut k.settings, &mut k.args, &k.kept_on_cancel);
-        (restored, k.settings.clone(), reload)
+        (restored, k.settings.clone(), reload, k.pinned_theme.is_some())
     };
     if let Some((theme, mode)) = restored.look {
-        info.set_theme(theme.name());
+        // A pinned app's theme never moved.
+        if !pinned {
+            info.set_theme(theme.name());
+        }
         info.set_mode(mode_option(mode));
     }
     if restored.save {
@@ -622,30 +689,63 @@ pub use crate::look::{note, row};
 use crate::look::section;
 
 fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
-    let theme_labels: Vec<&str> = Theme::ALL.iter().map(|t| t.label()).collect();
     let mode_labels: Vec<&str> = ModePref::ALL.iter().map(|m| m.label()).collect();
-    let mut rows = vec![
-        row(
+    let mut rows = Vec::new();
+    match k.pinned_theme {
+        Some(pinned) => rows.push(row(
             "Theme",
-            Segmented::create(strs(&theme_labels))
-                .with_selected_index(k.settings.theme.index())
-                .with_on_change(kit_ref.clone(), on_theme as SegmentedOnChangeCallbackType)
-                .dom()
-                .with_id("appkit-theme"),
-        ),
-        row(
-            "Mode",
-            Segmented::create(strs(&mode_labels))
-                .with_selected_index(k.settings.mode.index())
-                .with_on_change(kit_ref.clone(), on_mode as SegmentedOnChangeCallbackType)
-                .dom()
-                .with_id("appkit-mode"),
-        ),
-    ];
+            note(&format!(
+                "{} is always set in {}. The mode below is shared with every Azlin app.",
+                k.spec.name,
+                pinned.label()
+            )),
+        )),
+        None => {
+            // The theme, then - for flora - its stone: the two pickers write
+            // one choice (`flora:green`), shared with every Azlin app.
+            let theme = k.settings.theme;
+            rows.push(row(
+                "Theme",
+                Segmented::create(strs(&["Flat", "Flora"]))
+                    .with_selected_index(usize::from(theme.is_flora()))
+                    .with_on_change(kit_ref.clone(), on_theme as SegmentedOnChangeCallbackType)
+                    .dom()
+                    .with_id("appkit-theme"),
+            ));
+            if let Some(stone) = theme.stone_index() {
+                let stone_labels: Vec<&str> =
+                    Theme::FLORA.iter().map(|t| t.stone_label()).collect();
+                rows.push(row(
+                    "Stone",
+                    Segmented::create(strs(&stone_labels))
+                        .with_selected_index(stone)
+                        .with_on_change(kit_ref.clone(), on_stone as SegmentedOnChangeCallbackType)
+                        .dom()
+                        .with_id("appkit-stone"),
+                ));
+            }
+        }
+    }
+    rows.push(row(
+        "Mode",
+        Segmented::create(strs(&mode_labels))
+            .with_selected_index(k.settings.mode.index())
+            .with_on_change(kit_ref.clone(), on_mode as SegmentedOnChangeCallbackType)
+            .dom()
+            .with_id("appkit-mode"),
+    ));
     if k.args.theme.is_some() || k.args.mode.is_some() {
         rows.push(note(
             "A --theme or --mode switch overrides these settings until the app restarts.",
         ));
+    }
+    if let Ok(env) = std::env::var("AZ_THEME") {
+        if !env.trim().is_empty() {
+            rows.push(note(&format!(
+                "AZ_THEME={} overrides the theme of every app it runs.",
+                env.trim()
+            )));
+        }
     }
     column("", rows)
 }
@@ -927,11 +1027,13 @@ fn page_kit(data: &mut RefAny) -> Option<RefAny> {
 }
 
 /// The user chose the app theme: in effect at once (every window), kept in
-/// settings.json, and winning over a `--theme` switch from now on. The one
-/// path the settings page and an app's own theme control take.
+/// settings.json and in the shared config every Azlin app starts from, and
+/// winning over a `--theme` switch from now on. The one path the settings
+/// page and an app's own theme control take. A pinned app keeps its theme.
 pub fn choose_theme(kit_ref: &RefAny, info: &mut CallbackInfo, theme: Theme) {
     let mut kit = kit_ref.clone();
     let save = match kit.downcast_mut::<Kit>() {
+        Some(k) if k.pinned_theme.is_some() => false,
         Some(mut k) => {
             k.settings.theme = theme;
             k.args.theme = None; // the user's choice now wins over the switch
@@ -962,8 +1064,23 @@ pub fn choose_mode(kit_ref: &RefAny, info: &mut CallbackInfo, mode: ModePref) {
     }
 }
 
-extern "C" fn on_theme(kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let theme = Theme::ALL[state.selected_index.min(Theme::ALL.len() - 1)];
+/// Flat or flora: flora keeps the stone it had (blue, coming from flat).
+extern "C" fn on_theme(mut kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let current = kit
+        .downcast_ref::<Kit>()
+        .map_or(Theme::Flat, |k| k.settings.theme);
+    let theme = match (state.selected_index, current.is_flora()) {
+        (0, _) => Theme::Flat,
+        (_, true) => current,
+        (_, false) => Theme::Flora,
+    };
+    choose_theme(&kit, &mut info, theme);
+    Update::RefreshDom
+}
+
+/// One of flora's stones (`flora`, `flora:green`, ...).
+extern "C" fn on_stone(kit: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
+    let theme = Theme::FLORA[state.selected_index.min(Theme::FLORA.len() - 1)];
     choose_theme(&kit, &mut info, theme);
     Update::RefreshDom
 }

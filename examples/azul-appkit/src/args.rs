@@ -1,7 +1,7 @@
 //! The command-line switches every Azlin app understands (build ledger F2).
 //!
 //! AzWriter's `args.rs` is the model: `--screen <name>` opens a screen
-//! directly, `--size <WxH>` sizes the window, `--theme <flat|flora>` and
+//! directly, `--size <WxH>` sizes the window, `--theme <flat|flora|flora:green|...>` and
 //! `--mode <light|dark|system>` pick the app theme and the light / dark mode
 //! (they win over the settings file for this run and are not saved),
 //! `--shot <PNG>` renders, writes a screenshot and exits (the screenshot
@@ -13,25 +13,60 @@
 
 use std::path::PathBuf;
 
-/// The app theme: what a switch, the settings file and the settings page name.
+/// The app theme: what a switch, the shared config, the settings file and
+/// the settings page name. `flat`, `flora` - the website's look, its deep
+/// blue stone - and flora's SPINS: the same look cut in another accent stone,
+/// the liturgical set of the design system (`flora:green` Ordinary,
+/// `flora:red` Pentecost, `flora:purple` Advent, `flora:gold` Easter,
+/// `flora:rose` Gaudete; azul's `widgets::themes::spin`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Theme {
     #[default]
     Flat,
     Flora,
+    FloraGreen,
+    FloraRed,
+    FloraPurple,
+    FloraGold,
+    FloraRose,
 }
 
 impl Theme {
     /// Every theme, in the order the settings page lists them.
-    pub const ALL: [Theme; 2] = [Theme::Flat, Theme::Flora];
+    pub const ALL: [Theme; 7] = [
+        Theme::Flat,
+        Theme::Flora,
+        Theme::FloraGreen,
+        Theme::FloraRed,
+        Theme::FloraPurple,
+        Theme::FloraGold,
+        Theme::FloraRose,
+    ];
+
+    /// Flora's stones, the base (blue) first: the settings page's stone
+    /// picker.
+    pub const FLORA: [Theme; 6] = [
+        Theme::Flora,
+        Theme::FloraGreen,
+        Theme::FloraRed,
+        Theme::FloraPurple,
+        Theme::FloraGold,
+        Theme::FloraRose,
+    ];
 
     /// The name azul knows the theme by (`AppConfig::with_theme`,
-    /// `CallbackInfo::set_theme`): `flat`, `flora`.
+    /// `CallbackInfo::set_theme`, `AZ_THEME`): `flat`, `flora`,
+    /// `flora:green`, ...
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Theme::Flat => "flat",
             Theme::Flora => "flora",
+            Theme::FloraGreen => "flora:green",
+            Theme::FloraRed => "flora:red",
+            Theme::FloraPurple => "flora:purple",
+            Theme::FloraGold => "flora:gold",
+            Theme::FloraRose => "flora:rose",
         }
     }
 
@@ -41,13 +76,49 @@ impl Theme {
         match self {
             Theme::Flat => "Flat",
             Theme::Flora => "Flora",
+            Theme::FloraGreen => "Flora, green",
+            Theme::FloraRed => "Flora, red",
+            Theme::FloraPurple => "Flora, purple",
+            Theme::FloraGold => "Flora, gold",
+            Theme::FloraRose => "Flora, rose",
         }
     }
 
-    /// A theme by name, any case, surrounding blanks ignored.
+    /// The stone's own label in the settings page's stone picker ("" for
+    /// flat, which has none).
+    #[must_use]
+    pub fn stone_label(self) -> &'static str {
+        match self {
+            Theme::Flat => "",
+            Theme::Flora => "Blue",
+            Theme::FloraGreen => "Green",
+            Theme::FloraRed => "Red",
+            Theme::FloraPurple => "Purple",
+            Theme::FloraGold => "Gold",
+            Theme::FloraRose => "Rose",
+        }
+    }
+
+    /// Whether this is flora or one of its spins.
+    #[must_use]
+    pub fn is_flora(self) -> bool {
+        self != Theme::Flat
+    }
+
+    /// The position among [`Theme::FLORA`] (0 = blue); `None` for flat.
+    #[must_use]
+    pub fn stone_index(self) -> Option<usize> {
+        Theme::FLORA.iter().position(|t| *t == self)
+    }
+
+    /// A theme by name, any case, surrounding blanks ignored (`flora:blue`
+    /// is flora).
     #[must_use]
     pub fn parse(name: &str) -> Option<Theme> {
         let name = name.trim();
+        if name.eq_ignore_ascii_case("flora:blue") {
+            return Some(Theme::Flora);
+        }
         Theme::ALL
             .into_iter()
             .find(|t| t.name().eq_ignore_ascii_case(name))
@@ -169,7 +240,7 @@ pub fn help(spec: &AppSpec) -> String {
         spec.screens.join(" | ")
     ));
     out.push_str("    --size <WxH>             Initial window size, e.g. --size 900x640\n");
-    out.push_str("    --theme <NAME>           flat | flora (this run only)\n");
+    out.push_str("    --theme <NAME>           flat | flora | flora:green|red|purple|gold|rose (this run only)\n");
     out.push_str("    --mode <NAME>            system | light | dark (this run only)\n");
     out.push_str("    --shot <PNG>             Render, write this screenshot, exit\n");
     out.push_str(&format!(
@@ -241,7 +312,7 @@ impl AppArgs {
                     let v = value("name")?;
                     a.theme = Some(
                         Theme::parse(&v)
-                            .ok_or_else(|| format!("--theme: expected flat|flora, got {v:?}"))?,
+                            .ok_or_else(|| format!("--theme: expected flat|flora|flora:<green|red|purple|gold|rose>, got {v:?}"))?,
                     );
                 }
                 "--mode" => {
@@ -392,6 +463,13 @@ mod tests {
         assert_eq!(Theme::Flora.name(), "flora");
         assert_eq!(ModePref::Light.name(), "light");
         assert_eq!(Theme::Flora.index(), 1);
+        assert_eq!(Theme::parse("flora:green"), Some(Theme::FloraGreen));
+        assert_eq!(Theme::parse("FLORA:BLUE"), Some(Theme::Flora));
+        for t in Theme::ALL {
+            assert_eq!(Theme::parse(t.name()), Some(t), "{t:?} round-trips");
+        }
+        assert_eq!(Theme::FloraRose.stone_index(), Some(5));
+        assert_eq!(Theme::Flat.stone_index(), None);
         assert_eq!(ModePref::Dark.index(), 2);
     }
 
