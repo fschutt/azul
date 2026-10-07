@@ -28,8 +28,12 @@
 //! <position>`, `AZPLAYER_ERROR <message>`.
 
 pub mod app;
+pub mod args;
+pub mod curtain;
 pub mod history;
 pub mod ids;
+pub mod library;
+pub mod strip;
 pub mod sync;
 pub mod ui;
 
