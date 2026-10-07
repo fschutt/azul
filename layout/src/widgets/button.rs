@@ -2197,15 +2197,23 @@ mod autotest_generated {
 
             // Only the RESTING declarations: the theme appends hover, pressed
             // and focus rules on top of the container style, and those are not
-            // part of what the widget declared. One resting declaration IS the
-            // theme's: the face's pointer fade (`decl::state_fade`, its
-            // unconditional half, d5cebf5a7), after the style - a link only
-            // underlines and has none.
+            // part of what the widget declared. Two resting declarations ARE
+            // the theme's, after the style the button owns (a caller's own
+            // style gets neither): the neutral face's Office 2010 raised
+            // gradient (white over silver), and the face's pointer fade
+            // (`decl::state_fade`, its unconditional half, d5cebf5a7) - a link
+            // only underlines and has none.
             let mut expected = container;
-            if ty != ButtonType::Link {
-                use crate::widgets::themes::decl;
-                let [fade, _pressed] = decl::state_fade(decl::BUTTON_FACE, decl::BUTTON_FADE_MS);
-                expected.push(fade.property);
+            {
+                use crate::widgets::themes::{decl, flat};
+                if ty.surface() == ButtonSurface::Neutral {
+                    expected.push(decl::layers(vec![decl::face(flat::LIGHT_RT, flat::LIGHT_RB)]));
+                }
+                if ty != ButtonType::Link {
+                    let [fade, _pressed] =
+                        decl::state_fade(decl::BUTTON_FACE, decl::BUTTON_FADE_MS);
+                    expected.push(fade.property);
+                }
             }
             assert_eq!(
                 theme_probe::unconditional(&dom),
@@ -2540,8 +2548,20 @@ mod disabled_and_toggled_tests {
                     )
                 });
                 assert!(!pressed, "{theme:?}: a disabled button has no hover / pressed paint: {prop:?}");
+                // Dimmed: faded as a whole (the shared rule, flat), or set
+                // on flora's disabled paper - its faded ink and rule, the
+                // specimen's DISABLED button (no opacity: the paper stays
+                // paper).
                 if let CssProperty::Opacity(o) = prop {
                     if o.get_property().map_or(false, |o| o.inner.normalized() < 0.75) {
+                        dimmed = true;
+                    }
+                }
+                if let CssProperty::TextColor(c) = prop {
+                    let paper_ink = crate::widgets::themes::flora::LIGHT_DISTX;
+                    if conditions.as_ref().is_empty()
+                        && c.get_property().map_or(false, |c| c.inner == paper_ink)
+                    {
                         dimmed = true;
                     }
                 }

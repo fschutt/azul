@@ -3515,15 +3515,19 @@ pub(crate) const SCROLLBAR_PARCHMENT: (ColorU, ColorU) = (LIGHT_TRACK, DARK_TRAC
 /// in every other theme: `@theme(flora) { * { scrollbar-color: wool
 /// parchment } }`, its night twin under the dark mode. `scrollbar-color` is a
 /// scroll box's own property (azul does not inherit it), hence `*`; an app's
-/// own `scrollbar-color` on a box still wins (author order).
+/// own `scrollbar-color` on a box still wins (author order). `pinned`: for a
+/// subtree pinned to flora, which carries no `@theme` block - the same rules
+/// without the theme's condition.
 #[must_use]
-pub(crate) fn scrollbar_sheet() -> azul_css::css::Css {
+pub(crate) fn scrollbar_sheet(pinned: bool) -> azul_css::css::Css {
     use azul_css::{
         css::{rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
         dynamic_selector::{DynamicSelector, ModeCondition, ThemeCondition},
     };
     let flora = || {
-        DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora")))
+        (!pinned).then(|| {
+            DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora")))
+        })
     };
     let rule = |thumb: ColorU, track: ColorU, conditions: Vec<DynamicSelector>| CssRuleBlock {
         path: CssPath {
@@ -3541,11 +3545,14 @@ pub(crate) fn scrollbar_sheet() -> azul_css::css::Css {
     };
     Css {
         rules: alloc::vec![
-            rule(SCROLLBAR_WOOL.0, SCROLLBAR_PARCHMENT.0, alloc::vec![flora()]),
+            rule(SCROLLBAR_WOOL.0, SCROLLBAR_PARCHMENT.0, flora().into_iter().collect()),
             rule(
                 SCROLLBAR_WOOL.1,
                 SCROLLBAR_PARCHMENT.1,
-                alloc::vec![flora(), DynamicSelector::Mode(ModeCondition::Dark)]
+                flora()
+                    .into_iter()
+                    .chain(core::iter::once(DynamicSelector::Mode(ModeCondition::Dark)))
+                    .collect()
             ),
         ]
         .into(),

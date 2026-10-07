@@ -1614,7 +1614,7 @@ mod autotest_generated {
 /// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
 /// section 4).
 #[cfg(test)]
-mod app_theme_tests {
+pub(crate) mod app_theme_tests {
     use super::*;
     use crate::widgets::themes::{theme_blocks::checks, UiTheme};
 
@@ -1630,7 +1630,8 @@ mod app_theme_tests {
     }
 
     /// R5: the box's and the mark's layout is the check box's BASE, declared
-    /// once outside every `@theme` block. Checked and unchecked.
+    /// once outside every `@theme` block. Checked and unchecked - but for
+    /// [`FLORA_MARK_STRUCTURE`].
     #[test]
     fn a_check_box_declares_its_structure_once_for_every_theme() {
         use crate::widgets::themes::theme_checks::assert_structure_is_shared;
@@ -1644,9 +1645,28 @@ mod app_theme_tests {
                 assert_structure_is_shared(
                     &format!("check_box checked={checked} built for {}", t.name()),
                     &dom,
-                    &[],
+                    &FLORA_MARK_STRUCTURE,
                 );
             }
         }
     }
+
+    /// The structure flora's check box REALLY declares apart from flat's:
+    /// its mark is the stone laid over the whole box, edge included
+    /// (`themes::flora::check_mark_skin`) - positioned in the box, sized
+    /// border-box, the tick centred in it - where flat's mark is a glyph in
+    /// the box's flow. Every widget that contains a check box (the To-Do
+    /// bar's task rows) allows the same.
+    pub(crate) const FLORA_MARK_STRUCTURE: [crate::widgets::themes::theme_checks::ThemedStructure; 6] = {
+        use azul_css::props::property::CssPropertyType as T;
+        const WHY: &str = "flora's mark is a stone laid over the whole box, its tick centred in it";
+        [
+            ("__azul-native-checkbox-container", T::Position, WHY),
+            ("__azul-native-checkbox-content", T::Position, WHY),
+            ("__azul-native-checkbox-content", T::BoxSizing, WHY),
+            ("__azul-native-checkbox-content", T::Display, WHY),
+            ("__azul-native-checkbox-content", T::JustifyContent, WHY),
+            ("__azul-native-checkbox-content", T::AlignItems, WHY),
+        ]
+    };
 }

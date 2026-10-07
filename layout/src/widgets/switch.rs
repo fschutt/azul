@@ -1773,14 +1773,17 @@ mod autotest_generated {
             let track = properties(&s.resolved_track_style());
             let knob = properties(&s.resolved_knob_style());
 
+            // What the live theme sees (`theme_probe::unthemed`): a switch
+            // that follows the app theme carries every theme's block, and
+            // flora's trough (paper, inset well, its night twin) is flora's.
             let dom = s.dom();
             assert_eq!(
-                inline_properties(&dom),
+                crate::widgets::theme_probe::unthemed(&dom),
                 track,
                 "checked={checked}: the track style did not land on the track",
             );
             assert_eq!(
-                inline_properties(&dom.children.as_ref()[0]),
+                crate::widgets::theme_probe::unthemed(&dom.children.as_ref()[0]),
                 knob,
                 "checked={checked}: the knob style did not land on the knob",
             );

@@ -135,9 +135,11 @@ fn a_button_fades_into_its_hover_face_in_both_themes() {
                     .map(|t| t.prop_type.to_str())
                     .collect::<Vec<_>>()
             );
-            // Half-way through, the face is still moving; at the end it rests.
+            // Half-way through, the face is still moving; at the end it rests
+            // (flora's stone the slowest: light moves across it over
+            // `--fl-dur-slow`, 1.2s).
             assert!(lw.tick_animations(0.05), "{theme:?} {kind:?}: the fade is in flight");
-            let _ = lw.tick_animations(1.0);
+            let _ = lw.tick_animations(2.0);
             assert!(
                 !fades(&lw, node, CssPropertyType::BackgroundContent),
                 "{theme:?} {kind:?}: the fade ends"
@@ -148,22 +150,40 @@ fn a_button_fades_into_its_hover_face_in_both_themes() {
 
 #[test]
 fn a_pressed_button_shows_its_pressed_face_at_once() {
+    // Flat: on the next frame. Flora: a press is its ONE fast movement
+    // (flora.css's `--fl-dur-fast`, 0.14s) - never the hover's slow fade.
+    const FLORA_PRESS_S: f32 = 0.14;
     for theme in [UiTheme::Flat, UiTheme::Flora] {
         let mut lw = window(Button::create(AzString::from("Save")).with_theme(theme));
         let node = button_node(&lw);
         hover(&mut lw, node);
-        let _ = lw.tick_animations(1.0);
+        let _ = lw.tick_animations(2.0);
         press(&mut lw, node);
-        assert!(
-            !fades(&lw, node, CssPropertyType::BackgroundContent),
-            "{theme:?}: a press shows the pressed face on the next frame, it does not fade in"
-        );
+        let press_fades: Vec<f32> = lw
+            .css_transitions
+            .iter()
+            .filter(|t| t.node == node && t.prop_type == CssPropertyType::BackgroundContent)
+            .map(|t| t.duration_s)
+            .collect();
+        match theme {
+            UiTheme::Flat => assert!(
+                press_fades.is_empty(),
+                "{theme:?}: a press shows the pressed face on the next frame, it does not fade in"
+            ),
+            UiTheme::Flora => assert!(
+                press_fades.iter().all(|d| *d <= FLORA_PRESS_S + 1e-3),
+                "{theme:?}: a press is the fast movement, not the hover's fade: {press_fades:?}"
+            ),
+        }
     }
 }
 
 #[test]
 fn a_link_declares_no_face_fade() {
-    for theme in [UiTheme::Flat, UiTheme::Flora] {
+    // Flat's link is text: it underlines on hover. Flora's (the QUIET
+    // command, flora.css's `.btn-quiet`) is paper with a face, and fades it
+    // like every flora command.
+    for theme in [UiTheme::Flat] {
         let mut lw =
             window(Button::with_type(AzString::from("More"), ButtonType::Link).with_theme(theme));
         let node = button_node(&lw);

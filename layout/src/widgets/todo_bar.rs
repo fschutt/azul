@@ -1082,10 +1082,11 @@ mod todo_bar_tests {
         );
         for theme in checks::BOTH {
             let dom = checks::under(theme, || bar(&log).dom());
+            // Its task rows' check boxes: flora's mark is laid over the box.
             theme_checks::assert_structure_is_shared(
                 &format!("todo_bar built for {}", theme.name()),
                 &dom,
-                &[],
+                &crate::widgets::check_box::app_theme_tests::FLORA_MARK_STRUCTURE,
             );
         }
     }

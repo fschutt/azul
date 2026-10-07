@@ -303,7 +303,7 @@ pub fn accent_class(accent: ShellThemeAccent) -> AzString {
 pub(crate) fn build(scope: ShellThemeScope, look: &ShellLook) -> Dom {
     let ShellThemeScope {
         content,
-        theme: _,
+        theme,
         accent,
     } = scope;
     let mut classes: Vec<IdOrClass> =
@@ -312,14 +312,24 @@ pub(crate) fn build(scope: ShellThemeScope, look: &ShellLook) -> Dom {
         classes.push(IdOrClass::Class(AzString::from_const_str(marker)));
     }
     classes.push(IdOrClass::Class(accent_class(accent)));
-    Dom::create_div()
+    let mut root = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
-        .with_css_props(part(FILL_COLUMN_BASE, &look.scope_root))
-        // Flora's wool-on-parchment scrollbars for every scroll box in the
-        // app, inert in every other theme; then the accent (the last sheet).
-        .with_component_css(crate::widgets::themes::flora::scrollbar_sheet())
-        .with_component_css(accent_sheet(accent))
-        .with_child(content)
+        .with_css_props(part(FILL_COLUMN_BASE, &look.scope_root));
+    // Flora's wool-on-parchment scrollbars for every scroll box in the app:
+    // a `@theme(flora)` sheet (inert in every other theme) under a scope that
+    // follows the app theme, the bare rules under one pinned to flora, none
+    // under one pinned to flat - a pinned scope carries no theme's blocks.
+    match theme.into_option() {
+        None => {
+            root = root.with_component_css(crate::widgets::themes::flora::scrollbar_sheet(false));
+        }
+        Some(UiTheme::Flora) => {
+            root = root.with_component_css(crate::widgets::themes::flora::scrollbar_sheet(true));
+        }
+        Some(UiTheme::Flat) => {}
+    }
+    // The accent, the last sheet.
+    root.with_component_css(accent_sheet(accent)).with_child(content)
 }
 
 #[cfg(test)]
