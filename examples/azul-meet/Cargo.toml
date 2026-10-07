@@ -13,8 +13,8 @@ description = """
     works (VideoToolbox on macOS; keyframe requests on loss) and JPEG-encoded
     otherwise, and decoded into that participant's tile. The gear opens the
     settings page the Azlin apps share. Without a reachable meeting server it
-    opens the in-process demo: Ada in a CPU-rendered window with her camera and
-    Ben in a GPU-rendered window sharing his screen.
+    opens the in-process demo: Ada in a CPU-rendered window and Ben in a
+    GPU-rendered one (her camera and his screen share off until switched on).
 """
 publish = false
 

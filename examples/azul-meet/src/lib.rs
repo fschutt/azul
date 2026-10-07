@@ -57,7 +57,10 @@
 //! and one line per peer.
 //!
 //! Without a reachable meeting server it runs the in-process demo: two participants, Ada in a
-//! CPU-rendered window and Ben in a GPU-rendered one, linked by two iroh endpoints.
+//! CPU-rendered window and Ben in a GPU-rendered one, linked by two iroh endpoints. Her camera
+//! and his screen share start off: a plain start of AzMeet opens no camera and captures no
+//! screen until asked to (both once started on, so the first second already ran a camera, a
+//! full-screen capture, two H.264 encoders, two decoders and a software-rendered window).
 //!
 //! Environment:
 //! - `AZMEET_WORKER`: the meeting server when none was saved from the start screen, e.g.
@@ -3416,18 +3419,26 @@ fn configure_network(s: &mut MeetState) {
     );
 }
 
-/// A peer's report arrived: plan again. True when the window changes.
+/// A peer's report arrived: plan again. True when the window changes: a screen shared or no
+/// longer shared moves the tiles (`arrangement`), and a change in what this side must capture
+/// changes the capture widgets' consumers (`my_streams`, built into the DOM). Nothing else in a
+/// report (the uplink, the stability, the tiles the peer shows) changes a pixel here, so it no
+/// longer rebuilds the whole window - every peer re-sends its report on each change and every 2
+/// seconds, and each one that differed used to.
 fn apply_sync(s: &mut MeetState, conn: u64, sync: routes::Sync) -> bool {
+    let streams = my_streams(s);
     let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == conn) else {
         return false;
     };
     if remote.sync.as_ref() == Some(&sync) {
         return false;
     }
+    let shared_before = remote.sync.as_ref().is_some_and(|before| before.sends_screen);
+    let sharing_moved = shared_before != sync.sends_screen;
     remote.sync = Some(sync);
     replan(s);
     stop_culled(s);
-    true
+    sharing_moved || my_streams(s) != streams
 }
 
 /// Media that reached this side: as its origin sent it, or already wrapped by a forwarder.
@@ -4601,7 +4612,8 @@ fn note_people(s: &mut MeetState) {
 
 /// Writes what changed since the last call into the data tree, on the save thread (never here):
 /// the meeting's record, its chat (the settings are the kit's: [`save_prefs`]). Nothing in a run
-/// without a data root, or for the demo's second window.
+/// without a data root, or for the demo's second window. Called on every pump: without a change
+/// it returns at once.
 fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
     let mut unsaved = std::mem::take(&mut s.unsaved);
     if s.reading_history {
@@ -4611,6 +4623,9 @@ fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
         s.unsaved.record = unsaved.record;
         unsaved.chat = false;
         unsaved.record = false;
+    }
+    if !unsaved.record && !unsaved.chat {
+        return;
     }
     let Some(root) = files_root().filter(|_| s.keeps_files) else {
         return;
@@ -5628,17 +5643,22 @@ fn start_demo(notice: &str) {
         eprintln!(
             "[azmeet] meeting {meeting}: Ada (CPU window, camera) and Ben (GPU window, screen share) over iroh"
         );
+        // A real camera and a real screen capture start only when asked for: a plain start of
+        // AzMeet must not film the user, capture the screen, and run two encoders, two decoders
+        // and a software-rendered window before anyone clicked (`AZMEET_TEST_PATTERN=1` and a
+        // headless run, whose camera and screen are test patterns, keep both on, for scripts).
+        let live_devices = devices_allowed() && !env_on("AZMEET_TEST_PATTERN");
         let mut ada = MeetState::new("Ada", "Ben", "CPU", make_kit());
         ada.meeting = meeting.clone();
         ada.notice = notice.clone();
         ada.guest = Some(ben_link.clone());
         ada.endpoint = Some(ada_link);
-        ada.cam_on = true;
+        ada.cam_on = !live_devices;
         let mut ben = MeetState::new("Ben", "Ada", "GPU", make_kit());
         ben.meeting = meeting.clone();
         ben.notice = notice;
         ben.endpoint = Some(ben_link);
-        ben.screen_on = true;
+        ben.screen_on = !live_devices;
         configure_audio(&mut ada);
         configure_audio(&mut ben);
         configure_video(&mut ada, &video);
