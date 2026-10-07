@@ -13,12 +13,16 @@ started from fix/input-bugs-2026-09-19 @ 86c0e821e. No cargo (the lead builds).
   stdout `AZMEET_TRANSPORT <label>` at bind, `AZMEET_PATH <name> direct|relayed` when a path turns,
   statistics Network section starts with "Transport: ...".
 
+- C6 scripts/iroh_relay_dev.py (find/start/metrics of a dev relay; runnable alone) + azmeet_e2e.py:
+  phases direct (old checks) and relay (`--relay <dev relay> --relay-only`, AZMEET_TRANSPORT,
+  AZMEET_PATH, stats "relayed", relay metrics >= --min-relayed-kib both ways, accepts >= 2);
+  flags instead of AZMEET_* env (the shell's AZMEET_* blanked for the apps), --data-dir.
+
 ## IN PROGRESS
-- C5 waiting room.
+- C7 the other scripts onto the flags.
 
 ## NEXT
 - C5 waiting room: `--screen waiting` without a server, `--shot` / `--size`, who is here, pattern preview.
-- C6 scripts/iroh_relay_dev.py + relay phase in scripts/azmeet_e2e.py (flags instead of env).
 - C7 two-clients.mjs, three-clients.mjs, meet-e2e.mjs, azmeet_cpu.py, fb1 probe onto the flags.
 
 ## Facts found
