@@ -151,9 +151,101 @@ pub fn format_uptime(seconds: u64) -> String {
     }
 }
 
+/// `n` with a comma between every three digits: "1,234,567".
+#[must_use]
+pub fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Memory as the old Task Manager wrote it: kilobytes, grouped ("12,345 K").
+#[must_use]
+pub fn format_k(bytes: u64) -> String {
+    format!("{} K", grouped(bytes / 1024))
+}
+
+/// A process' CPU as the old Task Manager's column wrote it: a whole
+/// percent in two digits ("07", "42", "100").
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // rounded, 0..=100
+pub fn format_cpu_column(percent: f64) -> String {
+    let whole = if percent.is_finite() {
+        percent.round().clamp(0.0, 100.0) as u32
+    } else {
+        0
+    };
+    format!("{whole:02}")
+}
+
+/// A whole percentage, as the status bar writes it: "23%".
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // rounded, 0..=100
+pub fn format_whole_percent(percent: f64) -> String {
+    let whole = if percent.is_finite() {
+        percent.round().clamp(0.0, 100.0) as u32
+    } else {
+        0
+    };
+    format!("{whole}%")
+}
+
+// ---- the users ----
+
+/// One user's share of the machine (the Users tab).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UserRow {
+    /// The user's name ("" = processes whose user is unknown).
+    pub name: String,
+    /// How many processes run as the user.
+    pub processes: usize,
+    /// Their CPU together, share of the whole machine (percent).
+    pub cpu: f64,
+    /// Their resident memory together, bytes.
+    pub memory: u64,
+}
+
+/// The users of `rows`: one row each, the busiest first (then the most
+/// memory, then by name - two readings of the same load list the same).
+#[must_use]
+pub fn users_of(rows: &[ProcRow]) -> Vec<UserRow> {
+    let mut users: Vec<UserRow> = Vec::new();
+    for row in rows {
+        let at = match users.iter().position(|u| u.name == row.user) {
+            Some(at) => at,
+            None => {
+                users.push(UserRow {
+                    name: row.user.clone(),
+                    ..UserRow::default()
+                });
+                users.len() - 1
+            }
+        };
+        let user = &mut users[at];
+        user.processes += 1;
+        user.cpu += f64::from(row.cpu);
+        user.memory = user.memory.saturating_add(row.memory);
+    }
+    users.sort_by(|a, b| {
+        b.cpu
+            .partial_cmp(&a.cpu)
+            .unwrap_or(Ordering::Equal)
+            .then(b.memory.cmp(&a.memory))
+            .then(a.name.cmp(&b.name))
+    });
+    users
+}
+
 // ---- the process rows ----
 
-/// A column of the process table.
+/// A column of the process table (Disk and Status stay sortable in the
+/// model; the table shows [`COLUMNS`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Column {
     Name,
@@ -163,17 +255,18 @@ pub enum Column {
     Memory,
     Disk,
     Status,
+    /// The command line (the old Task Manager's "Description").
+    Description,
 }
 
-/// The columns, in the table's order.
-pub const COLUMNS: [Column; 7] = [
+/// The columns, in the table's order: the old Task Manager's Processes tab.
+pub const COLUMNS: [Column; 6] = [
     Column::Name,
     Column::Pid,
     Column::User,
     Column::Cpu,
     Column::Memory,
-    Column::Disk,
-    Column::Status,
+    Column::Description,
 ];
 
 impl Column {
@@ -181,13 +274,14 @@ impl Column {
     #[must_use]
     pub const fn title(self) -> &'static str {
         match self {
-            Self::Name => "Name",
+            Self::Name => "Image Name",
             Self::Pid => "PID",
-            Self::User => "User",
+            Self::User => "User Name",
             Self::Cpu => "CPU",
             Self::Memory => "Memory",
             Self::Disk => "Disk",
             Self::Status => "Status",
+            Self::Description => "Description",
         }
     }
 
@@ -197,17 +291,18 @@ impl Column {
         matches!(self, Self::Pid | Self::Cpu | Self::Memory | Self::Disk)
     }
 
-    /// Its width in px.
+    /// Its width in px (dense, like the old Task Manager's).
     #[must_use]
     pub const fn width(self) -> f32 {
         match self {
-            Self::Name => 240.0,
-            Self::Pid => 80.0,
-            Self::User => 110.0,
-            Self::Cpu => 80.0,
-            Self::Memory => 100.0,
-            Self::Disk => 100.0,
-            Self::Status => 100.0,
+            Self::Name => 190.0,
+            Self::Pid => 64.0,
+            Self::User => 120.0,
+            Self::Cpu => 52.0,
+            Self::Memory => 104.0,
+            Self::Disk => 90.0,
+            Self::Status => 90.0,
+            Self::Description => 420.0,
         }
     }
 
@@ -270,7 +365,7 @@ impl ProcRow {
             Column::Cpu => f64::from(self.cpu),
             Column::Memory => self.memory as f64,
             Column::Disk => self.disk_rate,
-            Column::Name | Column::User | Column::Status => f64::NAN,
+            Column::Name | Column::User | Column::Status | Column::Description => f64::NAN,
         }
     }
 
@@ -281,7 +376,18 @@ impl ProcRow {
             Column::Name => &self.name,
             Column::User => &self.user,
             Column::Status => &self.status,
+            Column::Description => self.description(),
             Column::Pid | Column::Cpu | Column::Memory | Column::Disk => "",
+        }
+    }
+
+    /// What the Description column says: the command line, else the name.
+    #[must_use]
+    pub fn description(&self) -> &str {
+        if self.command.trim().is_empty() {
+            &self.name
+        } else {
+            &self.command
         }
     }
 }
@@ -563,6 +669,12 @@ impl Model {
             .collect();
     }
 
+    /// The users of the latest reading's processes (the Users tab).
+    #[must_use]
+    pub fn users(&self) -> Vec<UserRow> {
+        users_of(&self.rows)
+    }
+
     /// Sorts by `keys` (empty = by PID).
     pub fn set_sort(&mut self, keys: Vec<SortKey>) {
         self.sort = keys;
@@ -789,6 +901,65 @@ mod tests {
         assert_eq!(row.text(Column::Name), "Xorg");
         assert_eq!(row.text(Column::User), "root");
         assert_eq!(row.text(Column::Cpu), "");
+        // No command line: the description is the name.
+        assert_eq!(row.text(Column::Description), "Xorg");
+        assert!(row.number(Column::Description).is_nan());
+    }
+
+    #[test]
+    fn the_description_is_the_command_line() {
+        let mut s = proc(812, "pipewire", "user", 0.0, 1);
+        s.command = "/usr/bin/pipewire".to_string();
+        let row = ProcRow::of(&s, 1000, 1);
+        assert_eq!(row.description(), "/usr/bin/pipewire");
+        assert_eq!(row.text(Column::Description), "/usr/bin/pipewire");
+    }
+
+    #[test]
+    fn the_table_shows_the_old_task_managers_columns() {
+        let titles: Vec<&str> = COLUMNS.iter().map(|c| c.title()).collect();
+        assert_eq!(
+            titles,
+            vec!["Image Name", "PID", "User Name", "CPU", "Memory", "Description"]
+        );
+        assert_eq!(Column::at(5), Some(Column::Description));
+        assert_eq!(Column::Description.index(), 5);
+    }
+
+    #[test]
+    fn memory_reads_in_grouped_kilobytes_and_cpu_in_two_digits() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1000), "1,000");
+        assert_eq!(grouped(1_234_567), "1,234,567");
+        assert_eq!(format_k(940 << 20), "962,560 K");
+        assert_eq!(format_k(512), "0 K");
+        assert_eq!(format_cpu_column(7.4), "07");
+        assert_eq!(format_cpu_column(42.6), "43");
+        assert_eq!(format_cpu_column(100.0), "100");
+        assert_eq!(format_cpu_column(f64::NAN), "00");
+        assert_eq!(format_whole_percent(23.4), "23%");
+        assert_eq!(format_whole_percent(-1.0), "0%");
+    }
+
+    #[test]
+    fn the_users_add_up_their_processes_busiest_first() {
+        let rows = vec![
+            ProcRow::of(&proc(1, "systemd", "root", 4.0, 100), 1000, 1),
+            ProcRow::of(&proc(2, "cargo", "ada", 30.0, 900), 1000, 1),
+            ProcRow::of(&proc(3, "rustc", "ada", 20.0, 300), 1000, 1),
+            ProcRow::of(&proc(4, "sshd", "root", 1.0, 50), 1000, 1),
+        ];
+        let users = users_of(&rows);
+        assert_eq!(users.len(), 2);
+        assert_eq!(users[0].name, "ada");
+        assert_eq!(users[0].processes, 2);
+        assert!((users[0].cpu - 50.0).abs() < 0.001);
+        assert_eq!(users[0].memory, 1200);
+        assert_eq!(users[1].name, "root");
+        assert_eq!(users[1].processes, 2);
+        assert_eq!(users[1].memory, 150);
+        assert!(users_of(&[]).is_empty());
     }
 
     // ---- sorting ----

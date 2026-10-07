@@ -1,22 +1,31 @@
 //! The app's state, its start, the history file, opening a file, keeping the sound (azul's
-//! AudioPlayer) with the picture (azul's VideoWidget), the transport and the keys. The window is
+//! AudioPlayer) with the picture (azul's VideoWidget), the transport (one [`Command`] for every
+//! button, menu item and key) and the chrome shown and hidden over the video. The window is
 //! `ui.rs`.
+//!
+//! WHILE A VIDEO PLAYS THE WINDOW IS NOT REBUILT for what changes often: the chrome over the
+//! picture (top and bottom strips) and the OSD are shown and hidden IN PLACE (their `visibility`,
+//! `CallbackInfo::set_css_property`), the time played and the seek bar move in place. The video
+//! box never changes size when the chrome comes and goes (the chrome lies OVER the picture), so
+//! the decoder is never re-targeted by it. A rebuild is left for what the user does (play /
+//! pause, a seek, fullscreen) and for a change of the video's phase.
 
 use azul::{
     audio::AudioPlayer,
     callbacks::{TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType},
+    css::StyleVisibility,
     dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
     file::FileTypeList,
-    option::{OptionFileTypeList, OptionString},
+    option::{OptionFileTypeList, OptionRendererOptions, OptionString},
     prelude::*,
     str::String as AzString,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
     vec::StringVec,
     video::{VideoPhase, VideoStatus},
-    widgets::{MediaControlsAction, MediaControlsEvent, SeekBar, SeekBarState},
-    window::WindowFrame,
+    widgets::{SeekBar, SeekBarState},
+    window::{HwAcceleration, WindowFrame},
 };
 use azul_appkit::{
     about::AboutInfo,
@@ -29,7 +38,7 @@ use azul_appkit::{
 use crate::{
     history::{History, HISTORY_FILE},
     ids,
-    sync::{audio_correction, volume_osd, ControlsVisibility},
+    sync::{volume_osd, ControlsVisibility, SyncGuard},
 };
 
 // ==== The app's facts ====
@@ -56,7 +65,7 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 /// The keyboard shortcuts the settings page lists.
-pub const SHORTCUTS: [Shortcut; 8] = [
+pub const SHORTCUTS: [Shortcut; 9] = [
     Shortcut::new("Playback", "Space", "Play / pause"),
     Shortcut::new("Playback", "Left  Right", "Back / forward 10 seconds"),
     Shortcut::new(
@@ -68,6 +77,7 @@ pub const SHORTCUTS: [Shortcut; 8] = [
     Shortcut::new("Playback", "M", "Mute"),
     Shortcut::new("Window", "F  F11  Double-click", "Fullscreen"),
     Shortcut::new("Window", "Escape", "Leave fullscreen"),
+    Shortcut::new("Window", "Backspace", "Back to the library"),
     Shortcut::new("File", "Mod+O", "Open a video"),
 ];
 
@@ -80,6 +90,9 @@ const TICK_MS: u64 = 250;
 const OSD_MS: u64 = 1_200;
 /// The history is written at most this often while a video plays (media seconds).
 const SAVE_EVERY_S: f64 = 10.0;
+/// The jumps of the rewind / fast-forward buttons, seconds.
+const REWIND_S: f64 = 10.0;
+const FORWARD_S: f64 = 30.0;
 
 /// The write-back tags of the app's file jobs.
 const TAG_LOAD: u64 = 1;
@@ -106,8 +119,12 @@ pub struct Player {
     pub muted: bool,
     pub fullscreen: bool,
     pub controls: ControlsVisibility,
-    /// The controls showed at the last look (a change rebuilds the window).
+    /// The chrome over the video showed at the last look (shown and hidden in place).
     pub controls_shown: bool,
+    /// When the sound is moved to the picture.
+    pub sync: SyncGuard,
+    /// The whole second the time label shows (-1: none yet).
+    pub elapsed_shown: i64,
     /// The on-screen display and until when it shows (ms on `clock`).
     pub osd: Option<(String, u64)>,
     /// The media time of the last history write.
@@ -140,6 +157,8 @@ impl Player {
             fullscreen: false,
             controls: ControlsVisibility::default(),
             controls_shown: true,
+            sync: SyncGuard::default(),
+            elapsed_shown: -1,
             osd: None,
             saved_at_s: 0.0,
             clock: std::time::Instant::now(),
@@ -210,13 +229,21 @@ pub fn start() {
     let app = Player::new(kit_ref.clone(), args);
     let mut config = kit::app_config(&kit_ref);
     config.expose_system_media_controls = true;
-    let window = kit::window_options(
+    let mut window = kit::window_options(
         &kit_ref,
         crate::ui::layout,
         (1100.0, 700.0),
         (560.0, 380.0),
         on_window_created,
     );
+    // A player paints a window-sized picture every frame: on the GPU (its YUV shader shows the
+    // decoder's NV12 as it is), not on the CPU renderer that is the desktop default. The GPU
+    // path falls back to the CPU when it cannot start; `AZ_BACKEND` still decides when it is set
+    // (the E2E runs headless).
+    window.window_state.renderer_options.hw_accel = HwAcceleration::Enabled;
+    if let OptionRendererOptions::Some(renderer) = &mut window.renderer {
+        renderer.hw_accel = HwAcceleration::Enabled;
+    }
     App::create(RefAny::new(app), config).run(window);
 }
 
@@ -322,6 +349,8 @@ pub fn open(app: &RefAny, info: &mut CallbackInfo, path: &str) {
     }
     s.paused = false;
     s.saved_at_s = resume;
+    s.sync = SyncGuard::default();
+    s.elapsed_shown = -1;
     s.status = VideoStatus {
         message: AzString::from(""),
         position_s: s.seek_s,
@@ -337,6 +366,7 @@ pub fn open(app: &RefAny, info: &mut CallbackInfo, path: &str) {
     }
     let now_ms = s.now_ms();
     s.controls.activity(now_ms);
+    s.controls_shown = true;
     println!("AZPLAYER_OPEN {path} {resume:.1}");
     save_history(app, &s, info);
 }
@@ -367,7 +397,7 @@ extern "C" fn on_picked(data: RefAny, mut info: CallbackInfo, result: RefAny) ->
     Update::RefreshDom
 }
 
-/// A recent file in the library was picked.
+/// A recent file in the library (a tile or a menu item) was picked.
 pub struct RecentPick {
     pub app: RefAny,
     pub path: String,
@@ -405,20 +435,63 @@ pub extern "C" fn on_close_file(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::RefreshDom
 }
 
+// ==== In place: the chrome, the OSD, the labels ====
+
+/// Shows (`true`) or hides the node marked `marker` in place: its `visibility`, no rebuild, no
+/// relayout. Nothing when it is not in the window.
+pub fn set_shown(info: &mut CallbackInfo, marker: AzString, shown: bool) {
+    if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+        let visibility = if shown {
+            StyleVisibility::Visible
+        } else {
+            StyleVisibility::Hidden
+        };
+        info.set_css_property(node, CssProperty::visibility(visibility));
+    }
+}
+
+/// Rewrites the text node marked `marker` in place.
+pub fn set_text(info: &mut CallbackInfo, marker: AzString, text: &str) {
+    if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+        info.change_node_text(node, AzString::from(text));
+    }
+}
+
+/// The chrome over the video (top and bottom strips) on or off, in place.
+fn show_chrome(info: &mut CallbackInfo, shown: bool) {
+    set_shown(info, ids::TOP, shown);
+    set_shown(info, ids::BAR, shown);
+}
+
+/// The OSD as the state has it, in place: its text and whether it shows.
+fn show_osd(s: &Player, info: &mut CallbackInfo) {
+    match &s.osd {
+        Some((text, _)) => {
+            set_text(info, ids::OSD_TEXT, text);
+            set_shown(info, ids::OSD, true);
+        }
+        None => set_shown(info, ids::OSD, false),
+    }
+}
+
 // ==== The picture and the sound ====
 
 /// The video widget reports where it is (about four times a second while it plays): the sound
-/// follows, the seek bar moves in place, the position is remembered.
+/// follows (only a lasting drift, see [`SyncGuard`]), the seek bar and the time move in place,
+/// the position is remembered. Only a new phase rebuilds the window.
 pub extern "C" fn on_video_status(
     mut data: RefAny,
     mut info: CallbackInfo,
     status: VideoStatus,
 ) -> Update {
     let app = data.clone();
-    let Some(mut s) = data.downcast_mut::<Player>() else {
+    let Some(mut guard) = data.downcast_mut::<Player>() else {
         return Update::DoNothing;
     };
+    let s = &mut *guard;
+    let now_ms = s.now_ms();
     let phase_changed = status.phase != s.status.phase;
+    let duration_changed = (status.duration_s - s.status.duration_s).abs() > 0.01;
     s.status = status.clone();
     let position = f64::from(status.position_s);
     if let Some(audio) = s.audio.as_ref() {
@@ -428,8 +501,8 @@ pub extern "C" fn on_video_status(
                 if !heard.playing && !heard.finished {
                     audio.play();
                 }
-                if let Some(target) = audio_correction(position, heard.position_s) {
-                    if heard.track != 0 && !heard.finished {
+                if heard.track != 0 && !heard.finished {
+                    if let Some(target) = s.sync.correct(position, heard.position_s, now_ms) {
                         audio.seek(target);
                     }
                 }
@@ -456,17 +529,29 @@ pub extern "C" fn on_video_status(
             s.history
                 .set_position(&path, at, f64::from(status.duration_s));
             s.saved_at_s = position;
-            save_history(&app, &s, &mut info);
+            save_history(&app, s, &mut info);
         }
     }
+    if phase_changed {
+        // The play / pause button and the notes follow the phase: one rebuild.
+        return Update::RefreshDom;
+    }
+    // In place: the seek bar, the time played (once a second), the length when it is known.
     if let Some(seek) = info.get_node_id_by_marker(ids::SEEK).into_option() {
         SeekBar::update_position(info, seek, position);
     }
-    if phase_changed {
-        Update::RefreshDom
-    } else {
-        Update::DoNothing
+    #[allow(clippy::cast_possible_truncation)]
+    let whole = position.max(0.0).floor() as i64;
+    if whole != s.elapsed_shown {
+        s.elapsed_shown = whole;
+        let text = SeekBar::media_time(position.max(0.0));
+        set_text(&mut info, ids::ELAPSED, text.as_str());
     }
+    if duration_changed {
+        let text = SeekBar::media_time(f64::from(status.duration_s));
+        set_text(&mut info, ids::TOTAL, text.as_str());
+    }
+    Update::DoNothing
 }
 
 /// Seeks the picture and the sound to `seconds`.
@@ -485,6 +570,7 @@ fn seek(s: &mut Player, seconds: f64) {
         t += 0.001;
     }
     s.seek_s = t;
+    s.sync.reset();
     if let Some(a) = s.audio.as_ref() {
         a.seek(f64::from(t));
     }
@@ -506,6 +592,7 @@ fn toggle(s: &mut Player) {
     } else {
         s.paused = !s.paused;
     }
+    s.sync.reset();
     if let Some(a) = s.audio.as_ref() {
         if s.paused {
             a.pause();
@@ -513,6 +600,19 @@ fn toggle(s: &mut Player) {
             a.play();
         }
     }
+}
+
+/// Stops: held at the start (the file stays open).
+fn stop(s: &mut Player) {
+    if s.file.is_none() {
+        return;
+    }
+    s.paused = true;
+    if let Some(a) = s.audio.as_ref() {
+        a.pause();
+    }
+    seek(s, 0.0);
+    s.osd(String::from("Stopped"));
 }
 
 fn set_volume(s: &mut Player, volume: f32) {
@@ -547,33 +647,108 @@ fn set_fullscreen(s: &mut Player, info: &mut CallbackInfo, on: bool) {
     info.modify_window_state(ws);
 }
 
-/// The controls bar.
-pub extern "C" fn on_controls(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    event: MediaControlsEvent,
-) -> Update {
-    let Some(mut s) = data.downcast_mut::<Player>() else {
+// ==== The transport: one command for every button, menu item and key ====
+
+/// What a button of the chrome, a menu item or a key asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    /// The file dialog.
+    Open,
+    /// Back to the library (the file stops, its position is kept).
+    Library,
+    /// The settings page.
+    Settings,
+    PlayPause,
+    /// Held at the start.
+    Stop,
+    /// From the start.
+    Restart,
+    /// Back [`REWIND_S`].
+    Rewind,
+    /// Forward [`FORWARD_S`].
+    Forward,
+    Mute,
+    VolumeUp,
+    VolumeDown,
+    Fullscreen,
+}
+
+/// A button's or a menu item's payload: the app and what it asks for.
+pub struct CommandRef {
+    pub app: RefAny,
+    pub command: Command,
+}
+
+/// A button of the chrome or a menu item.
+pub extern "C" fn on_command(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((app, command)) = data
+        .downcast_ref::<CommandRef>()
+        .map(|c| (c.app.clone(), c.command))
+    else {
         return Update::DoNothing;
     };
+    run(&app, &mut info, command)
+}
+
+/// Does `command`. The volume changes only the OSD (in place); the rest rebuilds the window once
+/// (the play / pause button, the widget's timestamp or `paused` it hands to the decoder).
+pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
+    match command {
+        Command::Open => return on_open(app.clone(), *info),
+        Command::Library => return on_close_file(app.clone(), *info),
+        Command::Settings => {
+            let mut app_ref = app.clone();
+            let kit_ref = app_ref.downcast_ref::<Player>().map(|s| s.kit.clone());
+            if let Some(kit_ref) = kit_ref {
+                kit::open_settings(&kit_ref, None);
+            }
+            return Update::RefreshDom;
+        }
+        _ => {}
+    }
+    let mut app_ref = app.clone();
+    let Some(mut guard) = app_ref.downcast_mut::<Player>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
     let now = s.now_ms();
     s.controls.activity(now);
     let position = f64::from(s.status.position_s);
-    let duration = f64::from(s.status.duration_s);
-    match event.action {
-        MediaControlsAction::PlayPause => toggle(&mut s),
-        MediaControlsAction::SkipBack => seek(&mut s, position - 15.0),
-        MediaControlsAction::SkipForward => seek(&mut s, position + 30.0),
-        MediaControlsAction::Previous => seek(&mut s, 0.0),
-        MediaControlsAction::Next => seek(&mut s, duration),
-        MediaControlsAction::Volume => {
-            set_volume(&mut s, event.value);
-            return Update::DoNothing;
+    let mut rebuild = true;
+    match command {
+        Command::PlayPause => toggle(s),
+        Command::Stop => stop(s),
+        Command::Restart => seek(s, 0.0),
+        Command::Rewind => seek(s, position - REWIND_S),
+        Command::Forward => seek(s, position + FORWARD_S),
+        Command::Mute => toggle_mute(s),
+        Command::VolumeUp => {
+            let v = s.volume + 0.1;
+            set_volume(s, v);
+            rebuild = false;
         }
-        MediaControlsAction::Shuffle | MediaControlsAction::Repeat => {}
+        Command::VolumeDown => {
+            let v = s.volume - 0.1;
+            set_volume(s, v);
+            rebuild = false;
+        }
+        Command::Fullscreen => {
+            let on = !s.fullscreen;
+            set_fullscreen(s, info, on);
+        }
+        Command::Open | Command::Library | Command::Settings => {}
     }
-    let _ = &mut info;
-    Update::RefreshDom
+    // The chrome and the OSD as the state has them, in place - also what a rebuild then keeps.
+    if s.file.is_some() && !s.controls_shown {
+        s.controls_shown = true;
+        show_chrome(info, true);
+    }
+    show_osd(s, info);
+    if rebuild {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
 }
 
 /// The seek bar: the picture and the sound seek on release (a drag only moves the bar).
@@ -590,36 +765,27 @@ pub extern "C" fn on_seek(mut data: RefAny, _info: CallbackInfo, state: SeekBarS
     Update::RefreshDom
 }
 
-/// The pointer moved over the window: the controls show.
-pub extern "C" fn on_pointer(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// The pointer moved over the window: the chrome shows, in place.
+pub extern "C" fn on_pointer(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut s) = data.downcast_mut::<Player>() else {
         return Update::DoNothing;
     };
     let now = s.now_ms();
     s.controls.activity(now);
-    if s.controls_shown {
-        Update::DoNothing
-    } else {
+    if !s.controls_shown {
         s.controls_shown = true;
-        Update::RefreshDom
+        show_chrome(&mut info, true);
     }
+    Update::DoNothing
 }
 
 /// A double-click on the picture: fullscreen on / off.
-pub extern "C" fn on_video_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(mut s) = data.downcast_mut::<Player>() else {
-        return Update::DoNothing;
-    };
-    let on = !s.fullscreen;
-    set_fullscreen(&mut s, &mut info, on);
-    Update::RefreshDom
+pub extern "C" fn on_video_double_click(data: RefAny, mut info: CallbackInfo) -> Update {
+    run(&data, &mut info, Command::Fullscreen)
 }
 
-pub extern "C" fn on_fullscreen(data: RefAny, info: CallbackInfo) -> Update {
-    on_video_double_click(data, info)
-}
-
-/// The window's keys: the kit's first, then the player's.
+/// The window's keys: the kit's first, then the player's (not while the settings show: their
+/// search field takes Space and Backspace).
 pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
     let Some(kit_ref) = data.downcast_ref::<Player>().map(|s| s.kit.clone()) else {
@@ -646,38 +812,45 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         info.prevent_default();
         return on_open(app, info);
     }
-    let Some(mut s) = data.downcast_mut::<Player>() else {
+    if kit::settings_open(&kit_ref) {
         return Update::DoNothing;
+    }
+    let has_file = data.downcast_ref::<Player>().is_some_and(|s| s.file.is_some());
+    let command = match key {
+        VirtualKeyCode::Space | VirtualKeyCode::PlayPause => Some(Command::PlayPause),
+        VirtualKeyCode::Up => Some(Command::VolumeUp),
+        VirtualKeyCode::Down => Some(Command::VolumeDown),
+        VirtualKeyCode::M => Some(Command::Mute),
+        VirtualKeyCode::F | VirtualKeyCode::F11 => Some(Command::Fullscreen),
+        VirtualKeyCode::Escape if fullscreen => Some(Command::Fullscreen),
+        VirtualKeyCode::Back if has_file => Some(Command::Library),
+        _ => None,
     };
-    let now = s.now_ms();
-    s.controls.activity(now);
-    let position = f64::from(s.status.position_s);
+    if let Some(command) = command {
+        info.prevent_default();
+        return run(&app, &mut info, command);
+    }
     let step = if shift { 60.0 } else { 10.0 };
-    match key {
-        VirtualKeyCode::Space | VirtualKeyCode::PlayPause => toggle(&mut s),
-        VirtualKeyCode::Left => seek(&mut s, position - step),
-        VirtualKeyCode::Right => seek(&mut s, position + step),
-        VirtualKeyCode::Up => {
-            let v = s.volume + 0.1;
-            set_volume(&mut s, v);
-        }
-        VirtualKeyCode::Down => {
-            let v = s.volume - 0.1;
-            set_volume(&mut s, v);
-        }
-        VirtualKeyCode::M => toggle_mute(&mut s),
-        VirtualKeyCode::F | VirtualKeyCode::F11 => {
-            let on = !s.fullscreen;
-            set_fullscreen(&mut s, &mut info, on);
-        }
-        VirtualKeyCode::Escape if s.fullscreen => set_fullscreen(&mut s, &mut info, false),
-        _ => return Update::DoNothing,
+    {
+        let Some(mut s) = data.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        let position = f64::from(s.status.position_s);
+        let target = match key {
+            VirtualKeyCode::Left => position - step,
+            VirtualKeyCode::Right => position + step,
+            _ => return Update::DoNothing,
+        };
+        let now = s.now_ms();
+        s.controls.activity(now);
+        seek(&mut s, target);
+        show_osd(&s, &mut info);
     }
     info.prevent_default();
     Update::RefreshDom
 }
 
-// ==== The tick: the controls' auto-hide and the OSD ====
+// ==== The tick: the controls' auto-hide and the OSD, in place ====
 
 fn ensure_ticking(app: &RefAny, info: &mut CallbackInfo) {
     let mut app_ref = app.clone();
@@ -696,25 +869,21 @@ fn ensure_ticking(app: &RefAny, info: &mut CallbackInfo) {
     );
 }
 
-/// Every 250 ms: the controls hide (or show) and the OSD goes; the window is rebuilt only then.
-extern "C" fn on_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+/// Every 250 ms: the chrome hides (or shows) and the OSD goes - in place, never a rebuild (a
+/// rebuild while the video plays is a frame the picture can miss).
+extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
     let Some(mut s) = data.downcast_mut::<Player>() else {
         return TimerCallbackReturn::terminate_unchanged();
     };
     let now = s.now_ms();
-    let mut changed = false;
     let visible = s.controls_visible();
     if visible != s.controls_shown {
         s.controls_shown = visible;
-        changed = true;
+        show_chrome(&mut info.callback_info, visible);
     }
     if s.osd.as_ref().is_some_and(|(_, until)| now >= *until) {
         s.osd = None;
-        changed = true;
+        set_shown(&mut info.callback_info, ids::OSD, false);
     }
-    if changed {
-        TimerCallbackReturn::continue_and_refresh_dom()
-    } else {
-        TimerCallbackReturn::continue_unchanged()
-    }
+    TimerCallbackReturn::continue_unchanged()
 }

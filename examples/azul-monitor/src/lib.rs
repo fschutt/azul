@@ -1,13 +1,17 @@
 //! AzMonitor: the system monitor (Task Manager, Activity Monitor, htop) on
 //! the public azul API.
 //!
-//! The window is azul's S6 `RecordsShell` (records and dashboards): the
-//! app-drawn title row (`NoTitle` + `Titlebar`), the tab row (Processes,
-//! Performance) with the filter and "End process", the CARDS strip (CPU,
-//! memory, disk, network - a value and a minute of history each) over the
-//! process TABLE (azul's `DataTable`), a status bar. The Performance tab is
-//! a page of charts (azul's `Chart`): CPU, memory, disk, network over the
-//! last minute, every core's usage, the machine's figures.
+//! The window is the old Windows Task Manager (XP / 7) on azul's S6
+//! `RecordsShell`: the app-drawn title row (`NoTitle` + `Titlebar`), the tab
+//! row - Processes, Performance, Networking, Users (Applications and
+//! Services are not tabs: AzMonitor lists no windows and no system
+//! services) -, the tab's page, the status bar "Processes: N | CPU Usage:
+//! x% | Physical Memory: y%". Processes: a dense, sortable table (azul's
+//! `DataTable`: Image Name, PID, User Name, CPU, Memory, Description) over
+//! the filter and "End Process" at the bottom right. Performance: the CPU
+//! and memory usage meters beside their history graphs (one per core),
+//! the machine's figures under them. Networking: the network's history and
+//! figures. Users: who runs the processes ([`graph`]).
 //!
 //! THE READINGS: a sampler on an azul `Thread` ([`sampler`]) reads the
 //! system once a second (the update speed is a setting) through the
@@ -18,14 +22,21 @@
 //!
 //! THE 1 HZ PATH NEVER LAYS THE PAGE OUT AGAIN ([`ticks`]): the numbers
 //! that change every second live in LIVE VIEWS - `VirtualView`s whose
-//! callbacks read the model (the cards, the table, the performance page).
-//! A reading re-renders the live views the screen shows
+//! callbacks read the model (the table, the Performance / Networking /
+//! Users pages). A reading re-renders the live view of the tab shown
 //! (`trigger_virtual_view_rerender`) and rewrites the status bar's marked
 //! labels (`StatusBar::update_segment_label`); `layout()` does not run.
 //! Only the first reading (the empty state gives way to the page) and what
 //! the user does (a tab, a sort, a selection, the question) rebuild it.
+//! While the user scrolls or drags in the table a reading leaves it alone
+//! (the rows do not re-sort under the pointer).
 //!
-//! END PROCESS: select a row, then "End process" (or Delete): a question
+//! SMOOTH GRAPHS: between two readings a frame timer ([`on_frame`], 25 a
+//! second, only while a tab with graphs shows) slides each graph's strip
+//! left by the share of the interval that passed, so the history scrolls
+//! instead of jumping a step a second ([`graph`]).
+//!
+//! END PROCESS: select a row, then "End Process" (or Delete): a question
 //! (azul's `MessageBox` in a `Modal`) - End (SIGTERM), Kill (SIGKILL) or
 //! Cancel; a process of another user says administrator rights are needed.
 //! The sampler ends it on its thread and reads at once: the process leaves
@@ -36,19 +47,24 @@
 //! `monitor/history/<date>.csv` into the data tree through the drive, on a
 //! Thread (azul-appkit's file jobs).
 //!
-//! Switches (azul-appkit): `--screen processes|performance|settings`,
-//! `--theme flat|flora`, `--mode light|dark|system`, `--size WxH`,
-//! `--shot <png>`, `--sample` (the sample machine), `--data-dir <dir>`.
+//! Switches (azul-appkit): `--screen
+//! processes|performance|networking|users|settings`, `--theme flat|flora`,
+//! `--mode light|dark|system`, `--size WxH`, `--shot <png>`, `--sample`
+//! (the sample machine), `--data-dir <dir>`.
 //!
 //! On stdout, for scripts (`scripts/azmonitor_e2e.py`): `AZMON_LAYOUT <n>`
 //! every time `layout()` runs, `AZMON_READY <processes>` at the first
 //! reading, `AZMON_TICK <readings> <processes> <shown>` at every reading,
-//! `AZMON_TOP <pid> <name>` (the first row), `AZMON_SORT <text>`,
+//! `AZMON_TOP <pid> <name>` (the first row), `AZMON_VIEW <top> <redrawn>`
+//! (the table's first row shown and whether the reading redrew the table),
+//! `AZMON_SCROLL <top>` (the table scrolled), `AZMON_SORT <text>`,
 //! `AZMON_SHOWN <shown>` after a filter, `AZMON_SELECT <pid> <name>`,
 //! `AZMON_ASK <pid> <name>` (the question opens), `AZMON_END <pid> <force>`,
 //! `AZMON_NOTICE <text>`, `AZMON_SCREEN <name>`, `AZMON_SPEED <ms>`,
 //! `AZMON_EXPORTED <key>`.
 
+/// The history graphs and usage meters (the old Task Manager's look).
+pub mod graph;
 /// The history of one measure: a ring of the last readings.
 pub mod history;
 /// The DOM ids, classes and markers (`__azmonitor_` prefix), each once.
@@ -72,12 +88,13 @@ pub mod ui;
 use std::sync::{atomic::Ordering, Arc};
 
 use azul::{
-    callbacks::WriteBackCallbackType,
+    callbacks::{TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType},
     dom::{DomId, NodeId, VirtualKeyCode},
     prelude::*,
     shells::{RecordsShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    task::{Thread, ThreadId},
+    task::{Thread, ThreadId, Timer, TimerId},
+    time::{Duration, SystemTimeDiff},
     widgets::{DataTableView, StatusBar},
 };
 use azul_appkit::{
@@ -96,7 +113,15 @@ use crate::{
 // ==== The app's facts ====
 
 /// The screens `--screen` opens.
-pub const SCREENS: [&str; 3] = ["processes", "performance", "settings"];
+pub const SCREENS: [&str; 5] = ["processes", "performance", "networking", "users", "settings"];
+
+/// The frame timer's interval while a tab with graphs shows, ms (25 a
+/// second: the history moves a fraction of a pixel a frame).
+pub const FRAME_MS: u64 = 40;
+
+/// A rate graph's least top, bytes per second (an idle network's noise is
+/// not drawn as cliffs).
+pub const RATE_FLOOR: f64 = 1024.0;
 
 pub const SPEC: AppSpec = AppSpec {
     name: "AzMonitor",
@@ -190,6 +215,26 @@ pub fn speed_text(interval_ms: u64) -> String {
     }
 }
 
+/// The time between two readings as they really arrive (the sampler looks
+/// at its clock every 50 ms, and a reading takes its time): the average so
+/// far `gap_ms` with the `observed` gap, kept between half and three times
+/// the update speed `interval_ms` (a reading asked for at once, a stall).
+#[must_use]
+pub fn next_gap(gap_ms: f64, observed: f64, interval_ms: f64) -> f64 {
+    if !(interval_ms > 0.0) {
+        return gap_ms;
+    }
+    let observed = if observed.is_finite() {
+        observed.clamp(interval_ms * 0.5, interval_ms * 3.0)
+    } else {
+        interval_ms
+    };
+    if !(gap_ms > 0.0) {
+        return observed;
+    }
+    0.7 * gap_ms + 0.3 * observed
+}
+
 /// What the sort is, for the scripts: "CPU desc, Name asc"; "PID" for none.
 #[must_use]
 pub fn sort_text(keys: &[SortKey]) -> String {
@@ -245,16 +290,34 @@ pub struct Monitor {
     pub layouts: u64,
     /// The app's own last word for the status bar (an export), "" = none.
     pub notice: String,
+    /// The app's monotonic clock.
+    pub clock: std::time::Instant,
+    /// When the user last scrolled / dragged in the table (ms on `clock`).
+    pub table_touched_ms: Option<u64>,
+    /// When the latest reading arrived (the graphs slide from there).
+    pub reading_at: Option<std::time::Instant>,
+    /// The time between two readings as they really arrive, ms (an average).
+    pub gap_ms: f64,
+    /// The steps of the graphs drawn last, strip by strip (`graph::Strips`).
+    pub strips: Vec<f32>,
+    /// The share of a step the strips were slid last (1 = a full step).
+    pub slid: f64,
+    /// The frame timer runs.
+    pub animating: bool,
+    /// The network graph's top, bytes per second (moves in calm steps).
+    pub net_top: f64,
 }
 
 impl Monitor {
     /// A monitor waiting for its first reading.
     #[must_use]
+    #[allow(clippy::cast_precision_loss)] // a few thousand ms
     pub fn new(kit: RefAny, args: &AppArgs, interval_ms: u64) -> Self {
-        let screen = match args.screen.as_deref() {
-            Some("performance") => Screen::Performance,
-            _ => Screen::Processes,
-        };
+        let screen = args
+            .screen
+            .as_deref()
+            .and_then(Screen::named)
+            .unwrap_or_default();
         let model = Model::new();
         let table = table::view_for(model.sort());
         Self {
@@ -269,7 +332,50 @@ impl Monitor {
             confirm: None,
             layouts: 0,
             notice: String::new(),
+            clock: std::time::Instant::now(),
+            table_touched_ms: None,
+            reading_at: None,
+            gap_ms: interval_ms as f64,
+            strips: Vec::new(),
+            slid: 0.0,
+            animating: false,
+            net_top: 0.0,
         }
+    }
+
+    /// Milliseconds on the app's clock.
+    #[must_use]
+    pub fn now_ms(&self) -> u64 {
+        u64::try_from(self.clock.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Whether the user's hand is on the process table (a reading leaves it
+    /// alone).
+    #[must_use]
+    pub fn hands_on_table(&self) -> bool {
+        let since = self
+            .table_touched_ms
+            .map(|at| self.now_ms().saturating_sub(at));
+        table::hands_on(&self.table, since)
+    }
+
+    /// A reading arrived `now`: the graphs start their slide from here, and
+    /// the time between readings is learned (the slide's pace).
+    #[allow(clippy::cast_precision_loss)] // a few thousand ms
+    pub fn note_reading(&mut self, now: std::time::Instant) {
+        if let Some(previous) = self.reading_at {
+            let observed = now.duration_since(previous).as_secs_f64() * 1000.0;
+            self.gap_ms = next_gap(self.gap_ms, observed, self.interval_ms as f64);
+        }
+        self.reading_at = Some(now);
+        self.slid = 0.0;
+        let peak = self
+            .model
+            .net_in
+            .max()
+            .unwrap_or(0.0)
+            .max(self.model.net_out.max().unwrap_or(0.0));
+        self.net_top = graph::next_top(self.net_top, peak, RATE_FLOOR);
     }
 
     /// The update speed in seconds (a paused monitor counts one second).
@@ -357,9 +463,10 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-/// A reading arrived: into the model, then the tick - the live views of the
-/// screen re-render in place, the status labels are rewritten; the page is
-/// built only for the first reading.
+/// A reading arrived: into the model, then the tick - the live view of the
+/// tab re-renders in place (not the table while the user's hand is on it),
+/// the status labels are rewritten, the graphs start their next slide; the
+/// page is built only for the first reading.
 pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some(snapshot) = msg
         .downcast_mut::<Reading>()
@@ -367,6 +474,7 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
     else {
         return Update::DoNothing;
     };
+    let handle = app.clone();
     let (plan, labels) = {
         let Some(mut guard) = app.downcast_mut::<Monitor>() else {
             return Update::DoNothing;
@@ -380,9 +488,15 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
             s.notice.clear();
         }
         s.model.apply(snapshot);
-        let selected = s.model.selected_position();
-        let shown = s.model.shown_count();
-        table::follow_selection(&mut s.table, selected, shown);
+        s.note_reading(std::time::Instant::now());
+        let hands_on = s.hands_on_table();
+        if !hands_on {
+            // The selection follows its process to its new row; while the
+            // hand is on the table, the view stays as the hand left it.
+            let selected = s.model.selected_position();
+            let shown = s.model.shown_count();
+            table::follow_selection(&mut s.table, selected, shown);
+        }
         if first {
             println!("AZMON_READY {}", s.model.process_count());
         }
@@ -396,9 +510,18 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
             println!("AZMON_TOP {} {}", top.pid, top.name);
         }
         let settings = kit::settings_open(&s.kit);
-        (ticks::plan(first, s.screen, settings), ui::status_labels(s))
+        let plan = ticks::plan(first, s.screen, settings, hands_on);
+        println!(
+            "AZMON_VIEW {} {}",
+            s.table.top,
+            plan.views.contains(&LiveView::Table)
+        );
+        ensure_frames(&handle, s, &mut info);
+        (plan, ui::status_labels(s))
     };
     if !plan.refresh_dom {
+        // The view's new drawing stands at the start of its slide
+        // (`translateX(0)`): every old point where the slide left it.
         rerender(&mut info, &plan.views);
         if plan.status {
             for (marker, label) in labels {
@@ -411,6 +534,85 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
     } else {
         Update::DoNothing
     }
+}
+
+/// Slides the strips of the graphs shown (`count` of them): strip `i` by
+/// `px(i)` px to the left.
+///
+/// The strips live in the view's own DOM, and only a rebuild of THAT DOM's
+/// display list publishes a new matrix (the override channel alone marks
+/// the window's display list dirty, which rebuilds DOM 0's only). So every
+/// strip but the last takes the cheap override, and the last one
+/// `set_css_property`, which rebuilds the view's display list once - with
+/// every override of this frame in it. The strip is drawn with a
+/// `translateX(0px)`: it has its reference frame from the start, a slide
+/// moves no box.
+fn slide_strips(info: &mut CallbackInfo, count: usize, px: impl Fn(usize) -> f32) {
+    for i in 0..count {
+        let Some(node) = info
+            .get_node_id_by_marker(graph::strip_marker(i))
+            .into_option()
+        else {
+            continue;
+        };
+        if i + 1 < count {
+            info.override_css_property(node, graph::slide(px(i)));
+        } else {
+            info.set_css_property(node, graph::slide(px(i)));
+        }
+    }
+}
+
+/// Starts the frame timer (if it does not run) while a tab with graphs shows
+/// and the monitor is not paused: the graphs scroll between readings.
+pub fn ensure_frames(app: &RefAny, s: &mut Monitor, info: &mut CallbackInfo) {
+    if s.animating || !s.screen.has_graphs() || s.interval_ms == 0 {
+        return;
+    }
+    s.animating = true;
+    let get_time = info.get_system_time_fn();
+    info.add_timer(
+        TimerId::unique(),
+        Timer::create(app.clone(), on_frame, get_time)
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(FRAME_MS))),
+    );
+}
+
+/// A frame of the graphs' slide: every strip left by the share of the
+/// interval that passed since the reading it shows. Ends itself when no tab
+/// with graphs shows (or the monitor is paused, or the settings cover it).
+extern "C" fn on_frame(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some((steps, share, keep)) = data.downcast_mut::<Monitor>().map(|mut s| {
+        let keep =
+            s.screen.has_graphs() && s.interval_ms > 0 && !kit::settings_open(&s.kit);
+        if !keep {
+            s.animating = false;
+        }
+        let elapsed = s
+            .reading_at
+            .map_or(0.0, |t| t.elapsed().as_secs_f64() * 1000.0);
+        let share = if s.gap_ms > 0.0 {
+            (elapsed / s.gap_ms).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        // A slide that already reached a full step waits for the reading.
+        let moved = !(share >= 1.0 && s.slid >= 1.0);
+        s.slid = share;
+        let steps = if moved { s.strips.clone() } else { Vec::new() };
+        (steps, share, keep)
+    }) else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    if !keep {
+        return TimerCallbackReturn::terminate_unchanged();
+    }
+    #[allow(clippy::cast_possible_truncation)] // a share 0..=1
+    let share = share as f32;
+    slide_strips(&mut info.callback_info, steps.len(), |i| {
+        steps.get(i).map_or(0.0, |step| share * step)
+    });
+    TimerCallbackReturn::continue_unchanged()
 }
 
 /// Re-renders the live views `views` in place (their VirtualViews, found by
@@ -461,9 +663,9 @@ pub fn set_speed(s: &mut Monitor, info: &mut CallbackInfo, interval_ms: u64) {
 
 // ==== The window ====
 
-/// The window: the RecordsShell (title row, tab row, cards over the table -
-/// or the performance page -, status bar) in the theme scope; the question
-/// over it while it is open; the kit's and the app's keys on the window.
+/// The window: the RecordsShell (title row, tab row, the tab's page, status
+/// bar) in the theme scope; the question over it while it is open; the
+/// kit's and the app's keys on the window.
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
     let _mode = info.get_mode();
@@ -488,16 +690,11 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     } else if s.model.readings == 0 {
         RecordsShell::create(ui::tools(s, &app), ui::waiting(s))
     } else {
-        match s.screen {
-            Screen::Processes => {
-                RecordsShell::create(ui::tools(s, &app), ui::live_view(&app, LiveView::Table))
-                    .with_cards(ui::live_view(&app, LiveView::Cards))
-            }
-            Screen::Performance => RecordsShell::create(
-                ui::tools(s, &app),
-                ui::live_view(&app, LiveView::Performance),
-            ),
-        }
+        let page = match s.screen {
+            Screen::Processes => ui::process_page(s, &app),
+            other => ui::live_view(&app, other.view()),
+        };
+        RecordsShell::create(ui::tools(s, &app), page)
     };
     let mut column = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
@@ -612,7 +809,28 @@ mod tests {
                 SortKey::new(Column::Cpu, true),
                 SortKey::new(Column::Name, false)
             ]),
-            "CPU desc, Name asc"
+            "CPU desc, Image Name asc"
         );
+    }
+
+    #[test]
+    fn the_graphs_learn_the_real_time_between_readings() {
+        // The first gap is taken as it is; later ones are averaged in.
+        assert!((next_gap(0.0, 1040.0, 1000.0) - 1040.0).abs() < 0.001);
+        assert!((next_gap(1000.0, 1100.0, 1000.0) - 1030.0).abs() < 0.001);
+        // A reading asked for at once, or a stall, counts as half / three
+        // times the update speed at most.
+        assert!((next_gap(1000.0, 10.0, 1000.0) - 850.0).abs() < 0.001);
+        assert!((next_gap(1000.0, 60_000.0, 1000.0) - 1600.0).abs() < 0.001);
+        // Paused: nothing to learn.
+        assert!((next_gap(1000.0, 5000.0, 0.0) - 1000.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn every_tab_is_a_screen_switch() {
+        for screen in Screen::ALL {
+            assert!(SCREENS.contains(&screen.name()), "{screen:?}");
+        }
+        assert!(SCREENS.contains(&"settings"));
     }
 }

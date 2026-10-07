@@ -5,15 +5,14 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzPlayer - a video player on the public azul API: the picture is azul's
-    VideoWidget (MP4 / MOV with H.264, decoded on its worker: VideoToolbox on
-    Apple, Vulkan Video on x86_64 Linux / Windows), the sound is azul's
-    AudioPlayer playing the file's audio track (AAC through Symphonia) kept in
-    step with the picture, the controls are azul's MediaControls and SeekBar
-    over the video, hidden while it plays; fullscreen, the keys of every
-    player, recent files with resume positions in the data tree. Built on
-    azul's S7 MediaShell (the player variant), NoTitle with the app-drawn
-    Titlebar, flat and flora, light and dark.
+    AzPlayer - a video player on the public azul API, in the look of
+    Windows Media Center: the picture is azul's VideoWidget (MP4 / MOV with
+    H.264, decoded on its worker in NV12: VideoToolbox on Apple, Vulkan
+    Video on x86_64 Linux / Windows), drawn on the GPU; the sound is azul's
+    AudioPlayer playing the file's audio track (AAC through Symphonia) kept
+    in step with the picture; round glass transport buttons over the
+    picture, hidden while it plays; a menu bar for the rest; the recent
+    files as a gallery that resumes where you stopped.
 """
 publish = false
 

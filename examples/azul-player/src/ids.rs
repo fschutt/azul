@@ -13,21 +13,43 @@ macro_rules! names {
 }
 
 names! {
-    /// The stage the video fills (black, the OSD over it).
+    /// The stage the video fills (black, the chrome over it).
     STAGE = "stage";
     /// The video widget.
     VIDEO = "video";
-    /// The on-screen display (volume, seek).
+    /// The on-screen display (volume, seek): id and marker of its box, shown and hidden in place.
     OSD = "osd";
-    /// The library screen: the recent files and "Open file".
+    /// The OSD's text node (marker: rewritten in place).
+    OSD_TEXT = "osd-text";
+    /// The library screen: the recent files and "Open".
     LIBRARY = "library";
     OPEN = "open";
-    /// The controls bar and its parts (the seek bar is moved in place: a marker).
+    /// One recent file's tile in the library (class).
+    TILE = "tile";
+    /// The chrome over the video, shown and hidden in place (id and marker): the top strip (back,
+    /// the title, fullscreen) and the bottom strip (the seek row and the transport).
+    TOP = "top";
     BAR = "bar";
+    /// The title of the file playing.
     TITLE = "title";
+    /// The transport cluster (stop, back, play / pause, forward) and the volume buttons.
     CONTROLS = "controls";
+    PLAY = "play";
+    STOP = "stop";
+    RESTART = "restart";
+    REWIND = "rewind";
+    FORWARD = "forward";
+    MUTE = "mute";
+    VOLUME_DOWN = "volume-down";
+    VOLUME_UP = "volume-up";
+    /// Back to the library.
+    BACK = "back";
+    /// The seek bar (moved in place: a marker).
     SEEK = "seek";
+    /// The time played (its text node is a marker, rewritten in place) and the length.
+    ELAPSED = "elapsed";
+    TOTAL = "total";
     FULLSCREEN = "fullscreen";
-    /// A note under the video (loading, why it cannot play).
+    /// A note over the video (loading, why it cannot play).
     NOTE = "note";
 }
