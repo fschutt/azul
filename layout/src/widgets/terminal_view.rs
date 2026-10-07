@@ -1721,20 +1721,45 @@ impl ScrollPos {
     }
 }
 
-/// Where the wheel takes the scrollback BY PIXELS: `by_y` px of offset
-/// change (+ toward the output, the user's direction preference applied -
-/// `CallbackInfo::get_wheel_scroll_by`) on a view of `line_height` px rows.
-/// A trackpad (`precise`) moves the view by its pixels - its momentum glides
-/// - a mouse wheel's notch ([`TERMINAL_WHEEL_NOTCH_PX`]) by
-/// [`TERMINAL_WHEEL_LINES`] lines, a slide kept. `None` when it does not
-/// move.
+/// [`wheel_scroll_from`] the screen's own position (the tests' shorthand;
+/// the handler moves from [`wheel_base`]).
+#[cfg(test)]
 pub(crate) fn wheel_scroll_pos(
     screen: &TerminalScreen,
     by_y: f32,
     line_height: f32,
     precise: bool,
 ) -> Option<ScrollPos> {
-    if !by_y.is_finite() || by_y == 0.0 || !line_height.is_finite() || line_height <= 0.0 {
+    wheel_scroll_from(
+        screen,
+        ScrollPos::of(screen).up(),
+        by_y,
+        line_height,
+        precise,
+    )
+}
+
+/// Where the wheel takes the scrollback BY PIXELS from `base` lines up
+/// ([`wheel_base`]): `by_y` px of offset change (+ toward the output, the
+/// user's direction preference applied - `CallbackInfo::get_wheel_scroll_by`)
+/// on a view of `line_height` px rows. A trackpad (`precise`) moves the
+/// view by its pixels - its momentum glides - a mouse wheel's notch
+/// ([`TERMINAL_WHEEL_NOTCH_PX`]) by [`TERMINAL_WHEEL_LINES`] lines, a slide
+/// kept. `None` when the position does not move at all; a move within the
+/// line the screen shows is a move (the view keeps it, see [`wheel_base`]).
+pub(crate) fn wheel_scroll_from(
+    screen: &TerminalScreen,
+    base: f64,
+    by_y: f32,
+    line_height: f32,
+    precise: bool,
+) -> Option<ScrollPos> {
+    if !by_y.is_finite()
+        || by_y == 0.0
+        || !line_height.is_finite()
+        || line_height <= 0.0
+        || !base.is_finite()
+    {
         return None;
     }
     let lines = if precise {
@@ -1742,9 +1767,32 @@ pub(crate) fn wheel_scroll_pos(
     } else {
         f64::from(by_y) / f64::from(TERMINAL_WHEEL_NOTCH_PX) * f64::from(TERMINAL_WHEEL_LINES)
     };
-    let from = ScrollPos::of(screen);
-    let to = ScrollPos::at(from.up() - lines, screen.history);
-    (to != from).then_some(to)
+    let to = ScrollPos::at(base - lines, screen.history);
+    ((to.up() - base).abs() > 1e-9).then_some(to)
+}
+
+/// Where the wheel moves from: where the screen is - unless the screen
+/// still shows the whole line the view's last wheel step asked for
+/// (`asked`, lines up) and its slide, or no slide at all. An app that keeps
+/// whole lines drops the slide (`scroll_fraction` 0): from its screen,
+/// every small step toward the output would round back up to the same line
+/// and the view could never move down; so the travel within a line is kept
+/// in `asked`. A screen elsewhere - output came in, the app scrolled, a tab
+/// was switched to - is where the view is.
+pub(crate) fn wheel_base(screen: &TerminalScreen, asked: Option<f64>) -> f64 {
+    let shown = ScrollPos::of(screen);
+    let Some(up) = asked.filter(|u| u.is_finite()) else {
+        return shown.up();
+    };
+    let want = ScrollPos::at(up, screen.history);
+    let same_line = want.lines == shown.lines;
+    let slide_kept = (want.fraction - shown.fraction).abs() < 1e-3;
+    let slide_dropped = shown.fraction == 0.0;
+    if same_line && (slide_kept || slide_dropped) {
+        up
+    } else {
+        shown.up()
+    }
 }
 
 /// The cell under `(x, y)` px from the text area's top-left on a view at
@@ -2156,6 +2204,10 @@ pub(crate) struct TerminalShared {
     /// The wheel travel (px) not yet a whole notch ([`wheel_delta_action`]):
     /// a trackpad's small steps add up to one.
     pub wheel_travel: f32,
+    /// Where the last wheel step asked the view to go, lines up from the
+    /// output ([`wheel_base`]); none after any other scroll, and in a
+    /// rebuilt view.
+    pub asked: Option<f64>,
 }
 
 impl TerminalShared {
@@ -2173,6 +2225,7 @@ impl TerminalShared {
             drag: Drag::None,
             swallow_text: false,
             wheel_travel: 0.0,
+            asked: None,
         }
     }
 }
@@ -2765,6 +2818,7 @@ struct Snap {
     follow: Option<FollowButton>,
     drag: Drag,
     wheel_travel: f32,
+    asked: Option<f64>,
 }
 
 impl Snap {
@@ -2791,6 +2845,7 @@ fn snap(data: &mut RefAny) -> Option<Snap> {
         follow: s.follow.clone(),
         drag: s.drag,
         wheel_travel: s.wheel_travel,
+        asked: s.asked,
     })
 }
 
@@ -2844,9 +2899,20 @@ fn fire_and_render(s: &Snap, mut info: CallbackInfo, event: TerminalViewEvent) -
     update
 }
 
-/// A `Scroll` to `to` - nothing when the view is there already (a slide
+/// A `Scroll` to `to` - nothing when the screen is there already (a slide
 /// counts: a whole-line target from between two lines still moves it).
-fn scroll_to(s: &Snap, info: CallbackInfo, to: ScrollPos) -> Update {
+/// `asked`: where a wheel step asked to go ([`wheel_base`]); none for any
+/// other scroll.
+fn scroll_to(
+    data: &mut RefAny,
+    s: &Snap,
+    info: CallbackInfo,
+    to: ScrollPos,
+    asked: Option<f64>,
+) -> Update {
+    if let Some(mut shared) = data.downcast_mut::<TerminalShared>() {
+        shared.asked = asked;
+    }
     if to == s.pos {
         return Update::DoNothing;
     }
@@ -2922,7 +2988,7 @@ extern "C" fn on_terminal_key(mut data: RefAny, mut info: CallbackInfo) -> Updat
         KeyAction::Scroll(to) => {
             info.prevent_default();
             info.stop_propagation();
-            scroll_to(&s, info, whole(to))
+            scroll_to(&mut data, &s, info, whole(to), None)
         }
         KeyAction::Bytes(bytes) => {
             info.prevent_default();
@@ -3005,7 +3071,7 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
     if s.on_follow(x, y) {
         set_drag(&mut data, Drag::None);
         info.prevent_default();
-        return scroll_to(&s, info, ScrollPos::OUTPUT);
+        return scroll_to(&mut data, &s, info, ScrollPos::OUTPUT, None);
     }
     let modifiers = info.get_key_modifiers();
     if let Some(bar) = s.bar.filter(|b| b.contains(x, y)) {
@@ -3018,7 +3084,7 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
         set_drag(&mut data, Drag::Thumb { grab });
         info.prevent_default();
         let to = scroll_for_thumb(&bar, y - grab - bar.track.1, s.screen.history);
-        return scroll_to(&s, info, whole(to));
+        return scroll_to(&mut data, &s, info, whole(to), None);
     }
     let (point, right_half) = s.cell(x, y);
     if s.screen.modes.mouse != TerminalMouseMode::Off && !modifiers.shift {
@@ -3076,7 +3142,7 @@ extern "C" fn on_terminal_mouse_move(mut data: RefAny, info: CallbackInfo) -> Up
                 return Update::DoNothing;
             };
             let to = scroll_for_thumb(&bar, y - grab - bar.track.1, s.screen.history);
-            scroll_to(&s, info, whole(to))
+            scroll_to(&mut data, &s, info, whole(to), None)
         }
         Drag::Select { last, .. } => {
             let (point, right_half) = s.cell(x, y);
@@ -3172,7 +3238,7 @@ extern "C" fn on_terminal_double_click(mut data: RefAny, info: CallbackInfo) -> 
 
 /// The wheel: the scrollback BY PIXELS - a trackpad's pixels as they come,
 /// its momentum gliding, a mouse wheel's notch three lines
-/// ([`wheel_scroll_pos`]); or, for a program that hears the pointer or on
+/// ([`wheel_scroll_from`], from [`wheel_base`]); or, for a program that hears the pointer or on
 /// the alternate screen, whole notches reported or turned into arrow keys
 /// ([`wheel_delta_action`]). The view is the scroll surface: the box around
 /// it does not scroll.
@@ -3191,8 +3257,9 @@ extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
     if modes.mouse == TerminalMouseMode::Off && !modes.alternate_screen {
         set_wheel_travel(&mut data, 0.0);
         let precise = info.get_pointer_source() == azul_core::events::PointerSource::Touchpad;
-        return match wheel_scroll_pos(&s.screen, by.y, s.metrics.line_height, precise) {
-            Some(to) => scroll_to(&s, info, to),
+        let base = wheel_base(&s.screen, s.asked);
+        return match wheel_scroll_from(&s.screen, base, by.y, s.metrics.line_height, precise) {
+            Some(to) => scroll_to(&mut data, &s, info, to, Some(to.up())),
             None => Update::DoNothing,
         };
     }
@@ -3208,7 +3275,7 @@ extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
     );
     set_wheel_travel(&mut data, travel);
     match action {
-        KeyAction::Scroll(to) => scroll_to(&s, info, whole(to)),
+        KeyAction::Scroll(to) => scroll_to(&mut data, &s, info, whole(to), None),
         KeyAction::Bytes(bytes) => send(&s, info, U8Vec::from_vec(bytes)),
         _ => Update::DoNothing,
     }
