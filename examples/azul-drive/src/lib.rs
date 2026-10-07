@@ -37,13 +37,16 @@
 //! `drive/view.json` (layout, sort, columns, panes, the Quick access pins),
 //! written through the data tree's `LocalDrive` on a Thread.
 //!
-//! Environment:
-//! - `AZDRIVE_HOME`: the folder the Home drive shows (default: the user's home).
-//! - `AZUL_DRIVES`: the drives file (default: `<config dir>/azul-storage/drives.json`).
-//! - `AZDRIVE_DOWNLOADS`: where "Download" saves (default: the user's Downloads folder).
-//! - `AZLIN_DATA`: the data root (azul-appkit; `--data-dir` wins).
-//! - `AZDRIVE_DIALOGS=inline`: show the dialogs as a sheet inside the window
-//!   instead of a modal dialog window (scripts: the debug server drives the main window).
+//! Command line ([`args`]; each switch wins over the variable an older build read, which is the
+//! fallback when the switch is absent):
+//! - `--home <dir>` (`$AZDRIVE_HOME`): the folder the Home drive shows (default: the user's home).
+//! - `--drives <file>` (`$AZUL_DRIVES`): the drives file (default:
+//!   `<config dir>/azul-storage/drives.json`).
+//! - `--downloads <dir>` (`$AZDRIVE_DOWNLOADS`): where "Download" saves (default: the user's
+//!   Downloads folder).
+//! - `--data-dir <dir>` (`$AZLIN_DATA`): the data root (azul-appkit).
+//! - `--dialogs inline` (`$AZDRIVE_DIALOGS=inline`): show the dialogs as a sheet inside the
+//!   window instead of a modal dialog window (scripts: the debug server drives the main window).
 //!
 //! On stdout, for scripts: `AZDRIVE_PLACE quick-access | this-pc | <drive id> <prefix or />`,
 //! `AZDRIVE_LISTED <drive id> <prefix or /> <entries>`, `AZDRIVE_TREE <drive id>
@@ -95,9 +98,6 @@ use fileops::{ConflictChoice, Plan, SourceItem, TransferKind, TransferQueue};
 use jobs::{Done, FolderSize, Job, JobInit, ListPurpose, Outcome, PreviewContent};
 use model::{Selection, Settings, TypeAhead};
 
-const HOME_VAR: &str = "AZDRIVE_HOME";
-const DOWNLOADS_VAR: &str = "AZDRIVE_DOWNLOADS";
-const DIALOGS_VAR: &str = "AZDRIVE_DIALOGS";
 pub(crate) const USER_AGENT: &str = "AzDrive/0.2";
 /// The view settings' key in the data tree (layout, sort, columns, panes, pins). The app theme
 /// and mode are azul-appkit's `drive/settings.json` beside it.
@@ -1583,14 +1583,6 @@ fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
         .filter(|p| !p.as_os_str().is_empty())
 }
 
-fn env_path(var: &str) -> Option<PathBuf> {
-    std::env::var(var)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-}
-
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         azul_appkit::ui::on_window_created(&s.kit, info);
@@ -1617,24 +1609,29 @@ fn data_slot(data_root: &Path) -> Slot {
 }
 
 pub fn start() {
+    // The switches; a variable an older build read fills in a switch that is absent.
     let args = match args::Args::parse(std::env::args().skip(1)) {
-        Ok(args) => args,
+        Ok(args) => args.with_env_fallbacks(|var| std::env::var(var).ok()),
         Err(text) => {
             eprintln!("{text}");
             std::process::exit(2);
         }
     };
-    let home = env_path(HOME_VAR)
+    let home = args
+        .home
+        .clone()
         .or_else(|| path_of(FilePath::get_home_dir().into_option()))
         .unwrap_or_else(|| PathBuf::from("."));
-    let downloads = env_path(DOWNLOADS_VAR)
+    let downloads = args
+        .downloads
+        .clone()
         .or_else(|| path_of(FilePath::get_download_dir().into_option()))
         .unwrap_or_else(|| home.join("Downloads"));
     let config_dir = path_of(FilePath::get_config_dir().into_option());
-    let drives_file = config::drives_file(
-        std::env::var(config::DRIVES_VAR).ok().as_deref(),
-        config_dir.clone(),
-    );
+    let drives_file = match &args.drives {
+        Some(file) => Some(file.clone()),
+        None => config::drives_file(None, config_dir.clone()),
+    };
     // The kit resolves the data root (--data-dir, $AZLIN_DATA, <data dir>/Azlin) and reads the
     // theme and mode saved last time, before the window exists.
     let kit = azul_appkit::ui::create_kit(
@@ -1655,7 +1652,7 @@ pub fn start() {
     if args.screen == args::Screen::Settings {
         azul_appkit::ui::open_settings(&kit, None);
     }
-    let inline_dialogs = std::env::var(DIALOGS_VAR).is_ok_and(|v| v.trim() == "inline");
+    let inline_dialogs = args.dialogs == Some(args::Dialogs::Inline);
 
     if args.kit.sample {
         match args::write_sample(&home) {

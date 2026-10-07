@@ -697,7 +697,7 @@ extern "C" fn on_clear_finished(mut data: RefAny, mut info: CallbackInfo) -> Upd
     with_state(&mut data, &mut info, |_info, _app, s| s.queue.clear_finished())
 }
 
-/// A dialog as a sheet inside the window (`AZDRIVE_DIALOGS=inline`).
+/// A dialog as a sheet inside the window (`--dialogs inline`).
 pub(crate) fn inline_sheet(title: String, panel: Dom) -> Dom {
     Dom::create_div()
         .with_id(ids::SHEET)

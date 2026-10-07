@@ -6,7 +6,8 @@ walk the navigation tree, go Back / Forward / Up.
        `azdrive-e2e` holding mail/inbox/0001.eml, 0002.eml, mail/sent/0003.eml, docs/readme.txt
        and 60 objects under bulk/;
     2. starts AzDrive headless (AZ_BACKEND=headless, the debug server on --debug-port) with a
-       temporary Home folder, drives file and Downloads folder; it opens on "This PC";
+       temporary Home folder, drives file and Downloads folder (`--home`, `--drives`,
+       `--downloads`); it opens on "This PC";
     3. through AzDrive's debug server: This PC's "Add S3 drive" in the command bar, types name,
        endpoint, region, bucket, access key and secret key into the form, clicks "Test
        connection" (asserts it says "Connection OK" after exactly one ListObjectsV2 call) and
@@ -27,7 +28,7 @@ Usage (from the azul repository, after building libazul with the debug server an
         [--debug-port 8769] [--timeout 90] [--keep-logs] [--window-dialogs]
 
 `AZDRIVE_BIN` also names the binary. By default the form is AzDrive's in-window sheet
-(AZDRIVE_DIALOGS=inline); `--window-dialogs` drives the real modal Dialog window instead, by its
+(`--dialogs inline`); `--window-dialogs` drives the real modal Dialog window instead, by its
 DOM id (list_doms), which needs the debug server to route popup DOMs. Logs and the temporary
 folders go to a directory printed at the end (kept on failure, or with --keep-logs).
 """
@@ -105,14 +106,14 @@ def find_binary(explicit):
 class App:
     """AzDrive under its debug server."""
 
-    def __init__(self, binary, port, env, logs, deadline):
+    def __init__(self, binary, switches, port, env, logs, deadline):
         self.port = port
         self.deadline = deadline
         self.out_path = os.path.join(logs, "azdrive.out")
         self.err_path = os.path.join(logs, "azdrive.err")
         self.dom_id = None
         self.process = subprocess.Popen(
-            [binary],
+            [binary] + list(switches),
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=open(self.out_path, "wb"),
@@ -280,20 +281,21 @@ def run(args, logs):
     os.makedirs(downloads)
     with open(os.path.join(home, "notes.txt"), "w") as f:
         f.write("home\n")
+    # The engine's variables; AzDrive's own settings are switches (src/args.rs), and a switch
+    # wins over any AZDRIVE_* variable the caller's environment holds.
     env = dict(os.environ)
     env.update({
         "AZ_BACKEND": "headless",
         "AZ_DEBUG": str(args.debug_port),
-        "AZDRIVE_HOME": home,
-        "AZDRIVE_DOWNLOADS": downloads,
-        "AZUL_DRIVES": drives_file,
     })
-    if args.window_dialogs:
-        env.pop("AZDRIVE_DIALOGS", None)
-    else:
-        env["AZDRIVE_DIALOGS"] = "inline"
+    switches = [
+        "--home", home,
+        "--downloads", downloads,
+        "--drives", drives_file,
+        "--dialogs", "window" if args.window_dialogs else "inline",
+    ]
 
-    app = App(binary, args.debug_port, env, logs, deadline)
+    app = App(binary, switches, args.debug_port, env, logs, deadline)
     try:
         app.until("AzDrive's window", lambda: app.shows("This PC"))
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))

@@ -220,16 +220,17 @@ def run(args, logs):
 
     home = os.path.join(logs, "home")
     os.makedirs(home)
-    env = {
-        "AZDRIVE_HOME": home,
-        "AZDRIVE_DOWNLOADS": os.path.join(logs, "downloads"),
-        "AZDRIVE_SETTINGS": os.path.join(logs, "settings"),  # an older build's settings folder
-        "AZLIN_DATA": os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
-        "AZUL_DRIVES": os.path.join(logs, "config", "drives.json"),
-        "AZDRIVE_DIALOGS": "inline",
-    }
-    app = Drive("azdrive", binary, ["--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light"],
-                args.debug_port, logs, args.timeout, extra_env=env)
+    # Every setting is a switch (src/args.rs); only the engine's AZ_BACKEND / AZ_DEBUG are
+    # variables (the shared driver sets them).
+    switches = [
+        "--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--home", home,
+        "--downloads", os.path.join(logs, "downloads"),
+        "--data-dir", os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
+        "--drives", os.path.join(logs, "config", "drives.json"),
+        "--dialogs", "inline",
+    ]
+    app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout)
     docs = os.path.join(home, "Documents")
     try:
         # 1. This PC.

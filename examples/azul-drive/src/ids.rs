@@ -94,7 +94,7 @@ pub const CONFLICT_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_con
 pub const PROPERTIES: AzString = AzString::from_const_str("__azdrive_properties");
 /// The transfer queue.
 pub const TRANSFERS: AzString = AzString::from_const_str("__azdrive_transfers");
-/// A dialog shown as a sheet inside the window (`AZDRIVE_DIALOGS=inline`).
+/// A dialog shown as a sheet inside the window (`--dialogs inline`).
 pub const SHEET: AzString = AzString::from_const_str("__azdrive_sheet");
 /// The Options page and two of its controls.
 pub const SETTINGS: AzString = AzString::from_const_str("__azdrive_settings");
