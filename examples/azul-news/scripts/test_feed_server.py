@@ -59,6 +59,12 @@ class FeedServerTest(unittest.TestCase):
         self.assertEqual(after.count(b"<item>"), before + 1)
         self.assertNotEqual(after_headers["ETag"], headers["ETag"])
 
+    def test_every_article_has_a_topic(self):
+        body = self.get("/feed.xml")[2]
+        self.assertEqual(body.count(b"<category>"), body.count(b"<item>"))
+        self.assertIn(b"<category>Odd news</category>", body)
+        self.assertIn(b"<category>Even news</category>", body)
+
     def test_the_other_resources(self):
         self.assertEqual(self.get("/missing")[0], 404)
         status, headers, body = self.get("/img/red.png")

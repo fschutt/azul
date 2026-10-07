@@ -56,17 +56,25 @@ class FeedSite:
     def last_modified(self):
         return "Wed, %02d Sep 2026 08:%02d:00 GMT" % (30, min(self.version, 59))
 
+    @staticmethod
+    def topic(n):
+        """The topic (RSS <category>) of local article `n`."""
+        return "Odd news" if n % 2 else "Even news"
+
     def rss(self, base):
         items = []
         for n in range(self.version + 2, 0, -1):
+            # Each article in a topic (a forum's subforum, a blog's category): odd ones in
+            # "Odd news", even ones in "Even news" - the source list's topics under the feed.
             items.append(
                 "<item><title>Local article %d</title><link>%s/posts/%d</link>"
                 "<guid isPermaLink=\"false\">local-%d</guid>"
                 "<pubDate>Wed, 30 Sep 2026 %02d:00:00 GMT</pubDate>"
+                "<category>%s</category>"
                 "<description><![CDATA[<p>Article %d is about local feeds.</p>"
                 "<p><img src=\"/img/red.png\" alt=\"A red square\"></p>"
                 "<p>More text so the reader has something to show.</p>]]></description></item>"
-                % (n, base, n, n, min(n, 23), n))
+                % (n, base, n, n, min(n, 23), self.topic(n), n))
         return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\"><channel>"
                 "<title>Local Test Feed</title><link>%s/</link><description>Served by feed_server.py"
                 "</description>%s</channel></rss>\n" % (base, "".join(items)))
