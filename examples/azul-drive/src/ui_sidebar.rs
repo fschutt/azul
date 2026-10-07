@@ -676,7 +676,11 @@ extern "C" fn on_row_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     info.stop_propagation();
     if !entries.is_empty() {
-        info.open_menu_for_hit_node(menu_of(&app, entries));
+        // At the row; where the pointer is when the row cannot anchor it.
+        let menu = menu_of(&app, entries);
+        if !info.open_menu_for_hit_node(menu.clone()) {
+            info.open_menu(menu);
+        }
     }
     Update::DoNothing
 }
@@ -1173,7 +1177,10 @@ pub(crate) fn on_sidebar_key(
         SideMove::Menu(at) => {
             let entries = menu_entries(s, &rows[at]);
             if !entries.is_empty() {
-                let _shown = info.open_menu_for_node(menu_of(&app, entries), nodes[at]);
+                let menu = menu_of(&app, entries);
+                if !info.open_menu_for_node(menu.clone(), nodes[at]) {
+                    info.open_menu(menu);
+                }
             }
             Update::DoNothing
         }
