@@ -41,6 +41,9 @@ pub struct Track {
     pub track_no: u32,
     pub disc_no: u32,
     pub duration_s: f64,
+    /// When the track came into the library (seconds since 1970; 0 = not known): "Recently
+    /// Added" orders the albums by it.
+    pub added_s: u64,
 }
 
 impl Track {
@@ -75,9 +78,13 @@ pub struct Album {
     pub title: String,
     pub artist: String,
     pub year: String,
+    /// The first genre its tracks name ("" = none).
+    pub genre: String,
     /// Indices into `Library::tracks`, in play order.
     pub tracks: Vec<usize>,
     pub duration_s: f64,
+    /// When its newest track came into the library (`Track::added_s`).
+    pub added_s: u64,
 }
 
 /// The library file.
@@ -137,13 +144,26 @@ impl Library {
                     .find(|y| !y.is_empty())
                     .unwrap_or("")
                     .to_string();
+                let genre = tracks
+                    .iter()
+                    .map(|i| self.tracks[*i].genre.trim())
+                    .find(|g| !g.is_empty())
+                    .unwrap_or("")
+                    .to_string();
                 let duration_s = tracks.iter().map(|i| self.tracks[*i].duration_s).sum();
+                let added_s = tracks
+                    .iter()
+                    .map(|i| self.tracks[*i].added_s)
+                    .max()
+                    .unwrap_or(0);
                 Album {
                     title,
                     artist,
                     year,
+                    genre,
                     tracks,
                     duration_s,
+                    added_s,
                 }
             })
             .collect();
@@ -165,6 +185,23 @@ impl Library {
         let mut artists: Vec<(String, usize)> = counts.into_iter().collect();
         artists.sort_by_key(|(name, _)| name.to_lowercase());
         artists
+    }
+
+    /// The genres the tracks name (trimmed; tracks without one are in none) with their track
+    /// counts, by name.
+    #[must_use]
+    pub fn genres(&self) -> Vec<(String, usize)> {
+        let mut counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for t in &self.tracks {
+            let genre = t.genre.trim();
+            if !genre.is_empty() {
+                *counts.entry(genre.to_string()).or_default() += 1;
+            }
+        }
+        let mut genres: Vec<(String, usize)> = counts.into_iter().collect();
+        genres.sort_by_key(|(name, _)| name.to_lowercase());
+        genres
     }
 
     /// The tracks whose title, artist, album or genre contain every word of `query` (any case),
@@ -198,24 +235,26 @@ impl Library {
     }
 
     /// Takes in the tracks of a scan: a file already in the library keeps its id (and so its
-    /// place in playlists); files no longer found are dropped. Returns (added, removed).
+    /// place in playlists) and when it was added; files no longer found are dropped. Returns
+    /// (added, removed).
     pub fn merge_scan(
         &mut self,
         scanned: Vec<Track>,
         mut new_id: impl FnMut() -> String,
     ) -> (usize, usize) {
-        let known: std::collections::HashMap<String, String> = self
+        let known: std::collections::HashMap<String, (String, u64)> = self
             .tracks
             .iter()
-            .map(|t| (t.path.clone(), t.id.clone()))
+            .map(|t| (t.path.clone(), (t.id.clone(), t.added_s)))
             .collect();
         let before = self.tracks.len();
         let mut kept = 0;
         let mut tracks = Vec::with_capacity(scanned.len());
         for mut t in scanned {
             match known.get(&t.path) {
-                Some(id) => {
+                Some((id, added_s)) => {
                     t.id = id.clone();
+                    t.added_s = *added_s;
                     kept += 1;
                 }
                 None => t.id = new_id(),
@@ -355,12 +394,37 @@ mod tests {
     }
 
     #[test]
+    fn genres_are_counted_by_name_and_songs_without_one_are_in_none() {
+        let mut lib = sample();
+        lib.tracks[0].genre = "Jazz".into();
+        lib.tracks[1].genre = " Jazz ".into();
+        lib.tracks[2].genre = "Ambient".into();
+        assert_eq!(
+            lib.genres(),
+            vec![("Ambient".to_string(), 1), ("Jazz".to_string(), 2)]
+        );
+        let albums = lib.albums();
+        assert_eq!(albums[2].genre, "Jazz", "an album takes its songs' genre");
+        assert_eq!(albums[1].genre, "", "the songs name none");
+    }
+
+    #[test]
+    fn an_album_was_added_when_its_newest_song_was() {
+        let mut lib = sample();
+        lib.tracks[0].added_s = 10;
+        lib.tracks[1].added_s = 30;
+        assert_eq!(lib.albums()[2].added_s, 30);
+    }
+
+    #[test]
     fn a_rescan_keeps_the_ids_of_known_files_and_drops_the_missing() {
         let mut lib = sample();
+        lib.tracks[0].added_s = 42;
         let kept = lib.tracks[0].clone();
         let mut again = kept.clone();
         again.id = String::new();
         again.title = "Harbour Walk (remaster)".into();
+        again.added_s = 0; // a scan does not know it
         let fresh = Track {
             path: "/music/new.mp3".into(),
             ..Track::default()
@@ -377,6 +441,8 @@ mod tests {
             lib.tracks[k].title, "Harbour Walk (remaster)",
             "its tags are the new scan's"
         );
-        assert!(lib.index_of("new-1").is_some());
+        assert_eq!(lib.tracks[k].added_s, 42, "and it was added when it first was");
+        let fresh = lib.index_of("new-1").expect("the new file");
+        assert_eq!(lib.tracks[fresh].added_s, 0, "the app dates the new ones");
     }
 }
