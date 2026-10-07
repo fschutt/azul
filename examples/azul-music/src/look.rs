@@ -2,8 +2,9 @@
 //! edge to edge, glossy grey bars and round buttons, striped song tables under a gradient header,
 //! the lime of the old logo for what plays and for Play. Dark is the default (AzMusic starts dark
 //! until the user picks a mode); the light look keeps the same structure in light greys. The
-//! widgets (the search field, the seek bar, the volume slider, the settings page) follow the app
-//! theme themselves.
+//! widgets (the seek bar, the volume slider, the meter, the settings page) follow the app theme
+//! themselves; the search field and the empty library's block are flat in every theme (flora
+//! writes them in Garamond, and the player's hand is a sans - `ui.rs`, `HAND`).
 
 /// One mode's colours, as CSS values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

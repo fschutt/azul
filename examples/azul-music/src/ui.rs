@@ -1,5 +1,7 @@
 //! The window, in the look of Spotify's 2010 desktop player (`look.rs`): charcoal panes edge to
-//! edge under glossy grey bars, the lime of the old logo for what plays and for Play.
+//! edge under glossy grey bars, the lime of the old logo for what plays and for Play. The
+//! player's own hand everywhere, in every theme (`HAND`: the platform's UI sans), and nothing in
+//! it is selectable text but the search field.
 //!
 //! - THE TOOL BAR under the title row: back and forward (round, glossy), the search field, the
 //!   status on the right.
@@ -33,7 +35,7 @@ use azul::{
     str::String as AzString,
     widgets::{
         Button, LevelMeter, MediaControlsAction, OnTextInputReturn, SeekBar, Slider, SliderState,
-        TextInputState, TextInputValid, Titlebar,
+        TextInputState, TextInputValid, Titlebar, UiTheme,
     },
 };
 use azul_appkit::ui as kit;
@@ -54,6 +56,14 @@ use crate::{
 const SIDEBAR_W: f32 = 220.0;
 /// A column that fills what it is given.
 const COLUMN: &str = "display: flex; flex-direction: column; min-height: 0px; min-width: 0px;";
+/// The player's own hand, on the window's root AND on the page's root: a VirtualView's DOM is
+/// styled on its own and inherits nothing from the window, so the page's tables, which set no
+/// family, fell to the engine's default serif. The platform's UI sans (`system:ui`: SF on macOS,
+/// Segoe UI on Windows, the desktop's font on Linux) at the tables' 12px, in every theme - a
+/// theme's chrome hand (flora sets its scopes in Garamond) stops here. And the player is chrome,
+/// not text: `user-select` inherits, so no label, cell or title is selectable (the search field
+/// says `text` again), and the pointer stays an arrow over the words.
+const HAND: &str = "font-family: system:ui; font-size: 12px; user-select: none; cursor: default;";
 
 // ==== Small parts ====
 
@@ -232,7 +242,7 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(main_pane(s, &app, look));
     let root = Dom::create_div()
         .with_css(format!(
-            "{COLUMN} flex-grow: 1; background: {}; color: {}; font-size: 12px;",
+            "{COLUMN} {HAND} flex-grow: 1; background: {}; color: {};",
             look.page, look.text
         ))
         .with_child(title_row(look))
@@ -276,9 +286,14 @@ fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         .with_text(s.query.as_str())
         .with_placeholder("Search")
         .with_accessibility_name("Search the library")
+        // The flat field in every theme: flora writes a field's value in Garamond, and the
+        // player's hand is a sans.
+        .with_theme(UiTheme::Flat)
         .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
         .dom()
-        .with_id(ids::SEARCH);
+        .with_id(ids::SEARCH)
+        // The one text in the player a user may select (`HAND` says none).
+        .with_css("user-select: text;");
     let status = if s.status.is_empty() {
         s.with_library(|library| page::count(library.tracks.len(), "song"))
     } else {
@@ -507,6 +522,8 @@ fn empty_library(s: &Music, app: &RefAny) -> Dom {
     } else {
         String::from("Reading the library\u{2026}")
     };
+    // Flat in every theme: flora sets its shells in Garamond and its buttons in Garamond
+    // capitals, and the player's hand is a sans.
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
         .with_child(
@@ -515,12 +532,14 @@ fn empty_library(s: &Music, app: &RefAny) -> Dom {
                 .with_detail(detail.as_str())
                 .with_action_label("Scan the music folder")
                 .with_on_action(app.clone(), on_scan as ButtonOnClickCallbackType)
+                .with_theme(UiTheme::Flat)
                 .dom()
                 .with_id(ids::EMPTY),
         )
         .with_child(
             Button::create("Use the sample library")
                 .with_on_click(app.clone(), on_sample as ButtonOnClickCallbackType)
+                .with_theme(UiTheme::Flat)
                 .dom()
                 .with_css("align-self: center; margin: 8px;"),
         )
@@ -651,8 +670,10 @@ extern "C" fn render_page(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
         heard: s.heard_index(library),
         plays_page: plays_page(s, library, &built.tracks),
     };
+    // The page's DOM inherits nothing from the window: its root states the player's hand again.
     let mut root = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: column; width: {width}px;"
+        "display: flex; flex-direction: column; width: {width}px; {HAND} color: {};",
+        ctx.look.text
     ));
     for i in first..end {
         root.add_child(line_dom(&ctx, &built.lines[i], tops[i + 1] - tops[i]));
