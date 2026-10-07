@@ -2217,6 +2217,37 @@ mod autotest_generated {
     // add_variant_features (other)
     // -----------------------------------------------------------------
 
+    /// `font-variant-numeric` (CSS Fonts 4 s6.7) reaches the shaper: the text
+    /// under `tabular-nums slashed-zero` is shaped with the OpenType `tnum`
+    /// and `zero` features - the figures of a time column line up. The
+    /// property did not exist: the declaration was dropped as unknown and
+    /// every digit kept its proportional advance (AzMusic's durations).
+    #[test]
+    fn a_run_under_font_variant_numeric_tabular_nums_is_shaped_with_tnum() {
+        use azul_core::{
+            dom::{Dom, NodeId},
+            styled_dom::StyledDom,
+        };
+
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_p_with_text("10:41")
+                .with_css("font-variant-numeric: tabular-nums slashed-zero;"),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        // body (0) > p (1) > text (2): the text inherits it from the <p>.
+        let style = crate::solver3::getters::get_style_properties(
+            &styled,
+            NodeId::new(2),
+            None,
+            azul_css::props::basic::PhysicalSize::new(800.0, 600.0),
+        );
+        let mut features = Vec::new();
+        add_variant_features(&style, &mut features);
+        let tags: Vec<[u8; 4]> = features.iter().map(|f| f.feature_tag.to_be_bytes()).collect();
+        assert!(tags.contains(b"tnum"), "tabular-nums must shape with `tnum`: {tags:?}");
+        assert!(tags.contains(b"zero"), "slashed-zero must shape with `zero`: {tags:?}");
+    }
+
     #[test]
     fn add_variant_features_maps_css_variants_to_opentype_tags() {
         let tags = |style: &StyleProperties| -> Vec<u32> {

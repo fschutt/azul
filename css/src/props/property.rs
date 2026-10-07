@@ -10328,3 +10328,73 @@ mod background_face_tween_tests {
         assert_eq!(one.interpolate(&two, 0.75, &r), two);
     }
 }
+
+/// `font-variant-numeric` (CSS Fonts 4 s6.7): `normal | [ <numeric-figure-values>
+/// || <numeric-spacing-values> || <numeric-fraction-values> || ordinal ||
+/// slashed-zero ]`, inherited. It was not a property at all - the declaration
+/// was dropped as unknown - although the shaper supports the OpenType
+/// features (`lnum`, `onum`, `pnum`, `tnum`, `frac`, `afrc`, `ordn`, `zero`).
+#[cfg(test)]
+mod font_variant_numeric_tests {
+    use super::*;
+
+    fn property_type() -> CssPropertyType {
+        CssPropertyType::from_str("font-variant-numeric", &CssKeyMap::get())
+            .expect("font-variant-numeric is a CSS property")
+    }
+
+    #[test]
+    fn font_variant_numeric_is_an_inherited_property() {
+        let ty = property_type();
+        assert_eq!(ty.to_str(), "font-variant-numeric");
+        assert!(ty.is_inheritable(), "font-variant-numeric is inherited");
+    }
+
+    #[test]
+    fn font_variant_numeric_parses_each_group_once_and_prints_back() {
+        let ty = property_type();
+        for (input, printed) in [
+            ("tabular-nums", "tabular-nums"),
+            ("normal", "normal"),
+            ("lining-nums", "lining-nums"),
+            ("oldstyle-nums", "oldstyle-nums"),
+            ("proportional-nums", "proportional-nums"),
+            ("diagonal-fractions", "diagonal-fractions"),
+            ("stacked-fractions", "stacked-fractions"),
+            ("ordinal", "ordinal"),
+            ("slashed-zero", "slashed-zero"),
+            // `||`: any order, printed in the grammar's.
+            ("slashed-zero tabular-nums", "tabular-nums slashed-zero"),
+            (
+                "ordinal slashed-zero diagonal-fractions tabular-nums oldstyle-nums",
+                "oldstyle-nums tabular-nums diagonal-fractions ordinal slashed-zero",
+            ),
+            ("  Tabular-Nums  ", "tabular-nums"),
+        ] {
+            let prop = parse_css_property(ty, input)
+                .unwrap_or_else(|e| panic!("`{input}` must parse: {e:?}"));
+            assert_eq!(prop.get_type(), ty, "`{input}`");
+            assert_eq!(prop.value(), printed, "`{input}`");
+        }
+    }
+
+    #[test]
+    fn font_variant_numeric_rejects_two_values_of_one_group() {
+        let ty = property_type();
+        for bad in [
+            "lining-nums oldstyle-nums",
+            "proportional-nums tabular-nums",
+            "diagonal-fractions stacked-fractions",
+            "tabular-nums tabular-nums",
+            "ordinal ordinal",
+            "normal tabular-nums",
+            "tabular",
+            "",
+        ] {
+            assert!(
+                parse_css_property(ty, bad).is_err(),
+                "`{bad}` is not a font-variant-numeric value"
+            );
+        }
+    }
+}
