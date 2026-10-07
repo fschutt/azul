@@ -26,7 +26,7 @@ re-record on another machine with a pre-1023db90c build). A difference after
 
 The lobby needs nothing; its meeting server is pinned to an address that does
 not answer, so the status line is fixed. The call view needs a meet Worker (the
-local dev server, default http://127.0.0.1:8787) for AZMEET_AUTOCREATE, and
+local dev server, default http://127.0.0.1:8787) for --autocreate, and
 fingerprints only the devices panel (the room code in the header differs per
 run). Exit 0 = every step matches (or recorded), 1 = a difference, 2 = setup.
 """
@@ -141,14 +141,17 @@ def run(args, sequence):
         "AZ_BACKEND": "headless",
         "AZ_DEBUG": str(args.port),
     })
+    # AzMeet's settings are switches (its --help); the AZMEET_* variables of this shell are
+    # blanked (AzMeet reads a blank one as unset), so none changes the probe behind its back.
+    for name in [n for n in env if n.startswith("AZMEET_")]:
+        env[name] = ""
     if args.view == "lobby":
         # An address that never answers: the status line is fixed.
-        env["AZMEET_WORKER"] = "http://127.0.0.1:9"
+        flags = ["--worker", "http://127.0.0.1:9"]
     else:
-        env["AZMEET_WORKER"] = args.worker
-        env["AZMEET_AUTOCREATE"] = "1"
+        flags = ["--worker", args.worker, "--autocreate"]
     proc = subprocess.Popen(
-        [args.binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        [args.binary] + flags, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     try:
         wait_up(args.port, proc)

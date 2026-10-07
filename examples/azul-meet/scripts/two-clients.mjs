@@ -2,21 +2,21 @@
 // Two AzMeet processes meet through the local meet Worker mock, hear and see each other, and one leaves.
 //
 //   1. starts the meet dev server (azul-apps cf-workers/meet/dev-server.mjs, in memory);
-//   2. starts AzMeet "Ada" headless with AZMEET_AUTOCREATE=1 and reads the link it prints;
-//   3. starts AzMeet "Ben" headless with AZMEET_JOIN=<link>;
+//   2. starts AzMeet "Ada" headless with --autocreate and reads the link it prints;
+//   3. starts AzMeet "Ben" headless with --join <link>;
 //   4. waits until the dev server lists both in the room, and each app's UI (read through its
 //      debug server, op get_node_hierarchy) shows the other one as connected;
-//   5. audio: both run with AZMEET_TEST_TONE=1, so a 440 Hz tone replaces the microphone (a
+//   5. audio: both run with --test-tone, so a 440 Hz tone replaces the microphone (a
 //      headless run never opens an audio device: no capture, and received audio is counted, not
 //      played). Each window's "Audio from <other>: N packets, M played, ..." line must count at
 //      least a second of packets taken into its jitter buffer and half a second played;
-//   6. video: both run with AZMEET_TEST_PATTERN=1, so moving colour bars replace the camera (a
+//   6. video: both run with --test-pattern, so moving colour bars replace the camera (a
 //      headless run never opens a camera or a screen). Each window's codec line says H.264 (a
 //      working encoder, VideoToolbox on macOS) or JPEG (no encoder); each window's "Video from
 //      <other> (camera <height>p): <codec>, decoded N, keyframes K, ..." line must count at least
 //      30 decoded frames (2 s at 15 fps) and a keyframe. Two people are within the mesh cap, so
 //      each sends to the other directly (the network panel says "full mesh");
-//   7. loss: Ben clicks "Drop a video packet" (shown with AZMEET_TEST_PATTERN=1): Ada's window
+//   7. loss: Ben clicks "Drop a video packet" (shown with --test-pattern): Ada's window
 //      counts a gap. With H.264 she asks Ben for a keyframe (her "keyframe requests" count rises,
 //      Ben's "on request" count rises) and decodes again (15 more frames, one more keyframe); if
 //      the packet after the dropped one happened to be a keyframe no request is needed, and the
@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import {
+  appArgs,
   appEnv,
   audioFrom,
   click,
@@ -95,13 +96,13 @@ const run = createRun({
   timeoutSecs: Number(opts.timeout) + (opts.cpu ? cpuSeconds + 10 : 0),
 });
 
-/** The environment of one client: `appEnv`, minus the headless backend with --windowed and the
- *  test pattern with --camera. */
-function clientEnv(worker, name, port, extra) {
-  const env = appEnv(worker, name, port, extra);
+/** One client's switches and environment: `appArgs` (then `extra`) without the test pattern with
+ *  --camera, and `appEnv` without the headless backend with --windowed. */
+function client(worker, name, port, extra) {
+  const args = appArgs(worker, name, extra).filter((a) => !(opts.camera && a === '--test-pattern'));
+  const env = appEnv(port);
   if (windowed) delete env.AZ_BACKEND;
-  if (opts.camera) delete env.AZMEET_TEST_PATTERN;
-  return env;
+  return { args, env };
 }
 
 /** Samples both clients' CPU for --cpu-seconds and logs the mean and the max of each. */
@@ -139,11 +140,13 @@ try {
 
   const worker = await startWorker(run, workerDir, Number(opts.port));
 
-  const ada = run.start('ada', bin, [], clientEnv(worker, 'Ada', debugA, { AZMEET_AUTOCREATE: '1' }));
+  const adaClient = client(worker, 'Ada', debugA, ['--autocreate']);
+  const ada = run.start('ada', bin, adaClient.args, adaClient.env);
   const { link, room } = await meetingOf(run, ada);
   log(`Ada created ${link}`);
 
-  const ben = run.start('ben', bin, [], clientEnv(worker, 'Ben', debugB, { AZMEET_JOIN: link }));
+  const benClient = client(worker, 'Ben', debugB, ['--join', link]);
+  const ben = run.start('ben', bin, benClient.args, benClient.env);
 
   await until('the dev server to list Ada and Ben in the room', async () => {
     const names = await listedNames(worker, room);

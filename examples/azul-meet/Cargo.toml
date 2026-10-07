@@ -6,7 +6,7 @@ authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
     azul-meet - a Google-Meet-style app on the public azul API. With a meeting
-    server (the `meet` Worker, AZMEET_WORKER) it starts a meeting or joins one
+    server (the `meet` Worker, --worker) it starts a meeting or joins one
     by its link through a waiting room (the camera preview, the microphone and
     camera switches, the devices, the name), and connects to every participant
     over azul.iroh: every captured frame is H.264-encoded where an encoder

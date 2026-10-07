@@ -4,12 +4,13 @@
 //! - **Start screen** (`lobby`): "New meeting", joining with a link or a code, the meeting server
 //!   and whether it answers. Nothing is captured here: no camera, no microphone.
 //! - **Waiting room** (`waiting_room`), between the start screen and the call, for a meeting just
-//!   found or made: this side's camera large (mirrored, as a mirror shows it; the initials while
-//!   the camera is off), the microphone and camera switches under it with the level meter, and
-//!   beside it the meeting's code and link ("Copy link"), the name others see, the microphone,
-//!   speaker and camera pickers, and "Join now" ("Start meeting" for a meeting this side made) or
-//!   Back. It mounts the one camera widget and the one microphone widget the call mounts too:
-//!   no device is opened twice.
+//!   found or made: this side's camera large (mirrored, as a mirror shows it; the test pattern's
+//!   still in a headless run; the initials while the camera is off), the microphone and camera
+//!   switches under it with the level meter, and beside it who is in the meeting already (their
+//!   faces and "Ada is in this meeting" / "No one else is here yet"), the meeting's code and link
+//!   ("Copy link"), the name others see, the microphone, speaker and camera pickers, and "Join
+//!   now" ("Start meeting" for a meeting this side made) or Back. It mounts the one camera widget
+//!   and the one microphone widget the call mounts too: no device is opened twice.
 //! - **Call**: the tiles (`tiles::arrange`): a shared screen or, in the speaker view, the active
 //!   speaker on the shell's stage over a filmstrip, else an even gallery; the side panel shows the
 //!   people, the chat or the statistics; the devices slot the invite link and the level meter;
@@ -137,6 +138,9 @@ pub(crate) struct WaitingView {
     pub copied: bool,
     /// This side just made the meeting: "Start meeting" rather than "Join now".
     pub created: bool,
+    /// Who is in the meeting already (the meeting server's list, read every 2 seconds while
+    /// waiting); `None` until the first answer.
+    pub people: Option<Vec<String>>,
 }
 
 /// What the settings sections and the device pickers show.
@@ -199,6 +203,9 @@ pub(crate) struct CallView {
     pub tone_mic: bool,
     /// The camera and the screen share are test patterns, so no capture widget is mounted.
     pub pattern_video: bool,
+    /// A still of the test pattern: this side's own camera tile and the waiting room's preview
+    /// show it where a camera would show its picture.
+    pub pattern_still: Option<ImageRef>,
     /// This side's own camera is shown mirrored.
     pub mirror: bool,
     /// The renditions of the camera and of the screen someone shows: one capture consumer each.
@@ -511,7 +518,7 @@ fn remote_picture(t: &TileView) -> Dom {
 
 /// This side's own camera or screen: the capture widget (whose consumers cut every rendition
 /// someone shows - nothing is captured for nobody; the camera mirrored when the settings say
-/// so), the test pattern's word, or the initials and "Camera is off".
+/// so), the test pattern's still (mirrored the same way), or the initials and "Camera is off".
 fn own_picture(view: &CallView, t: &TileView, data: &RefAny, large: bool) -> Dom {
     match t.kind {
         TileKind::Camera if view.cam && !view.pattern_video => {
@@ -527,20 +534,20 @@ fn own_picture(view: &CallView, t: &TileView, data: &RefAny, large: bool) -> Dom
             for height in &view.camera_renditions {
                 camera = camera.with_consumer(crate::feed_consumer(crate::CAMERA_TRACK, *height));
             }
-            let mut css = String::from(VIDEO);
-            if view.mirror {
-                css.push(' ');
-                css.push_str(MIRRORED);
-            }
             camera
                 .with_on_consumer_frame(data.clone(), crate::send_feed_frame)
                 .dom()
-                .with_css(css.as_str())
+                .with_css(own_video_css(view.mirror).as_str())
         }
         TileKind::Camera if view.cam && view.cam_culled => {
             text("Test pattern - not shown to anyone, not sent", SECONDARY)
         }
-        TileKind::Camera if view.cam => text("Test pattern", SECONDARY),
+        TileKind::Camera if view.cam => match &view.pattern_still {
+            Some(still) => Dom::create_image(still.clone())
+                .with_css(own_video_css(view.mirror).as_str())
+                .with_accessibility_name("Test pattern"),
+            None => text("Test pattern", SECONDARY),
+        },
         TileKind::Camera => Dom::create_div()
             .with_css("display: flex; flex-direction: column; align-items: center;")
             .with_child(avatar(&t.name, large))
@@ -560,6 +567,17 @@ fn own_picture(view: &CallView, t: &TileView, data: &RefAny, large: bool) -> Dom
                 .with_css(VIDEO)
         }
     }
+}
+
+/// This side's own video in its tile: it fills the tile, turned as a mirror shows it when the
+/// settings say so (what the others get never is).
+fn own_video_css(mirror: bool) -> String {
+    let mut css = String::from(VIDEO);
+    if mirror {
+        css.push(' ');
+        css.push_str(MIRRORED);
+    }
+    css
 }
 
 // ==== The side panel: people, chat, statistics ====
@@ -1025,8 +1043,11 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
         } else {
             "Ready to join?"
         },
-        "font-size: 22px; margin-bottom: 12px;",
+        "font-size: 22px; margin-bottom: 6px;",
     ));
+    if let Some(people) = view.waiting.as_ref().and_then(|w| w.people.as_ref()) {
+        column = column.with_child(who_is_here_row(people));
+    }
     if let Some(w) = &view.waiting {
         column = column.with_child(meeting_facts(w, data, actions));
     }
@@ -1058,6 +1079,50 @@ fn waiting_room(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 .with_child(preview)
                 .with_child(column),
         )
+}
+
+/// The most people the waiting room shows by face before "and N others".
+const FACES: usize = 4;
+
+/// Who is in the meeting already, as the waiting room says it: "No one else is here yet", "Ada
+/// is in this meeting", "Ada and Ben are ...", "Ada, Ben and Cleo are ...", "Ada, Ben, Cleo and
+/// 2 others are ...".
+pub(crate) fn who_is_here(people: &[String]) -> String {
+    let count = people.len();
+    match people {
+        [] => String::from("No one else is here yet"),
+        [one] => format!("{one} is in this meeting"),
+        _ if count <= FACES => format!(
+            "{} and {} are in this meeting",
+            people[..count - 1].join(", "),
+            people[count - 1]
+        ),
+        _ => format!(
+            "{} and {} others are in this meeting",
+            people[..FACES - 1].join(", "),
+            count - (FACES - 1)
+        ),
+    }
+}
+
+/// The waiting room's line under its heading: the faces of who is in the meeting already (up to
+/// `FACES`) and [`who_is_here`].
+fn who_is_here_row(people: &[String]) -> Dom {
+    let mut row = Dom::create_div()
+        .with_css("display: flex; flex-direction: row; align-items: center; margin-bottom: 14px; min-width: 0px;")
+        .with_id(ids::WHO_IS_HERE);
+    for name in people.iter().take(FACES) {
+        row = row.with_child(
+            Avatar::create(AzString::from(initials(name).as_str()))
+                .with_size(AvatarSize::Small)
+                .dom()
+                .with_css("margin-right: 4px; flex-shrink: 0;"),
+        );
+    }
+    row.with_child(text(
+        &who_is_here(people),
+        "font-size: 13px; color: system:secondary-text; margin-left: 4px; min-width: 0px;",
+    ))
 }
 
 /// The name others see (the waiting room, the settings' Meetings): taken as typed, written when
@@ -1274,6 +1339,23 @@ mod tests {
         ada.muted = true;
         assert_eq!(tile_label(&ada), "Ada · muted");
         assert_eq!(tile_label(&tile("Ben", false, TileKind::Screen)), "Ben's screen");
+    }
+
+    /// The waiting room says who is in the meeting already, as Meet's "No one else is here".
+    #[test]
+    fn the_waiting_room_says_who_is_in_the_meeting_already() {
+        let names = |list: &[&str]| list.iter().map(|n| n.to_string()).collect::<Vec<String>>();
+        assert_eq!(who_is_here(&[]), "No one else is here yet");
+        assert_eq!(who_is_here(&names(&["Ada"])), "Ada is in this meeting");
+        assert_eq!(who_is_here(&names(&["Ada", "Ben"])), "Ada and Ben are in this meeting");
+        assert_eq!(
+            who_is_here(&names(&["Ada", "Ben", "Cleo", "Dan"])),
+            "Ada, Ben, Cleo and Dan are in this meeting"
+        );
+        assert_eq!(
+            who_is_here(&names(&["Ada", "Ben", "Cleo", "Dan", "Eve"])),
+            "Ada, Ben, Cleo and 2 others are in this meeting"
+        );
     }
 
     #[test]

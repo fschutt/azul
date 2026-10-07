@@ -3,10 +3,12 @@
 //! With a meeting server (the `meet` Worker, azul-apps `cf-workers/meet`) AzMeet opens a start
 //! screen: "New meeting" asks the server for a room; "Join with a link" looks that link up.
 //! Either way the meeting opens in the waiting room first (`ui.rs`): the camera preview, the
-//! microphone and camera switches, the devices, the name, the meeting's code and link, and "Start
-//! meeting" / "Join now". Only then does the app announce its iroh ticket to the room every 20
-//! seconds, read everyone else's every 2 seconds, and dial the peers whose endpoint id is higher
-//! than its own.
+//! microphone and camera switches, the devices, the name, the meeting's code and link, who is in
+//! the meeting already (its peers list, read every 2 seconds while waiting; nothing is
+//! announced), and "Start meeting" / "Join now". Only then does the app announce its iroh ticket
+//! to the room every 20 seconds, read everyone else's every 2 seconds, and dial the peers whose
+//! endpoint id is higher than its own. `--screen waiting` opens a new meeting's waiting room (a
+//! preview of one when no meeting server answers); with `--shot <png>` that is a screenshot.
 //! Every HTTP request runs on an azul `Thread` and resumes on the UI thread, so no callback waits
 //! on the network. The start screen's "Meeting server" field holds the Worker's address: prefilled
 //! with the one saved last time, else `AZMEET_WORKER`, else the built-in default; a new address
@@ -62,43 +64,55 @@
 //! screen until asked to (both once started on, so the first second already ran a camera, a
 //! full-screen capture, two H.264 encoders, two decoders and a software-rendered window).
 //!
-//! Environment:
-//! - `AZMEET_WORKER`: the meeting server when none was saved from the start screen, e.g.
-//!   `http://127.0.0.1:8787` (the local mock); else the `PRODUCTION_WORKER` constant, set at build
-//!   time with `AZMEET_DEFAULT_WORKER=<url>`, else `http://127.0.0.1:8787`. A headless run
+//! Switches (`args.rs`, `--help` lists them): each AzMeet switch also reads its `AZMEET_*`
+//! environment variable when it is not given (`1` for a switch without a value), so older scripts
+//! keep working; the switch wins.
+//! - `--worker <url>` (`AZMEET_WORKER`): the meeting server, e.g. `http://127.0.0.1:8787` (the
+//!   local mock). `--worker` wins over the one saved from the start screen; the variable only
+//!   counts when none was saved. Else the `PRODUCTION_WORKER` constant, set at build time with
+//!   `AZMEET_DEFAULT_WORKER=<url>`, else `http://127.0.0.1:8787`. A headless run
 //!   (`AZ_BACKEND=headless`) keeps no files unless it is given a data root (`--data-dir`,
-//!   `AZLIN_DATA`), so without one the variable always wins there. Only when nothing is saved or set and the built-in default does not answer does the
-//!   in-process demo open.
-//! - `AZMEET_NAME`: the name others see (default: `$USER`).
-//! - `AZMEET_AUTOCREATE=1`: create a meeting at start, enter it without the waiting room and print
-//!   `AZMEET_LINK <link>` on stdout (`--screen call` does the same; `--screen waiting` stops in
-//!   the new meeting's waiting room).
-//! - `AZMEET_JOIN=<link>`: join that meeting at start, without the waiting room.
-//! - `AZMEET_WAITING_ROOM=1`: with `AZMEET_JOIN` / `AZMEET_AUTOCREATE`, stop in the waiting room
-//!   (stdout `AZMEET_WAITING <link>`) until "Join now" / "Start meeting" is clicked.
-//! - `AZMEET_RELAY`: `off`, `default` or a relay URL (default: off for a meeting server on this
-//!   machine, the public iroh relays otherwise).
-//! - `AZMEET_TEST_TONE=1`: a 440 Hz tone replaces the microphone, which starts unmuted.
-//! - `AZMEET_ECHO_CANCEL=0`: send the microphone as it is (with headphones); by default, while
-//!   received audio plays on a device, the echo of what plays is cancelled from the microphone
-//!   (`EchoCanceller`).
-//! - `AZMEET_TEST_PATTERN=1`: moving colour bars replace the camera (and the screen share), the
-//!   camera starts on, and a "Drop a video packet" button drops the next packet before it leaves.
-//! - `AZMEET_VIDEO_CODEC=jpeg`: send JPEG even where H.264 works.
-//! - `AZMEET_MESH_CAP=<n>`: rooms of up to n people send everything directly (default 4; the
-//!   design's value is 8).
-//! - `AZMEET_UPLINK_KBPS=<kbit/s>`: report this uplink instead of the estimate.
-//! - `AZMEET_NO_FORWARD=1`: never forward other people's media; `AZMEET_ON_BATTERY=1`: report
-//!   running on battery (either ranks this side last for the backbone).
-//! - `AZMEET_LAYOUT=speaker` and `AZMEET_STAGE=<name>`: start in speaker view with that participant
-//!   pinned to the stage (else the active speaker, else the first); the controls switch between the
-//!   gallery and the speaker view.
-//! - `AZMEET_PANEL=people|chat|statistics|closed`: what the side panel shows at start (the
-//!   scripts open the statistics, whose lines they read).
-//! - `AZ_BACKEND=headless`: no audio device, camera or screen is opened: the microphone is the
-//!   tone (muted until switched on, unless `AZMEET_TEST_TONE=1`), received audio is counted, not
-//!   played, and the camera and the screen share are test patterns (off until switched on, unless
-//!   `AZMEET_TEST_PATTERN=1`).
+//!   `AZLIN_DATA`), so without one the variable always wins there. Only when nothing is saved or
+//!   set and the built-in default does not answer does the in-process demo open.
+//! - `--name <name>` (`AZMEET_NAME`, under the name typed last time): the name others see
+//!   (default: `$USER`).
+//! - `--autocreate` (`AZMEET_AUTOCREATE=1`): create a meeting at start, enter it without the
+//!   waiting room and print `AZMEET_LINK <link>` on stdout (`--screen call` does the same;
+//!   `--screen waiting` stops in the new meeting's waiting room, or in a preview of one when no
+//!   meeting server answers).
+//! - `--join <link>` (`AZMEET_JOIN`): join that meeting at start, without the waiting room.
+//! - `--waiting-room` (`AZMEET_WAITING_ROOM=1`): with `--join` / `--autocreate`, stop in the
+//!   waiting room (stdout `AZMEET_WAITING <link>`) until "Join now" / "Start meeting" is clicked.
+//! - `--relay <off|default|url>` (`AZMEET_RELAY`): the iroh relays (default: off for a meeting
+//!   server on this machine, the public iroh relays otherwise); a local one is `iroh-relay --dev`
+//!   at `http://127.0.0.1:3340`.
+//! - `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path - no UDP socket, no hole
+//!   punching, every packet through the relay (`IrohConfig::with_relay_only`); stderr says
+//!   `relay only` with the endpoint, the statistics say `relayed` per peer.
+//! - `--test-tone` (`AZMEET_TEST_TONE=1`): a 440 Hz tone replaces the microphone, which starts
+//!   unmuted.
+//! - `--no-echo-cancel` (`AZMEET_ECHO_CANCEL=0`): send the microphone as it is (with headphones);
+//!   by default, while received audio plays on a device, the echo of what plays is cancelled from
+//!   the microphone (`EchoCanceller`).
+//! - `--test-pattern` (`AZMEET_TEST_PATTERN=1`): moving colour bars replace the camera (and the
+//!   screen share), the camera starts on, and a "Drop a video packet" button drops the next packet
+//!   before it leaves.
+//! - `--video-codec jpeg` (`AZMEET_VIDEO_CODEC=jpeg`): send JPEG even where H.264 works.
+//! - `--mesh-cap <n>` (`AZMEET_MESH_CAP`): rooms of up to n people send everything directly
+//!   (default 4; the design's value is 8).
+//! - `--uplink-kbps <kbit/s>` (`AZMEET_UPLINK_KBPS`): report this uplink instead of the estimate.
+//! - `--no-forward` (`AZMEET_NO_FORWARD=1`): never forward other people's media; `--on-battery`
+//!   (`AZMEET_ON_BATTERY=1`): report running on battery (either ranks this side last for the
+//!   backbone).
+//! - `--layout speaker` (`AZMEET_LAYOUT`) and `--stage <name>` (`AZMEET_STAGE`): start in speaker
+//!   view with that participant pinned to the stage (else the active speaker, else the first); the
+//!   controls switch between the gallery and the speaker view.
+//! - `--panel <people|chat|statistics|closed>` (`AZMEET_PANEL`): what the side panel shows at
+//!   start (the scripts open the statistics, whose lines they read).
+//! - `AZ_BACKEND=headless` (the engine's, no switch): no audio device, camera or screen is
+//!   opened: the microphone is the tone (muted until switched on, unless `--test-tone`), received
+//!   audio is counted, not played, and the camera and the screen share are test patterns (off until
+//!   switched on, unless `--test-pattern`).
 
 /// What AzMeet's About says (azul-appkit's facts, azul's AboutDialog shows them).
 pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
@@ -180,6 +194,8 @@ const ECHO_TAIL_MS: u32 = 300;
 const TONE_HZ: f32 = 440.0;
 const FEED_W: u32 = 320;
 const FEED_H: u32 = 180;
+/// The size of the test pattern's still in the own tile and the waiting room's preview.
+const PATTERN_STILL: (u32, u32) = (640, 360);
 /// The pixel format video travels in: NV12 (4:2:0 YCbCr in two planes, the
 /// camera's own format), which the H.264 encoder takes and the decoder gives
 /// without a conversion, and which a tile shows through the GPU's YUV shader
@@ -328,6 +344,15 @@ struct RoomSession {
     relay: Relay,
     /// The meeting the waiting room shows (`Stage::Waiting`), entered with "Join now".
     waiting: Option<RoomInfo>,
+    /// Who is in the waiting room's meeting already (its peers list, read every poll while
+    /// waiting, nothing announced); `None` until the first answer.
+    waiting_people: Option<Vec<String>>,
+    /// A read of that list is in flight; `waiting_polls` counts the polls it has been.
+    waiting_busy: bool,
+    waiting_polls: u32,
+    /// The waiting room is a preview: `--screen waiting` with no meeting server answering (a
+    /// screenshot's), so its meeting exists only here and "Join now" says so.
+    preview: bool,
     /// The meeting being opened or waited for was made by this side ("New meeting"), not looked
     /// up: the waiting room says "Start meeting".
     created: bool,
@@ -340,6 +365,10 @@ impl RoomSession {
     fn new(worker: String, name: String, relay: Relay) -> Self {
         RoomSession {
             waiting: None,
+            waiting_people: None,
+            waiting_busy: false,
+            waiting_polls: 0,
+            preview: false,
             created: false,
             straight_in: false,
             session: 0,
@@ -372,6 +401,7 @@ impl RoomSession {
         self.session = self.session.wrapping_add(1);
         self.stage = Stage::InRoom;
         self.waiting = None;
+        self.close_waiting();
         self.straight_in = false;
         self.room_id = found.room;
         self.code = found.code;
@@ -387,6 +417,7 @@ impl RoomSession {
         self.session = self.session.wrapping_add(1);
         self.stage = Stage::Start;
         self.waiting = None;
+        self.close_waiting();
         self.created = false;
         self.straight_in = false;
         self.room_id.clear();
@@ -396,6 +427,33 @@ impl RoomSession {
         self.dialed.clear();
         self.announced_at = None;
         self.busy = false;
+    }
+
+    /// The waiting room is left (joined, Back, or the meeting left): who was in its meeting is
+    /// forgotten, and a read of that still in flight is not waited for.
+    fn close_waiting(&mut self) {
+        self.waiting_people = None;
+        self.waiting_busy = false;
+        self.waiting_polls = 0;
+        self.preview = false;
+    }
+
+    /// In the waiting room: a read of its meeting's peers list (who is in it already), nothing
+    /// announced; one at a time, a stuck one given up after `STUCK_REQUEST_POLLS`. None for a
+    /// preview, whose meeting no server knows.
+    fn waiting_job(&mut self) -> Option<HttpJob> {
+        if self.stage != Stage::Waiting || self.preview || self.waiting.is_none() {
+            return None;
+        }
+        if self.waiting_busy {
+            self.waiting_polls += 1;
+            if self.waiting_polls < STUCK_REQUEST_POLLS {
+                return None;
+            }
+        }
+        self.waiting_busy = true;
+        self.waiting_polls = 0;
+        Some(HttpJob::waiting_peers(self))
     }
 
     /// The announcement to send right away, when the ticket is already known.
@@ -409,8 +467,12 @@ impl RoomSession {
         Some(HttpJob::announce(self))
     }
 
-    /// What this poll sends: an announcement when one is due, else a read of the peers list.
+    /// What this poll sends: an announcement when one is due, else a read of the peers list; in
+    /// the waiting room only that read (`waiting_job`).
     fn next_job(&mut self) -> Option<HttpJob> {
+        if self.stage == Stage::Waiting {
+            return self.waiting_job();
+        }
         if self.stage != Stage::InRoom {
             return None;
         }
@@ -510,6 +572,9 @@ struct MeetState {
     /// The camera and the screen share are test patterns (`AZMEET_TEST_PATTERN=1`, and every
     /// headless run).
     pattern_video: bool,
+    /// A still of the test pattern, made once with `pattern_video`: the own camera tile and the
+    /// waiting room's preview show it as a camera would show its picture.
+    pattern_still: Option<ImageRef>,
     /// When each test pattern's next frame is due, by `track_slot`.
     pattern_clocks: [video_wire::PatternClock; 2],
     /// Shows the "Drop a video packet" button (`AZMEET_TEST_PATTERN=1`).
@@ -636,6 +701,7 @@ impl MeetState {
             },
             video_out: BTreeMap::new(),
             pattern_video: false,
+            pattern_still: None,
             pattern_clocks: [
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
@@ -960,6 +1026,9 @@ fn stats_sections(s: &MeetState) -> Vec<ui::StatSection> {
         audio.push(String::from("Deafened: nothing is played"));
     }
     audio.extend(audio_lines(s));
+    // How packets may travel ("Transport: relay-only http://..."), then the plan and the peers.
+    let mut network: Vec<String> = transport_line(s).into_iter().collect();
+    network.extend(network_lines(s));
     let section = |title: &str, lines: Vec<String>| ui::StatSection {
         title: title.to_string(),
         lines,
@@ -970,7 +1039,7 @@ fn stats_sections(s: &MeetState) -> Vec<ui::StatSection> {
         section("Speakers", s.speakers.clone()),
         section("Video", video),
         section("Audio", audio),
-        section("Network", network_lines(s)),
+        section("Network", network),
     ]
 }
 
@@ -1037,6 +1106,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
             link: found.link.clone(),
             copied: room.copied,
             created: room.created,
+            people: room.waiting_people.clone(),
         })
     });
     ui::CallView {
@@ -1083,6 +1153,7 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         in_room: s.room.is_some(),
         tone_mic: s.tone_mic,
         pattern_video: s.pattern_video,
+        pattern_still: s.pattern_still.clone(),
         mirror: s.mirror,
         screen_renditions: my_renditions(s, SCREEN_TRACK),
         camera_renditions,
@@ -1477,7 +1548,7 @@ unsafe impl Send for SharedEcho {}
 
 /// Starts the playout thread. It ends once the returned handle (kept in `MeetState`) is gone.
 fn start_playout(play: bool) -> Arc<Mutex<Playout>> {
-    let cancel = std::env::var("AZMEET_ECHO_CANCEL").map_or(true, |v| v.trim() != "0");
+    let cancel = setting("AZMEET_ECHO_CANCEL").map_or(true, |v| v != "0");
     let echo = (play && cancel)
         .then(|| EchoCanceller::create(MIC_RATE, ECHO_TAIL_MS))
         .filter(EchoCanceller::is_open)
@@ -1585,11 +1656,12 @@ fn devices_allowed() -> bool {
     })
 }
 
-/// The audio settings of this run: `AZMEET_TEST_TONE=1` makes the microphone a tone and starts
-/// it unmuted; a headless run uses the tone too (muted until switched on) and plays nothing.
+/// The audio settings of this run: `--test-tone` (`AZMEET_TEST_TONE=1`) makes the microphone a
+/// tone and starts it unmuted; a headless run uses the tone too (muted until switched on) and
+/// plays nothing.
 fn configure_audio(s: &mut MeetState) {
     let devices = devices_allowed();
-    let tone = std::env::var("AZMEET_TEST_TONE").is_ok_and(|v| v.trim() == "1");
+    let tone = setting_on("AZMEET_TEST_TONE");
     s.tone_mic = tone || !devices;
     s.play_audio = devices;
     if tone {
@@ -1604,7 +1676,7 @@ fn configure_audio(s: &mut MeetState) {
         );
     } else if tone {
         eprintln!(
-            "[azmeet] {}: the microphone is a {TONE_HZ} Hz test tone (AZMEET_TEST_TONE=1)",
+            "[azmeet] {}: the microphone is a {TONE_HZ} Hz test tone (--test-tone)",
             s.name
         );
     }
@@ -2131,9 +2203,9 @@ fn pattern_frame(index: u32, width: u32, height: u32) -> VideoFrame {
 
 /// Finds out once, at start, what this machine does with H.264: an encoder that opens must turn
 /// a test frame into a keyframe, and a decoder must turn that keyframe back into a picture.
-/// `AZMEET_VIDEO_CODEC=jpeg` switches H.264 off.
+/// `--video-codec jpeg` (`AZMEET_VIDEO_CODEC=jpeg`) switches H.264 off.
 fn probe_video() -> VideoSupport {
-    if std::env::var("AZMEET_VIDEO_CODEC").is_ok_and(|v| v.trim().eq_ignore_ascii_case("jpeg")) {
+    if setting("AZMEET_VIDEO_CODEC").is_some_and(|v| v.eq_ignore_ascii_case("jpeg")) {
         return VideoSupport {
             encoder: Err(String::from("H.264 switched off")),
             decodes_h264: false,
@@ -2200,14 +2272,19 @@ fn probe_decode(keyframe: &[u8]) -> bool {
     decoded
 }
 
-/// The video settings of this run: `AZMEET_TEST_PATTERN=1` makes the camera a test pattern,
-/// switches it on, and shows the "Drop a video packet" button; a headless run uses test patterns
-/// too (off until switched on), so it never opens a camera or a screen.
+/// The video settings of this run: `--test-pattern` (`AZMEET_TEST_PATTERN=1`) makes the camera a
+/// test pattern, switches it on, and shows the "Drop a video packet" button; a headless run uses
+/// test patterns too (off until switched on), so it never opens a camera or a screen.
 fn configure_video(s: &mut MeetState, support: &VideoSupport) {
-    let pattern = std::env::var("AZMEET_TEST_PATTERN").is_ok_and(|v| v.trim() == "1");
+    let pattern = setting_on("AZMEET_TEST_PATTERN");
     let devices = devices_allowed();
     s.video = support.clone();
     s.pattern_video = pattern || !devices;
+    if s.pattern_video && s.pattern_still.is_none() {
+        let (width, height) = PATTERN_STILL;
+        s.pattern_still =
+            ImageRef::create_rawimage(frame_image(pattern_frame(0, width, height))).into_option();
+    }
     s.video_debug = pattern;
     if pattern {
         s.cam_on = true;
@@ -2225,7 +2302,7 @@ fn configure_video(s: &mut MeetState, support: &VideoSupport) {
         );
     } else if pattern {
         eprintln!(
-            "[azmeet] {}: the camera is a test pattern (AZMEET_TEST_PATTERN=1)",
+            "[azmeet] {}: the camera is a test pattern (--test-pattern)",
             s.name
         );
     }
@@ -3347,11 +3424,16 @@ fn measure_tiles(s: &mut MeetState, info: &mut CallbackInfo) {
 fn network_tick(s: &mut MeetState, endpoint: &IrohEndpoint, info: &mut CallbackInfo) {
     measure_tiles(s, info);
     let now = now_ms(s);
+    // The peers whose path turned direct or relayed since the last statistics.
+    let mut turned: Vec<(String, bool)> = Vec::new();
     let paths: Vec<(u64, routes::PathSample)> = s
         .remotes
         .iter_mut()
         .map(|r| {
             let stats = endpoint.peer_stats(r.handle);
+            if r.path.map(|(direct, _)| direct) != Some(stats.direct) {
+                turned.push((r.node_id.clone(), stats.direct));
+            }
             r.path = Some((stats.direct, stats.rtt_us as f64 / 1000.0));
             let sample = routes::PathSample {
                 bytes_sent: stats.bytes_sent,
@@ -3363,6 +3445,15 @@ fn network_tick(s: &mut MeetState, endpoint: &IrohEndpoint, info: &mut CallbackI
             (r.handle, sample)
         })
         .collect();
+    // For scripts: each peer's path whenever it turns (`AZMEET_PATH Ben relayed`); with
+    // `--relay-only` it never says `direct`.
+    for (node_id, direct) in turned {
+        println!(
+            "AZMEET_PATH {} {}",
+            remote_name(s, &node_id),
+            if direct { "direct" } else { "relayed" }
+        );
+    }
     s.capacity.sample(now, &paths);
     network_changed(s, true);
 }
@@ -3370,12 +3461,6 @@ fn network_tick(s: &mut MeetState, endpoint: &IrohEndpoint, info: &mut CallbackI
 /// The routing settings of this run (see the module docs): the mesh cap, a pinned uplink, the
 /// forwarding opt-out, battery, and the view.
 fn configure_network(s: &mut MeetState) {
-    let setting = |key: &str| {
-        std::env::var(key)
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-    };
     s.mesh_cap = setting("AZMEET_MESH_CAP")
         .and_then(|v| v.parse().ok())
         .unwrap_or(routes::DEFAULT_MESH_CAP);
@@ -3407,7 +3492,7 @@ fn configure_network(s: &mut MeetState) {
         s.mesh_cap,
         routes::kbps_label(s.sync.uplink_kbps),
         if pinned.is_some() {
-            " (AZMEET_UPLINK_KBPS)"
+            " (--uplink-kbps)"
         } else {
             " until measured"
         },
@@ -3929,6 +4014,24 @@ impl HttpJob {
         }
     }
 
+    /// The waiting room's read of its meeting's peers list (this side is not announced there).
+    fn waiting_peers(room: &RoomSession) -> Self {
+        let meeting = room
+            .waiting
+            .as_ref()
+            .map_or("", |found| found.room.as_str());
+        HttpJob {
+            verb: Verb::Get,
+            url: format!(
+                "{}/rooms/{}/peers?except={}",
+                room.worker, meeting, room.node_id
+            ),
+            body: String::new(),
+            on_result: on_waiting_peers,
+            session: room.session,
+        }
+    }
+
     /// Whether the meeting server answers (`GET /health`); the answer is matched to the check by
     /// `session`, which holds the check's number here.
     fn health(room: &RoomSession) -> Self {
@@ -4165,9 +4268,12 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
                 room.stage = Stage::Waiting;
                 room.copied = false;
                 room.waiting = Some(found);
+                room.close_waiting();
+                // Who is in the meeting already: asked now, then every poll while waiting.
+                let job = room.waiting_job();
                 s.notice.clear();
                 apply_join_defaults(s);
-                None
+                job
             }
             None => {
                 room.stage = Stage::Start;
@@ -4317,6 +4423,57 @@ extern "C" fn on_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Upd
     }
 }
 
+/// The waiting room's read of its meeting's peers list: who is in the meeting already ("Ada is in
+/// this meeting"). An answer for a waiting room since left is ignored; a meeting that ended says
+/// so.
+extern "C" fn on_waiting_peers(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some((mut data, session)) = reply_parts(data) else {
+        return Update::DoNothing;
+    };
+    let answer = http_answer(result);
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(room) = s.room.as_mut() else {
+        return Update::DoNothing;
+    };
+    if room.session != session || room.stage != Stage::Waiting {
+        return Update::DoNothing;
+    }
+    room.waiting_busy = false;
+    match answer {
+        Ok((200, Some(json))) => {
+            let names: Vec<String> = peers_from(&json)
+                .into_iter()
+                .filter(|p| p.node_id != room.node_id)
+                .map(|p| {
+                    if p.name.trim().is_empty() {
+                        short_id(&p.node_id).to_string()
+                    } else {
+                        p.name
+                    }
+                })
+                .collect();
+            if room.waiting_people.as_ref() == Some(&names) {
+                return Update::DoNothing;
+            }
+            eprintln!(
+                "[azmeet] {}: in the waiting room: {}",
+                s.name,
+                ui::who_is_here(&names)
+            );
+            room.waiting_people = Some(names);
+            Update::RefreshDom
+        }
+        Ok((404, _)) => {
+            s.notice = String::from("This meeting has ended, or the link is wrong.");
+            Update::RefreshDom
+        }
+        _ => Update::DoNothing,
+    }
+}
+
 // ==== The meeting server field (start screen) ====
 
 /// The meeting server field as typed.
@@ -4419,7 +4576,11 @@ fn rebind_for_server(s: &mut MeetState) {
     if relay == room.relay {
         return;
     }
-    let endpoint = bind_endpoint(&relay);
+    let endpoint = bind_endpoint(&relay, relay_only());
+    println!(
+        "AZMEET_TRANSPORT {}",
+        rooms::transport_label(&relay, relay_only())
+    );
     if !endpoint.is_bound() {
         let reason = bind_failure(&endpoint);
         eprintln!(
@@ -4830,24 +4991,19 @@ fn enter_room(
     job
 }
 
-/// `"1"` in the environment variable `key`.
-fn env_on(key: &str) -> bool {
-    std::env::var(key).is_ok_and(|v| v.trim() == "1")
-}
-
 /// A meeting was found: the microphone and the camera start as the settings' Meetings say (on,
 /// unless "Join with the microphone off" / "... the camera off"). Not where they are a test tone
-/// or a test pattern (a headless run, `AZMEET_TEST_TONE`, `AZMEET_TEST_PATTERN`): those keep the
-/// state their switches gave them, so a script knows what it gets.
+/// or a test pattern (a headless run, `--test-tone`, `--test-pattern`): those keep the state
+/// their switches gave them, so a script knows what it gets.
 fn apply_join_defaults(s: &mut MeetState) {
     if !devices_allowed() {
         return;
     }
-    if !env_on("AZMEET_TEST_TONE") {
+    if !setting_on("AZMEET_TEST_TONE") {
         s.mic_on = !s.join_muted;
         sync_mic(s);
     }
-    if !env_on("AZMEET_TEST_PATTERN") {
+    if !setting_on("AZMEET_TEST_PATTERN") {
         s.cam_on = !s.join_camera_off;
     }
 }
@@ -4860,6 +5016,15 @@ extern "C" fn on_join_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
             return Update::DoNothing;
         };
         let s = &mut *guard;
+        if let Some(room) = s.room.as_ref().filter(|room| room.preview) {
+            // The preview's meeting exists only here: nobody could join it.
+            s.notice = format!(
+                "This waiting room is a preview: no meeting server answers at {}. Start one (the \
+                 meet Worker's dev server) or pick another on the start screen to meet people.",
+                room.worker
+            );
+            return Update::RefreshDom;
+        }
         let found = s
             .room
             .as_mut()
@@ -4886,8 +5051,12 @@ extern "C" fn on_waiting_back(mut data: RefAny, _info: CallbackInfo) -> Update {
     let Some(room) = s.room.as_mut().filter(|room| room.stage == Stage::Waiting) else {
         return Update::DoNothing;
     };
+    // A new session: the answer to a read of this waiting room's peers still in flight is
+    // ignored, whatever waiting room opens next.
+    room.session = room.session.wrapping_add(1);
     room.stage = Stage::Start;
     room.waiting = None;
+    room.close_waiting();
     room.created = false;
     room.copied = false;
     s.notice.clear();
@@ -4937,15 +5106,12 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// `AZMEET_JOIN` / `AZMEET_AUTOCREATE` / `--screen call`: start in a meeting without a click,
-/// past the waiting room unless `AZMEET_WAITING_ROOM=1`; `--screen waiting`: a new meeting's
-/// waiting room.
+/// `--join <link>` / `--autocreate` / `--screen call`: start in a meeting without a click, past
+/// the waiting room unless `--waiting-room`; `--screen waiting`: a new meeting's waiting room, or
+/// a preview of one when no meeting server answers.
 fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    let straight_in = !env_on("AZMEET_WAITING_ROOM");
-    if let Some(link) = std::env::var("AZMEET_JOIN")
-        .ok()
-        .filter(|l| !l.trim().is_empty())
-    {
+    let straight_in = !setting_on("AZMEET_WAITING_ROOM");
+    if let Some(link) = setting("AZMEET_JOIN") {
         if let Some(mut s) = data.downcast_mut::<MeetState>() {
             if let Some(room) = s.room.as_mut() {
                 room.join_text = link.clone();
@@ -4953,12 +5119,56 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         }
         return begin_join(data, info, &link, straight_in);
     }
+    let server_ok = data
+        .downcast_ref::<MeetState>()
+        .is_some_and(|s| s.room.as_ref().is_some_and(|room| room.server_ok));
     match launch_args().screen {
         args::Screen::Call => begin_new_meeting(data, info, straight_in),
-        args::Screen::Waiting => begin_new_meeting(data, info, false),
-        _ if env_on("AZMEET_AUTOCREATE") => begin_new_meeting(data, info, straight_in),
+        args::Screen::Waiting if server_ok => begin_new_meeting(data, info, false),
+        args::Screen::Waiting => preview_waiting_room(data),
+        _ if setting_on("AZMEET_AUTOCREATE") => begin_new_meeting(data, info, straight_in),
         _ => Update::DoNothing,
     }
+}
+
+/// `--screen waiting` with no meeting server answering (a screenshot of the waiting room): the
+/// waiting room of a meeting that exists only here - a code made up here, its link, nobody in
+/// it; "Join now" says that no meeting server answers. stdout: `AZMEET_WAITING <link>`, as for a
+/// real one.
+fn preview_waiting_room(data: &mut RefAny) -> Update {
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(room) = s.room.as_mut() else {
+        return Update::DoNothing;
+    };
+    if room.stage != Stage::Start {
+        return Update::DoNothing;
+    }
+    let code = gen_link();
+    let found = RoomInfo {
+        room: code.clone(),
+        link: format!("{}{code}", rooms::APP_LINK_PREFIX),
+        code,
+    };
+    println!("AZMEET_WAITING {}", found.link);
+    eprintln!(
+        "[azmeet] {}: a preview of the waiting room (meeting {}): no meeting server answers at {}",
+        s.name, found.code, room.worker
+    );
+    room.stage = Stage::Waiting;
+    room.created = true;
+    room.copied = false;
+    room.waiting = Some(found);
+    room.close_waiting();
+    room.preview = true;
+    s.notice = format!(
+        "A preview of the waiting room: no meeting server answers at {}.",
+        room.worker
+    );
+    apply_join_defaults(s);
+    Update::RefreshDom
 }
 
 extern "C" fn startup_first(data: RefAny, info: CallbackInfo) -> Update {
@@ -4973,6 +5183,13 @@ fn start_pumping(data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
     let Some(mut peer) = room_peer(&data, index) else {
         return Update::DoNothing;
     };
+    if index == 0 {
+        // azul-appkit's `--shot <png>`: the first window as a PNG after its settle time, then
+        // the process ends (`AzMeet --screen waiting --test-pattern --shot waiting.png`).
+        if let Some(kit_ref) = peer.downcast_ref::<MeetState>().map(|s| s.kit.clone()) {
+            kit::on_window_created(&kit_ref, &mut info);
+        }
+    }
     let get_time = info.get_system_time_fn();
     info.add_timer(
         TimerId::unique(),
@@ -5432,7 +5649,9 @@ fn gen_link() -> String {
     )
 }
 
-fn bind_endpoint(relay: &Relay) -> IrohEndpoint {
+/// This side's iroh endpoint with the relays of `relay`; `relay_only` (`--relay-only`) binds no
+/// UDP socket at all, so no direct path forms and every packet goes through the relay.
+fn bind_endpoint(relay: &Relay, relay_only: bool) -> IrohEndpoint {
     let config = IrohConfig::create(ALPN);
     let config = match relay {
         Relay::Off => config.with_relay_mode(IrohRelayMode::Disabled),
@@ -5441,7 +5660,21 @@ fn bind_endpoint(relay: &Relay) -> IrohEndpoint {
             .with_relay_mode(IrohRelayMode::Custom)
             .with_relay_url(url.as_str()),
     };
-    IrohEndpoint::bind(config)
+    IrohEndpoint::bind(config.with_relay_only(relay_only))
+}
+
+/// `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path.
+fn relay_only() -> bool {
+    setting_on("AZMEET_RELAY_ONLY")
+}
+
+/// What the statistics' Network section starts with: how this side's packets may travel.
+fn transport_line(s: &MeetState) -> Option<String> {
+    let room = s.room.as_ref()?;
+    Some(format!(
+        "Transport: {}",
+        rooms::transport_label(&room.relay, relay_only())
+    ))
 }
 
 fn bind_failure(endpoint: &IrohEndpoint) -> String {
@@ -5512,19 +5745,20 @@ fn probe(url: &str) -> Result<(), String> {
         .unwrap_or_else(|_| Err(String::from("no answer")))
 }
 
-/// The meeting server at start (`rooms::server_prefill`: the one saved last time, else
-/// `AZMEET_WORKER`, else the built-in default), where it came from, and whether it accepts a
-/// connection. A headless run without a data root of its own reads no settings, so
+/// The meeting server at start (`rooms::server_choice`: `--worker`, else the one saved last time,
+/// else `AZMEET_WORKER`, else the built-in default), where it came from, and whether it accepts
+/// a connection. A headless run without a data root of its own reads no settings, so
 /// `AZMEET_WORKER` wins there.
 fn meeting_server() -> (String, rooms::ServerSource, Result<(), String>) {
     let saved = store::Prefs::read(saved_settings()).server;
+    let flag = launch_args().switch("AZMEET_WORKER");
     let env = std::env::var("AZMEET_WORKER").ok();
     let built_in = if PRODUCTION_WORKER.is_empty() {
         rooms::LOCAL_WORKER
     } else {
         PRODUCTION_WORKER
     };
-    let (url, source) = rooms::server_prefill(saved.as_deref(), env.as_deref(), built_in);
+    let (url, source) = rooms::server_choice(flag, saved.as_deref(), env.as_deref(), built_in);
     let answer = probe(&url);
     (url, source, answer)
 }
@@ -5534,6 +5768,18 @@ static ARGS: std::sync::OnceLock<args::Args> = std::sync::OnceLock::new();
 
 fn launch_args() -> &'static args::Args {
     ARGS.get_or_init(args::Args::default)
+}
+
+/// AzMeet's setting `var` (`AZMEET_RELAY`): its switch (`--relay`), else the environment
+/// variable (older scripts); trimmed, `None` when unset or blank (`args.rs`).
+fn setting(var: &str) -> Option<String> {
+    launch_args().setting(var)
+}
+
+/// Whether the setting `var` is on: its switch (`--test-tone`) was given, or the environment
+/// variable is `1` (`AZMEET_TEST_TONE=1`).
+fn setting_on(var: &str) -> bool {
+    launch_args().on(var)
 }
 
 /// The app theme and the mode of this run: `--theme` / `--mode` (this run only), else the saved
@@ -5573,23 +5819,26 @@ pub fn start() {
         }
     }
     let (worker, source, answer) = meeting_server();
-    if rooms::opens_demo(source, answer.is_ok()) {
+    // `--screen waiting` always shows the waiting room: a preview of one when nothing answers.
+    let waiting = launch_args().screen == args::Screen::Waiting;
+    if rooms::opens_demo(source, answer.is_ok()) && !waiting {
         let why = answer.err().unwrap_or_default();
         start_demo(&format!(
             "Local demo: no meeting server is set, and none answers at {worker} ({why}). Start the \
-             meet Worker's dev server, or AzMeet with AZMEET_WORKER=<url>, to meet other people."
+             meet Worker's dev server, or AzMeet with --worker <url>, to meet other people."
         ));
     } else {
         start_rooms(worker, answer);
     }
 }
 
-/// The relays for a meeting server at `worker`: `AZMEET_RELAY`, else none for one on this machine.
+/// The relays for a meeting server at `worker`: `--relay` (`AZMEET_RELAY`), else none for one on
+/// this machine.
 fn relay_for(worker: &str) -> Relay {
     let host = server_address(worker)
         .map(|(host, _)| host)
         .unwrap_or_default();
-    rooms::relay_choice(std::env::var("AZMEET_RELAY").ok().as_deref(), &host)
+    rooms::relay_choice(setting("AZMEET_RELAY").as_deref(), &host)
 }
 
 /// One window with the start screen, talking to the meeting server at `worker`; `answer` says
@@ -5597,7 +5846,18 @@ fn relay_for(worker: &str) -> Relay {
 fn start_rooms(worker: String, answer: Result<(), String>) {
     let relay = relay_for(&worker);
     let name = display_name();
-    let endpoint = bind_endpoint(&relay);
+    if relay_only() && relay == Relay::Off {
+        eprintln!(
+            "[azmeet] {name}: --relay-only needs a relay (--relay <url> or --relay default): \
+             nothing can carry a packet"
+        );
+    }
+    let endpoint = bind_endpoint(&relay, relay_only());
+    // For scripts: how this side's packets may travel (the relay phase of azmeet_e2e.py).
+    println!(
+        "AZMEET_TRANSPORT {}",
+        rooms::transport_label(&relay, relay_only())
+    );
     let mut me = MeetState::new(&name, "", "", make_kit());
     let mut room = RoomSession::new(worker.clone(), name.clone(), relay.clone());
     room.server_ok = answer.is_ok();
@@ -5611,8 +5871,9 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
     if endpoint.is_bound() {
         room.node_id = endpoint.endpoint_id().as_str().to_string();
         eprintln!(
-            "[azmeet] {name}: endpoint {} (relays {relay:?}), meeting server {worker}",
-            short_id(&room.node_id)
+            "[azmeet] {name}: endpoint {} (relays {relay:?}{}), meeting server {worker}",
+            short_id(&room.node_id),
+            if relay_only() { ", relay only" } else { "" }
         );
         me.endpoint = Some(endpoint);
         me.link_status = String::from("not in a meeting");
@@ -5637,8 +5898,8 @@ fn start_demo(notice: &str) {
     let notice = notice.to_string();
     eprintln!("[azmeet] {notice}");
     let video = probe_video();
-    let ada_link = bind_endpoint(&Relay::Off);
-    let ben_link = bind_endpoint(&Relay::Off);
+    let ada_link = bind_endpoint(&Relay::Off, false);
+    let ben_link = bind_endpoint(&Relay::Off, false);
     let peers = if ada_link.is_bound() && ben_link.is_bound() {
         eprintln!(
             "[azmeet] meeting {meeting}: Ada (CPU window, camera) and Ben (GPU window, screen share) over iroh"
@@ -5647,7 +5908,7 @@ fn start_demo(notice: &str) {
         // AzMeet must not film the user, capture the screen, and run two encoders, two decoders
         // and a software-rendered window before anyone clicked (`AZMEET_TEST_PATTERN=1` and a
         // headless run, whose camera and screen are test patterns, keep both on, for scripts).
-        let live_devices = devices_allowed() && !env_on("AZMEET_TEST_PATTERN");
+        let live_devices = devices_allowed() && !setting_on("AZMEET_TEST_PATTERN");
         let mut ada = MeetState::new("Ada", "Ben", "CPU", make_kit());
         ada.meeting = meeting.clone();
         ada.notice = notice.clone();
@@ -5714,7 +5975,9 @@ fn run(peers: Vec<RefAny>, linked: bool) {
         second.renderer = renderer(HwAcceleration::Enabled);
         app.add_window(second);
     } else {
-        first.window_state.size.dimensions = LogicalSize::create(1100.0, 720.0);
+        // azul-appkit's `--size WxH`, else 1100 x 720.
+        let (width, height) = launch_args().kit.size.unwrap_or((1100.0, 720.0));
+        first.window_state.size.dimensions = LogicalSize::create(width, height);
         first.window_state.title = AzString::from("AzMeet");
     }
     app.run(first);

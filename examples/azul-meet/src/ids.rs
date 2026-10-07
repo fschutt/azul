@@ -45,6 +45,8 @@ pub const WAITING: AzString = AzString::from_const_str("__azmeet_waiting");
 pub const PREVIEW: AzString = AzString::from_const_str("__azmeet_preview");
 /// The meeting's code (or its link when it has no code).
 pub const MEETING_CODE: AzString = AzString::from_const_str("__azmeet_meeting_code");
+/// Who is in the meeting already: their faces and "Ada is in this meeting".
+pub const WHO_IS_HERE: AzString = AzString::from_const_str("__azmeet_who_is_here");
 /// The name others see (the waiting room and the settings' Meetings).
 pub const NAME: AzString = AzString::from_const_str("__azmeet_name");
 /// "Join now", or "Start meeting" for a meeting this side just made.

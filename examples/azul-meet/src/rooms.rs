@@ -217,6 +217,24 @@ pub fn relay_choice(setting: Option<&str>, worker_host: &str) -> Relay {
     }
 }
 
+/// How this side's packets may travel, for stdout (`AZMEET_TRANSPORT <label>`) and the
+/// statistics: `direct` (no relay), `direct+relay <relays>` (a direct path where one forms, the
+/// relay otherwise), `relay-only <relays>` (`--relay-only`: never a direct path), or `none`
+/// (relay-only without a relay: nothing can carry a packet).
+pub fn transport_label(relay: &Relay, relay_only: bool) -> String {
+    let relays = match relay {
+        Relay::Off => None,
+        Relay::Default => Some("default"),
+        Relay::Custom(url) => Some(url.as_str()),
+    };
+    match (relays, relay_only) {
+        (None, false) => String::from("direct"),
+        (None, true) => String::from("none"),
+        (Some(relays), false) => format!("direct+relay {relays}"),
+        (Some(relays), true) => format!("relay-only {relays}"),
+    }
+}
+
 /// The meeting server when none was saved, `AZMEET_WORKER` is not set and none is built in: the
 /// local mock (`cf-workers/meet/dev-server.mjs`).
 pub const LOCAL_WORKER: &str = "http://127.0.0.1:8787";
@@ -226,6 +244,8 @@ const MAX_SERVER_CHARS: usize = 2048;
 /// Where the meeting server's address at start came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerSource {
+    /// The command line's `--worker`: this run only, over the saved one.
+    CommandLine,
     /// Saved the last time it answered (the start screen's field).
     Saved,
     /// `AZMEET_WORKER`.
@@ -270,6 +290,21 @@ pub fn server_prefill(
     }
     let server = normalize_server(built_in).unwrap_or_else(|| LOCAL_WORKER.to_string());
     (server, ServerSource::BuiltIn)
+}
+
+/// The meeting server at start: the command line's `--worker` (`flag`) for this run, over
+/// everything [`server_prefill`] weighs; a `flag` that is no meeting server address is passed
+/// over too.
+pub fn server_choice(
+    flag: Option<&str>,
+    saved: Option<&str>,
+    env: Option<&str>,
+    built_in: &str,
+) -> (String, ServerSource) {
+    match flag.and_then(normalize_server) {
+        Some(server) => (server, ServerSource::CommandLine),
+        None => server_prefill(saved, env, built_in),
+    }
 }
 
 /// Whether AzMeet opens its in-process demo instead of the start screen: only when nothing was
@@ -520,6 +555,18 @@ mod tests {
         );
     }
 
+    /// The E2E's relay phase reads `AZMEET_TRANSPORT relay-only http://127.0.0.1:<port>`.
+    #[test]
+    fn the_transport_label_says_whether_a_direct_path_may_form_and_through_which_relays() {
+        let local = Relay::Custom(String::from("http://127.0.0.1:3340"));
+        assert_eq!(transport_label(&Relay::Off, false), "direct");
+        assert_eq!(transport_label(&Relay::Default, false), "direct+relay default");
+        assert_eq!(transport_label(&local, false), "direct+relay http://127.0.0.1:3340");
+        assert_eq!(transport_label(&local, true), "relay-only http://127.0.0.1:3340");
+        assert_eq!(transport_label(&Relay::Default, true), "relay-only default");
+        assert_eq!(transport_label(&Relay::Off, true), "none", "relay-only without a relay");
+    }
+
     #[test]
     fn the_meeting_server_is_the_saved_one_else_azmeet_worker_else_the_built_in_default() {
         let saved = Some("https://meet.example.com/");
@@ -600,5 +647,32 @@ mod tests {
         assert!(!opens_demo(ServerSource::BuiltIn, true));
         assert!(!opens_demo(ServerSource::Saved, false));
         assert!(!opens_demo(ServerSource::Environment, false));
+        assert!(!opens_demo(ServerSource::CommandLine, false));
+    }
+
+    /// `--worker` is this run's meeting server even over the saved one (a script's worker is
+    /// not lost to what an earlier run saved); one that is no address is passed over.
+    #[test]
+    fn the_worker_switch_wins_over_the_saved_server() {
+        let saved = Some("https://meet.example.com");
+        let env = Some("http://127.0.0.1:9999");
+        assert_eq!(
+            server_choice(Some(" http://127.0.0.1:8790/ "), saved, env, "https://built.in"),
+            (
+                String::from("http://127.0.0.1:8790"),
+                ServerSource::CommandLine
+            )
+        );
+        assert_eq!(
+            server_choice(Some("not an address"), saved, env, "https://built.in"),
+            (
+                String::from("https://meet.example.com"),
+                ServerSource::Saved
+            )
+        );
+        assert_eq!(
+            server_choice(None, None, env, "https://built.in"),
+            server_prefill(None, env, "https://built.in")
+        );
     }
 }
