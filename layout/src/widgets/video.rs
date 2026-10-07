@@ -57,6 +57,16 @@ pub const DECODE_KEEP_BEHIND_S: f32 = 0.5;
 /// A seek this far past the decoded frames restarts the decode at the
 /// target's keyframe instead of decoding every frame up to it.
 pub const DECODE_JUMP_S: f32 = 3.0;
+/// How far (in frames) the clock may run past the newest decoded frame
+/// before playback STALLS: one late frame is a hitch, not a wait.
+pub const STALL_SLACK_FRAMES: f32 = 2.0;
+/// How long a stall lasts before the app is told the video is loading
+/// (buffering) rather than playing.
+pub const STALL_REPORT_S: f64 = 0.3;
+/// How much is decoded past the frame a stall waits on before playback goes
+/// on: a download that delivers a frame at a time would otherwise play a
+/// frame, wait, play a frame.
+pub const RESUME_LEAD_S: f32 = 0.5;
 
 /// Live state for one video widget, carried across relayout by
 /// [`merge_video_state`].
@@ -1022,6 +1032,13 @@ impl VideoPlayback {
     /// The video is `duration_s` long (`0.0`, NaN or negative: unknown).
     pub const fn set_duration(&mut self, duration_s: f32) {
         self.duration_s = sanitize_position(duration_s);
+    }
+
+    /// Held, keep `seconds` decoded past the poster, so a resume plays at
+    /// once: for an app that holds a video only to start it in step with
+    /// something else (its sound). A poster nobody may ever play keeps none.
+    pub const fn set_preroll(&mut self, seconds: f32) {
+        let _ = seconds;
     }
 
     /// One frame lasts `frame_s` (ignored unless positive and finite).
@@ -3865,6 +3882,115 @@ mod autotest_generated {
             phase_of(&starved),
             Some(VideoPhase::Ended),
             "a video still decoding has not ended"
+        );
+    }
+
+    /// A download slower than the video: the clock waits at the newest frame
+    /// and, once that lasts, the app hears `Loading` (buffering) - not a
+    /// `Playing` whose picture stands still; it plays on from where it stood
+    /// once half a second is decoded ahead, not frame by frame.
+    #[test]
+    fn a_stall_that_lasts_reports_loading_and_plays_on_with_a_lead() {
+        let frame_s = 1.0_f32 / 30.0;
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        pb.push_frame(frame_s, tagged(2));
+        let start = pb.tick(0.0);
+        assert_eq!(phase_of(&start), Some(VideoPhase::Playing));
+
+        // The download stops: the clock passes the newest frame and waits there.
+        let late = pb.tick(0.2);
+        assert_eq!(pb.position(0.2), frame_s, "the clock waits at the newest frame");
+        assert_ne!(
+            phase_of(&late),
+            Some(VideoPhase::Loading),
+            "a moment's wait is not buffering yet"
+        );
+        let stalled = pb.tick(0.2 + STALL_REPORT_S + 0.05);
+        assert_eq!(
+            phase_of(&stalled),
+            Some(VideoPhase::Loading),
+            "a wait that lasts is buffering"
+        );
+        assert_eq!(pb.position(9.0), frame_s, "the clock stands while buffering");
+
+        // Frames arrive, less than the lead: still waiting.
+        for n in 2..10_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        let _ = pb.tick(1.0);
+        assert_eq!(pb.position(1.5), frame_s, "less than the lead: still waiting");
+
+        // Half a second decoded ahead: plays on from where it stood.
+        for n in 10..30_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        let resumed = pb.tick(2.0);
+        assert_eq!(phase_of(&resumed), Some(VideoPhase::Playing));
+        assert!(
+            (pb.position(2.1) - (frame_s + 0.1)).abs() < 1e-4,
+            "on from where it stood: {}",
+            pb.position(2.1)
+        );
+    }
+
+    /// A paused or a seeked video does not stall: a pause holds the frame on
+    /// screen as the poster, a seek waits for the frames at its target.
+    #[test]
+    fn a_pause_during_a_stall_holds_and_a_resume_waits_for_the_lead_again() {
+        let frame_s = 1.0_f32 / 30.0;
+        let mut pb = VideoPlayback::new(0.0, false, false);
+        pb.set_duration(10.0);
+        pb.push_frame(0.0, tagged(1));
+        let _ = pb.tick(0.0);
+        let _ = pb.tick(1.0); // stalled at 0.0
+        pb.pause(1.1);
+        let held = pb.tick(2.0);
+        assert_eq!(phase_of(&held), Some(VideoPhase::Paused));
+        assert_eq!(pb.position(5.0), 0.0);
+        // Resumed with no frame ahead: waits (and after a moment says so).
+        pb.resume(3.0);
+        let _ = pb.tick(3.0);
+        let waiting = pb.tick(3.0 + STALL_REPORT_S + 0.05);
+        assert_eq!(phase_of(&waiting), Some(VideoPhase::Loading));
+        assert_eq!(pb.position(4.0), 0.0);
+        for n in 1..30_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        let playing = pb.tick(5.0);
+        assert_eq!(phase_of(&playing), Some(VideoPhase::Playing));
+    }
+
+    /// An app that holds a video only to start it in step with its sound (a
+    /// media center fading its menus out first): held, the video decodes a
+    /// lead past its poster, so the resume plays at once - no wait for the
+    /// decoder while the sound already runs.
+    #[test]
+    fn a_video_held_to_start_soon_decodes_its_lead_and_starts_at_once() {
+        let frame_s = 1.0_f32 / 30.0;
+        let mut pb = VideoPlayback::new(0.0, true, false);
+        pb.set_duration(10.0);
+        pb.set_preroll(RESUME_LEAD_S);
+        assert!(pb.wants_frame(0.0, None), "the poster");
+        pb.push_frame(0.0, tagged(1));
+        let poster = pb.tick(0.0);
+        assert_eq!(phase_of(&poster), Some(VideoPhase::Paused));
+        assert!(pb.wants_frame(1.0, Some(0.0)), "held, it decodes its lead");
+        for n in 1..=15_u32 {
+            pb.push_frame(n as f32 * frame_s, tagged(n + 1));
+        }
+        assert!(
+            !pb.wants_frame(1.0, Some(15.0 * frame_s)),
+            "and no more than the lead"
+        );
+        pb.resume(2.0);
+        let playing = pb.tick(2.0);
+        assert_eq!(phase_of(&playing), Some(VideoPhase::Playing));
+        assert!(
+            (pb.position(2.25) - 0.25).abs() < 1e-4,
+            "it starts at once: {}",
+            pb.position(2.25)
         );
     }
 
