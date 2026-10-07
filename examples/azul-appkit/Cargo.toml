@@ -10,8 +10,8 @@ description = """
     --sample, --data-dir), the per-user data layout (one folder per app under
     the data root, the same keys the user's S3 bucket will have), the app
     settings file, the keyboard-shortcut table and the About facts. With the
-    `azul` feature also the shared UI: the settings page on azul's
-    ShellSettingsLayout (Appearance, Data, Shortcuts, About), the window's
+    `azul` feature also the shared UI: the settings page in the shape of
+    Outlook 2010's Options dialog (General, Data, Shortcuts, About), the window's
     title row, the `--shot` screenshot timer and file jobs that run on an
     azul Thread through azul-storage's Drive (a LocalDrive today, an S3Drive
     later). AzCalculator is its first user, AzContacts the second.

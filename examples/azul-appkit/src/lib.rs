@@ -15,6 +15,9 @@
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
+//! - [`options`]: the settings page's model - Outlook 2010's Options dialog
+//!   (the categories, the header line over each, the ids, what Cancel puts
+//!   back).
 //! - `pieces` (feature `azul`): the small DOM pieces every app's screens are
 //!   built from (text, block, flex column / row, buttons).
 //! - `backstage` (feature `azul`): the right side of the File tab in the
@@ -23,8 +26,9 @@
 //! - `ribbon` (feature `azul`): the office apps' ribbon buttons, columns,
 //!   rows and groups (one builder; the app's command type implements
 //!   `RibbonCommand`).
-//! - `ui` (feature `azul`): the settings page on azul's `ShellSettingsLayout`
-//!   (Appearance, Data, Shortcuts, About, plus the app's own sections), the
+//! - `ui` (feature `azul`): the settings page in the shape of Outlook 2010's
+//!   Options dialog (the app's own categories, then General, Data, Shortcuts,
+//!   About; a header line, banded sections, OK / Cancel), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
 //!   config (`--theme` / `--mode` over the settings file), the `--shot`
 //!   screenshot timer, and [`files`] jobs on an azul `Thread`.
@@ -41,6 +45,7 @@ pub mod files;
 pub mod find;
 pub mod history;
 pub mod migrate;
+pub mod options;
 pub mod settings;
 pub mod shortcuts;
 
