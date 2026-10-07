@@ -27,6 +27,7 @@ members = [
     "examples/azul-pim", # azul-pim: the shared PIM logic (dates, RRULE, .ics/.vcf content lines, addresses, search, initials, the one task store)
     "examples/azul-dashboard", # AzDashboard: 500k orders in the virtualized DataTable (sort, filter, edit) + charts, on the S6 RecordsShell
     "examples/azul-term", # AzTerm: a terminal (alacritty_terminal VT engine + PTY) in azul's TerminalView, tabs on the S8 DeveloperShell
+    "examples/azul-termkit", # azul-termkit: the shell on a PTY, its screen and the TerminalView glue AzTerm and AzCode's terminal panel share
     "examples/azul-pdf", # AzPdf: the PDF viewer (ParsedPdf -> page SVG -> azul's SVG renderer on a Thread; thumbnails, outline, zoom, search) on the DocumentShell
     "examples/azul-clock", # AzClock: alarms (RRULE repeats, DST-correct, OS-scheduled notifications), timers, stopwatch, world clock on the S9 UtilityShell
     "examples/azul-reader", # AzReader: the e-reader (EPUB through azul's XML/HTML parser, paged layout, library, TOC, bookmarks; reader/books/<uuid>/...)

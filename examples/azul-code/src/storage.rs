@@ -8,16 +8,26 @@
 //! The highlighter's far walks ([`crate::highlight::HighlightJob`]) run on
 //! a Thread the same way.
 
-use std::{collections::VecDeque, path::PathBuf};
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use azul::{
     callbacks::{CallbackInfo, RefAny, WriteBackCallbackType},
     task::{Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg},
 };
+use azul_appkit::find::TextMatch;
 use azul_storage::{key::last_segment, Drive, LocalDrive};
 
 use crate::{
+    git,
     highlight::{HighlightJob, JobResult},
+    search::{find_in_text, Hit},
     workspace::{hidden_entry, skipped_folder, Root},
 };
 
@@ -25,6 +35,10 @@ use crate::{
 pub const INDEX_MAX_FILES: usize = 20_000;
 /// The most folders the index walk lists.
 const INDEX_MAX_FOLDERS: usize = 4_000;
+/// The most matches a search of the folder lists (VSCode's default).
+pub const SEARCH_MAX_HITS: usize = 20_000;
+/// A file larger than this is not searched (bytes).
+pub const SEARCH_MAX_FILE: usize = 4 * 1024 * 1024;
 
 /// One thing to do in the workspace (keys relative to the workspace).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +52,8 @@ pub enum DriveJob {
     /// Every file of the workspace for quick open, folder by folder
     /// (breadth first), the [`skipped_folder`]s left out, `limit` at most.
     Index { limit: usize },
+    /// The git branch of the folder on disk (the status bar's).
+    Branch { folder: PathBuf },
 }
 
 /// What a job did.
@@ -63,6 +79,11 @@ pub enum DriveOutcome {
         files: Vec<String>,
         complete: bool,
         error: Option<String>,
+    },
+    /// The branch `folder` is checked out at (`None`: no repository).
+    Branch {
+        folder: PathBuf,
+        branch: Option<String>,
     },
 }
 
@@ -90,6 +111,10 @@ pub fn run_jobs(drive: &dyn Drive, prefix: &str, jobs: Vec<DriveJob>) -> Vec<Dri
                 DriveOutcome::Written { key, result }
             }
             DriveJob::Index { limit } => index(drive, prefix, limit),
+            DriveJob::Branch { folder } => {
+                let branch = git::branch(&folder);
+                DriveOutcome::Branch { folder, branch }
+            }
         })
         .collect()
 }
@@ -99,6 +124,29 @@ pub fn run_jobs(drive: &dyn Drive, prefix: &str, jobs: Vec<DriveJob>) -> Vec<Dri
 /// [`skipped_folder`]; at most `limit` files and [`INDEX_MAX_FOLDERS`]
 /// folders.
 fn index(drive: &dyn Drive, prefix: &str, limit: usize) -> DriveOutcome {
+    match index_keys(drive, prefix, limit, None) {
+        Ok((files, complete)) => DriveOutcome::Indexed {
+            files,
+            complete,
+            error: None,
+        },
+        Err(error) => DriveOutcome::Indexed {
+            files: Vec::new(),
+            complete: false,
+            error: Some(error),
+        },
+    }
+}
+
+/// The walk of [`index`]: the files (keys) and whether the walk saw them
+/// all. `Err` when the workspace itself cannot be listed; a `cancel` raised
+/// stops the walk where it is.
+fn index_keys(
+    drive: &dyn Drive,
+    prefix: &str,
+    limit: usize,
+    cancel: Option<&AtomicBool>,
+) -> Result<(Vec<String>, bool), String> {
     let mut files: Vec<String> = Vec::new();
     let mut queue: VecDeque<String> = VecDeque::from([String::new()]);
     let mut listed = 0;
@@ -108,17 +156,15 @@ fn index(drive: &dyn Drive, prefix: &str, limit: usize) -> DriveOutcome {
             complete = false;
             break;
         }
+        if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            complete = false;
+            break;
+        }
         listed += 1;
         let level = match azul_storage::ops::list_folder_all(drive, &format!("{prefix}{folder}")) {
             Ok(level) => level,
             // The workspace itself cannot be listed: say so; a folder in it: go on without it.
-            Err(e) if folder.is_empty() => {
-                return DriveOutcome::Indexed {
-                    files,
-                    complete: false,
-                    error: Some(e.to_string()),
-                }
-            }
+            Err(e) if folder.is_empty() => return Err(e.to_string()),
             Err(_) => continue,
         };
         for object in &level.objects {
@@ -140,11 +186,172 @@ fn index(drive: &dyn Drive, prefix: &str, limit: usize) -> DriveOutcome {
             queue.push_back(format!("{folder}{name}/"));
         }
     }
-    DriveOutcome::Indexed {
-        files,
-        complete,
+    Ok((files, complete))
+}
+
+// ==== The search of the folder's files ====
+
+/// What the side bar's search asks of the workspace.
+#[derive(Debug, Clone)]
+pub struct SearchJob {
+    pub query: String,
+    pub how: TextMatch,
+    /// Which search of the app's this is (a reply to an older one is
+    /// dropped).
+    pub generation: u64,
+    /// Raised by the app when a newer search starts: this one stops.
+    pub cancel: Arc<AtomicBool>,
+}
+
+/// The matches in one file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileHits {
+    pub key: String,
+    pub hits: Vec<Hit>,
+}
+
+/// What a search found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchOutcome {
+    pub files: Vec<FileHits>,
+    /// The files read.
+    pub searched: usize,
+    /// Every file was searched and no cap was reached.
+    pub complete: bool,
+    /// The workspace could not be listed.
+    pub error: Option<String>,
+}
+
+/// Whether `bytes` look like a binary file (a NUL in the first 8 KiB).
+fn binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(8192).any(|b| *b == 0)
+}
+
+/// Every match of the job's query in the workspace's files (the files quick
+/// open lists, breadth first): binary files, files over
+/// [`SEARCH_MAX_FILE`] and the [`skipped_folder`]s are passed over; at most
+/// [`SEARCH_MAX_HITS`] matches. A raised `cancel` stops it between files.
+pub fn search_files(drive: &dyn Drive, prefix: &str, job: &SearchJob) -> SearchOutcome {
+    let mut outcome = SearchOutcome {
+        files: Vec::new(),
+        searched: 0,
+        complete: true,
         error: None,
+    };
+    if job.query.is_empty() {
+        return outcome;
     }
+    let keys = match index_keys(drive, prefix, INDEX_MAX_FILES, Some(job.cancel.as_ref())) {
+        Ok((keys, complete)) => {
+            outcome.complete = complete;
+            keys
+        }
+        Err(e) => {
+            outcome.complete = false;
+            outcome.error = Some(e);
+            return outcome;
+        }
+    };
+    let mut total = 0;
+    for key in keys {
+        if job.cancel.load(Ordering::Relaxed) {
+            outcome.complete = false;
+            break;
+        }
+        let Ok(bytes) = drive.get(&format!("{prefix}{key}")) else {
+            continue;
+        };
+        outcome.searched += 1;
+        if bytes.len() > SEARCH_MAX_FILE || binary(&bytes) {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let hits = find_in_text(&text, &job.query, job.how, SEARCH_MAX_HITS - total);
+        if hits.is_empty() {
+            continue;
+        }
+        total += hits.len();
+        outcome.files.push(FileHits { key, hits });
+        if total >= SEARCH_MAX_HITS {
+            outcome.complete = false;
+            break;
+        }
+    }
+    outcome
+}
+
+/// What a search thread hands back.
+pub struct SearchReply {
+    pub root: Root,
+    pub generation: u64,
+    pub outcome: SearchOutcome,
+}
+
+struct SearchThreadInit {
+    root: Root,
+    job: SearchJob,
+    on_done: WriteBackCallbackType,
+}
+
+extern "C" fn search_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some((root, job, on_done)) = init
+        .downcast_ref::<SearchThreadInit>()
+        .map(|i| (i.root.clone(), i.job.clone(), i.on_done))
+    else {
+        return;
+    };
+    let drive = drive_of(&root);
+    let outcome = search_files(&drive, &root.prefix, &job);
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_done,
+        RefAny::new(SearchReply {
+            root,
+            generation: job.generation,
+            outcome,
+        }),
+    )));
+}
+
+/// Searches `root`'s files for `job` on an azul Thread; `on_done(reply_to,
+/// SearchReply, info)` gets what it found on the UI thread.
+pub fn spawn_search(
+    info: &mut CallbackInfo,
+    root: &Root,
+    job: SearchJob,
+    reply_to: RefAny,
+    on_done: WriteBackCallbackType,
+) {
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(
+            RefAny::new(SearchThreadInit {
+                root: root.clone(),
+                job,
+                on_done,
+            }),
+            reply_to,
+            search_thread,
+        ),
+    );
+}
+
+/// Takes the reply out of a search write-back's message.
+#[must_use]
+pub fn take_search_reply(msg: &mut RefAny) -> Option<SearchReply> {
+    let mut guard = msg.downcast_mut::<SearchReply>()?;
+    Some(SearchReply {
+        root: guard.root.clone(),
+        generation: guard.generation,
+        outcome: std::mem::replace(
+            &mut guard.outcome,
+            SearchOutcome {
+                files: Vec::new(),
+                searched: 0,
+                complete: true,
+                error: None,
+            },
+        ),
+    })
 }
 
 /// One folder level: its folders and files by name (every page).
@@ -426,6 +633,59 @@ mod tests {
         assert!(
             matches!(&capped[0], DriveOutcome::Indexed { files, complete: false, .. } if files.len() == 2),
             "{capped:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_search_of_the_folder_reads_its_text_files_but_not_binaries_or_build_output() {
+        let dir = temp_dir("search");
+        let root = Root {
+            drive_root: dir.clone(),
+            prefix: String::new(),
+            data_tree: false,
+            name: "ws".to_string(),
+        };
+        let drive = drive_of(&root);
+        let files: [(&str, &[u8]); 5] = [
+            ("Cargo.toml", b"[package]\nname = \"picked\"\n"),
+            ("src/lib.rs", b"pub fn picked() -> u32 {\n    7\n}\n// picked twice\n"),
+            ("notes.md", b"nothing here\n"),
+            ("logo.bin", b"picked\0\0\0"),
+            ("target/out.rs", b"picked\n"),
+        ];
+        let writes = files
+            .iter()
+            .map(|(k, b)| DriveJob::Write {
+                key: (*k).to_string(),
+                bytes: b.to_vec(),
+            })
+            .collect();
+        let _ = run_jobs(&drive, &root.prefix, writes);
+        let job = SearchJob {
+            query: "picked".to_string(),
+            how: TextMatch::default(),
+            generation: 1,
+            cancel: Arc::new(AtomicBool::new(false)),
+        };
+        let found = search_files(&drive, &root.prefix, &job);
+        let mut keys: Vec<(&str, usize)> = found.files.iter().map(|f| (f.key.as_str(), f.hits.len())).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, vec![("Cargo.toml", 1), ("src/lib.rs", 2)]);
+        assert!(found.complete && found.error.is_none());
+        let lib = found.files.iter().find(|f| f.key == "src/lib.rs").expect("lib.rs");
+        assert_eq!((lib.hits[1].line, lib.hits[1].start), (3, 3));
+        job.cancel.store(true, Ordering::Relaxed);
+        let stopped = search_files(&drive, &root.prefix, &job);
+        assert!(stopped.files.is_empty() && !stopped.complete, "a raised cancel stops the search");
+        let branch = run_jobs(&drive, &root.prefix, vec![DriveJob::Branch { folder: dir.clone() }]);
+        assert_eq!(
+            branch,
+            vec![DriveOutcome::Branch {
+                folder: dir.clone(),
+                branch: None
+            }],
+            "no repository"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

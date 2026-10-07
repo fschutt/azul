@@ -23,6 +23,8 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The seed of the ids that leave the process (azul_storage::ids::random_seed).
 azul-storage = { path = "../azul-storage" }
+# The shell on a PTY (session) and its screen (vt), shared with AzCode's terminal panel.
+azul-termkit = { path = "../azul-termkit" }
 # The VT state machine (grid, scrollback, modes, selection) AND the PTY (tty: forkpty-equivalent on
 # Unix, ConPTY on Windows, TIOCSWINSZ on resize) with its reader thread (event_loop). Zed's
 # embedded terminal runs on it too. See scripts/TERM9_2026_10_03.md for why not vt100 / termwiz /

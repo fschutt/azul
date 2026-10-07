@@ -1,8 +1,9 @@
 //! The workspace: the folder open in the explorer, its tree (listed folder
 //! by folder as the user opens them, through the Drive), and the open files
-//! (tabs). Plain Rust: the UI builds the explorer's `TreeView` from
-//! [`Workspace::rows`] and maps the tree's depth-first click index back
-//! through the same list.
+//! (tabs). Plain Rust: the explorer (a virtualized list) shows the slice of
+//! [`Workspace::rows`] in view - the rows are kept, made again only when a
+//! listing arrives or a folder opens or closes - and a row is named by its
+//! key.
 //!
 //! Also plain: where a path on disk is in a workspace ([`key_of_path`]),
 //! what tells two open files apart ([`doc_ident`]), the recent folders
@@ -72,6 +73,9 @@ pub struct Workspace {
     expanded: BTreeSet<String>,
     /// The file or folder last clicked.
     pub selected: Option<String>,
+    /// The explorer's rows, kept from the listings and the open folders (the
+    /// virtualized explorer slices them on every frame of a scroll).
+    rows: Vec<Row>,
 }
 
 impl Workspace {
@@ -83,6 +87,7 @@ impl Workspace {
             listings: BTreeMap::new(),
             expanded: BTreeSet::from([String::new()]),
             selected: None,
+            rows: Vec::new(),
         }
     }
 
@@ -99,6 +104,14 @@ impl Workspace {
             .chain(files.into_iter().map(|name| Entry { name, folder: false }))
             .collect();
         self.listings.insert(folder.to_string(), entries);
+        self.rebuild_rows();
+    }
+
+    /// The rows made again from the listings and the open folders.
+    fn rebuild_rows(&mut self) {
+        let mut out = Vec::new();
+        self.walk("", 0, &mut out);
+        self.rows = out;
     }
 
     /// `folder`'s entries as rows at `depth`, open folders' entries under
@@ -135,28 +148,47 @@ impl Workspace {
 
     /// Opens or closes `folder`; `true` when it must be listed first.
     pub fn toggle(&mut self, folder: &str, open: bool) -> bool {
-        if open {
+        let list = if open {
             self.expanded.insert(folder.to_string());
             !self.listings.contains_key(folder)
         } else {
             self.expanded.remove(folder);
             false
-        }
+        };
+        self.rebuild_rows();
+        list
+    }
+
+    /// Whether `folder` is open.
+    #[must_use]
+    pub fn is_expanded(&self, folder: &str) -> bool {
+        self.expanded.contains(folder)
+    }
+
+    /// Closes every folder (the explorer's "Collapse Folders").
+    pub fn collapse_all(&mut self) {
+        self.expanded = BTreeSet::from([String::new()]);
+        self.rebuild_rows();
     }
 
     /// The explorer's rows: the workspace's entries, an open folder's
     /// entries under it, depth first.
     #[must_use]
-    pub fn rows(&self) -> Vec<Row> {
-        let mut out = Vec::new();
-        self.walk("", 0, &mut out);
-        out
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+
+    /// The row of `key`, if it is shown.
+    #[must_use]
+    pub fn index_of(&self, key: &str) -> Option<usize> {
+        self.rows.iter().position(|r| r.key == key)
     }
 
     /// Forgets every listing (the explorer's Refresh); the open folders, the
     /// workspace's own (`""`) first, are what to list again.
     pub fn refresh(&mut self) -> Vec<String> {
         self.listings.clear();
+        self.rebuild_rows();
         self.expanded.iter().cloned().collect()
     }
 
@@ -178,6 +210,14 @@ impl Workspace {
 pub fn file_name(key: &str) -> &str {
     let key = key.strip_suffix('/').unwrap_or(key);
     key.rsplit_once('/').map_or(key, |(_, name)| name)
+}
+
+/// The folder a key is in: `src/main.rs` and `src/deep/` are in `src/`;
+/// `None` for an entry of the workspace's own folder.
+#[must_use]
+pub fn parent_folder(key: &str) -> Option<&str> {
+    let key = key.strip_suffix('/').unwrap_or(key);
+    key.rfind('/').map(|i| &key[..=i])
 }
 
 /// A tab's label: the file's name, `*` when it has unsaved changes.
@@ -454,6 +494,29 @@ mod tests {
         t.close(0);
         assert!(t.active().is_none());
         assert!(t.close(0).is_none());
+    }
+
+    #[test]
+    fn the_rows_are_kept_and_follow_every_listing_toggle_and_collapse() {
+        let mut w = sample();
+        assert_eq!(w.index_of("README.md"), Some(3));
+        assert!(w.toggle("src/", true));
+        w.set_listing("src/", vec!["deep".to_string()], vec!["main.rs".to_string()]);
+        assert_eq!(w.index_of("src/main.rs"), Some(3), "under src, after src/deep/");
+        assert!(w.is_expanded("src/"));
+        assert!(w.toggle("src/deep/", true));
+        w.set_listing("src/deep/", vec![], vec!["mod.rs".to_string()]);
+        assert_eq!(w.rows()[3].key, "src/deep/mod.rs");
+        assert_eq!(w.rows()[3].depth, 2);
+        w.collapse_all();
+        assert_eq!(w.rows().len(), 4, "every folder closed");
+        assert!(!w.is_expanded("src/") && w.index_of("src/main.rs").is_none());
+        assert!(!w.toggle("src/", true), "listed already: opens at once");
+        assert_eq!(w.rows().len(), 6, "src/deep/ (closed) and src/main.rs");
+        assert_eq!(parent_folder("src/deep/mod.rs"), Some("src/deep/"));
+        assert_eq!(parent_folder("src/deep/"), Some("src/"));
+        assert_eq!(parent_folder("Cargo.toml"), None);
+        assert_eq!(parent_folder("src/"), None);
     }
 
     #[test]

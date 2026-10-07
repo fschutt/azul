@@ -4,16 +4,19 @@
 //!
 //! - the ACTIVITY BAR: Explorer and Search (a click on the one in front
 //!   hides the side bar), Settings at its foot;
-//! - the SIDE BAR: the explorer (the folder's tree, or "You have not yet
-//!   opened a folder." with Open Folder and the recent folders) or the search
-//!   panel;
+//! - the SIDE BAR: the explorer ([`crate::explorer`]: the folder's tree,
+//!   virtualized, or "You have not yet opened a folder." with Open Folder and
+//!   the recent folders) or the search over the folder
+//!   ([`crate::find_in_files`]);
 //! - the EDITOR: the tabs (a close button each, a dot for unsaved changes),
 //!   the file's path, the find and go-to bars, azul's CodeView over the file
 //!   in front - or, while no file is open, the welcome page (the app's name,
-//!   Start, Recent, the keyboard shortcuts);
-//! - the STATUS BAR (the folder, Ln / Col, the indentation, the encoding, the
-//!   line endings, the language, the last notice), and QUICK OPEN (Mod+P)
-//!   over it all.
+//!   Start, Recent, the keyboard shortcuts); under it, on a splitter, the
+//!   TERMINAL panel ([`crate::terminal`]);
+//! - the STATUS BAR (the branch, the folder, Ln / Col, the indentation, the
+//!   encoding, the line endings, the language, the last notice), and the
+//!   palette (quick open, the command palette: [`crate::palette`]) over it
+//!   all.
 //!
 //! The chrome AzCode draws itself paints with the theme's ink and the
 //! accent (`--az-accent`) and greys that read in either mode, so it follows
@@ -22,33 +25,30 @@
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackType, CodeViewDataSourceCallbackType,
-        CodeViewOnEventCallbackType, ShellCommandPaletteOnQueryCallbackType,
-        ShellCommandPaletteOnRunCallbackType, ShellOnPaneResizeCallbackType,
+        CodeViewOnEventCallbackType, ShellOnPaneResizeCallbackType, SplitPaneOnResizeCallbackType,
         TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
-        ToolbarOnEventCallbackType, TreeViewOnNodeClickCallbackType,
-        TreeViewOnNodeToggleCallbackType,
+        ToolbarOnEventCallbackType,
     },
     dom::VirtualKeyCode,
     prelude::*,
-    shells::{OfficeShell, ShellCommandPalette, ShellPaletteCommand, ShellPane, ShellPaneKind},
+    shells::{OfficeShell, ShellPane, ShellPaneKind},
     str::String as AzString,
     widgets::{
-        Button, ButtonType, CodeView, CodeViewEvent, CodeViewEventKind, OnTextInputReturn,
-        StatusBar, StatusBarSegment, TextInput, TextInputState, TextInputValid, Toolbar,
-        ToolbarEvent, ToolbarEventKind, ToolbarItem, TreeView, TreeViewNode,
+        CodeView, CodeViewEvent, CodeViewEventKind, OnTextInputReturn, SplitDirection, SplitPane,
+        SplitPaneState, StatusBar, StatusBarSegment, TextInput, TextInputState, TextInputValid,
+        Toolbar, ToolbarEvent, ToolbarEventKind, ToolbarItem,
     },
 };
 use azul_appkit::ui as kit;
 
 use crate::{
-    app::{doc_line, AppState, Doc, IndexState, Side},
-    commands, ids,
+    actions::{self, Action},
+    app::{doc_line, AppState, Doc, Side},
+    commands, explorer, find_in_files, ids, palette, terminal,
 };
 
 /// The columns between two tab stops.
 pub const TAB_WIDTH: u32 = 4;
-/// The most search results the side bar lists.
-const MAX_RESULTS: usize = 200;
 /// The activity bar's width in px (VSCode's).
 const ACTIVITY_WIDTH: f32 = 48.0;
 /// The panes' DOM ids (the S8 developer shell's).
@@ -57,7 +57,7 @@ const SIDE_BAR_ID: &str = "shell-side-bar";
 const EDITOR_ID: &str = "shell-editor";
 /// The hairline between parts of the chrome: grey, so it reads in either
 /// mode.
-const RULE: &str = "rgba(128, 128, 128, 0.25)";
+pub const RULE: &str = "rgba(128, 128, 128, 0.25)";
 /// The face of what is not in front (a tab behind, the strip after the
 /// tabs): the ground, a shade darker in light mode, lighter in dark mode.
 const RECESSED: &str = "rgba(128, 128, 128, 0.10)";
@@ -76,7 +76,7 @@ pub fn with_state(
     Update::RefreshDom
 }
 
-/// A line of text in a row (the search panel, the find bar's count).
+/// A line of text in a row (the find bar's count).
 fn text(content: &str) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; padding: 0px 6px;")
@@ -84,7 +84,7 @@ fn text(content: &str) -> Dom {
 }
 
 /// A run of text in a box styled with `css`.
-fn label(content: &str, css: &str) -> Dom {
+pub fn label(content: &str, css: &str) -> Dom {
     Dom::create_div()
         .with_css(css)
         .with_child(Dom::create_span_with_text(content))
@@ -101,7 +101,7 @@ pub fn column(children: Vec<Dom>) -> Dom {
 
 /// A clickable box: `callback(data)` on a click (the pointer coming up over
 /// it), named `name` for a screen reader.
-fn clickable(id: AzString, css: &str, name: &str, data: RefAny, callback: CallbackType) -> Dom {
+pub fn clickable(id: AzString, css: &str, name: &str, data: RefAny, callback: CallbackType) -> Dom {
     Dom::create_div()
         .with_id(id)
         .with_css(css)
@@ -111,12 +111,12 @@ fn clickable(id: AzString, css: &str, name: &str, data: RefAny, callback: Callba
 
 // ==== The window ====
 
-/// The whole window's content (under the theme scope): the shell, and quick
-/// open over it while it is showing.
+/// The whole window's content (under the theme scope): the shell, and the
+/// palette over it while it is showing.
 pub fn window(app: &RefAny, st: &AppState) -> Dom {
     let (side, side_label) = match st.side {
-        Side::Explorer => (explorer(app, st), "Explorer"),
-        Side::Search => (search_panel(app, st), "Search"),
+        Side::Explorer => (explorer::explorer(app, st), "Explorer"),
+        Side::Search => (find_in_files::search_panel(app, st), "Search"),
     };
     let shell = OfficeShell::create()
         .with_pane(
@@ -133,29 +133,42 @@ pub fn window(app: &RefAny, st: &AppState) -> Dom {
                 .with_visible(st.side_visible),
         )
         .with_pane(
-            ShellPane::create(EDITOR_ID, editor(app, st))
+            ShellPane::create(EDITOR_ID, editor_area(app, st))
                 .with_kind(ShellPaneKind::Main)
                 .with_label("Editor"),
         )
         .with_title_row(kit::title_row(&st.title()))
-        .with_status_bar(status_bar(st))
+        .with_status_bar(status_bar(app, st))
         .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
-    // Positioned: quick open's backdrop covers the window from here.
+    // Positioned: the palette's backdrop covers the window from here.
     let mut root = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; position: relative;",
         )
         .with_child(shell.dom());
-    if let Some(query) = st.quick.as_deref() {
-        root.add_child(quick_open(app, st, query));
+    if let Some(overlay) = palette::palette(app, st) {
+        root.add_child(overlay);
     }
     root
 }
 
+/// The editor and, while it is open, the terminal panel under it on a
+/// splitter.
+fn editor_area(app: &RefAny, st: &AppState) -> Dom {
+    let editor = editor(app, st);
+    if !st.panel.open {
+        return editor;
+    }
+    SplitPane::create(SplitDirection::Vertical, editor, terminal::panel(app, st))
+        .with_ratio(st.panel.editor_ratio)
+        .with_on_resize(app.clone(), on_panel_resize as SplitPaneOnResizeCallbackType)
+        .dom()
+}
+
 /// The editor's box, the CodeView's viewport hint: the window less the
-/// activity bar, the side bar, the title row, the tabs, the path, the open
-/// bars and the status bar (a little too much is fine: the view clips, and
-/// measures its real box at every action).
+/// activity bar, the side bar, the title row, the status bar, the terminal
+/// panel, the tabs, the path and the open bars (a little too much is fine:
+/// the view clips, and measures its real box at every action).
 #[must_use]
 pub fn editor_size(st: &AppState) -> (f32, f32) {
     let (width, height) = st.window;
@@ -165,15 +178,20 @@ pub fn editor_size(st: &AppState) -> (f32, f32) {
     } else {
         0.0
     };
-    // The title row, the tabs, the path, the status bar.
-    let mut chrome = 30.0 + 35.0 + 22.0 + 24.0;
+    // The title row and the status bar span the window.
+    let mut body = height - 30.0 - 24.0;
+    if st.panel.open {
+        body = body * st.panel.editor_ratio - 4.0;
+    }
+    // The tabs, the path.
+    let mut chrome = 35.0 + 22.0;
     if st.find.open {
         chrome += 36.0;
     }
     if st.goto.is_some() {
         chrome += 32.0;
     }
-    ((rest - side).max(200.0), (height - chrome).max(120.0))
+    ((rest - side).max(200.0), (body - chrome).max(120.0))
 }
 
 // ==== The activity bar ====
@@ -241,7 +259,7 @@ fn activity_item(
 // ==== The side bar ====
 
 /// The side bar's title row ("EXPLORER") with its actions at the right.
-fn side_title(title: &str, actions: Vec<Dom>) -> Dom {
+pub fn side_title(title: &str, actions: Vec<Dom>) -> Dom {
     let mut row = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: row; align-items: center; height: 35px; flex-shrink: 0; \
@@ -255,7 +273,7 @@ fn side_title(title: &str, actions: Vec<Dom>) -> Dom {
 }
 
 /// A small icon button of a title row.
-fn icon_button(id: AzString, icon: &str, name: &str, data: RefAny, callback: CallbackType) -> Dom {
+pub fn icon_button(id: AzString, icon: &str, name: &str, data: RefAny, callback: CallbackType) -> Dom {
     clickable(
         id,
         "display: flex; flex-direction: row; align-items: center; justify-content: center; \
@@ -268,103 +286,8 @@ fn icon_button(id: AzString, icon: &str, name: &str, data: RefAny, callback: Cal
     .with_child(Dom::create_icon(icon).with_css("font-size: 16px;"))
 }
 
-/// The explorer: the workspace's tree, folders opened as they are listed;
-/// without a workspace, VSCode's empty state.
-fn explorer(app: &RefAny, st: &AppState) -> Dom {
-    let Some(w) = st.workspace.as_ref() else {
-        return column(vec![side_title("EXPLORER", Vec::new()), no_folder(app, st)]);
-    };
-    let rows = w.rows();
-    // The rows are depth first; a stack of (depth, node) builds the tree.
-    let mut stack: Vec<(usize, TreeViewNode)> = vec![(
-        0,
-        TreeViewNode::create(AzString::from(w.root.name.as_str()))
-            .with_icon(AzString::from("folder_open"))
-            .with_expanded(true),
-    )];
-    for row in &rows {
-        let level = row.depth + 1;
-        while stack.len() > level {
-            let (_, done) = stack.pop().expect("deeper than the root");
-            if let Some((_, parent)) = stack.last_mut() {
-                parent.add_child(done);
-            }
-        }
-        let selected = w.selected.as_deref() == Some(row.key.as_str());
-        let mut node = TreeViewNode::create(AzString::from(row.name.as_str()))
-            .with_icon(AzString::from(if row.folder { "folder" } else { "description" }))
-            .with_selected(selected);
-        if row.folder {
-            node = node.with_expanded(row.expanded).with_unloaded_children(!row.expanded);
-        }
-        stack.push((level, node));
-    }
-    while stack.len() > 1 {
-        let (_, done) = stack.pop().expect("deeper than the root");
-        if let Some((_, parent)) = stack.last_mut() {
-            parent.add_child(done);
-        }
-    }
-    let (_, root) = stack.pop().expect("the root");
-    let refresh = icon_button(ids::REFRESH, "refresh", "Refresh the explorer", app.clone(), on_refresh);
-    column(vec![
-        side_title("EXPLORER", vec![refresh]),
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto;")
-            .with_child(
-                TreeView::create(root)
-                    .with_on_node_click(app.clone(), on_tree_click as TreeViewOnNodeClickCallbackType)
-                    .with_on_node_toggle(app.clone(), on_tree_toggle as TreeViewOnNodeToggleCallbackType)
-                    .dom()
-                    .with_id(ids::EXPLORER),
-            ),
-    ])
-}
-
-/// No folder yet: VSCode's empty explorer - what to do, Open Folder, the
-/// recent folders.
-fn no_folder(app: &RefAny, st: &AppState) -> Dom {
-    let mut out = Dom::create_div()
-        .with_id(ids::NO_FOLDER)
-        .with_css(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
-             padding: 4px 20px 12px 20px;",
-        )
-        .with_child(label(
-            "You have not yet opened a folder.",
-            "font-size: 13px; padding: 8px 0px 12px 0px;",
-        ))
-        .with_child(
-            // A column stretches the button to the side bar's width.
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: column;")
-                .with_child(
-                    Button::with_type("Open Folder", ButtonType::Primary)
-                        .with_on_click(app.clone(), on_open_folder as ButtonOnClickCallbackType)
-                        .dom()
-                        .with_id(ids::OPEN_FOLDER),
-                ),
-        )
-        .with_child(label(
-            &format!(
-                "Or press {}, or start AzCode with a folder: AzCode ~/my-project. Its files open \
-                 in the editor; quick open ({}) finds them by name.",
-                commands::keys("Mod+O"),
-                commands::keys("Mod+P"),
-            ),
-            "font-size: 12px; opacity: 0.7; padding-top: 10px;",
-        ));
-    if !st.recent.is_empty() {
-        out.add_child(label("RECENT", "font-size: 11px; opacity: 0.8; padding: 20px 0px 6px 0px;"));
-        for (i, folder) in st.recent.iter().enumerate() {
-            out.add_child(recent_row(app, ids::recent(i), i, folder));
-        }
-    }
-    out
-}
-
 /// Recent folder `index`: its name, the folder it is in; a click opens it.
-fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom {
+pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom {
     let path = std::path::Path::new(folder);
     let name = path
         .file_name()
@@ -389,60 +312,7 @@ fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom {
     ))
 }
 
-/// The search panel: the query, the toggles, the matches in the file in
-/// front (each a button that selects it).
-fn search_panel(app: &RefAny, st: &AppState) -> Dom {
-    let count = st.find.found.len();
-    let mut results = vec![text(&match count {
-        0 if st.find.query.is_empty() => "Type to search the file in front".to_string(),
-        0 => "No results".to_string(),
-        1 => "1 result".to_string(),
-        n => format!("{n} results"),
-    })];
-    if let Some(doc) = st.tabs.active() {
-        let lines: Vec<(usize, String)> = st
-            .find
-            .found
-            .iter()
-            .take(MAX_RESULTS)
-            .map(|f| {
-                let line = doc
-                    .with_text(|t| t.buffer.line(f.line))
-                    .unwrap_or_default();
-                let shown: String = line.trim().chars().take(60).collect();
-                (f.line, shown)
-            })
-            .collect();
-        for (i, (line, shown)) in lines.into_iter().enumerate() {
-            results.push(
-                Button::create(AzString::from(format!("{}: {shown}", line + 1)))
-                    .with_on_click(
-                        RefAny::new(MatchRef { app: app.clone(), index: i }),
-                        on_result_click as ButtonOnClickCallbackType,
-                    )
-                    .dom(),
-            );
-        }
-    }
-    let mut list = Dom::create_div().with_css(
-        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
-         padding: 0px 8px 0px 14px;",
-    );
-    for r in results {
-        list.add_child(r);
-    }
-    column(vec![
-        side_title("SEARCH", Vec::new()),
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: column; flex-shrink: 0; padding: 0px 12px 6px 20px;")
-            .with_child(find_input(app, st, ids::SEARCH_INPUT))
-            .with_child(toggles(app, st)),
-        list,
-    ])
-    .with_id(ids::SEARCH_PANEL)
-}
-
-/// A find field (the find bar's, the search panel's: `id` tells them apart).
+/// A find field (the find bar's).
 fn find_input(app: &RefAny, st: &AppState, id: AzString) -> Dom {
     TextInput::create()
         .with_text(AzString::from(st.find.query.as_str()))
@@ -452,26 +322,6 @@ fn find_input(app: &RefAny, st: &AppState, id: AzString) -> Dom {
         .with_on_virtual_key_down(app.clone(), on_find_key as TextInputOnVirtualKeyDownCallbackType)
         .dom()
         .with_id(id)
-}
-
-/// Match case, whole word.
-fn toggles(app: &RefAny, st: &AppState) -> Dom {
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center;")
-        .with_child(
-            Button::create(AzString::from("Aa"))
-                .with_toggled(st.find.how.match_case)
-                .with_on_click(app.clone(), on_match_case as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::MATCH_CASE),
-        )
-        .with_child(
-            Button::create(AzString::from("Word"))
-                .with_toggled(st.find.how.whole_word)
-                .with_on_click(app.clone(), on_whole_word as ButtonOnClickCallbackType)
-                .dom()
-                .with_id(ids::WHOLE_WORD),
-        )
 }
 
 // ==== The editor ====
@@ -537,10 +387,14 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
                 "font-size: 13px; white-space: nowrap; opacity: 0.7;"
             },
         ));
+    // The dot is a plain box, not an icon: icon resolution replaces an icon
+    // node whole - its classes too - so a class on `Dom::create_icon` never
+    // reached the window.
     let glyph = if doc.dirty {
-        Dom::create_icon("circle")
+        Dom::create_div()
             .with_class(ids::TAB_DIRTY_CLASS)
-            .with_css("font-size: 10px;")
+            .with_accessibility_name("Unsaved changes")
+            .with_css("width: 8px; height: 8px; border-radius: 4px; background: system:text; opacity: 0.85;")
     } else if active {
         Dom::create_icon("close").with_css("font-size: 16px;")
     } else {
@@ -588,7 +442,8 @@ fn breadcrumbs(doc: &Doc) -> Dom {
         .with_child(Dom::create_span_with_text(path))
 }
 
-/// The code view over `doc`.
+/// The code view over `doc`: it builds only the lines in its viewport (a
+/// million-line file costs a screen).
 fn code_view(app: &RefAny, st: &AppState, doc: &Doc) -> Dom {
     let (width, height) = editor_size(st);
     CodeView::create(doc.line_count)
@@ -603,9 +458,12 @@ fn code_view(app: &RefAny, st: &AppState, doc: &Doc) -> Dom {
 }
 
 /// What the welcome page lists under "Keyboard shortcuts".
-const WELCOME_KEYS: [(&str, &str); 9] = [
-    ("Open Folder", "Mod+O"),
+const WELCOME_KEYS: [(&str, &str); 12] = [
+    ("Open Folder", "Mod+K Mod+O"),
     ("Quick Open a File", "Mod+P"),
+    ("Command Palette", "Mod+Shift+P"),
+    ("Find in Files", "Mod+Shift+F"),
+    ("Toggle Terminal", "Ctrl+`"),
     ("Save", "Mod+S"),
     ("Close the Tab", "Mod+W"),
     ("Show / Hide the Side Bar", "Mod+B"),
@@ -629,7 +487,7 @@ fn welcome(app: &RefAny, st: &AppState) -> Dom {
             ids::WELCOME_OPEN_FOLDER,
             "create_new_folder",
             "Open Folder...",
-            &commands::keys("Mod+O"),
+            &commands::keys("Mod+K Mod+O"),
             on_open_folder,
         ))
         .with_child(link(app, ids::WELCOME_OPEN_FILE, "file_open", "Open File...", "", on_open_file))
@@ -761,19 +619,38 @@ fn goto_bar(app: &RefAny, typed: &str) -> Dom {
         .with_id(ids::GOTO_BAR)
 }
 
-/// The status bar: the folder, the caret, the indentation, the encoding,
-/// the line endings, the language, the last notice.
-fn status_bar(st: &AppState) -> Dom {
+/// The status bar: the branch, the folder, the terminal, the caret (a click
+/// goes to a line), the indentation, the encoding, the line endings, the
+/// language, the last notice.
+fn status_bar(app: &RefAny, st: &AppState) -> Dom {
     let mut segments = Vec::new();
+    if let Some(branch) = st.branch.as_ref() {
+        segments.push(
+            StatusBarSegment::create(AzString::from(branch.as_str()))
+                .with_icon(AzString::from("call_split"))
+                .with_marker(ids::STATUS_BRANCH),
+        );
+    }
     if let Some(w) = st.workspace.as_ref() {
         segments.push(
             StatusBarSegment::create(AzString::from(w.root.name.as_str())).with_icon(AzString::from("folder_open")),
         );
     }
+    let shells = st.panel.terminals.len();
+    segments.push(
+        StatusBarSegment::create(AzString::from(if shells == 0 {
+            "Terminal".to_string()
+        } else {
+            format!("Terminal ({shells})")
+        }))
+        .with_icon(AzString::from("terminal"))
+        .with_on_click(app.clone(), on_status_terminal as ButtonOnClickCallbackType),
+    );
     if let Some(doc) = st.tabs.active() {
         segments.push(
             StatusBarSegment::create(AzString::from(doc.caret_label(TAB_WIDTH as usize)))
-                .with_marker(ids::STATUS_CARET),
+                .with_marker(ids::STATUS_CARET)
+                .with_on_click(app.clone(), on_status_caret as ButtonOnClickCallbackType),
         );
         segments.push(StatusBarSegment::create(AzString::from(format!("Spaces: {TAB_WIDTH}"))));
         segments.push(StatusBarSegment::create(AzString::from("UTF-8")));
@@ -792,33 +669,6 @@ fn status_bar(st: &AppState) -> Dom {
     StatusBar::create(segments).dom()
 }
 
-/// Quick open (Mod+P): azul's command palette over the workspace's files,
-/// the best [`crate::workspace::QUICK_MAX`] for what was typed (the palette
-/// keeps them all: they match by its own rule).
-fn quick_open(app: &RefAny, st: &AppState, query: &str) -> Dom {
-    let commands: Vec<ShellPaletteCommand> = st
-        .quick_files()
-        .into_iter()
-        .filter_map(|i| st.index.get(i))
-        .map(|key| ShellPaletteCommand::create(key.as_str()).with_icon("description"))
-        .collect();
-    let placeholder = match st.index_state {
-        IndexState::Done => "Search the folder's files by name",
-        IndexState::None | IndexState::Running => "Listing the folder's files...",
-    };
-    Dom::create_div().with_id(ids::QUICK_OPEN).with_child(
-        ShellCommandPalette::create()
-            .with_commands(commands)
-            .with_query(query)
-            .with_placeholder(placeholder)
-            .with_open(true)
-            .with_on_query(app.clone(), on_quick_query as ShellCommandPaletteOnQueryCallbackType)
-            .with_on_run(app.clone(), on_quick_run as ShellCommandPaletteOnRunCallbackType)
-            .with_on_close(app.clone(), on_quick_close as ButtonOnClickCallbackType)
-            .dom(),
-    )
-}
-
 // ==== Callbacks ====
 
 /// The CodeView: an edit, a move, undo / redo of the file in front.
@@ -834,7 +684,7 @@ pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event:
             CodeViewEventKind::Redo => doc.undo_redo(true),
             _ => return,
         }
-        if st.find.open || st.side == Side::Search {
+        if st.find.open {
             st.refresh_find();
         }
     })
@@ -851,7 +701,28 @@ extern "C" fn on_pane_resize(mut data: RefAny, _info: CallbackInfo, pane: usize,
     Update::DoNothing
 }
 
-extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
+/// The splitter between the editor and the terminal panel moved.
+extern "C" fn on_panel_resize(mut data: RefAny, _info: CallbackInfo, state: SplitPaneState) -> Update {
+    if let Some(mut st) = data.downcast_mut::<AppState>() {
+        st.panel.editor_ratio = state.ratio.clamp(0.15, 0.9);
+    }
+    Update::DoNothing
+}
+
+/// The status bar's Terminal: the panel opens or closes.
+extern "C" fn on_status_terminal(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, info, app| {
+        actions::run(st, info, app, Action::ToggleTerminal);
+    })
+}
+
+/// The status bar's "Ln, Col": go to line.
+extern "C" fn on_status_caret(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_state(&mut data, &mut info, |st, info, app| actions::run(st, info, app, Action::GoToLine))
+}
+
+/// "Open Folder" (the empty explorer, the welcome page).
+pub extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
     commands::ask_folder(&data);
     Update::DoNothing
 }
@@ -875,7 +746,7 @@ extern "C" fn on_open_settings(mut data: RefAny, _info: CallbackInfo) -> Update 
 
 /// An activity icon: its panel in the side bar, or - the one in front - the
 /// side bar hidden (VSCode's way).
-fn show_side(st: &mut AppState, side: Side) {
+fn show_side(st: &mut AppState, info: &mut CallbackInfo, side: Side) {
     if st.side_visible && st.side == side {
         st.side_visible = false;
         return;
@@ -883,20 +754,16 @@ fn show_side(st: &mut AppState, side: Side) {
     st.side = side;
     st.side_visible = true;
     if side == Side::Search {
-        st.refresh_find();
+        commands::focus_soon(info, ids::SEARCH_INPUT.as_str());
     }
 }
 
 extern "C" fn on_show_explorer(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |st, _, _| show_side(st, Side::Explorer))
+    with_state(&mut data, &mut info, |st, info, _| show_side(st, info, Side::Explorer))
 }
 
 extern "C" fn on_show_search(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |st, _, _| show_side(st, Side::Search))
-}
-
-extern "C" fn on_refresh(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, commands::refresh_explorer)
+    with_state(&mut data, &mut info, |st, info, _| show_side(st, info, Side::Search))
 }
 
 /// What a recent folder's row opens.
@@ -910,35 +777,6 @@ extern "C" fn on_recent_click(mut data: RefAny, mut info: CallbackInfo) -> Updat
         return Update::DoNothing;
     };
     with_state(&mut app, &mut info, |st, info, app| commands::open_recent(st, info, app, index))
-}
-
-/// A click in the explorer: a file opens, a folder opens or closes.
-extern "C" fn on_tree_click(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_state(&mut data, &mut info, |st, info, app| {
-        let Some(row) = st.workspace.as_ref().and_then(|w| w.rows().get(index.wrapping_sub(1)).cloned()) else {
-            return;
-        };
-        if let Some(w) = st.workspace.as_mut() {
-            w.selected = Some(row.key.clone());
-        }
-        if row.folder {
-            commands::toggle_folder(st, info, app, &row.key, !row.expanded);
-        } else {
-            commands::open_file(st, info, app, &row.key);
-        }
-    })
-}
-
-/// A folder's arrow.
-extern "C" fn on_tree_toggle(mut data: RefAny, mut info: CallbackInfo, index: usize, expanded: bool) -> Update {
-    with_state(&mut data, &mut info, |st, info, app| {
-        let Some(row) = st.workspace.as_ref().and_then(|w| w.rows().get(index.wrapping_sub(1)).cloned()) else {
-            return;
-        };
-        if row.folder {
-            commands::toggle_folder(st, info, app, &row.key, expanded);
-        }
-    })
 }
 
 /// What a tab's name and its close button act on.
@@ -971,51 +809,6 @@ extern "C" fn on_tab_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     with_state(&mut app, &mut info, |st, _, _| commands::close_tab_at(st, index))
-}
-
-/// Quick open's field changed.
-extern "C" fn on_quick_query(mut data: RefAny, mut info: CallbackInfo, query: AzString) -> Update {
-    let query = query.as_str().to_string();
-    with_state(&mut data, &mut info, |st, _, _| st.quick = Some(query))
-}
-
-/// A file picked in quick open (a click, or Enter on the first or a chosen
-/// row).
-extern "C" fn on_quick_run(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_state(&mut data, &mut info, |st, info, app| {
-        let key = st
-            .quick_files()
-            .get(index)
-            .and_then(|&i| st.index.get(i))
-            .cloned();
-        st.quick = None;
-        if let Some(key) = key {
-            commands::open_file(st, info, app, &key);
-        }
-    })
-}
-
-/// Quick open closed (Escape, a click beside it).
-extern "C" fn on_quick_close(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |st, info, _| {
-        st.quick = None;
-        if st.tabs.active().is_some() {
-            commands::focus_soon(info, ids::EDITOR.as_str());
-        }
-    })
-}
-
-/// What a search result button selects.
-struct MatchRef {
-    app: RefAny,
-    index: usize,
-}
-
-extern "C" fn on_result_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, index)) = data.downcast_ref::<MatchRef>().map(|m| (m.app.clone(), m.index)) else {
-        return Update::DoNothing;
-    };
-    with_state(&mut app, &mut info, |st, _, _| st.select_match(index))
 }
 
 /// The find field: the matches follow every key.
@@ -1124,20 +917,6 @@ extern "C" fn on_replace_all(mut data: RefAny, mut info: CallbackInfo) -> Update
         let n = st.replace_all();
         st.notice = format!("Replaced {n}");
         println!("AZCODE_REPLACED {n}");
-    })
-}
-
-extern "C" fn on_match_case(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |st, _, _| {
-        st.find.how.match_case = !st.find.how.match_case;
-        st.refresh_find();
-    })
-}
-
-extern "C" fn on_whole_word(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |st, _, _| {
-        st.find.how.whole_word = !st.find.how.whole_word;
-        st.refresh_find();
     })
 }
 
