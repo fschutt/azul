@@ -14654,6 +14654,31 @@ impl LayoutWindow {
         if !self.animations.is_empty() || !self.live_tracks.is_empty() {
             self.tick_animations(0.0);
         }
+
+        // A node that comes in is DRAWN from its first keyframe. The tracks
+        // started above have no keys yet - live tracks publish on their first
+        // real tick (`run_track_frames`) - and this DOM's display list was
+        // built with the layout, before the reconciliation finished, so the
+        // frame of this rebuild showed every entering node AT REST (its end
+        // state, opaque) and the next frame jumped to its start: a flash on
+        // every entrance. The compiled tracks that have not run a frame
+        // publish their frame-zero sample now and the list is built again
+        // with their groups. (A native animation function is sampled on its
+        // first tick: it needs the full callback info.)
+        if dom_id == DomId::ROOT_ID {
+            let fresh: Vec<(NodeId, TrackSample)> = self
+                .live_tracks
+                .iter()
+                .filter(|(_, tr)| tr.frames_run == 0 && matches!(tr.source, TrackSource::Compiled))
+                .map(|(node, tr)| (*node, tr.sample()))
+                .collect();
+            if !fresh.is_empty() && self.layout_results.contains_key(&dom_id) {
+                for (node, sample) in fresh {
+                    self.publish_live_sample(node, sample);
+                }
+                self.regenerate_display_list_for_dom(dom_id);
+            }
+        }
     }
 
     /// Whether a layout animation is still in flight and the shell must keep
@@ -18126,52 +18151,7 @@ impl LayoutWindow {
                 if let Some(tr) = self.live_tracks.get_mut(&node) {
                     tr.frames_run = tr.frames_run.saturating_add(1);
                 }
-                let cache = self
-                    .gpu_state_manager
-                    .caches
-                    .entry(DomId::ROOT_ID)
-                    .or_default();
-                let smp = sample;
-                cache
-                    .anim_transform_keys
-                    .entry(node)
-                    .or_insert_with(azul_core::resources::TransformKey::unique);
-                // Row-vector affine with scale/rotate about the node's
-                // CENTRE, folded into the translation row (logical
-                // units, like the manager's flip matrices).
-                let (sin, cos) = smp.rotate_deg.to_radians().sin_cos();
-                let (a, b) = (smp.scale_x * cos, smp.scale_x * sin);
-                let (c, d) = (-smp.scale_y * sin, smp.scale_y * cos);
-                let (cx, cy) = self
-                    .get_node_bounds(DomId::ROOT_ID, node)
-                    .map(layout_rect_to_logical)
-                    .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
-                let cache = self
-                    .gpu_state_manager
-                    .caches
-                    .entry(DomId::ROOT_ID)
-                    .or_default();
-                cache.anim_current_transform_values.insert(
-                    node,
-                    azul_core::transform::ComputedTransform3D {
-                        m: [
-                            [a, b, 0.0, 0.0],
-                            [c, d, 0.0, 0.0],
-                            [0.0, 0.0, 1.0, 0.0],
-                            [
-                                cx + smp.translate_x - cx * a - cy * c,
-                                cy + smp.translate_y - cx * b - cy * d,
-                                0.0,
-                                1.0,
-                            ],
-                        ],
-                    },
-                );
-                cache
-                    .anim_opacity_keys
-                    .entry(node)
-                    .or_insert_with(OpacityKey::unique);
-                cache.anim_current_opacity_values.insert(node, smp.opacity);
+                self.publish_live_sample(node, sample);
             }
         }
 
@@ -18179,6 +18159,53 @@ impl LayoutWindow {
             .lock()
             .map(|mut g| core::mem::take(&mut *g))
             .unwrap_or_default()
+    }
+
+    /// Publishes `smp`, a sample of the live (`-azul-animation-in`) track of
+    /// `node`, into the animation GPU channels the display list and both
+    /// renderers read: the node's keys (minted once) and its transform and
+    /// opacity.
+    fn publish_live_sample(&mut self, node: NodeId, smp: TrackSample) {
+        // Row-vector affine with scale/rotate about the node's
+        // CENTRE, folded into the translation row (logical
+        // units, like the manager's flip matrices).
+        let (sin, cos) = smp.rotate_deg.to_radians().sin_cos();
+        let (a, b) = (smp.scale_x * cos, smp.scale_x * sin);
+        let (c, d) = (-smp.scale_y * sin, smp.scale_y * cos);
+        let (cx, cy) = self
+            .get_node_bounds(DomId::ROOT_ID, node)
+            .map(layout_rect_to_logical)
+            .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
+        let cache = self
+            .gpu_state_manager
+            .caches
+            .entry(DomId::ROOT_ID)
+            .or_default();
+        cache
+            .anim_transform_keys
+            .entry(node)
+            .or_insert_with(azul_core::resources::TransformKey::unique);
+        cache.anim_current_transform_values.insert(
+            node,
+            azul_core::transform::ComputedTransform3D {
+                m: [
+                    [a, b, 0.0, 0.0],
+                    [c, d, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [
+                        cx + smp.translate_x - cx * a - cy * c,
+                        cy + smp.translate_y - cx * b - cy * d,
+                        0.0,
+                        1.0,
+                    ],
+                ],
+            },
+        );
+        cache
+            .anim_opacity_keys
+            .entry(node)
+            .or_insert_with(OpacityKey::unique);
+        cache.anim_current_opacity_values.insert(node, smp.opacity);
     }
 
     /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
