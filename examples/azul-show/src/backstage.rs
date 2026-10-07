@@ -1,9 +1,9 @@
 //! File: the backstage. Info, New (the theme picker with live previews,
 //! colour variant, fonts, slide size), Open (the decks under `show/`, the
 //! sample deck), Save, Export (PDF, the slide as a picture, into
-//! `show/exports/`), Close, Options (azul-appkit's settings page: the app
-//! theme and the mode, remembered; the data folder; the shortcuts table)
-//! and About (the standard About box).
+//! `show/exports/`), Close, Options (azul-appkit's settings page over the
+//! whole window: the app theme and the mode, remembered; the data folder;
+//! the shortcuts table) and About (the standard About box).
 
 use std::collections::HashMap;
 
@@ -21,7 +21,6 @@ use azul::{
         StandardDialogEvent,
     },
 };
-use azul_appkit::ui as kit;
 
 use crate::{
     app::{command, AppState, BackstagePage, Command},
@@ -261,14 +260,10 @@ fn export_page(app: &RefAny) -> Dom {
     ])
 }
 
-/// Options: azul-appkit's settings page - Appearance (the app theme and the
-/// mode, saved to settings.json and applied at once), Data (the folder), the
-/// shortcuts table, About - one page for every Azlin app (DEDUP_OFFICE D13).
-fn options_page(st: &AppState) -> Dom {
-    match &st.kit {
-        Some(kit_ref) => pane(vec![heading("Options"), kit::settings_page(kit_ref, Vec::new())]),
-        None => pane(vec![heading("Options"), line("The settings are not available.")]),
-    }
+/// Options without a kit (with one, File > Options opens azul-appkit's settings page over the
+/// whole window instead: commands.rs, `OpenBackstage(Options)`).
+fn options_page() -> Dom {
+    pane(vec![heading("Options"), line("The settings are not available.")])
 }
 
 /// About: the standard About box (DEDUP_OFFICE D12); OK goes back.
@@ -291,7 +286,7 @@ pub fn backstage(app: &RefAny, st: &AppState) -> Dom {
         BackstagePage::Open => open_page(app, st),
         BackstagePage::Export => export_page(app),
         BackstagePage::Close => info_page(app, st),
-        BackstagePage::Options => options_page(st),
+        BackstagePage::Options => options_page(),
         BackstagePage::About => about_page(app),
     };
     let nav: Vec<BackstageNavItem> = BackstagePage::NAV

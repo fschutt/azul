@@ -802,8 +802,13 @@ extern "C" fn on_path_style_label(mut data: RefAny, _info: CallbackInfo) -> Upda
 
 // ==== The FILE backstage ====
 
-/// FILE: the Options (ShellSettingsLayout), About, Close.
+/// FILE: the Options, About, Close. The Options are azul-appkit's settings page (Outlook's
+/// Options dialog, the same in every Azlin app): it covers the window on its own, with its
+/// categories on the left, and its OK / Cancel return to the files.
 pub(crate) fn backstage(s: &DriveState, app: &RefAny, page: usize) -> Dom {
+    if page == 0 {
+        return options(s, app);
+    }
     let items = vec![
         BackstageNavItem::create(AzString::from("Options")),
         BackstageNavItem::create(AzString::from("About")),
@@ -835,8 +840,8 @@ extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Upd
     with_state(&mut data, &mut info, |_info, _app, s| s.backstage = None)
 }
 
-/// AzDrive's own categories of the Options; azul-appkit adds Appearance, Data, Keyboard
-/// shortcuts and About after them.
+/// AzDrive's own categories of the Options; azul-appkit adds General, Data, Shortcuts and
+/// About after them.
 pub(crate) const CATEGORIES: [&str; 3] = ["View", "Navigation", "Drives"];
 
 /// A setting's check box with its label (both toggle it).
@@ -886,8 +891,8 @@ fn section(title: &str, content: Dom) -> (String, Dom) {
 }
 
 /// The Options: azul-appkit's settings page with AzDrive's sections (View, Navigation, Drives)
-/// before the kit's (Appearance, Data, Keyboard shortcuts, About); the kit keeps the category
-/// and the search, and saves the theme and mode.
+/// before the kit's (General, Data, Shortcuts, About); the kit keeps the category and saves
+/// the theme and mode.
 fn options(s: &DriveState, app: &RefAny) -> Dom {
     let mut sections = Vec::new();
     for category in 0..CATEGORIES.len() {

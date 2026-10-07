@@ -398,6 +398,18 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
 
     // Commands that need no deck.
     match &cmd {
+        // File > Options: azul-appkit's settings page (Outlook's Options dialog) covers the
+        // window; its OK / Cancel return to where the user was.
+        C::OpenBackstage(BackstagePage::Options) if s.kit.is_some() => {
+            sync_editing(s, info);
+            if let Some(ed) = s.editor.as_mut() {
+                ed.stop_editing();
+            }
+            if let Some(kit_ref) = &s.kit {
+                azul_appkit::ui::open_settings(kit_ref, None);
+            }
+            return Update::RefreshDom;
+        }
         C::OpenBackstage(page) => {
             sync_editing(s, info);
             if let Some(ed) = s.editor.as_mut() {

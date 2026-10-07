@@ -91,6 +91,17 @@ fn title_row(st: &AppState, suffix: &str) -> Dom {
 /// rail, the view's document, the format pane and the status bar.
 fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, monitors: &[(u32, String)]) -> Dom {
     let title = title_row(st, "");
+    if let Some(kit_ref) = st.kit.as_ref().filter(|k| kit::settings_open(k)) {
+        // File > Options: the kit's settings page, one for every Azlin app.
+        return DocumentShell::create(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+                .with_child(kit::settings_page(kit_ref, Vec::new())),
+        )
+        .office_shell()
+        .with_title_row(title)
+        .dom();
+    }
     if st.screen == Screen::Backstage {
         return DocumentShell::create(Dom::create_div())
             .office_shell()
@@ -485,6 +496,12 @@ fn editor_shortcut(
 /// A key anywhere in a window: the show's keys during the show, the
 /// editor's shortcuts otherwise.
 extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // The kit's settings page covers the window: its keys (Escape = Cancel, F1), and no
+    // editor key acts under it.
+    let kit_ref = data.downcast_ref::<AppState>().and_then(|st| st.kit.clone());
+    if let Some(kit_ref) = kit_ref.filter(|k| kit::settings_open(k)) {
+        return kit::handle_key(&kit_ref, &mut info).unwrap_or(Update::DoNothing);
+    }
     let ks = info.get_current_keyboard_state();
     let Some(key) = ks.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
@@ -620,10 +637,8 @@ pub fn start(args: Args) {
             st.screen = Screen::Backstage;
             st.page = BackstagePage::Open;
         }
-        StartScreen::Options => {
-            st.screen = Screen::Backstage;
-            st.page = BackstagePage::Options;
-        }
+        // The kit's settings page over the window; OK / Cancel show the start screen.
+        StartScreen::Options => kit::open_settings(&kit_ref, None),
     }
     eprintln!("[azshow] data root {}", root.display());
     let config = kit::app_config(&kit_ref);

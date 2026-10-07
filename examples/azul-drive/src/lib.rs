@@ -441,7 +441,7 @@ pub(crate) struct DriveState {
 
 impl DriveState {
     /// The backstage page showing: the Options only while azul-appkit's settings page is open
-    /// (its own Back closes it), About while it is chosen.
+    /// (its OK / Cancel close it), About while it is chosen.
     pub fn backstage_shown(&self) -> Option<usize> {
         self.backstage
             .filter(|page| *page != 0 || azul_appkit::ui::settings_open(&self.kit))
