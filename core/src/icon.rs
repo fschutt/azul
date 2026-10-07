@@ -1602,6 +1602,10 @@ fn resolve_icons_in_dom_inner(
         let mut replacement = replacement;
         css.extend(replacement.css.clone().into_library_owned_vec());
         replacement.css = css.into();
+        // And what made it THIS node of the app's tree: an icon button's
+        // click, the id it is found by, its classes, its tab stop
+        // (`NodeData::carry_identity_from`).
+        replacement.root.carry_identity_from(&dom.root);
         *dom = replacement;
         seen += 1;
     }

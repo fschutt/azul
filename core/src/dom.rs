@@ -3665,6 +3665,59 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.key)
     }
 
+    /// Takes over what made `original` THIS node in the app's tree - its
+    /// ids and classes, callbacks, tab stop, dataset, key, context menu and
+    /// accessibility info - for a node that REPLACES it (a resolved icon).
+    /// `self`'s own ids, classes and callbacks stay, after the original's;
+    /// the single-valued ones are taken where `self` has none.
+    ///
+    /// A resolver builds its replacement from the original's style alone, so
+    /// `Dom::create_icon("play").with_id(..).with_callback(Click, ..)` - an
+    /// icon button - lost its click, the id the E2E finds it by, the class
+    /// its CSS selects and its tab stop.
+    pub(crate) fn carry_identity_from(&mut self, original: &NodeData) {
+        let mut ids_and_classes = original.get_ids_and_classes().into_library_owned_vec();
+        for own in self.get_ids_and_classes().as_ref() {
+            if !ids_and_classes.contains(own) {
+                ids_and_classes.push(own.clone());
+            }
+        }
+        self.set_ids_and_classes(ids_and_classes.into());
+
+        if !original.callbacks.as_ref().is_empty() {
+            let mut callbacks = original.callbacks.clone().into_library_owned_vec();
+            callbacks.extend(self.callbacks.as_ref().iter().cloned());
+            self.callbacks = callbacks.into();
+        }
+        if self.get_tab_index().is_none() {
+            if let Some(tab_index) = original.get_tab_index() {
+                self.set_tab_index(tab_index);
+            }
+        }
+        if self.get_dataset().is_none() {
+            if let Some(dataset) = original.get_dataset() {
+                self.set_dataset(OptionRefAny::Some(dataset.clone()));
+            }
+        }
+        if self.get_key().is_none() {
+            if let Some(key) = original.get_key() {
+                self.extra
+                    .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+                    .key = Some(key);
+            }
+        }
+        if self.get_context_menu().is_none() {
+            if let Some(menu) = original.get_context_menu() {
+                self.set_context_menu(menu.clone());
+            }
+        }
+        if self.get_accessibility_info().is_none() {
+            if let Some(info) = original.get_accessibility_info() {
+                self.set_accessibility_info(info.clone());
+            }
+        }
+    }
+
     /// Sets a dataset merge callback for this node.
     ///
     /// The merge callback is invoked during reconciliation when a node from the

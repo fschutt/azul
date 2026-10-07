@@ -880,6 +880,60 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_resolved_icon_keeps_the_nodes_id_classes_tab_stop_and_callbacks() {
+        // `Dom::create_icon("play").with_id(..).with_class(..).with_tab_index(..)
+        // .with_callback(Click, ..)` is a clickable icon button. Resolution
+        // replaced the whole node with the resolver's, which carried only the
+        // style: the click, the id the E2E finds it by, the class its CSS
+        // selects and its tab stop were gone (AzMusic's row play icon; every
+        // icon-only button whose handler sat on the icon).
+        // A stand-in handler: only its presence on the node is checked.
+        let on_click = crate::callbacks::CoreCallback {
+            cb: 0usize,
+            ctx: crate::refany::OptionRefAny::None,
+        };
+        let mut h = IconProviderHandle::with_resolver(div_resolver);
+        h.register_icon("p", "play", RefAny::new(TestIconData { id: 1 }));
+        let shared = SharedIconProvider::from_handle(h);
+
+        let mut dom = Dom::create_div().with_child(
+            Dom::create_icon("play")
+                .with_id("row-play".into())
+                .with_class("row-play-icon".into())
+                .with_tab_index(crate::dom::TabIndex::Auto)
+                .with_callback(
+                    crate::events::EventFilter::Hover(crate::events::HoverEventFilter::Click),
+                    RefAny::new(7u32),
+                    on_click,
+                ),
+        );
+        resolve_icons_in_dom(&mut dom, &shared, &SystemStyle::default());
+
+        let icon = &dom.children.as_ref()[0].root;
+        assert!(matches!(icon.get_node_type(), NodeType::Div), "harness: resolved");
+        let names: Vec<String> = icon
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .map(|c| format!("{c:?}"))
+            .collect();
+        assert!(
+            names.iter().any(|n| n.contains("row-play\"") && n.contains("Id")),
+            "the id survives: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.contains("row-play-icon")),
+            "the class survives: {names:?}"
+        );
+        assert_eq!(
+            icon.get_tab_index(),
+            Some(crate::dom::TabIndex::Auto),
+            "the tab stop survives"
+        );
+        assert_eq!(icon.get_callbacks().as_ref().len(), 1, "the click survives");
+    }
+
+    #[test]
     fn resolve_icons_in_dom_with_the_default_resolver_removes_the_icon_nodes() {
         // The default resolver returns an empty div, so an icon with no
         // registered data becomes that rather than staying an Icon node.
