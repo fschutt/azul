@@ -192609,6 +192609,57 @@
                                     }
                                 ],
                                 "fn_body": "object.toggle()"
+                            },
+                            "preload_file": {
+                                "doc": [
+                                    "Gets the audio file at `path` ready to play from `position_s` and HOLDS: the file and the",
+                                    "output are opened and the first samples decoded on the player's thread, nothing is heard",
+                                    "until [`play`](Self::play) - which then starts at once (a video's sound that must start",
+                                    "with its first picture). What was playing and queued is dropped. Ready when",
+                                    "`AudioPlayerState::buffered_s` is above zero for this id. Returns the track's id; 0 when",
+                                    "closed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "path": "String"
+                                    },
+                                    {
+                                        "position_s": "f64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.preload_file(path, position_s)"
+                            },
+                            "preload_url": {
+                                "doc": [
+                                    "[`preload_file`](Self::preload_file) for a file at an HTTP(S) URL - the sound of a video",
+                                    "streamed from a server: read by range requests a window ahead of the decoder (never",
+                                    "downloaded whole first), through the same download as the URL's picture when a",
+                                    "`<video>` plays it in this process. Ready, like a file, when",
+                                    "`AudioPlayerState::buffered_s` is above zero for this id; a URL that does not open shows",
+                                    "up as `AudioPlayerState::failed_track` with the reason in `error_message`. Returns the",
+                                    "track's id; 0 when closed."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "url": "String"
+                                    },
+                                    {
+                                        "position_s": "f64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.preload_url(url, position_s)"
                             }
                         },
                         "repr": "C"
@@ -192628,6 +192679,9 @@
                                     "type": "f64"
                                 },
                                 "duration_s": {
+                                    "type": "f64"
+                                },
+                                "buffered_s": {
                                     "type": "f64"
                                 },
                                 "track": {
