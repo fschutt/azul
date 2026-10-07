@@ -49,6 +49,104 @@ pub struct Element<'a> {
     pub attributes: &'a [(&'a str, &'a str)],
     /// Where it sits.
     pub scope: ElementScope,
+    /// The `@font-face`s in scope (an enclosing `<svg>`'s stylesheet), the
+    /// fonts a text's `font-family` names first.
+    pub font_faces: &'a [FontFace],
+}
+
+/// An `@font-face` of a stylesheet in markup: the family name it declares
+/// and its font, made from its `src` by the loader ([`FontSourceFn`]).
+/// SCOPED to the element whose stylesheet declares it (an `<svg>`): two
+/// pages' `F1`s are two fonts.
+#[derive(Debug, Clone)]
+pub struct FontFace {
+    pub family: String,
+    pub font: azul_css::props::basic::FontRef,
+}
+
+/// Makes the font an `@font-face`'s `src` names (`data:font/otf;base64,...`):
+/// supplied by the loader that can decode and parse one (layout's). Without
+/// one, markup's `@font-face`s are not loaded.
+pub type FontSourceFn = fn(&str) -> Option<azul_css::props::basic::FontRef>;
+
+/// The `@font-face` fonts of a walk of the markup: the loader's
+/// [`FontSourceFn`] (none: no font is loaded) and the faces in scope.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FontScope<'a> {
+    pub source: Option<FontSourceFn>,
+    pub faces: &'a [FontFace],
+}
+
+impl FontScope<'_> {
+    /// The fonts the `@font-face`s of `css` declare, made by the source.
+    #[must_use]
+    pub fn load(&self, css: &str) -> Vec<FontFace> {
+        let Some(source) = self.source else {
+            return Vec::new();
+        };
+        font_face_rules(css)
+            .into_iter()
+            .filter_map(|(family, src)| {
+                Some(FontFace {
+                    family,
+                    font: source(&src)?,
+                })
+            })
+            .collect()
+    }
+}
+
+/// The `@font-face` rules of a stylesheet's text, as `(family, src)`: the
+/// family name unquoted, `src`'s first `url(...)` (unquoted). A rule without
+/// either is skipped. Read here because the CSS parser drops at-rules it does
+/// not apply; a `data:` URL's `;` and `,` stay inside it.
+#[must_use]
+pub fn font_face_rules(css: &str) -> Vec<(String, String)> {
+    let unquote = |v: &str| v.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+    let mut faces = Vec::new();
+    let mut rest = css;
+    while let Some(at) = rest.find("@font-face") {
+        rest = &rest[at + "@font-face".len()..];
+        let Some(open) = rest.find('{') else {
+            break;
+        };
+        // The block's end: the first `}` outside quotes and parentheses.
+        let body = &rest[open + 1..];
+        let (mut depth, mut quote, mut end) = (0i32, None::<char>, body.len());
+        for (i, c) in body.char_indices() {
+            match (quote, c) {
+                (Some(q), c) if c == q => quote = None,
+                (Some(_), _) => {}
+                (None, '"' | '\'') => quote = Some(c),
+                (None, '(') => depth += 1,
+                (None, ')') => depth -= 1,
+                (None, '}') if depth <= 0 => {
+                    end = i;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let block = &body[..end];
+        rest = body.get(end + 1..).unwrap_or("");
+        let family = block.find("font-family").and_then(|at| {
+            let value = &block[at + "font-family".len()..];
+            let value = value.trim_start().strip_prefix(':')?;
+            Some(unquote(value.split(';').next()?))
+        });
+        let src = block.find("src").and_then(|at| {
+            let value = &block[at + 3..];
+            let start = value.find("url(")? + 4;
+            let value = &value[start..];
+            Some(unquote(&value[..value.find(')')?]))
+        });
+        if let (Some(family), Some(src)) = (family, src) {
+            if !family.is_empty() && !src.is_empty() {
+                faces.push((family, src));
+            }
+        }
+    }
+    faces
 }
 
 impl<'a> Element<'a> {
@@ -397,11 +495,13 @@ fn render_svg_group(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
 fn render_svg_text(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
     let mut node = NodeData::create_node(NodeType::SvgText);
     // A box of its own that never wraps, placed by layout from `x` / `y`.
+    let font = embedded_font_family(element);
     let css = alloc::format!(
         "position: absolute; left: 0px; top: 0px; margin: 0px; white-space: pre; {}",
-        svg_text_hints(element)
+        svg_text_hints(element, font.is_none())
     );
-    let intrinsic = declarations(&css, landing);
+    let mut intrinsic = declarations(&css, landing);
+    intrinsic.extend(font);
     land_common(&mut node, element, intrinsic, landing);
     keep_svg_attributes(&mut node, element, landing);
     node
@@ -411,7 +511,9 @@ fn render_svg_text(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData
 /// kept on the node).
 fn render_svg_tspan(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
     let mut node = NodeData::create_node(NodeType::SvgTspan);
-    let intrinsic = declarations(&svg_text_hints(element), landing);
+    let font = embedded_font_family(element);
+    let mut intrinsic = declarations(&svg_text_hints(element, font.is_none()), landing);
+    intrinsic.extend(font);
     land_common(&mut node, element, intrinsic, landing);
     keep_svg_attributes(&mut node, element, landing);
     node
@@ -544,9 +646,10 @@ fn keep_svg_attributes(node: &mut NodeData, element: &Element<'_>, landing: &mut
 /// `letter-spacing`, `word-spacing`, and `fill` - the colour its glyphs are
 /// painted in), lowest in the cascade like HTML's presentational hints. Sizes
 /// are user units: layout scales them through the `<svg>`'s mapping.
-fn svg_text_hints(element: &Element<'_>) -> String {
+fn svg_text_hints(element: &Element<'_>, with_family: bool) -> String {
     let mut css = String::new();
-    if let Some(family) = element.attribute("font-family").map(str::trim).filter(|f| !f.is_empty()) {
+    let family = element.attribute("font-family").map(str::trim);
+    if let Some(family) = family.filter(|f| with_family && !f.is_empty()) {
         if family.contains(',') || family.starts_with('"') || family.starts_with('\'') {
             css.push_str(&alloc::format!("font-family: {family};"));
         } else {
@@ -586,4 +689,24 @@ fn declarations(css: &str, landing: &Landing<'_>) -> Vec<CssPropertyWithConditio
             &azul_css::props::property::get_css_key_map(),
         ),
     }
+}
+
+/// A text element's `font-family` as the FONT an `@font-face` in its scope
+/// declares under that name (`StyleFontFamily::Ref`, in place of the name):
+/// the page's own font, not one the system has under that name.
+fn embedded_font_family(element: &Element<'_>) -> Option<CssPropertyWithConditions> {
+    use azul_css::props::{
+        basic::font::{StyleFontFamily, StyleFontFamilyVec},
+        property::CssProperty,
+    };
+    let family = element.attribute("font-family")?.trim();
+    let family = family.trim_matches(|c| c == '"' || c == '\'');
+    let face = element
+        .font_faces
+        .iter()
+        .rev()
+        .find(|face| face.family.eq_ignore_ascii_case(family))?;
+    Some(CssPropertyWithConditions::simple(CssProperty::font_family(
+        StyleFontFamilyVec::from_vec(alloc::vec![StyleFontFamily::Ref(face.font.clone())]),
+    )))
 }

@@ -1993,12 +1993,13 @@ pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
 
 #[cfg(all(feature = "xml", not(feature = "cpurender")))]
 pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
-    use azul_core::xml::{str_to_dom_unstyled, ComponentMap};
+    use azul_core::xml::{str_to_dom_unstyled_loading_fonts, ComponentMap};
 
     let wrapped = alloc::format!("<html><body>{}</body></html>", svg);
     let nodes = crate::xml::parse_xml_string(&wrapped).ok()?;
     let component_map = ComponentMap::default();
-    str_to_dom_unstyled(nodes.as_ref(), &component_map).ok()
+    str_to_dom_unstyled_loading_fonts(nodes.as_ref(), &component_map, crate::xml::FONT_SOURCE)
+        .ok()
 }
 
 #[cfg(not(feature = "xml"))]

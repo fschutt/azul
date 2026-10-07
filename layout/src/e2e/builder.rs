@@ -2038,8 +2038,12 @@ fn template_to_dom(
     }
     let doc = format!("<html><body>{body}</body></html>");
     let xml = crate::xml::parse_xml(&doc).map_err(|e| format!("{e:?}"))?;
-    let html = azul_core::xml::str_to_dom_unstyled(xml.root.as_ref(), map)
-        .map_err(|e| format!("{e:?}"))?;
+    let html = azul_core::xml::str_to_dom_unstyled_loading_fonts(
+        xml.root.as_ref(),
+        map,
+        crate::xml::FONT_SOURCE,
+    )
+    .map_err(|e| format!("{e:?}"))?;
     Ok((body_content(html), w.css))
 }
 

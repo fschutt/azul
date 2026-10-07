@@ -63,21 +63,29 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
         }
     };
 
-    let parsed_dom = match str_to_dom(parsed.as_ref(), component_map, None) {
-        Ok(o) => o,
-        Err(e) => {
-            return DomXml {
-                parsed_dom: {
-                    let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_p_with_text(format!("{e}"))].into());
-                    StyledDom::create(&mut dom, error_css)
-                },
-            };
-        }
-    };
+    let parsed_dom =
+        match str_to_dom_loading_fonts(parsed.as_ref(), component_map, None, FONT_SOURCE) {
+            Ok(o) => o,
+            Err(e) => {
+                return DomXml {
+                    parsed_dom: {
+                        let mut dom = Dom::create_body()
+                            .with_children(vec![Dom::create_p_with_text(format!("{e}"))].into());
+                        StyledDom::create(&mut dom, error_css)
+                    },
+                };
+            }
+        };
 
     DomXml { parsed_dom }
 }
+
+/// What loads the fonts markup embeds (an `<svg>`'s `@font-face`s): every
+/// loader here loads them.
+#[cfg(feature = "text_layout")]
+pub(crate) const FONT_SOURCE: Option<element::FontSourceFn> = Some(crate::font_from_url);
+#[cfg(not(feature = "text_layout"))]
+pub(crate) const FONT_SOURCE: Option<element::FontSourceFn> = None;
 
 /// Creates a `Dom` from an already-parsed `Xml` structure, for use in layout
 /// callbacks. CSS from `<style>` tags is attached to `Dom.css` and applied
@@ -87,7 +95,7 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
 #[must_use]
 pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
     let component_map = ComponentMap::with_builtin();
-    match str_to_dom_unstyled(xml.root.as_ref(), &component_map) {
+    match str_to_dom_unstyled_loading_fonts(xml.root.as_ref(), &component_map, FONT_SOURCE) {
         Ok(dom) => dom,
         Err(e) => {
             Dom::create_body().with_children(vec![Dom::create_p_with_text(format!("{e}"))].into())
@@ -338,6 +346,9 @@ struct FastOpen {
     body: bool,
     svg: bool,
     style: bool,
+    /// How many `@font-face`s were in scope when it opened: an `<svg>`'s go
+    /// out of scope with it.
+    faces: usize,
 }
 
 /// The document loader's [`html::TreeSink`]: the elements straight into a
@@ -368,6 +379,8 @@ struct FastDomSink<'k> {
     svgs: usize,
     /// The text of the open `<style>`.
     style: Option<String>,
+    /// The `@font-face`s of the open `<svg>`s' stylesheets, outermost first.
+    faces: Vec<element::FontFace>,
 }
 
 impl<'k> FastDomSink<'k> {
@@ -383,6 +396,7 @@ impl<'k> FastDomSink<'k> {
             bodies: 0,
             svgs: 0,
             style: None,
+            faces: Vec::new(),
         }
     }
 
@@ -420,6 +434,7 @@ impl html::TreeSink for FastDomSink<'_> {
                 attributes,
                 self.css_key_map,
                 scope,
+                &self.faces,
             );
         }
         let style = name == "style";
@@ -437,6 +452,7 @@ impl html::TreeSink for FastDomSink<'_> {
             body,
             svg,
             style,
+            faces: self.faces.len(),
         });
     }
 
@@ -450,9 +466,21 @@ impl html::TreeSink for FastDomSink<'_> {
         self.hidden -= usize::from(open.hides);
         self.bodies -= usize::from(open.body);
         self.svgs -= usize::from(open.svg);
+        if open.svg {
+            self.faces.truncate(open.faces);
+        }
         if open.style {
             if let Some(text) = self.style.take() {
                 if !text.is_empty() {
+                    // An `<svg>`'s `@font-face`s are ITS fonts (two pages'
+                    // `F1`s are two fonts), for the text after them.
+                    if self.svgs > 0 {
+                        let fonts = element::FontScope {
+                            source: FONT_SOURCE,
+                            faces: &[],
+                        };
+                        self.faces.extend(fonts.load(&text));
+                    }
                     self.css.push(Css::from_string(text.into()));
                 }
             }
@@ -489,6 +517,7 @@ fn open_fast_node(
     attrs: &[(String, String)],
     css_key_map: &azul_css::props::property::CssKeyMap,
     scope: element::ElementScope,
+    font_faces: &[element::FontFace],
 ) {
     let map = ComponentMap::default();
     let tag = element::element_tag(&map, tag);
@@ -499,6 +528,7 @@ fn open_fast_node(
             tag: &tag,
             attributes: &pairs,
             scope,
+            font_faces,
         },
         &mut element::Landing {
             css_key_map: Some(css_key_map),

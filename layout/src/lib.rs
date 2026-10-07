@@ -255,6 +255,8 @@ pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
 /// updater and the system dialogs.
 #[cfg(feature = "std")]
 pub mod appenv;
+#[cfg(feature = "std")]
+pub mod data_uri;
 /// Built-in system dialogs (`SysDialogType`): report-a-problem, update
 /// checker with Markdown changelog, crash reporter. ALWAYS CPU-rendered.
 #[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
@@ -676,6 +678,31 @@ pub fn parse_font_fn(
     )
     .map(parsed_font_to_font_ref)
 }
+
+#[cfg(feature = "text_layout")]
+/// The font an `@font-face`'s `src` names - a base64 `data:` URI, the form
+/// an SVG (a PDF page's) embeds its fonts in - parsed ONCE per distinct URI
+/// and remembered for the last [`FONT_URI_MEMO`]: the markup loaders'
+/// [`azul_core::xml::element::FontSourceFn`]. `None` for another URL or bytes
+/// that are not a font.
+#[must_use]
+pub fn font_from_url(url: &str) -> Option<azul_css::props::basic::FontRef> {
+    static MEMO: data_uri::UriMemo<azul_css::props::basic::FontRef> =
+        data_uri::UriMemo::new(FONT_URI_MEMO);
+    MEMO.get_or_make(url, |bytes| {
+        parse_font_fn(azul_core::resources::LoadedFontSource {
+            data: bytes.into(),
+            index: 0,
+            load_outlines: true,
+        })
+    })
+}
+
+#[cfg(feature = "text_layout")]
+/// How many `@font-face` fonts [`font_from_url`] remembers: a page in view
+/// keeps its own alive (its text nodes hold them); this keeps the pages just
+/// scrolled past from parsing theirs again.
+pub const FONT_URI_MEMO: usize = 16;
 
 #[cfg(feature = "text_layout")]
 /// Wraps a [`ParsedFont`] in a [`FontRef`](azul_css::props::basic::FontRef),

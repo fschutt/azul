@@ -5095,7 +5095,7 @@ fn builtin_dom(tag: &str, data: &ComponentDataModel, example: bool) -> Dom {
         all_attrs.push((k.as_str(), v.as_str()));
     }
     let node = preview_xml(tag, &all_attrs, &text, children);
-    xml_node_to_dom_fast(&node, &ComponentMap::default(), false, 0).unwrap_or_else(|_| {
+    xml_node_to_dom_fast(&node, &ComponentMap::default(), false, None, 0).unwrap_or_else(|_| {
         let bare = Dom::create_node(tag_to_node_type(tag));
         if text.is_empty() {
             bare
@@ -5951,8 +5951,24 @@ pub fn str_to_dom<'a>(
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, DomXmlParseError> {
+    str_to_dom_loading_fonts(root_nodes, component_map, max_width, None)
+}
+
+/// [`str_to_dom`], with the source of the fonts an `<svg>`'s `@font-face`s
+/// embed ([`element::FontSourceFn`]; without one they are not loaded).
+#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
+/// component).
+pub fn str_to_dom_loading_fonts<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+    max_width: Option<f32>,
+    font_source: Option<element::FontSourceFn>,
+) -> Result<StyledDom, DomXmlParseError> {
     // Delegate to the fast path (Dom::Fast / CompactDom arena).
-    str_to_dom_fast(root_nodes, component_map, max_width)
+    str_to_dom_fast(root_nodes, component_map, max_width, font_source)
 }
 
 /// Parse XML to `StyledDom` via arena-based `FastDom` (no tree intermediary).
@@ -5965,6 +5981,7 @@ fn str_to_dom_fast<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
+    font_source: Option<element::FontSourceFn>,
 ) -> Result<StyledDom, DomXmlParseError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
@@ -5982,6 +5999,7 @@ fn str_to_dom_fast<'a>(
         global_style,
         component_map,
         max_width,
+        font_source,
     )
     .map_err(Into::into)
 }
@@ -5998,6 +6016,7 @@ fn html_root_node_data(html_node: &XmlNode) -> NodeData {
             tag: "html",
             attributes: &pairs,
             scope: element::ElementScope::default(),
+            font_faces: &[],
         },
         &mut element::Landing {
             css_key_map: None,
@@ -6023,6 +6042,22 @@ pub fn str_to_dom_unstyled<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
 ) -> Result<Dom, DomXmlParseError> {
+    str_to_dom_unstyled_loading_fonts(root_nodes, component_map, None)
+}
+
+/// [`str_to_dom_unstyled`], with the source of the fonts an `<svg>`'s
+/// `@font-face`s embed ([`element::FontSourceFn`]; without one they are not
+/// loaded).
+#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+/// # Errors
+///
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown
+/// component).
+pub fn str_to_dom_unstyled_loading_fonts<'a>(
+    root_nodes: &'a [XmlNodeChild],
+    component_map: &'a ComponentMap,
+    font_source: Option<element::FontSourceFn>,
+) -> Result<Dom, DomXmlParseError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
 
@@ -6034,8 +6069,8 @@ pub fn str_to_dom_unstyled<'a>(
     };
 
     // Build the DOM tree from the body node
-    let body_dom =
-        xml_node_to_dom_fast(body_node, component_map, false, 0).map_err(DomXmlParseError::from)?;
+    let body_dom = xml_node_to_dom_fast(body_node, component_map, false, font_source, 0)
+        .map_err(DomXmlParseError::from)?;
 
     // Wrap in proper HTML structure (NodeType is imported at module top)
     let root_node_type = body_dom.root.node_type.clone();
@@ -6352,6 +6387,7 @@ fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
     inside_svg: bool,
+    font_source: Option<element::FontSourceFn>,
     depth: usize,
 ) -> Result<Dom, RenderDomError> {
     let mut sink = DomTreeSink::default();
@@ -6359,6 +6395,10 @@ fn xml_node_to_dom_fast<'a>(
         xml_node,
         component_map,
         element::ElementScope { inside_svg },
+        element::FontScope {
+            source: font_source,
+            faces: &[],
+        },
         &mut sink,
         depth,
     )?;
@@ -6459,6 +6499,7 @@ fn walk_element(
     xml_node: &XmlNode,
     component_map: &ComponentMap,
     scope: element::ElementScope,
+    fonts: element::FontScope<'_>,
     sink: &mut dyn DomSink,
     depth: usize,
 ) -> Result<(), RenderDomError> {
@@ -6470,6 +6511,7 @@ fn walk_element(
             tag: &tag,
             attributes: &pairs,
             scope,
+            font_faces: fonts.faces,
         },
         &mut element::Landing {
             css_key_map: None,
@@ -6485,13 +6527,26 @@ fn walk_element(
         }
         // An `<svg>`'s stylesheet is SVG-GLOBAL: nearly always written in
         // `<defs><style>`, and `<defs>` draws nothing - hung on the `<svg>`.
+        // Its `@font-face`s are ITS fonts: two pages' `F1`s are two fonts.
+        let mut svg_faces = Vec::new();
         if tag == "svg" {
             let mut texts = Vec::new();
             collect_style_text(xml_node, &mut texts, 0);
             for text in texts {
+                svg_faces.extend(fonts.load(&text));
                 sink.scope_css(Css::from_string(text.into()));
             }
         }
+        let children_faces;
+        let children_fonts = if svg_faces.is_empty() {
+            fonts
+        } else {
+            children_faces = [fonts.faces, &svg_faces].concat();
+            element::FontScope {
+                faces: &children_faces,
+                ..fonts
+            }
+        };
         let children_scope = scope.for_children_of(&tag);
         for child in xml_node.children.as_ref() {
             match child {
@@ -6501,6 +6556,7 @@ fn walk_element(
                             child_node,
                             component_map,
                             children_scope,
+                            children_fonts,
                             sink,
                             depth + 1,
                         )?,
@@ -6648,6 +6704,7 @@ fn xml_node_to_fast_dom<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
     inside_svg: bool,
+    font_source: Option<element::FontSourceFn>,
     builder: &mut CompactDomBuilder,
     depth: usize,
 ) -> Result<(), RenderDomError> {
@@ -6655,6 +6712,10 @@ fn xml_node_to_fast_dom<'a>(
         xml_node,
         component_map,
         element::ElementScope { inside_svg },
+        element::FontScope {
+            source: font_source,
+            faces: &[],
+        },
         builder,
         depth,
     )
@@ -6670,6 +6731,7 @@ fn render_dom_from_body_node_fast<'a>(
     mut global_css: Option<Css>,
     component_map: &'a ComponentMap,
     max_width: Option<f32>,
+    font_source: Option<element::FontSourceFn>,
 ) -> Result<StyledDom, RenderDomError> {
     let mut builder = CompactDomBuilder::new();
 
@@ -6677,7 +6739,14 @@ fn render_dom_from_body_node_fast<'a>(
     // Open <html>, with the element's own attributes
     builder.open_node(html_root_node_data(html_node));
     // Open <body> (the body_node content goes inside)
-    xml_node_to_fast_dom(body_node, component_map, false, &mut builder, 0)?;
+    xml_node_to_fast_dom(
+        body_node,
+        component_map,
+        false,
+        font_source,
+        &mut builder,
+        0,
+    )?;
     // Close <html>
     builder.close_node();
 

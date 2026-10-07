@@ -124,7 +124,7 @@ mod tests {
         };
 
         let component_map = ComponentMap::default();
-        let dom = xml_node_to_dom_fast(&img_node, &component_map, false, 0)
+        let dom = xml_node_to_dom_fast(&img_node, &component_map, false, None, 0)
             .expect("xml_node_to_dom_fast for <img> should succeed");
 
         match dom.root.get_node_type() {
@@ -161,7 +161,7 @@ mod tests {
         };
 
         let component_map = ComponentMap::default();
-        let dom = xml_node_to_dom_fast(&text_form, &component_map, false, 0)
+        let dom = xml_node_to_dom_fast(&text_form, &component_map, false, None, 0)
             .expect("xml_node_to_dom_fast for <icon>text</icon> should succeed");
 
         match dom.root.get_node_type() {
@@ -267,11 +267,12 @@ mod tests {
             .spawn(|| {
                 let deep = nested_divs(2000);
                 let component_map = ComponentMap::default();
-                let dom = xml_node_to_dom_fast(&deep, &component_map, false, 0);
+                let dom = xml_node_to_dom_fast(&deep, &component_map, false, None, 0);
                 assert!(dom.is_ok(), "deep DOM build must not overflow the stack");
 
                 let mut builder = CompactDomBuilder::new();
-                let fast = xml_node_to_fast_dom(&deep, &component_map, false, &mut builder, 0);
+                let fast =
+                    xml_node_to_fast_dom(&deep, &component_map, false, None, &mut builder, 0);
                 assert!(
                     fast.is_ok(),
                     "deep FastDom build must not overflow the stack"
@@ -2511,7 +2512,7 @@ mod autotest_generated {
     fn xml_node_to_dom_fast_depth_zero_builds_children() {
         let map = ComponentMap::default();
         let n = node("div", &[], vec![txt("hi"), elem(XmlNode::create("span"))]);
-        let dom = xml_node_to_dom_fast(&n, &map, false, 0).expect("ok");
+        let dom = xml_node_to_dom_fast(&n, &map, false, None, 0).expect("ok");
         assert_eq!(dom.children.as_ref().len(), 2);
     }
 
@@ -2565,7 +2566,7 @@ mod autotest_generated {
             ],
         );
 
-        let dom = xml_node_to_dom_fast(&svg, &map, false, 0).expect("ok");
+        let dom = xml_node_to_dom_fast(&svg, &map, false, None, 0).expect("ok");
 
         let mut texts = Vec::new();
         all_text(&dom, &mut texts);
@@ -2599,7 +2600,7 @@ mod autotest_generated {
                 elem(node("path", &[], vec![])),
             ],
         );
-        let dom = xml_node_to_dom_fast(&svg, &map, false, 0).expect("ok");
+        let dom = xml_node_to_dom_fast(&svg, &map, false, None, 0).expect("ok");
         assert_eq!(
             dom.children.as_ref().len(),
             1,
@@ -2613,7 +2614,7 @@ mod autotest_generated {
     fn the_svg_prefix_still_draws() {
         let map = ComponentMap::default();
         let svg = node("svg", &[], vec![elem(node("svg:path", &[], vec![]))]);
-        let dom = xml_node_to_dom_fast(&svg, &map, false, 0).expect("ok");
+        let dom = xml_node_to_dom_fast(&svg, &map, false, None, 0).expect("ok");
         assert_eq!(dom.children.as_ref().len(), 1, "<svg:path> IS a path");
     }
 
@@ -2622,17 +2623,19 @@ mod autotest_generated {
         let map = ComponentMap::default();
         let n = node("div", &[], vec![txt("hi")]);
 
-        let at_cap = xml_node_to_dom_fast(&n, &map, false, MAX_XML_NESTING_DEPTH).expect("ok");
+        let at_cap =
+            xml_node_to_dom_fast(&n, &map, false, None, MAX_XML_NESTING_DEPTH).expect("ok");
         assert!(
             at_cap.children.as_ref().is_empty(),
             "at the cap the node is emitted without children"
         );
 
-        let saturated = xml_node_to_dom_fast(&n, &map, false, usize::MAX)
+        let saturated = xml_node_to_dom_fast(&n, &map, false, None, usize::MAX)
             .expect("usize::MAX depth must not overflow when computing depth + 1");
         assert!(saturated.children.as_ref().is_empty());
 
-        let below = xml_node_to_dom_fast(&n, &map, false, MAX_XML_NESTING_DEPTH - 1).expect("ok");
+        let below =
+            xml_node_to_dom_fast(&n, &map, false, None, MAX_XML_NESTING_DEPTH - 1).expect("ok");
         assert_eq!(
             below.children.as_ref().len(),
             1,
@@ -2646,7 +2649,7 @@ mod autotest_generated {
         let n = node("div", &[], vec![txt("hi")]);
 
         let mut b = CompactDomBuilder::new();
-        xml_node_to_fast_dom(&n, &map, false, &mut b, usize::MAX).expect("no overflow");
+        xml_node_to_fast_dom(&n, &map, false, None, &mut b, usize::MAX).expect("no overflow");
         let fd = b.finish();
         assert_eq!(
             fd.node_data.as_ref().len(),
@@ -2655,7 +2658,7 @@ mod autotest_generated {
         );
 
         let mut b2 = CompactDomBuilder::new();
-        xml_node_to_fast_dom(&n, &map, false, &mut b2, 0).expect("ok");
+        xml_node_to_fast_dom(&n, &map, false, None, &mut b2, 0).expect("ok");
         assert_eq!(b2.finish().node_data.as_ref().len(), 2, "node + text child");
     }
 
@@ -2675,7 +2678,7 @@ mod autotest_generated {
         ] {
             let n = node("div", &[("tabindex", v), ("focusable", "true")], vec![]);
             assert!(
-                xml_node_to_dom_fast(&n, &map, false, 0).is_ok(),
+                xml_node_to_dom_fast(&n, &map, false, None, 0).is_ok(),
                 "tabindex={v:?} must not panic"
             );
         }
@@ -2693,7 +2696,7 @@ mod autotest_generated {
             ],
             vec![],
         );
-        let dom = xml_node_to_dom_fast(&n, &map, false, 0).expect("ok");
+        let dom = xml_node_to_dom_fast(&n, &map, false, None, 0).expect("ok");
         match dom.root.get_node_type() {
             NodeType::Image(_) => {}
             other => panic!("expected an Image node, got {other:?}"),
@@ -3546,7 +3549,7 @@ mod autotest_generated {
         };
 
         let component_map = ComponentMap::with_builtin();
-        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, 0)
+        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, None, 0)
             .expect("parse ok");
 
         assert_eq!(dom.root.node_type, NodeType::P, "the element keeps its tag");
@@ -3580,7 +3583,8 @@ mod autotest_generated {
 
         let component_map = ComponentMap::with_builtin();
         let mut builder = CompactDomBuilder::new();
-        xml_node_to_fast_dom(&xml_node, &component_map, false, &mut builder, 0).expect("parse ok");
+        xml_node_to_fast_dom(&xml_node, &component_map, false, None, &mut builder, 0)
+            .expect("parse ok");
         let fast = builder.finish();
         let nodes = fast.node_data.as_ref();
 
@@ -3613,7 +3617,7 @@ mod autotest_generated {
         };
 
         let component_map = ComponentMap::with_builtin();
-        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, 0)
+        let dom = xml_node_to_dom_fast(&xml_node, &component_map, false, None, 0)
             .expect("parse ok");
 
         assert_eq!(dom.root.node_type, NodeType::P, "the element keeps its tag");

@@ -114,44 +114,14 @@ pub mod decode {
     /// not decode.
     #[must_use]
     pub fn data_uri_image(uri: &str) -> Option<azul_core::resources::ImageRef> {
-        use std::{
-            collections::VecDeque,
-            hash::{Hash, Hasher},
-            sync::Mutex,
-        };
-
-        use base64::Engine as _;
-
-        static MEMO: Mutex<VecDeque<(u64, azul_core::resources::ImageRef)>> =
-            Mutex::new(VecDeque::new());
-
-        let payload = uri.strip_prefix("data:")?;
-        let (header, data) = payload.split_once(',')?;
-        if !header.split(';').any(|part| part.trim().eq_ignore_ascii_case("base64")) {
-            return None;
-        }
-        let key = {
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            uri.hash(&mut h);
-            h.finish()
-        };
-        let mut memo = MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((_, image)) = memo.iter().find(|(k, _)| *k == key) {
-            return Some(image.clone());
-        }
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(data.trim().as_bytes())
-            .ok()?;
-        let ResultRawImageDecodeImageError::Ok(raw) = decode_raw_image_from_any_bytes(&bytes)
-        else {
-            return None;
-        };
-        let image = azul_core::resources::ImageRef::new_rawimage(raw)?;
-        if memo.len() >= DATA_URI_MEMO {
-            memo.pop_front();
-        }
-        memo.push_back((key, image.clone()));
-        Some(image)
+        static MEMO: crate::data_uri::UriMemo<azul_core::resources::ImageRef> =
+            crate::data_uri::UriMemo::new(DATA_URI_MEMO);
+        MEMO.get_or_make(uri, |bytes| match decode_raw_image_from_any_bytes(&bytes) {
+            ResultRawImageDecodeImageError::Ok(raw) => {
+                azul_core::resources::ImageRef::new_rawimage(raw)
+            }
+            ResultRawImageDecodeImageError::Err(_) => None,
+        })
     }
 
     /// How many decoded `data:` URI pictures [`data_uri_image`] remembers.
