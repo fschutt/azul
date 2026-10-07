@@ -3,11 +3,29 @@
 //! (tabs). Plain Rust: the UI builds the explorer's `TreeView` from
 //! [`Workspace::rows`] and maps the tree's depth-first click index back
 //! through the same list.
+//!
+//! Also plain: where a path on disk is in a workspace ([`key_of_path`]),
+//! what tells two open files apart ([`doc_ident`]), the recent folders
+//! ([`remember`]) and quick open's ranking ([`quick_matches`]).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+    path::{Component, Path, PathBuf},
 };
+
+/// What the explorer never shows (VSCode's `files.exclude` defaults).
+#[must_use]
+pub fn hidden_entry(name: &str) -> bool {
+    matches!(name, ".git" | ".svn" | ".hg" | "CVS" | ".DS_Store" | "Thumbs.db")
+}
+
+/// The folders quick open's index does not walk into: version control and
+/// other dot folders, build output, dependencies (VSCode's `search.exclude`,
+/// and Cargo's `target/`).
+#[must_use]
+pub fn skipped_folder(name: &str) -> bool {
+    name.starts_with('.') || matches!(name, "target" | "node_modules" | "bower_components")
+}
 
 /// Where the workspace's files are: a drive's folder and a key prefix in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,8 +86,11 @@ impl Workspace {
         }
     }
 
-    /// The entries of `folder` (a key ending in `/`, or `""`) arrived.
+    /// The entries of `folder` (a key ending in `/`, or `""`) arrived (the
+    /// [`hidden_entry`] names left out).
     pub fn set_listing(&mut self, folder: &str, mut folders: Vec<String>, mut files: Vec<String>) {
+        folders.retain(|n| !hidden_entry(n));
+        files.retain(|n| !hidden_entry(n));
         folders.sort_by_key(|n| n.to_lowercase());
         files.sort_by_key(|n| n.to_lowercase());
         let entries = folders
@@ -132,6 +153,13 @@ impl Workspace {
         out
     }
 
+    /// Forgets every listing (the explorer's Refresh); the open folders, the
+    /// workspace's own (`""`) first, are what to list again.
+    pub fn refresh(&mut self) -> Vec<String> {
+        self.listings.clear();
+        self.expanded.iter().cloned().collect()
+    }
+
     /// The drive key of workspace key `key`.
     #[must_use]
     pub fn drive_key(&self, key: &str) -> String {
@@ -160,6 +188,127 @@ pub fn tab_label(name: &str, dirty: bool) -> String {
     } else {
         name.to_string()
     }
+}
+
+/// The workspace key of the file at `path` when it lies in `root`'s folder
+/// (and under its prefix); `None` for a path outside it, or the folder
+/// itself.
+#[must_use]
+pub fn key_of_path(root: &Root, path: &Path) -> Option<String> {
+    let inside = path.strip_prefix(&root.drive_root).ok()?;
+    let mut parts = Vec::new();
+    for part in inside.components() {
+        match part {
+            Component::Normal(name) => parts.push(name.to_str()?.to_string()),
+            _ => return None,
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let drive_key = parts.join("/");
+    drive_key
+        .strip_prefix(root.prefix.as_str())
+        .filter(|key| !key.is_empty())
+        .map(str::to_string)
+}
+
+/// What tells two open files apart: the file's place on disk (`root` and
+/// `key`). A file opened alone has its own folder as its root, so its key
+/// alone ("main.rs") could be a workspace file's too.
+#[must_use]
+pub fn doc_ident(root: &Root, key: &str) -> String {
+    root.drive_root
+        .join(format!("{}{}", root.prefix, key))
+        .display()
+        .to_string()
+}
+
+/// The most folders the recent list keeps.
+pub const RECENT_MAX: usize = 10;
+
+/// The recent folders with `folder` first, each once, [`RECENT_MAX`] at
+/// most.
+#[must_use]
+pub fn remember(recent: &[String], folder: &str) -> Vec<String> {
+    let mut out = Vec::with_capacity(RECENT_MAX);
+    out.push(folder.to_string());
+    out.extend(
+        recent
+            .iter()
+            .filter(|f| f.as_str() != folder)
+            .take(RECENT_MAX - 1)
+            .cloned(),
+    );
+    out
+}
+
+/// The recent folders as the settings keep them (a JSON array).
+#[must_use]
+pub fn recent_to_json(recent: &[String]) -> String {
+    serde_json::to_string(recent).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// The recent folders from the settings (none from anything but a JSON
+/// array of strings).
+#[must_use]
+pub fn recent_from_json(text: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|f| !f.trim().is_empty())
+        .take(RECENT_MAX)
+        .collect()
+}
+
+/// The most files quick open lists.
+pub const QUICK_MAX: usize = 50;
+
+/// Whether every letter of `query` (spaces left out) occurs in `text` in
+/// order, in any case - the command palette's own rule, so the palette
+/// keeps every row quick open hands it.
+#[must_use]
+pub fn letters_in_order(query: &str, text: &str) -> bool {
+    let mut haystack = text.chars().flat_map(char::to_lowercase);
+    for wanted in query
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_lowercase)
+    {
+        if !haystack.any(|c| c == wanted) {
+            return false;
+        }
+    }
+    true
+}
+
+/// The files of `files` (workspace keys) quick open lists for `query`, as
+/// indices, best first: a file name that starts with the query, then one
+/// that holds it, then any path with its letters in order; shorter paths
+/// first among equals. At most `max`.
+#[must_use]
+pub fn quick_matches(files: &[String], query: &str, max: usize) -> Vec<usize> {
+    let query = query.trim().to_lowercase();
+    let mut hits: Vec<(u8, usize, usize)> = files
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| letters_in_order(&query, f))
+        .map(|(i, f)| {
+            let name = file_name(f).to_lowercase();
+            let rank = if query.is_empty() {
+                2
+            } else if name.starts_with(&query) {
+                0
+            } else if name.contains(&query) {
+                1
+            } else {
+                2
+            };
+            (rank, f.len(), i)
+        })
+        .collect();
+    hits.sort_unstable();
+    hits.into_iter().take(max).map(|(_, _, i)| i).collect()
 }
 
 /// What a tab holds, for [`Tabs`].

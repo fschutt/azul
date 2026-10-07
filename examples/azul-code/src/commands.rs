@@ -284,6 +284,7 @@ pub extern "C" fn on_drive_done(mut app: RefAny, mut msg: RefAny, mut info: Call
                     }
                 }
             }
+            DriveOutcome::Indexed { .. } => {}
         }
     }
     if st.close_after_save && !st.is_saving() && !st.any_dirty() {

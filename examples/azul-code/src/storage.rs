@@ -8,7 +8,7 @@
 //! The highlighter's far walks ([`crate::highlight::HighlightJob`]) run on
 //! a Thread the same way.
 
-use std::path::PathBuf;
+use std::{collections::VecDeque, path::PathBuf};
 
 use azul::{
     callbacks::{CallbackInfo, RefAny, WriteBackCallbackType},
@@ -18,8 +18,13 @@ use azul_storage::{key::last_segment, Drive, LocalDrive};
 
 use crate::{
     highlight::{HighlightJob, JobResult},
-    workspace::Root,
+    workspace::{hidden_entry, skipped_folder, Root},
 };
+
+/// The most files quick open's index holds.
+pub const INDEX_MAX_FILES: usize = 20_000;
+/// The most folders the index walk lists.
+const INDEX_MAX_FOLDERS: usize = 4_000;
 
 /// One thing to do in the workspace (keys relative to the workspace).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +35,9 @@ pub enum DriveJob {
     Read { key: String },
     /// Create or replace a file.
     Write { key: String, bytes: Vec<u8> },
+    /// Every file of the workspace for quick open, folder by folder
+    /// (breadth first), the [`skipped_folder`]s left out, `limit` at most.
+    Index { limit: usize },
 }
 
 /// What a job did.
@@ -48,6 +56,13 @@ pub enum DriveOutcome {
     Written {
         key: String,
         result: Result<(), String>,
+    },
+    /// The workspace's files (keys); `complete` is false when the walk
+    /// stopped at its cap.
+    Indexed {
+        files: Vec<String>,
+        complete: bool,
+        error: Option<String>,
     },
 }
 
@@ -74,8 +89,62 @@ pub fn run_jobs(drive: &dyn Drive, prefix: &str, jobs: Vec<DriveJob>) -> Vec<Dri
                 let result = drive.put(&format!("{prefix}{key}"), &bytes).map_err(|e| e.to_string());
                 DriveOutcome::Written { key, result }
             }
+            DriveJob::Index { limit } => index(drive, prefix, limit),
         })
         .collect()
+}
+
+/// Quick open's index: the workspace's folders listed one level at a time,
+/// breadth first (the files near the top come first), never into a
+/// [`skipped_folder`]; at most `limit` files and [`INDEX_MAX_FOLDERS`]
+/// folders.
+fn index(drive: &dyn Drive, prefix: &str, limit: usize) -> DriveOutcome {
+    let mut files: Vec<String> = Vec::new();
+    let mut queue: VecDeque<String> = VecDeque::from([String::new()]);
+    let mut listed = 0;
+    let mut complete = true;
+    while let Some(folder) = queue.pop_front() {
+        if files.len() >= limit || listed >= INDEX_MAX_FOLDERS {
+            complete = false;
+            break;
+        }
+        listed += 1;
+        let level = match azul_storage::ops::list_folder_all(drive, &format!("{prefix}{folder}")) {
+            Ok(level) => level,
+            // The workspace itself cannot be listed: say so; a folder in it: go on without it.
+            Err(e) if folder.is_empty() => {
+                return DriveOutcome::Indexed {
+                    files,
+                    complete: false,
+                    error: Some(e.to_string()),
+                }
+            }
+            Err(_) => continue,
+        };
+        for object in &level.objects {
+            let name = last_segment(&object.key);
+            if name.is_empty() || hidden_entry(name) {
+                continue;
+            }
+            if files.len() >= limit {
+                complete = false;
+                break;
+            }
+            files.push(format!("{folder}{name}"));
+        }
+        for sub in &level.folders {
+            let name = last_segment(sub);
+            if name.is_empty() || skipped_folder(name) || hidden_entry(name) {
+                continue;
+            }
+            queue.push_back(format!("{folder}{name}/"));
+        }
+    }
+    DriveOutcome::Indexed {
+        files,
+        complete,
+        error: None,
+    }
 }
 
 /// One folder level: its folders and files by name (every page).
@@ -107,8 +176,11 @@ fn list(drive: &dyn Drive, prefix: &str, folder: String) -> DriveOutcome {
     }
 }
 
-/// What a drive thread hands back.
+/// What a drive thread hands back: the root the jobs ran on (a listing of
+/// a workspace that is no longer open is dropped; a file read is opened on
+/// it) and every job's outcome.
 pub struct DriveReply {
+    pub root: Root,
     pub outcomes: Vec<DriveOutcome>,
 }
 
@@ -129,7 +201,7 @@ extern "C" fn drive_thread(mut init: RefAny, mut sender: ThreadSender, _receiver
     let outcomes = run_jobs(&drive, &root.prefix, jobs);
     let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
         on_done,
-        RefAny::new(DriveReply { outcomes }),
+        RefAny::new(DriveReply { root, outcomes }),
     )));
 }
 
@@ -164,6 +236,7 @@ pub fn spawn_drive_jobs(
 pub fn take_drive_reply(msg: &mut RefAny) -> Option<DriveReply> {
     let mut guard = msg.downcast_mut::<DriveReply>()?;
     Some(DriveReply {
+        root: guard.root.clone(),
         outcomes: std::mem::take(&mut guard.outcomes),
     })
 }

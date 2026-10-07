@@ -76,10 +76,12 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: sample::APP_FOLDER,
 };
 
-pub const SHORTCUTS: [Shortcut; 15] = [
+pub const SHORTCUTS: [Shortcut; 17] = [
     Shortcut::new("File", "Mod+O", "Open a folder"),
+    Shortcut::new("File", "Mod+P", "Quick open a file of the folder"),
     Shortcut::new("File", "Mod+S", "Save every changed file"),
     Shortcut::new("File", "Mod+W", "Close the tab"),
+    Shortcut::new("Window", "Mod+B", "Show / hide the side bar"),
     Shortcut::new("Find", "Mod+F", "Find in the file"),
     Shortcut::new("Find", "Mod+H", "Replace in the file"),
     Shortcut::new("Find", "F3 / Shift+F3", "Next / previous match"),
