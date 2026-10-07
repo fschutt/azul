@@ -4,7 +4,7 @@
 
 use azul::str::String as AzString;
 
-// ==== The controls bar ====
+// ==== The controls bar (`MIC` and `CAM` are the waiting room's switches too) ====
 
 pub const MIC: AzString = AzString::from_const_str("__azmeet_mic");
 pub const CAM: AzString = AzString::from_const_str("__azmeet_cam");
@@ -13,8 +13,12 @@ pub const DEAFEN: AzString = AzString::from_const_str("__azmeet_deafen");
 pub const VIEW: AzString = AzString::from_const_str("__azmeet_view");
 /// "Drop a video packet" (`AZMEET_TEST_PATTERN=1`).
 pub const DROP: AzString = AzString::from_const_str("__azmeet_drop");
-pub const SETTINGS: AzString = AzString::from_const_str("__azmeet_settings");
 pub const LEAVE: AzString = AzString::from_const_str("__azmeet_leave");
+
+// ==== The top bar (every screen) ====
+
+/// The gear at the top right: the settings page azul-appkit shares.
+pub const SETTINGS: AzString = AzString::from_const_str("__azmeet_settings");
 
 // ==== The side panel ====
 
@@ -23,22 +27,36 @@ pub const CHAT_MESSAGES: AzString = AzString::from_const_str("__azmeet_chat_mess
 pub const CHAT_FIELD: AzString = AzString::from_const_str("__azmeet_chat_field");
 pub const CHAT_SEND: AzString = AzString::from_const_str("__azmeet_chat_send");
 pub const STATISTICS: AzString = AzString::from_const_str("__azmeet_statistics");
-/// The side panel's "Copy link" (the meeting's link beside it).
+/// "Copy link" beside the meeting's link (under the side panel; in the waiting room).
 pub const COPY_LINK: AzString = AzString::from_const_str("__azmeet_copy_link");
 
-// ==== The lobby ====
+// ==== The start screen ====
 
-pub const NAME: AzString = AzString::from_const_str("__azmeet_name");
 pub const SERVER: AzString = AzString::from_const_str("__azmeet_server");
 pub const JOIN_FIELD: AzString = AzString::from_const_str("__azmeet_join_field");
 pub const NEW_MEETING: AzString = AzString::from_const_str("__azmeet_new");
 pub const JOIN: AzString = AzString::from_const_str("__azmeet_join");
 
-// ==== The settings ====
+// ==== The waiting room ====
 
-pub const SETTINGS_BACK: AzString = AzString::from_const_str("__azmeet_settings_back");
-/// The settings' About: azul's AboutDialog.
-pub const ABOUT: AzString = AzString::from_const_str("__azmeet_about");
+/// The waiting room's root.
+pub const WAITING: AzString = AzString::from_const_str("__azmeet_waiting");
+/// The preview: this side's camera (mirrored) or its initials.
+pub const PREVIEW: AzString = AzString::from_const_str("__azmeet_preview");
+/// The meeting's code (or its link when it has no code).
+pub const MEETING_CODE: AzString = AzString::from_const_str("__azmeet_meeting_code");
+/// The name others see (the waiting room and the settings' Meetings).
+pub const NAME: AzString = AzString::from_const_str("__azmeet_name");
+/// "Join now", or "Start meeting" for a meeting this side just made.
+pub const JOIN_NOW: AzString = AzString::from_const_str("__azmeet_join_now");
+/// Back to the start screen without joining.
+pub const WAITING_BACK: AzString = AzString::from_const_str("__azmeet_waiting_back");
+
+// ==== AzMeet's settings sections (on azul-appkit's settings page) ====
+
+pub const MIRROR: AzString = AzString::from_const_str("__azmeet_mirror");
+pub const JOIN_MUTED: AzString = AzString::from_const_str("__azmeet_join_muted");
+pub const JOIN_CAMERA_OFF: AzString = AzString::from_const_str("__azmeet_join_camera_off");
 
 // ==== The tiles ====
 

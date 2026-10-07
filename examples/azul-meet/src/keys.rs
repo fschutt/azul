@@ -1,6 +1,7 @@
 //! AzMeet's keyboard: the table the settings list (azul-appkit's `Shortcut`) and the one rule
-//! the window's key handler asks, so the list and the keys cannot drift apart. Pure: no azul
-//! types, unit-tested here.
+//! the window's key handler asks, so the list and the keys cannot drift apart. The window's keys
+//! (Mod+, opens the settings, F1 the shortcuts, Escape closes them) are the kit's
+//! (`azul_appkit::ui::handle_key`, asked first). Pure: no azul types, unit-tested here.
 
 use azul_appkit::Shortcut;
 
@@ -11,8 +12,6 @@ pub enum Command {
     ToggleMic,
     /// The camera on or off.
     ToggleCamera,
-    /// Back from the settings.
-    CloseSettings,
 }
 
 /// The keys AzMeet reads (the window maps azul's `VirtualKeyCode` onto these).
@@ -20,15 +19,14 @@ pub enum Command {
 pub enum Key {
     D,
     E,
-    Escape,
     Other,
 }
 
-/// Every shortcut, as the settings list them ("Mod" is Cmd on macOS, Ctrl elsewhere).
-pub const SHORTCUTS: [Shortcut; 3] = [
+/// AzMeet's own shortcuts, as the settings list them ("Mod" is Cmd on macOS, Ctrl elsewhere);
+/// the kit lists its window keys after them.
+pub const SHORTCUTS: [Shortcut; 2] = [
     Shortcut::new("Call", "Mod+D", "Mute or unmute the microphone"),
     Shortcut::new("Call", "Mod+E", "Start or stop the camera"),
-    Shortcut::new("Window", "Escape", "Close the settings"),
 ];
 
 /// What `key` does; `primary`: the platform's shortcut modifier is held
@@ -38,7 +36,6 @@ pub fn command_for(key: Key, primary: bool) -> Option<Command> {
     match key {
         Key::D if primary => Some(Command::ToggleMic),
         Key::E if primary => Some(Command::ToggleCamera),
-        Key::Escape => Some(Command::CloseSettings),
         _ => None,
     }
 }
@@ -56,7 +53,6 @@ mod tests {
                 "Mod" => primary = true,
                 "D" => key = Key::D,
                 "E" => key = Key::E,
-                "Escape" => key = Key::Escape,
                 other => panic!("the table names a key the handler cannot see: {other}"),
             }
         }
@@ -70,9 +66,11 @@ mod tests {
             assert!(command_for(key, primary).is_some(), "{} ({}) runs nothing", s.keys, s.action);
         }
         let mut keys: Vec<&str> = SHORTCUTS.iter().map(|s| s.keys).collect();
+        keys.extend(azul_appkit::shortcuts::KIT_SHORTCUTS.iter().map(|s| s.keys));
+        let all = keys.len();
         keys.sort_unstable();
         keys.dedup();
-        assert_eq!(keys.len(), SHORTCUTS.len(), "a key listed twice");
+        assert_eq!(keys.len(), all, "a key listed twice, here or beside the kit's");
     }
 
     #[test]
@@ -81,7 +79,6 @@ mod tests {
         assert_eq!(command_for(Key::E, true), Some(Command::ToggleCamera));
         assert_eq!(command_for(Key::D, false), None, "a plain D is typing");
         assert_eq!(command_for(Key::E, false), None);
-        assert_eq!(command_for(Key::Escape, false), Some(Command::CloseSettings));
         assert_eq!(command_for(Key::Other, true), None);
     }
 }

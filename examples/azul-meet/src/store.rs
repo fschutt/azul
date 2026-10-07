@@ -2,15 +2,17 @@
 //! else `<data dir>/Azlin`), keyed as the user's S3 bucket will be (user ruling: meeting data =
 //! files in a per-meeting folder):
 //!
-//! - `meet/settings.json`: azul-appkit's settings file - the app theme and mode, and AzMeet's
-//!   values: the meeting server (`server`), the name others see (`name`), the video quality
-//!   (`quality`);
+//! - `meet/settings.json`: azul-appkit's settings file, which the kit (`azul_appkit::ui::Kit`)
+//!   reads at start and writes - the app theme and mode, and AzMeet's values ([`Prefs`]): the
+//!   meeting server (`server`), the name others see (`name`), the video quality (`quality`), the
+//!   devices (`microphone`, `speaker`, `camera`), `mirror`, `join_muted`, `join_camera_off`;
 //! - `meet/<meeting>/meeting.json`: the meeting - its key, link, meeting server, when this side
 //!   joined, who was there;
 //! - `meet/<meeting>/chat.jsonl`: the call's chat, one JSON object per line.
 //!
-//! The settings are read once at start (before the window exists); every write runs on an azul
-//! Thread through azul-storage's `LocalDrive` (an `S3Drive` later), never in a callback.
+//! The settings are read once at start (before the window exists) and written by the kit; every
+//! other write runs on an azul Thread through azul-storage's `LocalDrive` (an `S3Drive` later),
+//! never in a callback.
 
 use std::{
     path::{Path, PathBuf},
@@ -38,25 +40,72 @@ pub const APP_FOLDER: &str = "meet";
 pub const SERVER: &str = "server";
 pub const NAME: &str = "name";
 pub const QUALITY: &str = "quality";
+pub const MICROPHONE: &str = "microphone";
+pub const SPEAKER: &str = "speaker";
+pub const CAMERA: &str = "camera";
+pub const MIRROR: &str = "mirror";
+pub const JOIN_MUTED: &str = "join_muted";
+pub const JOIN_CAMERA_OFF: &str = "join_camera_off";
 /// The longest meeting folder name.
 const MAX_FOLDER: usize = 64;
 /// The video qualities as the settings file names them, in the settings' order (automatic up to
 /// 720p, data saver up to 360p, low up to 180p).
 pub const QUALITY_NAMES: [&str; 3] = ["automatic", "data-saver", "low"];
+/// The cameras as the settings file names them, in the settings' order (by facing: there is no
+/// camera list).
+pub const CAMERA_NAMES: [&str; 3] = ["front", "back", "external"];
 
 /// What AzMeet remembers besides the app theme and the mode.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prefs {
     /// The meeting server that answered last.
     pub server: Option<String>,
-    /// The name others see, as typed in the lobby.
+    /// The name others see, as typed in the waiting room or the settings.
     pub name: Option<String>,
     /// The video quality: an index into [`QUALITY_NAMES`].
     pub quality: usize,
+    /// The microphone picked, by name; `None`: the system's default.
+    pub microphone: Option<String>,
+    /// The speaker picked, by name; `None`: the system's default.
+    pub speaker: Option<String>,
+    /// The camera picked: an index into [`CAMERA_NAMES`].
+    pub camera: usize,
+    /// This side's own picture is shown mirrored, as in a mirror (what the others get never is).
+    pub mirror: bool,
+    /// A meeting is joined with the microphone off: the waiting room's switch starts off.
+    pub join_muted: bool,
+    /// A meeting is joined with the camera off: the waiting room's switch starts off.
+    pub join_camera_off: bool,
+}
+
+impl Default for Prefs {
+    /// Nothing remembered: automatic quality, the system's devices, the front camera, the own
+    /// picture mirrored, the microphone and the camera on in the waiting room.
+    fn default() -> Self {
+        Prefs {
+            server: None,
+            name: None,
+            quality: 0,
+            microphone: None,
+            speaker: None,
+            camera: 0,
+            mirror: true,
+            join_muted: false,
+            join_camera_off: false,
+        }
+    }
+}
+
+/// The index of `value` in `names` (case-insensitive), else 0.
+fn index_of(value: Option<&str>, names: &[&str]) -> usize {
+    value
+        .and_then(|v| names.iter().position(|n| n.eq_ignore_ascii_case(v.trim())))
+        .unwrap_or(0)
 }
 
 impl Prefs {
-    /// What `settings` remember; an unknown quality is the first, an empty name none.
+    /// What `settings` remember; an unknown quality or camera is the first, an empty name or
+    /// device none, a switch that does not read is its default.
     #[must_use]
     pub fn read(settings: &AppSettings) -> Prefs {
         let text = |key: &str| {
@@ -66,20 +115,28 @@ impl Prefs {
                 .filter(|v| !v.is_empty())
                 .map(str::to_string)
         };
-        let quality = settings
-            .get(QUALITY)
-            .and_then(|q| QUALITY_NAMES.iter().position(|n| n.eq_ignore_ascii_case(q.trim())))
-            .unwrap_or(0);
+        let defaults = Prefs::default();
         Prefs {
             server: text(SERVER),
             name: text(NAME),
-            quality,
+            quality: index_of(settings.get(QUALITY), &QUALITY_NAMES),
+            microphone: text(MICROPHONE),
+            speaker: text(SPEAKER),
+            camera: index_of(settings.get(CAMERA), &CAMERA_NAMES),
+            mirror: settings.get_bool(MIRROR, defaults.mirror),
+            join_muted: settings.get_bool(JOIN_MUTED, defaults.join_muted),
+            join_camera_off: settings.get_bool(JOIN_CAMERA_OFF, defaults.join_camera_off),
         }
     }
 
-    /// Writes these into `settings` (a missing server or name is removed).
+    /// Writes these into `settings` (a missing server, name or device is removed).
     pub fn write(&self, settings: &mut AppSettings) {
-        for (key, value) in [(SERVER, &self.server), (NAME, &self.name)] {
+        for (key, value) in [
+            (SERVER, &self.server),
+            (NAME, &self.name),
+            (MICROPHONE, &self.microphone),
+            (SPEAKER, &self.speaker),
+        ] {
             match value {
                 Some(value) => settings.set(key, value),
                 None => {
@@ -87,8 +144,11 @@ impl Prefs {
                 }
             }
         }
-        let quality = QUALITY_NAMES[self.quality.min(QUALITY_NAMES.len() - 1)];
-        settings.set(QUALITY, quality);
+        settings.set(QUALITY, QUALITY_NAMES[self.quality.min(QUALITY_NAMES.len() - 1)]);
+        settings.set(CAMERA, CAMERA_NAMES[self.camera.min(CAMERA_NAMES.len() - 1)]);
+        settings.set_bool(MIRROR, self.mirror);
+        settings.set_bool(JOIN_MUTED, self.join_muted);
+        settings.set_bool(JOIN_CAMERA_OFF, self.join_camera_off);
     }
 }
 
@@ -412,12 +472,6 @@ pub fn read_meeting(
     info.add_thread(ThreadId::unique(), Thread::create(init, reply_to, read_thread));
 }
 
-/// The settings file's (key, bytes), for [`save`].
-#[must_use]
-pub fn settings_file(settings: &AppSettings) -> (String, Vec<u8>) {
-    (settings_key(), settings.to_json().into_bytes())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,6 +559,7 @@ mod tests {
             server: Some(String::from("https://meet.example.com")),
             name: Some(String::from("Ada")),
             quality: 2,
+            ..Prefs::default()
         };
         prefs.write(&mut settings);
         assert_eq!(settings.get(SERVER), Some("https://meet.example.com"));
@@ -516,6 +571,38 @@ mod tests {
         Prefs::default().write(&mut settings);
         assert_eq!(settings.get(SERVER), None, "no server, no line");
         assert_eq!(settings.get(QUALITY), Some("automatic"));
+    }
+
+    #[test]
+    fn the_devices_the_mirror_and_how_to_join_are_remembered_in_the_settings_file() {
+        let fresh = Prefs::read(&AppSettings::default());
+        assert!(fresh.mirror, "the own picture is mirrored until the user says otherwise");
+        assert!(!fresh.join_muted && !fresh.join_camera_off, "the waiting room starts live");
+        assert_eq!((fresh.microphone.as_deref(), fresh.camera), (None, 0));
+        let prefs = Prefs {
+            microphone: Some(String::from("USB Microphone")),
+            speaker: Some(String::from("Headphones")),
+            camera: 2,
+            mirror: false,
+            join_muted: true,
+            join_camera_off: true,
+            ..Prefs::default()
+        };
+        let mut settings = AppSettings::default();
+        prefs.write(&mut settings);
+        assert_eq!(settings.get(CAMERA), Some("external"));
+        assert_eq!(settings.get(MIRROR), Some("false"));
+        assert_eq!(settings.get(JOIN_MUTED), Some("true"));
+        let (back, _) = AppSettings::parse(&settings.to_json());
+        assert_eq!(Prefs::read(&back), prefs, "through the file and back");
+        // Back to the system's devices: the lines go.
+        Prefs::default().write(&mut settings);
+        assert_eq!(settings.get(MICROPHONE), None);
+        assert_eq!(settings.get(SPEAKER), None);
+        settings.set(CAMERA, "periscope");
+        settings.set(MIRROR, "maybe");
+        let odd = Prefs::read(&settings);
+        assert_eq!((odd.camera, odd.mirror), (0, true), "what does not read is the default");
     }
 
     #[test]

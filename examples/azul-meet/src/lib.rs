@@ -1,18 +1,26 @@
 //! AzMeet: video meetings over azul.iroh.
 //!
 //! With a meeting server (the `meet` Worker, azul-apps `cf-workers/meet`) AzMeet opens a start
-//! screen: "New meeting" asks the server for a room and shows its link; "Join with a link" takes
-//! that link. Either way the app announces its iroh ticket to the room every 20 seconds, reads
-//! everyone else's every 2 seconds, and dials the peers whose endpoint id is higher than its own.
+//! screen: "New meeting" asks the server for a room; "Join with a link" looks that link up.
+//! Either way the meeting opens in the waiting room first (`ui.rs`): the camera preview, the
+//! microphone and camera switches, the devices, the name, the meeting's code and link, and "Start
+//! meeting" / "Join now". Only then does the app announce its iroh ticket to the room every 20
+//! seconds, read everyone else's every 2 seconds, and dial the peers whose endpoint id is higher
+//! than its own.
 //! Every HTTP request runs on an azul `Thread` and resumes on the UI thread, so no callback waits
 //! on the network. The start screen's "Meeting server" field holds the Worker's address: prefilled
 //! with the one saved last time, else `AZMEET_WORKER`, else the built-in default; a new address
 //! is used for every request from Enter or leaving the field on, checked with `GET /health`, and
 //! saved once it answers.
 //!
+//! Settings: the gear at the top right of every screen (or Mod+,) opens azul-appkit's settings
+//! page, the one every Azlin app shares (AzMail's File > Options): AzMeet's Audio & Video (the
+//! devices, mirror my video, the video quality), Meetings (the name, joining with the microphone
+//! or the camera off) and Recording, then the kit's Appearance, Data, Shortcuts and About.
+//!
 //! Files (see `store.rs`): in the Azlin data tree (azul-appkit's data root: `--data-dir`,
-//! `AZLIN_DATA`, else `<data dir>/Azlin`), `meet/settings.json` keeps the app theme and mode, the
-//! meeting server, the name and the video quality; each meeting has a folder
+//! `AZLIN_DATA`, else `<data dir>/Azlin`), `meet/settings.json` keeps the app theme and mode and
+//! AzMeet's settings (the kit writes it: `AZMEET_SETTINGS_SAVED`); each meeting has a folder
 //! `meet/<meeting>/` with `meeting.json` (its link, server, when this side joined, who was there)
 //! and `chat.jsonl` (the chat, one message per line). Every write runs on an azul Thread through
 //! azul-storage's `LocalDrive`; stdout says `AZMEET_SAVED <key>` for each.
@@ -59,8 +67,12 @@
 //!   `AZLIN_DATA`), so without one the variable always wins there. Only when nothing is saved or set and the built-in default does not answer does the
 //!   in-process demo open.
 //! - `AZMEET_NAME`: the name others see (default: `$USER`).
-//! - `AZMEET_AUTOCREATE=1`: create a meeting at start and print `AZMEET_LINK <link>` on stdout.
-//! - `AZMEET_JOIN=<link>`: join that meeting at start.
+//! - `AZMEET_AUTOCREATE=1`: create a meeting at start, enter it without the waiting room and print
+//!   `AZMEET_LINK <link>` on stdout (`--screen call` does the same; `--screen waiting` stops in
+//!   the new meeting's waiting room).
+//! - `AZMEET_JOIN=<link>`: join that meeting at start, without the waiting room.
+//! - `AZMEET_WAITING_ROOM=1`: with `AZMEET_JOIN` / `AZMEET_AUTOCREATE`, stop in the waiting room
+//!   (stdout `AZMEET_WAITING <link>`) until "Join now" / "Start meeting" is clicked.
 //! - `AZMEET_RELAY`: `off`, `default` or a relay URL (default: off for a meeting server on this
 //!   machine, the public iroh relays otherwise).
 //! - `AZMEET_TEST_TONE=1`: a 440 Hz tone replaces the microphone, which starts unmuted.
@@ -141,12 +153,12 @@ use azul::{
     vec::{F32Vec, StyledTextRunVec, U8Vec, U8VecRef},
     video::{VideoDecoder, VideoEncoder, VideoFrame},
     widgets::{
-        ConsumerFrame, FrameConsumer, LevelMeter, LevelMeterThrottle, OnTextInputReturn,
-        SegmentedState,
-        StandardDialogEvent, TextInput, TextInputState, TextInputValid,
+        CheckBoxState, ConsumerFrame, FrameConsumer, LevelMeter, LevelMeterThrottle,
+        OnTextInputReturn, SegmentedState, TextInput, TextInputState, TextInputValid,
     },
     window::{HwAcceleration, PlatformCapability, Vsync, WindowDecorations},
 };
+use azul_appkit::ui as kit;
 use rooms::{Dialed, PeerRecord, Relay, RoomKey};
 use video_wire::{Codec, Control, Message};
 
@@ -266,6 +278,8 @@ enum Stage {
     Start,
     /// A new room or a link is being looked up.
     Opening,
+    /// The room is found (or made): the waiting room shows it, nothing is announced yet.
+    Waiting,
     /// In the room: announcing and polling.
     InRoom,
     /// The room is gone from the server; the peers already connected stay.
@@ -309,11 +323,22 @@ struct RoomSession {
     checks: u32,
     /// Where the iroh endpoint relays, chosen for the meeting server's host.
     relay: Relay,
+    /// The meeting the waiting room shows (`Stage::Waiting`), entered with "Join now".
+    waiting: Option<RoomInfo>,
+    /// The meeting being opened or waited for was made by this side ("New meeting"), not looked
+    /// up: the waiting room says "Start meeting".
+    created: bool,
+    /// The meeting being opened is entered at once, without the waiting room (`AZMEET_JOIN`,
+    /// `AZMEET_AUTOCREATE`, `--screen call`: scripts).
+    straight_in: bool,
 }
 
 impl RoomSession {
     fn new(worker: String, name: String, relay: Relay) -> Self {
         RoomSession {
+            waiting: None,
+            created: false,
+            straight_in: false,
             session: 0,
             server_text: worker.clone(),
             server_status: String::new(),
@@ -343,6 +368,8 @@ impl RoomSession {
     fn enter(&mut self, found: RoomInfo) {
         self.session = self.session.wrapping_add(1);
         self.stage = Stage::InRoom;
+        self.waiting = None;
+        self.straight_in = false;
         self.room_id = found.room;
         self.code = found.code;
         self.link = found.link;
@@ -356,6 +383,9 @@ impl RoomSession {
     fn leave(&mut self) {
         self.session = self.session.wrapping_add(1);
         self.stage = Stage::Start;
+        self.waiting = None;
+        self.created = false;
+        self.straight_in = false;
         self.room_id.clear();
         self.code.clear();
         self.link.clear();
@@ -512,26 +542,30 @@ struct MeetState {
     panel: SidePanel,
     /// The chat field as typed.
     chat_draft: String,
-    /// The settings screen is open, at this category (`ui::SETTINGS_CATEGORIES`).
-    settings_open: bool,
-    settings_category: usize,
+    /// This participant's azul-appkit kit (`make_kit`): the settings page (open or not, its
+    /// category) and `meet/settings.json` - the one copy of the settings, which the kit writes.
+    kit: RefAny,
+    /// AzMeet's settings changed in the kit since they were written last (`save_prefs`).
+    prefs_unsaved: bool,
     /// The devices picked in the settings: an index into "System default" + the microphones /
     /// speakers, and into `CAMERAS` (the camera's facing).
     mic_choice: usize,
     speaker_choice: usize,
     camera_choice: usize,
+    /// The microphone and the speaker remembered, by name (`None`: the system's default): the
+    /// pickers find them again once the devices are listed.
+    mic_name: Option<String>,
+    speaker_name: Option<String>,
     /// The video quality this side asks for (`ui::QUALITY_LABELS`): automatic, data saver, low.
     quality: usize,
-    /// The app theme (0 flat, 1 flora) and the mode (0 system, 1 light, 2 dark) the settings
-    /// show.
-    theme_index: usize,
-    mode_index: usize,
+    /// This side's own camera is shown mirrored.
+    mirror: bool,
+    /// The waiting room starts with the microphone off, with the camera off.
+    join_muted: bool,
+    join_camera_off: bool,
     /// This participant keeps the files of the data tree (`store`): the one window of a meeting
     /// server run, Ada in the demo (both demo windows are one meeting on one machine).
     keeps_files: bool,
-    /// `meet/settings.json` as this participant last wrote it: the saved one at start, then every
-    /// change made in the settings or the lobby.
-    settings: azul_appkit::AppSettings,
     /// The meeting this side is in, as `meet/<meeting>/meeting.json` says; `None` outside one.
     record: Option<store::MeetingRecord>,
     /// The files that changed since they were written last (`flush_files`).
@@ -541,17 +575,19 @@ struct MeetState {
     reading_history: bool,
 }
 
-/// The files of the data tree that changed since the last [`flush_files`].
+/// The files of the data tree that changed since the last [`flush_files`] (the settings file is
+/// the kit's: [`remember`]).
 #[derive(Debug, Default, Clone, Copy)]
 struct Unsaved {
-    settings: bool,
     record: bool,
     chat: bool,
 }
 
 impl MeetState {
-    fn new(name: &str, peer_name: &str, backend: &'static str) -> Self {
+    fn new(name: &str, peer_name: &str, backend: &'static str, kit: RefAny) -> Self {
         MeetState {
+            kit,
+            prefs_unsaved: false,
             name: name.to_string(),
             peer_name: peer_name.to_string(),
             backend,
@@ -618,16 +654,16 @@ impl MeetState {
             speaker: speaker::ActiveSpeaker::new(),
             panel: SidePanel::People,
             chat_draft: String::new(),
-            settings_open: false,
-            settings_category: 0,
             mic_choice: 0,
             speaker_choice: 0,
             camera_choice: 0,
+            mic_name: None,
+            speaker_name: None,
             quality: 0,
-            theme_index: 0,
-            mode_index: 0,
+            mirror: true,
+            join_muted: false,
+            join_camera_off: false,
             keeps_files: true,
-            settings: azul_appkit::AppSettings::default(),
             record: None,
             unsaved: Unsaved::default(),
             reading_history: false,
@@ -717,10 +753,26 @@ extern "C" fn on_devices_enumerated(
         speakers.len()
     );
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        // The pickers show the devices remembered, where they are still there.
+        s.mic_choice = device_index(&mics, s.mic_name.as_deref());
+        s.speaker_choice = device_index(&speakers, s.speaker_name.as_deref());
         s.mics = mics;
         s.speakers = speakers;
     }
     Update::RefreshDom
+}
+
+/// The picker index of the device named `name` among `devices` ("System default" is 0, the
+/// devices follow); 0 for no name, or a device no longer there.
+fn device_index(devices: &[String], name: Option<&str>) -> usize {
+    name.and_then(|name| devices.iter().position(|d| d == name))
+        .map_or(0, |i| i + 1)
+}
+
+/// The device name at picker index `index` (`device_index`'s inverse); `None` for the system's
+/// default.
+fn device_name(devices: &[String], index: usize) -> Option<String> {
+    index.checked_sub(1).and_then(|i| devices.get(i)).cloned()
 }
 
 extern "C" fn layout_first(data: RefAny, info: LayoutCallbackInfo) -> Dom {
@@ -787,14 +839,16 @@ fn remote_name(s: &MeetState, node_id: &str) -> String {
     }
 }
 
-/// The window's screen: the settings while open, the lobby before a meeting, else the call.
+/// The window's screen: the settings while open, the start screen before a meeting, the waiting
+/// room for a meeting not joined yet, else the call.
 fn ui_screen(s: &MeetState) -> ui::UiScreen {
-    if s.settings_open {
+    if kit::settings_open(&s.kit) {
         return ui::UiScreen::Settings;
     }
-    match &s.room {
-        Some(room) if matches!(room.stage, Stage::Start | Stage::Opening) => ui::UiScreen::Lobby,
-        _ => ui::UiScreen::Call,
+    match s.room.as_ref().map(|room| room.stage) {
+        Some(Stage::Start | Stage::Opening) => ui::UiScreen::Lobby,
+        Some(Stage::Waiting) => ui::UiScreen::Waiting,
+        Some(Stage::InRoom | Stage::Ended) | None => ui::UiScreen::Call,
     }
 }
 
@@ -953,8 +1007,13 @@ fn device_choices(devices: &[String]) -> Vec<String> {
 fn snapshot(s: &MeetState) -> ui::CallView {
     let now = now_ms(s);
     let arr = arrangement(s);
-    let title = match &s.room {
-        Some(room) if !room.code.is_empty() => format!("AzMeet · meeting {} · {}", room.code, s.name),
+    // The meeting's code: the room's once in it, the waiting room's before.
+    let code = s.room.as_ref().map(|room| match &room.waiting {
+        Some(found) if room.code.is_empty() => found.code.as_str(),
+        _ => room.code.as_str(),
+    });
+    let title = match code {
+        Some(code) if !code.is_empty() => format!("AzMeet · meeting {code} · {}", s.name),
         Some(_) => format!("AzMeet · {}", s.name),
         None if s.endpoint.is_some() => {
             format!("AzMeet · meeting {} · {} ({})", s.meeting, s.name, s.backend)
@@ -969,12 +1028,21 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         server_ok: room.server_ok,
         join_text: room.join_text.clone(),
     });
+    let waiting = s.room.as_ref().and_then(|room| {
+        room.waiting.as_ref().map(|found| ui::WaitingView {
+            code: found.code.clone(),
+            link: found.link.clone(),
+            copied: room.copied,
+            created: room.created,
+        })
+    });
     ui::CallView {
         screen: ui_screen(s),
         title,
         notice: s.notice.clone(),
         name: s.name.clone(),
         lobby,
+        waiting,
         stage: arr.stage.map(|tile| tile_view(s, tile, now)),
         tiles: arr.tiles.iter().map(|tile| tile_view(s, *tile, now)).collect(),
         panel: match s.panel {
@@ -1012,12 +1080,12 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         in_room: s.room.is_some(),
         tone_mic: s.tone_mic,
         pattern_video: s.pattern_video,
+        mirror: s.mirror,
         screen_renditions: my_renditions(s, SCREEN_TRACK),
         camera_renditions,
         mic_level: s.mic_level,
         video_debug: s.video_debug,
         settings: ui::SettingsView {
-            category: s.settings_category,
             mics: device_choices(&s.mics),
             mic_choice: s.mic_choice,
             speakers: device_choices(&s.speakers),
@@ -1025,8 +1093,9 @@ fn snapshot(s: &MeetState) -> ui::CallView {
             cameras: CAMERAS.iter().map(|c| c.to_string()).collect(),
             camera_choice: s.camera_choice,
             quality: s.quality,
-            theme: s.theme_index,
-            mode: s.mode_index,
+            mirror: s.mirror,
+            join_muted: s.join_muted,
+            join_camera_off: s.join_camera_off,
             server: s
                 .room
                 .as_ref()
@@ -1034,12 +1103,13 @@ fn snapshot(s: &MeetState) -> ui::CallView {
                 .unwrap_or_else(|| String::from("none (local demo)")),
             name: s.name.clone(),
             codec: codec_status(s),
-            data_folder: files_root().map_or_else(
-                || String::from("none (a headless run without --data-dir or AZLIN_DATA)"),
+            recordings: files_root().filter(|_| s.keeps_files).map_or_else(
+                || String::from("nowhere: this run keeps no files"),
                 |root| {
-                    azul_appkit::data::local_path(root, store::APP_FOLDER)
-                        .display()
-                        .to_string()
+                    format!(
+                        "{} (each meeting's own folder)",
+                        azul_appkit::data::local_path(root, store::APP_FOLDER).display()
+                    )
                 },
             ),
         },
@@ -1056,33 +1126,37 @@ const ACTIONS: ui::Actions = ui::Actions {
     leave: on_leave,
     panel: on_panel,
     settings: on_settings_open,
-    settings_back: on_settings_back,
-    settings_category: on_settings_category,
     copy_link: on_copy_link,
     drop_packet: on_drop_video_packet,
     chat_text: on_chat_text,
     chat_key: on_chat_key,
     chat_send: on_chat_send,
     chat_blur: on_chat_blur,
-    about_event: on_about_event,
     name_text: on_name_text,
+    name_blur: on_name_blur,
     server_text: on_server_text,
     server_key: on_server_key,
     server_blur: on_server_blur,
     join_text: on_join_text,
     new_meeting: on_new_meeting,
     join: on_join,
+    join_now: on_join_now,
+    waiting_back: on_waiting_back,
     mic_choice: on_mic_choice,
     speaker_choice: on_speaker_choice,
     camera_choice: on_camera_choice,
     quality: on_quality,
-    theme: on_theme,
-    mode: on_mode,
+    mirror: on_mirror,
+    join_muted: on_join_muted,
+    join_camera_off: on_join_camera_off,
     key: on_key,
 };
 
 fn meet_layout(mut data: RefAny) -> Dom {
-    let Some(view) = data.downcast_ref::<MeetState>().map(|s| snapshot(&s)) else {
+    let Some((view, kit_ref)) = data
+        .downcast_ref::<MeetState>()
+        .map(|s| (snapshot(&s), s.kit.clone()))
+    else {
         return Dom::create_body();
     };
 
@@ -1097,7 +1171,7 @@ fn meet_layout(mut data: RefAny) -> Dom {
     if first_layout {
         let _request = AudioDeviceList::enumerate(data.clone(), on_devices_enumerated);
     }
-    ui::meet_view(&view, &data, &ACTIONS)
+    ui::meet_view(&view, &data, &kit_ref, &ACTIONS)
 }
 
 extern "C" fn meter_mounted(mut data: RefAny, info: CallbackInfo) -> Update {
@@ -4040,7 +4114,9 @@ fn meeting_gone(s: &mut MeetState) {
     };
 }
 
-/// The answer to `POST /rooms` (a new meeting) or `GET /rooms/<key>` (joining a link).
+/// The answer to `POST /rooms` (a new meeting) or `GET /rooms/<key>` (joining a link): the
+/// waiting room shows the meeting (a script's `AZMEET_JOIN` / `AZMEET_AUTOCREATE` enters it at
+/// once).
 extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
     let Some((mut data, session)) = reply_parts(data) else {
         return Update::DoNothing;
@@ -4064,25 +4140,23 @@ extern "C" fn on_room_opened(data: RefAny, mut info: CallbackInfo, result: RefAn
             _ => None,
         };
         match found {
+            Some(found) if room.straight_in => {
+                apply_join_defaults(s);
+                enter_room(s, &mut info, &app, found)
+            }
             Some(found) => {
-                room.enter(found);
-                println!("AZMEET_ROOM {}", room.room_id);
-                println!("AZMEET_LINK {}", room.link);
-                if !room.code.is_empty() {
-                    println!("AZMEET_CODE {}", room.code);
-                }
+                // For scripts: the waiting room is up, for this link.
+                println!("AZMEET_WAITING {}", found.link);
                 eprintln!(
-                    "[azmeet] {}: in meeting {} ({})",
-                    s.name, room.code, room.room_id
+                    "[azmeet] {}: in the waiting room of meeting {} ({})",
+                    s.name, found.code, found.room
                 );
+                room.stage = Stage::Waiting;
+                room.copied = false;
+                room.waiting = Some(found);
                 s.notice.clear();
-                s.link_status = String::from("waiting for others to join");
-                let job = room.first_job();
-                enter_record(s);
-                // Back in a meeting this side was in before: its chat and people come back.
-                read_history(s, &mut info, app.clone());
-                flush_files(s, &mut info);
-                job
+                apply_join_defaults(s);
+                None
             }
             None => {
                 room.stage = Stage::Start;
@@ -4387,7 +4461,7 @@ extern "C" fn on_health(data: RefAny, mut info: CallbackInfo, result: RefAny) ->
     room.server_status = String::from("The meeting server answers.");
     let worker = room.worker.clone();
     remember(s, |prefs| prefs.server = Some(worker));
-    flush_files(s, &mut info);
+    save_prefs(s, &mut info);
     Update::RefreshDom
 }
 
@@ -4407,21 +4481,71 @@ fn files_root() -> Option<&'static std::path::Path> {
 }
 
 /// `meet/settings.json` as it was at start (the defaults without one), read once before any
-/// window opens.
+/// window opens: what decides the name, the meeting server and the look before a kit exists.
 fn saved_settings() -> &'static azul_appkit::AppSettings {
     static SAVED: std::sync::OnceLock<azul_appkit::AppSettings> = std::sync::OnceLock::new();
     SAVED.get_or_init(|| files_root().map(store::load_settings).unwrap_or_default())
 }
 
-/// Changes what AzMeet remembers besides the theme and the mode (`store::Prefs`); the settings
-/// file is written with the next [`flush_files`].
+/// A participant's azul-appkit kit: the settings page and `meet/settings.json` (the kit reads it
+/// now and writes it on every change). A headless run without a data root of its own
+/// (`files_root` is `None`) gives the kit an empty folder of this process in the temp folder, so
+/// a test never reads or writes the user's settings.
+fn make_kit() -> RefAny {
+    let mut kit_args = launch_args().kit.clone();
+    if files_root().is_none() {
+        let scratch = std::env::temp_dir().join(format!("azmeet-{}", std::process::id()));
+        kit_args.data_dir = Some(scratch);
+    }
+    kit::create_kit(
+        args::SPEC,
+        ABOUT,
+        &keys::SHORTCUTS,
+        &ui::APP_CATEGORIES,
+        kit_args,
+    )
+}
+
+/// What the kit's settings remember (`store::Prefs`).
+fn kit_prefs(kit_ref: &RefAny) -> store::Prefs {
+    let mut kit_ref = kit_ref.clone();
+    kit_ref
+        .downcast_ref::<kit::Kit>()
+        .map(|k| store::Prefs::read(&k.settings))
+        .unwrap_or_default()
+}
+
+/// Changes what AzMeet remembers besides the theme and the mode (`store::Prefs`) in the kit's
+/// settings - the one copy, which the kit's own Appearance writes too; [`save_prefs`] writes it.
 fn remember(s: &mut MeetState, change: impl FnOnce(&mut store::Prefs)) {
-    let mut prefs = store::Prefs::read(&s.settings);
-    let before = prefs.clone();
-    change(&mut prefs);
-    if prefs != before {
-        prefs.write(&mut s.settings);
-        s.unsaved.settings = true;
+    let changed = {
+        let mut kit_ref = s.kit.clone();
+        let Some(mut k) = kit_ref.downcast_mut::<kit::Kit>() else {
+            return;
+        };
+        let mut prefs = store::Prefs::read(&k.settings);
+        let before = prefs.clone();
+        change(&mut prefs);
+        if prefs != before {
+            prefs.write(&mut k.settings);
+        }
+        prefs != before
+    };
+    if changed {
+        s.prefs_unsaved = true;
+    }
+}
+
+/// Has the kit write `meet/settings.json` on its file thread (`AZMEET_SETTINGS_SAVED`) when
+/// [`remember`] changed something since the last time. Not for a participant that keeps no
+/// files (the demo's second window, a headless run without a data root): its kit only
+/// remembers.
+fn save_prefs(s: &mut MeetState, info: &mut CallbackInfo) {
+    if !std::mem::take(&mut s.prefs_unsaved) {
+        return;
+    }
+    if s.keeps_files && files_root().is_some() {
+        kit::save_settings(&s.kit, info);
     }
 }
 
@@ -4476,8 +4600,8 @@ fn note_people(s: &mut MeetState) {
 }
 
 /// Writes what changed since the last call into the data tree, on the save thread (never here):
-/// the settings, the meeting's record, its chat. Nothing in a run without a data root, or for
-/// the demo's second window.
+/// the meeting's record, its chat (the settings are the kit's: [`save_prefs`]). Nothing in a run
+/// without a data root, or for the demo's second window.
 fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
     let mut unsaved = std::mem::take(&mut s.unsaved);
     if s.reading_history {
@@ -4492,9 +4616,6 @@ fn flush_files(s: &mut MeetState, info: &mut CallbackInfo) {
         return;
     };
     let mut files = Vec::new();
-    if unsaved.settings {
-        files.push(store::settings_file(&s.settings));
-    }
     let meeting = meeting_name(s);
     if unsaved.record {
         if let (Some(key), Some(record)) = (store::meeting_key(&meeting), s.record.as_ref()) {
@@ -4591,7 +4712,9 @@ extern "C" fn room_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerC
     TimerCallbackReturn::continue_unchanged()
 }
 
-fn begin_new_meeting(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+/// Asks the meeting server for a new meeting; its waiting room opens with the answer
+/// (`straight_in`: the meeting is entered at once - a script's).
+fn begin_new_meeting(data: &mut RefAny, info: &mut CallbackInfo, straight_in: bool) -> Update {
     let job = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
             return Update::DoNothing;
@@ -4605,6 +4728,8 @@ fn begin_new_meeting(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         }
         room.stage = Stage::Opening;
         room.busy = true;
+        room.created = true;
+        room.straight_in = straight_in;
         s.notice = String::from("Asking the meeting server for a new meeting...");
         HttpJob::create_room(room)
     };
@@ -4612,7 +4737,9 @@ fn begin_new_meeting(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update {
+/// Looks the meeting of `text` (a link or a code) up; its waiting room opens with the answer
+/// (`straight_in`: the meeting is entered at once - a script's).
+fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str, straight_in: bool) -> Update {
     let job = {
         let Some(mut guard) = data.downcast_mut::<MeetState>() else {
             return Update::DoNothing;
@@ -4633,6 +4760,8 @@ fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update 
         };
         room.stage = Stage::Opening;
         room.busy = true;
+        room.created = false;
+        room.straight_in = straight_in;
         s.notice = String::from("Looking up the meeting...");
         HttpJob::look_up(room, &key)
     };
@@ -4641,7 +4770,7 @@ fn begin_join(data: &mut RefAny, info: &mut CallbackInfo, text: &str) -> Update 
 }
 
 extern "C" fn on_new_meeting(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    begin_new_meeting(&mut data, &mut info)
+    begin_new_meeting(&mut data, &mut info, false)
 }
 
 extern "C" fn on_join(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -4649,7 +4778,105 @@ extern "C" fn on_join(mut data: RefAny, mut info: CallbackInfo) -> Update {
         .downcast_ref::<MeetState>()
         .and_then(|s| s.room.as_ref().map(|room| room.join_text.clone()))
         .unwrap_or_default();
-    begin_join(&mut data, &mut info, &text)
+    begin_join(&mut data, &mut info, &text, false)
+}
+
+/// Enters the meeting `found`: from the waiting room's "Join now" / "Start meeting", or at once
+/// for a script. Announcing starts (the announcement to send right away, when the ticket is
+/// known, is returned), and the meeting's record and the chat of an earlier visit come in.
+fn enter_room(
+    s: &mut MeetState,
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    found: RoomInfo,
+) -> Option<HttpJob> {
+    let room = s.room.as_mut()?;
+    room.enter(found);
+    println!("AZMEET_ROOM {}", room.room_id);
+    println!("AZMEET_LINK {}", room.link);
+    if !room.code.is_empty() {
+        println!("AZMEET_CODE {}", room.code);
+    }
+    eprintln!(
+        "[azmeet] {}: in meeting {} ({})",
+        s.name, room.code, room.room_id
+    );
+    s.notice.clear();
+    s.link_status = String::from("waiting for others to join");
+    let job = room.first_job();
+    enter_record(s);
+    // Back in a meeting this side was in before: its chat and people come back.
+    read_history(s, info, app.clone());
+    flush_files(s, info);
+    // The name typed in the waiting room, should its field still have the focus.
+    save_prefs(s, info);
+    // The others hear this side's microphone and camera as the waiting room left them.
+    network_changed(s, false);
+    job
+}
+
+/// `"1"` in the environment variable `key`.
+fn env_on(key: &str) -> bool {
+    std::env::var(key).is_ok_and(|v| v.trim() == "1")
+}
+
+/// A meeting was found: the microphone and the camera start as the settings' Meetings say (on,
+/// unless "Join with the microphone off" / "... the camera off"). Not where they are a test tone
+/// or a test pattern (a headless run, `AZMEET_TEST_TONE`, `AZMEET_TEST_PATTERN`): those keep the
+/// state their switches gave them, so a script knows what it gets.
+fn apply_join_defaults(s: &mut MeetState) {
+    if !devices_allowed() {
+        return;
+    }
+    if !env_on("AZMEET_TEST_TONE") {
+        s.mic_on = !s.join_muted;
+        sync_mic(s);
+    }
+    if !env_on("AZMEET_TEST_PATTERN") {
+        s.cam_on = !s.join_camera_off;
+    }
+}
+
+/// The waiting room's "Join now" / "Start meeting": into the meeting it shows.
+extern "C" fn on_join_now(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let app = data.clone();
+    let job = {
+        let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        let s = &mut *guard;
+        let found = s
+            .room
+            .as_mut()
+            .filter(|room| room.stage == Stage::Waiting)
+            .and_then(|room| room.waiting.take());
+        let Some(found) = found else {
+            return Update::DoNothing;
+        };
+        enter_room(s, &mut info, &app, found)
+    };
+    if let Some(job) = job {
+        spawn_http(&mut info, data.clone(), job);
+    }
+    Update::RefreshDom
+}
+
+/// The waiting room's Back: to the start screen without joining (a meeting this side made
+/// expires on the server by itself; the devices close with the waiting room).
+extern "C" fn on_waiting_back(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut guard) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    let Some(room) = s.room.as_mut().filter(|room| room.stage == Stage::Waiting) else {
+        return Update::DoNothing;
+    };
+    room.stage = Stage::Start;
+    room.waiting = None;
+    room.created = false;
+    room.copied = false;
+    s.notice.clear();
+    Update::RefreshDom
 }
 
 extern "C" fn on_join_text(
@@ -4668,6 +4895,7 @@ extern "C" fn on_join_text(
     }
 }
 
+/// "Copy link": the meeting's link (the waiting room's before it is entered) to the clipboard.
 extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let link = {
         let Some(mut s) = data.downcast_mut::<MeetState>() else {
@@ -4676,8 +4904,15 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Some(room) = s.room.as_mut() else {
             return Update::DoNothing;
         };
+        let link = match &room.waiting {
+            Some(found) if room.link.is_empty() => found.link.clone(),
+            _ => room.link.clone(),
+        };
+        if link.is_empty() {
+            return Update::DoNothing;
+        }
         room.copied = true;
-        room.link.clone()
+        link
     };
     info.set_clipboard_content(ClipboardContent {
         plain_text: AzString::from(link.as_str()),
@@ -4687,8 +4922,11 @@ extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// `AZMEET_JOIN` / `AZMEET_AUTOCREATE`: start in a meeting without a click.
+/// `AZMEET_JOIN` / `AZMEET_AUTOCREATE` / `--screen call`: start in a meeting without a click,
+/// past the waiting room unless `AZMEET_WAITING_ROOM=1`; `--screen waiting`: a new meeting's
+/// waiting room.
 fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let straight_in = !env_on("AZMEET_WAITING_ROOM");
     if let Some(link) = std::env::var("AZMEET_JOIN")
         .ok()
         .filter(|l| !l.trim().is_empty())
@@ -4698,13 +4936,14 @@ fn autostart(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
                 room.join_text = link.clone();
             }
         }
-        return begin_join(data, info, &link);
+        return begin_join(data, info, &link, straight_in);
     }
-    let call_screen = launch_args().screen == args::Screen::Call;
-    if call_screen || std::env::var("AZMEET_AUTOCREATE").is_ok_and(|v| v.trim() == "1") {
-        return begin_new_meeting(data, info);
+    match launch_args().screen {
+        args::Screen::Call => begin_new_meeting(data, info, straight_in),
+        args::Screen::Waiting => begin_new_meeting(data, info, false),
+        _ if env_on("AZMEET_AUTOCREATE") => begin_new_meeting(data, info, straight_in),
+        _ => Update::DoNothing,
     }
-    Update::DoNothing
 }
 
 extern "C" fn startup_first(data: RefAny, info: CallbackInfo) -> Update {
@@ -4989,10 +5228,12 @@ fn send_draft(
     Update::RefreshDom
 }
 
-/// The lobby's name field: the name others see (the next announcement carries it), remembered.
+/// The name field (the waiting room, the settings' Meetings): the name others see (the next
+/// announcement carries it), remembered - and written when the field is left
+/// (`on_name_blur`) or the meeting is entered, not with every key.
 extern "C" fn on_name_text(
     mut data: RefAny,
-    mut info: CallbackInfo,
+    _info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
     let text = state.get_text().as_str().trim().to_string();
@@ -5004,7 +5245,6 @@ extern "C" fn on_name_text(
                 room.name = text.clone();
             }
             remember(s, |prefs| prefs.name = Some(text));
-            flush_files(s, &mut info);
         }
     }
     OnTextInputReturn {
@@ -5013,53 +5253,63 @@ extern "C" fn on_name_text(
     }
 }
 
+/// The name field was left: the name typed is written into `meet/settings.json`.
+extern "C" fn on_name_blur(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    _state: TextInputState,
+) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        save_prefs(&mut guard, &mut info);
+    }
+    Update::DoNothing
+}
+
+/// The gear (and Mod+, through the kit's keys): azul-appkit's settings page.
 extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.settings_open = true;
-    }
+    let Some(kit_ref) = data.downcast_ref::<MeetState>().map(|s| s.kit.clone()) else {
+        return Update::DoNothing;
+    };
+    kit::open_settings(&kit_ref, None);
     Update::RefreshDom
 }
 
-/// The About's OK (or its close box): closes the settings.
-extern "C" fn on_about_event(data: RefAny, info: CallbackInfo, _event: StandardDialogEvent) -> Update {
-    on_settings_back(data, info)
-}
-
-extern "C" fn on_settings_back(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.settings_open = false;
-    }
-    Update::RefreshDom
-}
-
-extern "C" fn on_settings_category(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.settings_category = index.min(ui::SETTINGS_CATEGORIES.len() - 1);
-    }
-    Update::RefreshDom
-}
-
-/// The microphone picked in the settings. (`MicrophoneWidget` and `AudioSink` open the system's
-/// default device on every platform today; the pick is kept for when they take one.)
-extern "C" fn on_mic_choice(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+/// The microphone picked (the waiting room, the settings), remembered by its name.
+/// (`MicrophoneWidget` and `AudioSink` open the system's default device on every platform
+/// today; the pick is kept for when they take one.)
+extern "C" fn on_mic_choice(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
         s.mic_choice = index;
+        s.mic_name = device_name(&s.mics, index);
+        let name = s.mic_name.clone();
+        remember(s, |prefs| prefs.microphone = name);
+        save_prefs(s, &mut info);
     }
     Update::RefreshDom
 }
 
-/// The speaker picked in the settings (see `on_mic_choice`).
-extern "C" fn on_speaker_choice(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+/// The speaker picked (see `on_mic_choice`).
+extern "C" fn on_speaker_choice(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
         s.speaker_choice = index;
+        s.speaker_name = device_name(&s.speakers, index);
+        let name = s.speaker_name.clone();
+        remember(s, |prefs| prefs.speaker = name);
+        save_prefs(s, &mut info);
     }
     Update::RefreshDom
 }
 
-/// The camera picked in the settings: the camera widget opens the one facing that way.
-extern "C" fn on_camera_choice(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
-    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+/// The camera picked: the camera widget opens the one facing that way; remembered.
+extern "C" fn on_camera_choice(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
         s.camera_choice = index.min(CAMERAS.len() - 1);
+        let camera = s.camera_choice;
+        remember(s, |prefs| prefs.camera = camera);
+        save_prefs(s, &mut info);
     }
     Update::RefreshDom
 }
@@ -5075,43 +5325,51 @@ extern "C" fn on_quality(mut data: RefAny, mut info: CallbackInfo, index: usize)
         s.quality = index.min(QUALITY_CAPS.len() - 1);
         let quality = s.quality;
         remember(s, |prefs| prefs.quality = quality);
-        flush_files(s, &mut info);
+        save_prefs(s, &mut info);
         network_changed(s, false);
     }
     Update::RefreshDom
 }
 
-/// The app theme picked in the settings: flat or flora, for every window, remembered.
-extern "C" fn on_theme(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let theme = azul_appkit::Theme::ALL[state.selected_index.min(azul_appkit::Theme::ALL.len() - 1)];
-    info.set_theme(AzString::from(theme.name()));
+/// "Mirror my video": this side's own picture turned as a mirror shows it, or not; remembered.
+extern "C" fn on_mirror(mut data: RefAny, mut info: CallbackInfo, state: CheckBoxState) -> Update {
     if let Some(mut guard) = data.downcast_mut::<MeetState>() {
         let s = &mut *guard;
-        s.theme_index = theme.index();
-        if s.settings.theme != theme {
-            s.settings.theme = theme;
-            s.unsaved.settings = true;
-            flush_files(s, &mut info);
-        }
+        s.mirror = state.checked;
+        remember(s, |prefs| prefs.mirror = state.checked);
+        save_prefs(s, &mut info);
     }
     Update::RefreshDom
 }
 
-/// Light, dark, or the system's, picked in the settings.
-extern "C" fn on_mode(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
-    let mode =
-        azul_appkit::ModePref::ALL[state.selected_index.min(azul_appkit::ModePref::ALL.len() - 1)];
-    info.set_mode(mode_option(mode.index()));
+/// "Join with the microphone off": how the waiting room's switch starts; remembered.
+extern "C" fn on_join_muted(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
     if let Some(mut guard) = data.downcast_mut::<MeetState>() {
         let s = &mut *guard;
-        s.mode_index = mode.index();
-        if s.settings.mode != mode {
-            s.settings.mode = mode;
-            s.unsaved.settings = true;
-            flush_files(s, &mut info);
-        }
+        s.join_muted = state.checked;
+        remember(s, |prefs| prefs.join_muted = state.checked);
+        save_prefs(s, &mut info);
     }
-    Update::RefreshDom
+    Update::DoNothing
+}
+
+/// "Join with the camera off": how the waiting room's switch starts; remembered.
+extern "C" fn on_join_camera_off(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
+    if let Some(mut guard) = data.downcast_mut::<MeetState>() {
+        let s = &mut *guard;
+        s.join_camera_off = state.checked;
+        remember(s, |prefs| prefs.join_camera_off = state.checked);
+        save_prefs(s, &mut info);
+    }
+    Update::DoNothing
 }
 
 /// The mode at `index` (`azul_appkit::ModePref` order: system, light, dark) as azul takes it.
@@ -5123,9 +5381,14 @@ fn mode_option(index: usize) -> OptionDarkLightMode {
     }
 }
 
-/// The keyboard shortcuts (`keys::SHORTCUTS`, the rule in `keys::command_for`): Ctrl / Cmd + D
-/// the microphone, Ctrl / Cmd + E the camera, Escape closes the settings.
-extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
+/// The window's keys: the kit's first (Mod+, the settings, F1 the shortcuts, Escape closes
+/// them), then AzMeet's (`keys::SHORTCUTS`, the rule in `keys::command_for`): Ctrl / Cmd + D the
+/// microphone, Ctrl / Cmd + E the camera.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let kit_ref = data.downcast_ref::<MeetState>().map(|s| s.kit.clone());
+    if let Some(update) = kit_ref.and_then(|k| kit::handle_key(&k, &mut info)) {
+        return update;
+    }
     let key = match info
         .get_current_keyboard_state()
         .current_virtual_keycode
@@ -5133,23 +5396,12 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
     {
         Some(VirtualKeyCode::D) => keys::Key::D,
         Some(VirtualKeyCode::E) => keys::Key::E,
-        Some(VirtualKeyCode::Escape) => keys::Key::Escape,
         _ => keys::Key::Other,
     };
     match keys::command_for(key, info.get_key_modifiers().primary_down()) {
         Some(keys::Command::ToggleMic) => mic_toggle(data, info),
         Some(keys::Command::ToggleCamera) => cam_toggle(data, info),
-        Some(keys::Command::CloseSettings) => {
-            let Some(mut s) = data.downcast_mut::<MeetState>() else {
-                return Update::DoNothing;
-            };
-            if !s.settings_open {
-                return Update::DoNothing;
-            }
-            s.settings_open = false;
-            Update::RefreshDom
-        }
-        _ => Update::DoNothing,
+        None => Update::DoNothing,
     }
 }
 
@@ -5275,15 +5527,20 @@ fn launch_look() -> (azul_appkit::Theme, azul_appkit::ModePref) {
     saved_settings().effective(&launch_args().kit)
 }
 
-/// The settings screen, theme and mode the command line asked for, on a participant's state.
+/// The settings screen the command line asked for, and what the settings remember, on a
+/// participant's state.
 fn apply_launch_args(s: &mut MeetState) {
-    let args = launch_args();
-    s.settings_open = args.screen == args::Screen::Settings;
-    let (theme, mode) = launch_look();
-    s.theme_index = theme.index();
-    s.mode_index = mode.index();
-    s.settings = saved_settings().clone();
-    s.quality = store::Prefs::read(&s.settings).quality;
+    if launch_args().screen == args::Screen::Settings {
+        kit::open_settings(&s.kit, None);
+    }
+    let prefs = kit_prefs(&s.kit);
+    s.quality = prefs.quality.min(QUALITY_CAPS.len() - 1);
+    s.camera_choice = prefs.camera.min(CAMERAS.len() - 1);
+    s.mirror = prefs.mirror;
+    s.join_muted = prefs.join_muted;
+    s.join_camera_off = prefs.join_camera_off;
+    s.mic_name = prefs.microphone;
+    s.speaker_name = prefs.speaker;
 }
 
 pub fn start() {
@@ -5326,7 +5583,7 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
     let relay = relay_for(&worker);
     let name = display_name();
     let endpoint = bind_endpoint(&relay);
-    let mut me = MeetState::new(&name, "", "");
+    let mut me = MeetState::new(&name, "", "", make_kit());
     let mut room = RoomSession::new(worker.clone(), name.clone(), relay.clone());
     room.server_ok = answer.is_ok();
     room.server_status = match &answer {
@@ -5371,13 +5628,13 @@ fn start_demo(notice: &str) {
         eprintln!(
             "[azmeet] meeting {meeting}: Ada (CPU window, camera) and Ben (GPU window, screen share) over iroh"
         );
-        let mut ada = MeetState::new("Ada", "Ben", "CPU");
+        let mut ada = MeetState::new("Ada", "Ben", "CPU", make_kit());
         ada.meeting = meeting.clone();
         ada.notice = notice.clone();
         ada.guest = Some(ben_link.clone());
         ada.endpoint = Some(ada_link);
         ada.cam_on = true;
-        let mut ben = MeetState::new("Ben", "Ada", "GPU");
+        let mut ben = MeetState::new("Ben", "Ada", "GPU", make_kit());
         ben.meeting = meeting.clone();
         ben.notice = notice;
         ben.endpoint = Some(ben_link);
@@ -5397,7 +5654,7 @@ fn start_demo(notice: &str) {
     } else {
         let failure = bind_failure(&ada_link);
         eprintln!("[azmeet] joined meeting {meeting} without a peer link: {failure}");
-        let mut solo = MeetState::new("You", "", "");
+        let mut solo = MeetState::new("You", "", "", make_kit());
         solo.meeting = meeting;
         solo.notice = notice;
         solo.link_status = failure;
