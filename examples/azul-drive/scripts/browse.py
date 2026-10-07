@@ -365,11 +365,12 @@ def run(args, logs):
         drive_id = added[-1]
         app.until("the drive's root listing", lambda: app.printed("AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id)))
         log("AzDrive saved %s and lists its root" % drive_id)
-        # The source list's CLOUD section: the drive's row (selected: the window shows it), its
-        # state and its eject button (src/ui_sidebar.rs, the ids of src/ids.rs).
-        row = "__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", drive_id).lower()
+        # The source list's CLOUD section: the drive's row (selected: the window shows it) and its
+        # eject button (src/ui_sidebar.rs; the ids of src/ids.rs).
+        part = re.sub(r"[^A-Za-z0-9_-]", "_", drive_id).lower()
+        row = "__azdrive_side_drive_" + part
         app.until("the drive's row in CLOUD", lambda: row in app.ids())
-        app.until("its eject button", lambda: row.replace("_drive_", "_eject_") in app.ids())
+        app.until("its eject button", lambda: "__azdrive_side_eject_" + part in app.ids())
         app.until("its row selected", lambda: "__azdrive_side_selected" in app.classes_of(row))
         log("the source list shows %s in CLOUD, selected, with its eject button" % drive_id)
 
