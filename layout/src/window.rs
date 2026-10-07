@@ -18967,6 +18967,12 @@ impl LayoutWindow {
             let language = self.active_language();
             translate_texts_in_dom(&mut dom, localizer, language.id.as_str());
         }
+        // A flora SPIN (`flora:green`, ...) is flora in another accent stone:
+        // the base ramp's colours of the built DOM become the spin's - the
+        // form controls just built included - before anything is cascaded
+        // (`widgets::themes::spin`). Nothing for any other theme.
+        #[cfg(feature = "widgets")]
+        crate::widgets::themes::spin::respin_dom_for_theme(&mut dom, self.app_theme.as_str());
         let context = Some(self.dynamic_selector_context(window_state));
         // The rice of this window's app theme. `None` until the app installed
         // the loader (`App::create`) and under `AZ_RICING=off`, so a test or a
