@@ -197,7 +197,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let content = if kit::settings_open(&st.kit) {
         column(vec![
             kit::title_row(&title),
-            kit::settings_page(&st.kit, vec![ui_settings::section(&app, st)]),
+            kit::settings_page_with_reload(
+                &st.kit,
+                vec![ui_settings::section(&app, st)],
+                &app,
+                commands::reload_settings,
+            ),
         ])
     } else {
         match st.screen {

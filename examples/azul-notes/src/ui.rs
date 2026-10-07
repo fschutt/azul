@@ -39,6 +39,7 @@ use azul::{
 
 use azul_appkit::{
     args::{ModePref, Theme},
+    settings::AppSettings,
     ui::{self as kit, AppSection},
 };
 
@@ -1858,13 +1859,25 @@ fn app_sections(s: &AppState, app: &RefAny, look: &Look) -> Vec<AppSection> {
     ]
 }
 
-/// The settings page: azul-appkit's (a Back button over the
-/// `ShellSettingsLayout`), AzNotes' sections first.
+/// The settings page: azul-appkit's (Outlook's Options dialog), AzNotes' categories first.
 fn settings_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
     Dom::create_div()
         .with_id(ids::SETTINGS)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(kit::settings_page(&s.kit, app_sections(s, app, look)))
+        .with_child(kit::settings_page_with_reload(
+            &s.kit,
+            app_sections(s, app, look),
+            app,
+            reload_settings,
+        ))
+}
+
+/// Cancel on the settings page put the settings back: AzNotes' copy of its values follows.
+fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &AppSettings) {
+    let read = crate::Settings::from_values(|key| settings.get(key).map(str::to_string));
+    if let Some(mut s) = app.downcast_mut::<AppState>() {
+        s.settings = read;
+    };
 }
 
 extern "C" fn on_setting(mut data: RefAny, mut info: CallbackInfo, control: SegmentedState) -> Update {

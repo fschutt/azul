@@ -52,6 +52,9 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
+    // The device unlock is an action (the vault's key goes into the keyring or leaves it), not
+    // a choice: Cancel on the settings page leaves its `device_unlock.<vault>` values alone.
+    kit::keep_on_cancel(&kit_ref, &crate::app::device_unlock_key(""));
     let (data_root, settings) = {
         let mut k = kit_ref.clone();
         let found = k.downcast_ref::<kit::Kit>().map(|k| {

@@ -66,6 +66,7 @@ use azul_appkit::{
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
     pieces::{block, button, column, flex_row, primary, strs, text},
+    settings::AppSettings,
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
 };
@@ -1505,7 +1506,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             "flex-grow: 1; min-height: 0px;",
             vec![
                 kit::title_row(SPEC.name),
-                kit::settings_page(&s.kit, settings_sections(s, &app)),
+                kit::settings_page_with_reload(
+                    &s.kit,
+                    settings_sections(s, &app),
+                    &app,
+                    reload_settings,
+                ),
             ],
         )
     } else {
@@ -2589,6 +2595,19 @@ extern "C" fn on_refresh(mut data: RefAny, mut info: CallbackInfo) -> Update {
             start_refresh(s, info, handle, feeds);
         }
     })
+}
+
+/// Cancel on the settings page put the settings back: the app's copy follows (and the refresh
+/// timer, when its interval changed back).
+fn reload_settings(app: &mut RefAny, info: &mut CallbackInfo, settings: &AppSettings) {
+    let read = Settings::read(&|key| settings.get(key).map(str::to_string));
+    let _update = with_app(app, info, |s, info, handle| {
+        let rearm = s.settings.refresh_minutes != read.refresh_minutes;
+        s.settings = read;
+        if rearm {
+            arm_refresh_timer(s, info, handle);
+        }
+    });
 }
 
 extern "C" fn on_open_settings(mut data: RefAny, mut info: CallbackInfo) -> Update {

@@ -17,7 +17,7 @@ use azul::{
     option::{OptionFileTypeList, OptionString},
     str::String as AzString,
 };
-use azul_appkit::{ui as kit, FileJob};
+use azul_appkit::{settings::AppSettings, ui as kit, FileJob};
 
 use crate::{
     app::{AppState, Command, CommandRef, OpenBook, Pane, Screen, Target},
@@ -25,7 +25,7 @@ use crate::{
     library::{self, Bookmark},
     paginate::{self, ChapterReady, ChapterRequest},
     position::{self, Turn},
-    settings::{FONT_MAX, FONT_MIN, LINE_MAX, LINE_MIN, MARGIN_MAX, MARGIN_MIN},
+    settings::{ReadingSettings, FONT_MAX, FONT_MIN, LINE_MAX, LINE_MIN, MARGIN_MAX, MARGIN_MIN},
 };
 
 /// The write-back tag of a `state.json` save.
@@ -504,6 +504,20 @@ fn settings_changed(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
     }
     kit::save_settings(&st.kit, info);
     ensure_layout(st, info, app);
+}
+
+/// Cancel on the settings page put the settings back: the reading settings follow, the pages
+/// are laid out again.
+pub fn reload_settings(app: &mut RefAny, info: &mut CallbackInfo, settings: &AppSettings) {
+    let handle = app.clone();
+    let read = ReadingSettings::from_settings(settings);
+    if let Some(mut guard) = app.downcast_mut::<AppState>() {
+        let st = &mut *guard;
+        if st.settings != read {
+            st.settings = read;
+            ensure_layout(st, info, &handle);
+        }
+    };
 }
 
 /// Removes the open chapter's pictures from the image cache, but those in `keep`.

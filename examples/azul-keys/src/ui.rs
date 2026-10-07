@@ -29,7 +29,10 @@ use azul::{
         SwitchState, TextInputState, TextInputValid, TreeViewNode,
     },
 };
-use azul_appkit::ui::{self as kit, AppSection};
+use azul_appkit::{
+    settings::AppSettings,
+    ui::{self as kit, AppSection},
+};
 
 use crate::app::{
     minutes_label, now, seconds_label, KeysApp, Screen, CLEAR_CHOICES, IDLE_CHOICES, SPEC,
@@ -147,7 +150,12 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             "flex-grow: 1; min-height: 0px;",
             vec![
                 kit::title_row(SPEC.name),
-                kit::settings_page(&s.kit, settings_sections(s, &app)),
+                kit::settings_page_with_reload(
+                    &s.kit,
+                    settings_sections(s, &app),
+                    &app,
+                    reload_settings,
+                ),
             ],
         )
     } else {
@@ -1323,6 +1331,15 @@ fn settings_sections(s: &KeysApp, app: &RefAny) -> Vec<AppSection> {
             content: column("", vault),
         },
     ]
+}
+
+/// Cancel on the settings page put the settings back: the lock and the clipboard times follow.
+fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &AppSettings) {
+    let read = crate::app::Settings::from_values(|key| settings.get(key).map(str::to_string));
+    if let Some(mut s) = app.downcast_mut::<KeysApp>() {
+        s.auto_lock.idle_minutes = read.idle_minutes;
+        s.settings = read;
+    };
 }
 
 extern "C" fn on_idle_choice(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
