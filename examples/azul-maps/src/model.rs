@@ -1,6 +1,6 @@
 //! AzMaps' model without azul types: the viewport kept across restarts, the
-//! pins file in the data tree, the stdout lines for scripts. Tested without
-//! a window.
+//! pins file in the data tree, the travel panel's places and distances, the
+//! stdout lines for scripts. Tested without a window.
 
 /// The pins file, in the app's folder of the data tree (`maps/pins.json`):
 /// a JSON list of `[latitude, longitude]` pairs, oldest first.
@@ -8,6 +8,9 @@ pub const PINS_FILE: &str = "pins.json";
 
 /// The settings key of the last viewport (`lat,lon,zoom`).
 pub const VIEW_KEY: &str = "view";
+
+/// The settings key of the sidebar (`open` / `closed`).
+pub const SIDEBAR_KEY: &str = "sidebar";
 
 /// Where the map opens without a remembered viewport (San Francisco).
 pub const HOME: (f64, f64, f32) = (37.7749, -122.4194, 2.0);
@@ -95,9 +98,218 @@ pub fn pan_tiles(lon_deg: f64, lat_deg: f64, tile_count: f64, dx_tiles: f64, dy_
     (lon, lat.clamp(-85.0, 85.0))
 }
 
+/// How the traveller goes (the travel panel's options).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TravelMode {
+    #[default]
+    Car,
+    Walk,
+    Bike,
+    Transit,
+}
+
+impl TravelMode {
+    pub const ALL: [Self; 4] = [Self::Car, Self::Walk, Self::Bike, Self::Transit];
+
+    /// The mode's word in ids and stdout lines.
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Car => "car",
+            Self::Walk => "walk",
+            Self::Bike => "bike",
+            Self::Transit => "transit",
+        }
+    }
+
+    /// The Material icon of the mode's button.
+    #[must_use]
+    pub const fn icon(self) -> &'static str {
+        match self {
+            Self::Car => "directions_car",
+            Self::Walk => "directions_walk",
+            Self::Bike => "directions_bike",
+            Self::Transit => "directions_transit",
+        }
+    }
+
+    /// The button's accessible name (it shows no text).
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Car => "Drive",
+            Self::Walk => "Walk",
+            Self::Bike => "Cycle",
+            Self::Transit => "Public transport",
+        }
+    }
+}
+
+/// A place in a travel field: `lat, lon` (`37.7749, -122.4194`, the comma
+/// optional) or the way the app writes a place (`37.7749° N 122.4194° W`).
+/// `None` for anything else - there is no geocoder yet.
+#[must_use]
+pub fn parse_place(text: &str) -> Option<(f64, f64)> {
+    let cleaned: String = text
+        .chars()
+        .map(|c| if c == ',' || c == ';' || c == '\u{b0}' { ' ' } else { c })
+        .collect();
+    let mut numbers = Vec::new();
+    let mut tokens = cleaned.split_whitespace().peekable();
+    while let Some(token) = tokens.next() {
+        let mut value: f64 = token.parse().ok()?;
+        let direction = tokens.peek().map(|t| t.to_ascii_uppercase());
+        match direction.as_deref() {
+            Some("N" | "E") => {
+                tokens.next();
+            }
+            Some("S" | "W") => {
+                value = -value;
+                tokens.next();
+            }
+            _ => {}
+        }
+        numbers.push(value);
+    }
+    let (lat, lon) = match numbers.as_slice() {
+        [lat, lon] => (*lat, *lon),
+        _ => return None,
+    };
+    (lat.is_finite() && lon.is_finite() && lat.abs() <= 90.0 && lon.abs() <= 180.0)
+        .then_some((lat, lon))
+}
+
+/// A place as the travel fields hold it: `37.77490, -122.41940`.
+#[must_use]
+pub fn place_text(lat: f64, lon: f64) -> String {
+    format!("{lat:.5}, {lon:.5}")
+}
+
+/// The great-circle distance between two places, in km.
+#[must_use]
+pub fn distance_km(a: (f64, f64), b: (f64, f64)) -> f64 {
+    const EARTH_RADIUS_KM: f64 = 6371.0;
+    let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
+    let dlat = lat2 - lat1;
+    let dlon = (b.1 - a.1).to_radians();
+    let h = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+    2.0 * EARTH_RADIUS_KM * h.sqrt().min(1.0).asin()
+}
+
+/// A distance the way the travel panel shows it: `850 m`, `4.2 km`, `412 km`.
+#[must_use]
+pub fn distance_text(km: f64) -> String {
+    if km < 1.0 {
+        format!("{:.0} m", km * 1000.0)
+    } else if km < 10.0 {
+        format!("{km:.1} km")
+    } else {
+        format!("{km:.0} km")
+    }
+}
+
+/// `AZMAPS_TRAVEL <mode> <from> <to>` for scripts: each end `lat,lon` to
+/// four decimals, `-` while it is not a place.
+#[must_use]
+pub fn travel_line(mode: TravelMode, from: Option<(f64, f64)>, to: Option<(f64, f64)>) -> String {
+    let end = |p: Option<(f64, f64)>| match p {
+        Some((lat, lon)) => format!("{lat:.4},{lon:.4}"),
+        None => "-".to_string(),
+    };
+    format!("AZMAPS_TRAVEL {} {} {}", mode.key(), end(from), end(to))
+}
+
+/// The part of the segment `a`-`b` inside the `width` x `height` view
+/// (Liang-Barsky), `None` when it misses the view: a line to a place a
+/// continent away is drawn as long as the window, not a million pixels.
+#[must_use]
+pub fn clip_segment(
+    a: (f32, f32),
+    b: (f32, f32),
+    width: f32,
+    height: f32,
+) -> Option<((f32, f32), (f32, f32))> {
+    if ![a.0, a.1, b.0, b.1].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let (mut t0, mut t1) = (0.0_f32, 1.0_f32);
+    for (p, q) in [(-dx, a.0), (dx, width - a.0), (-dy, a.1), (dy, height - a.1)] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+        } else {
+            let t = q / p;
+            if p < 0.0 {
+                t0 = t0.max(t);
+            } else {
+                t1 = t1.min(t);
+            }
+        }
+    }
+    (t0 <= t1).then(|| {
+        (
+            (a.0 + t0 * dx, a.1 + t0 * dy),
+            (a.0 + t1 * dx, a.1 + t1 * dy),
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_place_is_read_as_typed_or_as_the_app_writes_it() {
+        assert_eq!(parse_place("37.7749, -122.4194"), Some((37.7749, -122.4194)));
+        assert_eq!(parse_place(" 48.2 16.37 "), Some((48.2, 16.37)));
+        assert_eq!(
+            parse_place("37.7749\u{b0} N 122.4194\u{b0} W"),
+            Some((37.7749, -122.4194))
+        );
+        assert_eq!(parse_place("33.8688 s, 151.2093 e"), Some((-33.8688, 151.2093)));
+        let (lat, lon) = parse_place(&place_text(52.52, 13.405)).expect("round trip");
+        assert!((lat - 52.52).abs() < 1e-9 && (lon - 13.405).abs() < 1e-9);
+        assert_eq!(parse_place("Berlin"), None, "no geocoder yet");
+        assert_eq!(parse_place("91, 0"), None, "past the pole");
+        assert_eq!(parse_place("1, 2, 3"), None);
+        assert_eq!(parse_place(""), None);
+    }
+
+    #[test]
+    fn distances_are_great_circles_and_read_short() {
+        let berlin = (52.52, 13.405);
+        let munich = (48.1351, 11.582);
+        let km = distance_km(berlin, munich);
+        assert!((km - 504.0).abs() < 5.0, "{km}");
+        assert!(distance_km(berlin, berlin).abs() < 1e-9);
+        assert_eq!(distance_text(0.85), "850 m");
+        assert_eq!(distance_text(4.24), "4.2 km");
+        assert_eq!(distance_text(412.4), "412 km");
+        assert_eq!(
+            travel_line(TravelMode::Transit, Some(berlin), None),
+            "AZMAPS_TRAVEL transit 52.5200,13.4050 -"
+        );
+        assert_eq!(TravelMode::default(), TravelMode::Car);
+    }
+
+    #[test]
+    fn a_route_line_is_clipped_to_the_view() {
+        // Inside: unchanged.
+        assert_eq!(
+            clip_segment((10.0, 10.0), (90.0, 50.0), 100.0, 100.0),
+            Some(((10.0, 10.0), (90.0, 50.0)))
+        );
+        // Crossing: cut at the edges.
+        let ((x0, y0), (x1, y1)) =
+            clip_segment((-100.0, 50.0), (300.0, 50.0), 100.0, 100.0).expect("crosses");
+        assert!((x0 - 0.0).abs() < 1e-4 && (x1 - 100.0).abs() < 1e-4, "{x0} {x1}");
+        assert!((y0 - 50.0).abs() < 1e-4 && (y1 - 50.0).abs() < 1e-4);
+        // Missing the view, or not a number: nothing.
+        assert_eq!(clip_segment((-50.0, -50.0), (-10.0, 200.0), 100.0, 100.0), None);
+        assert_eq!(clip_segment((f32::NAN, 0.0), (10.0, 10.0), 100.0, 100.0), None);
+    }
 
     #[test]
     fn up_goes_north_in_both_hemispheres() {
