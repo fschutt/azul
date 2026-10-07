@@ -9,11 +9,14 @@ started from fix/input-bugs-2026-09-19 @ 86c0e821e. No cargo (the lead builds).
 - C3 AzMeet: every AZMEET_* variable a `--flag` (args.rs SWITCHES table, env as fallback, the
   switch wins; `--worker` also over the saved server via rooms::server_choice), `--relay-only` parsed.
 
+- C4 AzMeet `--relay-only` endpoint (IrohConfig::with_relay_only - NEEDS the api.json autofix first),
+  stdout `AZMEET_TRANSPORT <label>` at bind, `AZMEET_PATH <name> direct|relayed` when a path turns,
+  statistics Network section starts with "Transport: ...".
+
 ## IN PROGRESS
-- C4 AzMeet relay-only endpoint.
+- C5 waiting room.
 
 ## NEXT
-- C4 AzMeet relay-only endpoint (needs autofix of IrohConfig.relay_only + with_relay_only).
 - C5 waiting room: `--screen waiting` without a server, `--shot` / `--size`, who is here, pattern preview.
 - C6 scripts/iroh_relay_dev.py + relay phase in scripts/azmeet_e2e.py (flags instead of env).
 - C7 two-clients.mjs, three-clients.mjs, meet-e2e.mjs, azmeet_cpu.py, fb1 probe onto the flags.

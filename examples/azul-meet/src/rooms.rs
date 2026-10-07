@@ -217,6 +217,24 @@ pub fn relay_choice(setting: Option<&str>, worker_host: &str) -> Relay {
     }
 }
 
+/// How this side's packets may travel, for stdout (`AZMEET_TRANSPORT <label>`) and the
+/// statistics: `direct` (no relay), `direct+relay <relays>` (a direct path where one forms, the
+/// relay otherwise), `relay-only <relays>` (`--relay-only`: never a direct path), or `none`
+/// (relay-only without a relay: nothing can carry a packet).
+pub fn transport_label(relay: &Relay, relay_only: bool) -> String {
+    let relays = match relay {
+        Relay::Off => None,
+        Relay::Default => Some("default"),
+        Relay::Custom(url) => Some(url.as_str()),
+    };
+    match (relays, relay_only) {
+        (None, false) => String::from("direct"),
+        (None, true) => String::from("none"),
+        (Some(relays), false) => format!("direct+relay {relays}"),
+        (Some(relays), true) => format!("relay-only {relays}"),
+    }
+}
+
 /// The meeting server when none was saved, `AZMEET_WORKER` is not set and none is built in: the
 /// local mock (`cf-workers/meet/dev-server.mjs`).
 pub const LOCAL_WORKER: &str = "http://127.0.0.1:8787";
@@ -535,6 +553,18 @@ mod tests {
             relay_choice(Some("https://relay.example.com"), "127.0.0.1"),
             Relay::Custom("https://relay.example.com".to_string())
         );
+    }
+
+    /// The E2E's relay phase reads `AZMEET_TRANSPORT relay-only http://127.0.0.1:<port>`.
+    #[test]
+    fn the_transport_label_says_whether_a_direct_path_may_form_and_through_which_relays() {
+        let local = Relay::Custom(String::from("http://127.0.0.1:3340"));
+        assert_eq!(transport_label(&Relay::Off, false), "direct");
+        assert_eq!(transport_label(&Relay::Default, false), "direct+relay default");
+        assert_eq!(transport_label(&local, false), "direct+relay http://127.0.0.1:3340");
+        assert_eq!(transport_label(&local, true), "relay-only http://127.0.0.1:3340");
+        assert_eq!(transport_label(&Relay::Default, true), "relay-only default");
+        assert_eq!(transport_label(&Relay::Off, true), "none", "relay-only without a relay");
     }
 
     #[test]

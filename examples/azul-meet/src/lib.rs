@@ -972,6 +972,9 @@ fn stats_sections(s: &MeetState) -> Vec<ui::StatSection> {
         audio.push(String::from("Deafened: nothing is played"));
     }
     audio.extend(audio_lines(s));
+    // How packets may travel ("Transport: relay-only http://..."), then the plan and the peers.
+    let mut network: Vec<String> = transport_line(s).into_iter().collect();
+    network.extend(network_lines(s));
     let section = |title: &str, lines: Vec<String>| ui::StatSection {
         title: title.to_string(),
         lines,
@@ -982,7 +985,7 @@ fn stats_sections(s: &MeetState) -> Vec<ui::StatSection> {
         section("Speakers", s.speakers.clone()),
         section("Video", video),
         section("Audio", audio),
-        section("Network", network_lines(s)),
+        section("Network", network),
     ]
 }
 
@@ -3360,11 +3363,16 @@ fn measure_tiles(s: &mut MeetState, info: &mut CallbackInfo) {
 fn network_tick(s: &mut MeetState, endpoint: &IrohEndpoint, info: &mut CallbackInfo) {
     measure_tiles(s, info);
     let now = now_ms(s);
+    // The peers whose path turned direct or relayed since the last statistics.
+    let mut turned: Vec<(String, bool)> = Vec::new();
     let paths: Vec<(u64, routes::PathSample)> = s
         .remotes
         .iter_mut()
         .map(|r| {
             let stats = endpoint.peer_stats(r.handle);
+            if r.path.map(|(direct, _)| direct) != Some(stats.direct) {
+                turned.push((r.node_id.clone(), stats.direct));
+            }
             r.path = Some((stats.direct, stats.rtt_us as f64 / 1000.0));
             let sample = routes::PathSample {
                 bytes_sent: stats.bytes_sent,
@@ -3376,6 +3384,15 @@ fn network_tick(s: &mut MeetState, endpoint: &IrohEndpoint, info: &mut CallbackI
             (r.handle, sample)
         })
         .collect();
+    // For scripts: each peer's path whenever it turns (`AZMEET_PATH Ben relayed`); with
+    // `--relay-only` it never says `direct`.
+    for (node_id, direct) in turned {
+        println!(
+            "AZMEET_PATH {} {}",
+            remote_name(s, &node_id),
+            if direct { "direct" } else { "relayed" }
+        );
+    }
     s.capacity.sample(now, &paths);
     network_changed(s, true);
 }
@@ -4426,7 +4443,11 @@ fn rebind_for_server(s: &mut MeetState) {
     if relay == room.relay {
         return;
     }
-    let endpoint = bind_endpoint(&relay);
+    let endpoint = bind_endpoint(&relay, relay_only());
+    println!(
+        "AZMEET_TRANSPORT {}",
+        rooms::transport_label(&relay, relay_only())
+    );
     if !endpoint.is_bound() {
         let reason = bind_failure(&endpoint);
         eprintln!(
@@ -5430,7 +5451,9 @@ fn gen_link() -> String {
     )
 }
 
-fn bind_endpoint(relay: &Relay) -> IrohEndpoint {
+/// This side's iroh endpoint with the relays of `relay`; `relay_only` (`--relay-only`) binds no
+/// UDP socket at all, so no direct path forms and every packet goes through the relay.
+fn bind_endpoint(relay: &Relay, relay_only: bool) -> IrohEndpoint {
     let config = IrohConfig::create(ALPN);
     let config = match relay {
         Relay::Off => config.with_relay_mode(IrohRelayMode::Disabled),
@@ -5439,7 +5462,21 @@ fn bind_endpoint(relay: &Relay) -> IrohEndpoint {
             .with_relay_mode(IrohRelayMode::Custom)
             .with_relay_url(url.as_str()),
     };
-    IrohEndpoint::bind(config)
+    IrohEndpoint::bind(config.with_relay_only(relay_only))
+}
+
+/// `--relay-only` (`AZMEET_RELAY_ONLY=1`): never a direct path.
+fn relay_only() -> bool {
+    setting_on("AZMEET_RELAY_ONLY")
+}
+
+/// What the statistics' Network section starts with: how this side's packets may travel.
+fn transport_line(s: &MeetState) -> Option<String> {
+    let room = s.room.as_ref()?;
+    Some(format!(
+        "Transport: {}",
+        rooms::transport_label(&room.relay, relay_only())
+    ))
 }
 
 fn bind_failure(endpoint: &IrohEndpoint) -> String {
@@ -5609,7 +5646,18 @@ fn relay_for(worker: &str) -> Relay {
 fn start_rooms(worker: String, answer: Result<(), String>) {
     let relay = relay_for(&worker);
     let name = display_name();
-    let endpoint = bind_endpoint(&relay);
+    if relay_only() && relay == Relay::Off {
+        eprintln!(
+            "[azmeet] {name}: --relay-only needs a relay (--relay <url> or --relay default): \
+             nothing can carry a packet"
+        );
+    }
+    let endpoint = bind_endpoint(&relay, relay_only());
+    // For scripts: how this side's packets may travel (the relay phase of azmeet_e2e.py).
+    println!(
+        "AZMEET_TRANSPORT {}",
+        rooms::transport_label(&relay, relay_only())
+    );
     let mut me = MeetState::new(&name, "", "", make_kit());
     let mut room = RoomSession::new(worker.clone(), name.clone(), relay.clone());
     room.server_ok = answer.is_ok();
@@ -5623,8 +5671,9 @@ fn start_rooms(worker: String, answer: Result<(), String>) {
     if endpoint.is_bound() {
         room.node_id = endpoint.endpoint_id().as_str().to_string();
         eprintln!(
-            "[azmeet] {name}: endpoint {} (relays {relay:?}), meeting server {worker}",
-            short_id(&room.node_id)
+            "[azmeet] {name}: endpoint {} (relays {relay:?}{}), meeting server {worker}",
+            short_id(&room.node_id),
+            if relay_only() { ", relay only" } else { "" }
         );
         me.endpoint = Some(endpoint);
         me.link_status = String::from("not in a meeting");
@@ -5649,8 +5698,8 @@ fn start_demo(notice: &str) {
     let notice = notice.to_string();
     eprintln!("[azmeet] {notice}");
     let video = probe_video();
-    let ada_link = bind_endpoint(&Relay::Off);
-    let ben_link = bind_endpoint(&Relay::Off);
+    let ada_link = bind_endpoint(&Relay::Off, false);
+    let ben_link = bind_endpoint(&Relay::Off, false);
     let peers = if ada_link.is_bound() && ben_link.is_bound() {
         eprintln!(
             "[azmeet] meeting {meeting}: Ada (CPU window, camera) and Ben (GPU window, screen share) over iroh"
