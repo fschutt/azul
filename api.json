@@ -59308,28 +59308,15 @@
                         ],
                         "enum_fields": [
                             {
-                                "Default": {}
-                            },
-                            {
-                                "Primary": {}
-                            },
-                            {
-                                "Secondary": {}
-                            },
-                            {
-                                "Success": {}
-                            },
-                            {
-                                "Danger": {}
-                            },
-                            {
-                                "Warning": {}
-                            },
-                            {
-                                "Info": {}
-                            },
-                            {
-                                "Link": {}
+                                "Default": {},
+                                "Primary": {},
+                                "Secondary": {},
+                                "Success": {},
+                                "Danger": {},
+                                "Warning": {},
+                                "Info": {},
+                                "Link": {},
+                                "Illuminated": {}
                             }
                         ],
                         "repr": "C"
