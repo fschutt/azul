@@ -63,9 +63,122 @@ pub(crate) struct H264Index {
 
 impl H264Index {
     /// The index of the H.264 track of the MP4 `reader` reads (`len` bytes).
+    /// Reads the boxes before the media data and the `moov` wherever it is -
+    /// never the media data itself (a fragmented MP4 is the exception: its
+    /// access units are read whole).
     pub(crate) fn read<R: Read + Seek>(reader: R, len: u64) -> Result<H264Index, String> {
-        let _ = (reader, len);
-        Err(String::from("not indexed"))
+        let mut reader = Mp4Reader::read_header(reader, len)
+            .map_err(|e| format!("mp4 header parse failed: {e}"))?;
+
+        // The H.264/AVC video track: its parameters and its sample table.
+        let mut found = None;
+        for track in reader.tracks().values() {
+            if track.media_type().ok() != Some(MediaType::H264) {
+                continue;
+            }
+            let (Ok(sps), Ok(pps)) = (
+                track.sequence_parameter_set(),
+                track.picture_parameter_set(),
+            ) else {
+                continue;
+            };
+            let stbl = &track.trak.mdia.minf.stbl;
+            let table = SampleTable {
+                sizes: if stbl.stsz.sample_size > 0 {
+                    vec![stbl.stsz.sample_size; stbl.stsz.sample_count as usize]
+                } else {
+                    stbl.stsz.sample_sizes.clone()
+                },
+                chunk_offsets: match (&stbl.stco, &stbl.co64) {
+                    (Some(stco), _) => stco.entries.iter().map(|o| u64::from(*o)).collect(),
+                    (None, Some(co64)) => co64.entries.clone(),
+                    (None, None) => Vec::new(),
+                },
+                chunk_runs: stbl
+                    .stsc
+                    .entries
+                    .iter()
+                    .map(|e| (e.first_chunk, e.samples_per_chunk))
+                    .collect(),
+                deltas: stbl
+                    .stts
+                    .entries
+                    .iter()
+                    .map(|e| (e.sample_count, e.sample_delta))
+                    .collect(),
+                offsets: stbl.ctts.as_ref().map_or_else(Vec::new, |c| {
+                    c.entries
+                        .iter()
+                        .map(|e| (e.sample_count, e.sample_offset))
+                        .collect()
+                }),
+                sync: stbl.stss.as_ref().map(|s| s.entries.clone()),
+            };
+            found = Some((
+                track.track_id(),
+                u32::from(track.width()),
+                u32::from(track.height()),
+                sps.to_vec(),
+                pps.to_vec(),
+                track.sample_count(),
+                f64::from(track.timescale().max(1)),
+                track.frame_rate() as f32,
+                !track.trafs.is_empty(),
+                table,
+            ));
+            break;
+        }
+        let (track_id, width, height, sps, pps, sample_count, timescale, fps, fragmented, table) =
+            found.ok_or_else(|| String::from("no H.264/AVC video track in MP4"))?;
+        if sps.is_empty() || pps.is_empty() {
+            return Err(String::from("H.264 track has no SPS/PPS in its avcC box"));
+        }
+
+        if fragmented {
+            // `moof` fragments: the mp4 crate places their samples; read them whole.
+            let mut chunks = Vec::with_capacity(sample_count as usize);
+            for sid in 1..=sample_count {
+                let sample = match reader.read_sample(track_id, sid) {
+                    Ok(Some(s)) => s,
+                    Ok(None) => continue,
+                    Err(e) => return Err(format!("read_sample {sid} failed: {e}")),
+                };
+                chunks.push(H264Chunk {
+                    annexb: annexb_access_unit(&sample.bytes, sample.is_sync, &sps, &pps),
+                    pts_ms: presentation_ms(sample.start_time, sample.rendering_offset, timescale),
+                    is_keyframe: sample.is_sync,
+                });
+            }
+            let samples = chunks
+                .iter()
+                .map(|c| SampleInfo {
+                    offset: 0,
+                    size: 0,
+                    pts_ms: c.pts_ms,
+                    is_keyframe: c.is_keyframe,
+                })
+                .collect();
+            return Ok(H264Index {
+                width,
+                height,
+                fps,
+                sps,
+                pps,
+                samples,
+                eager: Some(chunks),
+            });
+        }
+
+        let samples = table.samples(timescale)?;
+        Ok(H264Index {
+            width,
+            height,
+            fps,
+            sps,
+            pps,
+            samples,
+            eager: None,
+        })
     }
 
     /// Access unit `index` (decode order) as Annex-B, the parameter sets in
@@ -77,8 +190,150 @@ impl H264Index {
         index: usize,
         wait: Wait,
     ) -> Result<H264Chunk, ChunkError> {
-        let _ = (source, index, wait, &self.eager);
-        Err(ChunkError::Failed(String::from("not read")))
+        if let Some(chunks) = &self.eager {
+            return chunks
+                .get(index)
+                .cloned()
+                .ok_or_else(|| ChunkError::Failed(format!("there is no access unit {index}")));
+        }
+        let Some(sample) = self.samples.get(index) else {
+            return Err(ChunkError::Failed(format!("there is no access unit {index}")));
+        };
+        let mut avcc = vec![0u8; sample.size as usize];
+        let mut done = 0usize;
+        while done < avcc.len() {
+            match source.read_at(sample.offset + done as u64, &mut avcc[done..], wait) {
+                Ok(0) => {
+                    return Err(ChunkError::Failed(format!(
+                        "the file ends inside access unit {index}"
+                    )))
+                }
+                Ok(n) => done += n,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    return Err(ChunkError::NotYet)
+                }
+                Err(e) => return Err(ChunkError::Failed(e.to_string())),
+            }
+        }
+        Ok(H264Chunk {
+            annexb: annexb_access_unit(&avcc, sample.is_keyframe, &self.sps, &self.pps),
+            pts_ms: sample.pts_ms,
+            is_keyframe: sample.is_keyframe,
+        })
+    }
+}
+
+/// One AVCC sample as an Annex-B access unit: the parameter sets in front of a
+/// keyframe, so a decoder can start on it.
+fn annexb_access_unit(avcc: &[u8], keyframe: bool, sps: &[u8], pps: &[u8]) -> Vec<u8> {
+    let mut annexb = Vec::with_capacity(avcc.len() + 16 + sps.len() + pps.len());
+    if keyframe {
+        annexb.extend_from_slice(&START_CODE);
+        annexb.extend_from_slice(sps);
+        annexb.extend_from_slice(&START_CODE);
+        annexb.extend_from_slice(pps);
+    }
+    append_avcc_as_annexb(avcc, &mut annexb);
+    annexb
+}
+
+/// A track's sample table, as the `stbl` boxes say it (copied out: the mp4
+/// crate's box types cannot be named here).
+struct SampleTable {
+    /// Every sample's size (`stsz`).
+    sizes: Vec<u32>,
+    /// Where each chunk starts in the file (`stco` / `co64`).
+    chunk_offsets: Vec<u64>,
+    /// `(first chunk, samples per chunk)` runs, 1-based chunks (`stsc`).
+    chunk_runs: Vec<(u32, u32)>,
+    /// `(count, ticks)` decode-time steps (`stts`).
+    deltas: Vec<(u32, u32)>,
+    /// `(count, ticks)` composition offsets (`ctts`; none without B-frames).
+    offsets: Vec<(u32, i32)>,
+    /// The 1-based numbers of the keyframes (`stss`); `None`: every sample is one.
+    sync: Option<Vec<u32>>,
+}
+
+impl SampleTable {
+    /// Every sample, in decode order: where it is, how long, when shown,
+    /// whether a keyframe.
+    fn samples(&self, timescale: f64) -> Result<Vec<SampleInfo>, String> {
+        let count = self.sizes.len();
+        // Offsets: each chunk holds the samples its run says, back to back.
+        let mut offsets = Vec::with_capacity(count);
+        'runs: for (i, &(first_chunk, per_chunk)) in self.chunk_runs.iter().enumerate() {
+            let next_first = self
+                .chunk_runs
+                .get(i + 1)
+                .map_or(self.chunk_offsets.len() as u64 + 1, |r| u64::from(r.0));
+            for chunk in u64::from(first_chunk)..next_first {
+                let Some(mut at) = chunk
+                    .checked_sub(1)
+                    .and_then(|c| self.chunk_offsets.get(c as usize))
+                    .copied()
+                else {
+                    break 'runs;
+                };
+                for _ in 0..per_chunk {
+                    let Some(size) = self.sizes.get(offsets.len()) else {
+                        break 'runs;
+                    };
+                    offsets.push(at);
+                    at += u64::from(*size);
+                }
+            }
+        }
+        if offsets.len() < count {
+            return Err(format!(
+                "the MP4's sample table places {} of its {count} access units",
+                offsets.len()
+            ));
+        }
+        // Decode times (`stts`); a table that ends early continues the last time.
+        let mut decode = Vec::with_capacity(count);
+        let mut t = 0u64;
+        'deltas: for &(n, delta) in &self.deltas {
+            for _ in 0..n {
+                if decode.len() == count {
+                    break 'deltas;
+                }
+                decode.push(t);
+                t += u64::from(delta);
+            }
+        }
+        decode.resize(count, t);
+        // Composition offsets (`ctts`): when a decoded frame is SHOWN.
+        let mut shown = vec![0i32; count];
+        let mut i = 0usize;
+        for &(n, offset) in &self.offsets {
+            for _ in 0..n {
+                if let Some(slot) = shown.get_mut(i) {
+                    *slot = offset;
+                }
+                i += 1;
+            }
+        }
+        // Keyframes (`stss`, 1-based); without the box every sample is one.
+        let keyframe: Vec<bool> = match &self.sync {
+            Some(numbers) => {
+                let mut v = vec![false; count];
+                for &n in numbers {
+                    if let Some(slot) = (n as usize).checked_sub(1).and_then(|k| v.get_mut(k)) {
+                        *slot = true;
+                    }
+                }
+                v
+            }
+            None => vec![true; count],
+        };
+        Ok((0..count)
+            .map(|k| SampleInfo {
+                offset: offsets[k],
+                size: self.sizes[k],
+                pts_ms: presentation_ms(decode[k], shown[k], timescale),
+                is_keyframe: keyframe[k],
+            })
+            .collect())
     }
 }
 
@@ -433,5 +688,30 @@ mod demux_tests {
             assert!((chunk.pts_ms - whole.chunks[i].pts_ms).abs() < 1e-9);
         }
         assert!(matches!(index.chunk(&*source, 12, Wait::No), Err(ChunkError::Failed(_))));
+    }
+
+    /// The index of a real clip (B-frames: `ctts`; an edit list) places and
+    /// times every access unit exactly as the mp4 crate's own reading of the
+    /// whole file does. Soft-skips without the sample, like the test above.
+    #[test]
+    fn the_index_of_a_real_clip_matches_the_whole_file_demuxer() {
+        let path = "/tmp/video-media-samples/big-buck-bunny-480p-30sec.mp4";
+        let Ok(bytes) = std::fs::read(path) else {
+            eprintln!("[demux test] sample {path} absent - skipping");
+            return;
+        };
+        let whole = demux_mp4_h264(&bytes).expect("the whole file demuxes");
+        let source: Arc<dyn ByteSource> =
+            Arc::new(crate::desktop::extra::byte_source::MemorySource::new(bytes.clone()));
+        let index = H264Index::read(SourceReader::new(source.clone(), Wait::Yes), bytes.len() as u64)
+            .expect("indexed");
+        assert_eq!(index.samples.len(), whole.chunks.len());
+        assert_eq!((index.width, index.height), (whole.width, whole.height));
+        for (i, expected) in whole.chunks.iter().enumerate() {
+            let chunk = index.chunk(&*source, i, Wait::Yes).expect("read");
+            assert_eq!(chunk.annexb, expected.annexb, "access unit {i}");
+            assert_eq!(chunk.is_keyframe, expected.is_keyframe, "access unit {i}");
+            assert!((chunk.pts_ms - expected.pts_ms).abs() < 1e-9, "access unit {i}");
+        }
     }
 }
