@@ -19,10 +19,11 @@
 //! renders the rows), so it knows its own size and the app can re-render it
 //! alone when output arrives - `CallbackInfo::trigger_virtual_view_rerender`
 //! on the first child of the node carrying the view's id (not
-//! `trigger_all_virtual_view_rerender`: a title bar's maximize glyph and every
-//! status bar label are views too) - without rebuilding the window, at most
-//! once a frame however much output came. Scrolling is the scroll-window pattern of
-//! the cell grid and the data table, in whole lines: the position is the
+//! `trigger_all_virtual_view_rerender`: a title bar's maximize glyph, an icon
+//! view, a live status bar label are views too) - without rebuilding the
+//! window, at most once a frame however much output came. Scrolling is the
+//! scroll-window pattern of the cell grid and the data table, in whole
+//! lines: the position is the
 //! engine's DISPLAY OFFSET - lines scrolled up from the bottom, 0 = following
 //! the output - so a scrollback of 100,000 or 10,000,000 lines costs the same
 //! and no `f32` has to address it in pixels. Only the rows in view are built.
@@ -2456,9 +2457,10 @@ fn fire_and_render(s: &Snap, mut info: CallbackInfo, event: TerminalViewEvent) -
 
 /// Re-renders THIS view's `VirtualView` - the first child of the node the
 /// handler runs on (the outer node: the focused one for a key, the one the
-/// listener sits on for the pointer) - not every view of the window: the
-/// title bar's maximize glyph and every status bar label are views too, and
-/// each was rebuilt and laid out again for every notch of the wheel.
+/// listener sits on for the pointer) - not every view of the window: a title
+/// bar's maximize glyph, an icon view, a live status bar label are views
+/// too, and each was rebuilt and laid out again for every notch of the
+/// wheel.
 fn rerender_view(info: &mut CallbackInfo) {
     let host = info.get_hit_node();
     let view = host

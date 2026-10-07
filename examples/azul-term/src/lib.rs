@@ -788,8 +788,9 @@ fn terminal_node(info: &CallbackInfo) -> Option<(DomId, NodeId)> {
 }
 
 /// Re-renders the terminal's view alone - the `VirtualView` inside the node
-/// with the terminal's id - not every view of the window (the title bar's
-/// maximize glyph was rebuilt with it on every frame of output).
+/// with the terminal's id - not every view of the window (a title bar's
+/// maximize glyph, an icon view: each was rebuilt with it on every frame of
+/// output).
 fn rerender_terminal(info: &mut CallbackInfo) {
     let Some((dom, host)) = terminal_node(info) else {
         return;
