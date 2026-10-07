@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """AzCode end to end, headless, over the debug server: azul's CodeView over the
-sample workspace (written on the first run into the data folder, code/sample/).
+sample workspace (written on the first run into the data folder, code/sample/), and
+VSCode's shape around it (the activity bar, the explorer, the tabs, the welcome page).
 
     1. starts AzCode --sample (AZ_BACKEND=headless, AZ_DEBUG=--debug-port), waits for the
-       workspace (AZCODE_READY, the sample written, AZCODE_LISTED / with its entries);
+       workspace (AZCODE_READY, the sample written, AZCODE_LISTED / with its entries); no
+       file is open yet, so the editor shows the welcome page;
     2. EXPLORER: a click on "src" lists the folder (AZCODE_LISTED src/), a click on
-       "main.rs" opens it (AZCODE_OPENED src/main.rs <lines>): the code view is in the tree,
-       the text shows, a keyword wears the keyword class (syntect's colours);
+       "main.rs" opens it in a tab (AZCODE_OPENED src/main.rs <lines>): the code view is in
+       the tree, the text shows, a keyword wears the keyword class (syntect's colours);
     3. EDIT: a click into the code view, Ctrl/Cmd+Home, typed text - it shows, the tab
-       says "main.rs *"; SAVE: Ctrl/Cmd+S writes it through the drive (AZCODE_SAVED), the
-       star goes;
+       wears the dot of unsaved changes; SAVE: Ctrl/Cmd+S writes it through the drive
+       (AZCODE_SAVED), the dot goes;
     4. FIND / REPLACE: Ctrl/Cmd+F, "counts" typed (AZCODE_FOUND >= 3), Ctrl/Cmd+H, "tally",
        Replace all (AZCODE_REPLACED), "tally" shows; UNDO in the code view brings
        "counts" back (one undo step);
@@ -17,10 +19,18 @@ sample workspace (written on the first run into the data folder, code/sample/).
        90003 jumps there (the line shows; only the lines in view are in the tree), the
        colours arrive from the background walk; Ctrl/Cmd+End shows the last lines;
     6. a screenshot after each step, flat light; the mode switched to dark at the end.
-    7. OPEN FOLDER, a second run without --sample on a fresh data folder: the welcome screen;
-       the folder dialog answered by the debug server's mock store (`file_open`), Mod+O picks
-       a project folder (AZCODE_FOLDER <dir>), the explorer lists it (AZCODE_LISTED / 3) and
-       shows its entries.
+    7. THE EMPTY START, a second run without --sample on a fresh data folder and without
+       --mode (AzCode is dark by default, as VSCode is): the explorer says "You have not yet
+       opened a folder." with an Open Folder button, the editor shows the welcome page (Open
+       Folder..., Open File..., the keyboard shortcuts);
+    8. OPEN FOLDER: the folder dialog answered by the debug server's mock store
+       (`file_open`), Mod+O picks a project folder (AZCODE_FOLDER <dir>), the explorer lists
+       it (AZCODE_LISTED / 3) and shows its entries, the empty state goes, the welcome page
+       stays (no file is open);
+    9. TABS AND THE SIDE BAR: a click on Cargo.toml opens it in a tab, the tab's close button
+       closes it (the welcome page is back); Mod+B hides the side bar, Mod+B shows it again;
+    10. QUICK OPEN: Mod+P lists the folder's files (AZCODE_INDEXED), "lib" leaves src/lib.rs,
+        Enter opens it.
 
 Usage (after building libazul with the debug server and AzCode; ONE app at a time,
 through scripts/waves/tools/run_capped.sh on the 8 GB Mac):
@@ -36,6 +46,7 @@ from azlin_e2e import Failure
 
 TAG = "azcode"
 EDITOR = "#__azcode_editor"
+DIRTY = "__azcode_tab-dirty"
 KEYWORD = "__azul-native-code-view-keyword"
 LINE = "__azul-native-code-view-line"
 
@@ -69,6 +80,8 @@ def body(args, logs, out):
         for name in ("src", "Cargo.toml", "README.md", "huge.rs"):
             if not app.shows(name):
                 raise Failure("the explorer does not show %s" % name)
+        if not app.has_id("__azcode_welcome"):
+            raise Failure("no file is open, but the editor shows no welcome page")
         app.screenshot(os.path.join(out, "1-workspace.png"))
 
         # ---- the explorer: a folder, a file ----
@@ -79,6 +92,8 @@ def body(args, logs, out):
         app.frame(3)
         if not app.has_id("__azcode_editor"):
             raise Failure("the code view (#__azcode_editor) is not in the tree")
+        if not app.has_id("__azcode_tab-0") or app.has_id("__azcode_welcome"):
+            raise Failure("main.rs is not in a tab in front of the welcome page")
         if not app.shows("word_counts"):
             raise Failure("main.rs's text is not shown")
         if not app.nodes_with_class(KEYWORD):
@@ -93,13 +108,13 @@ def body(args, logs, out):
         app.key("return")
         if not app.shows("// azcode was here"):
             raise Failure("the typed text is not shown")
-        if not app.shows("main.rs *"):
-            raise Failure("the tab does not say the file has changes")
+        if not app.nodes_with_class(DIRTY):
+            raise Failure("the tab does not wear the dot of unsaved changes")
         app.key("s", primary=True)
         app.until("main.rs saved", lambda: app.printed("AZCODE_SAVED", r"src/main\.rs"))
         app.frame(2)
-        if app.shows("main.rs *"):
-            raise Failure("the tab still says the file has changes after the save")
+        if app.nodes_with_class(DIRTY):
+            raise Failure("the tab still wears the dot of unsaved changes after the save")
         saved = os.path.join(data_dir, "code", "sample", "src", "main.rs")
         with open(saved, "r", encoding="utf-8") as f:
             if not f.read().startswith("// azcode was here\n"):
@@ -170,7 +185,8 @@ PROJECT = {
 
 
 def folder_run(args, logs, out):
-    """7: Mod+O opens the folder the (mocked) folder dialog answers."""
+    """7-10: the empty start, Mod+O opens the folder the (mocked) folder dialog answers, a tab
+    and its close button, Mod+B, quick open (Mod+P)."""
     binary = e2e.find_binary("AzCode", args.bin, "AZCODE_BIN")
     data_dir = os.path.join(logs, "data-folder")
     os.makedirs(data_dir, exist_ok=True)
@@ -180,14 +196,28 @@ def folder_run(args, logs, out):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
+    # No --mode: the empty start shows AzCode's own default, dark.
     app = e2e.App(TAG + "-folder", binary, ["--data-dir", data_dir, "--size", "1280x800",
-                                            "--theme", "flat", "--mode", "light"],
+                                            "--theme", "flat"],
                   args.debug_port, logs, args.timeout)
     try:
         app.until("the window", lambda: app.printed("AZCODE_READY", r".*"))
-        app.until("the welcome screen", lambda: app.has_id("__azcode_welcome"))
+
+        # ---- the empty start: VSCode's empty explorer and its welcome page ----
+        app.until("the empty explorer", lambda: app.has_id("__azcode_no-folder"))
         app.frame(2)
-        app.screenshot(os.path.join(out, "8-welcome.png"))
+        if not app.shows("You have not yet opened a folder."):
+            raise Failure("the empty explorer does not say that no folder is open")
+        for node in ("__azcode_open-folder", "__azcode_welcome", "__azcode_welcome-open-folder",
+                     "__azcode_welcome-open-file", "__azcode_activity-explorer",
+                     "__azcode_activity-search", "__azcode_activity-settings"):
+            if not app.has_id(node):
+                raise Failure("the empty start has no #%s" % node)
+        if not app.shows("Keyboard shortcuts"):
+            raise Failure("the welcome page lists no keyboard shortcuts")
+        app.screenshot(os.path.join(out, "8-empty.png"))
+
+        # ---- Mod+O: the folder the mocked dialog answers ----
         app.must("mock", set={"file_open": {"path": project}})
         app.key("o", primary=True)
         app.until("the picked folder", lambda: project in app.printed("AZCODE_FOLDER"))
@@ -196,11 +226,50 @@ def folder_run(args, logs, out):
         for name in ("src", "Cargo.toml", "notes.md"):
             if not app.shows(name):
                 raise Failure("the explorer does not show the picked folder's %s" % name)
-        if app.has_id("__azcode_welcome"):
-            raise Failure("the welcome screen is still shown after the folder opened")
+        if app.has_id("__azcode_no-folder"):
+            raise Failure("the empty explorer is still shown after the folder opened")
+        if not app.has_id("__azcode_welcome"):
+            raise Failure("no file is open, but the welcome page went with the empty explorer")
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "9-picked-folder.png"))
-        app.log("PASS (open folder)")
+
+        # ---- a file in a tab; the tab's close button ----
+        app.click(text="Cargo.toml")
+        app.until("Cargo.toml opened", lambda: app.printed("AZCODE_OPENED", r"Cargo\.toml \d+"))
+        app.frame(3)
+        if not app.has_id("__azcode_tab-0") or app.has_id("__azcode_welcome"):
+            raise Failure("Cargo.toml is not in a tab in front of the welcome page")
+        if not code_shows(app, "picked"):
+            raise Failure("Cargo.toml's text is not shown")
+        app.screenshot(os.path.join(out, "10-tab.png"))
+        app.click(selector="#__azcode_tab-close-0")
+        app.until("the tab closed", lambda: not app.has_id("__azcode_tab-0"))
+        if not app.has_id("__azcode_welcome"):
+            raise Failure("the welcome page is not back after the last tab closed")
+
+        # ---- Mod+B hides the side bar and shows it again ----
+        app.key("b", primary=True)
+        app.until("the side bar hidden", lambda: not app.has_id("__azcode_explorer"))
+        app.key("b", primary=True)
+        app.until("the side bar back", lambda: app.has_id("__azcode_explorer"))
+
+        # ---- Mod+P: quick open finds src/lib.rs by its letters ----
+        app.key("p", primary=True)
+        app.until("quick open", lambda: app.has_id("__azcode_quick-open"))
+        app.until("the folder indexed", lambda: app.printed("AZCODE_INDEXED", r"\d+"))
+        app.text_input("#__azcode_quick-open", "lib")
+        app.until("src/lib.rs listed", lambda: app.shows("src/lib.rs"))
+        app.screenshot(os.path.join(out, "11-quick-open.png"))
+        app.key("return")
+        app.until("src/lib.rs opened", lambda: app.printed("AZCODE_OPENED", r"src/lib\.rs \d+"))
+        app.frame(3)
+        if app.has_id("__azcode_quick-open"):
+            raise Failure("quick open is still shown after the file opened")
+        if not code_shows(app, "picked"):
+            raise Failure("src/lib.rs's text is not shown")
+        app.must("wait_settled")
+        app.screenshot(os.path.join(out, "12-lib-rs.png"))
+        app.log("PASS (empty start, open folder, tabs, side bar, quick open)")
         return True
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))

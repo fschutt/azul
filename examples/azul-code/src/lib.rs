@@ -1,27 +1,37 @@
-//! AzCode: a code editor on the public azul API.
+//! AzCode: a code editor on the public azul API, in VSCode's shape.
 //!
-//! The window is the S8 `DeveloperShell` (the app-drawn `Titlebar` under
-//! `WindowDecorations::NoTitle`; the activity bar, the explorer, document
-//! tabs over azul's `CodeView`, the status bar) inside a `ShellThemeScope`,
-//! behind a `CloseGuard` that asks "Save changes?". It follows the app theme
-//! (flat / flora) and the OS mode.
+//! The window is azul's `OfficeShell` with the S8 developer shell's panes
+//! (the app-drawn `Titlebar` under `WindowDecorations::NoTitle`; the
+//! activity bar, the side bar - the explorer or the search panel - the
+//! editor with its tabs over azul's `CodeView`, the status bar, quick open)
+//! inside a `ShellThemeScope`, behind a `CloseGuard` that asks "Save
+//! changes?". Without a folder the explorer says "You have not yet opened a
+//! folder." (Open Folder, the recent folders) and the editor shows the
+//! welcome page (Open Folder..., Open File..., the keyboard shortcuts). It
+//! is dark by default, as VSCode is, and follows the app theme (flat /
+//! flora) and the mode the user picks.
 //!
 //! - [`buffer`]: the text of an open file, a piece table (plain Rust).
 //! - [`highlight`]: syntect, incremental by line, checkpoints, a background
 //!   walk for far jumps (plain Rust).
 //! - [`search`]: find / replace (azul-appkit's matcher), go to line.
-//! - [`workspace`]: the explorer's tree and the tabs (plain Rust).
+//! - [`workspace`]: the explorer's tree, the tabs, the recent folders,
+//!   quick open's ranking (plain Rust).
 //! - [`storage`]: the workspace's files through azul-storage's Drive on
 //!   azul Threads; [`sample`]: the sample workspace (`--sample`).
 //! - [`app`], [`commands`], [`ui`]: the state, the commands, the window.
 //!
 //! A workspace is a folder named on the command line (`AzCode ~/project`,
 //! read and written in place through a drive without the data tree's
-//! manifest) or the sample in the data tree (`code/sample/`).
+//! manifest), picked with Open Folder (Mod+O) or from the recent folders,
+//! or the sample in the data tree (`code/sample/`). A file named on the
+//! command line or picked with Open File... opens on its own (its folder is
+//! its drive) when it is not in the workspace.
 //!
 //! On stdout, for scripts (`scripts/azcode_e2e.py`): `AZCODE_READY`,
-//! `AZCODE_LISTED <folder> <n>`, `AZCODE_OPENED <key> <lines>`,
-//! `AZCODE_SAVED <key>`, `AZCODE_FOUND <n>`, `AZCODE_REPLACED <n>`.
+//! `AZCODE_FOLDER <dir>`, `AZCODE_FILE <path>`, `AZCODE_LISTED <folder>
+//! <n>`, `AZCODE_OPENED <key> <lines>`, `AZCODE_SAVED <key>`,
+//! `AZCODE_INDEXED <n>`, `AZCODE_FOUND <n>`, `AZCODE_REPLACED <n>`.
 
 pub mod app;
 pub mod buffer;
@@ -113,8 +123,17 @@ pub fn start() {
         root.unwrap_or_default()
     };
     let mut st = AppState::new(kit_ref.clone(), data_root, args.sample);
-    if let Some(folder) = args.files.first().filter(|p| p.is_dir()) {
-        st.workspace_to_open = Some(commands::folder_root(folder));
+    st.recent = recent_of(&kit_ref);
+    if let Some(named) = args.files.first() {
+        // Absolute: `AzCode .` names the folder by its name, not ".".
+        let path = std::path::absolute(named).unwrap_or_else(|_| named.clone());
+        if path.is_dir() {
+            st.workspace_to_open = Some(commands::folder_root(&path));
+        } else if path.is_file() {
+            st.file_to_open = Some(path);
+        } else {
+            st.notice = format!("{} is neither a folder nor a file.", path.display());
+        }
     }
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
@@ -122,6 +141,15 @@ pub fn start() {
     let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
     App::create(RefAny::new(st), config).run(window);
+}
+
+/// The recent folders the settings keep.
+fn recent_of(kit_ref: &RefAny) -> Vec<String> {
+    let mut kit_ref = kit_ref.clone();
+    let recent = kit_ref
+        .downcast_ref::<kit::Kit>()
+        .and_then(|k| k.settings.get(commands::RECENT_KEY).map(workspace::recent_from_json));
+    recent.unwrap_or_default()
 }
 
 // ==== The window ====
@@ -169,6 +197,9 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         commands::open_workspace(st, &mut info, &app, root);
     } else if st.sample {
         commands::open_sample(st, &mut info, &app);
+    }
+    if let Some(path) = st.file_to_open.take() {
+        commands::open_path(st, &mut info, &app, &path);
     }
     // Far jumps are coloured on a Thread; the timer starts the walks.
     let timer = Timer::create(app.clone(), commands::highlight_tick, info.get_system_time_fn())
