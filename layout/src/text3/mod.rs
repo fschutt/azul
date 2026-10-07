@@ -11,6 +11,7 @@
 //! - `mock_fonts`: built-in test fonts with exactly known metrics
 //! - `script`: Unicode script detection
 //! - `selection`: text selection and cursor utilities
+//! - `ui_fonts`: the fonts azul bundles for its widget themes (EB Garamond)
 
 pub mod cache;
 pub mod default;
@@ -21,3 +22,4 @@ pub mod knuth_plass;
 pub mod mock_fonts;
 pub mod script;
 pub mod selection;
+pub mod ui_fonts;
