@@ -319,6 +319,8 @@ pub fn ribbon(app: &RefAny, st: &AppState) -> Dom {
         ))
         .with_active_tab(active)
         .with_on_tab_click(app.clone(), on_tab_click as RibbonOnTabClickCallbackType)
+        // No title row over the ribbon: its tabs are the title bar.
+        .with_tabs_in_titlebar(azul_appkit::ui::tabs_in_titlebar())
         .dom_desktop()
 }
 

@@ -1,8 +1,9 @@
 //! AzShow: a PowerPoint-style presentation editor on the public azul API.
 //!
-//! The window is the S1 `DocumentShell` (an app-drawn `Titlebar` under
-//! `WindowDecorations::NoTitle`, the ribbon or the backstage, the slide
-//! rail, the slide canvas over the notes, the format pane, the status bar)
+//! The window is the S1 `DocumentShell` (`WindowDecorations::NoTitle`: the
+//! ribbon, whose tabs are the title bar, or the backstage under an
+//! app-drawn `Titlebar`; the slide rail, the slide canvas over the notes,
+//! the format pane, the status bar)
 //! inside a `ShellThemeScope`; it follows the app theme (flat / flora) and
 //! the OS mode. The slide show runs full screen in the main window with the
 //! presenter view in a second one. Decks are files (`show/<id>/deck.json`,
@@ -125,9 +126,9 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, monitors: &[(u32, 
                 on_command as azul::callbacks::ButtonOnClickCallbackType,
             )
             .dom();
+        // No title row: the ribbon's tabs are the title bar.
         return DocumentShell::create(empty)
             .office_shell()
-            .with_title_row(title)
             .with_ribbon(ribbon)
             .with_status_bar(status)
             .dom();
@@ -165,10 +166,10 @@ fn editor_window(app: &RefAny, st: &AppState, w: f32, h: f32, monitors: &[(u32, 
     if let Some(side) = side {
         shell = shell.with_side_pane(side);
     }
-    // The chrome is the OfficeShell's.
+    // The chrome is the OfficeShell's, with no title row: the ribbon's tabs
+    // are the title bar.
     shell
         .office_shell()
-        .with_title_row(title)
         .with_ribbon(ribbon)
         .with_status_bar(status)
         .dom()

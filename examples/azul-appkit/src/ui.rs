@@ -5,7 +5,8 @@
 //!   size) and the app config ([`app_config`]: the app theme and mode from
 //!   `settings.json`, a `--theme` / `--mode` switch winning for one run);
 //! - the title row ([`title_row`]: azul's `Titlebar`, drawn by the app as
-//!   every azul app does);
+//!   every azul app does) - or, while a ribbon app shows its ribbon, none: the
+//!   ribbon's tabs ARE the title bar ([`tabs_in_titlebar`]);
 //! - the settings page ([`settings_page`]) in the shape of Outlook 2010's
 //!   Options dialog ([`crate::options`]): the categories on the left - the
 //!   app's own first, then General (theme and mode, saved to `settings.json`
@@ -42,7 +43,7 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     widgets::{
         AboutDialog, Button, Modal, ModalState, Segmented, SegmentedState, StandardDialogEvent,
-        Titlebar,
+        TabsInTitlebar, Titlebar,
     },
     window::{WindowCreateOptions, WindowDecorations},
 };
@@ -265,6 +266,15 @@ pub fn window_options(
 #[must_use]
 pub fn title_row(title: &str) -> Dom {
     Titlebar::create(title).without_border_bottom().dom()
+}
+
+/// Where a ribbon app's tabs sit while its ribbon shows: there is no title row, the ribbon's
+/// tab strip IS the title bar (`Ribbon::with_tabs_in_titlebar`) - a grab strip above the tabs,
+/// the traffic lights' width before them on macOS, and everything around the tabs moves the
+/// window. The screens without a ribbon (the backstage, the settings page) keep [`title_row`].
+#[must_use]
+pub fn tabs_in_titlebar() -> TabsInTitlebar {
+    TabsInTitlebar::platform()
 }
 
 /// Called from the app's window-created callback: starts the `--shot` timer.

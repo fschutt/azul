@@ -1,8 +1,9 @@
 //! AzWriter: a Word-style document editor on the public azul API.
 //!
-//! The window is the S1 `DocumentShell` (the app-drawn `Titlebar` under
-//! `WindowDecorations::NoTitle`, the ribbon or the backstage, the A4 pages,
-//! the status bar) inside a `ShellThemeScope`, behind a `CloseGuard` that
+//! The window is the S1 `DocumentShell` (`WindowDecorations::NoTitle`: the
+//! ribbon, whose tabs are the title bar, or the backstage under the
+//! app-drawn `Titlebar`; the A4 pages, the status bar) inside a
+//! `ShellThemeScope`, behind a `CloseGuard` that
 //! asks "Save changes?"; it follows the app theme (flat / flora) and the
 //! OS mode. The text is azul's shared rich-text editor (`RichTextEditor` +
 //! `RichTextDoc`, the one AzNotes and AzMail's compose window use): one
@@ -204,9 +205,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_title_row(kit::title_row(&title))
                 .with_backstage(backstage::backstage(&app, st))
                 .dom(),
+            // No title row: the ribbon's tabs are the title bar.
             Screen::Editor => DocumentShell::create(pages::document_area(&app, st, width))
                 .office_shell()
-                .with_title_row(kit::title_row(&title))
                 .with_ribbon(ribbon::ribbon(&app, st))
                 .with_status_bar(pages::status_bar(&app, st))
                 .dom(),
