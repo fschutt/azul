@@ -45,6 +45,17 @@ pub const HELP_SHORTCUTS: AzString = AzString::from_const_str("__azmail_help_sho
 pub const HELP_OPTIONS: AzString = AzString::from_const_str("__azmail_help_options");
 /// Help's "About AzMail" button.
 pub const HELP_ABOUT: AzString = AzString::from_const_str("__azmail_help_about");
+/// Info's "New E-mail" button (while there is no account).
+pub const INFO_NEW_MAIL: AzString = AzString::from_const_str("__azmail_info_new_mail");
+
+// ==== File > Options (a window of its own): the Mail page's check boxes ====
+
+pub const OPTION_READING_PANE: AzString = AzString::from_const_str("__azmail_option_reading_pane");
+pub const OPTION_TODO_BAR: AzString = AzString::from_const_str("__azmail_option_todo_bar");
+pub const OPTION_NAVIGATION_PANE: AzString =
+    AzString::from_const_str("__azmail_option_navigation_pane");
+pub const OPTION_NEWEST_FIRST: AzString = AzString::from_const_str("__azmail_option_newest_first");
+pub const OPTION_PLAIN_TEXT: AzString = AzString::from_const_str("__azmail_option_plain_text");
 
 // ==== File > Info > Add Account / Account Settings ====
 
@@ -81,6 +92,8 @@ pub const DKIM_VALUE: AzString = AzString::from_const_str("__azmail_dkim_value")
 
 // ==== A message window ====
 
+/// The From line typed without an account (Local Folders: sent from this computer).
+pub const COMPOSE_FROM: AzString = AzString::from_const_str("__azmail_compose_from");
 pub const COMPOSE_TO: AzString = AzString::from_const_str("__azmail_compose_to");
 pub const COMPOSE_CC: AzString = AzString::from_const_str("__azmail_compose_cc");
 pub const COMPOSE_BCC: AzString = AzString::from_const_str("__azmail_compose_bcc");

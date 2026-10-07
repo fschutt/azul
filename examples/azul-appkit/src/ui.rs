@@ -16,7 +16,10 @@
 //!   table) and About - and on the right the chosen category's header line
 //!   over its sections, each a band with its rows; OK keeps the changes,
 //!   Cancel puts back the settings the page found. Mod+, opens it, F1 opens
-//!   it at the shortcuts, Escape is Cancel ([`handle_key`]);
+//!   it at the shortcuts, Escape is Cancel ([`handle_key`]). The page shows
+//!   in the app's window, or - as Outlook 2010 opens its Options dialog - in
+//!   a window of its own ([`open_settings_window`]), which OK, Cancel and
+//!   Escape close;
 //! - file jobs on an azul `Thread` ([`spawn_file_jobs`]), so no callback ever
 //!   waits on the disk (or, later, the network);
 //! - the `--shot` screenshot ([`on_window_created`]).
@@ -82,6 +85,10 @@ pub struct Kit {
     pub data_root: PathBuf,
     /// The settings page is showing.
     pub settings_open: bool,
+    /// The id of the window the settings page has to itself, from [`open_settings_window`]
+    /// until that window closes ([`settings_window_closed`]); `None`: the page shows in the
+    /// app's window.
+    settings_window: Option<String>,
     /// The settings page's category (an index into [`Kit::categories`]).
     pub category: usize,
     /// The app's own settings categories (first on the page).
@@ -248,6 +255,7 @@ pub fn create_kit(
         settings,
         data_root,
         settings_open: false,
+        settings_window: None,
         category: 0,
         app_categories: app_categories.iter().map(|c| (*c).to_string()).collect(),
         notice,
@@ -576,6 +584,85 @@ pub fn open_settings(kit_ref: &RefAny, category: Option<&str>) {
     };
 }
 
+/// Shows the settings page in a window of its own, the id `window_id` - Outlook 2010's Options
+/// dialog is one: as [`open_settings`] (Cancel puts back what the page finds now), and OK,
+/// Cancel and Escape close that window besides the page; the app's other windows stay as they
+/// are. The app makes the window when this returns `true`: its layout callback draws
+/// [`settings_page`] or [`settings_page_with_reload`], its key handler calls [`handle_key`],
+/// its `CloseRequested` calls [`settings_window_closed`] (its close button is Cancel). `false`:
+/// the page's window is open already, and only its category changed. An app whose page has a
+/// window of its own opens it on Mod+, and F1 itself (in its other windows' key handlers).
+pub fn open_settings_window(kit_ref: &RefAny, category: Option<&str>, window_id: &str) -> bool {
+    let fresh = {
+        let mut kit = kit_ref.clone();
+        let Some(mut k) = kit.downcast_mut::<Kit>() else {
+            return false;
+        };
+        let fresh = k.settings_window.is_none();
+        if fresh {
+            k.settings_window = Some(window_id.to_string());
+        }
+        fresh
+    };
+    open_settings(kit_ref, category);
+    fresh
+}
+
+/// The id of the settings page's own window while it is open ([`open_settings_window`]).
+#[must_use]
+pub fn settings_window(kit_ref: &RefAny) -> Option<String> {
+    let mut kit = kit_ref.clone();
+    let id = kit
+        .downcast_ref::<Kit>()
+        .and_then(|k| k.settings_window.clone());
+    id
+}
+
+/// The settings page's own window is closing: the app calls this from that window's
+/// `CloseRequested`. While the page is still open - the window's close button, Alt+F4 - that is
+/// Cancel; then the page has no window any more. `true` when this was the page's window (the
+/// callback's window is it).
+pub fn settings_window_closed(kit_ref: &RefAny, info: &mut CallbackInfo) -> bool {
+    if !in_settings_window(kit_ref, info) {
+        return false;
+    }
+    let open = {
+        let mut kit = kit_ref.clone();
+        let Some(mut k) = kit.downcast_mut::<Kit>() else {
+            return false;
+        };
+        k.settings_window = None;
+        k.settings_open
+    };
+    if open {
+        let _changed_back = cancel_settings(kit_ref, info);
+    }
+    true
+}
+
+/// Whether the callback's window is the settings page's own one.
+fn in_settings_window(kit_ref: &RefAny, info: &CallbackInfo) -> bool {
+    settings_window(kit_ref)
+        .is_some_and(|id| info.get_current_window_state().window_id.as_str() == id.as_str())
+}
+
+/// Whether the settings page shows in the callback's window: in the app's window (no window
+/// of its own), or in its own one and this is it.
+fn shown_here(kit_ref: &RefAny, info: &CallbackInfo) -> bool {
+    settings_window(kit_ref).is_none() || in_settings_window(kit_ref, info)
+}
+
+/// After OK, Cancel or Escape on the page: its own window closes (when it has one and this is
+/// it) and every window shows what changed back; else the app's window draws again.
+fn after_page_closed(kit_ref: &RefAny, info: &mut CallbackInfo) -> Update {
+    if in_settings_window(kit_ref, info) {
+        info.close_window();
+        Update::RefreshDomAllWindows
+    } else {
+        Update::RefreshDom
+    }
+}
+
 /// Hides the settings page, keeping every change (the page's OK; an app's own Back).
 pub fn close_settings(kit_ref: &RefAny) {
     let mut kit = kit_ref.clone();
@@ -642,8 +729,9 @@ pub fn settings_open(kit_ref: &RefAny) -> bool {
 
 /// The kit's keys, for the app's window key handler to call first:
 /// Mod+, opens the settings, F1 opens them at the shortcuts, Escape closes
-/// the About box or cancels the settings. `Some` = handled (the app returns
-/// it), `None` = the app's key.
+/// the About box or cancels the settings - in the window the page shows in
+/// (its own window closes with it). `Some` = handled (the app returns it),
+/// `None` = the app's key.
 pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
     {
         let mut kit = kit_ref.clone();
@@ -668,21 +756,26 @@ pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
             info.prevent_default();
             Some(Update::RefreshDom)
         }
-        VirtualKeyCode::Escape if about_open(kit_ref) || settings_open(kit_ref) => {
-            escape(kit_ref, info);
+        VirtualKeyCode::Escape
+            if (about_open(kit_ref) || settings_open(kit_ref)) && shown_here(kit_ref, info) =>
+        {
+            let update = escape(kit_ref, info);
             info.prevent_default();
-            Some(Update::RefreshDom)
+            Some(update)
         }
         _ => None,
     }
 }
 
-/// Escape on the page: the About box closes first, then Cancel.
-fn escape(kit_ref: &RefAny, info: &mut CallbackInfo) {
+/// Escape on the page: the About box closes first, then Cancel (and the page's own window
+/// with it).
+fn escape(kit_ref: &RefAny, info: &mut CallbackInfo) -> Update {
     if about_open(kit_ref) {
         set_about_open(kit_ref, false);
+        Update::RefreshDom
     } else {
         let _changed_back = cancel_settings(kit_ref, info);
+        after_page_closed(kit_ref, info)
     }
 }
 
@@ -1123,8 +1216,9 @@ extern "C" fn on_category(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// OK: the changes stay (each was saved as it was made); the page closes.
-extern "C" fn on_ok(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// OK: the changes stay (each was saved as it was made); the page closes, and its own window
+/// with it.
+extern "C" fn on_ok(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(kit_ref) = page_kit(&mut data) else {
         return Update::DoNothing;
     };
@@ -1135,16 +1229,16 @@ extern "C" fn on_ok(mut data: RefAny, _info: CallbackInfo) -> Update {
         };
     }
     close_settings(&kit_ref);
-    Update::RefreshDom
+    after_page_closed(&kit_ref, &mut info)
 }
 
-/// Cancel: the settings the page found come back; the page closes.
+/// Cancel: the settings the page found come back; the page closes, and its own window with it.
 extern "C" fn on_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(kit_ref) = page_kit(&mut data) else {
         return Update::DoNothing;
     };
     let _changed_back = cancel_settings(&kit_ref, &mut info);
-    Update::RefreshDom
+    after_page_closed(&kit_ref, &mut info)
 }
 
 /// Escape on the page, for an app whose key handler does not call [`handle_key`] (that one
@@ -1165,7 +1259,7 @@ extern "C" fn on_page_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if routed || !escape_key {
         return Update::DoNothing;
     }
-    escape(&kit_ref, &mut info);
+    let update = escape(&kit_ref, &mut info);
     info.prevent_default();
-    Update::RefreshDom
+    update
 }

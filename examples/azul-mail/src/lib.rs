@@ -3,6 +3,11 @@
 //! - **The window is always the real one**: with no account it is the same ribbon, folder pane,
 //!   message list and reading pane, empty - the list says "No account yet" and offers Add
 //!   Account, as File > Info does. No wizard stands in front of the window.
+//! - **Writing needs no account**: New E-mail always opens a message window. Without an account
+//!   its From line is typed, and the mail is sent from this computer straight to the
+//!   recipients' mail servers (SEND's direct route); its draft, the sent mail and what waits in
+//!   its Outbox are Local Folders (`<AzMail folder>/local/`, `account::LOCAL_ID`), a mailbox of
+//!   the navigation pane after the accounts. Send / Receive sends what waits there.
 //! - **Accounts**: File > Info > Add Account is a wizard (address and password, the IMAP
 //!   server, how mail is sent); the password or OAuth token goes to the OS keyring, never to a
 //!   file. The account is `<AzMail folder>/<account id>/account.json`, its sending settings
@@ -18,7 +23,9 @@
 //! - **File** is Outlook 2010's backstage (`ui_backstage.rs`): the ribbon's tab row stays on top,
 //!   no back button; Info (the accounts, Add Account, Account Settings, Send/Receive), Print
 //!   (the open message to a PDF file, with a picture of its first page), Help (shortcuts,
-//!   Options, About), Options (the kit's settings page), Exit.
+//!   Options, About), Options, Exit.
+//! - **File > Options** is the kit's settings page in a window of its own, as Outlook 2010's
+//!   Options dialog (`ui_options.rs`); OK and Cancel close it, the main window stays as it was.
 //! - **New / Reply / Reply All / Forward** open a second window (`ui_compose.rs`): From, To / Cc
 //!   / Bcc, Subject, a formatting ribbon, azul's shared rich-text editor, attachments; Save writes
 //!   a draft into the Drafts folder, Send hands the mail to `send::send_mail` on a `Thread` and
@@ -36,8 +43,11 @@
 //! <kind>`, `AZMAIL_DRAFT_SAVED <window id> <uid>`, `AZMAIL_SEND_START <window id>`,
 //! `AZMAIL_SEND_DONE <window id> sent|queued|failed <message id or reason>`,
 //! `AZMAIL_COMPOSE_CLOSED <window id>`, `AZMAIL_PRINT_PDF <folder> <uid> <bytes>`,
-//! `AZMAIL_PRINT_PREVIEW pages=<n> shown=<bool>`, `AZMAIL_PRINTED <file>`. The secret is never
-//! printed.
+//! `AZMAIL_PRINT_PREVIEW pages=<n> shown=<bool>`, `AZMAIL_PRINTED <file>`,
+//! `AZMAIL_OUTBOX_START local`, `AZMAIL_OUTBOX_DONE sent=<n> queued=<n> failed=<n>` (Send /
+//! Receive of Local Folders' Outbox), `AZMAIL_SETTINGS_OPEN <window id>`,
+//! `AZMAIL_SETTINGS_WINDOW_CLOSED <window id>` (File > Options' window; the kit prints
+//! `AZMAIL_SETTINGS_CLOSED ok|cancel`). The secret is never printed.
 
 pub mod account;
 pub mod args;
@@ -64,6 +74,7 @@ mod ui_account;
 mod ui_backstage;
 mod ui_compose;
 mod ui_main;
+mod ui_options;
 
 #[cfg(test)]
 mod testutil;
@@ -108,8 +119,12 @@ pub(crate) struct MailApp {
     /// The screen `--screen` asked for.
     pub(crate) screen: Screen,
     pub(crate) accounts: Vec<Account>,
-    /// The account shown, an index into `accounts`.
+    /// The mailbox shown: an index into `accounts`, or [`MailApp::local_index`] for Local
+    /// Folders (the mail written without an account).
     pub(crate) current: Option<usize>,
+    /// Local Folders hold mail (a draft, a sent mail, mail in their Outbox): the navigation pane
+    /// shows them beside the accounts too.
+    pub(crate) local_used: bool,
     /// Secrets in memory for this run, by account id: typed in the wizard, read from the
     /// keyring, or the headless test password.
     pub(crate) secrets: HashMap<String, Secret>,
@@ -123,12 +138,13 @@ pub(crate) struct MailApp {
     pub(crate) dkim_keys: HashMap<String, Option<Secret>>,
 
     // -- the navigation pane --
-    /// Every account's synced folders with their unread counts, by account index.
+    /// Every mailbox's folders with their unread counts, by mailbox index (the accounts, then
+    /// Local Folders); a mailbox's Outbox is one of them while mail waits in it.
     pub(crate) folders: Vec<Vec<FolderInfo>>,
-    /// The folder shown (its key, in the current account).
+    /// The folder shown (its key, in the current mailbox).
     pub(crate) folder: Option<String>,
-    /// Which account trees are open in the navigation pane: slot 0 (Favorites' once) unused,
-    /// then one per account.
+    /// Which mailbox trees are open in the navigation pane: slot 0 (Favorites' once) unused,
+    /// then one per account, then Local Folders'.
     pub(crate) groups_open: Vec<bool>,
     pub(crate) nav_collapsed: bool,
     /// Mail, Calendar, Contacts, Tasks.
@@ -247,8 +263,6 @@ impl MailApp {
         let data_root = kit_data_root(&kit);
         // Read once, before the window (as the kit reads settings.json).
         let todo = todo::load(&data_root);
-        // The view as it was left (File > Options shows theme and mode; these are the View
-        // tab's toggles, in the same settings.json).
         let settings = {
             let mut kit = kit.clone();
             let settings = kit
@@ -257,21 +271,22 @@ impl MailApp {
                 .unwrap_or_default();
             settings
         };
-        let view = |key: &str, default: bool| settings.get_bool(key, default);
-        MailApp {
+        let mut app = MailApp {
             root,
             kit,
             screen,
             accounts,
             current: None,
+            local_used: false,
             secrets: HashMap::new(),
             keyring: None,
             keyring_queue: std::collections::VecDeque::new(),
             dkim_keys: HashMap::new(),
-            folders: vec![Vec::new(); n],
+            // The accounts, then Local Folders.
+            folders: vec![Vec::new(); n + 1],
             folder: None,
-            groups_open: vec![true; n + 1],
-            nav_collapsed: view(ui_main::SET_NAVIGATION_COLLAPSED, false),
+            groups_open: vec![true; n + 2],
+            nav_collapsed: false,
             module: 0,
             entries: Vec::new(),
             flags: LocalFlags::create(),
@@ -281,13 +296,13 @@ impl MailApp {
             selection: ListSelection::create(),
             search: String::new(),
             scope: 0,
-            newest_first: view(ui_main::SET_NEWEST_FIRST, true),
+            newest_first: true,
             open: None,
-            show_reading: view(ui_main::SET_READING_PANE, true),
-            show_todo: view(ui_main::SET_TODO_BAR, true),
+            show_reading: true,
+            show_todo: true,
             about_open: false,
-            plain_text: view(ui_main::SET_PLAIN_TEXT, false),
-            zoom: ui_main::zoom_setting(settings.get(ui_main::SET_ZOOM)),
+            plain_text: false,
+            zoom: 100.0,
             ribbon_tab: 0,
             backstage: None,
             print: None,
@@ -302,32 +317,101 @@ impl MailApp {
             task_text: String::new(),
             calendar: today,
             today,
-        }
+        };
+        // The view as it was left: the View tab's switches and the zoom, in the kit's
+        // settings.json (File > Options' Cancel reads them again the same way).
+        ui_main::read_view_settings(&mut app, &settings);
+        app
     }
 
+    /// The account shown; `None` with Local Folders shown, or nothing.
     pub(crate) fn current_account(&self) -> Option<&Account> {
         self.current.and_then(|i| self.accounts.get(i))
     }
 
-    /// The synced files of account `index`.
+    /// Local Folders' place among the mailboxes: after the accounts.
+    pub(crate) fn local_index(&self) -> usize {
+        self.accounts.len()
+    }
+
+    /// Local Folders are the mailbox shown.
+    pub(crate) fn shows_local(&self) -> bool {
+        self.current == Some(self.local_index())
+    }
+
+    /// The navigation pane shows Local Folders: always without an account (where mail written
+    /// without one goes), else while they hold mail.
+    pub(crate) fn local_visible(&self) -> bool {
+        self.accounts.is_empty() || self.local_used
+    }
+
+    /// The id of mailbox `index`: an account's, or Local Folders' (`account::LOCAL_ID`).
+    pub(crate) fn mailbox_id(&self, index: usize) -> Option<String> {
+        if index == self.local_index() {
+            return Some(String::from(account::LOCAL_ID));
+        }
+        self.accounts.get(index).map(|a| a.id.clone())
+    }
+
+    /// The mail files of mailbox `index`: an account's synced files, or Local Folders'.
     pub(crate) fn store_of(&self, index: usize) -> Option<MailStore> {
+        if index == self.local_index() {
+            return Some(MailStore::new(account::account_dir(&self.root, account::LOCAL_ID)));
+        }
         self.accounts
             .get(index)
             .map(|a| MailStore::new(account::mail_root(&self.root, a)))
     }
 
-    /// The current account's synced files.
+    /// The current mailbox's mail files.
     pub(crate) fn store(&self) -> Option<MailStore> {
         self.current.and_then(|i| self.store_of(i))
     }
 
-    /// Reads every account's folders and their unread counts (from the index and flag files).
+    /// Where the messages of the current mailbox's folder `folder` are read from: the Outbox's
+    /// are in the mailbox's own folder (`<id>/outbox/<entry>.eml`), every other folder's in its
+    /// mail folder.
+    pub(crate) fn message_store(&self, folder: &str) -> Option<MailStore> {
+        if folder == listing::OUTBOX_KEY {
+            let id = self.mailbox_id(self.current?)?;
+            return Some(MailStore::new(account::account_dir(&self.root, &id)));
+        }
+        self.store()
+    }
+
+    /// The current mailbox's Outbox as list entries.
+    fn outbox_list(&self) -> Vec<IndexEntry> {
+        self.current
+            .and_then(|i| self.mailbox_id(i))
+            .map(|id| send::outbox_index(&send::outbox_entries(&self.root, &id)))
+            .unwrap_or_default()
+    }
+
+    /// Reads every mailbox's folders and their unread counts (from the index and flag files):
+    /// each account's synced folders, Local Folders' Drafts and Sent Items, and every Outbox
+    /// with mail in it (Local Folders' always).
     pub(crate) fn reload_folders(&mut self) {
-        self.folders = (0..self.accounts.len())
-            .map(|i| self.store_of(i).map(|s| folder_infos(&s)).unwrap_or_default())
-            .collect();
-        if self.groups_open.len() != self.accounts.len() + 1 {
-            self.groups_open.resize(self.accounts.len() + 1, true);
+        let local = self.local_index();
+        let mut folders = Vec::with_capacity(local + 1);
+        let mut local_used = false;
+        for i in 0..=local {
+            let mut list = self.store_of(i).map(|s| folder_infos(&s)).unwrap_or_default();
+            let waiting = self
+                .mailbox_id(i)
+                .map_or(0, |id| send::outbox_entries(&self.root, &id).len());
+            if i == local {
+                local_used = !list.is_empty() || waiting > 0;
+                listing::with_local_folders(&mut list);
+            }
+            if waiting > 0 || i == local {
+                list.push(listing::outbox_folder(waiting));
+            }
+            folders.push(list);
+        }
+        self.folders = folders;
+        self.local_used = local_used;
+        if self.groups_open.len() != local + 2 {
+            self.groups_open.resize(local + 2, true);
         }
         let current = self.current.and_then(|i| self.folders.get(i));
         let still_there = self
@@ -347,9 +431,12 @@ impl MailApp {
         }
     }
 
-    /// Reads the shown folder's index and flags, and rebuilds the list.
+    /// Reads the shown folder's index and flags (the Outbox: what waits in it), and rebuilds
+    /// the list.
     pub(crate) fn reload_messages(&mut self) {
+        let outbox = self.folder.as_deref() == Some(listing::OUTBOX_KEY);
         let (entries, flags) = match (self.store(), self.folder.as_ref()) {
+            (Some(_), Some(_)) if outbox => (self.outbox_list(), LocalFlags::create()),
             (Some(store), Some(folder)) => (read_index(&store, folder), read_flags(&store, folder)),
             _ => (Vec::new(), LocalFlags::create()),
         };
@@ -398,7 +485,7 @@ impl MailApp {
         }
     }
 
-    /// Shows account `index` (its Inbox).
+    /// Shows mailbox `index` (an account's Inbox, Local Folders' Drafts).
     pub(crate) fn show_account(&mut self, index: usize) {
         self.current = Some(index);
         self.folder = None;
@@ -424,7 +511,7 @@ impl MailApp {
     pub(crate) fn open_message(&mut self, uid: u32) -> Option<LocalFlags> {
         let folder = self.folder.clone()?;
         let entry = self.entries.iter().find(|e| e.uid == uid).cloned()?;
-        let bytes = match self.store() {
+        let bytes = match self.message_store(&folder) {
             Some(store) => store.get(&entry.path).map_err(|e| e.to_string()),
             None => Err(String::from("no account")),
         };
@@ -470,12 +557,16 @@ impl MailApp {
         Some(self.flags.clone())
     }
 
-    /// The shown folder's unread count in the navigation pane, after a mark changed it.
+    /// The shown folder's unread count in the navigation pane, after a mark changed it (the
+    /// Outbox's count is how many wait in it, not marks).
     pub(crate) fn refresh_unread_count(&mut self) {
         let unread = listing::unread_count(&self.entries, &self.flags);
         let (Some(index), Some(folder)) = (self.current, self.folder.clone()) else {
             return;
         };
+        if folder == listing::OUTBOX_KEY {
+            return;
+        }
         if let Some(info) = self
             .folders
             .get_mut(index)
@@ -855,14 +946,11 @@ extern "C" fn sync_thread(mut init: RefAny, mut sender: ThreadSender, mut receiv
     settings.dkim_key = job.dkim_key.clone();
     // Submission signs in with the secret the sync signed in with.
     settings.sign_in = Some(job.secret.clone());
-    let mut outbox = (0, 0, 0);
-    for (_, status) in send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false) {
-        match status {
-            send::SendStatus::Sent { .. } => outbox.0 += 1,
-            send::SendStatus::Queued { .. } => outbox.1 += 1,
-            send::SendStatus::Failed { .. } => outbox.2 += 1,
-        }
-    }
+    let mut results = send::retry_outbox(&job.azmail_root, &job.account.id, &settings, false);
+    // Mail written before there was an account waits in Local Folders' Outbox: it goes out with
+    // every Send / Receive too.
+    results.extend(retry_local_outbox(&job.azmail_root));
+    let outbox = outbox_counts(&results);
     post(
         &mut sender,
         &job.account.id,
@@ -999,6 +1087,109 @@ extern "C" fn on_sync_event(mut app: RefAny, mut payload: RefAny, _info: Callbac
     Update::RefreshDom
 }
 
+// ==== Send / Receive of Local Folders: the mail written without an account ====
+
+/// How many mails of an Outbox retry went out, still wait, failed.
+fn outbox_counts(results: &[(String, send::SendStatus)]) -> (usize, usize, usize) {
+    let mut counts = (0, 0, 0);
+    for (_, status) in results {
+        match status {
+            send::SendStatus::Sent { .. } => counts.0 += 1,
+            send::SendStatus::Queued { .. } => counts.1 += 1,
+            send::SendStatus::Failed { .. } => counts.2 += 1,
+        }
+    }
+    counts
+}
+
+/// Every mail waiting in Local Folders' Outbox tried again, from this computer (their own
+/// `sending.json`, else straight to the recipients' mail servers). Blocking: on a Thread.
+fn retry_local_outbox(root: &DriveFolder) -> Vec<(String, send::SendStatus)> {
+    let settings = send::SendSettings::load(root, account::LOCAL_ID);
+    send::retry_outbox(root, account::LOCAL_ID, &settings, true)
+}
+
+/// Send / Receive with Local Folders shown (or no account at all): what waits in their Outbox
+/// goes out, on a Thread; with nothing waiting the status bar says so.
+pub(crate) fn send_local_outbox(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
+    if matches!(s.sync, SyncState::Running { .. }) {
+        return;
+    }
+    if send::outbox_entries(&s.root, account::LOCAL_ID).is_empty() {
+        s.notice = if s.accounts.is_empty() {
+            String::from(
+                "Nothing waits in the Outbox. To receive mail, add an account: File > Info > Add \
+                 Account.",
+            )
+        } else {
+            String::from("Nothing waits in the Outbox of Local Folders.")
+        };
+        return;
+    }
+    println!("AZMAIL_OUTBOX_START {}", account::LOCAL_ID);
+    let thread = ThreadId::unique();
+    s.sync = SyncState::Running {
+        thread,
+        account: String::from(account::LOCAL_ID),
+        status: String::from("Sending the Outbox..."),
+        percent: 0.0,
+    };
+    let job = LocalOutboxJob {
+        root: s.root.clone(),
+    };
+    info.add_thread(thread, Thread::create(RefAny::new(job), app, local_outbox_thread));
+}
+
+/// What the Local Folders' Outbox thread is given.
+#[derive(Clone)]
+struct LocalOutboxJob {
+    root: DriveFolder,
+}
+
+/// What it did: sent, still waiting, failed.
+#[derive(Clone, Copy)]
+struct LocalOutboxDone {
+    counts: (usize, usize, usize),
+}
+
+extern "C" fn local_outbox_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(job) = init
+        .downcast_ref::<LocalOutboxJob>()
+        .map(|job| LocalOutboxJob::clone(&job))
+    else {
+        return;
+    };
+    let counts = outbox_counts(&retry_local_outbox(&job.root));
+    sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
+        refany: RefAny::new(LocalOutboxDone { counts }),
+        callback: WriteBackCallback {
+            cb: on_local_outbox_done,
+            ctx: OptionRefAny::None,
+        },
+    }));
+}
+
+/// Local Folders' Outbox was tried: the status bar says how it went, the folders show where
+/// the mail is now (Sent Items, or still the Outbox).
+extern "C" fn on_local_outbox_done(mut app: RefAny, mut payload: RefAny, _info: CallbackInfo) -> Update {
+    let Some((sent, queued, failed)) = payload
+        .downcast_ref::<LocalOutboxDone>()
+        .map(|done| done.counts)
+    else {
+        return Update::DoNothing;
+    };
+    println!("AZMAIL_OUTBOX_DONE sent={sent} queued={queued} failed={failed}");
+    with_app(&mut app, |s, _| {
+        let text = format!("Outbox: {sent} sent, {queued} waiting, {failed} failed.");
+        s.sync = SyncState::Done(text.clone());
+        s.notice = text;
+        s.reload_folders();
+        s.reload_messages();
+        Update::RefreshDomAllWindows
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
 // ==== Writing files: on an azul Thread, never in a callback ====
 
 /// A write the UI asks for.
@@ -1115,11 +1306,15 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
     }));
 }
 
-/// Saves the shown folder's marks (after a message was opened or flagged).
+/// Saves the shown folder's marks (after a message was opened or flagged). The Outbox keeps
+/// none: it is no folder of files.
 pub(crate) fn save_flags(s: &MailApp, info: &mut CallbackInfo, app: RefAny, flags: LocalFlags) {
     let (Some(store), Some(folder)) = (s.store(), s.folder.clone()) else {
         return;
     };
+    if folder == listing::OUTBOX_KEY {
+        return;
+    }
     spawn_io(
         info,
         app,
@@ -1250,17 +1445,25 @@ pub fn start() {
         root_path.display()
     );
     let screen = Screen::of(&args);
+    // The From line of mail written without an account records what was typed, not a choice
+    // of File > Options: its Cancel leaves it.
+    kit::keep_on_cancel(&kit_ref, ui_compose::SET_LOCAL_FROM);
     let mut state = MailApp::create(root, kit_ref.clone(), screen, accounts);
-    if !state.accounts.is_empty() {
+    if state.accounts.is_empty() {
+        // Local Folders' tree (Drafts, Sent Items, Outbox), with nothing shown yet.
+        state.reload_folders();
+    } else {
         state.show_account(0);
     }
     // The window is the mail window from the first start on - with no account it is empty and
     // its message list offers Add Account (as File > Info does); no wizard stands in front.
+    // The message window (`--screen compose` / `reply`) and File > Options (`options`) open
+    // over it once it is up (`ui_main::on_main_window_created`).
     match screen {
         Screen::AddAccount => ui_account::open_wizard(&mut state, None),
         Screen::Settings => ui_account::open_settings(&mut state),
         Screen::Backstage => state.backstage = Some(ui_backstage::PAGE_INFO),
-        Screen::Mail | Screen::Compose | Screen::Reply => {}
+        Screen::Mail | Screen::Compose | Screen::Reply | Screen::Options => {}
     }
 
     // The app theme and the mode from settings.json (a --theme / --mode switch wins for this

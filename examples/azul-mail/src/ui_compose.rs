@@ -13,8 +13,17 @@
 //! closes and the mail is in Sent Items. Queued (it waits in the Outbox for the next Send /
 //! Receive) and Failed keep the window open and say why.
 //!
-//! Field ids for scripts (`ids.rs`): `#__azmail_compose_to`, `_cc`, `_bcc`, `_subject`, `_send`,
-//! `_body` (the editor), `_link`; the window id is `azmail-compose-<n>`.
+//! Writing needs no account. Without one the message window belongs to Local Folders
+//! (`account::LOCAL_ID`): its From line is typed (and remembered in settings.json for the next
+//! message), Save puts the draft into Local Folders' Drafts, and Send sends it from this
+//! computer straight to the recipients' mail servers (SEND's direct route, no sign-in) - sent,
+//! it is in Local Folders' Sent Items; when it cannot go yet (no connection, port 25 blocked)
+//! it waits in their Outbox, which every Send / Receive tries again. An info bar under the
+//! ribbon says so.
+//!
+//! Field ids for scripts (`ids.rs`): `#__azmail_compose_from` (without an account),
+//! `#__azmail_compose_to`, `_cc`, `_bcc`, `_subject`, `_send`, `_body` (the editor), `_link`; the
+//! window id is `azmail-compose-<n>`.
 
 use std::path::PathBuf;
 
@@ -34,9 +43,9 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::RichTextSpanVec,
     widgets::{
-        ButtonType, MessageBox, MessageBoxKind, Modal, ModalState, OnTextInputReturn, Ribbon,
-        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, RichBlockKind,
-        RichFormat,
+        ButtonType, InfoBar, MessageBox, MessageBoxKind, Modal, ModalState, OnTextInputReturn,
+        Ribbon, RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
+        RichBlockKind, RichFormat,
         RichTextCommand, RichTextDoc, RichTextEditor, RichTextEditorState, StandardDialogEvent,
         StandardDialogEventKind, StatusBar, StatusBarSegment, TextInputState, TextInputValid,
         Titlebar,
@@ -45,11 +54,18 @@ use azul::{
 };
 
 use crate::{
+    account::{self, Account},
     compose::{self, ComposeFields, ComposeKind, StartFields},
     ids, message, send,
     store::{DriveFolder, MailStore},
     with_app, MailApp,
 };
+
+/// The settings.json value that remembers the From line typed without an account (the next
+/// message window starts with it).
+pub(crate) const SET_LOCAL_FROM: &str = "local_from";
+/// What the From field asks for without an account.
+const FROM_PLACEHOLDER: &str = "Your name <you@example.org>";
 
 /// A compose window's state.
 pub(crate) struct Compose {
@@ -57,9 +73,10 @@ pub(crate) struct Compose {
     /// `azmail-compose-<id>`: the window's id (the debug server addresses windows by it).
     pub(crate) window_id: String,
     pub(crate) kind: ComposeKind,
-    /// The account it is sent from.
+    /// The account it is sent from; `account::LOCAL_ID` without an account (Local Folders:
+    /// sent from this computer).
     pub(crate) account_id: String,
-    /// The From line (`Name <address>`).
+    /// The From line (`Name <address>`): the account's, or typed without an account.
     pub(crate) from: String,
     pub(crate) to: String,
     pub(crate) cc: String,
@@ -111,7 +128,10 @@ fn carried_attachments(s: &MailApp, kind: ComposeKind) -> Vec<AttachedFile> {
     if !matches!(kind, ComposeKind::Forward | ComposeKind::Draft) {
         return Vec::new();
     }
-    let (Some(open), Some(store)) = (s.open.as_ref(), s.store()) else {
+    let Some(open) = s.open.as_ref() else {
+        return Vec::new();
+    };
+    let Some(store) = s.message_store(&open.folder) else {
         return Vec::new();
     };
     let Ok(bytes) = store.get(&open.entry.path) else {
@@ -171,6 +191,35 @@ impl Compose {
             ComposeStatus::Sending | ComposeStatus::Saving | ComposeStatus::Queued(_)
         )
     }
+
+    /// Written without an account: Local Folders' (its From line is typed).
+    fn is_local(&self) -> bool {
+        self.account_id == account::LOCAL_ID
+    }
+}
+
+/// Who a new message window writes as: the account shown - the first account while Local
+/// Folders are shown - and without any account this computer (`None`: Local Folders). A draft
+/// reopened from Local Folders stays theirs.
+fn sender_account(s: &MailApp, kind: ComposeKind) -> Option<Account> {
+    if let Some(account) = s.current_account() {
+        return Some(account.clone());
+    }
+    if kind == ComposeKind::Draft && s.shows_local() {
+        return None;
+    }
+    s.accounts.first().cloned()
+}
+
+/// The From line typed the last time a message was written without an account (empty the
+/// first time).
+fn remembered_local_from(s: &MailApp) -> String {
+    let mut kit = s.kit.clone();
+    let from = kit
+        .downcast_ref::<azul_appkit::ui::Kit>()
+        .and_then(|k| k.settings.get(SET_LOCAL_FROM).map(str::to_string))
+        .unwrap_or_default();
+    from
 }
 
 /// The editor state of a body that is starting: its host is `ids::COMPOSE_BODY` (scripts
@@ -205,14 +254,26 @@ fn target_of(data: &mut RefAny) -> Option<(RefAny, u64)> {
 
 // ==== Opening ====
 
-/// Opens a compose window for `kind` from the current account (Reply / Reply All / Forward /
-/// Draft: of the message open in the reading pane).
+/// Opens a compose window for `kind` (Reply / Reply All / Forward / Draft: of the message open
+/// in the reading pane) from the account shown - or, without an account, from this computer
+/// (Local Folders, the From line typed): writing never needs an account.
 pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, kind: ComposeKind) {
-    let Some(account) = s.current_account().cloned() else {
-        s.notice = String::from("Add an account first: File > Info > Add Account.");
-        return;
-    };
     let original = s.open.as_ref().and_then(|o| o.view.clone());
+    let (account_id, from) = match sender_account(s, kind) {
+        Some(account) => (account.id.clone(), account.sender()),
+        None => {
+            // A reopened draft keeps the From line it was saved with.
+            let saved = original
+                .as_ref()
+                .filter(|_| kind == ComposeKind::Draft)
+                .map(|view| view.from.clone())
+                .filter(|from| !from.trim().is_empty());
+            let from = saved.unwrap_or_else(|| remembered_local_from(s));
+            (String::from(account::LOCAL_ID), from)
+        }
+    };
+    // Who "me" is in a Reply All (never answered to).
+    let me = compose::bare_address(&from).unwrap_or_default();
     let carried = carried_attachments(s, kind);
     let draft_uid = s
         .open
@@ -222,7 +283,7 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
     let header_date = |date: &str| compose::header_date_in(date, &chrono::Local);
     let (start, body) = match (kind, original.as_ref()) {
         (ComposeKind::Reply | ComposeKind::ReplyAll, Some(view)) => {
-            let fields = compose::reply_fields(view, &account.email, kind == ComposeKind::ReplyAll);
+            let fields = compose::reply_fields(view, &me, kind == ComposeKind::ReplyAll);
             let header = compose::quote_header(&header_date(&view.date), &view.from);
             (fields, compose::reply_quote(view, &header))
         }
@@ -242,8 +303,8 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
         id,
         window_id: window_id.clone(),
         kind,
-        account_id: account.id.clone(),
-        from: account.sender(),
+        account_id,
+        from,
         to: start.to,
         cc: start.cc,
         bcc: start.bcc,
@@ -274,16 +335,21 @@ pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny
 }
 
 /// The compose window is up: once its editor is laid out, the caret goes to the top (above a
-/// reply's quote) and the editor takes the focus.
+/// reply's quote) and the editor takes the focus. The first message window of `--screen
+/// compose` / `reply` starts the kit's `--shot` timer: the screenshot is this window's.
 extern "C" fn on_compose_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let window_id = info.get_current_window_state().window_id.as_str().to_string();
     let app = data.clone();
-    let Some(id) = data
-        .downcast_ref::<MailApp>()
-        .and_then(|s| s.composes.iter().find(|c| c.window_id == window_id).map(|c| c.id))
-    else {
+    let Some((id, kit, shot)) = data.downcast_ref::<MailApp>().and_then(|s| {
+        let id = s.composes.iter().find(|c| c.window_id == window_id).map(|c| c.id)?;
+        let screen = matches!(s.screen, crate::args::Screen::Compose | crate::args::Screen::Reply);
+        Some((id, s.kit.clone(), screen && id == 1))
+    }) else {
         return Update::DoNothing;
     };
+    if shot {
+        azul_appkit::ui::on_window_created(&kit, &mut info);
+    }
     let get_time = info.get_system_time_fn();
     info.add_timer(
         TimerId::unique(),
@@ -337,6 +403,9 @@ pub(crate) extern "C" fn layout_compose(mut data: RefAny, info: LayoutCallbackIn
     };
     let mut document = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;");
+    if c.is_local() {
+        document.add_child(local_bar(c));
+    }
     document.add_child(header_block(c, &app));
     if c.show_link {
         document.add_child(link_bar(c, &app));
@@ -496,6 +565,8 @@ fn compose_ribbon(c: &Compose, app: &RefAny) -> Dom {
 /// A compose field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ComposeField {
+    /// Typed only without an account.
+    From,
     To,
     Cc,
     Bcc,
@@ -509,7 +580,8 @@ struct ComposeFieldRef {
     field: ComposeField,
 }
 
-fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: AzString) -> Dom {
+/// A compose field's text input (its changes come back through `on_compose_field`).
+fn field_widget(app: &RefAny, id: u64, field: ComposeField, value: &str) -> TextInput {
     TextInput::create()
         .with_text(value)
         .with_on_text_input(
@@ -520,12 +592,36 @@ fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: 
             }),
             on_compose_field as TextInputOnTextInputCallbackType,
         )
+}
+
+fn field_input(app: &RefAny, id: u64, field: ComposeField, value: &str, dom_id: AzString) -> Dom {
+    field_widget(app, id, field, value)
         .dom()
         .with_id(dom_id)
         .with_css("flex-grow: 1;")
 }
 
-/// Send beside the From / To / Cc / Bcc / Subject rows.
+/// Without an account, under the ribbon (where Outlook says what a message window is about):
+/// how this mail leaves - from this computer - and, once Send queued it, that it waits in the
+/// Outbox and when it goes.
+fn local_bar(c: &Compose) -> Dom {
+    let bar = match &c.status {
+        ComposeStatus::Queued(reason) => InfoBar::create(format!(
+            "In the Outbox of Local Folders. {reason} AzMail tries again at every Send/Receive \
+             (F9); with an account (File > Info > Add Account) it can send through your \
+             provider instead."
+        ))
+        .with_icon("outbox"),
+        _ => InfoBar::create(
+            "No account: AzMail sends this message from this computer, straight to the \
+             recipients' mail servers. Local Folders keep its draft and the sent mail.",
+        )
+        .with_icon("info"),
+    };
+    bar.dom()
+}
+
+/// Send beside the From / To / Cc / Bcc / Subject rows; without an account From is typed.
 fn header_block(c: &Compose, app: &RefAny) -> Dom {
     let row = |label: &str, field: Dom| {
         Dom::create_div()
@@ -550,12 +646,19 @@ fn header_block(c: &Compose, app: &RefAny) -> Dom {
         .dom()
         .with_id(ids::COMPOSE_SEND)
         .with_css("width: 72px; min-height: 64px; margin-right: 10px;");
+    // An account's address, or - without one - the address the mail is sent from, typed.
+    let from = if c.is_local() {
+        field_widget(app, c.id, ComposeField::From, &c.from)
+            .with_placeholder(FROM_PLACEHOLDER)
+            .dom()
+            .with_id(ids::COMPOSE_FROM)
+            .with_css("flex-grow: 1;")
+    } else {
+        Dom::create_span_with_text(c.from.as_str()).with_css("font-size: 13px;")
+    };
     let fields = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
-        .with_child(row(
-            "From",
-            Dom::create_span_with_text(c.from.as_str()).with_css("font-size: 13px;"),
-        ))
+        .with_child(row("From", from))
         .with_child(row(
             "To...",
             field_input(app, c.id, ComposeField::To, &c.to, ids::COMPOSE_TO),
@@ -738,6 +841,7 @@ extern "C" fn on_compose_field(mut data: RefAny, _info: CallbackInfo, state: Tex
             let c = &mut s.composes[at];
             c.edited |= field != ComposeField::Link;
             match field {
+                ComposeField::From => c.from = text,
                 ComposeField::To => c.to = text,
                 ComposeField::Cc => c.cc = text,
                 ComposeField::Bcc => c.bcc = text,
@@ -964,18 +1068,38 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                         return Update::RefreshDom;
                     }
                 }
-                let Some(account) = s.accounts.iter().find(|a| a.id == s.composes[at].account_id).cloned()
-                else {
-                    s.composes[at].status =
-                        ComposeStatus::Problem(String::from("The account is gone."));
-                    return Update::RefreshDom;
+                // Where it goes: the account's folders - or, written without an account, Local
+                // Folders (sent from this computer: no DKIM key, no sign-in).
+                let (store_root, dkim_key, sign_in) = if s.composes[at].is_local() {
+                    (account::account_dir(&s.root, account::LOCAL_ID), None, None)
+                } else {
+                    let Some(acct) = s
+                        .accounts
+                        .iter()
+                        .find(|a| a.id == s.composes[at].account_id)
+                        .cloned()
+                    else {
+                        s.composes[at].status =
+                            ComposeStatus::Problem(String::from("The account is gone."));
+                        return Update::RefreshDom;
+                    };
+                    (
+                        account::mail_root(&s.root, &acct),
+                        // The DKIM key, when Send / Receive read it from the keyring (or it was
+                        // made in this run); without it a signing account's mail waits in the
+                        // Outbox.
+                        s.dkim_keys.get(&acct.id).cloned().flatten(),
+                        // The account's password or token, for an account that sends through
+                        // its provider's server (submission); without it such mail waits in the
+                        // Outbox.
+                        s.secrets.get(&acct.id).cloned().or_else(crate::test_secret),
+                    )
                 };
-                // The DKIM key, when Send / Receive read it from the keyring (or it was made in
-                // this run); without it a signing account's mail waits in the Outbox.
-                let dkim_key = s.dkim_keys.get(&account.id).cloned().flatten();
-                // The account's password or token, for an account that sends through its
-                // provider's server (submission); without it such mail waits in the Outbox.
-                let sign_in = s.secrets.get(&account.id).cloned().or_else(crate::test_secret);
+                // The From line typed without an account starts the next message too.
+                if s.composes[at].is_local() && compose::bare_address(&fields.from).is_some() {
+                    azul_appkit::ui::set_value(&s.kit, info, SET_LOCAL_FROM, fields.from.trim());
+                }
+                let account_id = s.composes[at].account_id.clone();
                 let c = &mut s.composes[at];
                 c.status = if send {
                     ComposeStatus::Sending
@@ -989,8 +1113,8 @@ fn run_compose_action(app: &mut RefAny, info: &mut CallbackInfo, id: u64, action
                     compose_id: c.id,
                     window_id: c.window_id.clone(),
                     root: s.root.clone(),
-                    account_id: account.id.clone(),
-                    store_root: crate::account::mail_root(&s.root, &account),
+                    account_id,
+                    store_root,
                     fields,
                     attachments: c.attachments.clone(),
                     draft_uid: c.draft_uid,
@@ -1148,9 +1272,14 @@ fn run_outgoing(job: &OutgoingJob) -> OutgoingDone {
     let mut settings = send::SendSettings::load(&job.root, &job.account_id);
     settings.dkim_key = job.dkim_key.clone();
     settings.sign_in = job.sign_in.clone();
+    // Without an account (Local Folders) it leaves from this computer: their `sending.json`,
+    // else straight to the recipients' mail servers.
     let status = send::send_mail(&job.root, &job.account_id, &settings, &mail);
-    if let (send::SendStatus::Sent { .. }, Some(uid)) = (&status, job.draft_uid) {
-        // Sent: the draft it was is not a draft any more.
+    if let (send::SendStatus::Sent { .. } | send::SendStatus::Queued { .. }, Some(uid)) =
+        (&status, job.draft_uid)
+    {
+        // Sent, or in the Outbox (Outlook moves it there): the draft it was is not a draft any
+        // more.
         let _ = compose::delete_draft(&MailStore::new(job.store_root.clone()), uid);
     }
     OutgoingDone::Sent(status)
@@ -1180,7 +1309,11 @@ extern "C" fn on_outgoing_done(mut app: RefAny, mut payload: RefAny, mut info: C
             OutgoingDone::Sent(send::SendStatus::Queued { reason }) => {
                 println!("AZMAIL_SEND_DONE {window_id} queued {reason}");
                 if let Some(at) = at {
-                    s.composes[at].status = ComposeStatus::Queued(reason);
+                    let c = &mut s.composes[at];
+                    c.status = ComposeStatus::Queued(reason);
+                    // Out of Drafts, into the Outbox (`run_outgoing`).
+                    c.draft_uid = None;
+                    s.notice = format!("In the Outbox: {}", s.composes[at].subject);
                 }
                 Update::RefreshDomAllWindows
             }

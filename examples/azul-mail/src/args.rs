@@ -6,11 +6,12 @@
 use azul_appkit::{AboutInfo, AppArgs, AppSpec, Shortcut};
 
 /// The names `--screen` accepts; the first is the default.
-pub const SCREENS: [&str; 6] = [
+pub const SCREENS: [&str; 7] = [
     "mail",
     "backstage",
     "add-account",
     "settings",
+    "options",
     "compose",
     "reply",
 ];
@@ -71,7 +72,9 @@ pub enum Screen {
     AddAccount,
     /// File > Info > Account Settings (the wizard when there is no account).
     Settings,
-    /// The mail window with a New E-mail window over it.
+    /// The mail window with File > Options' window over it (Outlook 2010's Options dialog).
+    Options,
+    /// The mail window with a New E-mail window over it (with no account too).
     Compose,
     /// The mail window with a Reply to the newest message of the Inbox over it.
     Reply,
@@ -85,10 +88,18 @@ impl Screen {
             "backstage" => Screen::Backstage,
             "add-account" => Screen::AddAccount,
             "settings" => Screen::Settings,
+            "options" => Screen::Options,
             "compose" => Screen::Compose,
             "reply" => Screen::Reply,
             _ => Screen::Mail,
         }
+    }
+
+    /// The screen is a window of its own over the mail window (a message, File > Options): a
+    /// `--shot` is that window's.
+    #[must_use]
+    pub fn is_own_window(self) -> bool {
+        matches!(self, Screen::Options | Screen::Compose | Screen::Reply)
     }
 }
 
@@ -114,7 +125,10 @@ mod tests {
         assert_eq!(Screen::of(&parse(&["--screen=add-account"]).unwrap()), Screen::AddAccount);
         assert_eq!(Screen::of(&parse(&["--screen", "reply"]).unwrap()), Screen::Reply);
         assert_eq!(Screen::of(&parse(&["--screen", "settings"]).unwrap()), Screen::Settings);
+        assert_eq!(Screen::of(&parse(&["--screen", "options"]).unwrap()), Screen::Options);
         assert_eq!(Screen::of(&parse(&["--screen", "backstage"]).unwrap()), Screen::Backstage);
+        assert!(Screen::Options.is_own_window() && Screen::Compose.is_own_window());
+        assert!(!Screen::Settings.is_own_window() && !Screen::Mail.is_own_window());
         let a = parse(&["--theme", "flora", "--mode", "dark", "--sample", "--size", "1280x860"])
             .unwrap();
         assert_eq!(a.theme, Some(Theme::Flora));

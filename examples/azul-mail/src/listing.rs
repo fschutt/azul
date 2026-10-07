@@ -177,6 +177,44 @@ pub struct FolderInfo {
     pub unread: usize,
 }
 
+/// The name of the mailbox of the mail written without an account (`account::LOCAL_ID`) in the
+/// navigation pane.
+pub const LOCAL_FOLDERS: &str = "Local Folders";
+
+/// The Outbox in the folder pane: the mail waiting to be sent (SEND's `<mailbox>/outbox/`),
+/// listed like a folder. Never a synced folder's key: `folders::safe_segment` turns every `*`
+/// into `_`.
+pub const OUTBOX_KEY: &str = "*outbox";
+
+/// The Outbox as the folder pane shows it: its count is how many mails wait in it (Outlook's
+/// "Outbox [1]").
+pub fn outbox_folder(waiting: usize) -> FolderInfo {
+    FolderInfo {
+        key: OUTBOX_KEY.to_string(),
+        display: String::from("Outbox"),
+        role: Role::Other,
+        unread: waiting,
+    }
+}
+
+/// Local Folders show Drafts and Sent Items from the start - where mail written without an
+/// account goes - also before anything is saved there.
+pub fn with_local_folders(list: &mut Vec<FolderInfo>) {
+    for role in [Role::Drafts, Role::Sent] {
+        let Some(key) = role.key() else {
+            continue;
+        };
+        if !list.iter().any(|f| f.key == key) {
+            list.push(FolderInfo {
+                key: key.to_string(),
+                display: role.label().unwrap_or(key).to_string(),
+                role,
+                unread: 0,
+            });
+        }
+    }
+}
+
 /// A folder in the tree: its key, its label, its unread count and the folders under it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FolderNode {
@@ -592,5 +630,29 @@ mod tests {
             vec![("inbox", "Inbox", 5), ("sent", "Sent Items", 0)]
         );
         assert!(favorites(&[info("Work", "Work", 0)]).is_empty());
+    }
+
+    /// Local Folders show Drafts and Sent Items before anything is saved there, and the Outbox
+    /// with the count of the mail waiting in it, after the special folders.
+    #[test]
+    fn local_folders_list_drafts_sent_items_and_the_outbox() {
+        let mut list = Vec::new();
+        with_local_folders(&mut list);
+        list.push(outbox_folder(2));
+        let tree = folder_tree(&list);
+        assert_eq!(
+            tree.iter()
+                .map(|n| (n.key.as_str(), n.label.as_str(), n.unread))
+                .collect::<Vec<_>>(),
+            vec![("drafts", "Drafts", 0), ("sent", "Sent Items", 0), (OUTBOX_KEY, "Outbox", 2)]
+        );
+        // A saved draft's folder (with its unread count) is not listed twice.
+        let mut saved = vec![info("drafts", "Drafts", 1)];
+        with_local_folders(&mut saved);
+        assert_eq!(saved.iter().filter(|f| f.key == "drafts").count(), 1);
+        assert_eq!(saved[0].unread, 1);
+        // No synced folder can take the Outbox's key.
+        assert_ne!(crate::folders::safe_segment(OUTBOX_KEY), OUTBOX_KEY);
+        assert_eq!(Role::of_key(OUTBOX_KEY), Role::Other);
     }
 }

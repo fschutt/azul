@@ -39,6 +39,12 @@ pub const ACCOUNT_FILE: &str = "account.json";
 pub const APP_DIR: &str = "AzMail";
 /// The AzMail folder's variable.
 pub const DATA_VAR: &str = "AZMAIL_DATA";
+/// The mailbox of the mail written without an account - Local Folders: its drafts, the mail it
+/// sent from this computer (`send::SendRoute::Direct`, straight to the recipients' mail
+/// servers) and its Outbox, in `<AzMail folder>/local/`, laid out as an account's folder
+/// (`mail/drafts`, `mail/sent`, `outbox/`, an optional `sending.json`). No account has this id:
+/// an account's id is its address, which has an `@` ([`account_id`]).
+pub const LOCAL_ID: &str = "local";
 /// Headless test runs only (`AZ_BACKEND=headless`): the password to sign in with, so a test
 /// never types one and never touches a keyring.
 pub const TEST_PASSWORD_VAR: &str = "AZMAIL_TEST_PASSWORD";
@@ -979,6 +985,24 @@ mod tests {
         assert!(skipped[0].0.ends_with("broken@example.org/account.json"));
         assert!(load_all(&DriveFolder::outside(dir.0.join("missing"))).0.is_empty());
         assert_eq!(load(&root, "nobody@example.org"), None);
+    }
+
+    /// Local Folders (mail written without an account) live beside the accounts in a folder no
+    /// account can have, and are never read as one.
+    #[test]
+    fn local_folders_are_no_account() {
+        assert_eq!(account_id(LOCAL_ID), None, "an account's id is an address");
+        assert!(!is_email(LOCAL_ID));
+        let dir = TempDir::new("local-folders");
+        let root = DriveFolder::outside(dir.0.clone());
+        let drafts = account_dir(&root, LOCAL_ID).path().join("mail").join("drafts");
+        std::fs::create_dir_all(&drafts).unwrap();
+        std::fs::write(drafts.join("index.jsonl"), "").unwrap();
+        save(&root, &account()).unwrap();
+        let (accounts, skipped) = load_all(&root);
+        assert_eq!(accounts, vec![account()]);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(load(&root, LOCAL_ID), None);
     }
 
     #[test]

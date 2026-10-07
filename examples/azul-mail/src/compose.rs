@@ -278,7 +278,7 @@ pub enum ComposeError {
     NoRecipient,
     /// An entry that is not an address.
     BadAddress(String),
-    /// The account has no address to send from.
+    /// No address to send from: the From line typed without an account has none.
     NoSender,
 }
 
@@ -287,7 +287,9 @@ impl std::fmt::Display for ComposeError {
         match self {
             ComposeError::NoRecipient => write!(f, "Add at least one recipient."),
             ComposeError::BadAddress(a) => write!(f, "\"{a}\" is not an e-mail address."),
-            ComposeError::NoSender => write!(f, "The account has no address to send from."),
+            ComposeError::NoSender => {
+                write!(f, "Type your e-mail address in From: the message is sent from it.")
+            }
         }
     }
 }
