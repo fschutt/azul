@@ -844,8 +844,8 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     // under `system:text`, the colours the native text fields around it use.
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
-    container_style.push(system_palette::DARK_TEXT);
+    super::decl::push_dark_twin(&mut container_style, system_palette::DARK_CONTROL_BACKGROUND);
+    super::decl::push_dark_twin(&mut container_style, system_palette::DARK_TEXT);
 
     // The interactive states the widget no longer declares. Appended LAST —
     // after the base style and after the theme's own dark resting colours —
@@ -855,7 +855,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     container_style.extend_from_slice(&FIELD_BORDER_STATES);
 
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
-    label_style.push(system_palette::DARK_TEXT);
+    super::decl::push_dark_twin(&mut label_style, system_palette::DARK_TEXT);
     // After the resting ink, which matches in the `::placeholder` state too.
     label_style.push(FIELD_PLACEHOLDER_DARK);
 
@@ -1492,8 +1492,8 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
     // `system:text` in the dark theme.
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(system_palette::DARK_CONTROL_BACKGROUND);
-    container_style.push(system_palette::DARK_TEXT);
+    super::decl::push_dark_twin(&mut container_style, system_palette::DARK_CONTROL_BACKGROUND);
+    super::decl::push_dark_twin(&mut container_style, system_palette::DARK_TEXT);
 
     let mut label_style: Vec<CssPropertyWithConditions> = match &ta.label_style {
         azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => {
@@ -1503,7 +1503,7 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
             crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec()
         }
     };
-    label_style.push(system_palette::DARK_TEXT);
+    super::decl::push_dark_twin(&mut label_style, system_palette::DARK_TEXT);
     // After the resting ink, which matches in the `::placeholder` state too.
     label_style.push(FIELD_PLACEHOLDER_DARK);
 

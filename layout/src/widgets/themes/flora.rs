@@ -1101,25 +1101,25 @@ pub fn text_input(mut ti: TextInput) -> Dom {
 
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
                 .into(),
         ),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
     ));
 
@@ -1131,7 +1131,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     container_style.extend_from_slice(&FIELD_BORDER_STATES);
 
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
-    label_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut label_style, CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
 
@@ -1927,25 +1927,25 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
                 .into(),
         ),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
     ));
-    container_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
         CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
     ));
 
@@ -1957,7 +1957,7 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
             crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec()
         }
     };
-    label_style.push(CssPropertyWithConditions::dark_mode(
+    super::decl::push_dark_twin(&mut label_style, CssPropertyWithConditions::dark_mode(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
 

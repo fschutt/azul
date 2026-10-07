@@ -3691,6 +3691,53 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_callers_own_dark_twin_is_not_overridden_by_the_themes() {
+        // A field on paper (a PDF form's) keeps its look in the dark mode by
+        // declaring its own dark values; the theme's twin, pushed after it,
+        // used to win (the last matching inline declaration does).
+        use azul_css::props::{basic::color::ColorU, style::StyleTextColor};
+        let paper_ink = CssProperty::TextColor(StyleTextColor { inner: ColorU::BLACK }.into());
+        let paper = CssPropertyWithConditions::simple(CssProperty::const_background_content(
+            azul_css::props::style::StyleBackgroundContentVec::from_const_slice(&[]),
+        ));
+        let mine = |p: &CssPropertyWithConditions| CssPropertyWithConditions::dark_mode(p.property.clone());
+        let ink = CssPropertyWithConditions::simple(paper_ink.clone());
+        for theme in crate::widgets::themes::UiTheme::ALL {
+            let dom = TextInput::create()
+                .with_container_style(vec![paper.clone(), mine(&paper), ink.clone(), mine(&ink)].into())
+                .with_label_style(vec![ink.clone(), mine(&ink)].into())
+                .with_theme(theme)
+                .dom();
+            // The resting dark declarations (a placeholder's dark ink is a
+            // state of its own).
+            let dark = |dom: &Dom| -> Vec<CssProperty> {
+                crate::widgets::themes::theme_blocks::checks::live_inline(dom)
+                    .into_iter()
+                    .filter(|(_, c)| c.as_ref() == mine(&ink).apply_if.as_ref())
+                    .map(|(p, _)| p)
+                    .collect()
+            };
+            let last = |props: Vec<CssProperty>, kind| props.into_iter().filter(|p| p.get_type() == kind).last();
+            let label = &dom.children.as_ref()[LABEL_CHILD];
+            assert_eq!(
+                last(dark(&dom), paper.property.get_type()),
+                Some(paper.property.clone()),
+                "{theme:?}: the field's fill in the dark mode is the theme's, not the caller's",
+            );
+            assert_eq!(
+                last(dark(&dom), paper_ink.get_type()),
+                Some(paper_ink.clone()),
+                "{theme:?}: the field's ink in the dark mode is the theme's",
+            );
+            assert_eq!(
+                last(dark(label), paper_ink.get_type()),
+                Some(paper_ink.clone()),
+                "{theme:?}: the value's ink in the dark mode is the theme's",
+            );
+        }
+    }
+
+    #[test]
     fn dom_carries_the_themes_hover_and_focus_border_states_with_dark_twins() {
         // The rules moved OUT of `TEXT_INPUT_CONTAINER_PROPS` and into the theme
         // modules, which is a move nothing else in this suite would notice: no

@@ -54,6 +54,24 @@ use azul_css::{
     },
 };
 
+/// Adds the theme's dark `twin` to a widget part's `style`, the caller's
+/// style first - unless the caller already declared that property under the
+/// same conditions: the twin, pushed after it, would win (the last matching
+/// inline declaration does), and a field on paper (a PDF form's) could not
+/// keep its look in the dark mode.
+pub(crate) fn push_dark_twin(
+    style: &mut Vec<CssPropertyWithConditions>,
+    twin: CssPropertyWithConditions,
+) {
+    let kind = twin.property.get_type();
+    let declared = style
+        .iter()
+        .any(|p| p.property.get_type() == kind && p.apply_if == twin.apply_if);
+    if !declared {
+        style.push(twin);
+    }
+}
+
 /// `background: <color>`, one solid layer.
 #[must_use]
 pub(crate) fn fill(color: ColorU) -> CssProperty {
