@@ -83,14 +83,41 @@ pub(crate) fn resolve_position_strategy(
 /// Where a menu a callback opened appears, in the window's logical
 /// coordinates: `requested` is the position the callback named
 /// (`open_menu_at`, `open_menu_for_node`), `None` for a bare `open_menu`.
+///
+/// Without one the MENU's own strategy decides, as the `Menu` docs promise
+/// ("uses the position specified in the menu itself"): the cursor strategies
+/// - `AutoCursor`, the default, and the four `*OfCursor` - open at the
+/// pointer, the hit-rect ones off the `anchor`'s bottom-left corner (where
+/// `open_menu_for_node` puts a menu opened for a control), each falling back
+/// to the other, and the window's origin only when there is neither. The
+/// backend then places the menu's box against that point (and the anchor).
+/// The shell used to answer every bare `open_menu` with (0, 0): the menu
+/// sprang open in the window's top-left corner, wherever the user clicked.
 #[must_use]
 pub(crate) fn resolve_open_menu_position(
     requested: Option<LogicalPosition>,
-    _strategy: MenuPopupPosition,
-    _cursor: Option<LogicalPosition>,
-    _anchor: Option<LogicalRect>,
+    strategy: MenuPopupPosition,
+    cursor: Option<LogicalPosition>,
+    anchor: Option<LogicalRect>,
 ) -> LogicalPosition {
-    requested.unwrap_or(LogicalPosition::new(0.0, 0.0))
+    if let Some(position) = requested {
+        return position;
+    }
+    let below_anchor =
+        anchor.map(|r| LogicalPosition::new(r.origin.x, r.origin.y + r.size.height));
+    let point = match strategy {
+        MenuPopupPosition::AutoHitRect
+        | MenuPopupPosition::BottomOfHitRect
+        | MenuPopupPosition::TopOfHitRect
+        | MenuPopupPosition::LeftOfHitRect
+        | MenuPopupPosition::RightOfHitRect => below_anchor.or(cursor),
+        MenuPopupPosition::AutoCursor
+        | MenuPopupPosition::BottomLeftOfCursor
+        | MenuPopupPosition::BottomRightOfCursor
+        | MenuPopupPosition::TopLeftOfCursor
+        | MenuPopupPosition::TopRightOfCursor => cursor.or(below_anchor),
+    };
+    point.unwrap_or(LogicalPosition::new(0.0, 0.0))
 }
 
 /// Calculate optimal menu position based on MenuPopupPosition strategy
