@@ -835,6 +835,32 @@ pub fn outbox_entries(root: &DriveFolder, account_id: &str) -> Vec<OutboxEntry> 
     entries
 }
 
+/// The Outbox's mail as a folder's index lines, for the message list and the reading pane:
+/// numbered from 1 in the Outbox's order, read, dated when it was written, To every
+/// recipient, its message file's key in the mailbox's own folder (`outbox/<id>.eml`).
+pub fn outbox_index(entries: &[OutboxEntry]) -> Vec<IndexEntry> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| IndexEntry {
+            uid: u32::try_from(i + 1).unwrap_or(u32::MAX),
+            message_id: entry.message_id.clone(),
+            date: message::rfc3339_utc(entry.created),
+            from: entry.from.clone(),
+            to: entry
+                .recipients
+                .iter()
+                .map(|r| r.address.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            subject: entry.subject.clone(),
+            flags: vec![String::from("\\Seen")],
+            size: 0,
+            path: format!("{OUTBOX_DIR}/{}.eml", entry.id),
+        })
+        .collect()
+}
+
 /// One send or retry at a time per process: an entry, the policy file and the Sent index are
 /// never written by two threads at once, and an entry is never delivered twice in parallel.
 static OUTBOX_LOCK: Mutex<()> = Mutex::new(());
@@ -2153,6 +2179,61 @@ mod tests {
         );
         assert!(outbox_files(&dir.0).is_empty());
         assert_eq!(sent_index(&dir.0).len(), 1);
+    }
+
+    /// Mail written without an account waits in Local Folders' Outbox (`local/outbox/`), lists
+    /// like a folder's mail, and goes into Local Folders' Sent Items once it is out.
+    #[test]
+    fn mail_without_an_account_waits_in_local_folders_and_is_filed_there() {
+        let dir = TempDir::new("send-local");
+        let root = dir.folder();
+        let mut busy = Fake::new(|_| RecipientStatus::Deferred {
+            reply: None,
+            reason: "could not connect to 127.0.0.1 port 9".to_string(),
+        });
+        let status = send_mail_with(
+            &root,
+            account::LOCAL_ID,
+            &SendSettings::default(),
+            &mail(),
+            OCT_1,
+            &mut busy,
+        );
+        assert!(matches!(status, SendStatus::Queued { .. }), "{status:?}");
+        let entries = outbox_entries(&root, account::LOCAL_ID);
+        assert_eq!(entries.len(), 1);
+        let index = outbox_index(&entries);
+        assert_eq!(index.len(), 1);
+        let line = &index[0];
+        assert_eq!(line.uid, 1);
+        assert_eq!(line.subject, "Lunch");
+        assert_eq!(line.from, "ada@example.org");
+        assert_eq!(line.to, "ben@example.net");
+        assert_eq!(line.date, message::rfc3339_utc(OCT_1));
+        assert_eq!(line.flags, vec![String::from("\\Seen")], "the Outbox has nothing unread");
+        let local = MailStore::new(account::account_dir(&root, account::LOCAL_ID));
+        assert!(
+            local.get(&line.path).is_ok(),
+            "{} is the message file in local/",
+            line.path
+        );
+        // Send / Receive: out, into Local Folders' Sent Items.
+        let mut take = take_all();
+        let results = retry_outbox_with(
+            &root,
+            account::LOCAL_ID,
+            &SendSettings::default(),
+            true,
+            OCT_1 + 60,
+            &mut take,
+        );
+        assert!(matches!(results[0].1, SendStatus::Sent { .. }), "{results:?}");
+        assert!(outbox_entries(&root, account::LOCAL_ID).is_empty());
+        let sent = std::fs::read_to_string(
+            dir.0.join(account::LOCAL_ID).join("mail/sent/index.jsonl"),
+        )
+        .unwrap_or_default();
+        assert_eq!(store::index_from_jsonl(&sent).len(), 1, "{sent}");
     }
 
     #[test]
