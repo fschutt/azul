@@ -545,9 +545,9 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         }
         s.model.apply(snapshot);
         s.note_reading(std::time::Instant::now());
-        // The table's view stays as the table shows it: its next build
-        // carries it over to the new rows (`table::sync`) - not while the
-        // hand is on it.
+        // The table's view stays as the table shows it: the build this
+        // reading asks for (none while the hand is on the table) carries it
+        // over to the new rows (`table::sync`).
         let hands_on = s.hands_on_table();
         if first {
             println!("AZMON_READY {}", s.model.process_count());

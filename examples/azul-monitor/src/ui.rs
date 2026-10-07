@@ -53,6 +53,8 @@ const STATS_H: f32 = 96.0;
 const CORE_GAP: f32 = 4.0;
 /// A line of a dense table (the Users page), px.
 const ROW_PX: f32 = 20.0;
+/// A legend item of a graph ("Received 1.2 MB/s"), px.
+const SWATCH_W: f32 = 180.0;
 /// The write-back tag of the history export.
 const EXPORT_TAG: u64 = 1;
 
@@ -608,11 +610,18 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
 }
 
 /// A swatch and its word (a graph's legend).
+///
+/// A box of its own width: the rate in it changes with every reading, and
+/// a legend item as wide as its text moved the next one each time.
 fn swatch(color: &str, text: String) -> Dom {
     Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; margin-right: 16px;")
+        .with_css(format!(
+            "display: flex; flex-direction: row; align-items: center; width: {SWATCH_W}px; \
+             flex-shrink: 0; overflow: hidden;"
+        ))
         .with_child(Dom::create_div().with_css(format!(
-            "width: 10px; height: 10px; margin-right: 6px; background-color: {color};"
+            "width: 10px; height: 10px; margin-right: 6px; flex-shrink: 0; background-color: \
+             {color};"
         )))
         .with_child(line(text, "font-size: 12px; white-space: nowrap;"))
 }
