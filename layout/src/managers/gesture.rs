@@ -1098,15 +1098,18 @@ impl GestureAndDragManager {
         window_position: WindowPosition,
         screen_position: LogicalPosition,
     ) -> u64 {
-        // Clear old ended sessions, but keep the most recent ended session
-        // for double-click detection. detect_double_click() needs two ended
-        // sessions to compare timing and distance.
-        let last_ended_idx = self.input_sessions.iter().rposition(|s| s.ended);
-        let mut idx = 0usize;
+        // Clear old ended sessions, but keep the two most recent: with this
+        // press they are the clicks `detect_click_count` counts - a third
+        // press needs both earlier clicks to be a triple click (a paragraph
+        // selection). Keeping only the last made every triple click a double.
+        let ended = self.input_sessions.iter().filter(|s| s.ended).count();
+        let mut ended_seen = 0usize;
         self.input_sessions.retain(|session| {
-            let keep = !session.ended || Some(idx) == last_ended_idx;
-            idx += 1;
-            keep
+            if !session.ended {
+                return true;
+            }
+            ended_seen += 1;
+            ended_seen + 2 > ended
         });
 
         let session_id = self.next_session_id;
@@ -3559,9 +3562,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn starting_a_session_prunes_all_but_the_newest_ended_session() {
+    fn starting_a_session_prunes_all_but_the_two_newest_ended_sessions() {
         let mut m = GestureAndDragManager::new();
-        for tick in [0u64, 10, 20] {
+        for tick in [0u64, 10, 20, 30] {
             m.start_input_session(
                 pos(0.0, 0.0),
                 ts(tick),
@@ -3571,14 +3574,12 @@ mod autotest_generated {
             );
             m.end_current_session();
         }
-        // Bounded growth: never more than "one ended + one live" session.
-        assert_eq!(m.session_count(), 2);
+        // Bounded growth: never more than "two ended + one live" sessions -
+        // the two clicks before a press make it a triple click.
+        assert_eq!(m.session_count(), 3);
         assert_eq!(m.input_sessions[0].session_id, 2);
-        assert_eq!(m.input_sessions[1].session_id, 3);
-        // KNOWN LIMITATION: because the history is pruned to a single ended
-        // session, a genuine triple-click through the public API can only ever
-        // report 2. detect_click_count()'s triple-click arm is unreachable here.
-        assert_eq!(m.detect_click_count(), 2);
+        assert_eq!(m.input_sessions[2].session_id, 4);
+        assert_eq!(m.detect_click_count(), 3);
     }
 
     // ------------------------------------------------- touch sessions
@@ -3950,6 +3951,26 @@ mod autotest_generated {
         m.input_sessions[0].samples[0].timestamp = ts(0);
         m.input_sessions[0].samples[0].position = pos(500.0, 500.0);
         assert_eq!(m.detect_click_count(), 2);
+    }
+
+    #[test]
+    fn three_presses_through_the_session_api_are_a_triple_click() {
+        // Press, release, press, release, press: the third press is click 3
+        // - what selects a paragraph. Starting a session pruned every ended
+        // one but the last, so the third press saw two clicks: a triple
+        // click selected a word.
+        let mut m = GestureAndDragManager::new();
+        for (i, t) in [0u64, 100, 200].into_iter().enumerate() {
+            m.start_input_session(
+                pos(10.0, 10.0),
+                ts(t),
+                0x01,
+                WindowPosition::Uninitialized,
+                pos(10.0, 10.0),
+            );
+            assert_eq!(m.detect_click_count(), i as u32 + 1, "press {}", i + 1);
+            m.end_current_session();
+        }
     }
 
     #[test]
