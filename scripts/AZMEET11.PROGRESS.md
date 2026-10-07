@@ -4,15 +4,15 @@ Worktree: .claude/worktrees/agent-a26f308a0a897f39d (branch worktree-agent-a26f3
 started from fix/input-bugs-2026-09-19 @ 86c0e821e. No cargo (the lead builds).
 
 ## DONE
-- (none yet)
+- a64cb937b C1 RED: IrohConfig.relay_only + with_relay_only, RED tests in engine.rs.
+- 6b96e5201 C2 GREEN: engine clears the IP transports for relay_only; refused without a relay.
+- C3 AzMeet: every AZMEET_* variable a `--flag` (args.rs SWITCHES table, env as fallback, the
+  switch wins; `--worker` also over the saved server via rooms::server_choice), `--relay-only` parsed.
 
 ## IN PROGRESS
-- C1 RED: `IrohConfig.relay_only` + `with_relay_only` (dll/src/desktop/extra/iroh/types.rs), the
-  engine ignores it; RED tests in engine.rs.
+- C4 AzMeet relay-only endpoint.
 
 ## NEXT
-- C2 engine honours relay_only (`Builder::clear_ip_transports`, no `bind_addr`; refused without a relay).
-- C3 AzMeet: every AZMEET_* variable a `--flag` (args.rs table, env as fallback), `--relay-only`.
 - C4 AzMeet relay-only endpoint (needs autofix of IrohConfig.relay_only + with_relay_only).
 - C5 waiting room: `--screen waiting` without a server, `--shot` / `--size`, who is here, pattern preview.
 - C6 scripts/iroh_relay_dev.py + relay phase in scripts/azmeet_e2e.py (flags instead of env).

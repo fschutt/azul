@@ -226,6 +226,8 @@ const MAX_SERVER_CHARS: usize = 2048;
 /// Where the meeting server's address at start came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerSource {
+    /// The command line's `--worker`: this run only, over the saved one.
+    CommandLine,
     /// Saved the last time it answered (the start screen's field).
     Saved,
     /// `AZMEET_WORKER`.
@@ -270,6 +272,21 @@ pub fn server_prefill(
     }
     let server = normalize_server(built_in).unwrap_or_else(|| LOCAL_WORKER.to_string());
     (server, ServerSource::BuiltIn)
+}
+
+/// The meeting server at start: the command line's `--worker` (`flag`) for this run, over
+/// everything [`server_prefill`] weighs; a `flag` that is no meeting server address is passed
+/// over too.
+pub fn server_choice(
+    flag: Option<&str>,
+    saved: Option<&str>,
+    env: Option<&str>,
+    built_in: &str,
+) -> (String, ServerSource) {
+    match flag.and_then(normalize_server) {
+        Some(server) => (server, ServerSource::CommandLine),
+        None => server_prefill(saved, env, built_in),
+    }
 }
 
 /// Whether AzMeet opens its in-process demo instead of the start screen: only when nothing was
@@ -600,5 +617,32 @@ mod tests {
         assert!(!opens_demo(ServerSource::BuiltIn, true));
         assert!(!opens_demo(ServerSource::Saved, false));
         assert!(!opens_demo(ServerSource::Environment, false));
+        assert!(!opens_demo(ServerSource::CommandLine, false));
+    }
+
+    /// `--worker` is this run's meeting server even over the saved one (a script's worker is
+    /// not lost to what an earlier run saved); one that is no address is passed over.
+    #[test]
+    fn the_worker_switch_wins_over_the_saved_server() {
+        let saved = Some("https://meet.example.com");
+        let env = Some("http://127.0.0.1:9999");
+        assert_eq!(
+            server_choice(Some(" http://127.0.0.1:8790/ "), saved, env, "https://built.in"),
+            (
+                String::from("http://127.0.0.1:8790"),
+                ServerSource::CommandLine
+            )
+        );
+        assert_eq!(
+            server_choice(Some("not an address"), saved, env, "https://built.in"),
+            (
+                String::from("https://meet.example.com"),
+                ServerSource::Saved
+            )
+        );
+        assert_eq!(
+            server_choice(None, None, env, "https://built.in"),
+            server_prefill(None, env, "https://built.in")
+        );
     }
 }
