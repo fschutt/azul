@@ -1384,7 +1384,10 @@ impl CpuHitTester {
             // Walk in reverse (last painted = topmost)
             for entry in entries.iter().rev() {
                 while let Some(&(item, child)) = children.get(next) {
-                    let child_is_above = entry.rank == usize::MAX || item > entry.rank;
+                    // At the item: the view's host (whose first painted
+                    // item IS the view when it paints nothing else) and the
+                    // wrappers that rank at it are under the page.
+                    let child_is_above = entry.rank == usize::MAX || item >= entry.rank;
                     if !child_is_above {
                         break;
                     }
@@ -2683,6 +2686,48 @@ mod autotest_generated {
             tester.hit_test(p(20.0, 20.0)),
             vec![(dom(1), NodeId::new(1)), (dom(0), NodeId::new(0))],
             "away from the overlay the page is on top of its host",
+        );
+    }
+
+    #[test]
+    fn a_view_host_that_paints_nothing_of_its_own_stays_under_its_page() {
+        // The host of a VirtualView that paints nothing but the view - and
+        // the wrapper around it - rank AT the view's item (a node's rank is
+        // its first painted item, or its first painted descendant's): they
+        // are under the page they show. Ranked over it, the host took every
+        // click meant for the page (AzMonitor's table headers stopped
+        // sorting).
+        let mut host = layout_result(
+            styled(""),
+            vec![
+                hot(Some(0), Some((300.0, 300.0)), None),
+                hot(Some(1), Some((300.0, 300.0)), Some(0)),
+            ],
+            vec![p(0.0, 0.0), p(0.0, 0.0)],
+            Vec::new(),
+        );
+        host.display_list = std::sync::Arc::new(DisplayList {
+            items: vec![virtual_view(1, r(0.0, 0.0, 300.0, 300.0))],
+            layout_node_mapping: vec![Some((1, EmitPhase::Content))],
+            ..Default::default()
+        });
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), host);
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((300.0, 300.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+        assert_eq!(
+            tester.hit_test(p(20.0, 20.0)).first(),
+            Some(&(dom(1), NodeId::new(1))),
+            "the page, not its host",
         );
     }
 
