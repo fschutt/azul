@@ -1225,7 +1225,7 @@ impl TextInput {
                 crate::widgets::themes::flora::text_input(self)
             }
         };
-        container.add_component_css(field_font_default());
+        container.add_component_css(field_font_default(theme));
         let mut container = with_kind_semantics(container, kind, name, a11y_name);
         if constrained {
             // The handlers paint the invalid ring in the THEME's colours, and
@@ -1246,6 +1246,11 @@ impl TextInput {
 /// The field's UI font size in px when the app gives it none.
 const TEXT_INPUT_FONT_SIZE_PX: isize = 11;
 
+/// The same in flora, whose field writes in Garamond: a face that sets small
+/// (its x-height is well below a grotesque's), so a step up - the design
+/// system's 13.5px input, rounded.
+const TEXT_INPUT_FONT_SIZE_PX_FLORA: isize = 14;
+
 /// The sheet every field carries: `.<container class> { font-size: 11px }` at
 /// `rule_priority::UA`, the field's DEFAULT size - declared the way a
 /// browser's UA sheet declares an `<input>`'s font, below every style the app
@@ -1258,7 +1263,7 @@ const TEXT_INPUT_FONT_SIZE_PX: isize = 11;
 /// and inherits the field's, as `<input style="font-size: 24px">` sizes its
 /// value in a browser. The class selector keeps the rule on the container
 /// (a component sheet's selector matches in the owner's whole subtree).
-fn field_font_default() -> azul_css::css::Css {
+fn field_font_default(theme: crate::widgets::themes::UiTheme) -> azul_css::css::Css {
     use azul_css::css::{
         rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock,
     };
@@ -1271,7 +1276,10 @@ fn field_font_default() -> azul_css::css::Css {
                 .into(),
             },
             declarations: alloc::vec![CssDeclaration::Static(CssProperty::const_font_size(
-                StyleFontSize::const_px(TEXT_INPUT_FONT_SIZE_PX),
+                StyleFontSize::const_px(match theme {
+                    crate::widgets::themes::UiTheme::Flat => TEXT_INPUT_FONT_SIZE_PX,
+                    crate::widgets::themes::UiTheme::Flora => TEXT_INPUT_FONT_SIZE_PX_FLORA,
+                }),
             ))]
             .into(),
             conditions: Vec::new().into(),
