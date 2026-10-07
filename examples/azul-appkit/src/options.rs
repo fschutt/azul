@@ -170,9 +170,9 @@ impl Snapshot {
     ) -> Restored {
         let is_kept = |key: &str| kept.iter().any(|prefix| key.starts_with(prefix.as_str()));
         let mut back = self.settings;
-        back.values.retain(|key, _| !is_kept(key));
+        back.values.retain(|key, _| !is_kept(key.as_str()));
         for (key, value) in &settings.values {
-            if is_kept(key) {
+            if is_kept(key.as_str()) {
                 back.values.insert(key.clone(), value.clone());
             }
         }
