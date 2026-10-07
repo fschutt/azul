@@ -27,6 +27,14 @@
 //! `dialogBoxLauncher` → [`RibbonGroup::launcher`]. Contextual tabs, KeyTips,
 //! the backstage view and automatic size collapsing are out of scope.
 //!
+//! The controls are laid out as Office 2010 lays them out: a large button's
+//! label of two words or more is set on two balanced lines with a menu's ▾
+//! after the last word ("New / Items ▾"); a split button with
+//! [`RibbonButton::on_arrow_click`] is two hit targets (the icon, the label
+//! and ▾); small items at a group's top level stack three to a column; a
+//! gallery with [`RibbonGallery::columns`] is a list of commands (Outlook's
+//! Quick Steps).
+//!
 //! Buttons are not re-implemented: every ribbon button (including the group
 //! dialog launcher and the gallery spinner buttons) expands to the existing
 //! [`super::button::Button`] widget with ribbon part styles injected through
@@ -42,7 +50,7 @@ use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
         Dom, DomNodeId, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
-        IdOrClassVec,
+        IdOrClassVec, OptionDom,
     },
     refany::RefAny,
 };
@@ -2713,6 +2721,13 @@ pub struct RibbonButton {
     /// buttons; without a name each was announced as "button". Empty = the
     /// label names the button.
     pub alt: AzString,
+    /// The ARROW part of a split button (`RibbonArrow::Split`): what a click
+    /// on the ▾ runs - the app opens the button's menu there - while
+    /// [`Self::on_click`] stays the primary command (Office's Paste: the
+    /// clipboard icon pastes, "Paste ▾" under it opens the paste options).
+    /// With this set a split button is two hit targets, each with its own
+    /// hover; unset it is one button with an arrow, like `Menu`.
+    pub on_arrow_click: OptionButtonOnClick,
 }
 
 /// Drop-down decoration of a [`RibbonButton`].
@@ -2722,10 +2737,13 @@ pub enum RibbonArrow {
     /// Plain button without an arrow.
     #[default]
     None,
-    /// The whole button opens a menu (`RibbonX` `menu`).
+    /// The whole button opens a menu (`RibbonX` `menu`): its `on_click`
+    /// opens it. A large one draws the ▾ under its label, a small one after.
     Menu,
-    /// Primary action + separate arrow region (`RibbonX` `splitButton`).
-    /// Rendered identically to `Menu`; the split behavior is the caller's.
+    /// Primary action + separate arrow region (`RibbonX` `splitButton`). With
+    /// [`RibbonButton::on_arrow_click`] set the two are separate buttons (a
+    /// large one: the icon over the label and ▾; a small one: icon and label
+    /// beside the ▾); without it, it renders like `Menu`.
     Split,
 }
 
@@ -2744,6 +2762,14 @@ pub struct RibbonGallery {
     /// one - and "More" opens all of them; a gallery of every cell inline
     /// pushed the groups after it off a 1280 px window (AzShow's Layout).
     pub visible: usize,
+    /// 0: the classic strip - preview cells over their names, one row (Word's
+    /// Styles). N: a LIST gallery of commands in N columns three rows high,
+    /// each cell its preview (an icon) beside its name - Outlook's Quick Steps
+    /// ("Move to: ?", "Team E-mail", "Reply & Delete" | "To Manager", "Done",
+    /// "Create New"). A list gallery keeps no selection: a cell is a command
+    /// (`on_select` runs it), so no cell stays lit. `visible` 0 shows N x 3
+    /// cells; the rest are behind "More".
+    pub columns: usize,
 }
 
 /// One gallery cell: an arbitrary preview [`Dom`] over a name label.
@@ -3077,7 +3103,39 @@ impl RibbonButton {
             on_click: OptionButtonOnClick::None,
             disabled_reason: AzString::from_const_str(""),
             alt: AzString::from_const_str(""),
+            on_arrow_click: OptionButtonOnClick::None,
         }
+    }
+
+    /// Makes this a split button: `on_arrow_click` runs when its ▾ part is
+    /// clicked (see [`Self::on_arrow_click`]); the arrow becomes
+    /// [`RibbonArrow::Split`].
+    pub fn set_on_arrow_click<C: Into<super::button::ButtonOnClickCallback>>(
+        &mut self,
+        data: RefAny,
+        on_arrow_click: C,
+    ) {
+        self.arrow = RibbonArrow::Split;
+        self.on_arrow_click =
+            Some(super::button::ButtonOnClick::create(data, on_arrow_click)).into();
+    }
+
+    /// Builder method: [`Self::set_on_arrow_click`].
+    #[must_use]
+    pub fn with_on_arrow_click<C: Into<super::button::ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_arrow_click: C,
+    ) -> Self {
+        self.set_on_arrow_click(data, on_arrow_click);
+        self
+    }
+
+    /// Whether this button is drawn as two parts (a split button with its
+    /// own arrow callback).
+    #[must_use]
+    pub fn is_split(&self) -> bool {
+        self.arrow == RibbonArrow::Split && self.on_arrow_click.is_some()
     }
 
     /// Names an icon-only button for assistive technology (see
@@ -3160,7 +3218,21 @@ impl RibbonGallery {
             selected: 0,
             on_select: None.into(),
             visible: 0,
+            columns: 0,
         }
+    }
+
+    /// Lays the gallery out as a list of commands in `columns` columns
+    /// (0: the classic strip); see [`Self::columns`].
+    pub const fn set_columns(&mut self, columns: usize) {
+        self.columns = columns;
+    }
+
+    /// Builder method: [`Self::set_columns`].
+    #[must_use]
+    pub const fn with_columns(mut self, columns: usize) -> Self {
+        self.set_columns(columns);
+        self
     }
 
     /// Shows `visible` cells in the ribbon (0: every cell); see
@@ -3782,7 +3854,309 @@ fn merged_style(
 /// Button's (`Button::with_disabled`).
 pub const RIBBON_DISABLED_CLASS: &str = "__azul-native-ribbon-button-disabled";
 
+// -- Office's control kinds --
+//
+// A large button is Office's 32 px icon over its label. A label of two or
+// more words is set on two balanced lines ("New / E-mail", "Send/Receive /
+// All Folders") and a menu's ▾ follows its last word on the second line; a
+// one-word label stays on one line with the ▾ under it ("Move / ▾"). A split
+// button with its own arrow callback is two buttons: a large one the icon
+// over "Paste ▾", a small one the icon and label beside the ▾. Small items -
+// small buttons, check boxes, combo and drop-down boxes - stack three to a
+// column. A list gallery (`RibbonGallery::columns`) is Outlook's Quick
+// Steps: its commands, icon beside name, in columns of three.
+
+/// The class of a split button's wrapper (its main part and its arrow part).
+pub const RIBBON_SPLIT_CLASS: &str = "__azul-native-ribbon-split";
+/// Added to a split button's main part.
+pub const RIBBON_SPLIT_MAIN_CLASS: &str = "__azul-native-ribbon-split-main";
+/// Added to a split button's arrow part.
+pub const RIBBON_SPLIT_ARROW_CLASS: &str = "__azul-native-ribbon-split-arrow";
+static CLS_SPLIT: &[IdOrClass] = &[Class(AzString::from_const_str(RIBBON_SPLIT_CLASS))];
+static CLS_LARGE_CONTENT: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-large-content",
+))];
+static CLS_LARGE_LABEL: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-large-label",
+))];
+static CLS_GALLERY_COLUMN: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-column",
+))];
+static CLS_GALLERY_CELL_ICON: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-cell-icon",
+))];
+/// Added to the strip of a list gallery (`RibbonGallery::columns` > 0).
+pub const RIBBON_GALLERY_LIST_CLASS: &str = "__azul-native-ribbon-gallery-list";
+
+/// How many small items Office stacks in one column, and how many rows a
+/// list gallery has: three 22 px rows fill the 68 px item area.
+const ROWS_PER_COLUMN: usize = 3;
+
+/// The no-break space that joins the words of one line of a large label.
+const NO_BREAK_SPACE: char = '\u{a0}';
+
+/// A large button's content when its label wraps: the icon over the label
+/// block, centred.
+static LARGE_CONTENT_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The 32 px icon of a wrapped large button: one icon tall, so the icon and
+/// two label lines fit the 66 px button.
+static LARGE_ICON_LINE_STYLE: &[Cond] = &[Cond::simple(P::const_line_height(
+    StyleLineHeight::Length(PixelValue::const_px(32)),
+))];
+
+/// The block around a wrapped label: a block formatting context, so the
+/// label inside it can be as wide as its longer line (a flex item cannot
+/// be `width: min-content`).
+static LARGE_LABEL_BLOCK_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Block)),
+    Cond::simple(P::const_text_align(StyleTextAlign::Center)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// APPENDED to the large label style for a wrapped label: the label is as
+/// wide as its longer line (its words are joined by no-break spaces but at
+/// the one break) and its lines are 13 px, two of them under the icon.
+static LARGE_LABEL_LINES_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::InlineBlock)),
+    Cond::simple(P::const_width(LayoutWidth::MinContent)),
+    Cond::simple(P::const_text_align(StyleTextAlign::Center)),
+    Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(1))),
+    Cond::simple(P::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(13),
+    ))),
+];
+
+/// A split button's wrapper: the two parts stacked (large) or side by side
+/// (small), each part a full button with its own hover.
+static SPLIT_LARGE_STYLE: &[Cond] = &[
+    Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    Cond::simple(P::const_height(LayoutHeight::const_px(66))),
+    Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(1))),
+];
+
+static SPLIT_SMALL_STYLE: &[Cond] = &[
+    Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+    Cond::simple(P::const_height(LayoutHeight::const_px(22))),
+];
+
+/// APPENDED to the large button style for a split button's main part: the
+/// icon alone, the top 38 px of the 66 px button.
+static SPLIT_LARGE_MAIN_STYLE: &[Cond] = &[
+    Cond::simple(P::const_height(LayoutHeight::const_px(38))),
+    Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(0))),
+    Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(1))),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+];
+
+/// APPENDED to the large button style for a split button's arrow part: the
+/// label and ▾ in the rest of the button.
+static SPLIT_LARGE_ARROW_STYLE: &[Cond] = &[
+    Cond::simple(P::const_height(LayoutHeight::Auto)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(0))),
+    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(0))),
+    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(3))),
+    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(3))),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Start)),
+];
+
+/// APPENDED to the small button style for a split button's main part.
+static SPLIT_SMALL_MAIN_STYLE: &[Cond] = &[Cond::simple(P::const_padding_right(
+    LayoutPaddingRight::const_px(2),
+))];
+
+/// APPENDED to the small button style for a split button's arrow part: a
+/// 14 px column for the ▾.
+static SPLIT_SMALL_ARROW_STYLE: &[Cond] = &[
+    Cond::simple(P::const_width(LayoutWidth::const_px(14))),
+    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(0))),
+    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(0))),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+];
+
+/// One column of a list gallery: three cells, as wide as the widest.
+static GALLERY_LIST_COLUMN_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Stretch)),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// APPENDED to the gallery cell style for a list gallery's cell: a 22 px
+/// row, the icon beside the name, no rule between the cells.
+static GALLERY_LIST_CELL_STYLE: &[Cond] = &[
+    Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Start)),
+    Cond::simple(P::const_width(LayoutWidth::Auto)),
+    Cond::simple(P::const_height(LayoutHeight::const_px(22))),
+    Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(1))),
+    Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(1))),
+    Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(3))),
+    Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(8))),
+    Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(0))),
+];
+
+/// The 16 px box a list gallery cell's preview (its icon) sits in.
+static GALLERY_LIST_ICON_STYLE: &[Cond] = &[
+    Cond::simple(P::const_display(LayoutDisplay::Flex)),
+    Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
+    Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
+    Cond::simple(P::const_width(LayoutWidth::const_px(16))),
+    Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
+];
+
+/// The word a balanced two-line label breaks before: the boundary that makes
+/// the longer line shortest - a tie keeps the longer FIRST line, as Office's
+/// "Run Rules / Now". `None` for a label of one word.
+fn balanced_break(words: &[&str]) -> Option<usize> {
+    if words.len() < 2 {
+        return None;
+    }
+    let widths: Vec<usize> = words.iter().map(|w| w.chars().count()).collect();
+    let total = widths.iter().sum::<usize>() + words.len() - 1;
+    let mut best: Option<(usize, usize)> = None;
+    let mut first = 0_usize;
+    for k in 1..words.len() {
+        first += widths[k - 1] + usize::from(k > 1);
+        let longer = first.max(total - first - 1);
+        if best.map_or(true, |(b, _)| longer <= b) {
+            best = Some((longer, k));
+        }
+    }
+    best.map(|(_, k)| k)
+}
+
+/// A large button's label text as Office sets it: the one break of
+/// [`balanced_break`] a plain space and every other space a no-break one, so
+/// the label's min-content width IS its longer line; with a menu, a
+/// no-break space glues the ▾ (the next inline) to the last word - or, for
+/// a one-word label, a plain space puts it on a line of its own.
+fn large_label_text(label: &str, arrow: bool) -> String {
+    let words: Vec<&str> = label.split_whitespace().collect();
+    let nbsp = NO_BREAK_SPACE.to_string();
+    let mut out = String::with_capacity(label.len() + 2);
+    match balanced_break(&words) {
+        Some(k) => {
+            out.push_str(&words[..k].join(&nbsp));
+            out.push(' ');
+            out.push_str(&words[k..].join(&nbsp));
+            if arrow {
+                out.push(NO_BREAK_SPACE);
+            }
+        }
+        None => {
+            out.push_str(label.trim());
+            if arrow {
+                out.push(' ');
+            }
+        }
+    }
+    out
+}
+
+/// Whether a large button's label is set on two lines (two or more words).
+fn label_wraps(label: &str) -> bool {
+    label.split_whitespace().nth(1).is_some()
+}
+
+/// A large button's label block: a centred inline-block `<p>` as wide as its
+/// longer line ([`large_label_text`]), the ▾ inline at its end.
+fn large_label_block(label: &str, arrow: bool, s: &RibbonStyle) -> Dom {
+    let lines = merged_style(
+        &s.resolved_large_label_style(),
+        &CssPropertyWithConditionsVec::from_const_slice(LARGE_LABEL_LINES_STYLE),
+    );
+    let mut children = vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+        AzString::from(large_label_text(label, arrow)),
+    )];
+    if arrow {
+        children.push(
+            Dom::create_icon(AzString::from_const_str("arrow_drop_down"))
+                .with_css_props(s.resolved_arrow_icon_style()),
+        );
+    }
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_LARGE_LABEL))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            LARGE_LABEL_BLOCK_STYLE,
+        ))
+        .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_chrome()
+            .with_css_props(lines)
+            .with_children(DomVec::from_vec(children))]))
+}
+
+/// The content of a large button whose label wraps: the 32 px icon over the
+/// label block. Handed to the Button as its icon DOM; the Button's own label
+/// stays empty and its name is the label (`alt`).
+fn large_content(icon: &AzString, label: &str, arrow: bool, s: &RibbonStyle) -> Dom {
+    let mut children = Vec::with_capacity(2);
+    if !icon.as_str().is_empty() {
+        children.push(Dom::create_icon(icon.clone()).with_css_props(merged_style(
+            &s.resolved_large_icon_style(),
+            &CssPropertyWithConditionsVec::from_const_slice(LARGE_ICON_LINE_STYLE),
+        )));
+    }
+    children.push(large_label_block(label, arrow, s));
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_LARGE_CONTENT))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(LARGE_CONTENT_STYLE))
+        .with_children(DomVec::from_vec(children))
+}
+
+/// The name a button is announced by: its `alt`, else its label.
+fn button_name(rb: &RibbonButton) -> AzString {
+    if rb.alt.as_str().is_empty() {
+        rb.label.clone()
+    } else {
+        rb.alt.clone()
+    }
+}
+
+/// A built button node, marked disabled for the ribbon's own class.
+fn finish_button(button: crate::widgets::button::Button, disabled: bool) -> Dom {
+    let mut dom = button.dom();
+    if disabled {
+        dom.root.add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
+    }
+    dom
+}
+
 fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
+    if rb.is_split() {
+        return split_button_dom(rb, large, s, theme);
+    }
     let disabled = rb.is_disabled();
     let base = if large {
         &s.resolved_large_button_style()
@@ -3794,9 +4168,11 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
     } else {
         base.clone()
     };
-    let trailing = match rb.arrow {
-        RibbonArrow::None => AzString::from_const_str(""),
-        RibbonArrow::Menu | RibbonArrow::Split => AzString::from_const_str("arrow_drop_down"),
+    let has_arrow = rb.arrow != RibbonArrow::None;
+    let trailing = if has_arrow {
+        AzString::from_const_str("arrow_drop_down")
+    } else {
+        AzString::from_const_str("")
     };
     let (icon_style, label_style) = if large {
         (
@@ -3809,24 +4185,135 @@ fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: U
             s.resolved_small_label_style(),
         )
     };
+    // A large label of two or more words is set on two lines (and its ▾ on
+    // the second): the Button carries the icon and label block as its icon
+    // DOM, and the label as its name.
+    if large && label_wraps(rb.label.as_str()) {
+        let name = button_name(&rb);
+        let content = large_content(&rb.icon, rb.label.as_str(), has_arrow, s);
+        let mut button = styled_button(
+            rb.icon,
+            AzString::from_const_str(""),
+            AzString::from_const_str(""),
+            container,
+            icon_style,
+            label_style,
+            s.resolved_arrow_icon_style(),
+            rb.on_click,
+            rb.disabled_reason,
+            name,
+            OptionUiTheme::Some(theme),
+        );
+        button.icon_dom = OptionDom::Some(content);
+        return finish_button(button, disabled);
+    }
     // The Button drops a disabled command's click, dims it and says why.
-    let mut dom = styled_button(
+    finish_button(
+        styled_button(
+            rb.icon,
+            rb.label,
+            trailing,
+            container,
+            icon_style,
+            label_style,
+            s.resolved_arrow_icon_style(),
+            rb.on_click,
+            rb.disabled_reason,
+            rb.alt,
+            OptionUiTheme::Some(theme),
+        ),
+        disabled,
+    )
+}
+
+/// A split button with its own arrow callback: two Buttons in a wrapper. A
+/// large one is the icon (the primary command) over its label and ▾ (the
+/// arrow); a small one is the icon and label beside a 14 px ▾. A disabled
+/// split button is disabled in both parts; a toggled one lights its main
+/// part.
+fn split_button_dom(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiTheme) -> Dom {
+    let disabled = rb.is_disabled();
+    let name = button_name(&rb);
+    let arrow_name = AzString::from(alloc::format!("{} options", name.as_str()));
+    let (base, part_main, part_arrow) = if large {
+        (
+            s.resolved_large_button_style(),
+            SPLIT_LARGE_MAIN_STYLE,
+            SPLIT_LARGE_ARROW_STYLE,
+        )
+    } else {
+        (
+            s.resolved_small_button_style(),
+            SPLIT_SMALL_MAIN_STYLE,
+            SPLIT_SMALL_ARROW_STYLE,
+        )
+    };
+    let mut main_style =
+        merged_style(&base, &CssPropertyWithConditionsVec::from_const_slice(part_main));
+    if rb.toggled {
+        main_style = merged_style(&main_style, &s.resolved_checked_style());
+    }
+    let arrow_style =
+        merged_style(&base, &CssPropertyWithConditionsVec::from_const_slice(part_arrow));
+    let (icon_style, label_style) = if large {
+        (s.resolved_large_icon_style(), s.resolved_large_label_style())
+    } else {
+        (s.resolved_small_icon_style(), s.resolved_small_label_style())
+    };
+    let label = rb.label.as_str().to_string();
+    let main = styled_button(
         rb.icon,
-        rb.label,
-        trailing,
-        container,
-        icon_style,
-        label_style,
+        if large {
+            AzString::from_const_str("")
+        } else {
+            rb.label.clone()
+        },
+        AzString::from_const_str(""),
+        main_style,
+        icon_style.clone(),
+        label_style.clone(),
         s.resolved_arrow_icon_style(),
         rb.on_click,
-        rb.disabled_reason,
-        rb.alt,
+        rb.disabled_reason.clone(),
+        name,
         OptionUiTheme::Some(theme),
-    ).dom();
-    if disabled {
-        dom.root.add_class(AzString::from_const_str(RIBBON_DISABLED_CLASS));
+    );
+    let mut arrow = styled_button(
+        if large {
+            AzString::from_const_str("")
+        } else {
+            AzString::from_const_str("arrow_drop_down")
+        },
+        AzString::from_const_str(""),
+        AzString::from_const_str(""),
+        arrow_style,
+        if large {
+            icon_style
+        } else {
+            s.resolved_arrow_icon_style()
+        },
+        label_style,
+        s.resolved_arrow_icon_style(),
+        rb.on_arrow_click,
+        rb.disabled_reason,
+        arrow_name,
+        OptionUiTheme::Some(theme),
+    );
+    if large {
+        arrow.icon_dom = OptionDom::Some(large_label_block(&label, true, s));
     }
-    dom
+    let mut main = finish_button(main, disabled);
+    main.root.add_class(AzString::from_const_str(RIBBON_SPLIT_MAIN_CLASS));
+    let mut arrow = finish_button(arrow, disabled);
+    arrow.root.add_class(AzString::from_const_str(RIBBON_SPLIT_ARROW_CLASS));
+    Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SPLIT))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(if large {
+            SPLIT_LARGE_STYLE
+        } else {
+            SPLIT_SMALL_STYLE
+        }))
+        .with_children(DomVec::from_vec(vec![main, arrow]))
 }
 
 /// One item in the ribbon's theme. An embedded widget the caller left
@@ -3882,6 +4369,59 @@ fn item_dom(item: RibbonItem, s: &RibbonStyle, b: RibbonBehavior, theme: UiTheme
     }
 }
 
+/// Whether Office stacks `item` with its neighbours: a small button, a check
+/// box, a combo or a drop-down box.
+const fn is_small_item(item: &RibbonItem) -> bool {
+    matches!(
+        item,
+        RibbonItem::SmallButton(_)
+            | RibbonItem::Check(_)
+            | RibbonItem::Combo(_)
+            | RibbonItem::Drop(_)
+    )
+}
+
+/// A group's top-level items with every run of two or more small items
+/// ([`is_small_item`]) packed into [`RibbonColumn`]s of three, top first -
+/// Office's Delete group (Ignore / Clean Up / Junk over each other), its
+/// Find group (the contact box, Address Book, Filter E-mail). A small item
+/// alone stays as it is (it sits at the top either way); the rows and
+/// columns a caller built are its own.
+fn stack_small_items(items: Vec<RibbonItem>) -> Vec<RibbonItem> {
+    fn flush(run: &mut Vec<RibbonItem>, out: &mut Vec<RibbonItem>) {
+        if run.len() < 2 {
+            out.append(run);
+            return;
+        }
+        let mut column: Vec<RibbonItem> = Vec::with_capacity(ROWS_PER_COLUMN);
+        for item in run.drain(..) {
+            column.push(item);
+            if column.len() == ROWS_PER_COLUMN {
+                out.push(RibbonItem::Column(RibbonColumn {
+                    items: RibbonItemVec::from_vec(core::mem::take(&mut column)),
+                }));
+            }
+        }
+        if !column.is_empty() {
+            out.push(RibbonItem::Column(RibbonColumn {
+                items: RibbonItemVec::from_vec(column),
+            }));
+        }
+    }
+    let mut out = Vec::with_capacity(items.len());
+    let mut run: Vec<RibbonItem> = Vec::new();
+    for item in items {
+        if is_small_item(&item) {
+            run.push(item);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(item);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
 /// Appended to the group style when [`RibbonGroup::fills_space`] is set:
 /// the group absorbs leftover width AND yields it under pressure, down to
 /// an explicit floor. The explicit `min-width` is load-bearing — it
@@ -3904,8 +4444,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior, theme: UiTh
         fills_space,
     } = group;
 
-    let item_doms: Vec<Dom> = items
-        .into_library_owned_vec()
+    let item_doms: Vec<Dom> = stack_small_items(items.into_library_owned_vec())
         .into_iter()
         .map(|it| item_dom(it, s, b, theme))
         .collect();
@@ -3987,10 +4526,32 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
         selected,
         on_select,
         visible,
+        columns,
     } = gallery;
+    // A list gallery is commands (Quick Steps): no cell stays selected, and
+    // its strip is the first `columns` x 3 cells.
+    let list = columns > 0;
     let has_callback = on_select.is_some();
+    let auto_select = b.auto_select_gallery && !list;
     let cells = cells.into_library_owned_vec();
-    let strip_cells = gallery_window(cells.len(), selected, visible);
+    let (strip_cells, selected) = if list {
+        let shown = if visible == 0 {
+            columns * ROWS_PER_COLUMN
+        } else {
+            visible
+        };
+        (0..cells.len().min(shown), usize::MAX)
+    } else {
+        (gallery_window(cells.len(), selected, visible), selected)
+    };
+    let cell_base = if list {
+        merged_style(
+            &s.resolved_gallery_cell_style(),
+            &CssPropertyWithConditionsVec::from_const_slice(GALLERY_LIST_CELL_STYLE),
+        )
+    } else {
+        s.resolved_gallery_cell_style()
+    };
 
     // The cells are built twice: once for the in-ribbon strip and once for
     // the expansion panel, so "More" can show every cell without a relayout.
@@ -4004,24 +4565,50 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
             let (classes, cell_style) = if idx == selected {
                 (
                     CLS_GALLERY_CELL_SELECTED,
-                    merged_style(
-                        &s.resolved_gallery_cell_style(),
-                        &s.resolved_gallery_cell_selected_style(),
-                    ),
+                    merged_style(&cell_base, &s.resolved_gallery_cell_selected_style()),
                 )
             } else {
-                (CLS_GALLERY_CELL, s.resolved_gallery_cell_style())
+                (CLS_GALLERY_CELL, cell_base.clone())
             };
-            let label = crate::widgets::widget_p_chrome()
-                .with_css_props(s.resolved_gallery_cell_label_style())
-                .with_children(DomVec::from_vec(vec![
-                    Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone()),
-                ]));
+            let children = if list {
+                // Quick Steps: the icon beside the name, a small button's.
+                vec![
+                    Dom::create_div()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                            CLS_GALLERY_CELL_ICON,
+                        ))
+                        .with_css_props(merged_style(
+                            &s.resolved_small_icon_style(),
+                            &CssPropertyWithConditionsVec::from_const_slice(
+                                GALLERY_LIST_ICON_STYLE,
+                            ),
+                        ))
+                        .with_children(DomVec::from_vec(vec![cell.preview.clone()])),
+                    crate::widgets::widget_p_chrome()
+                        .with_css_props(s.resolved_small_label_style())
+                        .with_children(DomVec::from_vec(vec![
+                            Dom::create_text_do_not_use_without_block_level_wrapper(
+                                cell.label.clone(),
+                            ),
+                        ])),
+                ]
+            } else {
+                vec![
+                    cell.preview.clone(),
+                    crate::widgets::widget_p_chrome()
+                        .with_css_props(s.resolved_gallery_cell_label_style())
+                        .with_children(DomVec::from_vec(vec![
+                            Dom::create_text_do_not_use_without_block_level_wrapper(
+                                cell.label.clone(),
+                            ),
+                        ])),
+                ]
+            };
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(cell_style)
-                .with_children(DomVec::from_vec(vec![cell.preview.clone(), label]));
-            if has_callback || b.auto_select_gallery {
+                .with_children(DomVec::from_vec(children));
+            if has_callback || auto_select {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::Click),
@@ -4032,10 +4619,10 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
                         refany: RefAny::new(GalleryCellClickData {
                             cell_idx: idx,
                             on_select: on_select.clone(),
-                            auto_select: b.auto_select_gallery,
+                            auto_select,
                             in_panel,
                             selected_style: s.resolved_gallery_cell_selected_style(),
-                            base_style: s.resolved_gallery_cell_style(),
+                            base_style: cell_base.clone(),
                         }),
                     }]
                     .into(),
@@ -4046,10 +4633,41 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior, theme
         out
     };
 
-    let strip = Dom::create_div()
+    // A list gallery's strip is its columns of three; a classic one is one
+    // row of cells.
+    let strip_children = if list {
+        let mut columns_out: Vec<Dom> = Vec::new();
+        let mut column: Vec<Dom> = Vec::with_capacity(ROWS_PER_COLUMN);
+        let list_column = |cells: Vec<Dom>| {
+            Dom::create_div()
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_COLUMN))
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                    GALLERY_LIST_COLUMN_STYLE,
+                ))
+                .with_children(DomVec::from_vec(cells))
+        };
+        for cell in build_cells(false) {
+            column.push(cell);
+            if column.len() == ROWS_PER_COLUMN {
+                columns_out.push(list_column(core::mem::take(&mut column)));
+            }
+        }
+        if !column.is_empty() {
+            columns_out.push(list_column(column));
+        }
+        columns_out
+    } else {
+        build_cells(false)
+    };
+    let mut strip = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_STRIP))
         .with_css_props(s.resolved_gallery_strip_style())
-        .with_children(DomVec::from_vec(build_cells(false)));
+        .with_children(DomVec::from_vec(strip_children));
+    if list {
+        strip
+            .root
+            .add_class(AzString::from_const_str(RIBBON_GALLERY_LIST_CLASS));
+    }
 
     // Spinner column: scroll-up, scroll-down, and the "More" button that
     // toggles the expansion panel (the classic office-suite "More" chevron-over-bar).
@@ -4490,11 +5108,12 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
                 sibling = info.get_next_sibling(cell_node);
             }
         }
-        // Picking from the expansion panel closes it.
-        if in_panel {
-            if let Some(panel) = info.get_parent(cell) {
-                info.set_css_property(panel, P::const_display(LayoutDisplay::None));
-            }
+    }
+    // Picking from the expansion panel closes it - a list gallery's command
+    // (which moves no highlight) too.
+    if in_panel {
+        if let Some(panel) = info.get_parent(cell) {
+            info.set_css_property(panel, P::const_display(LayoutDisplay::None));
         }
     }
 
