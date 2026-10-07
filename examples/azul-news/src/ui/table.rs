@@ -446,8 +446,10 @@ fn article_row(s: &NewsApp, table: &TableData, r: ArticleRef, index: usize) -> D
             DATE_COL,
             "",
         ))
+        // The release, as AzPdf's thumbnails in their VirtualView (a press and its release
+        // land on the row's DOM, the VirtualView's own).
         .with_callback(
-            EventFilter::Hover(HoverEventFilter::Click),
+            EventFilter::Hover(HoverEventFilter::MouseUp),
             RefAny::new(reference()),
             on_row,
         )
