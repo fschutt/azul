@@ -17,8 +17,11 @@
 //! VIRTUALISED IN WHOLE LINES: the view is a `VirtualView` host (like the map
 //! widget: an outer node with the handlers, a `VirtualView` inside it that
 //! renders the rows), so it knows its own size and the app can re-render it
-//! alone when output arrives (`CallbackInfo::trigger_all_virtual_view_rerender`)
-//! without rebuilding the window. Scrolling is the scroll-window pattern of
+//! alone when output arrives - `CallbackInfo::trigger_virtual_view_rerender`
+//! on the first child of the node carrying the view's id (not
+//! `trigger_all_virtual_view_rerender`: a title bar's maximize glyph and every
+//! status bar label are views too) - without rebuilding the window, at most
+//! once a frame however much output came. Scrolling is the scroll-window pattern of
 //! the cell grid and the data table, in whole lines: the position is the
 //! engine's DISPLAY OFFSET - lines scrolled up from the bottom, 0 = following
 //! the output - so a scrollback of 100,000 or 10,000,000 lines costs the same
@@ -1649,6 +1652,12 @@ pub(crate) enum KeyAction {
     Nothing,
 }
 
+/// Whether Ctrl+Shift+`key` is the window's off macOS: a digit (Key1..Key0
+/// are 0..=9), a letter (A..Z are 10..=35), a bracket.
+fn is_window_chord_key(key: VirtualKeyCode) -> bool {
+    (key as u32) <= 35 || matches!(key, VirtualKeyCode::LBracket | VirtualKeyCode::RBracket)
+}
+
 /// What `key` with `modifiers` does: the copy / paste chords of the
 /// platform (`mac`: Cmd+C / Cmd+V; else Ctrl+Shift+C / Ctrl+Shift+V;
 /// Shift+Insert pastes everywhere), Shift+Page Up / Page Down / Home / End
@@ -1674,9 +1683,11 @@ pub(crate) fn key_action(
             K::V => return KeyAction::Paste,
             _ => {}
         }
-        // Off macOS Ctrl+Shift+letter is the window's (new tab, close
-        // tab, find), as in every Linux terminal; A..Z are 10..=35.
-        if !mac && (10..=35).contains(&(key as u32)) {
+        // Off macOS Ctrl+Shift+<key> is the window's, as in every Linux
+        // terminal: a letter (new tab, close tab, find), a digit (tab 1..9),
+        // a bracket (the previous / next tab). Without Shift they stay the
+        // program's (Ctrl+2 is NUL, Ctrl+] the telnet escape).
+        if !mac && is_window_chord_key(key) {
             return KeyAction::Nothing;
         }
     }
@@ -1754,6 +1765,33 @@ pub(crate) fn wheel_action(
     KeyAction::Scroll(scroll_after(screen.scroll, screen.history, lines))
 }
 
+/// The wheel travel (px) of one notch: the engine's one wheel detent (the
+/// shells' `WHEEL_SCROLL_PIXELS_PER_LINE`, what every platform makes of a
+/// click of the wheel), so a click is a notch - [`TERMINAL_WHEEL_LINES`]
+/// lines - at any font size, and a trackpad's travel adds up to notches.
+pub(crate) const TERMINAL_WHEEL_NOTCH_PX: f32 = crate::widgets::cell_grid::WHEEL_PX_PER_ROW;
+
+/// What a raw wheel delta of `dy` px does ([`wheel_action`]), `travel`
+/// keeping what is not a whole notch yet.
+///
+/// The platforms hand the wheel over UP-POSITIVE - X11's button 4 is +1, a
+/// forward `WM_MOUSEWHEEL` and AppKit's `scrollingDeltaY` towards what is
+/// above are positive, the map zooms in on it - while a notch counts towards
+/// the user. So the delta is turned around: a wheel turned up (two fingers
+/// down a trackpad) shows older lines. Taken as it came, a turn up at the
+/// output asked for an offset below 0 - nothing moved, the scrollback could
+/// not be reached - and a turn down went INTO it.
+pub(crate) fn wheel_delta_action(
+    screen: &TerminalScreen,
+    travel: &mut f32,
+    dy: f32,
+    point: TerminalPoint,
+    modifiers: KeyModifiers,
+) -> KeyAction {
+    let notches = crate::widgets::cell_grid::wheel_steps(travel, -dy, TERMINAL_WHEEL_NOTCH_PX);
+    wheel_action(screen, notches, point, modifiers)
+}
+
 // ---- the build: the rows in view, the selection, the cursor, the bar ----
 
 use azul_core::{
@@ -1782,11 +1820,7 @@ use azul_css::{
     system::SystemFontType,
 };
 
-use crate::widgets::{
-    cell_grid::{cursor_in, take_wheel},
-    data_table::ScrollBar,
-    themes::decl,
-};
+use crate::widgets::{cell_grid::cursor_in, data_table::ScrollBar, themes::decl};
 
 /// The view's class (the outer node also carries the app's id).
 pub(crate) const TERMINAL_CLASS_NAME: &str = "__azul-terminal-view";
@@ -1840,6 +1874,9 @@ pub(crate) struct TerminalShared {
     pub drag: Drag,
     /// The key just handled sent its own bytes: drop the text it types.
     pub swallow_text: bool,
+    /// The wheel travel (px) not yet a whole notch ([`wheel_delta_action`]):
+    /// a trackpad's small steps add up to one.
+    pub wheel_travel: f32,
 }
 
 impl TerminalShared {
@@ -1855,6 +1892,7 @@ impl TerminalShared {
             bar: None,
             drag: Drag::None,
             swallow_text: false,
+            wheel_travel: 0.0,
         }
     }
 }
@@ -1961,7 +1999,12 @@ pub(crate) fn build_screen(
             let decorated = run.style.underline || run.style.strikethrough;
             if !blank || colors.paints_ground || decorated {
                 let mut props = place(column as f32 * cw, y, columns as f32 * cw, lh);
-                push_ink(&mut props, colors.ink);
+                // The default ink is the screen's own (inherited): most runs
+                // carry no colour of their own, one or two fewer properties
+                // to cascade a run, every frame.
+                if colors.ink != palette.foreground {
+                    push_ink(&mut props, colors.ink);
+                }
                 if colors.paints_ground {
                     push_fill(&mut props, colors.ground);
                 }
@@ -2311,6 +2354,7 @@ struct Snap {
     metrics: Metrics,
     bar: Option<ScrollBar>,
     drag: Drag,
+    wheel_travel: f32,
 }
 
 fn snap(data: &mut RefAny) -> Option<Snap> {
@@ -2322,12 +2366,19 @@ fn snap(data: &mut RefAny) -> Option<Snap> {
         metrics: s.metrics,
         bar: s.bar,
         drag: s.drag,
+        wheel_travel: s.wheel_travel,
     })
 }
 
 fn set_drag(data: &mut RefAny, drag: Drag) {
     if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
         s.drag = drag;
+    }
+}
+
+fn set_wheel_travel(data: &mut RefAny, travel: f32) {
+    if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
+        s.wheel_travel = travel;
     }
 }
 
@@ -2364,8 +2415,25 @@ fn send(s: &Snap, info: CallbackInfo, bytes: U8Vec) -> Update {
 /// `event` to the app, then the view re-renders (the app moved its view).
 fn fire_and_render(s: &Snap, mut info: CallbackInfo, event: TerminalViewEvent) -> Update {
     let update = fire(s, info, event);
-    info.trigger_all_virtual_view_rerender();
+    rerender_view(&mut info);
     update
+}
+
+/// Re-renders THIS view's `VirtualView` - the first child of the node the
+/// handler runs on (the outer node: the focused one for a key, the one the
+/// listener sits on for the pointer) - not every view of the window: the
+/// title bar's maximize glyph and every status bar label are views too, and
+/// each was rebuilt and laid out again for every notch of the wheel.
+fn rerender_view(info: &mut CallbackInfo) {
+    let host = info.get_hit_node();
+    let view = host
+        .node
+        .into_crate_internal()
+        .and_then(|node| info.get_first_child_node(host.dom, node));
+    match view {
+        Some(view) => info.trigger_virtual_view_rerender(host.dom, view),
+        None => info.trigger_all_virtual_view_rerender(),
+    }
 }
 
 /// A selection event at `point`.
@@ -2545,12 +2613,16 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
 /// A move: the thumb follows, a selection extends (once a cell), a held
 /// button is reported to a program that hears drags.
 extern "C" fn on_terminal_mouse_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    // Most moves are no gesture: answered before the screen is copied.
+    let dragging = data
+        .downcast_ref::<TerminalShared>()
+        .is_some_and(|s| s.drag != Drag::None);
+    if !dragging {
+        return Update::DoNothing;
+    }
     let Some(s) = snap(&mut data) else {
         return Update::DoNothing;
     };
-    if s.drag == Drag::None {
-        return Update::DoNothing;
-    }
     let Some((x, y)) = cursor_in(&info) else {
         return Update::DoNothing;
     };
@@ -2655,8 +2727,8 @@ extern "C" fn on_terminal_double_click(mut data: RefAny, info: CallbackInfo) -> 
 }
 
 /// The wheel: whole lines (a notch is three), scrolling the scrollback,
-/// reported, or arrow keys on the alternate screen ([`wheel_action`]). The
-/// view is the scroll surface: the box around it does not scroll.
+/// reported, or arrow keys on the alternate screen ([`wheel_delta_action`]).
+/// The view is the scroll surface: the box around it does not scroll.
 extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(s) = snap(&mut data) else {
         return Update::DoNothing;
@@ -2670,16 +2742,19 @@ extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
     };
     info.prevent_default();
     info.stop_propagation();
-    #[allow(clippy::cast_precision_loss)] // 3
-    let notch_px = s.metrics.line_height * TERMINAL_WHEEL_LINES as f32;
-    let (notches, _) = take_wheel(0.0, delta.y, notch_px, 1.0);
-    if notches == 0 {
-        return Update::DoNothing;
-    }
     let point = cursor_in(&info).map_or(TerminalPoint::create(0, 0), |(x, y)| {
         s.metrics.cell_at(s.grid, x, y).0
     });
-    match wheel_action(&s.screen, notches, point, info.get_key_modifiers()) {
+    let mut travel = s.wheel_travel;
+    let action = wheel_delta_action(
+        &s.screen,
+        &mut travel,
+        delta.y,
+        point,
+        info.get_key_modifiers(),
+    );
+    set_wheel_travel(&mut data, travel);
+    match action {
         KeyAction::Scroll(to) if to != s.screen.scroll => {
             fire_and_render(&s, info, TerminalViewEvent::scrolled(to))
         }
@@ -3416,6 +3491,21 @@ mod view_tests {
             key_action(&s, 24, K::T, ctrl_shift, true),
             KeyAction::Bytes(alloc::vec![0x14])
         );
+        // The digits (tab 1..9) and the brackets (the previous / next tab)
+        // with Ctrl+Shift are the window's too; without Shift the program's.
+        let ctrl = m(false, true, false, false);
+        assert_eq!(key_action(&s, 24, K::Key2, ctrl_shift, false), KeyAction::Nothing);
+        assert_eq!(key_action(&s, 24, K::Key0, ctrl_shift, false), KeyAction::Nothing);
+        assert_eq!(key_action(&s, 24, K::RBracket, ctrl_shift, false), KeyAction::Nothing);
+        assert_eq!(key_action(&s, 24, K::LBracket, ctrl_shift, false), KeyAction::Nothing);
+        assert_eq!(
+            key_action(&s, 24, K::Key2, ctrl, false),
+            KeyAction::Bytes(alloc::vec![0x00])
+        );
+        assert_eq!(
+            key_action(&s, 24, K::RBracket, ctrl, false),
+            KeyAction::Bytes(alloc::vec![0x1d])
+        );
     }
 
     #[test]
@@ -3474,6 +3564,58 @@ mod view_tests {
         assert_eq!(
             wheel_action(&full, -1, p, NONE),
             KeyAction::Bytes(b"\x1bOA\x1bOA\x1bOA".to_vec())
+        );
+    }
+
+    #[test]
+    fn a_wheel_turned_up_scrolls_into_the_scrollback_and_down_back_to_the_output() {
+        // The platforms' raw delta is UP-POSITIVE: X11's button 4, a forward
+        // WM_MOUSEWHEEL, AppKit's scrollingDeltaY towards what is above (the
+        // map zooms in on it). One click of the wheel is the engine's detent.
+        let click = TERMINAL_WHEEL_NOTCH_PX;
+        let p = TerminalPoint::create(4, 9);
+        let at_output = screen(24, 100, 0);
+        let mut travel = 0.0;
+        assert_eq!(
+            wheel_delta_action(&at_output, &mut travel, click, p, NONE),
+            KeyAction::Scroll(3)
+        );
+        let up = screen(24, 100, 10);
+        let mut travel = 0.0;
+        assert_eq!(
+            wheel_delta_action(&up, &mut travel, -click, p, NONE),
+            KeyAction::Scroll(7)
+        );
+        // A trackpad's small steps add up to a notch, the rest is kept.
+        let mut travel = 0.0;
+        let step = click * 0.4;
+        assert_eq!(
+            wheel_delta_action(&at_output, &mut travel, step, p, NONE),
+            KeyAction::Nothing
+        );
+        assert_eq!(
+            wheel_delta_action(&at_output, &mut travel, step, p, NONE),
+            KeyAction::Nothing
+        );
+        assert_eq!(
+            wheel_delta_action(&at_output, &mut travel, step, p, NONE),
+            KeyAction::Scroll(3)
+        );
+        assert!(travel.abs() < click);
+        // A program that hears the pointer hears a wheel turned up as such.
+        let mut reported = screen(24, 100, 0);
+        reported.modes.mouse = TerminalMouseMode::Click;
+        reported.modes.mouse_encoding = TerminalMouseEncoding::Sgr;
+        let mut travel = 0.0;
+        assert_eq!(
+            wheel_delta_action(&reported, &mut travel, click, p, NONE),
+            KeyAction::Bytes(b"\x1b[<64;10;5M".to_vec())
+        );
+        // Nonsense moves nothing.
+        let mut travel = 0.0;
+        assert_eq!(
+            wheel_delta_action(&at_output, &mut travel, f32::NAN, p, NONE),
+            KeyAction::Nothing
         );
     }
 
