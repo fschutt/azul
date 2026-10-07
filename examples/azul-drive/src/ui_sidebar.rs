@@ -1109,9 +1109,9 @@ fn focus_row(info: &mut CallbackInfo, nodes: &[DomNodeId], to: usize) {
 }
 
 /// The source list's keys, from the window's key handler: `Some` when the keyboard is in the
-/// list and the key is the list's (the arrows, Enter, Space, a letter, the menu key), `None`
-/// leaves the key to the window (F5, Backspace, Ctrl+C, Escape ... - and Enter on a button
-/// under the list, which the engine turns into the button's click).
+/// list and the key is the list's (the arrows, Enter, Space, a letter, the menu key - and Enter
+/// or Space on a button under the list, left to the engine, which turns it into the button's
+/// click), `None` leaves the key to the window (F5, Backspace, Ctrl+C, Escape ...).
 pub(crate) fn on_sidebar_key(
     data: &mut RefAny,
     info: &mut CallbackInfo,
@@ -1149,7 +1149,12 @@ pub(crate) fn on_sidebar_key(
         info.prevent_default();
         return Some(Update::DoNothing);
     }
-    let decided = key_move(&rows, current, stop, key, mods.shift)?;
+    let Some(decided) = key_move(&rows, current, stop, key, mods.shift) else {
+        // Enter / Space on a button under the list (or the pane): the engine's activation clicks
+        // the button - the window's Open must not run on the content, nor veto that click.
+        return (current.is_none() && matches!(key, Key::Enter | Key::Space))
+            .then_some(Update::DoNothing);
+    };
     info.prevent_default();
     Some(match decided {
         SideMove::Stay => Update::DoNothing,
