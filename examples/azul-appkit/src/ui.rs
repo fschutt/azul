@@ -123,6 +123,8 @@ pub struct Kit {
     /// The app's key handler calls [`handle_key`]: Escape is handled there, so the page's own
     /// key handler (for the apps that do not route their keys through the kit) stays out.
     keys_routed: bool,
+    /// The prefixes of the values Cancel leaves as they are ([`keep_on_cancel`]).
+    kept_on_cancel: Vec<String>,
 }
 
 /// What an app does after Cancel put its settings back: re-read its own copies of its values
@@ -235,6 +237,7 @@ pub fn create_kit(
         snapshot: None,
         reload: None,
         keys_routed: false,
+        kept_on_cancel: Vec::new(),
     })
 }
 
@@ -547,7 +550,7 @@ pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppS
         if open {
             println!("{}_SETTINGS_CLOSED cancel", k.spec.binary.to_uppercase());
         }
-        let restored = snapshot.restore(&mut k.settings, &mut k.args);
+        let restored = snapshot.restore_keeping(&mut k.settings, &mut k.args, &k.kept_on_cancel);
         (restored, k.settings.clone(), reload)
     };
     if let Some((theme, mode)) = restored.look {
@@ -562,6 +565,16 @@ pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppS
         reload(&mut app, info, &settings);
     }
     (restored.save || restored.look.is_some()).then_some(settings)
+}
+
+/// The values whose key starts with `prefix` record what an action did (AzKeys'
+/// `device_unlock.<vault>`: a key put into the keyring), not a choice: Cancel leaves them as
+/// they are. Called once, at the start.
+pub fn keep_on_cancel(kit_ref: &RefAny, prefix: &str) {
+    let mut kit = kit_ref.clone();
+    if let Some(mut k) = kit.downcast_mut::<Kit>() {
+        k.kept_on_cancel.push(prefix.to_string());
+    };
 }
 
 /// Whether the settings page is showing.

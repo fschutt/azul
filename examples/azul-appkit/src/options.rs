@@ -155,9 +155,30 @@ impl Snapshot {
     /// Puts the settings and the switches back as they were.
     #[must_use]
     pub fn restore(self, settings: &mut AppSettings, args: &mut AppArgs) -> Restored {
+        self.restore_keeping(settings, args, &[])
+    }
+
+    /// [`Snapshot::restore`], but the values whose key starts with one of `kept` stay as they
+    /// are now: they record what an action did (AzKeys' `device_unlock.<vault>`: a key put
+    /// into the keyring), which Cancel does not undo.
+    #[must_use]
+    pub fn restore_keeping(
+        self,
+        settings: &mut AppSettings,
+        args: &mut AppArgs,
+        kept: &[String],
+    ) -> Restored {
+        let is_kept = |key: &str| kept.iter().any(|prefix| key.starts_with(prefix.as_str()));
+        let mut back = self.settings;
+        back.values.retain(|key, _| !is_kept(key));
+        for (key, value) in &settings.values {
+            if is_kept(key) {
+                back.values.insert(key.clone(), value.clone());
+            }
+        }
         let shown = settings.effective(args);
-        let save = *settings != self.settings;
-        *settings = self.settings;
+        let save = *settings != back;
+        *settings = back;
         args.theme = self.theme_switch;
         args.mode = self.mode_switch;
         let again = settings.effective(args);
@@ -266,6 +287,26 @@ mod tests {
                 look: None,
             }
         );
+    }
+
+    #[test]
+    fn cancel_leaves_the_values_an_action_wrote() {
+        // AzKeys: the device unlock was turned on (its key is in the keyring now) and the
+        // idle time changed; Cancel puts back the idle time only.
+        let mut settings = AppSettings::default();
+        settings.set("idle_minutes", "5");
+        settings.set("device_unlock.old", "touch-id");
+        let mut args = AppArgs::default();
+        let snapshot = Snapshot::take(&settings, &args);
+        settings.set("idle_minutes", "15");
+        settings.set("device_unlock.abc", "touch-id");
+        settings.values.remove("device_unlock.old");
+        let kept = vec!["device_unlock.".to_string()];
+        let restored = snapshot.restore_keeping(&mut settings, &mut args, &kept);
+        assert!(restored.save);
+        assert_eq!(settings.get("idle_minutes"), Some("5"));
+        assert_eq!(settings.get("device_unlock.abc"), Some("touch-id"), "kept as it is now");
+        assert_eq!(settings.get("device_unlock.old"), None, "its removal is kept too");
     }
 
     #[test]
