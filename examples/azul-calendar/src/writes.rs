@@ -90,7 +90,8 @@ pub(crate) fn read_import(s: &mut CalState, info: &mut CallbackInfo, app: &RefAn
     );
 }
 
-/// The main window's write timer.
+/// The main window's write timer. It also keeps FILE > Print's preview in step with the page
+/// (`print_ui::pump`: whichever way the page was opened, and whatever changed meanwhile).
 pub(crate) extern "C" fn on_write_tick(
     mut data: RefAny,
     mut info: TimerCallbackInfo,
@@ -98,6 +99,7 @@ pub(crate) extern "C" fn on_write_tick(
     let app = data.clone();
     if let Some(mut s) = data.downcast_mut::<CalState>() {
         pump(&mut s, &mut info.callback_info, &app);
+        crate::print_ui::pump(&mut s, &mut info.callback_info, &app);
     }
     TimerCallbackReturn::continue_unchanged()
 }

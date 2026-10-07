@@ -34,6 +34,11 @@ Stages (each runs even when one before it failed; `--only` / `--skip` pick them)
   occurrence  Enter on the editor's weekly event a week on: the editor opens on that day with
             "This occurrence" (#editor-scope); Save writes a one-off event on that day and the
             series skips it (`except`).
+  print     FILE > Print from the Week view: the page opens on Weekly Agenda Style and previews
+            it (`AZCAL_PRINT_PREVIEW weekly <pages>`, a picture #print-sheet-0); Monthly Style
+            (#print-style-monthly) previews the month; Print (#print-run, the save dialog mocked
+            to accept) saves it: `AZCAL_PRINTED monthly <bytes>`, a PDF of 1 KB at least, and
+            #print-message says so; Daily Style the same. Screenshots of the page go to --out.
   contrast  under flat and flora, light and dark: for the Week, Month and List views and the
             backstage, every piece of text the display list paints (button labels among them) is
             read against the rectangles painted under it; under 2:1 is a finding (the threshold of
@@ -551,6 +556,84 @@ def stage_occurrence(app, ctx):
     return f"the occurrence of {day} became {new[0]}; the series skips that day"
 
 
+# ==== print ====
+
+def printed_count(app, key, style, seen):
+    """The `<n>` of the first `<key> <style> <n>` line on stdout after the first `seen` lines of
+    `key` (waits for it)."""
+
+    def check():
+        for line in app.printed(key)[seen:]:
+            parts = line.split()
+            if len(parts) == 2 and parts[0] == style:
+                return parts[1]
+        return None
+
+    return int(app.main.until(f"{key} {style}", check))
+
+
+def preview_style(app, style, seen, out):
+    """Waits for the preview of `style` (made after the first `seen` preview lines) and its first
+    sheet's picture; a screenshot of the page goes to `out`. The page count."""
+    w = app.main
+    pages = printed_count(app, "AZCAL_PRINT_PREVIEW", style, seen)
+    if pages < 1:
+        raise Failure(
+            f"the {style} preview has no pages (a libazul without its `pdf` feature?):\n"
+            f"{wi.tail(app.err)}"
+        )
+    w.wait_for(wi.sel("print-sheet-0"))
+    w.frames(2)
+    w.screenshot(os.path.join(out, f"print-{style}.png"))
+    return pages
+
+
+def print_style(app, style):
+    """Print (the save dialog mocked to accept): `AZCAL_PRINTED <style> <bytes>`, the bytes of a
+    PDF, and the page says it saved it."""
+    w = app.main
+    seen = len(app.printed("AZCAL_PRINTED"))
+    w.click(selector=wi.sel("print-run"))
+    size = printed_count(app, "AZCAL_PRINTED", style, seen)
+    if size < 1024:
+        raise Failure(f"AZCAL_PRINTED {style} {size}: too few bytes for a PDF of a page")
+    w.wait_for(wi.sel("print-message"))
+    w.until("the page to say the printout was saved", lambda: w.shows("Saved AzCalendar"))
+    return size
+
+
+def stage_print(app, ctx):
+    w = app.main
+    out = ctx["out"]
+    os.makedirs(out, exist_ok=True)
+    w.key("3", primary=True, alt=True)
+    w.wait_for(wi.sel("view-week"))
+    seen = len(app.printed("AZCAL_PRINT_PREVIEW"))
+    w.click(text="FILE")
+    w.wait_for("#shell-backstage")
+    w.click(text="Print")
+    w.wait_for(wi.sel("backstage-print"))
+    w.wait_for(wi.sel("print-style-weekly"))
+    weekly = preview_style(app, "weekly", seen, out)
+    # Monthly Style: the month, previewed and printed.
+    seen = len(app.printed("AZCAL_PRINT_PREVIEW"))
+    w.click(selector=wi.sel("print-style-monthly"))
+    monthly = preview_style(app, "monthly", seen, out)
+    w.must({"op": "mock", "set": {"save_bytes": {"accept": True}}})
+    monthly_bytes = print_style(app, "monthly")
+    # Daily Style: a day.
+    seen = len(app.printed("AZCAL_PRINT_PREVIEW"))
+    w.click(selector=wi.sel("print-style-daily"))
+    preview_style(app, "daily", seen, out)
+    daily_bytes = print_style(app, "daily")
+    w.key("escape")
+    w.wait_gone("#shell-backstage")
+    return (
+        f"weekly previewed ({weekly} page(s)); monthly previewed ({monthly} page(s)) and printed "
+        f"({monthly_bytes} bytes); daily printed ({daily_bytes} bytes); screenshots in {out}"
+    )
+
+
 # ==== contrast ====
 
 def stage_contrast(app, ctx):
@@ -603,6 +686,7 @@ STAGES = [
     ("close", stage_close),
     ("repeat", stage_repeat),
     ("occurrence", stage_occurrence),
+    ("print", stage_print),
     ("contrast", stage_contrast),
 ]
 

@@ -15,6 +15,10 @@
 //! with a popover); Month has "+N more" where a day is full, the Schedule View the day's hours
 //! across with a row per calendar, the List the coming days (`views_ui.rs`).
 //!
+//! FILE > Print (`print.rs`, `print_ui.rs`) is Outlook 2010's print page: Daily, Weekly Agenda
+//! or Monthly style, a range, a preview of the printout and Print, which saves it as a PDF made
+//! by azul's PDF writer from a DOM laid out for paper.
+//!
 //! An event is edited in a window of its own (`editor_ui.rs`, `editor.rs`): title, location,
 //! start and end (date and time), all day, repeat (an RRULE subset, `rrule.rs`), reminder,
 //! calendar, attendees, notes and "Add AzMeet link".
@@ -48,7 +52,9 @@
 //! `AZCAL_SAVED <file>` and `AZCAL_LINK <link>` when an event is saved, `AZCAL_DELETED <id>`,
 //! `AZCAL_SYNCED <link>` when a link's room is registered, `AZCAL_EDITOR <open|closed>`,
 //! `AZCAL_IMPORTED <count> <file>`, `AZCAL_EXPORTED <count> <file>`, `AZCAL_REMINDER <title>`,
-//! `AZCAL_JOIN_PID <pid>` when "Join meeting" started AzMeet.
+//! `AZCAL_JOIN_PID <pid>` when "Join meeting" started AzMeet, `AZCAL_PRINT_PREVIEW <style>
+//! <pages>` when FILE > Print's preview was made, `AZCAL_PRINTED <style> <bytes>` when a
+//! printout was saved.
 
 pub mod args;
 pub mod calendars;
@@ -56,6 +62,7 @@ pub mod editor;
 pub mod event;
 pub mod ics;
 pub mod meeting;
+pub mod print;
 pub use azul_pim::rrule;
 pub mod sample;
 pub mod settings;
@@ -70,6 +77,7 @@ pub mod week;
 mod chrome;
 mod editor_ui;
 mod ids;
+mod print_ui;
 mod timegrid;
 mod views_ui;
 mod writes;
@@ -294,6 +302,14 @@ pub(crate) struct CalState {
     // ---- FILE > Calendars ----
     pub(crate) calendar_name: String,
     pub(crate) calendar_error: String,
+    // ---- FILE > Print ----
+    /// The print style and range the Print page shows.
+    pub(crate) print: print::Settings,
+    /// The preview of that printout (made on a thread, `print_ui::pump`).
+    pub(crate) print_preview: print_ui::Preview,
+    /// What the last Print did, and whether it failed.
+    pub(crate) print_message: String,
+    pub(crate) print_failed: bool,
     // ---- reminders ----
     /// Reminders shown already, by event id and day.
     pub(crate) reminded: BTreeSet<(String, NaiveDate)>,
@@ -642,6 +658,7 @@ fn menu_bar(data: &RefAny) -> Menu {
                 item("New Appointment", editor_ui::on_new_appointment),
                 item("New Meeting", editor_ui::on_new_meeting),
                 item("Open & Export\u{2026}", chrome::on_open_page),
+                item("Print\u{2026}", chrome::on_print_page),
                 item("Calendars\u{2026}", chrome::on_calendars_page),
             ],
         ),
@@ -668,8 +685,8 @@ fn menu_bar(data: &RefAny) -> Menu {
 }
 
 /// The window's keys, Outlook's: Ctrl (Cmd) + Alt + 1 .. 6 the views, Ctrl + N a new
-/// appointment, Ctrl + Shift + Q a new meeting, Ctrl + T today, Alt + Left / Right the previous
-/// / next days. Keys without Ctrl, Cmd or Alt are the focused control's.
+/// appointment, Ctrl + Shift + Q a new meeting, Ctrl + T today, Ctrl + P Print, Alt + Left /
+/// Right the previous / next days. Keys without Ctrl, Cmd or Alt are the focused control's.
 extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = info
         .get_current_keyboard_state()
@@ -713,6 +730,14 @@ extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update 
                 };
                 let today = s.today;
                 s.set_anchor(today);
+                info.prevent_default();
+                Update::RefreshDom
+            }
+            VirtualKeyCode::P => {
+                let Some(mut s) = data.downcast_mut::<CalState>() else {
+                    return Update::DoNothing;
+                };
+                chrome::open_backstage(&mut s, BackstagePage::Print);
                 info.prevent_default();
                 Update::RefreshDom
             }
@@ -1319,6 +1344,10 @@ pub fn start() {
         io_failed: false,
         calendar_name: String::new(),
         calendar_error: String::new(),
+        print: print::Settings::for_view(view, anchor),
+        print_preview: print_ui::Preview::default(),
+        print_message: String::new(),
+        print_failed: false,
         reminded: BTreeSet::new(),
         reminder: None,
     };
@@ -1401,6 +1430,7 @@ mod mode_tests {
             ("DRAFT_PAINT", DRAFT_PAINT),
             ("DRAFT_TITLE", DRAFT_TITLE),
             ("ERROR", ERROR),
+            ("PREVIEW_SURFACE", print_ui::PREVIEW_SURFACE),
         ] {
             assert!(
                 !fixed_colours(css).is_empty(),
