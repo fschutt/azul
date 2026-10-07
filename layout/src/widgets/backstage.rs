@@ -141,6 +141,36 @@ const W13_NAV_ACTIVE: ColorU = ColorU {
     a: 255,
 };
 
+// -- the Office 2010 palette (seeds BackstageTheme::office_2010) --
+//
+// Outlook 2010's File page: the navigation a silver-blue column beside white
+// paper, dark text, the yellow hover face, and the picked item the orange
+// selection Office 2010 lit it with. Page-neutral, so it goes dark with the
+// window.
+
+/// The picked nav item's palette value (#F8D457); it is drawn as a face from
+/// [`O10_NAV_ACTIVE_TOP`] to [`O10_NAV_ACTIVE_BOTTOM`].
+const O10_NAV_ACTIVE: ColorU = ColorU {
+    r: 248,
+    g: 212,
+    b: 87,
+    a: 255,
+};
+/// The top of the picked item's face (#F5BC53).
+const O10_NAV_ACTIVE_TOP: ColorU = ColorU {
+    r: 245,
+    g: 188,
+    b: 83,
+    a: 255,
+};
+/// The foot of the picked item's face (#FAE26B).
+const O10_NAV_ACTIVE_BOTTOM: ColorU = ColorU {
+    r: 250,
+    g: 226,
+    b: 107,
+    a: 255,
+};
+
 // -- Metrics (the Office-2013-era look, logical px) --
 
 /// Nav column width.
@@ -223,9 +253,38 @@ impl BackstageTheme {
     }
 }
 
+impl BackstageTheme {
+    /// The Office 2010 palette, the flat theme's File page and the default:
+    /// a silver-blue navigation column in dark text beside white paper, the
+    /// yellow hover, the orange selection. Page-neutral (`is_office_2010`):
+    /// it goes dark with the window.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self {
+            nav_bg: flat::LIGHT_SUR,
+            nav_text: flat::LIGHT_INK,
+            nav_hover_bg: flat::LIGHT_HB,
+            nav_active_bg: O10_NAV_ACTIVE,
+            content_bg: WHITE,
+            back_ring: flat::LIGHT_BD3,
+        }
+    }
+
+    /// Whether this is Office 2010's File page (its selection colour): its
+    /// parts are page-neutral, each colour with its dark twin, the states
+    /// Office 2010's faces.
+    #[must_use]
+    pub(crate) const fn is_office_2010(&self) -> bool {
+        self.nav_active_bg.r == O10_NAV_ACTIVE.r
+            && self.nav_active_bg.g == O10_NAV_ACTIVE.g
+            && self.nav_active_bg.b == O10_NAV_ACTIVE.b
+            && self.nav_active_bg.a == O10_NAV_ACTIVE.a
+    }
+}
+
 impl Default for BackstageTheme {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -322,7 +381,23 @@ fn push_ring_border(v: &mut Vec<Cond>, c: ColorU, width: isize, radius: isize) {
 /// worse than today's light-only rule — see `themes::flat::hover_bg_both` for
 /// the rule, and `flat::button_states` for the same call on a Primary button.
 fn push_nav_hover(v: &mut Vec<Cond>, t: &BackstageTheme) {
+    // Office 2010's column is page-neutral: the yellow face, amber by night.
+    if t.is_office_2010() {
+        v.extend(flat::hover_face_both());
+        return;
+    }
     v.extend(flat::hover_bg_both(t.nav_hover_bg, t.nav_hover_bg));
+}
+
+/// The navigation's text colour: the palette's on the accent column (its own
+/// colour in both modes), with the theme's dark ink after it on Office
+/// 2010's page-neutral one.
+fn push_nav_ink(v: &mut Vec<Cond>, t: &BackstageTheme) {
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_ink(t.nav_text, flat::DARK_INK));
+    } else {
+        v.push(cond_text_color(t.nav_text));
+    }
 }
 
 /// The page (the root, the right side, the pane): the palette's `content_bg`
@@ -352,7 +427,7 @@ fn theme_root(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_nav(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
@@ -361,8 +436,13 @@ fn theme_nav(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
             inner: FloatValue::const_new(0),
         })),
         Cond::simple(P::const_width(LayoutWidth::const_px(NAV_WIDTH))),
-        cond_bg(t.nav_bg),
-    ])
+    ];
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_fill(t.nav_bg, flat::DARK_SUR));
+    } else {
+        v.push(cond_bg(t.nav_bg));
+    }
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The circled back arrow. office-2013: a 2px white ring, transparent fill,
@@ -389,14 +469,22 @@ fn theme_back_button(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     ];
     push_nav_hover(&mut v, t);
     push_ring_border(&mut v, t.back_ring, 2, BACK_D / 2);
+    if t.is_office_2010() {
+        // The ring again with its dark twin after each edge.
+        v.extend(super::themes::decl::themed_border_color(
+            t.back_ring,
+            flat::DARK_BD3,
+        ));
+    }
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_back_icon(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(20))),
-        cond_text_color(t.nav_text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        20,
+    )))];
+    push_nav_ink(&mut v, t);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
@@ -414,15 +502,31 @@ fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_font_size(StyleFontSize::const_px(NAV_TEXT_PX))),
         Cond::simple(P::const_cursor(StyleCursor::Pointer)),
         Cond::simple(P::user_select(StyleUserSelect::None)),
-        cond_text_color(t.nav_text),
-        cond_bg(TRANSPARENT),
     ];
+    push_nav_ink(&mut v, t);
+    v.push(cond_bg(TRANSPARENT));
     push_nav_hover(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// APPENDED to the active nav item.
 fn theme_nav_item_active(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
+    if t.is_office_2010() {
+        // Office 2010's orange selection; by night the toggled-on amber.
+        let mut v = super::themes::decl::themed_layers(
+            vec![super::themes::decl::face(
+                O10_NAV_ACTIVE_TOP,
+                O10_NAV_ACTIVE_BOTTOM,
+            )],
+            vec![super::themes::decl::face(
+                flat::DARK_CHECKED_TOP,
+                flat::DARK_CHECKED_BOTTOM,
+            )],
+        )
+        .to_vec();
+        push_nav_hover(&mut v, t);
+        return CssPropertyWithConditionsVec::from_vec(v);
+    }
     CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.nav_active_bg)])
 }
 
@@ -539,10 +643,17 @@ pub struct BackstageStyle {
 }
 
 impl BackstageStyle {
-    /// The the Office-2013-era look look (#2B579A nav, white content) - the default.
+    /// The the Office-2013-era look look (#2B579A nav, white content).
     #[must_use]
     pub const fn office_2013() -> Self {
         Self::from_theme(BackstageTheme::office_2013())
+    }
+
+    /// The Office 2010 look (see [`BackstageTheme::office_2010`]) - the
+    /// default, the flat theme's File page.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self::from_theme(BackstageTheme::office_2010())
     }
 
     /// Every part style, derived from the OS theme - see
@@ -663,7 +774,7 @@ impl BackstageStyle {
 
 impl Default for BackstageStyle {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -830,7 +941,7 @@ impl Backstage {
             title_strip: None.into(),
             content: None.into(),
             behavior: BackstageBehavior::office_2013(),
-            style: BackstageStyle::office_2013(),
+            style: BackstageStyle::office_2010(),
             theme: OptionUiTheme::None,
         }
     }
@@ -1304,8 +1415,8 @@ mod tests {
     }
 
     #[test]
-    fn backstage_style_default_is_office_2013() {
-        assert_eq!(BackstageStyle::default(), BackstageStyle::office_2013());
+    fn backstage_style_default_is_office_2010() {
+        assert_eq!(BackstageStyle::default(), BackstageStyle::office_2010());
     }
 
     #[test]
@@ -1868,7 +1979,7 @@ mod flora_tests {
     /// is the Office palette's parts, declaration for declaration.
     #[test]
     fn the_flat_backstage_is_the_office_look_it_always_was() {
-        let office = BackstageStyle::office_2013();
+        let office = BackstageStyle::default();
         let css = |v: CssPropertyWithConditionsVec| -> azul_css::css::Css { v.into() };
         let dom = pinned(UiTheme::Flat);
         assert_eq!(dom.root.style, css(office.resolved_root_style()));
