@@ -77,6 +77,7 @@ use super::{
     combobox::ComboBox,
     drop_down::DropDown,
     themes::{flat, style_kit, OptionUiTheme, UiTheme},
+    titlebar::{OptionTabsInTitlebar, TabsInTitlebar},
 };
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -2580,6 +2581,9 @@ pub struct Ribbon {
     pub active_tab: usize,
     /// Optional callback fired when a tab is clicked (receives the tab index).
     pub on_tab_click: OptionRibbonOnTabClick,
+    /// The tab strip as the window's title bar ([`TabsInTitlebar`]), or
+    /// `None` for a ribbon under a title row of its own.
+    pub tabs_in_titlebar: OptionTabsInTitlebar,
     /// All part styles (defaults to the the Office-2013-era look look).
     pub style: RibbonStyle,
     /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
@@ -3226,6 +3230,7 @@ impl Ribbon {
             tabs,
             active_tab: 0,
             on_tab_click: None.into(),
+            tabs_in_titlebar: OptionTabsInTitlebar::None,
             style: RibbonStyle::office_2013(),
             behavior: RibbonBehavior::office_2013(),
             theme: OptionUiTheme::None,
@@ -3256,6 +3261,24 @@ impl Ribbon {
     #[must_use]
     pub fn with_app_button(mut self, app_button: RibbonAppButton) -> Self {
         self.set_app_button(app_button);
+        self
+    }
+
+    /// Makes the tab strip the window's title bar (Firefox's tabs in the
+    /// titlebar): the strip runs up to the window's top edge and holds its
+    /// tabs `chrome`'s offsets in from it, clear of the window controls, and
+    /// everything around the tabs moves the window - a double click
+    /// maximizes it (zooms it on macOS). The tabs and the application button
+    /// stay controls. For a `WindowDecorations::NoTitle` window that shows no
+    /// title row above the ribbon.
+    pub const fn set_tabs_in_titlebar(&mut self, chrome: TabsInTitlebar) {
+        self.tabs_in_titlebar = OptionTabsInTitlebar::Some(chrome);
+    }
+
+    /// [`Self::set_tabs_in_titlebar`] for the builder chain.
+    #[must_use]
+    pub const fn with_tabs_in_titlebar(mut self, chrome: TabsInTitlebar) -> Self {
+        self.set_tabs_in_titlebar(chrome);
         self
     }
 
@@ -3365,20 +3388,32 @@ impl Ribbon {
 
     /// `mode`'s chrome in exactly `theme`'s look: flat is the palette's own
     /// parts; flora fills every part the caller left `None` with flora's
-    /// paint on the same geometry (`themes::flora::ribbon_style`).
+    /// paint on the same geometry (`themes::flora::ribbon_style`) - and its
+    /// own tab row, which it cuts as Firefox's (Australis): its application
+    /// button and selected tab carry curves, unless the caller's part
+    /// replaced flora's.
     fn build_in(mut self, theme: UiTheme, mode: RibbonChromeMode) -> Dom {
+        let mut curves = TabRowCurves::default();
         if theme == UiTheme::Flora {
-            self.style = crate::widgets::themes::flora::ribbon_style(self.style);
+            use crate::widgets::themes::flora;
+            if self.style.app_button_style.is_none() {
+                curves.app_button = Some(flora::tab_curves(true));
+            }
+            if self.style.tab_active_style.is_none() {
+                curves.selected_tab = Some(flora::tab_curves(false));
+            }
+            self.style = flora::ribbon_style(self.style);
         }
-        self.build_chrome(mode, theme)
+        self.build_chrome(mode, theme, &curves)
     }
 
-    fn build_chrome(self, mode: RibbonChromeMode, theme: UiTheme) -> Dom {
+    fn build_chrome(self, mode: RibbonChromeMode, theme: UiTheme, curves: &TabRowCurves) -> Dom {
         let Self {
             app_button,
             tabs,
             active_tab,
             on_tab_click,
+            tabs_in_titlebar,
             style,
             behavior,
             // The look to build is `theme`: the field is the caller's pin,
@@ -3406,10 +3441,18 @@ impl Ribbon {
         if let Some(ab) = app_button.into_option() {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
-                .with_css_props(style.resolved_app_button_style())
+                .with_css_props(as_control(
+                    style.resolved_app_button_style(),
+                    tabs_in_titlebar,
+                ))
                 .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                     ab.label,
                 )]));
+            if let Some(look) = curves.app_button.as_ref() {
+                for curve in crate::widgets::tabs::australis_curves(look) {
+                    d.add_child(curve);
+                }
+            }
             if let Some(oc) = ab.on_click.into_option() {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
@@ -3457,10 +3500,19 @@ impl Ribbon {
             };
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
-                .with_css_props(part_style)
+                .with_css_props(as_control(part_style, tabs_in_titlebar))
                 .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                     tab.label.clone(),
                 )]));
+            // The selected tab's curves go after its label: the label stays
+            // the tab's first child in every look.
+            if idx == active_tab {
+                if let Some(look) = curves.selected_tab.as_ref() {
+                    for curve in crate::widgets::tabs::australis_curves(look) {
+                        d.add_child(curve);
+                    }
+                }
+            }
 
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if has_callback {
@@ -3516,9 +3568,15 @@ impl Ribbon {
                 .with_css_props(style.resolved_tab_filler_style()),
         );
 
+        // In the titlebar the strip runs up to the window's edges, holds its
+        // tabs clear of the window controls and moves the window.
+        let tab_bar_style = match tabs_in_titlebar.into_option() {
+            Some(chrome) => chrome.strip_style(&style.resolved_tab_bar_style()),
+            None => style.resolved_tab_bar_style(),
+        };
         let tab_bar = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TAB_BAR))
-            .with_css_props(style.resolved_tab_bar_style())
+            .with_css_props(tab_bar_style)
             .with_children(DomVec::from_vec(bar_children));
 
         let mut group_doms: Vec<Dom> =
@@ -3766,6 +3824,32 @@ impl Ribbon {
 }
 
 // -- DOM assembly helpers --
+
+/// The Australis curves a look hangs off the tab row's stones: flora's own
+/// application button and selected tab (`themes::flora::tab_curves`).
+/// `None` where the look draws none - flat's Office tabs are boxes - or
+/// where the caller's own part replaced the look's.
+#[derive(Debug, Clone, Default)]
+struct TabRowCurves {
+    app_button: Option<crate::widgets::tabs::TabCurveLook>,
+    selected_tab: Option<crate::widgets::tabs::TabCurveLook>,
+}
+
+/// A tab's or the application button's part, with
+/// [`TabsInTitlebar::control`] appended when the strip is the window's title
+/// bar: pressing the control presses it, and dragging it does not move the
+/// window.
+fn as_control(
+    part: CssPropertyWithConditionsVec,
+    chrome: OptionTabsInTitlebar,
+) -> CssPropertyWithConditionsVec {
+    if chrome.is_none() {
+        return part;
+    }
+    let mut v = part.into_library_owned_vec();
+    v.push(TabsInTitlebar::control());
+    CssPropertyWithConditionsVec::from_vec(v)
+}
 
 /// `base` with `extra` appended (inline CSS resolves last-wins, so `extra`
 /// overrides `base` where they collide).
@@ -6755,8 +6839,8 @@ mod flora_tests {
         ] {
             assert_eq!(
                 face(active, dark, None),
-                flora::selected_stone(),
-                "the selected tab is the sunken stone, its own colour (dark: {dark})"
+                flora::australis_face(flora::STONE_STREAK),
+                "the selected tab is the sunken stone stood upright, its own colour (dark: {dark})"
             );
             assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
             assert_eq!(tc::text_color(other, dark), Some(soft), "an unselected tab (dark: {dark})");
@@ -6818,15 +6902,33 @@ mod flora_tests {
         }
     }
 
+    /// `dom` without its tab strip: the ribbon's root with every other child.
+    fn without_tab_strip(dom: &Dom) -> Dom {
+        let mut d = dom.clone();
+        d.children = DomVec::from_vec(
+            dom.children
+                .as_ref()
+                .iter()
+                .filter(|c| !tc::has_class(c, "__azul-native-ribbon-tabbar"))
+                .cloned()
+                .collect(),
+        );
+        d
+    }
+
     /// Flora repaints the ribbon; it does not re-measure it. The ribbon's
     /// layout was measured for its heights, paddings and borders (the 68px
-    /// item row, the 26px strip), so the flora look keeps every one of them.
+    /// item row), so the flora look keeps every one of them - except in the
+    /// tab strip, which flora cuts as Firefox's tab row (the Australis tab,
+    /// `themes::flora`): taller, the tabs standing on its rule, the selected
+    /// tab and the application button hung with curves.
     #[test]
-    fn a_flora_ribbon_keeps_every_metric_of_the_flat_ribbon() {
+    fn a_flora_ribbon_keeps_every_metric_of_the_flat_ribbon_below_its_tab_strip() {
         let flat = every_chrome(UiTheme::Flat);
         let flora_chromes = every_chrome(UiTheme::Flora);
         for ((chrome, a), (_, b)) in flat.iter().zip(flora_chromes.iter()) {
-            let moved = flora::chrome_metric_findings(a, b);
+            let moved =
+                flora::chrome_metric_findings(&without_tab_strip(a), &without_tab_strip(b));
             assert!(
                 moved.is_empty(),
                 "the flora ribbon ({chrome}) moves:\n  {}",
@@ -6922,10 +7024,174 @@ mod flora_tests {
                     assert_structure_is_shared(
                         &format!("ribbon ({chrome}, tab {active}) built for {}", t.name()),
                         &dom,
-                        &[],
+                        &[
+                            (
+                                "__azul-native-ribbon-tab-active",
+                                CssPropertyType::Position,
+                                "flora hangs the Australis curves off its selected tab",
+                            ),
+                            (
+                                "__azul-native-ribbon-appbutton",
+                                CssPropertyType::Position,
+                                "flora hangs the Australis curves off its application button",
+                            ),
+                        ],
                     );
                 }
             }
         }
+    }
+
+    /// `node`'s resting border-top colour in the light mode.
+    fn top_edge(node: &Dom) -> Option<ColorU> {
+        match tc::resolve(node, CssPropertyType::BorderTopColor, false, None)? {
+            P::BorderTopColor(azul_css::css::CssPropertyValue::Exact(c)) => Some(c.inner),
+            _ => None,
+        }
+    }
+
+    /// `node`'s `-azul-app-region`, if it declares one.
+    fn app_region(node: &Dom) -> Option<azul_css::props::style::transform::StyleAppRegion> {
+        match tc::resolve(node, CssPropertyType::AppRegion, false, None)? {
+            P::AppRegion(azul_css::css::CssPropertyValue::Exact(r)) => Some(r),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn flora_cuts_its_selected_tab_and_application_button_as_australis_tabs_in_the_rule_s_metal() {
+        use azul_core::dom::SvgNodeData;
+
+        use crate::widgets::tabs::{
+            CURVE_FILL_CLASS, CURVE_LEFT_CLASS, CURVE_RIGHT_CLASS, CURVE_STROKE_CLASS,
+        };
+
+        let dom = ribbon(UiTheme::Flora);
+        let active = node(&dom, "__azul-native-ribbon-tab-active");
+        let app = node(&dom, "__azul-native-ribbon-appbutton");
+        for (what, stone) in [("the selected tab", active), ("the application button", app)] {
+            assert_eq!(
+                stone.children.as_ref().len(),
+                3,
+                "{what}: its label, then its two curves"
+            );
+            for (i, side) in [(1, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
+                let curve = &stone.children.as_ref()[i];
+                assert!(tc::has_class(curve, side), "{what}: child {i} is its {side}");
+                assert!(
+                    matches!(curve.root.get_svg_data(), Some(SvgNodeData::ViewBox { .. })),
+                    "{what}: a curve is a user space of its own, one unit per px"
+                );
+                let fill = tc::find(curve, CURVE_FILL_CLASS).expect("the face inside the S");
+                let stroke = tc::find(curve, CURVE_STROKE_CLASS).expect("the S");
+                assert!(matches!(fill.root.get_svg_data(), Some(SvgNodeData::Path(_))));
+                assert!(matches!(stroke.root.get_svg_data(), Some(SvgNodeData::Path(_))));
+                assert_eq!(
+                    top_edge(stroke),
+                    Some(flora::TAB_METAL),
+                    "{what}: the S is cut from the rule's metal"
+                );
+            }
+            assert_eq!(
+                top_edge(stone),
+                Some(flora::TAB_METAL),
+                "{what}: its top edge is the same metal"
+            );
+        }
+        let unselected = tc::find_all(&dom, "__azul-native-ribbon-tab")
+            .into_iter()
+            .find(|t| !tc::has_class(t, "__azul-native-ribbon-tab-active"))
+            .expect("an unselected tab");
+        assert_eq!(unselected.children.as_ref().len(), 1, "an unselected tab is its label");
+    }
+
+    #[test]
+    fn a_flat_ribbon_keeps_its_office_tabs_square() {
+        let dom = ribbon(UiTheme::Flat);
+        assert!(tc::find(&dom, crate::widgets::tabs::CURVE_LEFT_CLASS).is_none());
+        assert!(tc::find(&dom, crate::widgets::tabs::CURVE_RIGHT_CLASS).is_none());
+    }
+
+    #[test]
+    fn a_selected_tab_the_caller_styled_keeps_its_own_shape() {
+        let mut r = fixture().with_theme(UiTheme::Flora);
+        r.style.tab_active_style =
+            OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_vec(
+                vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(15)))],
+            ));
+        let dom = r.dom();
+        let active = node(&dom, "__azul-native-ribbon-tab-active");
+        assert_eq!(active.children.as_ref().len(), 1, "no curves on the caller's tab");
+        let app = node(&dom, "__azul-native-ribbon-appbutton");
+        assert_eq!(app.children.as_ref().len(), 3, "flora's own application button keeps them");
+    }
+
+    #[test]
+    fn a_flora_tab_is_set_in_the_ui_hand_s_capitals() {
+        let dom = ribbon(UiTheme::Flora);
+        for tab in tc::find_all(&dom, "__azul-native-ribbon-tab") {
+            assert_eq!(
+                tc::resolve(tab, CssPropertyType::FontFamily, false, None),
+                Some(P::const_font_family(flora::FONT_CAPS))
+            );
+            assert_eq!(
+                tc::resolve(tab, CssPropertyType::TextTransform, false, None),
+                Some(P::TextTransform(azul_css::props::property::StyleTextTransformValue::Exact(
+                    StyleTextTransform::Uppercase
+                )))
+            );
+        }
+    }
+
+    #[test]
+    fn a_tab_strip_in_the_titlebar_moves_the_window_and_its_tabs_do_not() {
+        use azul_css::props::style::transform::StyleAppRegion;
+
+        let chrome = TabsInTitlebar::create(8.0, 78.0, 0.0);
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let dom = fixture()
+                .with_theme(theme)
+                .with_tabs_in_titlebar(chrome)
+                .dom_desktop();
+            assert_eq!(
+                app_region(node(&dom, "__azul-native-ribbon-tabbar")),
+                Some(StyleAppRegion::Drag),
+                "{theme:?}: the strip around the tabs moves the window"
+            );
+            for tab in tc::find_all(&dom, "__azul-native-ribbon-tab") {
+                assert_eq!(
+                    app_region(tab),
+                    Some(StyleAppRegion::NoDrag),
+                    "{theme:?}: a tab stays a tab"
+                );
+            }
+            assert_eq!(
+                app_region(node(&dom, "__azul-native-ribbon-appbutton")),
+                Some(StyleAppRegion::NoDrag),
+                "{theme:?}: FILE stays a button"
+            );
+            let before_first = tc::resolve(
+                node(&dom, "__azul-native-ribbon-tabbar"),
+                CssPropertyType::PaddingLeft,
+                false,
+                None,
+            )
+            .and_then(|p| match p {
+                P::PaddingLeft(azul_css::css::CssPropertyValue::Exact(pad)) => {
+                    Some(pad.inner.number.get())
+                }
+                _ => None,
+            });
+            assert!(
+                before_first.is_some_and(|px| px >= 78.0),
+                "{theme:?}: the first tab starts past the window controls ({before_first:?})"
+            );
+        }
+        let plain = fixture().with_theme(UiTheme::Flat).dom_desktop();
+        assert_eq!(
+            app_region(node(&plain, "__azul-native-ribbon-tabbar")),
+            None,
+            "a ribbon under its own title row moves nothing"
+        );
     }
 }
