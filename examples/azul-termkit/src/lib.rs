@@ -13,5 +13,8 @@
 //!   copy), when a flood of output is drawn, the re-render of the view alone.
 
 pub mod pane;
+/// Recorded sessions and the sample shell (`seq N`, `yes | head -n N`): what
+/// `--sample` runs instead of a real shell, for screenshots and E2E runs.
+pub mod sample;
 pub mod session;
 pub mod vt;

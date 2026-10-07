@@ -51,10 +51,9 @@
 //! (the last tab closed: the window closes).
 
 pub mod ids;
-pub mod sample;
 pub mod scroll;
 // The shell on a PTY and its screen: shared with AzCode's terminal panel.
-pub use azul_termkit::{session, vt};
+pub use azul_termkit::{sample, session, vt};
 
 use std::{path::Path, sync::atomic::Ordering};
 
