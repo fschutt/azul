@@ -6,11 +6,21 @@
 //! order; a header click hands its sort keys to the model
 //! ([`keys_of`] -> `Model::set_sort`) and the view goes back "in app order"
 //! ([`in_app_order`]: the header still shows the arrows). The widget's
-//! filter row is off - the tool row has the filter field (name, user, PID).
+//! filter row is off - the row under the table has the filter field (name,
+//! user, PID).
 //!
 //! THE SELECTION IS A PROCESS, NOT A ROW: the model keeps the selected PID
 //! and every reading puts the table's selection on that process' new row
 //! ([`follow_selection`]).
+//!
+//! THE USER'S HAND WINS OVER THE CLOCK: while the user scrolls or drags in
+//! the table (and for [`HANDS_OFF_MS`] after), a reading does not redraw it -
+//! the rows do not re-sort under the pointer mid-gesture; the next reading
+//! after the hand rests brings the table up to date ([`hands_on`]).
+//!
+//! DENSE, like the old Task Manager: [`ROW_PX`] rows in [`FONT_PX`] text,
+//! the CPU in two digits ("07"), the memory in grouped kilobytes
+//! ("12,345 K"), the command line as the Description.
 
 use azul::{
     callbacks::{DataTableDataSourceCallbackType, DataTableOnEventCallbackType},
@@ -19,17 +29,34 @@ use azul::{
     vec::U32Vec,
     widgets::{
         CellGridHorizontalAlign, DataTable, DataTableCell, DataTableCellRef, DataTableColumn,
-        DataTableEvent, DataTableEventKind, DataTableSortDirection, DataTableSortKey,
-        DataTableSortKind, DataTableView, ListSelection,
+        DataTableDragKind, DataTableEvent, DataTableEventKind, DataTableSortDirection,
+        DataTableSortKey, DataTableSortKind, DataTableView, ListSelection,
     },
 };
 
 use crate::{
     ids,
-    model::{format_percent, Column, ProcRow, SortKey, COLUMNS},
+    model::{format_cpu_column, format_k, Column, ProcRow, SortKey, COLUMNS},
     ticks::LiveView,
     Monitor,
 };
+
+/// A row of the process table, px.
+pub const ROW_PX: f32 = 20.0;
+/// The table's text, px.
+pub const FONT_PX: f32 = 12.0;
+/// How long after the user's last scroll / drag in the table a reading
+/// leaves the table as it is, ms.
+pub const HANDS_OFF_MS: u64 = 600;
+
+/// Whether the user's hand is on the table: a drag in progress, or a scroll
+/// / drag `since_ms` ago that is younger than [`HANDS_OFF_MS`] (`None`: no
+/// scroll yet).
+#[must_use]
+pub fn hands_on(view: &DataTableView, since_ms: Option<u64>) -> bool {
+    !matches!(view.drag.kind, DataTableDragKind::None)
+        || since_ms.is_some_and(|ms| ms < HANDS_OFF_MS)
+}
 
 /// `bytes` as a file manager writes it ("212 MB"): azul's one formatter.
 #[must_use]
@@ -78,10 +105,11 @@ pub fn cell_of(row: &ProcRow, column: Column) -> DataTableCell {
         Column::Status => DataTableCell::create_text(row.status.clone()),
         Column::Pid => DataTableCell::create(row.pid.to_string(), f64::from(row.pid)),
         Column::Cpu => {
-            DataTableCell::create(format_percent(f64::from(row.cpu)), f64::from(row.cpu))
+            DataTableCell::create(format_cpu_column(f64::from(row.cpu)), f64::from(row.cpu))
         }
-        Column::Memory => DataTableCell::create(format_bytes(row.memory), row.memory as f64),
+        Column::Memory => DataTableCell::create(format_k(row.memory), row.memory as f64),
         Column::Disk => DataTableCell::create(format_rate(row.disk_rate), row.disk_rate),
+        Column::Description => DataTableCell::create_text(row.description().to_string()),
     }
 }
 
@@ -165,6 +193,8 @@ pub fn table(app: &RefAny, view: DataTableView, rows: u32, width: f32, height: f
         .with_accessibility_name("Processes")
         .with_view(view)
         .with_viewport(width.max(200.0), height.max(120.0))
+        .with_row_height(ROW_PX)
+        .with_font_size(FONT_PX)
         .with_frozen_columns(1)
         .with_show_filter_row(false)
         .with_read_only(true)
@@ -210,6 +240,14 @@ extern "C" fn on_table_event(
         if matches!(kind, DataTableEventKind::Select) {
             crate::print_selected(&s);
         }
+        if matches!(kind, DataTableEventKind::Scroll | DataTableEventKind::Drag) {
+            // The hand is on the table: the next readings leave it as it is.
+            let now = s.now_ms();
+            s.table_touched_ms = Some(now);
+        }
+        if matches!(kind, DataTableEventKind::Scroll) {
+            println!("AZMON_SCROLL {}", s.table.top);
+        }
     }
     match kind {
         DataTableEventKind::Sort | DataTableEventKind::Select => Update::RefreshDom,
@@ -247,7 +285,11 @@ mod tests {
     fn the_table_has_the_models_columns_none_editable() {
         let cols = columns();
         assert_eq!(cols.len(), COLUMNS.len());
-        assert_eq!(cols[Column::Name.index()].title.as_str(), "Name");
+        assert_eq!(cols[Column::Name.index()].title.as_str(), "Image Name");
+        assert_eq!(
+            cols[Column::Description.index()].title.as_str(),
+            "Description"
+        );
         assert_eq!(
             cols[Column::Cpu.index()].sort_kind,
             DataTableSortKind::Number
@@ -263,15 +305,30 @@ mod tests {
     fn a_cell_shows_the_formatted_value_and_sorts_by_the_number() {
         let r = row();
         assert_eq!(cell_of(&r, Column::Name).text.as_str(), "cargo");
+        // The old Task Manager's spelling: two-digit CPU, grouped kilobytes.
         let cpu = cell_of(&r, Column::Cpu);
-        assert_eq!(cpu.text.as_str(), "25.6 %");
+        assert_eq!(cpu.text.as_str(), "26");
         assert!((cpu.value - 25.6).abs() < 0.001);
         let pid = cell_of(&r, Column::Pid);
         assert_eq!(pid.text.as_str(), "5102");
         assert_eq!(pid.value, 5102.0);
-        assert_eq!(cell_of(&r, Column::Memory).text.as_str(), "940 MB");
+        assert_eq!(cell_of(&r, Column::Memory).text.as_str(), "962,560 K");
         assert_eq!(cell_of(&r, Column::Disk).text.as_str(), "4.0 MB/s");
         assert_eq!(cell_of(&r, Column::Status).text.as_str(), "Running");
+        // No command line: the description is the name.
+        assert_eq!(cell_of(&r, Column::Description).text.as_str(), "cargo");
+    }
+
+    #[test]
+    fn a_reading_leaves_the_table_alone_while_the_hand_is_on_it() {
+        let mut v = DataTableView::create();
+        assert!(!hands_on(&v, None), "never touched");
+        assert!(hands_on(&v, Some(0)), "just scrolled");
+        assert!(hands_on(&v, Some(HANDS_OFF_MS - 1)));
+        assert!(!hands_on(&v, Some(HANDS_OFF_MS)), "the hand rested");
+        v.drag.kind = DataTableDragKind::ScrollRows;
+        assert!(hands_on(&v, None), "a thumb drag in progress");
+        assert!(hands_on(&v, Some(10 * HANDS_OFF_MS)));
     }
 
     #[test]
