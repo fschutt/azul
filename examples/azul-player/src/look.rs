@@ -158,9 +158,8 @@ pub fn face(focused: bool) -> String {
 pub fn glow(focused: bool, radius: f32) -> String {
     format!(
         "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; border-radius: \
-         {radius}px; box-shadow: 0px 0px 18px 3px rgba(118, 196, 255, 0.85), 0px 0px 3px 0px \
-         rgba(255, 255, 255, 0.9); border: 2px solid rgba(236, 246, 255, 0.95); opacity: {}; \
-         animation: opacity {}ms ease-out;",
+         {radius}px; box-shadow: 0px 0px 18px 3px rgba(118, 196, 255, 0.85); border: 2px solid \
+         rgba(236, 246, 255, 0.95); opacity: {}; animation: opacity {}ms ease-out;",
         if focused { 1 } else { 0 },
         if focused { 140 } else { 220 }
     )
