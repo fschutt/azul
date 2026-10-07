@@ -5,14 +5,14 @@ edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzMusic - a music player on the public azul API: a library scanned from a
-    music folder (tags and cover art read by azul's AudioFileDecoder), albums,
-    artists and songs (azul's virtualized DataTable), playlists as files in the
-    data tree, a play queue with shuffle and repeat, gapless playback through
-    azul's AudioPlayer, the now-playing bar (MediaControls, SeekBar,
-    LevelMeter) and the OS media keys / now-playing widget. Built on azul's S7
-    MediaShell, NoTitle with the app-drawn Titlebar, flat and flora, light and
-    dark.
+    AzMusic - a music player on the public azul API in the look of Spotify's
+    2010 desktop player: a library scanned from a music folder (tags read by
+    azul's AudioFileDecoder), a grid of album covers, artists, genres, dense
+    song tables in a VirtualView, playlists as files in the data tree, a play
+    queue with shuffle and repeat, gapless playback through azul's AudioPlayer,
+    the now-playing bar (SeekBar, Slider, LevelMeter) and the OS media keys /
+    now-playing widget. NoTitle with the app-drawn Titlebar, dark by default,
+    light and dark.
 """
 publish = false
 
