@@ -26,14 +26,17 @@ E2E for all of it.
 - 39ef40483 test(terminal_view): RED - pixel scrolling, the slide, line_below, the follow button
 - 7ba839928 feat(terminal_view): GREEN - the same
 
+- 84734bbf6 test(azterm): RED - last tab / strip / still view
+- 54d35ac96 feat(azterm): closing the last tab closes the window
+- d1091783a feat(azterm): the strip of tabs is the title bar
+- 9d7ffd151 feat(azterm): smooth scrollback and follow mode (+ sample stream)
+
 ## IN PROGRESS
-- AzTerm RED tests (lib.rs / sample.rs / session.rs tests)
+- E2E: scripts/azterm_e2e.py (strip geometry, many tabs + scroll, seq flood
+  while scrolled up + follow button, last tab closes the window)
 
 ## NEXT
-- AzTerm: last tab closes the window; the strip as the title bar (scroller,
-  equal widths, reveal); scroll.rs ViewScroll (relative scroll events, new
-  lines, follow); sample stream (`seq N`, `yes | head -n N`); tick throttle
-- E2E: scripts/azterm_e2e.py
+- final self-review of the whole diff; report
 
 ## Open questions / for the lead
 - api.json: TerminalScreen gains line_below / scroll_fraction / new_lines,
