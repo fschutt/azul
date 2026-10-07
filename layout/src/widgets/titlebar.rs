@@ -930,6 +930,222 @@ impl Titlebar {
     }
 }
 
+// ── Tabs in the titlebar ─────────────────────────────────────────────────
+
+/// How far below the window's top edge a tab strip that IS the title bar
+/// holds its tabs: the grab strip above them.
+const DEFAULT_TABS_TOP: f32 = 8.0;
+
+// Whether a `NoTitle` window's controls sit OVER the app's content, so a tab
+// strip along the top has to leave them room: macOS draws its traffic lights
+// over the content view, and Linux overlays the software controls at the
+// frame's corner (`CsdInjection::ControlsOnly`). Windows keeps its caption
+// ABOVE the client area.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const DEFAULT_CONTROLS_OVER_CONTENT: bool = true;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+const DEFAULT_CONTROLS_OVER_CONTENT: bool = false;
+
+/// Where a tab strip sits when it IS the window's title bar.
+///
+/// Firefox's "tabs in titlebar" (2014, Australis): the window has no title
+/// row; its tab strip is the top of the window, held a few pixels below the
+/// top edge and clear of the window controls, and everything AROUND the tabs
+/// - the strip above them, before the first and after the last - moves the
+/// window (`-azul-app-region: drag`; a double click maximizes, on macOS it
+/// zooms). The tabs themselves stay tabs.
+///
+/// The window is `WindowDecorations::NoTitle`: the OS keeps its controls (the
+/// traffic lights over the strip's top-left on macOS, the software controls
+/// overlay at its corner on Linux) and the offsets leave them room. The
+/// strip's own paint runs up to the window's edges - the offsets are space
+/// INSIDE the strip, not around it.
+///
+/// [`TabsInTitlebar::platform`] is this platform's default; every offset can
+/// be set ([`TabsInTitlebar::create`]).
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct TabsInTitlebar {
+    /// Space above the tabs, in CSS pixels: the grab strip along the
+    /// window's top edge.
+    pub top: f32,
+    /// Space before the first tab, in CSS pixels: clears the window controls
+    /// on the left (macOS's traffic lights).
+    pub left: f32,
+    /// Space after the last tab, in CSS pixels: clears the window controls on
+    /// the right where the window draws them over the strip (Linux).
+    pub right: f32,
+}
+
+azul_css::impl_option!(
+    TabsInTitlebar,
+    OptionTabsInTitlebar,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
+impl Default for TabsInTitlebar {
+    fn default() -> Self {
+        Self::platform()
+    }
+}
+
+impl TabsInTitlebar {
+    /// A tab strip `top` px below the window's top edge, `left` px in from
+    /// its left edge and `right` px from its right edge.
+    #[inline]
+    #[must_use]
+    pub const fn create(top: f32, left: f32, right: f32) -> Self {
+        Self { top, left, right }
+    }
+
+    /// This platform's offsets, with no `SystemStyle` to ask (compile-time
+    /// defaults, as [`Titlebar::new`]): an 8px grab strip above the tabs,
+    /// and the window controls' width on the side where they sit over the
+    /// strip - the traffic lights' 78px before the first tab on macOS, the
+    /// software controls after the last one on Linux; nothing on Windows,
+    /// whose caption stays above the window's content.
+    #[must_use]
+    pub fn platform() -> Self {
+        let controls = if DEFAULT_CONTROLS_OVER_CONTENT {
+            DEFAULT_BUTTON_AREA_WIDTH
+        } else {
+            0.0
+        };
+        let (left, right) = if DEFAULT_BUTTON_SIDE_LEFT {
+            (controls, 0.0)
+        } else {
+            (0.0, controls)
+        };
+        Self {
+            top: DEFAULT_TABS_TOP,
+            left,
+            right,
+        }
+    }
+
+    /// The platform's offsets from a live [`SystemStyle`]: the controls' own
+    /// width and side ([`TitlebarMetrics`]), the titlebar's horizontal
+    /// padding beside them and the safe area (a camera housing) on both
+    /// sides.
+    #[must_use]
+    pub fn from_system_style(system_style: &SystemStyle) -> Self {
+        let tm = &system_style.metrics.titlebar;
+        let px = |v: Option<&PixelValue>| v.map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
+        let controls = if DEFAULT_CONTROLS_OVER_CONTENT {
+            tm.button_area_width
+                .as_ref()
+                .map_or(DEFAULT_BUTTON_AREA_WIDTH, |pv| {
+                    pv.to_pixels_internal(0.0, 0.0, 0.0)
+                })
+                + px(tm.padding_horizontal.as_ref())
+        } else {
+            0.0
+        };
+        let (safe_left, safe_right) = (
+            px(tm.safe_area.left.as_ref()),
+            px(tm.safe_area.right.as_ref()),
+        );
+        let (left, right) = match tm.button_side {
+            TitlebarButtonSide::Left => (controls + safe_left, safe_right),
+            TitlebarButtonSide::Right => (safe_left, controls + safe_right),
+        };
+        Self {
+            top: DEFAULT_TABS_TOP,
+            left,
+            right,
+        }
+    }
+
+    /// `strip` - a tab strip's declarations - as the window's title bar.
+    ///
+    /// The three offsets are ADDED to the strip's own padding, so its tabs
+    /// keep their place inside it, and a strip that sizes its border box
+    /// (`box-sizing: border-box` with a px height) grows by [`Self::top`] -
+    /// the space above the tabs is new, it is not taken from them. The whole
+    /// strip is a window-drag region; a tab inside it declares
+    /// [`Self::control`] to stay a tab. Conditioned declarations (a viewport
+    /// range, a state) are left as they are.
+    #[must_use]
+    pub(crate) fn strip_style(
+        &self,
+        strip: &CssPropertyWithConditionsVec,
+    ) -> CssPropertyWithConditionsVec {
+        use azul_css::css::CssPropertyValue;
+
+        let mut v: Vec<CssPropertyWithConditions> = strip.as_ref().to_vec();
+        let border_box = v.iter().any(|p| {
+            p.apply_if.as_ref().is_empty()
+                && matches!(
+                    p.property,
+                    CssProperty::BoxSizing(CssPropertyValue::Exact(LayoutBoxSizing::BorderBox))
+                )
+        });
+        let (mut top, mut left, mut right) = (false, false, false);
+        for p in v.iter_mut().filter(|p| p.apply_if.as_ref().is_empty()) {
+            match &mut p.property {
+                CssProperty::PaddingTop(CssPropertyValue::Exact(pad)) => {
+                    top |= grow_px(&mut pad.inner, self.top);
+                }
+                CssProperty::PaddingLeft(CssPropertyValue::Exact(pad)) => {
+                    left |= grow_px(&mut pad.inner, self.left);
+                }
+                CssProperty::PaddingRight(CssPropertyValue::Exact(pad)) => {
+                    right |= grow_px(&mut pad.inner, self.right);
+                }
+                CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(h))) if border_box => {
+                    grow_px(h, self.top);
+                }
+                CssProperty::MinHeight(CssPropertyValue::Exact(h)) if border_box => {
+                    grow_px(&mut h.inner, self.top);
+                }
+                _ => {}
+            }
+        }
+        // A strip without a padding of its own on a side (or with one in a
+        // unit an offset cannot be added to) takes the offset as its padding.
+        if !top {
+            v.push(CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+                LayoutPaddingTop::px(self.top),
+            )));
+        }
+        if !left {
+            v.push(CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+                LayoutPaddingLeft::px(self.left),
+            )));
+        }
+        if !right {
+            v.push(CssPropertyWithConditions::simple(
+                CssProperty::const_padding_right(LayoutPaddingRight::px(self.right)),
+            ));
+        }
+        v.push(CssPropertyWithConditions::simple(CssProperty::AppRegion(
+            StyleAppRegionValue::Exact(StyleAppRegion::Drag),
+        )));
+        CssPropertyWithConditionsVec::from_vec(v)
+    }
+
+    /// What a control inside a [`Self::strip_style`] strip declares - a tab,
+    /// the application button - so that pressing it presses IT and dragging
+    /// it does not move the window: `-azul-app-region: no-drag`, which stops
+    /// the framework's walk up to the strip.
+    #[must_use]
+    pub(crate) const fn control() -> CssPropertyWithConditions {
+        CssPropertyWithConditions::simple(CssProperty::AppRegion(StyleAppRegionValue::Exact(
+            StyleAppRegion::NoDrag,
+        )))
+    }
+}
+
+/// `px` grown by `by`, if it is in px; `false` (and `px` as it was) for any
+/// other unit.
+fn grow_px(px: &mut PixelValue, by: f32) -> bool {
+    if px.metric != azul_css::props::basic::length::SizeMetric::Px {
+        return false;
+    }
+    *px = PixelValue::px(px.number.get() + by);
+    true
+}
+
 /// The separator thickness a platform states, or the compile-time default.
 fn separator_width_of(tm: &TitlebarMetrics) -> f32 {
     tm.separator_width
@@ -4139,6 +4355,116 @@ mod drag_region_tests {
             ),
             "the caller's class must survive"
         );
+    }
+}
+
+#[cfg(test)]
+mod tabs_in_titlebar_tests {
+    use azul_css::css::CssPropertyValue;
+
+    use super::*;
+
+    fn part(props: Vec<CssProperty>) -> CssPropertyWithConditionsVec {
+        CssPropertyWithConditionsVec::from_vec(
+            props
+                .into_iter()
+                .map(CssPropertyWithConditions::simple)
+                .collect(),
+        )
+    }
+
+    /// The LAST unconditioned declaration of `ty` - the one that wins.
+    fn last(v: &CssPropertyWithConditionsVec, ty: CssPropertyType) -> Option<CssProperty> {
+        v.as_ref()
+            .iter()
+            .rev()
+            .find(|p| p.apply_if.as_ref().is_empty() && p.property.get_type() == ty)
+            .map(|p| p.property.clone())
+    }
+
+    fn app_region(v: &CssPropertyWithConditionsVec) -> Option<StyleAppRegion> {
+        match last(v, CssPropertyType::AppRegion)? {
+            CssProperty::AppRegion(CssPropertyValue::Exact(r)) => Some(r),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_strip_in_the_titlebar_grows_by_the_space_above_its_tabs_and_takes_the_offsets_as_padding()
+    {
+        let chrome = TabsInTitlebar::create(8.0, 78.0, 0.0);
+        let strip = part(vec![
+            CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox),
+            CssProperty::const_height(LayoutHeight::const_px(26)),
+        ]);
+        let s = chrome.strip_style(&strip);
+        assert_eq!(
+            last(&s, CssPropertyType::Height),
+            Some(CssProperty::const_height(LayoutHeight::px(34.0))),
+            "a border-box strip grows by the space above its tabs: the tabs keep their 26px"
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingTop),
+            Some(CssProperty::const_padding_top(LayoutPaddingTop::px(8.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingLeft),
+            Some(CssProperty::const_padding_left(LayoutPaddingLeft::px(78.0))),
+            "the first tab starts past the traffic lights"
+        );
+    }
+
+    #[test]
+    fn a_strip_in_the_titlebar_adds_the_offsets_to_the_padding_it_already_has() {
+        let chrome = TabsInTitlebar::create(8.0, 78.0, 100.0);
+        let strip = part(vec![
+            CssProperty::const_padding_top(LayoutPaddingTop::const_px(4)),
+            CssProperty::const_padding_left(LayoutPaddingLeft::const_px(6)),
+            CssProperty::const_padding_right(LayoutPaddingRight::const_px(2)),
+            CssProperty::const_height(LayoutHeight::const_px(32)),
+        ]);
+        let s = chrome.strip_style(&strip);
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingTop),
+            Some(CssProperty::const_padding_top(LayoutPaddingTop::px(12.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingLeft),
+            Some(CssProperty::const_padding_left(LayoutPaddingLeft::px(84.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::PaddingRight),
+            Some(CssProperty::const_padding_right(LayoutPaddingRight::px(102.0)))
+        );
+        assert_eq!(
+            last(&s, CssPropertyType::Height),
+            Some(CssProperty::const_height(LayoutHeight::const_px(32))),
+            "a content-box strip grows by its padding alone"
+        );
+    }
+
+    #[test]
+    fn the_strip_moves_the_window_and_a_control_in_it_does_not() {
+        let s = TabsInTitlebar::platform().strip_style(&part(Vec::new()));
+        assert_eq!(app_region(&s), Some(StyleAppRegion::Drag));
+        let control = CssPropertyWithConditionsVec::from_vec(vec![TabsInTitlebar::control()]);
+        assert_eq!(app_region(&control), Some(StyleAppRegion::NoDrag));
+    }
+
+    #[test]
+    fn the_platform_offsets_clear_the_window_controls_on_their_side() {
+        let t = TabsInTitlebar::platform();
+        assert_eq!(t.top, DEFAULT_TABS_TOP);
+        if cfg!(target_os = "macos") {
+            assert_eq!(t.left, DEFAULT_BUTTON_AREA_WIDTH, "the traffic lights' width");
+            assert_eq!(t.right, 0.0);
+        }
+        if cfg!(target_os = "windows") {
+            assert_eq!((t.left, t.right), (0.0, 0.0), "the caption is above the content");
+        }
+        if cfg!(target_os = "linux") {
+            assert_eq!((t.left, t.right), (0.0, DEFAULT_BUTTON_AREA_WIDTH));
+        }
     }
 }
 
