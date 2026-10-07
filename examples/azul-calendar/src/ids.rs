@@ -41,6 +41,17 @@ names! {
     EXPORT_RUN = "export-run";
     /// What the last import / export said.
     IO_MESSAGE = "io-message";
+    // ---- the backstage: Print ----
+    /// The printout's first and last day (date pickers).
+    PRINT_START = "print-start";
+    PRINT_END = "print-end";
+    /// How many pages, which sheet.
+    PRINT_PAGES = "print-pages";
+    PRINT_RUN = "print-run";
+    /// What the last Print said.
+    PRINT_MESSAGE = "print-message";
+    /// The preview: the printout's first pages as pictures.
+    PRINT_PREVIEW = "print-preview";
     // ---- the backstage: Calendars ----
     CALENDAR_NEW = "calendar-new";
     CALENDAR_ADD = "calendar-add";
@@ -147,6 +158,18 @@ pub fn backstage_page(page: &str) -> AzString {
     named(&format!("backstage-{page}"))
 }
 
+/// The Print page's choice of a print style, by the style's name (`print-style-monthly`).
+#[must_use]
+pub fn print_style(name: &str) -> AzString {
+    named(&format!("print-style-{name}"))
+}
+
+/// The preview's picture of the printout's page at `index` (0 = the first).
+#[must_use]
+pub fn print_sheet(index: usize) -> AzString {
+    named(&format!("print-sheet-{index}"))
+}
+
 /// The view's root, by the view's name (`view-week`).
 #[must_use]
 pub fn view(name: &str) -> AzString {
@@ -196,5 +219,7 @@ mod tests {
         assert_eq!(month_day(day).as_str(), "__azcal_month-20261003");
         assert_eq!(view("work-week").as_str(), "__azcal_view-work-week");
         assert_eq!(calendar_colour(2).as_str(), "__azcal_calendar-colour-2");
+        assert_eq!(print_style("monthly").as_str(), "__azcal_print-style-monthly");
+        assert_eq!(PRINT_RUN.as_str(), "__azcal_print-run");
     }
 }

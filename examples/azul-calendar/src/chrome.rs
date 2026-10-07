@@ -3,7 +3,7 @@
 //! "My calendars" with their colours, the module switcher), the calendar pane
 //! (`views_ui.rs`), the To-Do bar (appointments and tasks) and the status bar (items, and
 //! whether the meeting links reached their server). FILE opens the backstage over all of it:
-//! Info, Open & Export (.ics), Print, Calendars, Options, About.
+//! Info, Open & Export (.ics), Print (`print_ui.rs`), Calendars, Options, About.
 
 use std::path::PathBuf;
 
@@ -18,9 +18,9 @@ use azul::{
     option::{OptionDarkLightMode, OptionFileTypeList, OptionString},
     prelude::*,
     shells::{
-        OfficeShell, ShellEmptyState, ShellNavigationModule, ShellNavigationPane,
-        ShellNavigationPaneEvent, ShellNavigationPaneEventKind, ShellPane, ShellPaneKind,
-        ShellSettingsLayout, ShellSettingsSection,
+        OfficeShell, ShellNavigationModule, ShellNavigationPane, ShellNavigationPaneEvent,
+        ShellNavigationPaneEventKind, ShellPane, ShellPaneKind, ShellSettingsLayout,
+        ShellSettingsSection,
     },
     str::String as AzString,
     vec::StringVec,
@@ -40,7 +40,7 @@ use chrono::{Datelike, Duration, NaiveDate};
 use crate::{
     args::BackstagePage,
     calendars::{self, Calendar, Colour},
-    editor_ui, event, ics, ids, meet_rooms, meeting, settings, tasks, views,
+    editor_ui, event, ics, ids, meet_rooms, meeting, print, print_ui, settings, tasks, views,
     views::ViewKind,
     views_ui, CalState, ERROR, LABEL, PAGE, SECONDARY,
 };
@@ -414,7 +414,7 @@ fn backstage(s: &CalState, app: &RefAny, page: BackstagePage) -> Dom {
     let content = match page {
         BackstagePage::Info => info_page(s, app),
         BackstagePage::Open => open_page(s, app),
-        BackstagePage::Print => print_page(app),
+        BackstagePage::Print => print_ui::print_page(s, app),
         BackstagePage::Calendars => calendars_page(s, app),
         BackstagePage::Options => options_page(s, app),
         BackstagePage::About => about_page(),
@@ -427,7 +427,7 @@ fn backstage(s: &CalState, app: &RefAny, page: BackstagePage) -> Dom {
         .dom()
 }
 
-fn page_title(text: &str) -> Dom {
+pub(crate) fn page_title(text: &str) -> Dom {
     Dom::create_span_with_text(text).with_css("font-size: 28px; margin-bottom: 8px;")
 }
 
@@ -571,16 +571,6 @@ fn open_page(s: &CalState, app: &RefAny) -> Dom {
         );
     }
     page
-}
-
-/// Print: later.
-fn print_page(app: &RefAny) -> Dom {
-    ShellEmptyState::create("Printing comes later")
-        .with_icon("print")
-        .with_detail("Meanwhile, Open & Export saves a calendar as an .ics file.")
-        .with_action_label("Open & Export")
-        .with_on_action(app.clone(), on_open_page)
-        .dom()
 }
 
 /// Calendars: each with its name (Enter renames), colour and Remove; and a new one.
@@ -734,6 +724,7 @@ fn about_page() -> Dom {
             "Day, Work Week, Week, Month, Schedule View, List",
         ),
         ("Ctrl / Cmd + T", "Today"),
+        ("Ctrl / Cmd + P", "Print"),
         ("Alt + Left / Right", "Back, forward"),
         ("F6 / Shift + F6", "The next / previous pane"),
         ("Ctrl / Cmd + S", "Save & Close, in the event window"),
@@ -835,15 +826,26 @@ extern "C" fn on_share(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_state(&mut data, |s| {
         s.notice = String::from(
             "Sharing calendars comes later. Meanwhile, FILE > Open & Export saves a calendar as \
-             an .ics file anyone can import.",
+             an .ics file anyone can import, and FILE > Print makes a PDF of it.",
         );
         Update::RefreshDom
     })
 }
 
+/// Shows the backstage on `page`. Print opens on what the window shows (Outlook's way): the
+/// view's print style, a page of it around the view's day.
+pub(crate) fn open_backstage(s: &mut CalState, page: BackstagePage) {
+    if page == BackstagePage::Print && s.backstage != Some(BackstagePage::Print) {
+        s.print = print::Settings::for_view(s.view, s.anchor);
+        s.print_message.clear();
+        s.print_failed = false;
+    }
+    s.backstage = Some(page);
+}
+
 fn show_page(data: &mut RefAny, page: BackstagePage) -> Update {
     with_state(data, |s| {
-        s.backstage = Some(page);
+        open_backstage(s, page);
         Update::RefreshDom
     })
 }
@@ -866,9 +868,16 @@ pub(crate) extern "C" fn on_options_page(mut data: RefAny, _info: CallbackInfo) 
     show_page(&mut data, BackstagePage::Options)
 }
 
+/// FILE > Print (the menu's Print..., Ctrl / Cmd + P).
+pub(crate) extern "C" fn on_print_page(mut data: RefAny, _info: CallbackInfo) -> Update {
+    show_page(&mut data, BackstagePage::Print)
+}
+
 extern "C" fn on_backstage_nav(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
     with_state(&mut data, |s| {
-        s.backstage = BackstagePage::at(index).or(s.backstage);
+        if let Some(page) = BackstagePage::at(index) {
+            open_backstage(s, page);
+        }
         Update::RefreshDom
     })
 }
