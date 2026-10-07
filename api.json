@@ -8992,6 +8992,38 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "azul_layout::icon::register_svg_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), svg_bytes.as_slice(), meta)"
+                            },
+                            "register_hvif_icon": {
+                                "doc": [
+                                    "Register an HVIF icon (Haiku Vector Icon Format: a whole icon in a few hundred",
+                                    "bytes) under `icon_name` in `pack_name`, with its metadata (`IconMeta::for_image`",
+                                    "for full-colour artwork). It is drawn when resolved, at the size it is shown at:",
+                                    "the shapes whose level of detail fits that size, hinted shapes snapped to pixels.",
+                                    "",
+                                    "Returns `false`, registering nothing, when `hvif_bytes` is too large or is not",
+                                    "an HVIF icon."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pack_name": "String"
+                                    },
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "hvif_bytes": "U8VecRef"
+                                    },
+                                    {
+                                        "meta": "IconMeta"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "azul_layout::icon::register_hvif_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), hvif_bytes.as_slice(), meta)"
                             }
                         },
                         "repr": "C"

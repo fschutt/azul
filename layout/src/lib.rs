@@ -454,12 +454,14 @@ pub use icon::{
     // Helpers
     register_image_icon,
     register_image_icon_with_meta,
+    register_hvif_icon,
     register_material_icons,
     register_svg_icon,
     FontIconData,
     // Data types for RefAny
     ImageIconData,
     SvgIconData,
+    HvifIconData,
 };
 
 /// Callback handling for layout events (invocation, result processing).

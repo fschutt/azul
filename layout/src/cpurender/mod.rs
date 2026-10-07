@@ -5,6 +5,7 @@
 //! flat vector of rendering commands that can be executed sequentially.
 
 mod compositor;
+pub mod hvif;
 pub mod pixmap;
 mod raster;
 mod shape;

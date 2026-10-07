@@ -165,6 +165,48 @@ pub struct SvgIconData {
     pub meta: IconMeta,
 }
 
+/// An HVIF icon (`azul_core::hvif`, Haiku's vector icon format: a whole
+/// icon in a few hundred bytes): drawn when the icon is resolved, at the
+/// pixel size it is shown at - the shapes whose level of detail fits that
+/// size, hinted shapes snapped to whole pixels - so a 16 px icon stays crisp
+/// where a scaled drawing would go soft. Full-colour artwork
+/// ([`IconMeta::for_image`]) unless the registration says otherwise.
+#[derive(Debug, Clone)]
+pub struct HvifIconData {
+    pub icon: azul_core::hvif::Hvif,
+    pub meta: IconMeta,
+}
+
+/// The largest HVIF file [`register_hvif_icon`] accepts (real icons are well
+/// under 4 KiB; untrusted input is refused rather than parsed).
+pub const MAX_HVIF_ICON_BYTES: usize = 64 * 1024;
+
+/// The size an HVIF icon is shown at when its `<icon>` states none (its
+/// font size, as a glyph icon would be).
+const DEFAULT_HVIF_ICON_SIZE: f32 = 24.0;
+
+/// Register an HVIF icon (Haiku Vector Icon Format) under `icon_name` in
+/// `pack_name`, with its metadata ([`IconMeta::for_image`] for full-colour
+/// artwork). It is drawn when resolved, at the size it is shown at. Returns
+/// `false`, registering nothing, when the bytes are too large or no HVIF
+/// icon.
+pub fn register_hvif_icon(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    hvif: &[u8],
+    meta: IconMeta,
+) -> bool {
+    if hvif.len() > MAX_HVIF_ICON_BYTES {
+        return false;
+    }
+    let Ok(icon) = azul_core::hvif::Hvif::parse(hvif) else {
+        return false;
+    };
+    provider.register_icon(pack_name, icon_name, RefAny::new(HvifIconData { icon, meta }));
+    true
+}
+
 /// The largest SVG document [`register_svg_icon`] accepts. Icons are small;
 /// a user theme is untrusted input (design 9.1 pitfall 8), so an oversized
 /// file is refused rather than parsed.
@@ -342,6 +384,14 @@ pub extern "C" fn default_icon_resolver(
             return variant;
         }
         return create_svg_icon_from_original(&svg, original_icon_node, system_style);
+    }
+
+    // Try HvifIconData
+    if let Some(hvif) = data.downcast_ref::<HvifIconData>() {
+        if let Some(variant) = variant_redirect(&hvif.meta, original_icon_node, system_style) {
+            return variant;
+        }
+        return create_hvif_icon_from_original(&hvif, original_icon_node, system_style);
     }
 
     // Unknown data type -> empty div
@@ -613,6 +663,68 @@ fn create_svg_icon_from_original(
     };
     let as_image = ImageIconData::with_meta(image, svg.width, svg.height, svg.meta.clone());
     create_image_icon_from_original(&as_image, original, system_style)
+}
+
+/// An HVIF icon as the image it draws at the size its `<icon>` is shown at:
+/// the `<icon>`'s own font size (a glyph icon's size - the ribbon's 32 px
+/// large icons, a 16 px menu icon), else its width, else
+/// [`DEFAULT_HVIF_ICON_SIZE`]; drawn at that size times the oversample, so
+/// its level of detail and its hinting are the ones for that size.
+#[cfg(feature = "cpurender")]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded icon pixel size
+fn create_hvif_icon_from_original(
+    hvif: &HvifIconData,
+    original: &NodeData,
+    system_style: &SystemStyle,
+) -> Dom {
+    let props = copy_appropriate_styles_vec(original);
+    let px = |value: &azul_css::props::basic::PixelValue| {
+        (value.metric == azul_css::props::basic::SizeMetric::Px).then(|| value.number.get())
+    };
+    let stated = props.iter().rev().find_map(|p| match &p.property {
+        CssProperty::FontSize(v) => v.get_property().and_then(|f| px(&f.inner)),
+        _ => None,
+    });
+    let stated = stated.or_else(|| {
+        props.iter().rev().find_map(|p| match &p.property {
+            CssProperty::Width(v) => v.get_property().and_then(|w| match w {
+                LayoutWidth::Px(value) => px(value),
+                _ => None,
+            }),
+            _ => None,
+        })
+    });
+    let logical = stated
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .unwrap_or(DEFAULT_HVIF_ICON_SIZE);
+    let device = ((logical * SVG_ICON_OVERSAMPLE).ceil().max(1.0) as u32)
+        .min(crate::cpurender::hvif::MAX_HVIF_SIZE);
+    let Some(pixmap) = crate::cpurender::hvif::render_hvif(&hvif.icon, device) else {
+        return Dom::create_div();
+    };
+    let raw = azul_core::resources::RawImage {
+        pixels: azul_core::resources::RawImageData::U8(pixmap.data().to_vec().into()),
+        width: pixmap.width as usize,
+        height: pixmap.height as usize,
+        premultiplied_alpha: true,
+        data_format: azul_core::resources::RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    };
+    let Some(image) = ImageRef::new_rawimage(raw) else {
+        return Dom::create_div();
+    };
+    let as_image = ImageIconData::with_meta(image, logical, logical, hvif.meta.clone());
+    create_image_icon_from_original(&as_image, original, system_style)
+}
+
+/// Without the rasteriser there is nothing to draw an HVIF icon with.
+#[cfg(not(feature = "cpurender"))]
+fn create_hvif_icon_from_original(
+    _hvif: &HvifIconData,
+    _original: &NodeData,
+    _system_style: &SystemStyle,
+) -> Dom {
+    Dom::create_div()
 }
 
 /// Without the rasteriser there is nothing to draw an SVG icon with.

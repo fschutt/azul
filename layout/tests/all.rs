@@ -946,3 +946,8 @@ mod a_relatively_positioned_inline_box_moves_its_text;
 
 #[path = "a_presentational_attribute_loses_to_any_author_css.rs"]
 mod a_presentational_attribute_loses_to_any_author_css;
+
+#[path = "an_hvif_icon_is_drawn_at_its_size.rs"]
+mod an_hvif_icon_is_drawn_at_its_size;
+#[path = "an_hvif_icon_resolves_at_the_size_it_is_shown.rs"]
+mod an_hvif_icon_resolves_at_the_size_it_is_shown;

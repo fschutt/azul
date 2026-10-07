@@ -59,8 +59,9 @@ use crate::{
 };
 
 /// The libraries AzMail is built on and their licences (the About box, File > Help).
-pub(crate) const CREDITS: [(&str, &str); 5] = [
+pub(crate) const CREDITS: [(&str, &str); 6] = [
     ("azul", "MIT"),
+    ("Haiku icons (Haiku, Inc.; zuMi), hvif-store.art", "MIT"),
     ("imap", "MIT / Apache-2.0"),
     ("mail-parser", "MIT / Apache-2.0"),
     ("micromail", "MIT"),

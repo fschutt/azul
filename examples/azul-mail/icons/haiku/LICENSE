@@ -1,0 +1,65 @@
+Haiku icons used by AzMail
+
+The .hvif files in this folder are icons from the Haiku project's icon set and
+from zuMi's icon set for Haiku, published at https://hvif-store.art under the
+MIT License. Each file is named after the Material icon it replaces in AzMail;
+the list below names the original icon, its author and its hvif-store.art id.
+
+  mail.hvif  <- "E-Mail" by Haiku, Inc. (MIT, hvif-store.art id 384)
+  reply.hvif  <- "Reply" by zuMi (MIT, hvif-store.art id 286)
+  reply_all.hvif  <- "Reply All" by zuMi (MIT, hvif-store.art id 1171)
+  forward.hvif  <- "Forward" by zuMi (MIT, hvif-store.art id 281)
+  delete.hvif  <- "Trash Empty" by Haiku, Inc. (MIT, hvif-store.art id 423)
+  group.hvif  <- "Team" by Haiku, Inc. (MIT, hvif-store.art id 419)
+  drive_file_move.hvif  <- "Move File" by Haiku, Inc. (MIT, hvif-store.art id 422)
+  mark_email_read.hvif  <- "Mark Read" by zuMi (MIT, hvif-store.art id 990)
+  mark_email_unread.hvif  <- "Mark Unread" by zuMi (MIT, hvif-store.art id 892)
+  flag.hvif  <- "Mark Important" by zuMi (MIT, hvif-store.art id 911)
+  sync.hvif  <- "Send Receive" by zuMi (MIT, hvif-store.art id 1145)
+  refresh.hvif  <- "Refresh" by zuMi (MIT, hvif-store.art id 923)
+  inbox.hvif  <- "Mail Folder" by Haiku, Inc. (MIT, hvif-store.art id 271)
+  all_inbox.hvif  <- "Mail Folder" by Haiku, Inc. (MIT, hvif-store.art id 271)
+  drafts.hvif  <- "Document New" by zuMi (MIT, hvif-store.art id 956)
+  send.hvif  <- "Mail Send" by zuMi (MIT, hvif-store.art id 1105)
+  folder.hvif  <- "Folder" by Haiku, Inc. (MIT, hvif-store.art id 268)
+  report.hvif  <- "Junk" by zuMi (MIT, hvif-store.art id 920)
+  calendar_month.hvif  <- "Calendar" by zuMi (MIT, hvif-store.art id 861)
+  contacts.hvif  <- "People" by Haiku, Inc. (MIT, hvif-store.art id 107)
+  task_alt.hvif  <- "Task File" by Haiku, Inc. (MIT, hvif-store.art id 258)
+  account_circle.hvif  <- "Person" by Haiku, Inc. (MIT, hvif-store.art id 242)
+  person_add.hvif  <- "Website Register" by Haiku, Inc. (MIT, hvif-store.art id 438)
+  manage_accounts.hvif  <- "Website Edit Profile" by Haiku, Inc. (MIT, hvif-store.art id 436)
+  info.hvif  <- "Info" by Haiku, Inc. (MIT, hvif-store.art id 30)
+  print.hvif  <- "Printer" by Haiku, Inc. (MIT, hvif-store.art id 391)
+  settings.hvif  <- "Settings" by zuMi (MIT, hvif-store.art id 1207)
+  keyboard.hvif  <- "Keyboard" by Haiku, Inc. (MIT, hvif-store.art id 381)
+  description.hvif  <- "OpenDocument Text File" by Haiku, Inc. (MIT, hvif-store.art id 260)
+  picture_as_pdf.hvif  <- "Printer PDF" by Haiku, Inc. (MIT, hvif-store.art id 392)
+  x.hvif  <- "Exit" by zuMi (MIT, hvif-store.art id 1067)
+  message.hvif  <- "New Mail File" by Haiku, Inc. (MIT, hvif-store.art id 237)
+  exports.hvif  <- "Export" by zuMi (MIT, hvif-store.art id 798)
+
+----------------------------------------------------------------------------
+
+The MIT License
+
+Copyright (c) Haiku, Inc. (Haiku icons)
+Copyright (c) Michele Frau "zuMi" (zuMi icons)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

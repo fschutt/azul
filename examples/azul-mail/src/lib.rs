@@ -46,6 +46,7 @@ pub mod compose;
 pub mod dkim;
 pub mod folders;
 pub mod html;
+pub mod icons;
 pub mod ids;
 pub mod imap_client;
 pub mod listing;
@@ -1267,7 +1268,9 @@ pub fn start() {
 
     // The app theme and the mode from settings.json (a --theme / --mode switch wins for this
     // run); the window: NoTitle (the app draws the title row), --size, a minimum size.
-    let config = kit::app_config(&kit_ref);
+    let mut config = kit::app_config(&kit_ref);
+    // Haiku's icons under the Material names, searched first.
+    icons::register(&mut config.icon_provider);
     let mut window = kit::window_options(
         &kit_ref,
         ui_main::layout_main,

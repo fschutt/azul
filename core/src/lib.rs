@@ -385,6 +385,9 @@ pub mod hid;
 // not apply to it. A genuine instance of this lint — a doc comment cut in half
 // by `#[derive]` / `#[repr]` attributes — was fixed properly in `callbacks.rs`.
 #[allow(clippy::too_long_first_doc_paragraph)]
+/// HVIF, the Haiku Vector Icon Format: tiny vector icons with per-size
+/// detail and pixel hinting (read here, drawn by azul-layout's renderer).
+pub mod hvif;
 /// Hit-test results (which DOM nodes are under the cursor) + the type-safe
 /// hit-test tag system for compositor integration (merged from `hit_test_tag`).
 pub mod hit_test;
