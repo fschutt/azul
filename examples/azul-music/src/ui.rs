@@ -198,14 +198,27 @@ fn cover(seed: &str, label: &str, size: f32, round: bool, look: &Look) -> Dom {
         .with_child(face)
 }
 
-/// The green play button over a cover or a tile under the pointer: plays `pick`'s songs.
-fn cover_play(look: &Look, title: &str, pick: RefAny) -> Dom {
+/// The card play button's radius, px (it is 36px wide).
+const PLAY_R: f32 = 18.0;
+
+/// How far in from a round cover's bottom-right corner (`size` px wide) its play button sits:
+/// on the diagonal, 4px inside the circle. The cover clips to its circle, so the square covers'
+/// 8px from the corner cut the button in half on an artist.
+fn round_inset(size: f32) -> f32 {
+    let radius = size / 2.0;
+    let along = (radius - PLAY_R - 4.0).max(0.0) / std::f32::consts::SQRT_2;
+    (radius - along - PLAY_R).max(8.0).round()
+}
+
+/// The green play button over a cover or a tile under the pointer, `inset` px in from its
+/// bottom-right corner: plays `pick`'s songs.
+fn cover_play(look: &Look, title: &str, pick: RefAny, inset: f32) -> Dom {
     Dom::create_div()
         .with_class(ids::CARD_PLAY)
-        .with_css(
-            "position: absolute; right: 8px; bottom: 8px; display: flex; width: 36px; height: \
-             36px; cursor: pointer;",
-        )
+        .with_css(format!(
+            "position: absolute; right: {inset}px; bottom: {inset}px; display: flex; width: \
+             36px; height: 36px; cursor: pointer;"
+        ))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_name(format!("Play {title}"))
         .with_callback(
@@ -1029,12 +1042,13 @@ fn track_row(
         } else {
             ("play_arrow", "Play")
         };
-        Dom::create_icon(icon)
+        // A box takes the click, the focus, the class and the name; the icon is only its face.
+        // Icon resolution replaces an icon node with its glyph - the style survives, the class,
+        // the tab stop and the callback do not - so the icon alone was a dead glyph: a click on
+        // it only selected the row.
+        Dom::create_div()
             .with_class(ids::ROW_PLAY)
-            .with_css(format!(
-                "font-size: 16px; color: {}; cursor: pointer; :hover {{ color: {}; }}",
-                look.text, look.accent
-            ))
+            .with_css("display: flex; align-items: center; cursor: pointer;")
             .with_tab_index(TabIndex::Auto)
             .with_accessibility_name(format!("{word} {title}"))
             .with_callback(
@@ -1042,6 +1056,10 @@ fn track_row(
                 pick(),
                 on_row_play,
             )
+            .with_child(Dom::create_icon(icon).with_css(format!(
+                "font-size: 16px; color: {}; :hover {{ color: {}; }}",
+                look.text, look.accent
+            )))
     } else if heard {
         let icon = if s.state.playing {
             "volume_up"
@@ -1241,7 +1259,12 @@ fn card(ctx: &Ctx<'_>, kind: CardKind, item: usize, gap: f32) -> Dom {
         cover(&seed, &title, size, kind == CardKind::Artist, look)
     };
     if hovered {
-        picture.add_child(cover_play(look, &title, pick()));
+        let inset = if kind == CardKind::Artist {
+            round_inset(size)
+        } else {
+            8.0
+        };
+        picture.add_child(cover_play(look, &title, pick(), inset));
     }
     let align = if kind == CardKind::Artist {
         "text-align: center;"
@@ -1479,7 +1502,9 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
                      flex-shrink: 0; margin-left: 12px;",
                 )
                 .with_child(
-                    LevelMeter::create(0.0)
+                    // Built at the level the meter shows (the throttle's): a rebuild - any click
+                    // that refreshes the window - no longer empties it until the next move.
+                    LevelMeter::create(s.meter.level)
                         .with_accessibility_name("Level")
                         .dom()
                         .with_id(ids::LEVEL)
@@ -1782,7 +1807,15 @@ extern "C" fn on_row_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Menu::create(items)
     };
     app::rerender_page(&mut info);
-    let _opened = info.open_menu_for_hit_node(menu);
+    // At the pointer, as a context menu opens. `open_menu_for_hit_node` is a drop-down's rule:
+    // it hung the menu under the row's bottom-left corner and made it at least as wide as the
+    // row - the whole page.
+    match info.get_cursor_relative_to_viewport().into_option() {
+        Some(at) => info.open_menu_at(menu, at),
+        None => {
+            let _opened = info.open_menu_for_hit_node(menu);
+        }
+    }
     Update::DoNothing
 }
 
@@ -2073,5 +2106,21 @@ mod tests {
         assert!(LEAD_CELL.contains("width: 36px"));
         assert!(TIME_CELL.contains("width: 56px"));
         assert!(grow_cell(4).contains("flex-grow: 4"));
+    }
+
+    #[test]
+    fn a_round_covers_play_button_lies_inside_its_circle() {
+        for size in [150.0_f32, 180.0, 240.0, 320.0] {
+            let inset = round_inset(size);
+            let radius = size / 2.0;
+            // The button's centre, from the cover's centre, along each axis.
+            let along = radius - inset - PLAY_R;
+            let reach = along * std::f32::consts::SQRT_2 + PLAY_R;
+            assert!(
+                reach <= radius,
+                "{size}px: the button reaches {reach}px out, the circle {radius}px"
+            );
+            assert!(inset >= 8.0, "{size}px: never closer to the edge than a square's");
+        }
     }
 }
