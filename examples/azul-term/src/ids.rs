@@ -16,10 +16,10 @@ pub const TABS: AzString = AzString::from_const_str("__azterm_tabs");
 pub const TAB: AzString = AzString::from_const_str("__azterm_tab-");
 /// A tab's close button: `__azterm_tab-close-<index>`.
 pub const TAB_CLOSE: AzString = AzString::from_const_str("__azterm_tab-close-");
-/// The "new tab" button.
+/// The "new tab" button (the "+" after the tabs).
 pub const NEW_TAB: AzString = AzString::from_const_str("__azterm_new-tab");
-/// The status bar.
-pub const STATUS: AzString = AzString::from_const_str("__azterm_status");
+/// The bar with the last problem (a shell that could not start).
+pub const NOTICE: AzString = AzString::from_const_str("__azterm_notice");
 /// The empty state (no tab open).
 pub const EMPTY: AzString = AzString::from_const_str("__azterm_empty");
 /// The settings page's own section.

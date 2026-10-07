@@ -212,7 +212,13 @@ impl Session {
         match &mut self.backend {
             Backend::Pty(notifier) => {
                 notifier.notify(bytes);
-                self.term.lock().scroll_display(Scroll::Bottom);
+                // Typing brings the view back to the output (the engine's
+                // scroll raises the flag: drawn on the next tick, even when
+                // the program echoes nothing); already there, nothing to do.
+                let mut term = self.term.lock();
+                if term.grid().display_offset() != 0 {
+                    term.scroll_display(Scroll::Bottom);
+                }
             }
             Backend::Replay(parser) => {
                 let echo: Vec<u8> = if bytes == b"\r" {
