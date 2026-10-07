@@ -2,11 +2,19 @@
 """AzMeet end to end: two people join a call from a link, see each other, and chat.
 
     1. starts the meet Worker's dev server (in memory) on --worker-port;
-    2. starts Ada (AZMEET_AUTOCREATE=1: she creates a meeting and prints its link) and, once the
-       link is out, Ben (AZMEET_JOIN=<link>), both headless (AZ_BACKEND=headless) with the test
-       tone and the test pattern for their devices, each under the capped runner
-       (run_capped.sh, 1000 MB and --app-seconds each: two apps run at once here, so each gets
-       the smaller cap);
+    2. starts Ada (AZMEET_AUTOCREATE=1: she creates a meeting, enters it and prints its link) and,
+       once the link is out, Ben (AZMEET_JOIN=<link> AZMEET_WAITING_ROOM=1), both headless
+       (AZ_BACKEND=headless) with the test tone and the test pattern for their devices, each
+       under the capped runner (run_capped.sh, 1000 MB and --app-seconds each: two apps run at
+       once here, so each gets the smaller cap);
+    2b. Ben's waiting room: `AZMEET_WAITING <link>` on his stdout, the preview
+       (`#__azmeet_preview`) laid out, the meeting's code and "Join now"; the microphone switch
+       (`#__azmeet_mic`) flips "Mute" -> "Unmute" -> "Mute" and the camera switch (`#__azmeet_cam`)
+       "Stop video" -> "Start video" -> "Stop video"; the gear (`#__azmeet_settings`, top right)
+       opens azul-appkit's settings page with AzMeet's categories (Audio & Video, Meetings,
+       Recording) and Escape closes it; then "Join now" (`#__azmeet_join_now`) enters the meeting
+       (`AZMEET_ROOM` on his stdout). `--skip waiting` for a build before the waiting room (Ben
+       then starts without AZMEET_WAITING_ROOM and goes straight in);
     3. asserts each window has the other's camera tile (`#__azmeet_tile_<name>_camera`, laid out
        inside the window) and decodes the other's video (the statistics panel's "Video from
        <name> (camera ...): <codec>, decoded N" line, N > 0; H.264 with --require-h264);
@@ -28,7 +36,7 @@ Usage (from the azul repository, after building libazul with the debug server an
     python3 scripts/azmeet_e2e.py [--bin target/release/AzMeet]
         [--worker-dir ../azul-apps/cf-workers/meet] [--capped <run_capped.sh>]
         [--port-a 8781] [--port-b 8782] [--worker-port 8790] [--timeout 150]
-        [--app-seconds 140] [--require-h264] [--skip rejoin] [--out <dir>] [--keep-logs]
+        [--app-seconds 140] [--require-h264] [--skip rejoin,waiting] [--out <dir>] [--keep-logs]
 
 `AZMEET_BIN`, `AZMEET_WORKER_DIR` and `AZ_RUN_CAPPED` name the binary, the Worker and the
 capped runner too. Without a capped runner the apps run uncapped and the script says so. The
@@ -263,6 +271,56 @@ def check_files(app, data, other, deadline, procs):
         % (app.tag, record.get("meeting"), len(lines), record.get("people")))
 
 
+SETTINGS_CATEGORIES = ("Audio & Video", "Meetings", "Recording")
+
+
+def waiting_room(app, width, height, deadline, procs):
+    """`app` (started with AZMEET_JOIN and AZMEET_WAITING_ROOM=1) stops in the meeting's waiting
+    room: its preview is laid out, the switches say what a click does and flip with each click,
+    the gear opens the settings page with AzMeet's categories (Escape closes it), and "Join now"
+    enters the meeting."""
+    until("%s's waiting room (AZMEET_WAITING)" % app.tag, lambda: app.printed("AZMEET_WAITING"),
+          deadline, procs)
+
+    def shown(short):
+        node, rect = app.node_rect(app.id(short))
+        return node is not None and inside(rect, width, height)
+
+    until("%s's Join now button" % app.tag, lambda: shown("join-now"), deadline, procs)
+    node, rect = app.node_rect(app.id("preview"))
+    if node is None or float(rect.get("width", 0)) < 200:
+        raise Failure("%s's preview is %s (at least 200 px wide)" % (app.tag, rect or "not there"))
+    if app.node_rect(app.id("meeting-code"))[0] is None:
+        raise Failure("%s's waiting room shows no meeting code" % app.tag)
+    if app.printed("AZMEET_ROOM"):
+        raise Failure("%s entered the meeting before Join now" % app.tag)
+    # The test tone and the test pattern start on: each switch says what a click does, and says
+    # the opposite after one.
+    for short, on, off in (("mic", "Mute", "Unmute"), ("cam", "Stop video", "Start video")):
+        if on not in app.texts():
+            raise Failure("%s's %s switch does not say %r: %s" % (app.tag, short, on, app.texts()))
+        app.click(selector="#" + app.id(short))
+        until("%s's %s switch saying %r" % (app.tag, short, off),
+              lambda off=off: off in app.texts(), deadline, procs)
+        app.click(selector="#" + app.id(short))
+        until("%s's %s switch saying %r again" % (app.tag, short, on),
+              lambda on=on: on in app.texts(), deadline, procs)
+        log("%s's waiting room: %s %r -> %r -> %r" % (app.tag, short, on, off, on))
+    # The gear at the top right: azul-appkit's settings page, AzMeet's categories first.
+    app.click(selector="#" + app.id("settings"))
+    until("%s's settings page with %s" % (app.tag, ", ".join(SETTINGS_CATEGORIES)),
+          lambda: all(any(c in t for t in app.texts(every_dom=True)) for c in SETTINGS_CATEGORIES),
+          deadline, procs)
+    app.key("Escape")
+    until("%s's waiting room after Escape" % app.tag, lambda: shown("join-now"), deadline, procs)
+    log("%s's gear opened the settings (%s); Escape closed them"
+        % (app.tag, ", ".join(SETTINGS_CATEGORIES)))
+    app.click(selector="#" + app.id("join-now"))
+    until("%s in the meeting (AZMEET_ROOM)" % app.tag, lambda: app.printed("AZMEET_ROOM"),
+          deadline, procs)
+    log("%s joined from the waiting room" % app.tag)
+
+
 def chat(sender, receiver, sender_name, text, use_enter, deadline, procs):
     """`sender` opens the chat and sends `text`; `receiver` prints it, counts it, shows it.
 
@@ -352,8 +410,12 @@ def main():
                      deadline, procs)
         log("Ada created %s" % link)
 
-        ben = start_app("ben", binary, args.port_b,
-                        app_env(worker, "Ben", args.port_b, {"AZMEET_JOIN": link, "AZLIN_DATA": data_ben}),
+        skip = (args.skip or "").split(",")
+        ben_env = {"AZMEET_JOIN": link, "AZLIN_DATA": data_ben}
+        if "waiting" not in skip:
+            # Ben stops in the waiting room; the step below joins from there.
+            ben_env["AZMEET_WAITING_ROOM"] = "1"
+        ben = start_app("ben", binary, args.port_b, app_env(worker, "Ben", args.port_b, ben_env),
                         logs, args, capped)
         procs.append(ben)
 
@@ -361,6 +423,11 @@ def main():
             until("%s's debug server" % app.tag, lambda app=app: app.op("wait_frame") is not None, deadline, procs)
             app.must("resize", width=args.width, height=args.height)
             app.frame()
+
+        if "waiting" in skip:
+            log("waiting room skipped (--skip waiting): Ben went straight in")
+        else:
+            waiting_room(ben, args.width, args.height, deadline, procs)
 
         # Each sees the other's camera tile, inside the window.
         for app, other in ((ada, "ben"), (ben, "ada")):
