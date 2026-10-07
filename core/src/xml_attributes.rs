@@ -511,24 +511,45 @@ pub fn apply_settings(
         all.extend(attributes);
         node.set_attributes(all.into());
     }
-    let mut props = intrinsic;
+    // The element's presentational hints (what its attributes say about its
+    // style - `width`, `font-size`, `dir`) are the weakest author rules: any
+    // stylesheet rule and the `style` attribute beat them. They used to be
+    // stored as inline style, which beats every stylesheet.
+    let mut hints = intrinsic;
     if let Some(d) = direction {
-        props.push(CssPropertyWithConditions::simple(CssProperty::Direction(
+        hints.push(CssPropertyWithConditions::simple(CssProperty::Direction(
             CssPropertyValue::Exact(d),
         )));
     }
+    let mut inline = Vec::new();
     if let Some(s) = style_text {
         match css_key_map {
-            Some(map) => props.extend(style_declarations(s.as_str(), map)),
+            Some(map) => inline.extend(style_declarations(s.as_str(), map)),
             None => {
                 let map = azul_css::props::property::get_css_key_map();
-                props.extend(style_declarations(s.as_str(), &map));
+                inline.extend(style_declarations(s.as_str(), &map));
             }
         }
     }
-    if !props.is_empty() {
-        node.set_css_props(props.into());
+    if hints.is_empty() && inline.is_empty() {
+        return;
     }
+    let mut rules = azul_css::css::Css::from(
+        azul_css::dynamic_selector::CssPropertyWithConditionsVec::from(hints),
+    )
+    .rules
+    .into_library_owned_vec();
+    for rule in &mut rules {
+        rule.priority = azul_css::css::rule_priority::PRESENTATIONAL;
+    }
+    rules.extend(
+        azul_css::css::Css::from(azul_css::dynamic_selector::CssPropertyWithConditionsVec::from(
+            inline,
+        ))
+        .rules
+        .into_library_owned_vec(),
+    );
+    node.style = azul_css::css::Css::new(rules);
 }
 
 /// The static declarations of a `style` attribute (`key: value; ...`).

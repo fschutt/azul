@@ -943,3 +943,6 @@ mod a_zoomed_box_paints_its_border_corners_and_shadow_zoomed;
 mod hyphens_auto_hyphenates_in_the_language_of_the_lang_attribute;
 #[path = "a_relatively_positioned_inline_box_moves_its_text.rs"]
 mod a_relatively_positioned_inline_box_moves_its_text;
+
+#[path = "a_presentational_attribute_loses_to_any_author_css.rs"]
+mod a_presentational_attribute_loses_to_any_author_css;

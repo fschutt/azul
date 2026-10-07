@@ -1720,6 +1720,39 @@ impl CssPropertyCache {
         // 50K × N clones into per-node css_props Vecs.
         self.global_css_props.clear();
 
+        // A node's presentational hints (its markup attributes' style,
+        // `rule_priority::PRESENTATIONAL`) come FIRST among its stylesheet
+        // properties: the last pushed wins, so every matched rule overrides
+        // them - and the inline style, read before the stylesheet, does too.
+        for (index, nd) in node_data.internal.iter().enumerate() {
+            for rule in nd.style.rules.as_ref() {
+                let stateful = rule
+                    .conditions
+                    .as_slice()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(_)));
+                if rule.priority >= azul_css::css::rule_priority::INLINE
+                    || stateful
+                    || !rule_applies(&rule.conditions)
+                {
+                    continue;
+                }
+                for declaration in rule.declarations.as_ref() {
+                    if let Some(prop) = declaration.resolve_in_cascade(dyn_ctx.as_deref()) {
+                        self.css_props.push_to(
+                            index,
+                            StatefulCssProperty {
+                                state: PseudoStateType::Normal,
+                                prop_type: prop.get_type(),
+                                property: prop,
+                                ua_origin: false,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
         // `:backdrop` is a WINDOW state (the window is not the active one):
         // whether this DOM declares anything under it, in a stylesheet rule
         // or inline, decides whether the inheritance walk below carries a
@@ -2832,6 +2865,9 @@ impl CssPropertyCache {
             .rules
             .as_ref()
             .iter()
+            // Presentational hints are not inline style: they cascade as the
+            // first of the node's stylesheet properties (`restyle`).
+            .filter(|r| r.priority >= azul_css::css::rule_priority::INLINE)
             .flat_map(|r| {
                 let conditions = &r.conditions;
                 r.declarations

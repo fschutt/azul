@@ -992,6 +992,14 @@ pub mod rule_priority {
     /// app.
     pub const SYSTEM: u8 = 10;
 
+    /// A node's PRESENTATIONAL HINTS: what its markup attributes say about
+    /// its style (`<svg width="100">`, `<img height>`, an SVG `<text>`'s
+    /// `font-size`). Author-level with specificity 0 (CSS 2.2 6.4.4): every
+    /// stylesheet rule and inline style beats them. Stored on the node (its
+    /// `style`) but cascaded as the first of its stylesheet rules, not as
+    /// inline style.
+    pub const PRESENTATIONAL: u8 = 15;
+
     /// Default for parser-produced rules: the app author's CSS.
     /// Everything coming out of `Css::from_string` lives here.
     pub const AUTHOR: u8 = 20;
