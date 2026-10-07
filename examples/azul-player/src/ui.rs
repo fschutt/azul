@@ -1051,10 +1051,11 @@ fn gallery_tile(
     let mut dom = Dom::create_div()
         .with_id(id)
         .with_class(ids::TILE)
+        // In with a fade when it comes into the built columns; no exit: a tile leaves the
+        // built columns out of view (and an exit would cost a render of the whole last frame).
         .with_css(format!(
             "position: absolute; left: {x:.1}px; top: {y:.1}px; width: {aw}px; height: {:.1}px; \
-             cursor: pointer; -azul-animation-in: azp-fade-in 260ms ease-out; \
-             -azul-animation-out: azp-tile-out 140ms ease-in;",
+             cursor: pointer; -azul-animation-in: azp-fade-in 260ms ease-out;",
             ah + caption_h
         ));
     if grid.kind == TileKind::Song {
