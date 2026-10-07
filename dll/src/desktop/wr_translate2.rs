@@ -854,6 +854,8 @@ pub fn collect_image_resource_updates(
 
 /// This scans all display lists for Text items, extracts their font_hashes,
 /// loads the fonts from the FontManager, and creates AddFont + AddFontInstance ResourceUpdates.
+/// Also returns the hash of every font a display list draws: the live set of
+/// the font GC ([`collect_stale_font_deletes`]).
 ///
 /// CRITICAL: FontKey is generated deterministically from font hash to ensure
 /// consistency between layout (which uses hash) and rendering (which uses key).
@@ -861,7 +863,7 @@ pub fn collect_font_resource_updates(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
     dpi_factor: DpiScaleFactor,
-) -> Vec<ResourceUpdate> {
+) -> (Vec<ResourceUpdate>, azul_core::FastBTreeSet<u64>) {
     use std::collections::BTreeMap;
 
     use azul_core::resources::{
@@ -1010,7 +1012,8 @@ pub fn collect_font_resource_updates(
         "[collect_font_resource_updates] Generated {} resource updates",
         resource_updates.len()
     );
-    resource_updates
+    let live = font_hash_sizes.keys().copied().collect();
+    (resource_updates, live)
 }
 
 /// Translate azul-core ResourceUpdate to WebRender ResourceUpdate
@@ -1296,8 +1299,21 @@ fn register_frame_resources(
     dpi: DpiScaleFactor,
 ) {
     // --- Fonts ---
-    let font_updates =
+    let (font_updates, live_font_hashes) =
         collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
+
+    // --- Font GC: delete the fonts gone from every display list ---
+    // BEFORE the adds: a delete never targets a font this frame draws.
+    let font_deletes = collect_stale_font_deletes(layout_window, &live_font_hashes);
+    if !font_deletes.is_empty() {
+        let wr_font_deletes: Vec<webrender::ResourceUpdate> = font_deletes
+            .into_iter()
+            .filter_map(translate_resource_update)
+            .collect();
+        if !wr_font_deletes.is_empty() {
+            txn.update_resources(wr_font_deletes);
+        }
+    }
 
     // Update font_hash_map + currently_registered_fonts as we process resources.
     // This is CRITICAL for push_text() to look up FontKey / FontInstanceKey from
@@ -1776,6 +1792,53 @@ pub fn collect_stale_image_deletes(
                 .renderer_resources
                 .currently_registered_images
                 .len()
+        );
+    }
+    deletes
+}
+
+/// Number of frames a font may be absent from every display list before it is
+/// deleted from the renderer: [`IMAGE_GC_KEEP_EPOCHS`]' rule, for fonts.
+const FONT_GC_KEEP_EPOCHS: u32 = 2;
+
+/// Mark this frame's live fonts (by hash), then delete every registered font
+/// not drawn for more than [`FONT_GC_KEEP_EPOCHS`] frames: its instances and
+/// the font itself ([`azul_core::resources::RendererResources::delete_font`]).
+/// Before, a window kept every font it had ever drawn - and a document that
+/// brings its own fonts (the pages of a PDF, each with its subset fonts)
+/// added new ones on every page. `pub` so a test can drive the GC without a
+/// WebRender transaction.
+pub fn collect_stale_font_deletes(
+    layout_window: &mut LayoutWindow,
+    live_font_hashes: &azul_core::FastBTreeSet<u64>,
+) -> Vec<ResourceUpdate> {
+    let now = layout_window.epoch.into_u32();
+    let rr = &mut layout_window.renderer_resources;
+    for hash in live_font_hashes.iter() {
+        rr.font_last_seen_epoch.insert(*hash, now);
+    }
+    // As for images: a last-seen AHEAD of `now` (only right after the epoch
+    // wrapped) counts as just seen.
+    let stale: Vec<u64> = rr
+        .font_hash_map
+        .keys()
+        .filter(|hash| !live_font_hashes.contains(hash))
+        .filter(|hash| match rr.font_last_seen_epoch.get(hash) {
+            Some(&last) => now >= last && now.saturating_sub(last) > FONT_GC_KEEP_EPOCHS,
+            None => true,
+        })
+        .copied()
+        .collect();
+    let deletes: Vec<ResourceUpdate> = stale
+        .into_iter()
+        .flat_map(|hash| rr.delete_font(hash))
+        .collect();
+    if !deletes.is_empty() {
+        log_debug!(
+            LogCategory::Rendering,
+            "[font-gc] {} delete(s) (registered now {})",
+            deletes.len(),
+            rr.currently_registered_fonts.len()
         );
     }
     deletes

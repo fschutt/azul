@@ -20,8 +20,15 @@ use rust_fontconfig::FcFontCache;
 
 /// A test font as the `data:` URI printpdf embeds it in.
 fn font_uri(file: &str) -> String {
+    variant_uri(file, 0)
+}
+
+/// `file` with `n` bytes after its tables: another face to the font pool (a
+/// face is known by its bytes), the same glyphs.
+fn variant_uri(file: &str, n: usize) -> String {
     let path = format!("{}/tests/fonts/{file}", env!("CARGO_MANIFEST_DIR"));
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    let mut bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    bytes.extend(std::iter::repeat_n(0u8, n));
     format!(
         "data:font/otf;charset=utf-8;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(bytes)
@@ -57,6 +64,18 @@ fn lay_out(lw: &mut LayoutWindow, styled: StyledDom) {
         &mut None,
     )
     .unwrap();
+}
+
+/// The font hash of every text run the window draws.
+fn drawn_fonts(lw: &LayoutWindow) -> Vec<u64> {
+    let dl = &lw.get_layout_result(&DomId::ROOT_ID).unwrap().display_list;
+    dl.items
+        .iter()
+        .filter_map(|item| match item {
+            DisplayListItem::Text { font_hash, .. } => Some(font_hash.font_hash),
+            _ => None,
+        })
+        .collect()
 }
 
 fn laid_out(styled: StyledDom) -> Vec<Vec<f32>> {
@@ -150,4 +169,68 @@ fn a_font_is_parsed_once_for_every_page_that_embeds_it() {
         azul_layout::font_from_url("https://example.com/f.otf").is_none(),
         "not embedded"
     );
+}
+
+/// Pages `0..count`, each in a font of its own (all named `F1`); the pages
+/// not in `shown` are `display: none`.
+fn pages(count: usize, shown: impl Fn(usize) -> bool) -> StyledDom {
+    let body: String = (0..count)
+        .map(|i| {
+            format!(
+                r#"<svg width="300" height="200" viewBox="0 0 300 200" style="display: {}"><style>
+@font-face {{ font-family: "F1"; src: url("{}"); }}
+</style><text x="10" y="150" font-family="F1" font-size="100">Mi</text></svg>"#,
+                if shown(i) { "block" } else { "none" },
+                variant_uri("azul-mock-prop.ttf", i + 1)
+            )
+        })
+        .collect();
+    let markup = format!("<html><body style=\"margin: 0px\">{body}</body></html>");
+    let parsed = azul_layout::xml::parse_xml(&markup).expect("the markup parses");
+    let mut dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+    StyledDom::create(&mut dom, azul_css::css::Css::empty())
+}
+
+#[test]
+fn the_fonts_of_pages_that_went_are_given_back() {
+    let mut lw = window();
+    lay_out(&mut lw, pages(12, |_| true));
+    assert_eq!(drawn_fonts(&lw).len(), 12, "every page draws its text");
+    assert!(
+        lw.font_manager.embedded_font_count() >= 12,
+        "the pool holds the pages' fonts"
+    );
+    // The document scrolled: one page is left.
+    for _ in 0..3 {
+        lay_out(&mut lw, pages(1, |_| true));
+    }
+    assert_eq!(
+        lw.font_manager.embedded_font_count(),
+        1,
+        "the fonts of the pages that went are dropped; the shown page's stays"
+    );
+}
+
+#[test]
+fn a_page_whose_font_was_dropped_while_hidden_draws_again_when_shown() {
+    let mut lw = window();
+    // Twelve pages, only the first shown: the hidden pages' fonts are named
+    // by the DOM but drawn by nothing, and dropped.
+    for _ in 0..3 {
+        lay_out(&mut lw, pages(12, |i| i == 0));
+    }
+    assert!(
+        lw.font_manager.embedded_font_count() < 12,
+        "the hidden pages' fonts are dropped"
+    );
+    // The same fonts, every page shown: each must be drawable again.
+    lay_out(&mut lw, pages(12, |_| true));
+    let drawn = drawn_fonts(&lw);
+    assert_eq!(drawn.len(), 12, "every page draws its text");
+    for hash in drawn {
+        assert!(
+            lw.font_manager.resolve_font_by_hash(hash).is_some(),
+            "a drawn font is in the pool again, or the renderer cannot draw it ({hash})"
+        );
+    }
 }

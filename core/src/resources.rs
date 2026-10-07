@@ -2544,6 +2544,12 @@ pub struct RendererResources {
     /// Direct mapping from font hash (from `FontRef`) to `FontKey`
     /// TODO: This should become part of `SharedFontRegistry`
     pub font_hash_map: OrderedMap<u64, FontKey>,
+    /// Font GC bookkeeping, as `image_last_seen_epoch` is for images: the
+    /// last epoch each registered font (by its hash) was drawn by a display
+    /// list. A font no display list drew for a few frames is deleted from the
+    /// renderer ([`Self::delete_font`]) - the fonts a document brought (the
+    /// pages of a PDF) go when its pages do.
+    pub font_last_seen_epoch: OrderedMap<u64, u32>,
     /// The image key of every node whose picture is REPLACED IN PLACE: a
     /// video tile, whose frames arrive through `change_node_image` and live
     /// in the content overlay. One key per `(DomId, NodeId)` for as long as
@@ -2648,36 +2654,30 @@ impl RendererResources {
         instances.get(&(font_size_au, dpi_scale)).copied()
     }
 
-    // Delete all font family hashes that do not have a font key anymore
-    //
-    // AUDIT-TODO (font GC, resources.rs font leak — 2026-07-08):
-    // Fonts and font instances are currently NEVER garbage-collected. This helper
-    // only prunes `font_id_map` / `font_families_map` entries whose `FontKey` has
-    // *already* vanished from `currently_registered_fonts` — but nothing ever
-    // removes fonts from `currently_registered_fonts` in the first place, and this
-    // helper itself has no callers. No `DeleteFont` / `DeleteFontInstance`
-    // `ResourceUpdate` is ever emitted, so WebRender font memory grows unbounded
-    // when an app cycles fonts (font pickers, editors, live CSS).
-    //
-    // To wire a real font GC mirroring the image GC (see `dll/.../wr_translate2.rs`
-    // `garbage_collect_images` + `image_last_seen_epoch`), the following are needed
-    // and MUST be done together (do not half-implement):
-    //   1. Add `font_last_seen_epoch: OrderedMap<FontKey, u32>` (and, if instance- level GC is
-    //      wanted, per-`FontInstanceKey` epochs) to `RendererResources`.
-    //   2. In the display-list build (dll crate), after resolving each glyph run's
-    //      `FontInstanceKey`, mark the owning `FontKey` (and instance) seen at the current epoch —
-    //      exactly as images are marked in the image GC.
-    //   3. Add a `garbage_collect_fonts(&mut self, now, keep_epochs, updates)` that, for every
-    //      `FontKey` unseen for > keep_epochs frames, emits `DeleteFontInstance` for each of its
-    //      instances then `DeleteFont`, and evicts the key from `currently_registered_fonts`,
-    //      `font_hash_map`, `last_frame_registered_fonts`, and `font_id_map`/`font_families_map`
-    //      (via this helper). Respect the "delete on current frame + 1" rule already documented on
-    //      `last_frame_registered_fonts`.
-    //   4. Call it once per frame from the same site as the image GC.
-    // Left as a TODO because steps 2 and 4 are cross-crate (dll) and cannot be
-    // implemented from `azul-core` alone; adding a GC method here without a caller
-    // would just be more dead code.
-    #[allow(dead_code)]
+    /// Forget the font registered for `font_hash`: evicted from every
+    /// table here, and the updates that delete it from the renderer - its
+    /// instances, then the font. Nothing when no font is registered for it.
+    /// The caller decides it is unused (the frame's font GC).
+    pub fn delete_font(&mut self, font_hash: u64) -> Vec<ResourceUpdate> {
+        self.font_last_seen_epoch.remove(&font_hash);
+        let Some(font_key) = self.font_hash_map.remove(&font_hash) else {
+            return Vec::new();
+        };
+        let mut updates = Vec::new();
+        if let Some((_, instances)) = self.currently_registered_fonts.remove(&font_key) {
+            updates.extend(
+                instances
+                    .values()
+                    .map(|instance| ResourceUpdate::DeleteFontInstance(*instance)),
+            );
+        }
+        self.last_frame_registered_fonts.remove(&font_key);
+        updates.push(ResourceUpdate::DeleteFont(font_key));
+        self.remove_font_families_with_zero_references();
+        updates
+    }
+
+    /// Delete all font family hashes that do not have a font key anymore.
     fn remove_font_families_with_zero_references(&mut self) {
         let font_family_to_delete = self
             .font_id_map

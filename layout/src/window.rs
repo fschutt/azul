@@ -841,6 +841,11 @@ pub const MAX_EVENT_RECURSION_DEPTH: usize = 7;
 /// `FrameReport::hit_depth_cap` rather than silently truncating.
 pub const MAX_LIFECYCLE_REGEN_PASSES: usize = 3;
 
+/// How many `StyleFontFamily::Ref` faces a window keeps without collecting
+/// the ones it no longer draws (`LayoutWindow::collect_embedded_fonts`): an
+/// app's own icon / brand fonts are never worth a scan.
+pub const EMBEDDED_FONTS_ALWAYS_KEPT: usize = 8;
+
 impl FrameReport {
     /// Zero the work counters + accumulated damage if `requested_generation`
     /// (this window's [`LayoutWindow::frame_report_reset_request`]) has moved
@@ -3065,6 +3070,8 @@ impl LayoutWindow {
         if result.is_ok() {
             let dpi = window_state.size.get_hidpi_factor().inner.get();
             self.queue_resize_events_after_layout(system_callbacks, dpi);
+            // Every DOM of the window has its display list of this pass.
+            self.collect_embedded_fonts();
         }
 
         // PATCH VERIFY (`AZ_PATCH_VERIFY=1`): a PATCHED display list (the
@@ -7021,6 +7028,9 @@ impl LayoutWindow {
                     mix(u64::from(viewport.size.width.to_bits()));
                     mix(u64::from(viewport.size.height.to_bits()));
                 }
+                // A face the embedded-font GC dropped that this DOM still
+                // names (its text hidden) must be registered again.
+                mix(self.font_manager.embedded_fonts_dropped());
                 h
             });
 
@@ -25152,7 +25162,38 @@ impl LayoutWindow {
             }
         }
 
+        if !updated_vviews.is_empty() {
+            self.collect_embedded_fonts();
+        }
         updated_vviews
+    }
+
+    /// The embedded-font GC ([`crate::text3::cache::FontManager::collect_embedded_fonts`]) over
+    /// what every DOM of the window draws now - run after a TOP-LEVEL pass
+    /// (the root's, a view's re-render), never from a nested one: mid-pass,
+    /// the DOM being laid out has no display list yet.
+    ///
+    /// Only once the pool holds more than [`EMBEDDED_FONTS_ALWAYS_KEPT`]
+    /// faces: an app's icon fonts stay without a scan of its display lists
+    /// per pass; a document that brings its own fonts (the pages of a PDF)
+    /// gives them back.
+    fn collect_embedded_fonts(&mut self) {
+        if self.font_manager.embedded_font_count() <= EMBEDDED_FONTS_ALWAYS_KEPT {
+            return;
+        }
+        let live: std::collections::HashSet<u64> = self
+            .layout_results
+            .values()
+            .flat_map(|result| result.display_list.items.iter())
+            .filter_map(|item| match item {
+                solver3::display_list::DisplayListItem::Text { font_hash, .. }
+                | solver3::display_list::DisplayListItem::TextLayout { font_hash, .. } => {
+                    Some(font_hash.font_hash)
+                }
+                _ => None,
+            })
+            .collect();
+        self.font_manager.collect_embedded_fonts(&live);
     }
 
     /// Queue a `Resize` lifecycle event (`ComponentEventFilter::NodeResized`)

@@ -1166,6 +1166,7 @@ impl FontContext {
             condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: self.font_chain_cache.clone(),
             embedded_fonts: Arc::new(Mutex::new(self.embedded_fonts.clone())),
+            condemned_embedded_fonts: Arc::default(),
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
             last_resolved_font_stacks_sig: None,
@@ -1291,6 +1292,22 @@ impl<T> Default for CondemnedFonts<T> {
     }
 }
 
+/// The embedded-font GC's grace pool (see
+/// [`FontManager::collect_embedded_fonts`]): `StyleFontFamily::Ref` faces no
+/// display list of the window showed at its last run, by hash.
+#[derive(Debug, Default)]
+pub struct CondemnedEmbeddedFonts {
+    /// Condemned faces, each stamped with the run that condemned it.
+    pub faces: HashMap<u64, (azul_css::props::basic::FontRef, u64)>,
+    /// Monotonic GC run counter.
+    pub generation: u64,
+    /// How many faces were dropped, ever: part of every manager's "this
+    /// DOM's fonts are the ones last resolved" signature, so a DOM that still
+    /// names a dropped face (its text hidden) registers it again on its next
+    /// layout instead of skipping the registration.
+    pub dropped: u64,
+}
+
 #[derive(Debug)]
 pub struct FontManager<T> {
     /// The font-path cache. `FcFontCache` in rust-fontconfig 4.1 is
@@ -1326,6 +1343,8 @@ pub struct FontManager<T> {
     /// must be SHARED by every manager cloned from this one, exactly like
     /// `parsed_fonts` above. See `clone_shared`.
     pub embedded_fonts: Arc<Mutex<HashMap<u64, azul_css::props::basic::FontRef>>>,
+    /// `embedded_fonts`' faces the embedded-font GC condemned, shared with it.
+    pub condemned_embedded_fonts: Arc<Mutex<CondemnedEmbeddedFonts>>,
     /// Reverse map: `font_family_hash` → actual `StyleFontFamilyVec`.
     /// Accumulated across DOMs. Used by font collection and text shaping to
     /// resolve compact cache hashes without `get_property_slow`.
@@ -1402,6 +1421,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             // falls back to a system face with no glyph at the icon's
             // private-use codepoint. Every step reports success.
             embedded_fonts: Arc::clone(&self.embedded_fonts),
+            condemned_embedded_fonts: Arc::clone(&self.condemned_embedded_fonts),
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
             // Deliberately reset: the sig gates a chain-resolver skip that is
@@ -1426,6 +1446,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: Arc::new(Mutex::new(HashMap::new())),
+            condemned_embedded_fonts: Arc::default(),
             font_hash_to_families: HashMap::new(),
             registry: None,
             last_resolved_font_stacks_sig: None,
@@ -1753,6 +1774,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: Arc::new(Mutex::new(HashMap::new())),
+            condemned_embedded_fonts: Arc::default(),
             font_hash_to_families: HashMap::new(),
             registry: None,
             last_resolved_font_stacks_sig: None,
@@ -1842,8 +1864,20 @@ impl<T: ParsedFontTrait> FontManager<T> {
         &self,
         font_hash: u64,
     ) -> Option<azul_css::props::basic::FontRef> {
-        let embedded = self.embedded_fonts.lock().unwrap();
-        embedded.get(&font_hash).cloned()
+        let mut embedded = self.embedded_fonts.lock().unwrap();
+        if let Some(font) = embedded.get(&font_hash) {
+            return Some(font.clone());
+        }
+        // A face the embedded-font GC condemned is still drawn by someone
+        // who asks for it: back into the pool.
+        let (font, _) = self
+            .condemned_embedded_fonts
+            .lock()
+            .unwrap()
+            .faces
+            .remove(&font_hash)?;
+        embedded.insert(font_hash, font.clone());
+        Some(font)
     }
 
     /// Get a parsed font by its hash (used for `WebRender` registration)
@@ -1920,7 +1954,104 @@ impl<T: ParsedFontTrait> FontManager<T> {
     pub fn register_embedded_font(&self, font_ref: &azul_css::props::basic::FontRef) {
         let hash = font_ref.get_hash();
         let mut embedded = self.embedded_fonts.lock().unwrap();
+        self.condemned_embedded_fonts
+            .lock()
+            .unwrap()
+            .faces
+            .remove(&hash);
         embedded.insert(hash, font_ref.clone());
+    }
+
+    /// How many `StyleFontFamily::Ref` faces the pool holds, condemned ones
+    /// included.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
+    #[must_use]
+    pub fn embedded_font_count(&self) -> usize {
+        self.embedded_fonts.lock().unwrap().len()
+            + self.condemned_embedded_fonts.lock().unwrap().faces.len()
+    }
+
+    /// How many embedded faces the GC has dropped, ever (see
+    /// [`CondemnedEmbeddedFonts::dropped`]).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
+    #[must_use]
+    pub fn embedded_fonts_dropped(&self) -> u64 {
+        self.condemned_embedded_fonts.lock().unwrap().dropped
+    }
+
+    /// EMBEDDED FONT GC: the `StyleFontFamily::Ref` faces no display list of
+    /// the window draws with (`live`: the font hashes of every DOM's display
+    /// list) are CONDEMNED, and dropped when still undrawn two runs later -
+    /// the pool's handle and every family of the reverse map that names one.
+    /// What a page of a document loaded (the fonts of a PDF page's SVG) is
+    /// freed once the page scrolls away and its DOM goes; before, the pool
+    /// kept every face it was ever handed.
+    ///
+    /// A face drawn again before it is dropped comes back (a resolution
+    /// resurrects it, [`Self::get_embedded_font_by_hash`]); a DOM that still
+    /// names a dropped one registers it again on its next layout (the
+    /// [`CondemnedEmbeddedFonts::dropped`] count is in its signature).
+    ///
+    /// Returns how many faces were dropped.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal font-cache mutex is poisoned.
+    pub fn collect_embedded_fonts(&mut self, live: &HashSet<u64>) -> usize {
+        let mut embedded = self.embedded_fonts.lock().unwrap();
+        let mut condemned = self.condemned_embedded_fonts.lock().unwrap();
+        condemned.generation = condemned.generation.saturating_add(1);
+        let generation = condemned.generation;
+        // Drawn again: back.
+        let back: Vec<u64> = condemned
+            .faces
+            .keys()
+            .filter(|hash| live.contains(hash))
+            .copied()
+            .collect();
+        for hash in back {
+            if let Some((font, _)) = condemned.faces.remove(&hash) {
+                embedded.insert(hash, font);
+            }
+        }
+        // Undrawn: condemned.
+        let undrawn: Vec<u64> = embedded
+            .keys()
+            .filter(|hash| !live.contains(hash))
+            .copied()
+            .collect();
+        for hash in undrawn {
+            if let Some(font) = embedded.remove(&hash) {
+                condemned.faces.insert(hash, (font, generation));
+            }
+        }
+        // Undrawn for two runs: dropped.
+        let mut dropped = HashSet::new();
+        condemned.faces.retain(|hash, (_, condemned_at)| {
+            let keep = generation.saturating_sub(*condemned_at) < 2;
+            if !keep {
+                dropped.insert(*hash);
+            }
+            keep
+        });
+        condemned.dropped = condemned.dropped.saturating_add(dropped.len() as u64);
+        drop(condemned);
+        drop(embedded);
+        if !dropped.is_empty() {
+            use azul_css::props::basic::font::StyleFontFamily;
+            self.font_hash_to_families.retain(|_, families| {
+                !families.as_ref().iter().any(|family| {
+                    matches!(family, StyleFontFamily::Ref(font) if dropped.contains(&font.get_hash()))
+                })
+            });
+        }
+        dropped.len()
     }
 
     /// Get a snapshot of all currently loaded fonts
