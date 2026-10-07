@@ -10,10 +10,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Look {
     pub dark: bool,
-    /// The title row (the `Titlebar` takes RGB) and its text.
-    pub title_rgb: (u8, u8, u8),
-    pub title_text_rgb: (u8, u8, u8),
-    /// The tool bar under the title row and the now-playing bar: a glossy gradient.
+    /// The tool bar (the window's title bar) and the now-playing bar: a glossy gradient.
     pub bar: &'static str,
     /// The sidebar, its current entry (a raised gradient) and an entry under the pointer.
     pub sidebar: &'static str,
@@ -51,8 +48,6 @@ pub struct Look {
 /// The default: Spotify 2010's charcoal.
 pub const DARK: Look = Look {
     dark: true,
-    title_rgb: (0x2b, 0x2b, 0x2b),
-    title_text_rgb: (0xd2, 0xd2, 0xd2),
     bar: "linear-gradient(to bottom, #4a4a4a, #2c2c2c)",
     sidebar: "#2f2f2f",
     sidebar_current: "linear-gradient(to bottom, #5c5c5c, #454545)",
@@ -80,8 +75,6 @@ pub const DARK: Look = Look {
 /// The light look: the same panes in light greys.
 pub const LIGHT: Look = Look {
     dark: false,
-    title_rgb: (0xd9, 0xd9, 0xd9),
-    title_text_rgb: (0x30, 0x30, 0x30),
     bar: "linear-gradient(to bottom, #f4f4f4, #cfcfcf)",
     sidebar: "#e4e7eb",
     sidebar_current: "linear-gradient(to bottom, #cbd5e0, #b5c1ce)",

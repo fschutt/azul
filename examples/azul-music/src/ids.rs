@@ -13,7 +13,8 @@ macro_rules! names {
 }
 
 names! {
-    /// The tool bar under the title row: back, forward, the search field, the status.
+    /// The tool bar - the window's title bar, its drag region: back, forward, the search field,
+    /// the status.
     TOOLBAR = "toolbar";
     BACK = "back";
     FORWARD = "forward";

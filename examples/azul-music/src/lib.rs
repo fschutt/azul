@@ -1,11 +1,13 @@
 //! AzMusic: a music player on the public azul API, in the look of Spotify's 2010 desktop player.
 //!
-//! The window (`ui.rs`, colours in `look.rs`): the title row (azul's `Titlebar`, the window is
-//! `NoTitle`); a tool bar with back, forward and the search field; the sidebar - Play Queue, the
-//! library (Recently Added, Artists, Albums, Songs, Genres), the playlists and "New Playlist", the
-//! cover of the song that plays at its foot; the page; the now-playing bar - the round transport,
-//! the song, azul's `SeekBar` between the times, shuffle, repeat, the queue, the volume
-//! (`Slider`) and azul's `LevelMeter`. Dark by default, the app's mode once the user picks one.
+//! The window (`ui.rs`, colours in `look.rs`), in the player's own sans in every theme, none of
+//! it selectable text but the search field: the tool bar - back, forward, the search field, the
+//! status - which IS the title bar (the window is `NoTitle`: the bar moves the window, a double
+//! click zooms, the window's controls keep their corner); the sidebar - Play Queue, the library
+//! (Recently Added, Artists, Albums, Songs, Genres), the playlists and "New Playlist", the cover
+//! of the song that plays at its foot; the page; the now-playing bar - the round transport, the
+//! song, azul's `SeekBar` between the times, shuffle, repeat, the queue, the volume (`Slider`)
+//! and azul's `LevelMeter`. Dark by default, the app's mode once the user picks one.
 //!
 //! The page is a VirtualView (`page.rs` says what its lines are; only those in view are built):
 //! grids of album covers, round artist initials and genre tiles; an album's header (cover, title,

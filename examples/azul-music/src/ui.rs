@@ -3,8 +3,9 @@
 //! player's own hand everywhere, in every theme (`HAND`: the platform's UI sans), and nothing in
 //! it is selectable text but the search field.
 //!
-//! - THE TOOL BAR under the title row: back and forward (round, glossy), the search field, the
-//!   status on the right.
+//! - THE TOOL BAR is the window's title bar (the window is `NoTitle`, there is no title row):
+//!   back and forward (round, glossy), the search field, the status on the right; the bar moves
+//!   the window and a double click on it zooms, clear of the window's own controls.
 //! - THE SIDEBAR: Play Queue; LIBRARY - Recently Added, Artists, Albums, Songs, Genres; PLAYLISTS -
 //!   the user's, then "New Playlist"; at its foot the cover of the song that plays.
 //! - THE PAGE (a VirtualView: only the lines in view are built, `page.rs` says what they are): a
@@ -29,19 +30,19 @@ use azul::{
     dialog::{FileDialog, FileOpenResult},
     dom::TabIndex,
     menu::{Menu, MenuItem, StringMenuItem},
-    option::{OptionColorU, OptionString},
+    option::OptionString,
     prelude::*,
     shells::{ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     widgets::{
         Button, LevelMeter, MediaControlsAction, OnTextInputReturn, SeekBar, Slider, SliderState,
-        TextInputState, TextInputValid, Titlebar, UiTheme,
+        TextInputState, TextInputValid, UiTheme,
     },
 };
 use azul_appkit::ui as kit;
 
 use crate::{
-    app::{self, LibraryRef, Music, FOLDER_SETTING, SPEC},
+    app::{self, LibraryRef, Music, FOLDER_SETTING},
     art, ids,
     library::Library,
     look::{self, Look},
@@ -54,6 +55,8 @@ use crate::{
 
 /// The sidebar's width, px.
 const SIDEBAR_W: f32 = 220.0;
+/// The tool bar's height, px: it is the window's title bar.
+const TOOLBAR_H: f32 = 40.0;
 /// A column that fills what it is given.
 const COLUMN: &str = "display: flex; flex-direction: column; min-height: 0px; min-width: 0px;";
 /// The player's own hand, on the window's root AND on the page's root: a VirtualView's DOM is
@@ -64,6 +67,9 @@ const COLUMN: &str = "display: flex; flex-direction: column; min-height: 0px; mi
 /// not text: `user-select` inherits, so no label, cell or title is selectable (the search field
 /// says `text` again), and the pointer stays an arrow over the words.
 const HAND: &str = "font-family: system:ui; font-size: 12px; user-select: none; cursor: default;";
+/// A control in the tool bar - the window's title bar - keeps its press: the framework's walk up
+/// to the bar's `drag` stops at it.
+const NO_DRAG: &str = "-azul-app-region: no-drag;";
 
 // ==== Small parts ====
 
@@ -110,7 +116,7 @@ fn round_button(
         .with_id(id)
         .with_css(format!(
             "display: flex; flex-shrink: 0; width: {size}px; height: {size}px; margin-left: 6px; \
-             cursor: pointer;"
+             cursor: pointer; {NO_DRAG}"
         ))
         .with_accessibility_name(name)
         // The box takes the click, the focus and the name; its icon is the face (a `:hover` on
@@ -218,8 +224,9 @@ fn cover_play(look: &Look, title: &str, pick: RefAny) -> Dom {
 
 // ==== The window ====
 
-/// The window: the title row, the tool bar, the sidebar beside the page, the now-playing bar -
-/// in the theme scope; the keys and the desktop's media requests on the body.
+/// The window: the tool bar (its title bar), the sidebar beside the page, the now-playing bar -
+/// in the theme scope, in the player's own hand; the keys and the desktop's media requests on
+/// the body.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
@@ -245,7 +252,6 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             "{COLUMN} {HAND} flex-grow: 1; background: {}; color: {};",
             look.page, look.text
         ))
-        .with_child(title_row(look))
         .with_child(toolbar(s, &app, look))
         .with_child(middle)
         .with_child(now_playing_bar(s, &app, look));
@@ -264,22 +270,16 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         )
 }
 
-/// The title row (the window is `NoTitle`) in the bars' charcoal.
-fn title_row(look: &Look) -> Dom {
-    let (r, g, b) = look.title_rgb;
-    let (tr, tg, tb) = look.title_text_rgb;
-    let ground = ColorU::rgb(r, g, b);
-    let mut bar = Titlebar::create(SPEC.name)
-        .with_background(ground)
-        .with_background_inactive(ground)
-        .without_border_bottom();
-    bar.title_color = ColorU::rgb(tr, tg, tb);
-    bar.title_color_inactive = OptionColorU::Some(ColorU::rgb(tr, tg, tb));
-    bar.dom()
-}
-
-/// The tool bar: back, forward, the search field; the status on the right.
+/// The tool bar, which IS the window's title bar (the window is `NoTitle`; a title row over it
+/// only said "AzMusic" and took 28px): back, forward, the search field; the status on the
+/// right. The bar moves the window - `-azul-app-region: drag`, which the framework hands to the
+/// window manager, and on which a double click zooms (maximizes) - and leaves the window's own
+/// controls their room: the traffic lights' width before Back on macOS, the software controls'
+/// after the status on Linux, nothing on Windows (its caption stays above). Those are azul's
+/// `TabsInTitlebar::platform()` offsets, the ones the ribbon apps' tab strips take. Its buttons
+/// and the search field say `no-drag`: a press on them is theirs.
 fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
+    let chrome = kit::tabs_in_titlebar();
     let back = (!s.back.is_empty()).then(|| (app.clone(), on_back as CallbackType));
     let forward = (!s.forward.is_empty()).then(|| (app.clone(), on_forward as CallbackType));
     let search = TextInput::create_search()
@@ -292,8 +292,9 @@ fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
         .dom()
         .with_id(ids::SEARCH)
-        // The one text in the player a user may select (`HAND` says none).
-        .with_css("user-select: text;");
+        // The one text in the player a user may select (`HAND` says none), and a control of the
+        // title bar.
+        .with_css(format!("{NO_DRAG} user-select: text;"));
     let status = if s.status.is_empty() {
         s.with_library(|library| page::count(library.tracks.len(), "song"))
     } else {
@@ -303,9 +304,12 @@ fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         .with_id(ids::TOOLBAR)
         .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: \
-             44px; padding: 0px 12px 0px 6px; box-sizing: border-box; background: {}; \
-             border-bottom: 1px solid {};",
-            look.bar, look.line
+             {TOOLBAR_H}px; padding: 0px {}px 0px {}px; box-sizing: border-box; background: {}; \
+             border-bottom: 1px solid {}; -azul-app-region: drag;",
+            12.0 + chrome.right,
+            6.0 + chrome.left,
+            look.bar,
+            look.line
         ))
         .with_child(round_button(
             look,
