@@ -363,7 +363,10 @@ extern "C" fn table_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         );
     }
     let screen = (height / ROW_PX).ceil() as usize + 1;
-    let first_visible = (info.scroll_offset.y.max(0.0) / ROW_PX) as usize;
+    // The offset kept from a longer list (another view, a search) may lie past this one's
+    // end: what shows is clamped to the last screen of the rows there are.
+    let last_top = (n as f32 * ROW_PX - height).max(0.0);
+    let first_visible = (info.scroll_offset.y.clamp(0.0, last_top) / ROW_PX) as usize;
     let first = first_visible.saturating_sub(screen).min(n - 1);
     let end = (first_visible + 2 * screen).min(n).max(first + 1);
     let mut root = Dom::create_div().with_css(format!(
