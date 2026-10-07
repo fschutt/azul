@@ -413,14 +413,22 @@ pub fn print_view(s: &Monitor, page: usize) {
     println!("AZMON_VIEW {top} {pid} {selected} {name}");
 }
 
-/// The data callback: cell `at` of the model's shown rows.
+/// The data callback: cell `at` of the rows the table shows
+/// (`Monitor::shown`), from the model by process id. A build carries the
+/// rows over first ([`sync`]); between builds the table's positions stay
+/// places in the rows it shows, so what it asks for then - a copy, a column
+/// fitted to its text - is what it shows, also after a reading re-sorted
+/// the model.
 pub extern "C" fn cell(mut app: RefAny, at: DataTableCellRef) -> DataTableCell {
     let Some(s) = app.downcast_ref::<Monitor>() else {
         return DataTableCell::empty();
     };
-    let row = usize::try_from(at.row).unwrap_or(usize::MAX);
+    let row = usize::try_from(at.row)
+        .ok()
+        .and_then(|r| s.shown.get(r))
+        .and_then(|pid| s.model.row_of(*pid));
     let column = usize::try_from(at.column).ok().and_then(Column::at);
-    match (s.model.shown_row(row), column) {
+    match (row, column) {
         (Some(r), Some(c)) => cell_of(r, c),
         _ => DataTableCell::empty(),
     }

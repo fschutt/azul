@@ -14,7 +14,7 @@
 //! core (a busy 8-thread build reads 800) - and is shown as its share of the
 //! whole machine (Task Manager's rule: the column adds up to the CPU total).
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashMap};
 
 use crate::history::History;
 
@@ -556,6 +556,8 @@ pub struct Model {
     /// The rows that pass the filter, in the sort order: indices into
     /// `rows`. The table's rows ARE these positions.
     shown: Vec<usize>,
+    /// Where each process is in `rows` (its id to its index).
+    by_pid: HashMap<u32, usize>,
     /// The sort keys (empty = by PID).
     sort: Vec<SortKey>,
     /// The filter as typed.
@@ -589,6 +591,7 @@ impl Model {
             summary: Summary::default(),
             rows: Vec::new(),
             shown: Vec::new(),
+            by_pid: HashMap::new(),
             sort: DEFAULT_SORT.to_vec(),
             filter: String::new(),
             selected: None,
@@ -659,6 +662,12 @@ impl Model {
     /// The rows in the sort order, then the ones the filter shows.
     fn reorder(&mut self) {
         sort_rows(&mut self.rows, &self.sort);
+        self.by_pid = self
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.pid, i))
+            .collect();
         let filter = self.filter.as_str();
         self.shown = self
             .rows
@@ -727,6 +736,12 @@ impl Model {
             .collect()
     }
 
+    /// Process `pid`'s row in the latest reading (shown or filtered out).
+    #[must_use]
+    pub fn row_of(&self, pid: u32) -> Option<&ProcRow> {
+        self.by_pid.get(&pid).and_then(|i| self.rows.get(*i))
+    }
+
     /// Where process `pid` is among the rows shown.
     #[must_use]
     pub fn position_of(&self, pid: u32) -> Option<usize> {
@@ -742,7 +757,7 @@ impl Model {
 
     /// Selects process `pid` (`None`, or a process that has ended: nothing).
     pub fn select(&mut self, pid: Option<u32>) {
-        self.selected = pid.filter(|p| self.rows.iter().any(|r| r.pid == *p));
+        self.selected = pid.filter(|p| self.by_pid.contains_key(p));
     }
 
     /// The selected process' id.
@@ -1272,6 +1287,25 @@ mod tests {
         assert_eq!(m.shown_pids(), vec![2, 3, 1]);
         m.set_filter("rust");
         assert_eq!(m.shown_pids(), vec![2, 3]);
+    }
+
+    #[test]
+    fn a_process_s_row_is_found_by_its_id_shown_or_not() {
+        let mut m = Model::new();
+        m.apply(reading(
+            1000,
+            vec![
+                proc(1, "cargo", "u", 10.0, 1),
+                proc(2, "rustc", "u", 90.0, 1),
+            ],
+        ));
+        assert_eq!(m.row_of(2).map(|r| r.name.as_str()), Some("rustc"));
+        // A new order moves the rows: the id still finds its row.
+        m.set_sort(vec![SortKey::new(Column::Name, true)]);
+        assert_eq!(m.row_of(1).map(|r| r.name.as_str()), Some("cargo"));
+        m.set_filter("rustc");
+        assert_eq!(m.row_of(1).map(|r| r.name.as_str()), Some("cargo"));
+        assert!(m.row_of(9).is_none());
     }
 
     #[test]
