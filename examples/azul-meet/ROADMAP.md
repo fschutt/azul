@@ -23,8 +23,9 @@ Today the folder lives under the local data root through azul-storage's `LocalDr
 `S3Drive` (azul-storage `s3.rs`) with the user's credentials takes the `LocalDrive`'s place; the
 keys do not change, so AzDrive browses a meeting's folder like any other.
 
-- Large files (a recording) go up in parts after the meeting, on a Thread, resumable
-  (azul-storage `transfer.rs`); the local copy stays until the upload is confirmed.
+- A recording goes up after the meeting, on a Thread, through azul-storage's `transfer.rs` (one
+  object between a drive and a local file); the local copy stays until the upload is confirmed.
+  Long recordings want a multipart, resumable upload, which `S3Drive` does not have yet.
 - The `meet` Worker gets no recording tables: at most an access link (who may read
   `meet/<room id>/`) so the other participants can fetch the summary or the recording.
 
