@@ -1056,6 +1056,29 @@ impl TabsInTitlebar {
         }
     }
 
+    /// Where macOS's traffic lights go to sit on this strip's tab row, for
+    /// the window's `MacWindowOptions::traffic_light_position` (the close
+    /// button's top-left, from the window's top-left): centred on the row
+    /// vertically - the row is `row_height` tall, [`Self::top`] below the
+    /// window's top - and in the [`Self::left`] space before the first tab
+    /// horizontally. AppKit leaves them at its own y (the middle of a 28pt
+    /// bar), above the middle of any taller tab row.
+    ///
+    /// The geometry is AppKit's (macOS 11 - 15): 14 x 16pt button frames,
+    /// 20pt apart. Only macOS draws traffic lights; elsewhere the position
+    /// is unused.
+    #[must_use]
+    pub fn traffic_light_position(&self, row_height: f32) -> azul_core::geom::LogicalPosition {
+        const BUTTON_WIDTH: f32 = 14.0;
+        const BUTTON_HEIGHT: f32 = 16.0;
+        const PITCH: f32 = 20.0;
+        let lights_width = 2.0 * PITCH + BUTTON_WIDTH;
+        azul_core::geom::LogicalPosition::new(
+            ((self.left - lights_width) / 2.0).max(0.0),
+            (self.top + (row_height - BUTTON_HEIGHT) / 2.0).max(0.0),
+        )
+    }
+
     /// `strip` - a tab strip's declarations - as the window's title bar.
     ///
     /// The three offsets are ADDED to the strip's own padding, so its tabs
@@ -4465,6 +4488,19 @@ mod tabs_in_titlebar_tests {
         if cfg!(target_os = "linux") {
             assert_eq!((t.left, t.right), (0.0, DEFAULT_BUTTON_AREA_WIDTH));
         }
+    }
+
+    /// The traffic lights of a window with its tabs in the titlebar sit on
+    /// the tab row: a 36px row 8px below the top has its middle at 26, so the
+    /// 16pt-high buttons start at 18; the three of them (54pt) are centred in
+    /// the 78pt before the first tab.
+    #[test]
+    fn the_traffic_lights_sit_centred_on_the_tab_row() {
+        let p = TabsInTitlebar::create(8.0, 78.0, 0.0).traffic_light_position(36.0);
+        assert_eq!((p.x, p.y), (12.0, 18.0));
+        // A row no taller than the buttons starts them at its top.
+        let p = TabsInTitlebar::create(0.0, 40.0, 0.0).traffic_light_position(10.0);
+        assert_eq!((p.x, p.y), (0.0, 0.0), "never outside the window");
     }
 }
 

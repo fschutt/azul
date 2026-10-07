@@ -44,8 +44,8 @@ use crate::{
     callbacks::{LayoutCallback, LayoutCallbackType, Update},
     dom::{DomId, DomNodeId, NodeHierarchy},
     geom::{
-        LogicalPosition, LogicalRect, LogicalSize, OptionLogicalSize, PhysicalPositionI32,
-        PhysicalSize,
+        LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionLogicalSize,
+        PhysicalPositionI32, PhysicalSize,
     },
     gl::OptionGlContextPtr,
     hit_test::{ExternalScrollId, OverflowingScrollNode},
@@ -2089,14 +2089,22 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
-/// macOS-specific window options (reserved for future use)
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+/// macOS-specific window options
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq)]
 #[repr(C)]
-// `_`-prefixed fields are C-ABI/api.json names; cannot rename.
-#[allow(clippy::pub_underscore_fields)]
 pub struct MacWindowOptions {
-    // empty for now, single field must be present for ABI compat - always set to 0
-    pub _reserved: u8,
+    /// Where the window's close / minimize / zoom buttons (the "traffic
+    /// lights") sit: the close button's top-left corner, in points from the
+    /// window's top-left corner, the other two following at AppKit's own
+    /// spacing (Electron's `trafficLightPosition`). `None` leaves them where
+    /// AppKit puts them.
+    ///
+    /// For a window whose content runs under its titlebar
+    /// (`WindowDecorations::NoTitle`) and whose own title row is taller than
+    /// AppKit's 28pt bar - a tab strip in the titlebar centres them on its
+    /// tabs with `TabsInTitlebar::traffic_light_position`. Kept through
+    /// resizes and full screen; ignored on every other platform.
+    pub traffic_light_position: OptionLogicalPosition,
 }
 
 /// WASM/web-specific window options (reserved for future use)
