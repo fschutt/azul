@@ -30,13 +30,17 @@ E2E for all of it.
 - 54d35ac96 feat(azterm): closing the last tab closes the window
 - d1091783a feat(azterm): the strip of tabs is the title bar
 - 9d7ffd151 feat(azterm): smooth scrollback and follow mode (+ sample stream)
+- 8c62cb1fc test(e2e): azterm_e2e.py - strip, flood + follow button, many tabs, last tab
+- 7d016b4e7 test(terminal_view): RED - an app that keeps whole lines still scrolls both ways
+- c7576a14b fix(terminal_view): GREEN - the same (wheel_base / TerminalShared::asked)
 
 ## IN PROGRESS
-- E2E: scripts/azterm_e2e.py (strip geometry, many tabs + scroll, seq flood
-  while scrolled up + follow button, last tab closes the window)
+- nothing: DONE, report sent (nothing compiled - the lead builds)
 
-## NEXT
-- final self-review of the whole diff; report
+## NEXT (lead)
+- azul-doc autofix drift sync (TerminalScreen + TerminalViewEvent fields),
+  codegen, build dll + AzTerm, layout --lib terminal_view tests, AzTerm
+  tests, scripts/azterm_e2e.py, screenshots
 
 ## Open questions / for the lead
 - api.json: TerminalScreen gains line_below / scroll_fraction / new_lines,
