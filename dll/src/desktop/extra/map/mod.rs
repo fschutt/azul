@@ -144,6 +144,7 @@ pub extern "C" fn tile_fetch_worker(
                 error,
                 look,
                 bytes: azul_css::U8Vec::from_vec(bytes),
+                drawn: None,
             }),
         )
     };

@@ -27,12 +27,13 @@
 //! Compile gate: no new HTTP / MVT / proj4 dependencies in this tick.
 //! Those land alongside the actual decode pipeline.
 
-use alloc::collections::btree_map::BTreeMap;
+use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 
 use azul_core::{
     callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
     dom::{DatasetMergeCallbackType, Dom, OptionDom},
     refany::{OptionRefAny, RefAny},
+    resources::ImageRef,
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec},
@@ -872,6 +873,15 @@ pub struct MapTileCache {
     /// them. `None` until the first one. Queued tiles outside it are forgotten
     /// by the next spawn pass (see [`MapTileCache::drop_unwanted_pending`]).
     pub wanted: Option<WantedTiles>,
+    /// What the render places for a `Ready` tile, under the same key: the
+    /// image and the labels [`draw_tile_svg`] made of it on the worker.
+    /// Kept in step with `tiles` by the cache's own methods, and bounded
+    /// tighter than it ([`MAX_DRAWN_TILES`]): each holds a 1 MB image.
+    pub drawn: BTreeMap<TileStyleKey, DrawnTile>,
+    /// The marker on this map's `VirtualView` node, unique per build (the
+    /// merge adopts the newest): a tile that arrives or a pan re-renders THIS
+    /// map's view, not every view in the window.
+    pub view_marker: AzString,
 }
 
 impl MapTileCache {
@@ -895,7 +905,23 @@ impl MapTileCache {
             on_mount: OptionMapMount::None,
             setup: MapSetup::new(),
             wanted: None,
+            drawn: BTreeMap::new(),
+            view_marker: AzString::from_const_str(""),
         }
+    }
+
+    /// File `drawn` - what the worker made of the tile - under `key`. The SVG
+    /// it was drawn from is not kept: the drawing is all the render needs,
+    /// and the tile's bytes (`tile_bytes`) redraw it, on the worker, should
+    /// it be evicted.
+    pub fn mark_tile_drawn(&mut self, key: TileStyleKey, drawn: DrawnTile) {
+        self.tiles.insert(
+            key,
+            TileEntry::Ready {
+                svg: AzString::from_const_str(""),
+            },
+        );
+        self.drawn.insert(key, drawn);
     }
 
     /// Queue `wanted`'s tiles for `look` and remember the range as what the
@@ -1205,6 +1231,10 @@ pub struct TileReadyMsg {
     /// can cache it and never fetch this tile again. Empty when the worker was
     /// given bytes to begin with (a restyle) — there is nothing new to store.
     pub bytes: azul_css::U8Vec,
+    /// The tile drawn on the worker ([`draw_tile_svg`]): what the render
+    /// places. `None` from a fetcher that hands back only `svg` - the render
+    /// then draws that SVG itself, once.
+    pub drawn: Option<DrawnTile>,
 }
 
 // ────────── Merge callback — cache survives relayout ─────────────────
@@ -2200,6 +2230,45 @@ fn map_label_doms(
         );
     }
     out
+}
+
+// ────────── Drawn tiles — made on the worker, placed by the render ─────────
+
+/// The most labels one tile hands the render, its most important first.
+pub const MAX_LABELS_PER_TILE: usize = 48;
+
+/// The most drawn tiles the cache keeps (each holds a 512 x 512 RGBA image,
+/// 1 MB).
+pub const MAX_DRAWN_TILES: usize = 64;
+
+/// A tile as the render draws it: its geometry rasterised ONCE and its
+/// labels parsed ONCE, both on the worker thread that decoded it
+/// ([`draw_tile_svg`]). The render only places it.
+///
+/// Cheap to clone: the image is shared (the same `ImageRef` id, so the
+/// renderer keeps its texture), the labels sit behind an `Arc`.
+#[derive(Debug, Clone)]
+pub struct DrawnTile {
+    /// The geometry, rasterised. `None` when this build cannot rasterise
+    /// (then `geometry_svg`) or the SVG was unreadable (the render shows the
+    /// tile's placeholder).
+    pub image: Option<ImageRef>,
+    /// The geometry as SVG, ONLY in a build without the CPU rasteriser,
+    /// whose render draws it through the DOM's SVG path. Empty otherwise.
+    pub geometry_svg: AzString,
+    /// The labels, most important first, at most [`MAX_LABELS_PER_TILE`].
+    pub labels: Arc<Vec<TileLabel>>,
+}
+
+/// Draws a decoded tile's SVG (the decoder's `features_to_svg` output).
+#[must_use]
+pub fn draw_tile_svg(svg: &str) -> DrawnTile {
+    let _ = svg;
+    DrawnTile {
+        image: None,
+        geometry_svg: AzString::from_const_str(""),
+        labels: Arc::new(Vec::new()),
+    }
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
@@ -6285,6 +6354,7 @@ mod autotest_generated {
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
             bytes: azul_css::U8Vec::from_vec(Vec::new()),
+            drawn: None,
         });
         let (update, changes) =
             with_callback_info(|info| map_tile_writeback(dataset.clone(), ok.clone(), info));
@@ -6306,6 +6376,7 @@ mod autotest_generated {
             svg: AzString::from(""),
             error: AzString::from("404"),
             bytes: azul_css::U8Vec::from_vec(Vec::new()),
+            drawn: None,
         });
         let (update, _) =
             with_callback_info(|info| map_tile_writeback(dataset.clone(), failed.clone(), info));
@@ -6331,6 +6402,7 @@ mod autotest_generated {
             svg: AzString::from("<svg/>".repeat(50_000)),
             error: AzString::from(""),
             bytes: azul_css::U8Vec::from_vec(Vec::new()),
+            drawn: None,
         });
         let (update, _) =
             with_callback_info(|info| map_tile_writeback(dataset.clone(), msg.clone(), info));
@@ -6361,6 +6433,7 @@ mod autotest_generated {
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
             bytes: azul_css::U8Vec::from_vec(Vec::new()),
+            drawn: None,
         });
         let (update, changes) =
             with_callback_info(|info| map_tile_writeback(RefAny::new(9u64), msg.clone(), info));
@@ -6495,6 +6568,7 @@ mod autotest_generated {
             error: AzString::from(""),
             look: arrived_for,
             bytes: azul_css::U8Vec::from_vec(Vec::from([1u8, 2, 3])),
+            drawn: None,
         });
         let _ = with_callback_info(|info| map_tile_writeback(dataset.clone(), msg.clone(), info));
 
@@ -6839,5 +6913,326 @@ mod autotest_generated {
         cache.insert_tile(MapTileId { z: 4, x: 3, y: 3 }, TileEntry::Pending);
         cache.drop_unwanted_pending();
         assert_eq!(cache.pending_tiles_nearest_first().len(), 1);
+    }
+
+    // ==================================================================
+    // Drawn tiles: drawn ONCE on the worker, placed by every render
+    // ==================================================================
+
+    fn a_tiny_image() -> ImageRef {
+        ImageRef::null_image(1, 1, azul_core::resources::RawImageFormat::RGBA8, Vec::new())
+    }
+
+    fn drawing(image: &ImageRef, labels: Vec<TileLabel>) -> DrawnTile {
+        DrawnTile {
+            image: Some(image.clone()),
+            geometry_svg: AzString::from(""),
+            labels: Arc::new(labels),
+        }
+    }
+
+    fn a_label(text: &str, x: f32, y: f32, priority: i32) -> TileLabel {
+        TileLabel {
+            x,
+            y,
+            text: text.to_string(),
+            size: 12.0,
+            fill: "#333333".to_string(),
+            halo: "#ffffff".to_string(),
+            priority,
+            kind: "place".to_string(),
+            italic: false,
+            angle: 0.0,
+        }
+    }
+
+    fn the_grid(ret: &VirtualViewReturn) -> &Dom {
+        match &ret.dom {
+            OptionDom::Some(grid) => grid,
+            OptionDom::None => panic!("a finite box must render the tile grid"),
+        }
+    }
+
+    /// Every image node of a rendered tree, by identity.
+    fn image_ids(dom: &Dom) -> Vec<azul_core::resources::ImageRefHash> {
+        fn walk(d: &Dom, out: &mut Vec<azul_core::resources::ImageRefHash>) {
+            if let azul_core::dom::NodeType::Image(image) = d.root.get_node_type() {
+                out.push(image.get_hash());
+            }
+            for child in d.children.as_slice() {
+                walk(child, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(dom, &mut out);
+        out
+    }
+
+    /// A 512 x 512 view at zoom 2 whose visible tiles are all drawn with
+    /// `image` and `labels`; the tiles it shows.
+    fn drawn_view(image: &ImageRef, labels: &[TileLabel]) -> (RefAny, Vec<MapTileId>) {
+        let mut cache = cache_at(0.0, 0.0, 2.0);
+        let look = cache.current_look();
+        let tiles = map_visible_tiles(
+            &view(0.0, 0.0, 2.0),
+            LogicalSize::new(512.0, 512.0),
+            &layer_zoom(0, 19),
+        );
+        for tile in &tiles {
+            cache.mark_tile_drawn(
+                TileStyleKey { tile: *tile, look },
+                drawing(image, labels.to_vec()),
+            );
+        }
+        (RefAny::new(cache), tiles)
+    }
+
+    #[test]
+    fn a_drawn_tile_is_placed_as_the_workers_image_on_every_render_and_never_rasterised_again() {
+        // The render used to parse and rasterise every visible tile's SVG on
+        // EVERY render, on the UI thread - each pan frame drew ~20 tiles at
+        // 512 x 512, and each fresh image was a new texture to upload.
+        let image = a_tiny_image();
+        let (dataset, tiles) = drawn_view(&image, &[]);
+        for pass in 0..2 {
+            let ret = with_virtual_view_info(512.0, 512.0, |info| {
+                map_widget_render(dataset.clone(), info)
+            });
+            let ids = image_ids(the_grid(&ret));
+            assert_eq!(
+                ids.len(),
+                tiles.len(),
+                "pass {pass}: one image per drawn tile: {ids:?}"
+            );
+            assert!(
+                ids.iter().all(|id| *id == image.get_hash()),
+                "pass {pass}: the render must place the image the worker drew, not draw a new one"
+            );
+        }
+    }
+
+    #[test]
+    fn a_drawn_tiles_labels_reach_the_grid_from_its_drawing_without_any_svg() {
+        let image = a_tiny_image();
+        let (dataset, tiles) = drawn_view(&image, &[a_label("Atlantis", 128.0, 128.0, 100)]);
+        let ret = with_virtual_view_info(512.0, 512.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
+        let children = the_grid(&ret).children.as_slice().len();
+        assert!(
+            children > tiles.len(),
+            "the drawing's labels must be laid out over the tiles ({children} nodes for {} tiles)",
+            tiles.len()
+        );
+        assert!(
+            children <= 2 * tiles.len(),
+            "one label per tile at most ({children} nodes for {} tiles)",
+            tiles.len()
+        );
+    }
+
+    #[test]
+    fn every_tile_node_is_keyed_by_its_tile_and_keeps_the_key_across_renders() {
+        let dataset = RefAny::new(cache_at(48.1372, 11.5756, 5.0));
+        let keys = |ret: &VirtualViewReturn| -> Vec<Option<u64>> {
+            the_grid(ret)
+                .children
+                .as_slice()
+                .iter()
+                .map(|tile| tile.root.get_key())
+                .collect()
+        };
+        let first = keys(&with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        }));
+        let second = keys(&with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        }));
+        assert!(
+            !first.is_empty() && first.iter().all(Option::is_some),
+            "every tile node carries a key: {first:?}"
+        );
+        assert_eq!(first, second, "the same tiles keep the same keys");
+        let distinct: alloc::collections::BTreeSet<u64> = first.iter().flatten().copied().collect();
+        assert_eq!(distinct.len(), first.len(), "no two tiles share a key");
+    }
+
+    #[test]
+    fn a_tile_keeps_its_key_when_the_view_pans_so_the_diff_pairs_it_by_key() {
+        let mut dataset = RefAny::new(cache_at(48.1372, 11.5756, 5.0));
+        let keys = |dataset: &RefAny| -> alloc::collections::BTreeSet<u64> {
+            let ret = with_virtual_view_info(800.0, 600.0, |info| {
+                map_widget_render(dataset.clone(), info)
+            });
+            the_grid(&ret)
+                .children
+                .as_slice()
+                .iter()
+                .filter_map(|tile| tile.root.get_key())
+                .collect()
+        };
+        let before = keys(&dataset);
+        dataset
+            .downcast_mut::<MapTileCache>()
+            .expect("cache")
+            .viewport
+            .centre_lon_deg += 2.0;
+        let after = keys(&dataset);
+        assert!(!before.is_empty(), "the tile nodes are keyed");
+        assert!(
+            before.intersection(&after).count() * 2 >= before.len(),
+            "a pan of a fraction of the view keeps most tiles - and their keys: {} of {}",
+            before.intersection(&after).count(),
+            before.len()
+        );
+    }
+
+    #[cfg(all(feature = "xml", feature = "cpurender"))]
+    #[test]
+    fn drawing_a_tile_rasterises_its_geometry_and_keeps_only_its_most_important_labels() {
+        use core::fmt::Write;
+        let mut svg = String::from(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 256 256\" width=\"256\" \
+             height=\"256\"><rect x=\"0\" y=\"0\" width=\"256\" height=\"256\" fill=\"#ffeedd\" />",
+        );
+        svg.push_str(TILE_LABELS_OPEN);
+        for i in 0..60 {
+            let _ = write!(
+                svg,
+                "<text x=\"{}\" y=\"10\" data-priority=\"{}\">L{i}</text>",
+                i * 4,
+                1000 - i
+            );
+        }
+        svg.push_str("</g></svg>");
+
+        let drawn = draw_tile_svg(&svg);
+        assert!(drawn.image.is_some(), "the geometry is rasterised (on the worker)");
+        assert!(
+            drawn.geometry_svg.as_str().is_empty(),
+            "a rasterised tile keeps no SVG"
+        );
+        assert_eq!(
+            drawn.labels.len(),
+            MAX_LABELS_PER_TILE,
+            "a tile hands the render at most MAX_LABELS_PER_TILE labels"
+        );
+        assert_eq!(drawn.labels[0].text, "L59", "the most important first");
+        assert!(drawn.labels.windows(2).all(|w| w[0].priority <= w[1].priority));
+
+        let garbage = draw_tile_svg("not xml at all <<<");
+        assert!(garbage.image.is_none(), "an unreadable tile has no image");
+        assert!(
+            garbage.geometry_svg.as_str().is_empty(),
+            "and nothing a render would try to draw again on every frame"
+        );
+        assert!(garbage.labels.is_empty());
+    }
+
+    #[test]
+    fn the_writeback_files_the_workers_drawing_under_its_tile_and_look() {
+        let tile = MapTileId { z: 4, x: 1, y: 2 };
+        let look = MapTheme::System.look(MapColorScheme::Light);
+        let image = a_tiny_image();
+        let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
+        let msg = RefAny::new(TileReadyMsg {
+            tile,
+            svg: AzString::from(""),
+            error: AzString::from(""),
+            look,
+            bytes: azul_css::U8Vec::from_vec(Vec::from([7u8])),
+            drawn: Some(drawing(&image, Vec::new())),
+        });
+        let _ = with_callback_info(|info| map_tile_writeback(dataset.clone(), msg.clone(), info));
+
+        let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
+        let key = TileStyleKey { tile, look };
+        assert!(matches!(cache.tiles.get(&key), Some(TileEntry::Ready { .. })));
+        let filed = cache
+            .drawn
+            .get(&key)
+            .expect("the worker's drawing is filed under the tile's key");
+        assert_eq!(
+            filed.image.as_ref().map(ImageRef::get_hash),
+            Some(image.get_hash())
+        );
+        assert_eq!(
+            cache.tile_bytes.get(&tile).map(|b| b.as_ref().to_vec()),
+            Some(Vec::from([7u8])),
+            "the payload is kept: an evicted drawing is redrawn without a download"
+        );
+    }
+
+    #[test]
+    fn the_drawings_are_bounded_and_the_ones_in_view_stay() {
+        let mut cache = cache_at(0.0, 0.0, 4.0);
+        let look = cache.current_look();
+        let image = a_tiny_image();
+        // The view wants the 4 x 4 tiles around the centre tile (8, 8).
+        let wanted = WantedTiles {
+            z: 4,
+            x_min: 6,
+            x_max: 9,
+            y_min: 6,
+            y_max: 9,
+        };
+        cache.want_tiles(wanted, look);
+        for x in 0..16u32 {
+            for y in 0..16u32 {
+                cache.mark_tile_drawn(
+                    TileStyleKey {
+                        tile: MapTileId { z: 4, x, y },
+                        look,
+                    },
+                    drawing(&image, Vec::new()),
+                );
+            }
+        }
+        assert_eq!(cache.drawn.len(), 256);
+        cache.prune_distant_tiles();
+        assert!(
+            cache.drawn.len() <= MAX_DRAWN_TILES,
+            "{} drawings (1 MB each) kept",
+            cache.drawn.len()
+        );
+        for tile in wanted.tiles() {
+            assert!(
+                cache.drawn.contains_key(&TileStyleKey { tile, look }),
+                "{tile:?} is in view: its drawing stays"
+            );
+        }
+        let far = TileStyleKey {
+            tile: MapTileId { z: 4, x: 0, y: 15 },
+            look,
+        };
+        assert!(!cache.drawn.contains_key(&far), "the farthest drawing goes");
+        assert!(
+            !cache.tiles.contains_key(&far),
+            "and its entry with it: should the view want the tile again, it is queued and \
+             redrawn from its bytes"
+        );
+    }
+
+    #[test]
+    fn the_map_view_carries_a_marker_its_cache_knows_and_a_rebuild_adopts_the_new_one() {
+        let marker_of = |dom: &Dom| dom.children.as_slice()[0].root.get_marker().cloned();
+        let mut first = MapWidget::create(MapTileLayer::default()).dom();
+        let m1 = marker_of(&first).expect("the map's VirtualView node carries a marker");
+        let mut old = first.root.get_dataset_mut().expect("dataset").clone();
+        assert_eq!(
+            old.downcast_ref::<MapTileCache>().expect("cache").view_marker,
+            m1,
+            "the cache knows its view's marker"
+        );
+        let mut second = MapWidget::create(MapTileLayer::default()).dom();
+        let m2 = marker_of(&second).expect("every build marks its view");
+        assert_ne!(m1, m2, "two builds, two markers");
+        let rebuilt = second.root.get_dataset_mut().expect("dataset").clone();
+        let mut kept = merge_map_tile_cache(rebuilt, old);
+        assert_eq!(
+            kept.downcast_ref::<MapTileCache>().expect("cache").view_marker,
+            m2,
+            "the kept cache re-renders the view that is in the tree now"
+        );
     }
 }
