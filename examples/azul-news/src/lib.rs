@@ -31,7 +31,9 @@ pub mod state;
 pub mod store;
 pub mod xmltree;
 
-/// The window (azul's PimShell: the feeds, the articles, the reader; Add feed, OPML, settings).
+/// The window, laid out like OS X Mail: the toolbar, the source list (a section per feed, its
+/// topics under it), the sortable article table over the reading pane; Add feed, OPML, the
+/// sources page, settings.
 pub mod ui;
 
 /// Starts AzNews (the switches are read from the command line).

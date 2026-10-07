@@ -8,8 +8,9 @@ description = """
     AzNews - the feed reader of the Azlin apps (RSS 0.9x / 1.0 / 2.0, Atom,
     JSON Feed). Subscriptions in folders with OPML import and export, a
     refresh on an azul Thread that asks with ETag / Last-Modified (a 304
-    costs nothing), the three panes of azul's S4 PimShell (feeds with unread
-    counts, the articles by day, the article), the article read through
+    costs nothing), a window laid out like OS X Mail (a source list with a
+    section per feed and its topics, unread counts as pills; a sortable
+    article table over the reading pane), the article read through
     azul's HTML5-like parser in a reader stylesheet, its pictures found by
     Xml::scan_external_resources and fetched on a Thread. Everything durable
     is files in the user's data folder (news/subscriptions.opml,

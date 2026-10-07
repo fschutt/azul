@@ -7,15 +7,21 @@
        with the server's OPML list as its file argument;
     2. the import preview shows the 3 feeds (one listed twice); Import subscribes them and
        refreshes: 3 AZNEWS_REFRESHED lines, news/subscriptions.opml and news/feeds/<id>/
-       {feed,items,state}.json on disk, the malformed feed read anyway;
-    3. an article opens in the reader (its text is in the window), "Load pictures" fetches its
-       picture on a Thread into the image cache (AZNEWS_PICTURE), Star writes state.json;
+       {feed,items,state}.json on disk, the malformed feed read anyway; the source list has a
+       section per feed, the RSS feed's topics (its <category>s) under it: a topic shows its 2
+       articles; the table sorts by the column header clicked (title, then date again);
+    3. an article opens from the table (a VirtualView: its rows are a DOM of their own) in the
+       reading pane (its text is in the window), "Load pictures" fetches its picture on a
+       Thread into the image cache (AZNEWS_PICTURE), the toolbar's Star writes state.json;
     4. Refresh again: the server is asked with If-None-Match and answers 304, AzNews prints
        `304`; after a new article (POST /bump) a refresh brings exactly one new article;
     5. Add feed with the web page's address finds its 3 readable feeds; one is subscribed;
-    6. Export writes news/exports/subscriptions-<time>.opml; Mark all as read; the settings
-       page switches to Flora / Dark; screenshots on the way;
-    7. a second run with --sample on another fresh folder: 42 feeds, 891 articles, 127 files.
+    6. the sources page: Export writes news/exports/subscriptions-<time>.opml; the Atom feed is
+       no longer followed (AZNEWS_FOLLOW ... off, azPaused in the list) and Get News leaves it
+       out; followed again it is refreshed; Mark all as read; the settings page switches to
+       Flora / Dark; screenshots on the way;
+    7. a second run with --sample on another fresh folder: 42 feeds, 891 articles, 127 files;
+       42 closed source sections, one opened shows its 4 topics.
     8. a third run (--sample --screen feed, a fresh folder): the first feed's page; its name is
        changed, then the window is closed: the subscription list is written first
        (AZNEWS_SAVED news/subscriptions.opml) and the window closes by itself; AzNews starts
@@ -94,9 +100,28 @@ def library_run(args, logs, out, base, site):
         app.frame(2)
         app.screenshot(os.path.join(out, "list.png"))
 
-        # 3: the reader, its picture, a star.
-        app.click_exact("Local article 3")
+        # 2b: the source list - a section per feed, the RSS feed's topics under it (3 feeds:
+        # every section open); the table's sort.
+        for i in range(3):
+            if not app.has(app.sel("section-%d" % i)):
+                raise Failure("the source list has no section %d" % i)
+        app.click(selector=app.sel("topic-0-0"))
+        app.expect_line("AZNEWS_VIEW", "2", "the topic \"Odd news\": local articles 3 and 1")
+        app.click(selector=app.sel("sort-title"))
+        app.expect_line("AZNEWS_SORTED", "title asc", "the table sorted by title")
+        app.frame(2)
+        app.screenshot(os.path.join(out, "topic-by-title.png"))
+        app.click(selector=app.sel("sort-date"))
+        app.expect_line("AZNEWS_SORTED", "date desc", "the table sorted newest first again")
+
+        # 3: the reader, its picture, a star. The table's rows live in its VirtualView's DOM;
+        # newest first, "Local article 3" is the topic's first article.
+        app.until("the topic's rows", lambda: app.has(app.sel("article-0"), every_dom=True))
+        app.click(selector=app.sel("article-0"), every_dom=True)
         app.until("the article", lambda: app.printed("AZNEWS_SELECTED", r".+"))
+        if not app.printed("AZNEWS_SELECTED", r"\S+ local-3"):
+            raise Failure("the first row should be local article 3: %s"
+                          % app.printed("AZNEWS_SELECTED", r".+"))
         app.until("the article's text in the reader", lambda: app.shows("Article 3 is about local feeds."))
         if not app.has(app.sel("reader")):
             raise Failure("the reader's body is not laid out")
@@ -107,7 +132,7 @@ def library_run(args, logs, out, base, site):
         rss = feed_id(data_dir, base + "/feed.xml")
         state_path = os.path.join(data_dir, "news", "feeds", rss, "state.json")
         saved = app.count("AZNEWS_SAVED", re.escape("news/feeds/%s/state.json" % rss))
-        app.click(selector=app.sel("reader-star"))
+        app.click(selector=app.sel("toolbar-star"))
         app.until("the star on disk", lambda: app.count(
             "AZNEWS_SAVED", re.escape("news/feeds/%s/state.json" % rss)) > saved)
         with open(state_path, encoding="utf-8") as f:
@@ -146,14 +171,35 @@ def library_run(args, logs, out, base, site):
         app.until("the JSON feed's subscription",
                   lambda: app.printed("AZNEWS_SUBSCRIBED", r"\S+ " + re.escape(base + "/feed.json")))
 
-        # 6: export, mark all, settings.
-        app.click(selector=app.sel("toolbar-export"))
+        # 6: the sources page - export, stop following a feed, follow it again; mark all,
+        # settings.
+        app.click(selector=app.sel("toolbar-sources"))
+        app.until("the sources page", lambda: app.has(app.sel("sources")))
+        app.frame(2)
+        app.screenshot(os.path.join(out, "sources.png"))
+        app.click(selector=app.sel("sources-export"))
         exported = app.until("the export", lambda: app.printed("AZNEWS_EXPORTED", r"news/exports/\S+\.opml"))[-1]
         if not os.path.exists(os.path.join(data_dir, exported)):
             raise Failure("%s was not written" % exported)
         with open(os.path.join(data_dir, exported), encoding="utf-8") as f:
             if f.read().count("xmlUrl=") != 4:
                 raise Failure("the export should list 4 feeds")
+        atom = feed_id(data_dir, base + "/atom.xml")
+        app.click(selector=app.sel("source-follow-1"))
+        app.expect_line("AZNEWS_FOLLOW", "%s off" % atom, "the Atom feed no longer followed")
+        app.until("azPaused in the list", lambda: 'azPaused="true"' in open(
+            os.path.join(data_dir, "news", "subscriptions.opml"), encoding="utf-8").read())
+        before = len(app.printed("AZNEWS_REFRESHED", r"\S+ \S+"))
+        app.after("a refresh of the followed feeds", "AZNEWS_REFRESH_DONE", r"\d+",
+                  lambda: app.click(selector=app.sel("toolbar-refresh")))
+        asked = app.printed("AZNEWS_REFRESHED", r"\S+ \S+")[before:]
+        if len(asked) != 3 or any(r.startswith(atom + " ") for r in asked):
+            raise Failure("Get News should ask the 3 followed feeds, not the Atom one: %s" % asked)
+        before = len(app.printed("AZNEWS_REFRESHED", r"\S+ \S+"))
+        app.click(selector=app.sel("source-follow-1"))
+        app.expect_line("AZNEWS_FOLLOW", "%s on" % atom, "the Atom feed followed again")
+        app.until("the Atom feed refreshed once followed again", lambda: any(
+            r.startswith(atom + " ") for r in app.printed("AZNEWS_REFRESHED", r"\S+ \S+")[before:]))
         app.click(selector=app.sel("toolbar-mark-all"))
         app.click(selector=app.sel("mark-all-yes"))
         app.until("mark all", lambda: app.printed("AZNEWS_MARKED_ALL", r"\d+"))
@@ -192,6 +238,15 @@ def sample_run(args, logs, out):
         app.frame(3)
         app.settle()
         app.screenshot(os.path.join(out, "sample.png"))
+        # 42 sources: their sections start closed; one opened shows its folder's 4 topics.
+        if app.has(app.sel("topic-0-0")):
+            raise Failure("with 42 sources the sections should start closed")
+        app.click(selector=app.sel("section-0"))
+        app.until("the first source's topics", lambda: app.has(app.sel("topic-0-3")))
+        app.click(selector=app.sel("topic-0-0"))
+        app.until("a topic's articles", lambda: app.has(app.sel("article-0"), every_dom=True))
+        app.frame(2)
+        app.screenshot(os.path.join(out, "sample-topic.png"))
         app.log("PASS (sample)")
         return True
     except Failure:
