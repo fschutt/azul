@@ -27,6 +27,54 @@ pub fn audio_correction(video_s: f64, audio_s: f64) -> Option<f64> {
     }
 }
 
+/// A drift this large is a real jump (a seek the sound missed), moved at once.
+pub const JUMP_S: f64 = 1.0;
+/// How long after one move of the sound the next small one may come, ms.
+pub const CORRECTION_COOLDOWN_MS: u64 = 1_500;
+
+/// When to act on [`audio_correction`]: a SMALL drift is moved only when two reports running
+/// say so, and not within [`CORRECTION_COOLDOWN_MS`] of the last move; a jump of [`JUMP_S`] or
+/// more at once.
+///
+/// Every move of the sound is a seek the ear hears (a click, a repeated syllable). A report can
+/// be late on its way to the UI thread (a rebuild of the window, a busy frame), and a decoder
+/// can stall for a moment; acting on every report made such a moment a stutter of the sound
+/// four times a second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SyncGuard {
+    /// Reports running whose drift was outside the dead band.
+    strikes: u8,
+    /// When the sound was last moved (ms on the app's clock).
+    last_move_ms: Option<u64>,
+}
+
+impl SyncGuard {
+    /// Where to move the sound now (`now_ms` on the app's clock), or `None`.
+    pub fn correct(&mut self, video_s: f64, audio_s: f64, now_ms: u64) -> Option<f64> {
+        let Some(target) = audio_correction(video_s, audio_s) else {
+            self.strikes = 0;
+            return None;
+        };
+        self.strikes = self.strikes.saturating_add(1);
+        let jump = !audio_s.is_finite() || (video_s - audio_s).abs() >= JUMP_S;
+        let cooled = self
+            .last_move_ms
+            .is_none_or(|t| now_ms.saturating_sub(t) >= CORRECTION_COOLDOWN_MS);
+        if jump || (self.strikes >= 2 && cooled) {
+            self.strikes = 0;
+            self.last_move_ms = Some(now_ms);
+            Some(target)
+        } else {
+            None
+        }
+    }
+
+    /// Both clocks were just moved together (a seek, play after pause): start counting again.
+    pub fn reset(&mut self) {
+        self.strikes = 0;
+    }
+}
+
 /// Whether the controls over the video show: always while paused (or nothing plays), and while
 /// playing for [`HIDE_AFTER_MS`] after the pointer last moved (or a key was pressed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -83,6 +131,42 @@ mod tests {
             "no picture clock yet"
         );
         assert_eq!(audio_correction(-1.0, 2.0), None);
+    }
+
+    #[test]
+    fn a_small_drift_moves_the_sound_only_when_it_lasts_and_not_too_often() {
+        let mut g = SyncGuard::default();
+        // One late report: no move.
+        assert_eq!(g.correct(10.0, 10.3, 1_000), None);
+        // Back in step: the count starts over.
+        assert_eq!(g.correct(10.25, 10.3, 1_250), None);
+        assert_eq!(g.correct(10.5, 10.8, 1_500), None);
+        // Two reports running: moved.
+        assert_eq!(g.correct(10.75, 11.05, 1_750), Some(10.75));
+        // Out of step again right after: two more reports, but within the cooldown.
+        assert_eq!(g.correct(11.0, 11.3, 2_000), None);
+        assert_eq!(g.correct(11.25, 11.55, 2_250), None);
+        // Cooled down: the next lasting drift moves it.
+        assert_eq!(g.correct(12.5, 12.8, 3_300), Some(12.5));
+    }
+
+    #[test]
+    fn a_jump_moves_the_sound_at_once() {
+        let mut g = SyncGuard::default();
+        assert_eq!(g.correct(30.0, 2.0, 500), Some(30.0));
+        // Even right after a move.
+        assert_eq!(g.correct(60.0, 31.0, 600), Some(60.0));
+        assert_eq!(g.correct(5.0, f64::NAN, 700), Some(5.0));
+        // No picture clock: nothing.
+        assert_eq!(g.correct(f64::NAN, 2.0, 800), None);
+    }
+
+    #[test]
+    fn a_reset_forgets_a_strike() {
+        let mut g = SyncGuard::default();
+        assert_eq!(g.correct(10.0, 10.3, 1_000), None);
+        g.reset();
+        assert_eq!(g.correct(20.0, 20.3, 1_250), None, "one strike after the reset");
     }
 
     #[test]
