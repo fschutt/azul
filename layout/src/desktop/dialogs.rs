@@ -501,6 +501,57 @@ fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileD
     dialog
 }
 
+/// The AppleScript of the macOS folder picker: `choose folder`, its answer
+/// turned into a POSIX path IN THE SAME SCRIPT (a folder's ends in `/`).
+///
+/// tfd 0.1.2 runs `choose folder` alone and feeds its output to a second
+/// `osascript`: `POSIX path of alias Macintosh HD:Users:me:` - the alias
+/// unquoted, an AppleScript syntax error (-2740) - so every folder the user
+/// picked came back as "cancelled" (AzCode: "selecting a folder does
+/// nothing").
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn macos_folder_script(title: &str, default_path: Option<&str>) -> String {
+    let mut script = format!(
+        "POSIX path of (choose folder with prompt \"{}\"",
+        applescript_text(title)
+    );
+    if let Some(path) = default_path.filter(|p| !p.is_empty()) {
+        script.push_str(&format!(
+            " default location (POSIX file \"{}\")",
+            applescript_text(path)
+        ));
+    }
+    script.push(')');
+    script
+}
+
+/// `text` as the inside of an AppleScript string literal: the backslashes
+/// escaped first, then the quotes (tfd's order doubled the backslash of an
+/// escaped quote).
+#[cfg(any(target_os = "macos", test))]
+fn applescript_text(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// The macOS folder picker: `osascript` running [`macos_folder_script`].
+/// `None` when the user cancelled (osascript fails with -128) or the picker
+/// could not run.
+#[cfg(target_os = "macos")]
+fn macos_choose_folder(title: &str, default_path: Option<&str>) -> Option<String> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(macos_folder_script(title, default_path))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches(['\n', '\r'])
+        .to_string();
+    (!path.is_empty()).then_some(path)
+}
+
 impl Default for FileDialog {
     fn default() -> Self {
         Self::new()
@@ -642,14 +693,22 @@ impl FileDialog {
         }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            let mut dialog = tfd::FileDialog::new(title.as_str());
-            if let Some(path) = default_path.as_option() {
-                dialog = dialog.with_path(path.as_str());
-            }
-            let path = dialog
-                .select_folder()
-                .map(|p| FilePath::new(AzString::from(p)))
-                .into();
+            // macOS: our own script, not tfd's (its two-step conversion
+            // fails on every pick: see `macos_folder_script`).
+            #[cfg(target_os = "macos")]
+            let picked = macos_choose_folder(
+                title.as_str(),
+                default_path.as_option().map(AzString::as_str),
+            );
+            #[cfg(not(target_os = "macos"))]
+            let picked = {
+                let mut dialog = tfd::FileDialog::new(title.as_str());
+                if let Some(path) = default_path.as_option() {
+                    dialog = dialog.with_path(path.as_str());
+                }
+                dialog.select_folder()
+            };
+            let path = picked.map(|p| FilePath::new(AzString::from(p))).into();
             request::complete(data, on_result, FileOpenResult { path })
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
