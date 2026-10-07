@@ -203,12 +203,24 @@ impl PlayerCore {
     pub(crate) fn preload(
         &mut self,
         id: u64,
-        source: Box<dyn PcmSource>,
+        mut source: Box<dyn PcmSource>,
         position_s: f64,
         out: &dyn PcmOutput,
     ) {
-        let _ = position_s;
-        self.load(id, source, out);
+        self.queue.clear();
+        // A source that cannot seek stays at its start.
+        let reached = if position_s.is_finite() && position_s > 0.0 {
+            source.seek(position_s).unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        self.restart_output(out);
+        self.remember_duration(id, source.duration_s());
+        self.clock.begin(self.written, id, reached, self.out_rate);
+        self.current = Some((id, source));
+        self.paused = true;
+        // After the clear: an output whose clear plays it again (AVFoundation's node) holds.
+        let _ = out.pause();
     }
 
     /// `source` becomes the track being decoded, heard from the next frame written.
@@ -262,6 +274,10 @@ impl PlayerCore {
         self.clock
             .begin(self.written, id, reached.unwrap_or(0.0), self.out_rate);
         self.current = Some((id, source));
+        if self.paused {
+            // A seek while held stays held, also on an output whose clear plays it again.
+            let _ = out.pause();
+        }
     }
 
     /// Holds (`true`) or resumes playback.
@@ -352,9 +368,14 @@ impl PlayerCore {
         chunk
     }
 
-    /// Feeds the output up to the lead. Returns the frames written.
+    /// Feeds the output up to the lead. Returns the frames written. Held, it writes nothing (an
+    /// output that cannot hold would play it) but keeps the next chunk decoded, so a play - a
+    /// preloaded track's first - starts at once.
     pub(crate) fn pump(&mut self, out: &dyn PcmOutput) -> u64 {
         if self.paused {
+            if self.held.is_none() {
+                self.held = self.next_chunk();
+            }
             return 0;
         }
         let channels = usize::from(self.out_channels);
@@ -384,6 +405,7 @@ impl PlayerCore {
     }
 
     /// What the listener hears now.
+    #[allow(clippy::cast_precision_loss)]
     pub(crate) fn state(&mut self, out: &dyn PcmOutput) -> AudioPlayerState {
         let played = out.samples_played();
         let (track, position_s) = self.clock.at(played).unwrap_or((0, 0.0));
@@ -403,10 +425,15 @@ impl PlayerCore {
             || self.held.is_some()
             || self.chunker.pending_frames() > 0;
         let finished = track != 0 && !decoding && played >= self.written;
+        // Decoded and not heard: the chunk held back, the part chunk, the output's queue.
+        let channels = usize::from(self.out_channels);
+        let waiting = self.held.as_ref().map_or(0, |h| (h.len() / channels) as u64)
+            + self.chunker.pending_frames() as u64
+            + self.written.saturating_sub(played);
         AudioPlayerState {
             position_s,
             duration_s,
-            buffered_s: 0.0,
+            buffered_s: waiting as f64 / f64::from(self.out_rate),
             track,
             failed_track: 0,
             volume: self.volume,
@@ -483,6 +510,8 @@ impl SourceSpec {
 /// What the handle asks the player's thread to do.
 enum Command {
     Load(u64, SourceSpec),
+    /// Opened, decoded ahead from the position (seconds) and held until `Play`.
+    Preload(u64, SourceSpec, f64),
     Queue(u64, SourceSpec),
     ClearQueue,
     Play,
@@ -603,6 +632,31 @@ fn player_thread(shared: SharedRef, open: OpenOutput) {
                             out.core.load(id, Box::new(source), &out.sink);
                             out.core.set_paused(false, &out.sink);
                             paused = false;
+                        }
+                    }
+                    Err(why) => {
+                        failed_track = id;
+                        error = Some(why);
+                    }
+                },
+                Command::Preload(id, spec, position_s) => match spec.open() {
+                    Ok(source) => {
+                        // The first file decides the output's rate, as for a load.
+                        if output.is_none() {
+                            match open_output(open, source.rate()) {
+                                Ok(mut out) => {
+                                    out.core.set_volume(volume);
+                                    output = Some(out);
+                                }
+                                Err(why) => {
+                                    failed_track = id;
+                                    error = Some(why);
+                                }
+                            }
+                        }
+                        if let Some(out) = output.as_mut() {
+                            out.core.preload(id, Box::new(source), position_s, &out.sink);
+                            paused = true;
                         }
                     }
                     Err(why) => {
@@ -775,8 +829,8 @@ impl AudioPlayer {
     /// `AudioPlayerState::buffered_s` is above zero for this id. Returns the track's id; 0 when
     /// closed.
     pub fn preload_file(&self, path: azul_css::AzString, position_s: f64) -> u64 {
-        let _ = position_s;
-        self.load_file(path)
+        let path = path.as_str().to_string();
+        self.send_track(|id| Command::Preload(id, SourceSpec::Path(path), position_s))
     }
 
     /// Plays the audio file at `path` after the queued ones, gaplessly. Returns its id.
