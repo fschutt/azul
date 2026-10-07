@@ -318,6 +318,8 @@ mod an_arrow_collapses_a_document_selection_like_a_click;
 mod an_svg_without_a_viewbox;
 #[path = "svg_transforms_place_their_shapes.rs"]
 mod svg_transforms_place_their_shapes;
+#[path = "svg_text_is_laid_out_through_its_svg.rs"]
+mod svg_text_is_laid_out_through_its_svg;
 #[path = "a_mask_clip_on_a_half_pixel.rs"]
 mod a_mask_clip_on_a_half_pixel;
 #[path = "a_padded_table_cell_stays_in_its_row.rs"]

@@ -5887,67 +5887,14 @@ where
     /// ordinary element - which has no user space and whose geometry is
     /// already window-logical.
     fn enclosing_view_box(&self, node: NodeId) -> Option<(f32, f32, f32, f32)> {
-        self.svg_ancestor(node).and_then(|svg| {
-            match self
-                .ctx
-                .styled_dom
-                .node_data
-                .as_container()
-                .get(svg)
-                .and_then(azul_core::dom::NodeData::get_svg_data)
-            {
-                Some(azul_core::dom::SvgNodeData::ViewBox {
-                    min_x,
-                    min_y,
-                    width,
-                    height,
-                }) => Some((*min_x, *min_y, *width, *height)),
-                _ => None,
-            }
-        })
+        let svg = super::svg::svg_ancestor(self.ctx.styled_dom, node)?;
+        super::svg::view_box_of(self.ctx.styled_dom, svg)
     }
 
-    /// The nearest `<svg>` (a node with a viewBox) at or above `node`.
-    fn svg_ancestor(&self, node: NodeId) -> Option<NodeId> {
-        let node_data = self.ctx.styled_dom.node_data.as_container();
-        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
-        let mut cursor = Some(node);
-        while let Some(id) = cursor {
-            if let Some(azul_core::dom::SvgNodeData::ViewBox { .. }) = node_data
-                .get(id)
-                .and_then(azul_core::dom::NodeData::get_svg_data)
-            {
-                return Some(id);
-            }
-            cursor = hierarchy
-                .get(id)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        None
-    }
-
-    /// The `transform`s between `node` and its `<svg>` composed (its own
-    /// first, then each group's above it - SVG 1.1 7.4: a group's transform
-    /// applies to everything in it): what maps `node`'s user space into its
-    /// `<svg>`'s, where the viewBox takes over. Read off the nodes'
-    /// `transform` attributes; identity outside an `<svg>`.
+    /// The `transform`s between `node` and its `<svg>` composed
+    /// ([`super::svg::user_transform`]).
     fn svg_user_transform(&self, node: NodeId) -> azul_core::svg::SvgAffine {
-        let mut user = azul_core::svg::SvgAffine::IDENTITY;
-        let Some(svg) = self.svg_ancestor(node) else {
-            return user;
-        };
-        let node_data = self.ctx.styled_dom.node_data.as_container();
-        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
-        let mut cursor = Some(node);
-        while let Some(id) = cursor.filter(|id| *id != svg) {
-            if let Some(transform) = node_data.get(id).and_then(|n| n.get_attribute("transform")) {
-                user = user.then(&azul_core::svg::parse_svg_transform(transform.as_str()));
-            }
-            cursor = hierarchy
-                .get(id)
-                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-        }
-        user
+        super::svg::user_transform(self.ctx.styled_dom, node)
     }
 
     fn push_image_mask_clip(&self, builder: &mut DisplayListBuilder, node_index: usize) -> bool {

@@ -22,6 +22,7 @@ pub mod positioning;
 pub mod scroll_chain;
 pub mod scrollbar;
 pub mod sizing;
+pub mod svg;
 pub mod taffy_bridge;
 /// The automatic table layout's width half: column constraints, the table's
 /// min/max-content, the width distribution (shared by sizing and layout).

@@ -396,7 +396,13 @@ fn render_svg_group(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeDat
 /// read them.
 fn render_svg_text(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
     let mut node = NodeData::create_node(NodeType::SvgText);
-    land_common(&mut node, element, Vec::new(), landing);
+    // A box of its own that never wraps, placed by layout from `x` / `y`.
+    let css = alloc::format!(
+        "position: absolute; left: 0px; top: 0px; margin: 0px; white-space: pre; {}",
+        svg_text_hints(element)
+    );
+    let intrinsic = declarations(&css, landing);
+    land_common(&mut node, element, intrinsic, landing);
     keep_svg_attributes(&mut node, element, landing);
     node
 }
@@ -405,7 +411,8 @@ fn render_svg_text(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData
 /// kept on the node).
 fn render_svg_tspan(element: &Element<'_>, landing: &mut Landing<'_>) -> NodeData {
     let mut node = NodeData::create_node(NodeType::SvgTspan);
-    land_common(&mut node, element, Vec::new(), landing);
+    let intrinsic = declarations(&svg_text_hints(element), landing);
+    land_common(&mut node, element, intrinsic, landing);
     keep_svg_attributes(&mut node, element, landing);
     node
 }
@@ -530,4 +537,53 @@ fn keep_svg_attributes(node: &mut NodeData, element: &Element<'_>, landing: &mut
     let mut all = node.attributes().clone().into_library_owned_vec();
     all.extend(kept);
     node.set_attributes(all.into());
+}
+
+/// The CSS an SVG text element's PRESENTATION attributes stand for (SVG 2
+/// 6.6: `font-family`, `font-size`, `font-weight`, `font-style`,
+/// `letter-spacing`, `word-spacing`, and `fill` - the colour its glyphs are
+/// painted in), lowest in the cascade like HTML's presentational hints. Sizes
+/// are user units: layout scales them through the `<svg>`'s mapping.
+fn svg_text_hints(element: &Element<'_>) -> String {
+    let mut css = String::new();
+    if let Some(family) = element.attribute("font-family").map(str::trim).filter(|f| !f.is_empty()) {
+        if family.contains(',') || family.starts_with('"') || family.starts_with('\'') {
+            css.push_str(&alloc::format!("font-family: {family};"));
+        } else {
+            css.push_str(&alloc::format!("font-family: \"{family}\";"));
+        }
+    }
+    for (attribute, property) in [
+        ("font-size", "font-size"),
+        ("letter-spacing", "letter-spacing"),
+        ("word-spacing", "word-spacing"),
+    ] {
+        if let Some(size) = super::parse_svg_float(element.attribute(attribute)) {
+            if size.is_finite() {
+                css.push_str(&alloc::format!("{property}: {size}px;"));
+            }
+        }
+    }
+    for property in ["font-weight", "font-style"] {
+        if let Some(value) = element.attribute(property).map(str::trim).filter(|v| !v.is_empty()) {
+            css.push_str(&alloc::format!("{property}: {value};"));
+        }
+    }
+    match element.attribute("fill").map(str::trim) {
+        Some("none") => css.push_str("color: transparent;"),
+        Some(fill) if !fill.is_empty() => css.push_str(&alloc::format!("color: {fill};")),
+        _ => {}
+    }
+    css
+}
+
+/// The declarations of a CSS block, with the builder's key map.
+fn declarations(css: &str, landing: &Landing<'_>) -> Vec<CssPropertyWithConditions> {
+    match landing.css_key_map {
+        Some(map) => super::attributes::style_declarations(css, map),
+        None => super::attributes::style_declarations(
+            css,
+            &azul_css::props::property::get_css_key_map(),
+        ),
+    }
 }

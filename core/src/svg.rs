@@ -541,6 +541,31 @@ impl SvgAffine {
         *self == Self::IDENTITY
     }
 
+    /// An `<svg>`'s user space -> its box: the viewBox `(min_x, min_y,
+    /// width, height)` scaled onto a box `box_width` x `box_height` (each
+    /// axis on its own, as the clip masks map it), the box's origin at 0.
+    /// Identity for an empty viewBox.
+    #[must_use]
+    pub fn view_box_mapping(
+        view_box: (f32, f32, f32, f32),
+        box_width: f32,
+        box_height: f32,
+    ) -> Self {
+        let (min_x, min_y, vb_w, vb_h) = view_box;
+        if !(vb_w > 0.0 && vb_h > 0.0) {
+            return Self::IDENTITY;
+        }
+        let (sx, sy) = (f64::from(box_width / vb_w), f64::from(box_height / vb_h));
+        Self {
+            a: sx,
+            b: 0.0,
+            c: 0.0,
+            d: sy,
+            e: -f64::from(min_x) * sx,
+            f: -f64::from(min_y) * sy,
+        }
+    }
+
     /// How much it scales a length, on average over directions: the square
     /// root of its area scale (a stroke's width under it).
     #[must_use]

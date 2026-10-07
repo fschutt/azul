@@ -4497,6 +4497,22 @@ fn layout_ifc<T: ParsedFontTrait>(
     {
         text3_constraints.text_indent = 0.0;
     }
+    // An SVG `<text>`: its sizes are its `<svg>`'s user units, on the screen
+    // at the scale of the viewBox onto the `<svg>`'s current box and of its
+    // transforms (`solver3::svg`). The cached collection stays in user units;
+    // the scale enters the validity key, so a resized `<svg>` lays it out
+    // again.
+    let (inline_content, content_hash_base) =
+        match super::svg::text_scale(ctx.styled_dom, tree, node_index) {
+            Some(scale) => {
+                super::svg::scale_constraints(&mut text3_constraints, scale);
+                (
+                    Arc::new(super::svg::svg_text_content(ctx.styled_dom, &inline_content, scale)),
+                    content_hash_base.map(|base| base ^ u64::from(scale.to_bits()).rotate_left(17)),
+                )
+            }
+            None => (inline_content, content_hash_base),
+        };
 
     let current_content_hash = {
         let _p = crate::probe::Probe::span("ifc_content_hash");

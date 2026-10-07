@@ -846,6 +846,29 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     node_mut.used_size = Some(solved_size);
                 }
                 let bp = tree.nodes[node_index].box_props.unpack();
+                // An SVG `<text>` is placed by its own attributes, not by CSS
+                // insets: its first baseline at its `x` / `y` through its
+                // `<svg>`'s mapping (`solver3::svg`) - in the `<svg>`'s padding
+                // box, where its absolutely positioned content is placed.
+                if let Some(mapping) = super::svg::text_mapping(ctx.styled_dom, tree, dom_id) {
+                    let (x, y) = super::svg::text_anchor(ctx.styled_dom, dom_id);
+                    let (px, py) = mapping.apply(x, y);
+                    let baseline = tree
+                        .warm(LayoutNodeId::new(node_index))
+                        .and_then(|w| w.baseline)
+                        .unwrap_or(0.0);
+                    #[allow(clippy::cast_possible_truncation)] // window-logical px
+                    {
+                        final_pos = LogicalPosition::new(
+                            containing_block_rect.origin.x + px as f32 - bp.border.left - bp.padding.left,
+                            containing_block_rect.origin.y + py as f32
+                                - baseline
+                                - bp.border.top
+                                - bp.padding.top,
+                        );
+                    }
+                    super::pos_set(calculated_positions, node_index, final_pos);
+                }
                 let content_pos = LogicalPosition::new(
                     final_pos.x + bp.border.left + bp.padding.left,
                     final_pos.y + bp.border.top + bp.padding.top,
