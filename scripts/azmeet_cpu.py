@@ -26,7 +26,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -68,29 +67,42 @@ def inside(rect, outer):
     return x >= ox - 1 and y >= oy - 1 and x + w <= ox + ow + 1 and y + h <= oy + oh + 1
 
 
-def run_scenario(name, args, binary, worker, logs, extra):
+# The switches of each scenario on top of the meeting server, the name and no relays (AzMeet's
+# --help): quiet has neither the tone nor the test pattern and shows the people; video sends the
+# test pattern and shows the statistics (whose "Video from ..." lines tell when it decodes).
+SCENARIOS = [
+    ("quiet", ["--panel", "people"]),
+    ("video", ["--test-pattern", "--panel", "statistics"]),
+]
+
+
+def scenario_flags(worker, name, scenario, extra=()):
+    return ["--worker", worker, "--name", name, "--relay", "off"] + list(scenario) + list(extra)
+
+
+def run_scenario(name, args, binary, worker, logs, scenario):
     deadline = time.time() + args.timeout
     procs = []
     result = {"scenario": name}
     try:
-        ada = e2e.App("%s-ada" % name, binary, args.port_a,
-                      e2e.app_env(worker, "Ada", args.port_a, dict(extra, AZMEET_AUTOCREATE="1")),
-                      logs, args.capped, 1000, args.app_seconds)
+        ada = e2e.start_app("%s-ada" % name, binary, args.port_a,
+                            scenario_flags(worker, "Ada", scenario, ["--autocreate"]),
+                            logs, args, args.capped)
         procs.append(ada)
         link = e2e.until("Ada's link", lambda: (ada.printed("AZMEET_LINK") or [None])[0], deadline, procs)
-        ben = e2e.App("%s-ben" % name, binary, args.port_b,
-                      e2e.app_env(worker, "Ben", args.port_b, dict(extra, AZMEET_JOIN=link)),
-                      logs, args.capped, 1000, args.app_seconds)
+        ben = e2e.start_app("%s-ben" % name, binary, args.port_b,
+                            scenario_flags(worker, "Ben", scenario, ["--join", link]),
+                            logs, args, args.capped)
         procs.append(ben)
         for app, other in ((ada, "ben"), (ben, "ada")):
-            e2e.until("%s's debug server" % app.name, lambda app=app: app.op("wait_frame") is not None,
+            e2e.until("%s's debug server" % app.tag, lambda app=app: app.op("wait_frame") is not None,
                       deadline, procs)
-            e2e.until("%s's tile in %s" % (other, app.name),
+            e2e.until("%s's tile in %s" % (other, app.tag),
                       lambda app=app, other=other: app.rect(app.id("tile-%s-camera" % other))[0] is not None,
                       deadline, procs)
         if name == "video":
             for app, other in ((ada, "Ben"), (ben, "Ada")):
-                e2e.until("%s decoding %s" % (app.name, other),
+                e2e.until("%s decoding %s" % (app.tag, other),
                           lambda app=app, other=other: (e2e.decoded_from(app, other) or (None, 0))[1] > 0,
                           deadline, procs)
             # The statistics panel repaints with its numbers; the measurement looks at the tiles.
@@ -161,6 +173,7 @@ def main():
     parser.add_argument("--warmup", type=float, default=3.0)
     parser.add_argument("--timeout", type=int, default=90)
     parser.add_argument("--app-seconds", type=int, default=120)
+    parser.add_argument("--cap-mb", type=int, default=1000)
     parser.add_argument("--quiet-max", type=float, default=1.0)
     parser.add_argument("--only", choices=["quiet", "video"])
     parser.add_argument("--json", action="store_true")
@@ -176,19 +189,14 @@ def main():
         binary = e2e.find_binary(args.bin)
         worker_dir = e2e.find_worker(args.worker_dir)
         worker = "http://127.0.0.1:%d" % args.worker_port
-        dev = e2e.Process("worker", [shutil.which("node") or "node", os.path.join(worker_dir, "dev-server.mjs"),
-                                     "--memory", "--port", str(args.worker_port)], dict(os.environ), logs)
+        dev = e2e.start_worker(worker_dir, args.worker_port, logs)
         e2e.until("the dev server", lambda: e2e.http_json(worker + "/health").get("ok") is True,
                   time.time() + 30, [dev])
-        scenarios = [
-            ("quiet", {"AZMEET_TEST_TONE": "", "AZMEET_TEST_PATTERN": "", "AZMEET_PANEL": "people"}),
-            ("video", {"AZMEET_TEST_TONE": "", "AZMEET_TEST_PATTERN": "1"}),
-        ]
-        for name, extra in scenarios:
+        for name, scenario in SCENARIOS:
             if args.only and args.only != name:
                 continue
             e2e.log("scenario %s ..." % name)
-            results.append(run_scenario(name, args, binary, worker, logs, extra))
+            results.append(run_scenario(name, args, binary, worker, logs, scenario))
     except e2e.Failure as e:
         e2e.log("FAIL: %s (logs in %s)" % (e, logs))
         return 2

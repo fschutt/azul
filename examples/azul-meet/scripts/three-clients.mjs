@@ -4,12 +4,12 @@
 // forwarder.
 //
 // All three run headless with the 440 Hz tone and the test pattern, relays off, and
-// AZMEET_MESH_CAP=2, so a room of three routes over a backbone. Each pins the uplink it reports
-// (AZMEET_UPLINK_KBPS), so the plan is known in advance:
+// --mesh-cap 2, so a room of three routes over a backbone. Each pins the uplink it reports
+// (--uplink-kbps), so the plan is known in advance:
 //
 //   Ada   1 Mbps    grid view
 //   Ben  50 Mbps    grid view
-//   Cleo 10 Mbps    speaker view with Ben on the stage (AZMEET_LAYOUT=speaker, AZMEET_STAGE=Ben)
+//   Cleo 10 Mbps    speaker view with Ben on the stage (--layout speaker --stage Ben)
 //
 // The planner (IrohLoadBalancer with a mesh cap of 2, then the trees of routes.rs) picks
 // max(ceil(sqrt 3), ceil(3 / 8)) = 2 forwarders by score (reported uplink times stability): Ben and
@@ -49,6 +49,7 @@
 import { parseArgs } from 'node:util';
 
 import {
+  appArgs,
   appEnv,
   audioFrom,
   click,
@@ -84,12 +85,12 @@ const { values: opts } = parseArgs({
 
 const MESH_CAP = '2';
 const people = [
-  { name: 'Ada', port: Number(opts['debug-a']), env: { AZMEET_UPLINK_KBPS: '1000' } },
-  { name: 'Ben', port: Number(opts['debug-b']), env: { AZMEET_UPLINK_KBPS: '50000' } },
+  { name: 'Ada', port: Number(opts['debug-a']), args: ['--uplink-kbps', '1000'] },
+  { name: 'Ben', port: Number(opts['debug-b']), args: ['--uplink-kbps', '50000'] },
   {
     name: 'Cleo',
     port: Number(opts['debug-c']),
-    env: { AZMEET_UPLINK_KBPS: '10000', AZMEET_LAYOUT: 'speaker', AZMEET_STAGE: 'Ben' },
+    args: ['--uplink-kbps', '10000', '--layout', 'speaker', '--stage', 'Ben'],
   },
 ];
 const [ada, ben, cleo] = people;
@@ -124,13 +125,13 @@ try {
   log(`logs: ${run.logs}`);
 
   const worker = await startWorker(run, workerDir, Number(opts.port));
-  const env = (p, extra) => appEnv(worker, p.name, p.port, { AZMEET_MESH_CAP: MESH_CAP, ...p.env, ...extra });
+  const args = (p, extra) => appArgs(worker, p.name, ['--mesh-cap', MESH_CAP, ...p.args, ...extra]);
 
-  ada.proc = run.start('ada', bin, [], env(ada, { AZMEET_AUTOCREATE: '1' }));
+  ada.proc = run.start('ada', bin, args(ada, ['--autocreate']), appEnv(ada.port));
   const { link, room } = await meetingOf(run, ada.proc);
   log(`Ada created ${link}`);
-  ben.proc = run.start('ben', bin, [], env(ben, { AZMEET_JOIN: link }));
-  cleo.proc = run.start('cleo', bin, [], env(cleo, { AZMEET_JOIN: link }));
+  ben.proc = run.start('ben', bin, args(ben, ['--join', link]), appEnv(ben.port));
+  cleo.proc = run.start('cleo', bin, args(cleo, ['--join', link]), appEnv(cleo.port));
 
   // 1. Everyone meets everyone.
   await until('the dev server to list Ada, Ben and Cleo in the room', async () => {

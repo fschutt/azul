@@ -3,7 +3,8 @@
 // server's ops, and readers for the lines AzMeet's window shows.
 //
 // Every reader takes the port of an app's debug server (AZ_DEBUG) and reads the window's texts
-// through the `get_node_hierarchy` op, so it sees what a user would see.
+// through the `get_node_hierarchy` op, so it sees what a user would see. AzMeet is started with
+// switches (`appArgs`: `--worker`, `--join`, `--test-tone`, ...), not AZMEET_* variables.
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -170,20 +171,31 @@ export async function listedNames(worker, room) {
   return status === 200 ? json.peers.map((p) => p.name) : [];
 }
 
-/** The environment of a headless AzMeet: tone and test pattern instead of devices, no relays. */
-export function appEnv(worker, name, debugPort, extra) {
-  return {
-    AZ_BACKEND: 'headless',
-    AZ_DEBUG: String(debugPort),
-    AZMEET_WORKER: worker,
-    AZMEET_NAME: name,
-    AZMEET_RELAY: 'off',
-    AZMEET_TEST_TONE: '1',
-    AZMEET_TEST_PATTERN: '1',
-    // The statistics panel shows the lines the readers below look for.
-    AZMEET_PANEL: 'statistics',
+/** The environment of a headless AzMeet: its debug server on `debugPort`, and every AZMEET_*
+ *  variable of this shell blanked (AzMeet reads a blank one as unset): each setting is a switch
+ *  now (`appArgs`), and one left over in the shell would change the run behind its back. */
+export function appEnv(debugPort) {
+  const env = { AZ_BACKEND: 'headless', AZ_DEBUG: String(debugPort) };
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith('AZMEET_')) env[name] = '';
+  }
+  return env;
+}
+
+/** AzMeet's switches for a scripted participant (AzMeet's --help): the meeting server, the name,
+ *  no relays, the tone and the test pattern instead of devices, and the statistics panel open
+ *  (it shows the lines the readers below look for); then `extra` (`['--autocreate']`,
+ *  `['--join', link]`, `['--mesh-cap', '2']`, ...). */
+export function appArgs(worker, name, extra = []) {
+  return [
+    '--worker', worker,
+    '--name', name,
+    '--relay', 'off',
+    '--test-tone',
+    '--test-pattern',
+    '--panel', 'statistics',
     ...extra,
-  };
+  ];
 }
 
 /** Waits for the `AZMEET_LINK` and `AZMEET_ROOM` lines of a process that created a meeting. */

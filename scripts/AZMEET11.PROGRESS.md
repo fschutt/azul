@@ -18,8 +18,12 @@ started from fix/input-bugs-2026-09-19 @ 86c0e821e. No cargo (the lead builds).
   AZMEET_PATH, stats "relayed", relay metrics >= --min-relayed-kib both ways, accepts >= 2);
   flags instead of AZMEET_* env (the shell's AZMEET_* blanked for the apps), --data-dir.
 
+- C7 two-clients.mjs, three-clients.mjs, meet-e2e.mjs (appArgs + appEnv), azmeet_cpu.py (also
+  repaired: it called an App signature azmeet_e2e.py no longer had), fb1/azmeet_resize_probe.py
+  onto the switches.
+
 ## IN PROGRESS
-- C7 the other scripts onto the flags.
+- C5 waiting room.
 
 ## NEXT
 - C5 waiting room: `--screen waiting` without a server, `--shot` / `--size`, who is here, pattern preview.
