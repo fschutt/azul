@@ -446,10 +446,12 @@ pub(crate) const CRUMB_SEPARATOR: &str =
 /// Finder's status line: how many items, how many selected, the space left.
 pub(crate) const STATUS_LINE: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; justify-content: center; \
-     flex-shrink: 0; height: 22px; padding: 0px 10px; font-size: 11px; overflow: hidden;",
+     flex-shrink: 0; height: 22px; padding: 0px 10px; font-size: 11px; overflow: hidden; \
+     border-radius: 0px 0px 2px 2px;",
     "border-top: 1px solid #E2E6EB; background: #EDF1F5; color: #626A76;",
     "border-top: 1px solid #333333; background: #292929; color: #9E9E9E;",
-    "border-top: 1px solid #E0DDD7; background: #EEECE7; color: #66645C;",
+    "border-top: 1px solid #E0DDD7; background: #EEECE7; color: #66645C; \
+     border-radius: 0px 0px 4px 4px;",
     "border-top: 1px solid #2E2E2E; background: #212121; color: #A8A8A8;",
 );
 
