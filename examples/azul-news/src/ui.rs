@@ -1,13 +1,23 @@
-//! AzNews' window on azul's S4 `PimShell` (Outlook 2010's three panes): the app-drawn title row
-//! (`NoTitle` + `Titlebar`), a toolbar in the ribbon row (Refresh, Add feed, Import / Export
-//! OPML, Mark all as read, Settings), the navigation pane (`ShellNavigationPane`: all articles,
-//! unread, starred, read later, broken feeds; the folders with their feeds and unread counts),
-//! the article list (search, all / unread, Outlook's date groups, unread dots, two lines of
-//! text) and the reading pane: azul's `ReadingPane` with the article read through azul's
-//! HTML5-like parser in the reader stylesheet ([`crate::reader::article`]), its pictures fetched
-//! on a Thread and put into the image cache ([`crate::jobs::spawn_pictures`]); or the Add-feed
-//! form, the OPML import preview, a feed's page. A status bar with the last refresh and the
-//! unread count.
+//! AzNews' window, laid out like OS X Mail (Leopard) - a news reader with selectable sources:
+//!
+//! - the app-drawn title row (`NoTitle` + `Titlebar`) and Mail's unified grey TOOLBAR (big icons,
+//!   their labels under them: Get News, Mark Read, Star, Read Later, Open, Copy Link, Mark All
+//!   Read, Add Feed, Sources; the search field at the right) - [`toolbar`];
+//! - the SOURCE LIST at the left ([`sidebar`]): the "Articles" section (all, unread, starred,
+//!   read later, broken feeds), then one section per source, and under each source its articles
+//!   grouped by topic (the feed's own categories: a forum's subforums, a blog's categories;
+//!   [`crate::library::Library::topics`]), unread counts as pills; the activity area (fetching,
+//!   n of m feeds, the last word) and the +, activity and actions buttons at the bottom;
+//! - the ARTICLE TABLE ([`table`]): dense rows under sortable column headers (read state, star,
+//!   title, source, date; a click sorts, again turns it round), alternating, the selected row in
+//!   the selection colour, Outlook's date groups (azul-pim's `DateGroup`) while it is sorted by
+//!   date; a VirtualView, so only the rows in view are built;
+//! - under it, on a splitter, the READING PANE: azul's `ReadingPane` with the article read
+//!   through azul's HTML5-like parser in the reader stylesheet ([`crate::reader::article`]), its
+//!   pictures fetched on a Thread and put into the image cache ([`crate::jobs::spawn_pictures`]);
+//! - the forms take the right side while they are open: Add feed, the OPML import preview, a
+//!   feed's page, the sources page ([`sources`]: which feeds are followed; add, import, export,
+//!   remove).
 //!
 //! Everything durable is a file in the data tree ([`crate::store`]), written on an azul Thread
 //! through azul-storage (`azul_appkit::ui::spawn_file_jobs`); feeds are refreshed on a Thread
@@ -18,10 +28,11 @@
 //! `AZNEWS_REFRESH_DONE <unread>`, `AZNEWS_FOUND <n>`, `AZNEWS_SUBSCRIBED <feed id> <url>`,
 //! `AZNEWS_IMPORT_PREVIEW <rows>`, `AZNEWS_IMPORTED <n>`, `AZNEWS_EXPORTED <key>`,
 //! `AZNEWS_PICTURE <url>`, `AZNEWS_SAVED <key>`, `AZNEWS_SAMPLE_WRITTEN <files>`,
-//! `AZNEWS_UNSUBSCRIBED <feed id>`, `AZNEWS_MARKED_ALL <n>`.
+//! `AZNEWS_UNSUBSCRIBED <feed id>`, `AZNEWS_MARKED_ALL <n>`, `AZNEWS_SORTED <column> <asc |
+//! desc>`, `AZNEWS_FOLLOW <feed id> <on | off>`, `AZNEWS_COPIED <link>`.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -30,7 +41,7 @@ use crate::{
     fetch::{Candidate, Fetched},
     ids,
     jobs::{self, FindEvent, PictureEvent, RefreshEvent, RefreshJob},
-    library::{ArticleRef, Library, View, DAY},
+    library::{ArticleRef, Library, Sort, SortKey, View, DAY},
     links,
     opml::{self, Subscription},
     reader, sample, store,
@@ -38,41 +49,52 @@ use crate::{
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ReadingPaneOnEventCallbackType,
-        SegmentedOnChangeCallbackType, ShellNavigationPaneOnEventCallbackType,
-        SwitchOnToggleCallbackType, TextInputOnTextInputCallbackType, TimerCallbackInfo,
-        TimerCallbackReturn, ToolbarOnEventCallbackType,
+        SegmentedOnChangeCallbackType, ShellOnPaneResizeCallbackType,
+        SplitPaneOnResizeCallbackType, SwitchOnToggleCallbackType,
+        TextInputOnTextInputCallbackType, TimerCallbackInfo, TimerCallbackReturn,
     },
     dialog::{FileDialog, FileOpenResult},
+    dom::ClipboardContent,
     image::ImageRef,
     option::{OptionFileTypeList, OptionString},
     prelude::*,
     shells::{
-        PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationPane,
-        ShellNavigationPaneEvent, ShellNavigationPaneEventKind, ShellThemeAccent, ShellThemeScope,
+        OfficeShell, ShellEmptyState, ShellPane, ShellPaneKind, ShellThemeAccent, ShellThemeScope,
     },
     str::String as AzString,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    vec::StringVec,
+    vec::{StringVec, StyledTextRunVec},
     widgets::{
         ButtonType, CheckBox, CheckBoxState, InfoBar, OnTextInputReturn, ReadingPane,
-        ReadingPaneEvent, ReadingPaneEventKind, Segmented, SegmentedState, StatusBar,
-        StatusBarSegment, Switch, SwitchState, TextInputState, TextInputValid, Toolbar,
-        ToolbarEvent, ToolbarEventKind, ToolbarItem, TreeViewNode,
+        ReadingPaneEvent, ReadingPaneEventKind, Segmented, SegmentedState, SplitDirection,
+        SplitPane, SplitPaneState, Switch, SwitchState, TextInputState, TextInputValid,
     },
 };
 use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
-    pieces::{block, button, column, flex_row, primary, strs, text},
+    pieces::{block, button, column, flex_row, primary, text},
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
 };
 
+/// The source list (left): the "Articles" section, a section per source with its topics, the
+/// activity area, the buttons under it.
+mod sidebar;
+/// The sources page: which feeds are followed; add, import, export, remove.
+mod sources;
+/// The article table: sortable headers, a VirtualView of dense rows.
+mod table;
+/// Mail's unified toolbar.
+mod toolbar;
+
+pub use table::{list_date, TableRow};
+
 // ==== The app's facts ====
 
-pub const SCREENS: [&str; 5] = ["articles", "add", "import", "feed", "settings"];
+pub const SCREENS: [&str; 6] = ["articles", "add", "import", "feed", "sources", "settings"];
 
 pub const SPEC: AppSpec = AppSpec {
     name: "AzNews",
@@ -99,7 +121,7 @@ pub const SHORTCUTS: [Shortcut; 12] = [
     Shortcut::new("Articles", "M", "Mark the article read or unread"),
     Shortcut::new("Articles", "L", "Read later"),
     Shortcut::new("Articles", "O", "Open the original in the browser"),
-    Shortcut::new("Feeds", "R", "Refresh every feed"),
+    Shortcut::new("Feeds", "R", "Get news: refresh every followed feed"),
     Shortcut::new("Feeds", "Mod+N", "Add a feed"),
     Shortcut::new("Feeds", "Mod+O", "Import an OPML file"),
     Shortcut::new("Feeds", "Mod+E", "Export the subscriptions as OPML"),
@@ -116,8 +138,9 @@ const TAG_IMPORT_FILE: u64 = 4;
 /// The subscription list written on the way out: the window closes when it landed.
 const TAG_CLOSING: u64 = 5;
 
-/// Articles the list shows before "Show more".
-const LIST_PAGE: usize = 300;
+/// A library of at most this many sources opens every source's section at the start; a bigger
+/// one opens a section when the user does (or picks one of its rows).
+pub const OPEN_SOURCES_UP_TO: usize = 8;
 
 /// The reading font sizes offered (px).
 pub const FONT_SIZES: [u32; 5] = [16, 18, 20, 22, 24];
@@ -132,6 +155,14 @@ pub const REFRESH_EVERY: [(&str, u32); 4] = [
 ];
 /// How long an article the feed dropped is kept: (label, days).
 pub const KEEP: [(&str, u32); 3] = [("A week", 7), ("A month", 30), ("Three months", 90)];
+
+/// The DOM ids of the shell's two panes (what F6 finds them by).
+const NAVIGATION_PANE: &str = "shell-navigation";
+const MAIN_PANE: &str = "shell-reading";
+
+/// A box that fills a splitter's pane (the pane itself is no flex box).
+const FILL: &str = "display: flex; flex-direction: column; width: 100%; height: 100%; \
+                    min-width: 0px; min-height: 0px; overflow: hidden;";
 
 // ==== Settings ====
 
@@ -186,6 +217,8 @@ pub struct Settings {
     pub refresh_on_start: bool,
     pub refresh_minutes: u32,
     pub keep_days: u32,
+    /// The article table's order (the column header clicked last).
+    pub sort: Sort,
 }
 
 impl Default for Settings {
@@ -199,6 +232,7 @@ impl Default for Settings {
             refresh_on_start: true,
             refresh_minutes: 60,
             keep_days: 30,
+            sort: Sort::default(),
         }
     }
 }
@@ -209,6 +243,33 @@ fn number_in(value: Option<&str>, offered: &[u32], default: u32) -> u32 {
         .and_then(|v| v.trim().parse::<u32>().ok())
         .filter(|v| offered.contains(v))
         .unwrap_or(default)
+}
+
+/// A table order as the settings keep it: `<column>-<asc | desc>` (`date-desc`).
+#[must_use]
+pub fn sort_value(sort: Sort) -> String {
+    format!(
+        "{}-{}",
+        sort.key.key(),
+        if sort.descending { "desc" } else { "asc" }
+    )
+}
+
+/// The table order a settings value names (newest first for anything else).
+#[must_use]
+pub fn parse_sort(value: Option<&str>) -> Sort {
+    let Some((key, way)) = value.and_then(|v| v.trim().split_once('-')) else {
+        return Sort::default();
+    };
+    let key = SortKey::parse(Some(key));
+    Sort {
+        key,
+        descending: match way {
+            "asc" => false,
+            "desc" => true,
+            _ => key.first_descending(),
+        },
+    }
 }
 
 impl Settings {
@@ -233,6 +294,7 @@ impl Settings {
             refresh_on_start: flag("refresh_start", d.refresh_on_start),
             refresh_minutes: number_in(get("refresh_every").as_deref(), &every, d.refresh_minutes),
             keep_days: number_in(get("keep").as_deref(), &keep, d.keep_days),
+            sort: parse_sort(get("sort").as_deref()),
         }
     }
 }
@@ -263,6 +325,22 @@ pub fn age(date: i64, now: i64) -> String {
     }
 }
 
+/// "Updated 5 min ago", "Updated just now", "Updated 2026-08-01" (`last` = when; 0 = never).
+#[must_use]
+pub fn updated_line(last: i64, now: i64) -> String {
+    if last <= 0 {
+        return "Not refreshed yet".to_string();
+    }
+    let ago = age(last, now);
+    if ago == "now" {
+        "Updated just now".to_string()
+    } else if now - last >= 7 * DAY {
+        format!("Updated {ago}")
+    } else {
+        format!("Updated {ago} ago")
+    }
+}
+
 /// An article's date for the reading pane: `Wednesday, 30 September 2026, 10:42` (local time).
 #[must_use]
 pub fn long_date(date: i64) -> String {
@@ -275,7 +353,7 @@ pub fn long_date(date: i64) -> String {
         .unwrap_or_default()
 }
 
-/// The local offset from UTC now, in seconds (the list's date groups).
+/// The local offset from UTC now, in seconds (the table's dates and date groups).
 fn local_offset_secs() -> i64 {
     use chrono::Offset;
     i64::from(chrono::Local::now().offset().fix().local_minus_utc())
@@ -333,15 +411,17 @@ pub fn import_rows(subs: Vec<Subscription>, library: &Library) -> Vec<ImportRow>
         .collect()
 }
 
-/// What the reading pane shows.
+/// What the right side shows.
 #[derive(Debug, Clone)]
 pub enum Reading {
-    /// The selected article (or the empty state).
+    /// The article table and, under it, the selected article (or the empty state).
     Article,
     AddFeed(AddFeed),
     Import(OpmlImport),
     /// A feed's page, by its id.
     Feed(String),
+    /// The sources page.
+    Sources,
 }
 
 /// The app's state.
@@ -358,10 +438,17 @@ pub struct NewsApp {
     /// The open article: (feed id, article id).
     pub selected: Option<(String, String)>,
     pub reading: Reading,
-    pub nav_open: [bool; 2],
+    /// Sources whose section the user opened (`true`) or closed (`false`), by feed id; the
+    /// others follow [`OPEN_SOURCES_UP_TO`].
+    pub source_open: BTreeMap<String, bool>,
+    /// The "Articles" section of the source list is open.
+    pub articles_open: bool,
+    /// The activity area under the source list shows.
+    pub show_activity: bool,
     pub notice: String,
-    /// Feeds still to answer in the running refresh.
+    /// Feeds still to answer in the running refresh, and how many it asked.
     pub refreshing: usize,
+    pub refresh_total: usize,
     /// When the last refresh ended.
     pub last_refresh: i64,
     /// Pictures in azul's image cache, asked for, and failed (by address).
@@ -371,12 +458,13 @@ pub struct NewsApp {
     /// Articles whose pictures the user asked for ("Load pictures"), by article id.
     pub pictures_allowed: BTreeSet<String>,
     pub settings: Settings,
-    pub list_limit: usize,
     pub start_screen: String,
     /// "Mark all as read?" is asked.
     pub confirm_mark_all: bool,
     /// "Unsubscribe?" is asked on the feed page.
     pub confirm_unsubscribe: bool,
+    /// "Remove?" is asked on the sources page, for this feed id.
+    pub confirm_remove: Option<String>,
     /// The feed page changed the subscription list (written when the page is left, or when
     /// the window is asked to close).
     pub list_dirty: bool,
@@ -384,6 +472,10 @@ pub struct NewsApp {
     pub closing: bool,
     /// The "Refresh every ..." timer, while one runs.
     pub refresh_timer: Option<TimerId>,
+    /// The source list's share of the window's width.
+    pub nav_ratio: f32,
+    /// The article table's share of the height above the reading pane.
+    pub split_ratio: f32,
 }
 
 impl NewsApp {
@@ -408,26 +500,32 @@ impl NewsApp {
             unread_only: false,
             selected: None,
             reading: Reading::Article,
-            nav_open: [true, true],
+            source_open: BTreeMap::new(),
+            articles_open: true,
+            show_activity: true,
             notice: String::new(),
             refreshing: 0,
+            refresh_total: 0,
             last_refresh: 0,
             pictures: BTreeSet::new(),
             pictures_asked: BTreeSet::new(),
             pictures_failed: BTreeSet::new(),
             pictures_allowed: BTreeSet::new(),
             settings,
-            list_limit: LIST_PAGE,
             start_screen: args.screen.clone().unwrap_or_default(),
             confirm_mark_all: false,
             confirm_unsubscribe: false,
+            confirm_remove: None,
             list_dirty: false,
             closing: false,
             refresh_timer: None,
+            nav_ratio: 0.2,
+            split_ratio: 0.4,
         }
     }
 
-    /// The list: the view's articles that match the search (and are unread, with "Unread").
+    /// The list: the view's articles that match the search (and are unread, with "Unread"),
+    /// newest first.
     fn list(&self) -> Vec<ArticleRef> {
         let view = if self.unread_only && self.view == View::All {
             View::Unread
@@ -439,6 +537,25 @@ impl NewsApp {
             list.retain(|r| !self.library.is_read(*r));
         }
         list
+    }
+
+    /// The list in the table's order (the column clicked last).
+    fn ordered(&self) -> Vec<ArticleRef> {
+        let mut list = self.list();
+        self.library.sort(&mut list, self.settings.sort);
+        list
+    }
+
+    /// The table's rows: [`Self::ordered`], under their days' headers when sorted by date.
+    fn table_rows(&self) -> Vec<TableRow> {
+        let today = chrono::Local::now().date_naive();
+        table::rows(
+            &self.library,
+            &self.ordered(),
+            self.settings.sort,
+            today,
+            local_offset_secs(),
+        )
     }
 
     /// The open article.
@@ -455,6 +572,29 @@ impl NewsApp {
     fn reference_of(&self, r: ArticleRef) -> Option<(String, String)> {
         let item = self.library.article(r)?;
         Some((self.library.feeds[r.feed].sub.id.clone(), item.id.clone()))
+    }
+
+    /// The open article's link, without its tracking parameters when the setting says so
+    /// (`None`: no article, or one without a link).
+    fn selected_link(&self) -> Option<String> {
+        let link = self
+            .selected_ref()
+            .and_then(|r| self.library.article(r))
+            .map(|i| i.link.trim().to_string())
+            .filter(|l| !l.is_empty())?;
+        Some(if self.settings.strip_tracking {
+            links::strip_tracking(&link)
+        } else {
+            link
+        })
+    }
+
+    /// Whether the source's section in the source list is open.
+    fn source_is_open(&self, id: &str) -> bool {
+        self.source_open
+            .get(id)
+            .copied()
+            .unwrap_or(self.library.feeds.len() <= OPEN_SOURCES_UP_TO)
     }
 
     /// Whether the article's pictures are fetched (the setting, or "Load pictures").
@@ -510,7 +650,7 @@ pub fn start() {
 
 // ==== Small pieces ====
 
-// `strs`, `text`, `block`, `column`, `flex_row`, `button` and `primary` are the shared
+// `text`, `block`, `column`, `flex_row`, `button` and `primary` are the shared
 // azul_appkit::pieces (imported above); only the text field is AzNews' own.
 
 fn input(
@@ -528,133 +668,13 @@ fn input(
         .with_id(id)
 }
 
-// ==== Navigation ====
-
-/// A badge's text: the count, nothing for none.
-fn badge(n: usize) -> String {
-    if n == 0 {
-        String::new()
-    } else {
-        n.to_string()
-    }
-}
-
-/// The view of each node of the navigation pane's two groups, in the depth-first order the
-/// pane's events count in (collapsed subtrees included): the order [`navigation`] adds them.
-#[must_use]
-pub fn navigation_views(lib: &Library) -> [Vec<View>; 2] {
-    let mut articles = vec![View::All, View::Unread, View::Starred, View::Later];
-    if !lib.broken().is_empty() {
-        articles.push(View::Broken);
-    }
-    let mut feeds = vec![View::All];
-    for folder in lib.folders() {
-        feeds.push(View::Folder(folder.clone()));
-        for f in lib.feeds.iter().filter(|f| f.sub.folder == folder) {
-            feeds.push(View::Feed(f.sub.id.clone()));
-        }
-    }
-    for f in lib.feeds.iter().filter(|f| f.sub.folder.is_empty()) {
-        feeds.push(View::Feed(f.sub.id.clone()));
-    }
-    [articles, feeds]
-}
-
-fn navigation(s: &NewsApp, app: &RefAny) -> Dom {
-    let lib = &s.library;
-    let reading_articles = matches!(s.reading, Reading::Article);
-    let sel = |v: &View| reading_articles && s.view == *v;
-    let mut articles = TreeViewNode::create("All articles")
-        .with_icon("inbox")
-        .with_badge(badge(lib.unread_total()))
-        .with_expanded(true)
-        .with_selected(sel(&View::All))
-        .with_child(
-            TreeViewNode::create("Unread")
-                .with_icon("mark_email_unread")
-                .with_badge(badge(lib.unread_total()))
-                .with_selected(sel(&View::Unread)),
-        )
-        .with_child(
-            TreeViewNode::create("Starred")
-                .with_icon("star")
-                .with_badge(badge(lib.starred_count()))
-                .with_selected(sel(&View::Starred)),
-        )
-        .with_child(
-            TreeViewNode::create("Read later")
-                .with_icon("bookmark")
-                .with_badge(badge(lib.later_count()))
-                .with_selected(sel(&View::Later)),
-        );
-    let broken = lib.broken();
-    if !broken.is_empty() {
-        articles = articles.with_child(
-            TreeViewNode::create("Broken feeds")
-                .with_icon("error")
-                .with_badge(badge(broken.len()))
-                .with_selected(sel(&View::Broken)),
-        );
-    }
-    let feed_node = |i: usize| -> TreeViewNode {
-        let f = &lib.feeds[i];
-        let page_open = matches!(&s.reading, Reading::Feed(id) if *id == f.sub.id);
-        TreeViewNode::create(f.name())
-            .with_icon(if f.meta.error.is_empty() {
-                "rss_feed"
-            } else {
-                "error"
-            })
-            .with_badge(badge(lib.unread(i)))
-            .with_selected(sel(&View::Feed(f.sub.id.clone())) || page_open)
-    };
-    let mut feeds = TreeViewNode::create("Subscriptions")
-        .with_icon("rss_feed")
-        .with_expanded(true);
-    for folder in lib.folders() {
-        let mut node = TreeViewNode::create(folder.as_str())
-            .with_icon("folder")
-            .with_expanded(true)
-            .with_badge(badge(lib.unread_in_folder(&folder)))
-            .with_selected(sel(&View::Folder(folder.clone())));
-        for i in (0..lib.feeds.len()).filter(|&i| lib.feeds[i].sub.folder == folder) {
-            node = node.with_child(feed_node(i));
-        }
-        feeds = feeds.with_child(node);
-    }
-    for i in (0..lib.feeds.len()).filter(|&i| lib.feeds[i].sub.folder.is_empty()) {
-        feeds = feeds.with_child(feed_node(i));
-    }
-    ShellNavigationPane::create()
-        .with_header(primary("Add feed", ids::NAV_ADD, app, on_add_open))
-        .with_group(
-            ShellNavigationGroup::create("Articles", articles)
-                .with_count(lib.unread_total())
-                .with_open(s.nav_open[0]),
-        )
-        .with_group(
-            ShellNavigationGroup::create("Feeds", feeds)
-                .with_count(lib.feeds.len())
-                .with_open(s.nav_open[1]),
-        )
-        .with_label("Feeds and folders")
-        .with_on_event(
-            app.clone(),
-            on_nav as ShellNavigationPaneOnEventCallbackType,
-        )
-        .dom()
-}
-
-// ==== The list ====
-
-struct RowRef {
-    app: RefAny,
-    feed: String,
-    item: String,
-}
-
-/// The list's heading for the view.
+/// The view's name: the table's heading.
 fn view_title(s: &NewsApp) -> String {
+    let feed_name = |id: &str| {
+        s.library
+            .feed_index(id)
+            .map_or_else(String::new, |i| s.library.feeds[i].name().to_string())
+    };
     match &s.view {
         View::All => "All articles".to_string(),
         View::Unread => "Unread".to_string(),
@@ -662,14 +682,12 @@ fn view_title(s: &NewsApp) -> String {
         View::Later => "Read later".to_string(),
         View::Broken => "Broken feeds".to_string(),
         View::Folder(name) => name.clone(),
-        View::Feed(id) => s
-            .library
-            .feed_index(id)
-            .map_or_else(String::new, |i| s.library.feeds[i].name().to_string()),
+        View::Feed(id) => feed_name(id.as_str()),
+        View::Topic(id, topic) => format!("{} \u{203a} {topic}", feed_name(id.as_str())),
     }
 }
 
-/// An article's title for the list and the pane: its own, else the start of its text.
+/// An article's title for the table and the pane: its own, else the start of its text.
 fn title_of(item: &Item) -> String {
     if item.title.trim().is_empty() {
         let start = reader::cut_at_word(&item.excerpt, 80);
@@ -681,171 +699,6 @@ fn title_of(item: &Item) -> String {
     } else {
         item.title.clone()
     }
-}
-
-fn article_row(
-    s: &NewsApp,
-    app: &RefAny,
-    r: ArticleRef,
-    index: usize,
-    now: i64,
-    selected: Option<ArticleRef>,
-) -> Dom {
-    let lib = &s.library;
-    let feed = &lib.feeds[r.feed];
-    let item = &feed.items[r.item];
-    let unread = !lib.is_read(r);
-    let title = title_of(item);
-    let mut head = vec![
-        block(
-            "width: 12px; flex-shrink: 0; font-size: 10px; color: #2f74d0;",
-            text(if unread { "\u{25cf}" } else { "" }),
-        ),
-        block(
-            &format!(
-                "flex-grow: 1; min-width: 0px; font-size: 13px; {}",
-                if unread { "font-weight: 700;" } else { "" }
-            ),
-            text(title.as_str()),
-        ),
-    ];
-    if lib.is_starred(r) {
-        head.push(block(
-            "padding-left: 4px; font-size: 12px;",
-            text("\u{2605}"),
-        ));
-    }
-    let meta = format!("{} \u{b7} {}", feed.name(), age(item.date(), now));
-    column(
-        &format!(
-            "padding: 6px 8px; cursor: pointer; border-bottom: 1px solid rgba(128, 128, 128, 0.15); {}",
-            if selected == Some(r) { "background-color: rgba(64, 128, 255, 0.18);" } else { "" }
-        ),
-        vec![
-            flex_row("", head),
-            block("padding-left: 12px; font-size: 11px; opacity: 0.7;", text(meta)),
-            block(
-                "padding-left: 12px; font-size: 12px; opacity: 0.8; max-height: 2.9em; overflow: hidden;",
-                text(item.excerpt.as_str()),
-            ),
-        ],
-    )
-    .with_id(ids::article(index))
-    .with_class(ids::ARTICLE_ROW_CLASS)
-    .with_accessibility_name(title)
-    .with_callback(
-        EventFilter::Hover(HoverEventFilter::MouseUp),
-        RefAny::new(RowRef {
-            app: app.clone(),
-            feed: feed.sub.id.clone(),
-            item: item.id.clone(),
-        }),
-        on_row,
-    )
-}
-
-// TODO(WIDGETS9A): IconGrid - the plan's magazine mode (a grid of cards with the articles'
-// pictures, `List | Cards`) comes with azul's IconGrid; today the list is the one mode.
-fn list_pane(s: &NewsApp, app: &RefAny) -> Dom {
-    let now = now_secs();
-    let list = s.list();
-    let selected = s.selected_ref();
-    let search = TextInput::create_search()
-        .with_text(s.query.as_str())
-        .with_placeholder("Search articles")
-        .with_accessibility_name("Search articles")
-        .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
-        .dom()
-        .with_id(ids::LIST_SEARCH);
-    let filter = Segmented::create(strs(&["All", "Unread"]))
-        .with_selected_index(usize::from(s.unread_only))
-        .with_on_change(app.clone(), on_filter as SegmentedOnChangeCallbackType)
-        .dom()
-        .with_id(ids::LIST_FILTER);
-    let heading = block(
-        "padding: 6px 8px 2px 8px; font-size: 12px; font-weight: 600;",
-        text(format!("{} \u{b7} {}", view_title(s), list.len())),
-    )
-    .with_id(ids::LIST_HEADING);
-    let body = if !s.loaded {
-        block(
-            "padding: 16px; opacity: 0.7;",
-            text("Reading your feeds\u{2026}"),
-        )
-    } else if s.library.feeds.is_empty() {
-        ShellEmptyState::create("No feeds yet")
-            .with_icon("rss_feed")
-            .with_detail("Add a feed by its address or a website's, or import an OPML file from another reader.")
-            .with_action_label("Add feed")
-            .with_on_action(app.clone(), on_add_open as ButtonOnClickCallbackType)
-            .dom()
-    } else if list.is_empty() {
-        ShellEmptyState::create("Nothing here")
-            .with_icon("search")
-            .with_detail(if s.query.trim().is_empty() {
-                "No articles in this view.".to_string()
-            } else {
-                format!("No article matches \u{201c}{}\u{201d}.", s.query.trim())
-            })
-            .dom()
-    } else {
-        let mut out = Dom::create_div()
-            .with_id(ids::ARTICLE_LIST)
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto; min-height: 0px;");
-        let shown = &list[..list.len().min(s.list_limit)];
-        let today = chrono::Local::now().date_naive();
-        let mut index = 0;
-        for (group, members) in s.library.sections(shown, today, local_offset_secs()) {
-            out.add_child(
-                block(
-                    "padding: 8px 8px 2px 8px; font-size: 11px; font-weight: 700; opacity: 0.8;",
-                    text(group.label()),
-                )
-                .with_class(ids::DAY_HEADER_CLASS),
-            );
-            for r in members {
-                out.add_child(article_row(s, app, r, index, now, selected));
-                index += 1;
-            }
-        }
-        if list.len() > shown.len() {
-            out.add_child(block(
-                "padding: 8px;",
-                Button::create(format!(
-                    "Show {} more",
-                    (list.len() - shown.len()).min(LIST_PAGE)
-                ))
-                .with_on_click(app.clone(), on_show_more as ButtonOnClickCallbackType)
-                .dom(),
-            ));
-        }
-        out
-    };
-    let mut children = vec![
-        flex_row(
-            "padding: 6px 8px; gap: 6px;",
-            vec![block("flex-grow: 1;", search), filter],
-        ),
-        heading,
-    ];
-    if s.confirm_mark_all {
-        children.push(
-            flex_row(
-                "padding: 6px 8px; gap: 6px; font-size: 12px;",
-                vec![
-                    block(
-                        "flex-grow: 1;",
-                        text(format!("Mark the {} articles here as read?", list.len())),
-                    ),
-                    primary("Mark as read", ids::MARK_ALL_YES, app, on_mark_all_yes),
-                    button("Cancel", ids::MARK_ALL_NO, app, on_mark_all_no),
-                ],
-            )
-            .with_id(ids::MARK_ALL_CONFIRM),
-        );
-    }
-    children.push(body);
-    column("flex-grow: 1; min-height: 0px;", children)
 }
 
 // ==== The reading pane ====
@@ -864,41 +717,6 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
     let feed = &lib.feeds[r.feed];
     let item = &feed.items[r.item];
     let article = s.article_view(item);
-    let actions = flex_row(
-        "gap: 4px; padding: 4px 8px; flex-wrap: wrap;",
-        vec![
-            button("Previous", ids::READER_PREV, app, on_prev),
-            button("Next", ids::READER_NEXT, app, on_next),
-            block("flex-grow: 1;", Dom::create_div()),
-            button("Open original", ids::READER_OPEN, app, on_open_original),
-            button(
-                if lib.is_starred(r) { "Unstar" } else { "Star" },
-                ids::READER_STAR,
-                app,
-                on_star,
-            ),
-            button(
-                if lib.is_later(r) {
-                    "Not later"
-                } else {
-                    "Read later"
-                },
-                ids::READER_LATER,
-                app,
-                on_later,
-            ),
-            button(
-                if lib.is_read(r) {
-                    "Mark unread"
-                } else {
-                    "Mark read"
-                },
-                ids::READER_UNREAD,
-                app,
-                on_toggle_read,
-            ),
-        ],
-    );
     let title = title_of(item);
     let mut pane = ReadingPane::create(title.as_str(), feed.name())
         .with_date(long_date(item.date()))
@@ -943,13 +761,16 @@ fn article_view(s: &NewsApp, app: &RefAny, r: ArticleRef) -> Dom {
             on_reading_event as ReadingPaneOnEventCallbackType,
         )
         .dom();
-    column(
-        "flex-grow: 1; min-height: 0px;",
-        vec![
-            actions,
-            block("flex-grow: 1; min-height: 0px; overflow-y: auto;", pane),
-        ],
-    )
+    block("flex-grow: 1; min-height: 0px; overflow-y: auto;", pane)
+}
+
+/// The reading pane under the table: the open article, or the empty state.
+fn reading_view(s: &NewsApp, app: &RefAny) -> Dom {
+    let content = match s.selected_ref() {
+        Some(r) => article_view(s, app, r),
+        None => empty_reading(app),
+    };
+    column(FILL, vec![content])
 }
 
 /// A form's section title.
@@ -962,10 +783,19 @@ fn section_title(title: &str) -> Dom {
 
 fn problem_line(problem: &str, id: AzString) -> Dom {
     block(
-        "color: #b3261e; padding: 4px 0px; font-size: 13px;",
+        "color: #b3261e; padding: 4px 0px; font-size: 13px; \
+         @media (prefers-color-scheme: dark) { color: #f2b8b5; }",
         text(problem),
     )
     .with_id(id)
+}
+
+/// A form's scrolling page on the right side.
+fn form_page(children: Vec<Dom>) -> Dom {
+    column(
+        "padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;",
+        children,
+    )
 }
 
 struct PickRef {
@@ -1064,11 +894,7 @@ fn add_feed_view(app: &RefAny, st: &AddFeed) -> Dom {
     }
     actions.push(button("Cancel", ids::ADD_CANCEL, app, on_leave));
     children.push(flex_row("gap: 6px; padding-top: 12px;", actions));
-    column(
-        "padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;",
-        children,
-    )
-    .with_id(ids::ADD_FEED)
+    form_page(children).with_id(ids::ADD_FEED)
 }
 
 struct ImportRowRef {
@@ -1166,11 +992,7 @@ fn import_view(app: &RefAny, st: &OpmlImport) -> Dom {
     }
     actions.push(button("Cancel", ids::OPML_CANCEL, app, on_leave));
     children.push(flex_row("gap: 6px; padding-top: 12px;", actions));
-    column(
-        "padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;",
-        children,
-    )
-    .with_id(ids::OPML_IMPORT)
+    form_page(children).with_id(ids::OPML_IMPORT)
 }
 
 fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
@@ -1216,6 +1038,14 @@ fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
                 s.library.unread(index)
             )),
         ),
+        kit::row(
+            "Followed",
+            text(if f.sub.paused {
+                "no - not refreshed, not in All articles (Sources)"
+            } else {
+                "yes"
+            }),
+        ),
         kit::row("Last asked", text(checked)),
     ];
     if !f.meta.error.is_empty() {
@@ -1247,104 +1077,36 @@ fn feed_page(s: &NewsApp, app: &RefAny, index: usize) -> Dom {
             on_unsubscribe,
         ));
     }
+    actions.push(button("Done", ids::FEED_DONE, app, on_leave));
     children.push(flex_row(
         "gap: 6px; padding-top: 12px; flex-wrap: wrap;",
         actions,
     ));
-    column(
-        "padding: 16px; flex-grow: 1; min-height: 0px; overflow-y: auto;",
-        children,
-    )
+    form_page(children)
 }
 
-fn reading_pane(s: &NewsApp, app: &RefAny) -> Dom {
+/// The right side: the table over the reading pane (on a splitter), or the open form.
+fn main_pane(s: &NewsApp, app: &RefAny) -> Dom {
     match &s.reading {
+        Reading::Article => SplitPane::create(
+            SplitDirection::Vertical,
+            table::list_pane(s, app),
+            reading_view(s, app),
+        )
+        .with_ratio(s.split_ratio)
+        .with_on_resize(app.clone(), on_split_resize as SplitPaneOnResizeCallbackType)
+        .dom(),
         Reading::AddFeed(st) => add_feed_view(app, st),
         Reading::Import(st) => import_view(app, st),
         Reading::Feed(id) => match s.library.feed_index(id) {
             Some(i) => feed_page(s, app, i),
             None => empty_reading(app),
         },
-        Reading::Article => match s.selected_ref() {
-            Some(r) => article_view(s, app, r),
-            None => empty_reading(app),
-        },
+        Reading::Sources => sources::sources_page(s, app),
     }
 }
 
-// ==== Toolbar, status bar, settings, the window ====
-
-/// The toolbar in the ribbon row: azul's `Toolbar` (roving focus, the "more" menu). Each tool's
-/// `id` is its DOM-id name from [`ids`]: what [`on_toolbar`] matches.
-fn toolbar(s: &NewsApp, app: &RefAny) -> Dom {
-    let tool = |id: AzString, label: &str, icon: &str| {
-        ToolbarItem::create_button(id, label, icon).with_show_label(true)
-    };
-    let refresh = if s.refreshing > 0 {
-        "Refreshing\u{2026}"
-    } else {
-        "Refresh"
-    };
-    let items = vec![
-        tool(ids::TOOLBAR_REFRESH, refresh, "refresh"),
-        tool(ids::TOOLBAR_ADD, "Add feed", "add"),
-        tool(ids::TOOLBAR_IMPORT, "Import", "file_upload"),
-        tool(ids::TOOLBAR_EXPORT, "Export", "file_download"),
-        tool(ids::TOOLBAR_MARK_ALL, "Mark all as read", "done_all"),
-        ToolbarItem::create_spacer(),
-        tool(ids::TOOLBAR_SETTINGS, "Settings", "settings"),
-    ];
-    block(
-        "padding: 4px 8px;",
-        Toolbar::create("News")
-            .with_items(items)
-            .with_on_event(app.clone(), on_toolbar as ToolbarOnEventCallbackType)
-            .dom(),
-    )
-}
-
-/// A tool was pressed: the tool's `id` names the command.
-extern "C" fn on_toolbar(data: RefAny, info: CallbackInfo, event: ToolbarEvent) -> Update {
-    if event.kind != ToolbarEventKind::Activate {
-        return Update::DoNothing;
-    }
-    let id = event.id.as_str();
-    let command: ButtonOnClickCallbackType = if id == ids::TOOLBAR_REFRESH.as_str() {
-        on_refresh
-    } else if id == ids::TOOLBAR_ADD.as_str() {
-        on_add_open
-    } else if id == ids::TOOLBAR_IMPORT.as_str() {
-        on_import_open
-    } else if id == ids::TOOLBAR_EXPORT.as_str() {
-        on_export
-    } else if id == ids::TOOLBAR_MARK_ALL.as_str() {
-        on_mark_all
-    } else if id == ids::TOOLBAR_SETTINGS.as_str() {
-        on_open_settings
-    } else {
-        return Update::DoNothing;
-    };
-    command(data, info)
-}
-
-fn status_bar(s: &NewsApp, _app: &RefAny) -> Dom {
-    let mut segments = Vec::new();
-    segments.push(StatusBarSegment::create(if s.refreshing > 0 {
-        format!("Refreshing \u{2013} {} feed(s) to go", s.refreshing)
-    } else if s.last_refresh > 0 {
-        format!("Updated {} ago", age(s.last_refresh, now_secs()))
-    } else {
-        "Not refreshed yet".to_string()
-    }));
-    segments.push(StatusBarSegment::create(format!(
-        "{} unread",
-        s.library.unread_total()
-    )));
-    if !s.notice.is_empty() {
-        segments.push(StatusBarSegment::create(s.notice.as_str()));
-    }
-    StatusBar::create(segments).dom().with_id(ids::NEWS_STATUS)
-}
+// ==== Settings, the window ====
 
 /// A settings choice of several labels.
 fn choice(
@@ -1481,8 +1243,8 @@ fn settings_sections(s: &NewsApp, app: &RefAny) -> Vec<AppSection> {
                         ),
                     ),
                     kit::note(&format!(
-                        "A refresh asks each feed with what it said last time (ETag, Last-Modified): a feed \
-                         without news costs nothing. Your feeds, articles and marks are files in {}.",
+                        "A refresh asks each followed feed with what it said last time (ETag, Last-Modified): \
+                         a feed without news costs nothing. Your feeds, articles and marks are files in {}.",
                         azul_appkit::data::local_path(&s.data_root, store::APP_FOLDER).display()
                     )),
                 ],
@@ -1509,17 +1271,22 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             ],
         )
     } else {
-        PimShell::create(
-            navigation(s, &app),
-            list_pane(s, &app),
-            reading_pane(s, &app),
-        )
-        .with_list_label("Articles")
-        .office_shell()
-        .with_title_row(kit::title_row(SPEC.name))
-        .with_ribbon(toolbar(s, &app))
-        .with_status_bar(status_bar(s, &app))
-        .dom()
+        OfficeShell::create()
+            .with_title_row(kit::title_row(SPEC.name))
+            .with_ribbon(toolbar::toolbar(s, &app))
+            .with_pane(
+                ShellPane::create(NAVIGATION_PANE, sidebar::sidebar(s, &app))
+                    .with_kind(ShellPaneKind::Navigation)
+                    .with_label("Sources")
+                    .with_ratio(s.nav_ratio),
+            )
+            .with_pane(
+                ShellPane::create(MAIN_PANE, main_pane(s, &app))
+                    .with_kind(ShellPaneKind::Main)
+                    .with_label("Articles"),
+            )
+            .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType)
+            .dom()
     };
     let root = column("flex-grow: 1; min-height: 0px;", vec![content]);
     // The theme scope's own body: no UA margin, the window's full height.
@@ -1536,6 +1303,33 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             app,
             on_key,
         )
+}
+
+/// The source list's width was dragged: kept for the next rebuild.
+extern "C" fn on_pane_resize(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    pane: usize,
+    ratio: f32,
+) -> Update {
+    if let Some(mut s) = data.downcast_mut::<NewsApp>() {
+        if pane == 0 {
+            s.nav_ratio = ratio;
+        }
+    }
+    Update::DoNothing
+}
+
+/// The splitter between the table and the reading pane was dragged: kept for the next rebuild.
+extern "C" fn on_split_resize(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: SplitPaneState,
+) -> Update {
+    if let Some(mut s) = data.downcast_mut::<NewsApp>() {
+        s.split_ratio = state.ratio;
+    }
+    Update::DoNothing
 }
 
 // ==== Callbacks: files and threads ====
@@ -1638,12 +1432,17 @@ fn start_refresh(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, feeds: 
         return;
     }
     s.notice.clear();
+    if s.refreshing == 0 {
+        s.refresh_total = 0;
+    }
     s.refreshing += jobs.len();
+    s.refresh_total += jobs.len();
     jobs::spawn_refresh(info, jobs, app.clone(), on_refresh_event);
 }
 
-fn all_feeds(s: &NewsApp) -> Vec<usize> {
-    (0..s.library.feeds.len()).collect()
+/// The feeds a "Get News" asks: every followed one.
+fn followed_feeds(s: &NewsApp) -> Vec<usize> {
+    s.library.followed()
 }
 
 /// Fetches the open article's pictures that are not in the cache yet (when they are allowed).
@@ -1695,6 +1494,67 @@ fn leave_form(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny) {
     }
     s.reading = Reading::Article;
     s.confirm_unsubscribe = false;
+    s.confirm_remove = None;
+}
+
+/// Marks the articles `refs` read and writes the marks of the feeds that changed; how many
+/// were unread.
+fn mark_read(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, refs: &[ArticleRef]) -> usize {
+    let unread = refs.iter().filter(|r| !s.library.is_read(**r)).count();
+    let changed = s.library.mark_all_read(refs);
+    let jobs: Vec<FileJob> = changed
+        .iter()
+        .filter_map(|&f| s.library.feeds.get(f).map(store::state_job))
+        .collect();
+    if !jobs.is_empty() {
+        write_files(s, info, app, jobs, TAG_WRITE);
+    }
+    unread
+}
+
+/// Unsubscribes from the feed `id`: its files deleted, the list written, the view reset.
+fn unsubscribe(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, id: &str) {
+    if s.library.unsubscribe(id).is_some() {
+        println!("AZNEWS_UNSUBSCRIBED {id}");
+        write_files(s, info, app, store::delete_jobs(id), TAG_WRITE);
+        save_list(s, info, app);
+    }
+    if s.selected.as_ref().is_some_and(|(feed, _)| feed == id) {
+        s.selected = None;
+    }
+    s.source_open.remove(id);
+    s.confirm_unsubscribe = false;
+    s.confirm_remove = None;
+    let shown = match &s.view {
+        View::Feed(feed) | View::Topic(feed, _) => feed == id,
+        _ => false,
+    };
+    if shown {
+        set_view(s, View::All);
+    }
+}
+
+/// Follows the feed at `index` again, or stops following it: the list written; a feed followed
+/// again is refreshed.
+fn set_followed(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, index: usize, on: bool) {
+    if !s.library.set_paused(index, !on) {
+        return;
+    }
+    let id = s.library.feeds[index].sub.id.clone();
+    println!("AZNEWS_FOLLOW {id} {}", if on { "on" } else { "off" });
+    s.notice = format!(
+        "{} {}",
+        s.library.feeds[index].name(),
+        if on {
+            "is followed again"
+        } else {
+            "is no longer followed"
+        }
+    );
+    save_list(s, info, app);
+    if on {
+        start_refresh(s, info, app, vec![index]);
+    }
 }
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1716,7 +1576,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-/// "Refresh every ...": all feeds, unless a refresh is running.
+/// "Refresh every ...": every followed feed, unless a refresh is running.
 extern "C" fn on_refresh_timer(
     mut data: RefAny,
     mut info: TimerCallbackInfo,
@@ -1728,7 +1588,7 @@ extern "C" fn on_refresh_timer(
     if !s.loaded || s.refreshing > 0 || s.settings.refresh_minutes == 0 {
         return TimerCallbackReturn::continue_unchanged();
     }
-    let feeds = all_feeds(&s);
+    let feeds = followed_feeds(&s);
     start_refresh(&mut s, &mut info.callback_info, &app, feeds);
     TimerCallbackReturn::continue_and_refresh_dom()
 }
@@ -1791,14 +1651,15 @@ fn after_load(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, outcomes: 
     match std::mem::take(&mut s.start_screen).as_str() {
         "add" => s.reading = Reading::AddFeed(AddFeed::default()),
         "import" => s.reading = Reading::Import(OpmlImport::default()),
+        "sources" => s.reading = Reading::Sources,
         "feed" => {
             if let Some(f) = s.library.feeds.first() {
                 s.reading = Reading::Feed(f.sub.id.clone());
             }
         }
         _ => {
-            // The newest article opens (and so is read), as in Outlook's reading pane.
-            if let Some(first) = s.list().first().copied() {
+            // The table's first article opens (and so is read), as in Mail's message view.
+            if let Some(first) = s.ordered().first().copied() {
                 select(s, info, app, first);
             }
         }
@@ -1809,7 +1670,7 @@ fn after_load(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, outcomes: 
         read_import_file(s, info, app, &path);
     }
     if s.settings.refresh_on_start && !sample_made {
-        let feeds = all_feeds(s);
+        let feeds = followed_feeds(s);
         start_refresh(s, info, app, feeds);
     }
 }
@@ -2006,58 +1867,16 @@ extern "C" fn on_find_event(mut app: RefAny, mut msg: RefAny, mut info: Callback
     })
 }
 
-// ==== Callbacks: navigation and the list ====
+// ==== Callbacks: the view, the search, mark all ====
 
+/// Shows `view` in the table (its source's section opens).
 fn set_view(s: &mut NewsApp, view: View) {
+    if let View::Feed(id) | View::Topic(id, _) = &view {
+        s.source_open.insert(id.clone(), true);
+    }
     s.view = view;
-    s.list_limit = LIST_PAGE;
     s.confirm_mark_all = false;
     println!("AZNEWS_VIEW {}", s.list().len());
-}
-
-extern "C" fn on_nav(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    event: ShellNavigationPaneEvent,
-) -> Update {
-    with_app(&mut data, &mut info, |s, info, handle| match event.kind {
-        ShellNavigationPaneEventKind::GroupToggled => {
-            if event.group < s.nav_open.len() {
-                s.nav_open[event.group] = event.expand;
-            }
-        }
-        ShellNavigationPaneEventKind::NodeClicked => {
-            let views = navigation_views(&s.library);
-            if let Some(view) = views
-                .get(event.group)
-                .and_then(|v| v.get(event.index))
-                .cloned()
-            {
-                leave_form(s, info, handle);
-                set_view(s, view);
-            }
-        }
-        _ => {}
-    })
-}
-
-extern "C" fn on_row(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((mut app, feed, item)) = data
-        .downcast_ref::<RowRef>()
-        .map(|r| (r.app.clone(), r.feed.clone(), r.item.clone()))
-    else {
-        return Update::DoNothing;
-    };
-    with_app(&mut app, &mut info, |s, info, handle| {
-        let Some(f) = s.library.feed_index(&feed) else {
-            return;
-        };
-        let Some(i) = s.library.feeds[f].items.iter().position(|x| x.id == item) else {
-            return;
-        };
-        leave_form(s, info, handle);
-        select(s, info, handle, ArticleRef { feed: f, item: i });
-    })
 }
 
 extern "C" fn on_search(
@@ -2066,9 +1885,11 @@ extern "C" fn on_search(
     state: TextInputState,
 ) -> OnTextInputReturn {
     let query = state.get_text().as_str().to_string();
-    let update = with_app(&mut data, &mut info, |s, _info, _| {
+    let update = with_app(&mut data, &mut info, |s, info, handle| {
+        if !matches!(s.reading, Reading::Article) {
+            leave_form(s, info, handle);
+        }
         s.query = query;
-        s.list_limit = LIST_PAGE;
         println!("AZNEWS_VIEW {}", s.list().len());
     });
     OnTextInputReturn {
@@ -2080,20 +1901,15 @@ extern "C" fn on_search(
 extern "C" fn on_filter(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {
     with_app(&mut data, &mut info, |s, _info, _| {
         s.unread_only = state.selected_index == 1;
-        s.list_limit = LIST_PAGE;
         println!("AZNEWS_VIEW {}", s.list().len());
     })
 }
 
-extern "C" fn on_show_more(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_app(&mut data, &mut info, |s, _info, _| {
-        s.list_limit += LIST_PAGE
-    })
-}
-
+/// "Mark all as read": asked first, over the table.
 extern "C" fn on_mark_all(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_app(&mut data, &mut info, |s, _info, _| {
-        s.confirm_mark_all = true
+    with_app(&mut data, &mut info, |s, info, handle| {
+        leave_form(s, info, handle);
+        s.confirm_mark_all = true;
     })
 }
 
@@ -2107,13 +1923,7 @@ extern "C" fn on_mark_all_yes(mut data: RefAny, mut info: CallbackInfo) -> Updat
     with_app(&mut data, &mut info, |s, info, handle| {
         s.confirm_mark_all = false;
         let list = s.list();
-        let unread = list.iter().filter(|r| !s.library.is_read(**r)).count();
-        let changed = s.library.mark_all_read(&list);
-        let jobs: Vec<FileJob> = changed
-            .iter()
-            .filter_map(|&f| s.library.feeds.get(f).map(store::state_job))
-            .collect();
-        write_files(s, info, handle, jobs, TAG_WRITE);
+        let unread = mark_read(s, info, handle, &list);
         println!("AZNEWS_MARKED_ALL {unread}");
         s.notice = format!("{unread} article(s) marked as read");
     })
@@ -2121,11 +1931,12 @@ extern "C" fn on_mark_all_yes(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
 // ==== Callbacks: the article ====
 
-/// The open article's place in the list and the next / previous one.
+/// The open article's place in the table and the next / previous one (scrolled into view).
 fn step(s: &mut NewsApp, info: &mut CallbackInfo, app: &RefAny, forward: bool) {
-    let list = s.list();
+    let list = s.ordered();
     if let Some(r) = s.library.next(&list, s.selected_ref(), forward) {
         select(s, info, app, r);
+        table::reveal_selected(s, info);
     }
 }
 
@@ -2171,21 +1982,29 @@ extern "C" fn on_toggle_read(mut data: RefAny, mut info: CallbackInfo) -> Update
 
 extern "C" fn on_open_original(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |s, _info, _| {
-        let Some(link) = s
-            .selected_ref()
-            .and_then(|r| s.library.article(r))
-            .map(|i| i.link.clone())
-        else {
+        let Some(link) = s.selected_link() else {
             return;
-        };
-        let link = if s.settings.strip_tracking {
-            links::strip_tracking(&link)
-        } else {
-            link
         };
         if let Err(e) = azul_appkit::files::open_external(&link) {
             s.notice = e;
         }
+    })
+}
+
+/// "Copy Link": the open article's address on the clipboard (to share it anywhere).
+extern "C" fn on_copy_link(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, _| {
+        let Some(link) = s.selected_link() else {
+            s.notice = "This article has no link.".to_string();
+            return;
+        };
+        info.set_clipboard_content(ClipboardContent {
+            plain_text: AzString::from(link.as_str()),
+            styled_runs: StyledTextRunVec::create(),
+            html: OptionString::None,
+        });
+        println!("AZNEWS_COPIED {link}");
+        s.notice = "The article's link is on the clipboard.".to_string();
     })
 }
 
@@ -2218,6 +2037,10 @@ extern "C" fn on_add_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
         leave_form(s, info, handle);
         let folder = match &s.view {
             View::Folder(f) => f.clone(),
+            View::Feed(id) | View::Topic(id, _) => s
+                .library
+                .feed_index(id)
+                .map_or_else(String::new, |i| s.library.feeds[i].sub.folder.clone()),
             _ => String::new(),
         };
         s.reading = Reading::AddFeed(AddFeed {
@@ -2328,6 +2151,7 @@ extern "C" fn on_add_subscribe(mut data: RefAny, mut info: CallbackInfo) -> Upda
             url: url.clone(),
             site: feed.site.clone(),
             folder,
+            paused: false,
         });
         let feed_id = s.library.feeds[index].sub.id.clone();
         if feed_id == id {
@@ -2473,7 +2297,11 @@ extern "C" fn on_import_run(mut data: RefAny, mut info: CallbackInfo) -> Update 
         s.notice = format!("{} feed(s) imported", added.len());
         save_list(s, info, handle);
         s.reading = Reading::Article;
-        start_refresh(s, info, handle, added);
+        let followed: Vec<usize> = added
+            .into_iter()
+            .filter(|&i| !s.library.feeds[i].sub.paused)
+            .collect();
+        start_refresh(s, info, handle, followed);
     })
 }
 
@@ -2491,7 +2319,7 @@ extern "C" fn on_export(mut data: RefAny, mut info: CallbackInfo) -> Update {
     })
 }
 
-// ==== Callbacks: a feed's page ====
+// ==== Callbacks: a feed's page, the sources page ====
 
 /// The feed of the page that is open.
 fn page_feed(s: &NewsApp) -> Option<usize> {
@@ -2566,26 +2394,27 @@ extern "C" fn on_unsubscribe_confirmed(mut data: RefAny, mut info: CallbackInfo)
         let Some(id) = page_feed(s).map(|i| s.library.feeds[i].sub.id.clone()) else {
             return;
         };
-        if s.library.unsubscribe(&id).is_some() {
-            println!("AZNEWS_UNSUBSCRIBED {id}");
-            write_files(s, info, handle, store::delete_jobs(&id), TAG_WRITE);
-            save_list(s, info, handle);
-        }
-        if s.selected.as_ref().is_some_and(|(feed, _)| *feed == id) {
-            s.selected = None;
-        }
-        s.confirm_unsubscribe = false;
+        unsubscribe(s, info, handle, &id);
         s.reading = Reading::Article;
         set_view(s, View::All);
     })
 }
 
+/// The sources page (the toolbar's "Sources", the actions menu).
+extern "C" fn on_sources_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    with_app(&mut data, &mut info, |s, info, handle| {
+        leave_form(s, info, handle);
+        s.reading = Reading::Sources;
+    })
+}
+
 // ==== Callbacks: toolbar, settings, keys ====
 
+/// "Get News": every followed feed.
 extern "C" fn on_refresh(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, &mut info, |s, info, handle| {
         if s.refreshing == 0 {
-            let feeds = all_feeds(s);
+            let feeds = followed_feeds(s);
             start_refresh(s, info, handle, feeds);
         }
     })
@@ -2749,7 +2578,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
             leave_form(s, info, handle);
         });
     }
-    // Plain keys are the list's only while no field has the focus (typing "j" into the search
+    // Plain keys are the table's only while no field has the focus (typing "j" into the search
     // box types a "j").
     if info.get_focused_node().into_option().is_some() {
         return Update::DoNothing;
@@ -2789,6 +2618,19 @@ mod tests {
     }
 
     #[test]
+    fn the_activity_says_when_the_feeds_were_last_asked() {
+        let now = 1_790_856_000;
+        assert_eq!(updated_line(0, now), "Not refreshed yet");
+        assert_eq!(updated_line(now - 5, now), "Updated just now");
+        assert_eq!(updated_line(now - 5 * 60, now), "Updated 5 min ago");
+        assert!(
+            !updated_line(now - 40 * DAY, now).ends_with(" ago"),
+            "a date is no age: {}",
+            updated_line(now - 40 * DAY, now)
+        );
+    }
+
+    #[test]
     fn settings_are_read_back_inside_what_is_offered() {
         let values = |key: &str| -> Option<String> {
             match key {
@@ -2799,6 +2641,7 @@ mod tests {
                 "strip" => Some("false".into()),
                 "refresh_every" => Some("15".into()),
                 "keep" => Some("banana".into()),
+                "sort" => Some("title-asc".into()),
                 _ => None,
             }
         };
@@ -2812,8 +2655,36 @@ mod tests {
         assert_eq!(s.refresh_minutes, 15);
         assert_eq!(s.keep_days, 30);
         assert_eq!(
+            s.sort,
+            Sort {
+                key: SortKey::Title,
+                descending: false,
+            }
+        );
+        assert_eq!(
             Settings::read(&|_: &str| -> Option<String> { None }),
             Settings::default()
+        );
+    }
+
+    #[test]
+    fn the_table_order_round_trips_through_its_setting() {
+        for key in SortKey::ALL {
+            for descending in [false, true] {
+                let sort = Sort { key, descending };
+                assert_eq!(parse_sort(Some(sort_value(sort).as_str())), sort);
+            }
+        }
+        assert_eq!(sort_value(Sort::default()), "date-desc");
+        assert_eq!(parse_sort(None), Sort::default());
+        assert_eq!(parse_sort(Some("nonsense")), Sort::default());
+        assert_eq!(
+            parse_sort(Some("unread-sideways")),
+            Sort {
+                key: SortKey::Unread,
+                descending: true,
+            },
+            "an unknown direction: the column's own"
         );
     }
 
