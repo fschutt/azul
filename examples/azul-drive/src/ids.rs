@@ -37,8 +37,72 @@ pub const ICON_GRID: AzString = AzString::from_const_str("__azdrive_icon_grid");
 pub const CHROME: AzString = AzString::from_const_str("__azdrive_chrome");
 /// The command bar under the navigation row (the commands left, the panes right).
 pub const COMMAND_BAR: AzString = AzString::from_const_str("__azdrive_command_bar");
-/// The navigation pane: the trees of Quick access, This PC and Network.
+/// The navigation pane: Finder's source list (its rows' box: Favorites, Locations, Cloud).
 pub const NAV_PANE: AzString = AzString::from_const_str("__azdrive_nav_pane");
+
+// ==== The source list (ui_sidebar.rs) ====
+
+/// The source list's column (the rows, the activity area, the buttons under them).
+pub const SIDEBAR: AzString = AzString::from_const_str("__azdrive_sidebar");
+/// The section titles: FAVORITES, LOCATIONS, CLOUD (a click opens or closes the section).
+pub const SIDE_FAVORITES: AzString = AzString::from_const_str("__azdrive_side_favorites");
+pub const SIDE_LOCATIONS: AzString = AzString::from_const_str("__azdrive_side_locations");
+pub const SIDE_CLOUD: AzString = AzString::from_const_str("__azdrive_side_cloud");
+/// The rows of the places that are always there.
+pub const SIDE_QUICK_ACCESS: AzString = AzString::from_const_str("__azdrive_side_quick_access");
+pub const SIDE_THIS_PC: AzString = AzString::from_const_str("__azdrive_side_this_pc");
+/// Cloud's "Add S3 drive" row.
+pub const SIDE_ADD_DRIVE: AzString = AzString::from_const_str("__azdrive_side_add_drive");
+/// The activity area (the transfers) and the buttons under the list.
+pub const SIDE_ACTIVITY: AzString = AzString::from_const_str("__azdrive_side_activity");
+pub const SIDE_ADD: AzString = AzString::from_const_str("__azdrive_side_add");
+pub const SIDE_ACTIONS: AzString = AzString::from_const_str("__azdrive_side_actions");
+
+/// A part of an id: the characters a script's `#id` selector takes as they are (letters,
+/// digits, `-`, `_`), every other one as `_`.
+fn id_part(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// A favourite's row by its folder's name: `__azdrive_side_fav_documents`.
+#[must_use]
+pub fn side_favorite(name: &str) -> AzString {
+    AzString::from(format!("__azdrive_side_fav_{}", id_part(name)))
+}
+
+/// A pinned folder's row by its place in the pins: `__azdrive_side_pin_0`.
+#[must_use]
+pub fn side_pin(index: usize) -> AzString {
+    AzString::from(format!("__azdrive_side_pin_{index}"))
+}
+
+/// A drive's row by its id: `__azdrive_side_drive_home`.
+#[must_use]
+pub fn side_drive(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_side_drive_{}", id_part(drive_id)))
+}
+
+/// A drive's eject button by its id: `__azdrive_side_eject_<id>`.
+#[must_use]
+pub fn side_eject(drive_id: &str) -> AzString {
+    AzString::from(format!("__azdrive_side_eject_{}", id_part(drive_id)))
+}
+
+// ==== The content's leaf and its foot ====
+
+/// The leaf the view lies on (the InfoBar, the view, the path bar, the status line).
+pub const LEAF: AzString = AzString::from_const_str("__azdrive_leaf");
+/// Finder's path bar at the foot of the leaf, and the status line under it.
+pub const PATH_BAR: AzString = AzString::from_const_str("__azdrive_path_bar");
+pub const STATUS_LINE: AzString = AzString::from_const_str("__azdrive_status_line");
 
 // ==== The command bar's tools (the ToolbarItem ids, so the DOM ids of the tools) ====
 
@@ -94,7 +158,7 @@ pub const CONFLICT_KEEP_BOTH: AzString = AzString::from_const_str("__azdrive_con
 pub const PROPERTIES: AzString = AzString::from_const_str("__azdrive_properties");
 /// The transfer queue.
 pub const TRANSFERS: AzString = AzString::from_const_str("__azdrive_transfers");
-/// A dialog shown as a sheet inside the window (`AZDRIVE_DIALOGS=inline`).
+/// A dialog shown as a sheet inside the window (`--dialogs inline`).
 pub const SHEET: AzString = AzString::from_const_str("__azdrive_sheet");
 /// The Options page and two of its controls.
 pub const SETTINGS: AzString = AzString::from_const_str("__azdrive_settings");
@@ -131,6 +195,16 @@ pub const COLUMN_EDGE_CLASS: AzString = AzString::from_const_str("__azdrive_colu
 pub const THUMBNAIL_CLASS: AzString = AzString::from_const_str("__azdrive_thumbnail");
 /// A Details row on an odd line (Explorer's alternate shade).
 pub const ROW_ALT_CLASS: AzString = AzString::from_const_str("__azdrive_row_alt");
+/// The source list's column (what the keyboard finds it by).
+pub const SIDEBAR_CLASS: AzString = AzString::from_const_str("__azdrive_source_list");
+/// A row of the source list - a section title too: the arrow keys walk them in order.
+pub const SIDE_ROW_CLASS: AzString = AzString::from_const_str("__azdrive_side_row");
+/// A section title of the source list.
+pub const SIDE_SECTION_CLASS: AzString = AzString::from_const_str("__azdrive_side_section");
+/// The row of the place the window shows.
+pub const SIDE_SELECTED_CLASS: AzString = AzString::from_const_str("__azdrive_side_selected");
+/// A step of the path bar.
+pub const CRUMB_CLASS: AzString = AzString::from_const_str("__azdrive_crumb");
 
 /// The folder view's class for its layout: `__azdrive_layout_<name>` (the scripts read which
 /// layout is showing from it).

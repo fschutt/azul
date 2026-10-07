@@ -1,25 +1,17 @@
 //! The panes around the content: the navigation row (the address bar), the
-//! navigation pane (Quick access, This PC, Network), the preview pane, the
-//! details pane and the status bar.
+//! path bar and the status line at the foot of the content's leaf, the preview
+//! pane and the details pane. (The navigation pane is `ui_sidebar`'s.)
 
 use azul::{
     audio::{AudioConfig, AudioFrame, AudioSink},
-    callbacks::{
-        AddressBarOnEventCallbackType, ButtonOnClickCallbackType,
-        StatusBarOnViewSelectCallbackType, TreeViewOnNodeClickCallbackType,
-        TreeViewOnNodeDropCallbackType, TreeViewOnNodeToggleCallbackType,
-    },
+    callbacks::{AddressBarOnEventCallbackType, ButtonOnClickCallbackType},
     image::RawImageFormat,
     menu::MenuItem,
     prelude::*,
     str::String as AzString,
-    vec::{F32Vec, StatusBarSegmentVec, StatusBarViewVec, StringVec},
+    vec::{F32Vec, StringVec},
     video::{VideoConfig, VideoSource},
-    widgets::{
-        AddressBar, AddressBarEvent, AddressBarEventKind, DetailsPane, StatusBar,
-        StatusBarSegment, StatusBarView, StatusBarViewSwitcher, TreeView, TreeViewNode,
-        VideoWidget,
-    },
+    widgets::{AddressBar, AddressBarEvent, AddressBarEventKind, DetailsPane, VideoWidget},
 };
 use azul_storage::{config::DriveLocation, key};
 
@@ -28,8 +20,7 @@ use crate::{
     browse::{self, Place},
     go, ids,
     jobs::PreviewContent,
-    model::ViewLayout,
-    place_up, start_tree_listing, ui_view, with_state, DriveState,
+    look, place_up, start_tree_listing, ui_view, with_state, DriveState,
 };
 
 // ==== The address bar ====
@@ -159,337 +150,205 @@ extern "C" fn on_address(
     })
 }
 
-// ==== The navigation pane ====
+// ==== The path bar and the status line (the leaf's foot) ====
 
-/// The navigation pane's trees, top to bottom.
-const QUICK_ACCESS_TREE: usize = 0;
-const THIS_PC_TREE: usize = 1;
-const NETWORK_TREE: usize = 2;
-
-/// What a node of a navigation tree stands for, in the tree's depth-first order (the order
-/// the TreeView counts its nodes in, collapsed ones included).
-#[derive(Clone)]
-enum NavNode {
-    /// A place: the tree's root is its group's (Network's opens This PC), the rest folders.
-    Go(Place),
-    /// Network's "Add network location" (an S3 drive).
-    AddDrive,
+/// What a step of the path bar carries: the app and the step's place.
+struct CrumbRef {
+    app: RefAny,
+    place: Place,
 }
 
-/// The nodes of navigation tree `tree`, in its depth-first order.
-fn nav_nodes(s: &DriveState, tree: usize) -> Vec<NavNode> {
-    let mut places = Vec::new();
-    match tree {
-        QUICK_ACCESS_TREE => {
-            places.push(Place::QuickAccess);
-            for pin in &s.settings.pinned {
-                places.push(Place::folder(&pin.drive, &pin.prefix));
+fn crumb_parts(data: &mut RefAny) -> Option<(RefAny, Place)> {
+    data.downcast_ref::<CrumbRef>()
+        .map(|c| (c.app.clone(), c.place.clone()))
+}
+
+/// The icon of a step of the path bar: This PC's, a drive's own, a folder.
+fn crumb_icon(s: &DriveState, place: &Place) -> &'static str {
+    match place {
+        Place::QuickAccess => "star",
+        Place::ThisPc => "computer",
+        Place::Folder { drive, prefix } if prefix.is_empty() => s
+            .slot_index(drive)
+            .map_or("storage", |i| s.slots[i].icon()),
+        Place::Folder { .. } => "folder",
+    }
+}
+
+/// Finder's path bar at the foot of the leaf: the open place's trail (This PC, the drive, its
+/// folders), each step its icon and its name, the open place's own in bold. A click goes there;
+/// items dragged in the window and dropped on a step move there (Ctrl copies).
+pub(crate) fn path_bar(s: &DriveState, app: &RefAny) -> Dom {
+    let drive_name = s.drive_name(&s.place);
+    let crumbs = browse::crumbs_of(&s.place, &drive_name);
+    let last = crumbs.len().saturating_sub(1);
+    let mut bar = Dom::create_div()
+        .with_id(ids::PATH_BAR)
+        .with_css(look::PATH_BAR)
+        .with_accessibility_name("Path");
+    for (i, (label, place)) in crumbs.into_iter().enumerate() {
+        if i > 0 {
+            bar.add_child(Dom::create_icon("chevron_right").with_css(look::CRUMB_SEPARATOR));
+        }
+        let data = || {
+            RefAny::new(CrumbRef {
+                app: app.clone(),
+                place: place.clone(),
+            })
+        };
+        let mut crumb = Dom::create_div()
+            .with_class(ids::CRUMB_CLASS)
+            .with_css(format!(
+                "{} {}",
+                look::CRUMB,
+                if i == last { look::CRUMB_LAST } else { "" }
+            ))
+            .with_accessibility_name(label.as_str())
+            .with_child(Dom::create_icon(crumb_icon(s, &place)).with_css(look::CRUMB_ICON))
+            .with_child(
+                Dom::create_div()
+                    .with_css(
+                        "min-width: 0px; overflow: hidden; white-space: nowrap; \
+                         text-overflow: ellipsis;",
+                    )
+                    .with_child(Dom::create_span_with_text(AzString::from(label.as_str()))),
+            )
+            .with_callback(EventFilter::Hover(HoverEventFilter::Click), data(), on_crumb);
+        if matches!(place, Place::Folder { .. }) {
+            crumb = crumb
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::DragOver),
+                    data(),
+                    on_crumb_drag_over,
+                )
+                .with_callback(EventFilter::Hover(HoverEventFilter::Drop), data(), on_crumb_drop);
+        }
+        bar.add_child(crumb);
+    }
+    bar
+}
+
+/// A step of the path bar was clicked: the window goes there.
+extern "C" fn on_crumb(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, place)) = crumb_parts(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| {
+        if place != s.place {
+            go(info, app, s, place, true);
+        }
+    })
+}
+
+extern "C" fn on_crumb_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.accept_drop();
+    Update::DoNothing
+}
+
+/// Items dragged in the window, dropped on a step: into its folder (Ctrl copies).
+extern "C" fn on_crumb_drop(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, place)) = crumb_parts(&mut data) else {
+        return Update::DoNothing;
+    };
+    info.stop_propagation();
+    let copy = info.get_key_modifiers().primary_down();
+    with_state(&mut app, &mut info, |info, app, s| {
+        actions::drop_on_place(info, app, s, place, copy);
+    })
+}
+
+/// The status line's text: how many items (drives, pinned folders) and how many of them are
+/// selected (their size), what the clipboard holds, the space the drive has left - Finder's
+/// "3 of 12 selected (1.5 MB), 45.3 GB available".
+pub(crate) fn status_text(s: &DriveState) -> String {
+    let mut parts = Vec::new();
+    match &s.place {
+        Place::ThisPc => {
+            let drives = browse::counted(s.slots.len(), "drive", "drives");
+            parts.push(match s.selected_drive.and_then(|i| s.slots.get(i)) {
+                Some(slot) => format!("\"{}\" selected, {drives}", slot.entry.name),
+                None => drives,
+            });
+        }
+        Place::QuickAccess => parts.push(browse::counted(
+            s.settings.pinned.len(),
+            "pinned folder",
+            "pinned folders",
+        )),
+        Place::Folder { .. } if s.loading => parts.push(String::from("Loading...")),
+        Place::Folder { drive, .. } => {
+            let shown = s.visible_entries().len();
+            let more = if s.next.is_some() { "+" } else { "" };
+            let selected = s.selected_entries();
+            if selected.is_empty() {
+                parts.push(if more.is_empty() {
+                    browse::counted(shown, "item", "items")
+                } else {
+                    format!("{shown}{more} items")
+                });
+            } else {
+                let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
+                let mut text = format!("{} of {shown}{more} selected", selected.len());
+                if bytes > 0 {
+                    text.push_str(&format!(" ({})", browse::format_size(Some(bytes))));
+                }
+                parts.push(text);
+            }
+            if let Some((_, free)) = s.disk.get(drive) {
+                parts.push(format!("{} available", browse::format_size(Some(*free))));
             }
         }
-        THIS_PC_TREE => {
-            let _ = this_pc_tree(s, &mut places);
-        }
-        _ => {
-            places.push(Place::ThisPc);
-            for slot in s.slots.iter().filter(|slot| !slot.is_local()) {
-                places.push(Place::folder(&slot.entry.id, ""));
-            }
-        }
     }
-    let mut nodes: Vec<NavNode> = places.into_iter().map(NavNode::Go).collect();
-    if tree == NETWORK_TREE {
-        nodes.push(NavNode::AddDrive);
+    if let Some(clip) = &s.clipboard {
+        parts.push(format!("{} on the clipboard", clip.items.len()));
     }
-    nodes
+    parts.join(", ")
 }
 
-/// Quick access: the place itself, then the pinned folders.
-fn quick_access_tree(s: &DriveState) -> TreeViewNode {
-    let mut root = TreeViewNode::create(AzString::from(browse::QUICK_ACCESS))
-        .with_icon(AzString::from("star"))
-        .with_expanded(s.tree.quick_open)
-        .with_selected(s.place == Place::QuickAccess);
-    for pin in &s.settings.pinned {
-        let place = Place::folder(&pin.drive, &pin.prefix);
-        root = root.with_child(
-            TreeViewNode::create(AzString::from(pin.name.as_str()))
-                .with_icon(AzString::from("folder_special"))
-                .with_selected(s.place == place),
+/// Finder's status line under the path bar ([`status_text`]); while the source list is hidden
+/// (its activity area with it), the running transfer and the failed ones as chips that open the
+/// transfers.
+pub(crate) fn status_line(s: &DriveState, app: &RefAny) -> Dom {
+    let mut line = Dom::create_div()
+        .with_id(ids::STATUS_LINE)
+        .with_css(look::STATUS_LINE)
+        .with_child(
+            Dom::create_div()
+                .with_css(
+                    "min-width: 0px; overflow: hidden; white-space: nowrap; \
+                     text-overflow: ellipsis;",
+                )
+                .with_child(Dom::create_span_with_text(AzString::from(status_text(s)))),
         );
-    }
-    root
-}
-
-/// Network: the cloud drives as network locations (their folders open under This PC), then
-/// "Add network location".
-fn network_tree(s: &DriveState) -> TreeViewNode {
-    let mut root = TreeViewNode::create(AzString::from("Network"))
-        .with_icon(AzString::from("lan"))
-        .with_expanded(s.tree.network_open);
-    for slot in s.slots.iter().filter(|slot| !slot.is_local()) {
-        root = root.with_child(
-            TreeViewNode::create(AzString::from(slot.entry.name.as_str()))
-                .with_icon(AzString::from(slot.icon())),
-        );
-    }
-    root.with_child(
-        TreeViewNode::create(AzString::from("Add network location"))
-            .with_icon(AzString::from("add_link")),
-    )
-}
-
-/// This PC: the drives - on this computer and in the cloud - and their folders as far as
-/// they were listed.
-fn this_pc_tree(s: &DriveState, places: &mut Vec<Place>) -> TreeViewNode {
-    places.push(Place::ThisPc);
-    let mut root = TreeViewNode::create(AzString::from(browse::THIS_PC))
-        .with_icon(AzString::from("computer"))
-        .with_expanded(s.tree.this_pc_open)
-        .with_selected(s.place == Place::ThisPc);
-    for slot in &s.slots {
-        root = root.with_child(folder_node(
-            s,
-            &slot.entry.id,
-            "",
-            &slot.entry.name,
-            slot.icon(),
-            places,
-        ));
-    }
-    root
-}
-
-fn folder_node(
-    s: &DriveState,
-    drive: &str,
-    prefix: &str,
-    label: &str,
-    icon: &str,
-    places: &mut Vec<Place>,
-) -> TreeViewNode {
-    let place = Place::folder(drive, prefix);
-    let node_key = (drive.to_string(), prefix.to_string());
-    places.push(place.clone());
-    let loaded = s.tree.loaded.get(&node_key);
-    let mut node = TreeViewNode::create(AzString::from(label))
-        .with_icon(AzString::from(icon))
-        .with_expanded(s.tree.expanded.contains(&node_key))
-        .with_selected(s.place == place)
-        .with_unloaded_children(loaded.is_none());
-    if let Some(folders) = loaded {
-        for folder in folders {
-            node = node.with_child(folder_node(
-                s,
-                drive,
-                folder,
-                key::last_segment(folder),
-                "folder",
-                places,
+    if !s.settings.navigation_pane {
+        let chip = |icon: &str, label: String| {
+            Dom::create_div()
+                .with_css(look::STATUS_CHIP)
+                .with_accessibility_name(label.as_str())
+                .with_child(
+                    Dom::create_icon(AzString::from(icon))
+                        .with_css("font-size: 12px; margin-right: 4px;"),
+                )
+                .with_child(Dom::create_span_with_text(AzString::from(label)))
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    action_ref(app, Action::ShowTransfers),
+                    on_action,
+                )
+        };
+        let transfer = s.queue.status_text();
+        if !transfer.is_empty() {
+            line.add_child(chip("sync", transfer));
+        }
+        let failed = s.queue.failed().len();
+        if failed > 0 {
+            line.add_child(chip(
+                "error",
+                format!("{} failed", browse::counted(failed, "transfer", "transfers")),
             ));
         }
     }
-    node
-}
-
-/// What a navigation tree's callbacks carry: the app and which tree.
-struct NavRef {
-    app: RefAny,
-    tree: usize,
-}
-
-fn nav_parts(data: &mut RefAny) -> Option<(RefAny, usize)> {
-    data.downcast_ref::<NavRef>().map(|r| (r.app.clone(), r.tree))
-}
-
-/// One tree of the navigation pane, with its clicks, its chevrons and its drops.
-fn nav_tree(app: &RefAny, tree: usize, root: TreeViewNode) -> Dom {
-    let data = RefAny::new(NavRef {
-        app: app.clone(),
-        tree,
-    });
-    Dom::create_div()
-        .with_css("display: flex; flex-direction: column; margin-bottom: 10px;")
-        .with_child(
-            TreeView::create(root)
-                .with_on_node_click(data.clone(), on_nav_click as TreeViewOnNodeClickCallbackType)
-                .with_on_node_toggle(
-                    data.clone(),
-                    on_nav_toggle as TreeViewOnNodeToggleCallbackType,
-                )
-                .with_on_node_drop(data, on_nav_drop as TreeViewOnNodeDropCallbackType)
-                .dom(),
-        )
-}
-
-/// Explorer's navigation pane: Quick access, This PC (the drives and their folders, listed
-/// lazily, one listing per expand) and Network - a tree each, one under the other.
-pub(crate) fn navigation_pane(s: &DriveState, app: &RefAny) -> Dom {
-    let mut places = Vec::new();
-    let this_pc = this_pc_tree(s, &mut places);
-    Dom::create_div()
-        .with_id(ids::NAV_PANE)
-        .with_css(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
-             overflow-y: auto; padding: 6px 0px;",
-        )
-        .with_child(nav_tree(app, QUICK_ACCESS_TREE, quick_access_tree(s)))
-        .with_child(nav_tree(app, THIS_PC_TREE, this_pc))
-        .with_child(nav_tree(app, NETWORK_TREE, network_tree(s)))
-}
-
-/// A node was clicked: its place opens (Network's "Add network location" adds an S3 drive).
-extern "C" fn on_nav_click(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    let Some((mut app, tree)) = nav_parts(&mut data) else {
-        return Update::DoNothing;
-    };
-    with_state(&mut app, &mut info, |info, app, s| {
-        match nav_nodes(s, tree).get(index).cloned() {
-            Some(NavNode::Go(place)) => go(info, app, s, place, true),
-            Some(NavNode::AddDrive) => actions::run_action(info, app, s, Action::AddDrive),
-            None => {}
-        }
-    })
-}
-
-/// A node's chevron (or an arrow key) opened or closed it: a root its tree, a drive or a
-/// folder its folders (listed on the first expand).
-extern "C" fn on_nav_toggle(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    index: usize,
-    expand: bool,
-) -> Update {
-    let Some((mut app, tree)) = nav_parts(&mut data) else {
-        return Update::DoNothing;
-    };
-    with_state(&mut app, &mut info, |info, app, s| {
-        if index == 0 {
-            match tree {
-                QUICK_ACCESS_TREE => s.tree.quick_open = expand,
-                THIS_PC_TREE => s.tree.this_pc_open = expand,
-                _ => s.tree.network_open = expand,
-            }
-            return;
-        }
-        if tree == NETWORK_TREE {
-            return; // a network location's folders open under This PC
-        }
-        let Some(NavNode::Go(Place::Folder { drive, prefix })) =
-            nav_nodes(s, tree).get(index).cloned()
-        else {
-            return;
-        };
-        let node = (drive, prefix);
-        if expand {
-            s.tree.expanded.insert(node.clone());
-            if !s.tree.loaded.contains_key(&node) {
-                start_tree_listing(info, app, s, node);
-            }
-        } else {
-            s.tree.expanded.remove(&node);
-        }
-    })
-}
-
-/// Items dragged in the window, dropped on a folder of a tree (Ctrl copies).
-extern "C" fn on_nav_drop(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    let Some((mut app, tree)) = nav_parts(&mut data) else {
-        return Update::DoNothing;
-    };
-    let copy = info.get_key_modifiers().primary_down();
-    with_state(&mut app, &mut info, |info, app, s| {
-        if let Some(NavNode::Go(place)) = nav_nodes(s, tree).get(index).cloned() {
-            actions::drop_on_place(info, app, s, place, copy);
-        }
-    })
-}
-
-// ==== The status bar ====
-
-/// "12 items", "3 items selected, 1.5 MB", the running transfer, Explorer's
-/// Details / Large icons switch.
-pub(crate) fn status_bar(s: &DriveState, app: &RefAny) -> Dom {
-    let mut segments = Vec::new();
-    let count = match &s.place {
-        Place::ThisPc => browse::counted(s.slots.len(), "drive", "drives"),
-        Place::QuickAccess => {
-            browse::counted(s.settings.pinned.len(), "pinned folder", "pinned folders")
-        }
-        Place::Folder { .. } if s.loading => String::from("Loading..."),
-        Place::Folder { .. } => {
-            let shown = s.visible_entries().len();
-            let more = if s.next.is_some() { "+" } else { "" };
-            if more.is_empty() {
-                browse::counted(shown, "item", "items")
-            } else {
-                format!("{shown}{more} items")
-            }
-        }
-    };
-    segments.push(StatusBarSegment::create(AzString::from(count)).with_marker(AzString::from("items")));
-    let selected = s.selected_entries();
-    if !selected.is_empty() {
-        let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
-        let mut text = browse::counted(selected.len(), "item selected", "items selected");
-        if bytes > 0 {
-            text.push_str(&format!(", {}", browse::format_size(Some(bytes))));
-        }
-        segments.push(
-            StatusBarSegment::create(AzString::from(text)).with_marker(AzString::from("selected")),
-        );
-    }
-    let transfer = s.queue.status_text();
-    if !transfer.is_empty() {
-        segments.push(
-            StatusBarSegment::create(AzString::from(transfer))
-                .with_icon(AzString::from("sync"))
-                .with_marker(AzString::from("transfer"))
-                .with_on_click(action_ref(app, Action::ShowTransfers), on_action),
-        );
-    }
-    let failed = s.queue.failed().len();
-    if failed > 0 {
-        segments.push(
-            StatusBarSegment::create(AzString::from(format!("{failed} transfer(s) failed")))
-                .with_icon(AzString::from("error"))
-                .with_on_click(action_ref(app, Action::ShowTransfers), on_action),
-        );
-    }
-    if s.clipboard.is_some() {
-        let clip = s.clipboard.as_ref().map_or(0, |c| c.items.len());
-        segments.push(StatusBarSegment::create(AzString::from(format!(
-            "{clip} on the clipboard"
-        ))));
-    }
-    let active = match s.settings.layout {
-        ViewLayout::Details => 0,
-        ViewLayout::LargeIcons => 1,
-        _ => 2,
-    };
-    let views = StatusBarViewSwitcher::create(StatusBarViewVec::from(vec![
-        StatusBarView {
-            icon: AzString::from("view_headline"),
-        },
-        StatusBarView {
-            icon: AzString::from("grid_view"),
-        },
-    ]))
-    .with_active_view(active)
-    .with_on_select(app.clone(), on_view_select as StatusBarOnViewSelectCallbackType);
-    StatusBar::create(StatusBarSegmentVec::from(segments))
-        .with_views(views)
-        .dom()
-}
-
-extern "C" fn on_view_select(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_state(&mut data, &mut info, |info, app, s| {
-        let layout = if index == 0 {
-            ViewLayout::Details
-        } else {
-            ViewLayout::LargeIcons
-        };
-        actions::set_layout(info, app, s, layout);
-    })
+    line
 }
 
 // ==== The preview pane ====
@@ -771,5 +630,5 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
             }
         }
     };
-    pane.dom().with_id(ids::DETAILS)
+    pane.dom().with_id(ids::DETAILS).with_css(look::DETAILS_FILL)
 }

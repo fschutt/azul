@@ -1,14 +1,49 @@
 //! AzDrive's command line: the switches every Azlin app understands (azul-appkit's
 //! `--screen`, `--size`, `--theme`, `--mode`, `--shot`, `--sample`, `--data-dir`) with
-//! AzDrive's screens (`this-pc | quick-access | home | settings`), plus its own `--layout <name>`.
+//! AzDrive's screens (`this-pc | quick-access | home | settings`), plus its own `--layout <name>`,
+//! `--home <dir>`, `--downloads <dir>`, `--drives <file>` and `--dialogs <window|inline>`.
 //! `--sample` writes the sample files into the Home drive.
+//!
+//! Every setting is a flag; the environment variables of older builds are read only when their
+//! flag is absent ([`Args::with_env_fallbacks`]): `--home` / `$AZDRIVE_HOME`, `--downloads` /
+//! `$AZDRIVE_DOWNLOADS`, `--drives` / `$AZUL_DRIVES` (azul-storage's, shared with AzMail),
+//! `--dialogs` / `$AZDRIVE_DIALOGS`, `--data-dir` / `$AZLIN_DATA` (azul-appkit's).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use azul_appkit::{args::help, AppArgs, AppSpec};
-use azul_storage::{Drive, LocalDrive};
+use azul_storage::{config::DRIVES_VAR, Drive, LocalDrive};
 
 use crate::model::ViewLayout;
+
+/// What `--home` falls back to: the folder the Home drive shows.
+pub const HOME_VAR: &str = "AZDRIVE_HOME";
+/// What `--downloads` falls back to: where Download saves.
+pub const DOWNLOADS_VAR: &str = "AZDRIVE_DOWNLOADS";
+/// What `--dialogs` falls back to (`inline`: the dialogs as sheets inside the window).
+pub const DIALOGS_VAR: &str = "AZDRIVE_DIALOGS";
+
+/// How the dialogs (Add drive, Properties, the conflicts, ...) show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Dialogs {
+    /// A modal dialog window of its own.
+    #[default]
+    Window,
+    /// A sheet inside the main window (the scripts: the debug server drives the main window).
+    Inline,
+}
+
+impl Dialogs {
+    /// `window` or `inline`.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Dialogs> {
+        match name.trim() {
+            "window" => Some(Dialogs::Window),
+            "inline" => Some(Dialogs::Inline),
+            _ => None,
+        }
+    }
+}
 
 /// Where the window opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -41,10 +76,30 @@ pub const SPEC: AppSpec = AppSpec {
     files_help: "",
 };
 
-/// AzDrive's own switch, after appkit's in the usage text.
-const LAYOUT_HELP: &str = "\nAZDRIVE:\n    --layout <NAME>          extra-large-icons | large-icons | medium-icons | \
-                           small-icons |\n                             list | details | tiles | \
-                           content\n";
+/// AzDrive's own switches, after appkit's in the usage text.
+const AZDRIVE_HELP: &str = concat!(
+    "\nAZDRIVE:\n",
+    "    --layout <NAME>          extra-large-icons | large-icons | medium-icons | small-icons |\n",
+    "                             list | details | tiles | content\n",
+    "    --home <DIR>             The folder the Home drive shows (default: $AZDRIVE_HOME, else\n",
+    "                             your home folder)\n",
+    "    --downloads <DIR>        Where Download saves (default: $AZDRIVE_DOWNLOADS, else your\n",
+    "                             Downloads folder)\n",
+    "    --drives <FILE>          The drives file, shared with AzMail (default: $AZUL_DRIVES,\n",
+    "                             else <config dir>/azul-storage/drives.json)\n",
+    "    --dialogs <HOW>          window | inline: the dialogs as windows, or as sheets inside\n",
+    "                             the window (default: $AZDRIVE_DIALOGS, else window)\n",
+);
+
+/// AzDrive's own switches that take a value (after a space or an equals sign), and what the
+/// value is called in an error.
+const OWN: [(&str, &str); 5] = [
+    ("--layout", "name"),
+    ("--home", "folder"),
+    ("--downloads", "folder"),
+    ("--drives", "file"),
+    ("--dialogs", "window or inline"),
+];
 
 /// The parsed command line.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -52,22 +107,40 @@ pub struct Args {
     pub screen: Screen,
     /// The layout to open folders in (instead of the saved one).
     pub layout: Option<ViewLayout>,
+    /// `--home`: the folder the Home drive shows (the user's home when absent).
+    pub home: Option<PathBuf>,
+    /// `--downloads`: where Download saves (the user's Downloads folder when absent).
+    pub downloads: Option<PathBuf>,
+    /// `--drives`: the drives file (`<config dir>/azul-storage/drives.json` when absent).
+    pub drives: Option<PathBuf>,
+    /// `--dialogs`: dialog windows or inline sheets (windows when absent).
+    pub dialogs: Option<Dialogs>,
     /// The switches every Azlin app understands (azul-appkit): `--theme`, `--mode`
     /// (`system` too), `--size`, `--shot`, `--sample`, `--data-dir`.
     pub kit: AppArgs,
 }
 
-/// The usage text: appkit's, then `--layout`.
+/// The usage text: appkit's, then AzDrive's own switches.
 #[must_use]
 pub fn usage() -> String {
     let mut text = help(&SPEC);
-    text.push_str(LAYOUT_HELP);
+    text.push_str(AZDRIVE_HELP);
     text
 }
 
+/// A folder or file a switch names; `Err` for an empty one.
+fn path_value(name: &str, what: &str, value: &str) -> Result<PathBuf, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(format!("{name} needs a {what}"));
+    }
+    Ok(PathBuf::from(value))
+}
+
 impl Args {
-    /// Parses `argv` without the program name: `--layout` here, the rest by
-    /// azul-appkit. `Err` carries the usage (`-h`) or what was wrong.
+    /// Parses `argv` without the program name: AzDrive's own switches here, the rest by
+    /// azul-appkit. `Err` carries the usage (`-h`) or what was wrong. The environment is not
+    /// read here ([`Args::with_env_fallbacks`]).
     pub fn parse<I, S>(argv: I) -> Result<Args, String>
     where
         I: IntoIterator<Item = S>,
@@ -77,44 +150,84 @@ impl Args {
         if argv.iter().any(|a| a == "-h" || a == "--help") {
             return Err(usage());
         }
-        let mut layout = None;
+        let mut args = Args::default();
         let mut rest = Vec::with_capacity(argv.len());
         let mut i = 0;
         while i < argv.len() {
             let arg = argv[i].as_str();
-            let value = if arg == "--layout" {
+            let (name, inline) = match arg.split_once('=') {
+                Some((n, v)) => (n, Some(v.to_string())),
+                None => (arg, None),
+            };
+            let Some(&(name, what)) = OWN.iter().find(|(n, _)| *n == name) else {
+                rest.push(argv[i].clone());
                 i += 1;
-                Some(
+                continue;
+            };
+            let value = match inline {
+                Some(v) => v,
+                None => {
+                    i += 1;
                     argv.get(i)
                         .cloned()
-                        .ok_or_else(|| String::from("--layout needs a name"))?,
-                )
-            } else {
-                arg.strip_prefix("--layout=").map(str::to_string)
+                        .ok_or_else(|| format!("{name} needs a {what}"))?
+                }
             };
-            match value {
-                Some(v) => {
-                    layout = Some(ViewLayout::from_name(&v).ok_or_else(|| {
+            match name {
+                "--layout" => {
+                    args.layout = Some(ViewLayout::from_name(&value).ok_or_else(|| {
                         format!(
-                            "--layout: expected large-icons, list, details, tiles, ... got {v:?}"
+                            "--layout: expected large-icons, list, details, tiles, ... got \
+                             {value:?}"
                         )
                     })?);
                 }
-                None => rest.push(argv[i].clone()),
+                "--home" => args.home = Some(path_value(name, what, &value)?),
+                "--downloads" => args.downloads = Some(path_value(name, what, &value)?),
+                "--drives" => args.drives = Some(path_value(name, what, &value)?),
+                _ => {
+                    args.dialogs = Some(Dialogs::from_name(&value).ok_or_else(|| {
+                        format!("--dialogs: expected window or inline, got {value:?}")
+                    })?);
+                }
             }
             i += 1;
         }
-        let kit = AppArgs::parse(&SPEC, rest)?;
-        let screen = kit
+        args.kit = AppArgs::parse(&SPEC, rest)?;
+        args.screen = args
+            .kit
             .screen
             .as_deref()
             .and_then(|name| SCREENS.iter().find(|(n, _)| *n == name))
             .map_or(Screen::Default, |(_, s)| *s);
-        Ok(Args {
-            screen,
-            layout,
-            kit,
-        })
+        Ok(args)
+    }
+
+    /// The switches, each absent one filled from the environment variable an older build read
+    /// (`env` reads a variable; `std::env::var` in the app): `--home` from `$AZDRIVE_HOME`,
+    /// `--downloads` from `$AZDRIVE_DOWNLOADS`, `--drives` from `$AZUL_DRIVES`, `--dialogs` from
+    /// `$AZDRIVE_DIALOGS`. A switch given always wins; an empty variable counts as unset.
+    #[must_use]
+    pub fn with_env_fallbacks(mut self, env: impl Fn(&str) -> Option<String>) -> Args {
+        let path = |var: &str| {
+            env(var)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
+        if self.home.is_none() {
+            self.home = path(HOME_VAR);
+        }
+        if self.downloads.is_none() {
+            self.downloads = path(DOWNLOADS_VAR);
+        }
+        if self.drives.is_none() {
+            self.drives = path(DRIVES_VAR);
+        }
+        if self.dialogs.is_none() {
+            self.dialogs = env(DIALOGS_VAR).and_then(|v| Dialogs::from_name(&v));
+        }
+        self
     }
 }
 
@@ -299,6 +412,61 @@ mod tests {
         assert!(parse(&["--what"]).unwrap_err().contains("unknown"));
         let help = parse(&["--help"]).unwrap_err();
         assert!(help.contains("USAGE") && help.contains("--layout") && help.contains("--data-dir"));
+    }
+
+    #[test]
+    fn the_home_the_downloads_the_drives_file_and_the_dialogs_are_switches() {
+        let args = parse(&[
+            "--home",
+            "/tmp/home",
+            "--downloads=/tmp/dl",
+            "--drives",
+            "/tmp/drives.json",
+            "--dialogs",
+            "inline",
+        ])
+        .unwrap();
+        assert_eq!(args.home, Some(PathBuf::from("/tmp/home")));
+        assert_eq!(args.downloads, Some(PathBuf::from("/tmp/dl")));
+        assert_eq!(args.drives, Some(PathBuf::from("/tmp/drives.json")));
+        assert_eq!(args.dialogs, Some(Dialogs::Inline));
+        assert_eq!(parse(&["--dialogs=window"]).unwrap().dialogs, Some(Dialogs::Window));
+        assert!(parse(&["--dialogs", "sheet"]).unwrap_err().contains("inline"));
+        assert!(parse(&["--home"]).unwrap_err().contains("--home"));
+        assert!(parse(&["--home="]).unwrap_err().contains("--home needs a folder"));
+        assert_eq!(parse(&[]).unwrap().dialogs, None, "windows unless asked");
+        let help = parse(&["-h"]).unwrap_err();
+        for flag in ["--home", "--downloads", "--drives", "--dialogs", "$AZDRIVE_HOME", "$AZUL_DRIVES"]
+        {
+            assert!(help.contains(flag), "{flag} in the usage");
+        }
+    }
+
+    #[test]
+    fn a_switch_wins_over_its_environment_variable_which_fills_in_when_it_is_absent() {
+        let env = |var: &str| match var {
+            "AZDRIVE_HOME" => Some("/env/home".to_string()),
+            "AZDRIVE_DOWNLOADS" => Some("  ".to_string()),
+            "AZUL_DRIVES" => Some("/env/drives.json".to_string()),
+            "AZDRIVE_DIALOGS" => Some("inline".to_string()),
+            _ => None,
+        };
+        let args = parse(&["--home", "/flag/home"])
+            .unwrap()
+            .with_env_fallbacks(env);
+        assert_eq!(args.home, Some(PathBuf::from("/flag/home")), "the switch wins");
+        assert_eq!(args.downloads, None, "an empty variable names no folder");
+        assert_eq!(args.drives, Some(PathBuf::from("/env/drives.json")));
+        assert_eq!(args.dialogs, Some(Dialogs::Inline));
+        let args = parse(&["--dialogs", "window"])
+            .unwrap()
+            .with_env_fallbacks(env);
+        assert_eq!(args.dialogs, Some(Dialogs::Window), "the switch wins");
+        assert_eq!(
+            parse(&[]).unwrap().with_env_fallbacks(|_| None),
+            parse(&[]).unwrap(),
+            "no variable, nothing filled in"
+        );
     }
 
     #[test]

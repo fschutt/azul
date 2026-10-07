@@ -5,8 +5,14 @@ Walks Explorer's main flows through azul's debug server and asserts on the node 
 node layout, AzDrive's stdout markers and the files on disk:
 
      1. This PC: the drive tiles; Explorer's chrome - the navigation row, the command bar with
-        This PC's drive commands and the pane switches, the navigation pane's Quick access /
-        This PC / Network;
+        This PC's drive commands and the pane switches; Finder's body - the source list's
+        FAVORITES (Quick access, the sample's Documents / Pictures / Music), LOCATIONS (This PC,
+        Home, Azlin), CLOUD ("Add S3 drive"), This PC's row selected, the path bar and the
+        status line at the foot of the content's leaf;
+     1b. the source list: a click on Documents goes there (its row selected, the path bar's
+        trail), Down walks to Pictures, Enter opens it, Left climbs to FAVORITES' title, Left
+        closes the section, Right opens it again; F6 lands on the pane, Down enters the list at
+        the selected row, Tab leaves it for the + button;
      2. open the Home drive (double-click its tile);
      3. every layout (Ctrl+Shift+1..8; the icon layouts are azul's IconGrid), then the
         command bar's Large icons / List / Details;
@@ -27,7 +33,13 @@ node layout, AzDrive's stdout markers and the files on disk:
     15. flora + dark: a screenshot;
     16. Ctrl+A / Ctrl+C with the content pane focused (the engine handed them to the text
         selection until 2026-10-03; steps 5, 7, 9 and 10 use the command bar's tools for the
-        same commands, so they do not depend on it).
+        same commands, so they do not depend on it);
+    17. the looks: This PC, Documents in Details and in Large icons, in flat and flora, by day
+        and at night (17-<theme>-<mode>-<view>.png).
+
+The source list shows the sample's Documents, Pictures and Music too (FAVORITES), and the path bar
+the open folder's trail: a folder's ITEM is clicked through its name label (`open_item`,
+`select_item`), never by the first node showing the text.
 
 Usage (from the azul repository, after building libazul with the debug server and AzDrive):
 
@@ -193,6 +205,46 @@ def open_item(app, name):
     app.frame()
 
 
+def select_item(app, name):
+    """Clicks the folder's item `name` (its name label, never the source list's or the path
+    bar's row of the same name)."""
+    node = app.until('the item "%s"' % name, lambda: item_node(app, name))
+    app.settle(limit=2.0)
+    parents = {n["index"]: n.get("parent") for n in app.hierarchy()}
+    while isinstance(node, int) and node >= 0:
+        answer = app.op("click", node_id=node, button="left")
+        if isinstance(answer, dict) and answer.get("status") != "error":
+            break
+        node = parents.get(node)
+    else:
+        raise Failure('click on the item "%s": no node from its label up has a box' % name)
+    app.frame()
+
+
+def node_by_id(app, dom_id):
+    """The node of the window whose DOM id is `dom_id`, or None."""
+    for n in app.hierarchy():
+        if n.get("id") == dom_id:
+            return n
+    return None
+
+
+def classes_of(app, dom_id):
+    """The classes of the node whose DOM id is `dom_id` (none when it is not there)."""
+    return (node_by_id(app, dom_id) or {}).get("classes") or []
+
+
+def focused_id(app):
+    """The DOM id of the node with the keyboard (the debug server's `get_focus_state`, whose
+    selector carries `#<id>`), or None."""
+    for d in e2e.dicts(app.op("get_focus_state")):
+        node = d.get("focused_node")
+        if isinstance(node, dict):
+            m = re.search(r"#([A-Za-z0-9_-]+)", node.get("selector") or "")
+            return m.group(1) if m else None
+    return None
+
+
 def item_names(app):
     """The names of the folder's items, in the order the view shows them."""
     names = []
@@ -220,16 +272,17 @@ def run(args, logs):
 
     home = os.path.join(logs, "home")
     os.makedirs(home)
-    env = {
-        "AZDRIVE_HOME": home,
-        "AZDRIVE_DOWNLOADS": os.path.join(logs, "downloads"),
-        "AZDRIVE_SETTINGS": os.path.join(logs, "settings"),  # an older build's settings folder
-        "AZLIN_DATA": os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
-        "AZUL_DRIVES": os.path.join(logs, "config", "drives.json"),
-        "AZDRIVE_DIALOGS": "inline",
-    }
-    app = Drive("azdrive", binary, ["--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light"],
-                args.debug_port, logs, args.timeout, extra_env=env)
+    # Every setting is a switch (src/args.rs); only the engine's AZ_BACKEND / AZ_DEBUG are
+    # variables (the shared driver sets them).
+    switches = [
+        "--sample", "--screen", "this-pc", "--theme", "flat", "--mode", "light",
+        "--home", home,
+        "--downloads", os.path.join(logs, "downloads"),
+        "--data-dir", os.path.join(logs, "data"),  # the data tree (azul-appkit's data root)
+        "--drives", os.path.join(logs, "config", "drives.json"),
+        "--dialogs", "inline",
+    ]
+    app = Drive("azdrive", binary, switches, args.debug_port, logs, args.timeout)
     docs = os.path.join(home, "Documents")
     try:
         # 1. This PC.
@@ -251,14 +304,77 @@ def run(args, logs):
         if not app.nodes_with_class("__azul-native-address-bar-nav"):
             raise Failure("the navigation row has no Back / Forward / Up")
         app.until("the navigation pane", lambda: app.has("#" + I("nav-pane")))
-        for root in ("Quick access", "This PC", "Network"):
-            app.until("the navigation pane's %s" % root, lambda: app.exact(root) is not None)
+        # Finder's source list (src/ui_sidebar.rs): the section titles, the places that are
+        # always there, the sample's standard folders in Home (FAVORITES), the drives.
+        for row in ("favorites", "locations", "cloud", "quick-access", "this-pc", "drive-home",
+                    "drive-azlin", "add-drive", "fav-documents", "fav-pictures", "fav-music"):
+            app.until("the source list's %s" % row, lambda: app.has("#" + I("side-" + row)))
+        for title in ("Favorites", "Locations", "Cloud"):
+            app.until("the section title %s" % title, lambda: app.exact(title) is not None)
+        if C("side-selected") not in classes_of(app, I("side-this-pc")):
+            raise Failure("This PC's row in the source list is not the selected one")
+        if app.has("#" + I("side-eject-home")):
+            raise Failure("the Home drive has an eject button (it can never be removed)")
+        # The content is a leaf on the page, Finder's path bar and status line at its foot.
+        app.until("the leaf", lambda: app.has("#" + I("leaf")))
+        app.until("the path bar", lambda: app.has("#" + I("path-bar")))
+        app.until("the status line", lambda: app.has("#" + I("status-line")))
+        app.until("the status line's count of the drives",
+                  lambda: any("drives" in t for t in app.texts_within("#" + I("status-line"))))
         app.until("This PC's groups", lambda: app.shows("Devices and drives"))
         if not app.has("#shell-tree") or not app.has("#shell-content"):
             raise Failure("the navigation pane and the content pane are not laid out")
         app.screenshot(os.path.join(out, "01-this-pc.png"))
-        log("1. This PC: drive tiles, the navigation row, the command bar, the navigation pane "
-            "(Quick access, This PC, Network) and the content pane")
+        log("1. This PC: drive tiles, the navigation row, the command bar, the source list "
+            "(FAVORITES, LOCATIONS, CLOUD; This PC selected), the leaf with its path bar and "
+            "status line")
+
+        # 1b. The source list: a click goes, the arrows walk the rows, Enter opens one, Left
+        # climbs and closes, Right opens; F6 lands on the pane, Down enters the list at the
+        # selected row, Tab leaves it for the + button.
+        app.after("Documents from the source list", "AZDRIVE_PLACE", r"home Documents/",
+                  lambda: app.click(selector="#" + I("side-fav-documents")))
+        app.until("Documents' row selected",
+                  lambda: C("side-selected") in classes_of(app, I("side-fav-documents")))
+        app.until("the path bar's trail to Documents",
+                  lambda: "Documents" in app.texts_within("#" + I("path-bar")))
+        app.until("the keyboard on Documents' row",
+                  lambda: focused_id(app) == I("side-fav-documents"))
+        app.key("down")
+        app.until("Down: the keyboard on Pictures' row",
+                  lambda: focused_id(app) == I("side-fav-pictures"))
+        app.after("Enter opens Pictures", "AZDRIVE_PLACE", r"home Pictures/",
+                  lambda: app.key("enter"))
+        app.until("Pictures' row selected",
+                  lambda: C("side-selected") in classes_of(app, I("side-fav-pictures")))
+        app.key("left")
+        app.until("Left: the keyboard on FAVORITES' title",
+                  lambda: focused_id(app) == I("side-favorites"))
+        app.key("left")
+        app.until("Left: FAVORITES closed", lambda: not app.has("#" + I("side-fav-documents")))
+        app.key("right")
+        app.until("Right: FAVORITES open", lambda: app.has("#" + I("side-fav-documents")))
+        app.after("This PC from the source list", "AZDRIVE_PLACE", r"this-pc",
+                  lambda: app.click(selector="#" + I("side-this-pc")))
+        # F6 from the source list goes on to the content pane, and round to the source list.
+        app.key("f6")
+        app.until("F6: the keyboard on the content pane",
+                  lambda: focused_id(app) == "shell-content")
+        for _ in range(3):
+            app.key("f6")
+            if focused_id(app) == "shell-tree":
+                break
+        app.until("F6 round: the keyboard on the navigation pane",
+                  lambda: focused_id(app) == "shell-tree")
+        app.key("down")
+        app.until("Down: the keyboard on the selected row (This PC)",
+                  lambda: focused_id(app) == I("side-this-pc"))
+        app.key("tab")
+        app.until("Tab: the keyboard on the + button", lambda: focused_id(app) == I("side-add"))
+        if app.printed("AZDRIVE_SELECTED", r"[1-9].*"):
+            raise Failure("a key in the source list selected items of the content")
+        log("1b. the source list: a click went to Documents, Down walked to Pictures, Enter "
+            "opened it, Left climbed and closed FAVORITES, Right opened it; F6, Down, Tab")
 
         # 2. The Home drive.
         # On the tile's icon: its centre is the capacity bar, a ProgressBar, which is a
@@ -313,7 +429,7 @@ def run(args, logs):
 
         # 5. Documents; selection.
         app.after("the Documents listing", "AZDRIVE_LISTED", r"home Documents/ \d+",
-                  lambda: app.click_exact("Documents", double=True))
+                  lambda: open_item(app, "Documents"))
         app.until("notes.txt", lambda: "notes.txt" in item_names(app))
         app.after("one selected", "AZDRIVE_SELECTED", r"1 Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
@@ -418,7 +534,7 @@ def run(args, logs):
         app.until("the text in the preview", lambda: app.has("#" + I("preview-text")))
         app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
         app.after("Pictures", "AZDRIVE_LISTED", r"home Pictures/ \d+",
-                  lambda: app.click_exact("Pictures", double=True))
+                  lambda: open_item(app, "Pictures"))
         app.after("an image preview", "AZDRIVE_PREVIEW", r"image Pictures/gradient\.png",
                   lambda: app.click_exact("gradient.png"))
         app.until("the image in the preview", lambda: app.has("#" + I("preview-image")))
@@ -463,7 +579,7 @@ def run(args, logs):
         # 13b. A WAV previews (and could play through azul's AudioSink).
         app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
         app.after("Music", "AZDRIVE_LISTED", r"home Music/ \d+",
-                  lambda: app.click_exact("Music", double=True))
+                  lambda: open_item(app, "Music"))
         app.after("an audio preview", "AZDRIVE_PREVIEW", r"audio Music/chime\.wav",
                   lambda: app.click_exact("chime.wav"))
         app.until("the sound's preview", lambda: app.has("#" + I("preview-audio")))
@@ -504,14 +620,39 @@ def run(args, logs):
         # selection and skipped the callbacks - the window's VirtualKeyDown never saw them.)
         app.after("up to Home", "AZDRIVE_PLACE", r"home /", lambda: app.key("backspace"))
         app.after("an item selected", "AZDRIVE_SELECTED", r"1 Documents/",
-                  lambda: app.click_exact("Documents"))
+                  lambda: select_item(app, "Documents"))
         app.after("Ctrl+A", "AZDRIVE_SELECTED", r"[2-9] .*", lambda: app.key("a", primary=True))
         app.after("Ctrl+C", "AZDRIVE_CLIPBOARD", r"copy [2-9]", lambda: app.key("c", primary=True))
         app.key("escape")
         log("16. Ctrl+A and Ctrl+C reach Explorer's keyboard while the content pane has focus")
+
+        # 17. The looks the design is judged by: This PC, Documents in Details and in Large
+        # icons - in flat (Office 2010) and flora (the website), by day and at night.
+        for theme in ("flat", "flora"):
+            for mode in ("light", "dark"):
+                app.must("set_theme", theme=theme)
+                app.must("set_mode", mode=mode)
+                app.frame(4)
+                look = "%s-%s" % (theme, mode)
+                app.after("This PC (%s)" % look, "AZDRIVE_PLACE", r"this-pc",
+                          lambda: app.click(selector="#" + I("side-this-pc")))
+                app.until("the drive tiles (%s)" % look, lambda: app.nodes_with_class(C("drive")))
+                app.screenshot(os.path.join(out, "17-%s-this-pc.png" % look))
+                app.after("Documents (%s)" % look, "AZDRIVE_LISTED", r"home Documents/ \d+",
+                          lambda: app.click(selector="#" + I("side-fav-documents")))
+                app.after("Details (%s)" % look, "AZDRIVE_LAYOUT", r"details",
+                          lambda: app.key("6", primary=True, shift=True))
+                app.until("the Details header (%s)" % look,
+                          lambda: app.has("#" + I("details-header")))
+                app.screenshot(os.path.join(out, "17-%s-details.png" % look))
+                app.after("Large icons (%s)" % look, "AZDRIVE_LAYOUT", r"large_icons",
+                          lambda: app.key("2", primary=True, shift=True))
+                app.until("the icon grid (%s)" % look, lambda: app.has("#" + I("icon-grid")))
+                app.screenshot(os.path.join(out, "17-%s-large-icons.png" % look))
+        log("17. This PC, Details and Large icons in flat and flora, light and dark: %s" % out)
         log("PASS: AzDrive browsed, laid out, sorted, selected, renamed, created, copied, "
             "resolved a conflict, deleted and undid, walked the history, toggled the panes, "
-            "showed Properties and the Options, took the editing keys")
+            "showed Properties and the Options, took the editing keys, walked its source list")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):

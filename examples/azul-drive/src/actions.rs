@@ -532,6 +532,12 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
     if in_text_field(&info) {
         return Update::DoNothing;
     }
+    // The source list's own keys while the keyboard is in it: the arrows walk its rows, Enter
+    // opens one (the rest - F5, Backspace, Ctrl+C ... - stays the window's).
+    if let Some(update) = crate::ui_sidebar::on_sidebar_key(&mut data, &mut info, key_of(code), mods)
+    {
+        return update;
+    }
     let Some(command) = keys::command_for(key_of(code), mods) else {
         return Update::DoNothing;
     };

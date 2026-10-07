@@ -1,11 +1,13 @@
-//! The content pane: This PC (the drives as tiles in groups), Quick access
-//! (the pinned folders and the recent places), or a folder in one of
-//! Explorer's eight layouts - Details by default (the file-type icon and
-//! name, Date modified, Type, Size under sortable headers, the rows shaded
-//! in turn), the icon layouts on azul's IconGrid - grouped or not, with item
-//! check boxes or not - with the InfoBar over it. Every item takes a click
-//! (Ctrl / Shift too), a double-click, a right-click (the context menu), a
-//! drag (a folder takes the drop: a move, Ctrl a copy) and F2's rename field.
+//! The content pane: a LEAF on the page (Finder's window in the app theme, [`crate::look`]:
+//! flora's paper in a thin rule with a soft cast shadow on the linen, Office's white on silver
+//! in flat) holding This PC (the drives as tiles in groups), Quick access (the pinned folders
+//! and the recent places), or a folder in one of Explorer's eight layouts - Details by default
+//! (the file-type icon and name, Date modified, Type, Size under sortable headers on a raised
+//! face, the rows in quiet stripes), the icon layouts on azul's IconGrid - grouped or not, with
+//! item check boxes or not (a selected hand-built icon cell or tile lifts off the paper) -
+//! with the InfoBar over it, and Finder's path bar and status line at its foot. Every item takes
+//! a click (Ctrl / Shift too), a double-click, a right-click (the context menu), a drag (a
+//! folder takes the drop: a move, Ctrl a copy) and F2's rename field.
 
 use azul::{
     callbacks::{
@@ -27,10 +29,10 @@ use azul::{
 use crate::{
     actions::{self, action_ref, on_action, Action},
     browse::{self, Column, Entry, Place},
-    go, ids,
+    go, ids, look,
     model::{self, ViewLayout},
     preview::{self, PreviewKind},
-    save_settings, with_state, ColumnDrag, DriveState, Message,
+    save_settings, ui_panes, with_state, ColumnDrag, DriveState, Message,
 };
 
 // ==== Shared pieces ====
@@ -88,22 +90,49 @@ fn in_the_cloud(s: &DriveState, entry: &Entry) -> bool {
     !entry.is_folder && s.current_drive_id().is_some_and(|id| !s.is_local_drive(&id))
 }
 
-/// The paint of an item: selected, focused, cut (faded), hovered.
+/// The paint of an item ([`crate::look`]): at rest (a wash under the pointer), selected,
+/// focused, cut (faded) - each state after the one before, so it wins.
 fn item_paint(s: &DriveState, entry: &Entry) -> String {
-    let mut css = String::from(
-        "border: 1px solid transparent; border-radius: 3px; cursor: default; \
-         :hover { background: var(--az-accent-glow, rgba(0, 120, 215, 0.10)); }",
-    );
+    paint(s, entry, false)
+}
+
+/// The paint of an icon cell: an item's, rounded, lifting off the paper while it is
+/// selected.
+fn cell_paint(s: &DriveState, entry: &Entry) -> String {
+    paint(s, entry, true)
+}
+
+fn paint(s: &DriveState, entry: &Entry, cell: bool) -> String {
+    let mut css = String::from(look::ITEM);
+    if cell {
+        css.push(' ');
+        css.push_str(look::CELL);
+    }
     if s.selection.contains(&entry.key) {
-        css.push_str(" background: var(--az-accent-soft, rgba(0, 120, 215, 0.22));");
+        css.push(' ');
+        css.push_str(look::ITEM_SELECTED);
+        if cell {
+            css.push(' ');
+            css.push_str(look::CELL_SELECTED);
+        }
     }
     if s.selection.focus() == Some(entry.key.as_str()) {
-        css.push_str(" border: 1px solid var(--az-accent, #2F4A85);");
+        css.push(' ');
+        css.push_str(look::ITEM_FOCUS);
     }
     if actions::is_cut(s, &entry.key) {
         css.push_str(" opacity: 0.5;");
     }
     css
+}
+
+/// A pane's content as a leaf on the page (the right pane: the preview, the details).
+pub(crate) fn on_page(content: Dom) -> Dom {
+    Dom::create_div().with_css(look::PAGE).with_child(
+        Dom::create_div()
+            .with_css(look::LEAF)
+            .with_child(content),
+    )
 }
 
 /// The InfoBar over the content: the last message, with Dismiss.
@@ -135,11 +164,10 @@ pub(crate) fn uses_icon_grid(s: &DriveState) -> bool {
         && !s.visible_entries().is_empty()
 }
 
-/// The content pane; `size` is what it has (the icon grid draws exactly that).
+/// The content pane: the page, the leaf on it (the InfoBar, the view, "Load more", the path bar
+/// and the status line); `size` is what the view has (the icon grid draws exactly that).
 pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
-    let mut area = Dom::create_div().with_id(ids::CONTENT).with_css(
-        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;",
-    );
+    let mut area = Dom::create_div().with_id(ids::LEAF).with_css(look::LEAF);
     if let Some(message) = &s.message {
         area.add_child(info_bar(message, app));
     }
@@ -185,7 +213,7 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     if s.next.is_some() && !s.loading && s.current_drive().is_some() {
         area.add_child(
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; padding: 6px 12px;")
+                .with_css("display: flex; flex-direction: row; flex-shrink: 0; padding: 6px 12px;")
                 .with_child(
                     Button::create(AzString::from("Load more"))
                         .with_on_click(app.clone(), on_load_more as ButtonOnClickCallbackType)
@@ -194,7 +222,12 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
                 ),
         );
     }
-    area
+    area.add_child(ui_panes::path_bar(s, app));
+    area.add_child(ui_panes::status_line(s, app));
+    Dom::create_div()
+        .with_id(ids::CONTENT)
+        .with_css(look::PAGE)
+        .with_child(area)
 }
 
 struct BackgroundRef {
@@ -380,7 +413,15 @@ fn drive_tile(s: &DriveState, app: &RefAny, index: usize) -> Dom {
         .with_on_double_click(data, on_place_open as TileOnClickCallbackType)
         .dom()
         .with_class(ids::DRIVE_CLASS)
-        .with_css("width: 260px; margin: 0px 8px 8px 0px;")
+        .with_css(tile_css(260, s.selected_drive == Some(index)))
+}
+
+/// A Tile's place in a wrapping row: its width, the room around it, the lift of a selected one.
+fn tile_css(width: u32, selected: bool) -> String {
+    format!(
+        "width: {width}px; margin: 0px 8px 8px 0px; {}",
+        if selected { look::TILE_SELECTED } else { "" }
+    )
 }
 
 /// This PC: the drives, local and in the cloud, as tiles in groups.
@@ -433,7 +474,7 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
                 .with_on_click(data.clone(), on_place_click as TileOnClickCallbackType)
                 .with_on_double_click(data, on_place_open as TileOnClickCallbackType)
                 .dom()
-                .with_css("width: 250px; margin: 0px 8px 8px 0px;")
+                .with_css(tile_css(250, s.selected_pin == Some(i)))
         })
         .collect();
     let pinned = if pins.is_empty() {
@@ -461,7 +502,7 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
                 )))
                 .with_on_double_click(data, on_place_open as TileOnClickCallbackType)
                 .dom()
-                .with_css("width: 250px; margin: 0px 8px 8px 0px;")
+                .with_css(tile_css(250, false))
         })
         .collect();
     let recent_count = recent.len();
@@ -769,18 +810,19 @@ fn column_parts(data: &mut RefAny) -> Option<(RefAny, Column)> {
         .map(|c| (c.app.clone(), c.column))
 }
 
-/// The Details header: the columns (a click sorts, again reverses), each
-/// with an edge to drag (its width) or double-click (to fit).
+/// The Details header: the columns on a raised face (a click sorts, again reverses; the sorted
+/// one tinted, its arrow beside its name), each with an edge to drag (its width) or
+/// double-click (to fit).
 fn details_header(s: &DriveState, app: &RefAny) -> Dom {
-    let mut row = Dom::create_div().with_id(ids::DETAILS_HEADER).with_css(
-        "display: flex; flex-direction: row; flex-shrink: 0; font-size: 12px; \
-         margin-bottom: 2px; border-bottom: 1px solid rgba(128, 128, 128, 0.35);",
-    );
+    let mut row = Dom::create_div()
+        .with_id(ids::DETAILS_HEADER)
+        .with_css(look::DETAILS_HEADER);
     if s.settings.item_checkboxes {
         row.add_child(Dom::create_div().with_css("width: 28px; flex-shrink: 0;"));
     }
     for c in &s.settings.columns.columns {
         let width = c.width;
+        let sorted = s.settings.sort.column == c.column;
         let data = RefAny::new(ColumnRef {
             app: app.clone(),
             column: c.column,
@@ -788,30 +830,30 @@ fn details_header(s: &DriveState, app: &RefAny) -> Dom {
         let mut cell = Dom::create_div()
             .with_class(ids::COLUMN_CLASS)
             .with_css(format!(
-                "display: flex; flex-direction: row; align-items: center; width: {width}px; \
-                 min-width: {width}px; flex-shrink: 0; padding: 4px 0px 4px 8px; \
-                 :hover {{ background: var(--az-accent-glow, rgba(0, 120, 215, 0.10)); }}"
+                "{} width: {width}px; min-width: {width}px; {}",
+                look::COLUMN,
+                if sorted { look::COLUMN_SORTED } else { "" }
             ))
             .with_child(
                 Dom::create_span_with_text(AzString::from(c.column.label())).with_css(
-                    "flex-grow: 1; overflow: hidden; white-space: nowrap; opacity: 0.85;",
+                    "flex-grow: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;",
                 ),
             );
-        if s.settings.sort.column == c.column {
+        if sorted {
             let arrow = if s.settings.sort.descending {
                 "arrow_drop_down"
             } else {
                 "arrow_drop_up"
             };
-            cell.add_child(Dom::create_icon(AzString::from(arrow)).with_css("font-size: 16px;"));
+            cell.add_child(
+                Dom::create_icon(AzString::from(arrow))
+                    .with_css("font-size: 16px; flex-shrink: 0;"),
+            );
         }
         cell.add_child(
             Dom::create_div()
                 .with_class(ids::COLUMN_EDGE_CLASS)
-                .with_css(
-                    "width: 6px; align-self: stretch; flex-shrink: 0; cursor: col-resize; \
-                     border-right: 1px solid rgba(128, 128, 128, 0.35);",
-                )
+                .with_css(look::COLUMN_EDGE)
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::LeftMouseDown),
                     data.clone(),
@@ -927,16 +969,14 @@ pub(crate) extern "C" fn on_column_drag_end(mut data: RefAny, mut info: Callback
     })
 }
 
-/// A row of the Details layout; every other one (`alt`) is shaded, as Explorer's rows are
-/// told apart, under the hover and the selection.
+/// A row of the Details layout; every other one (`alt`) is a quiet stripe (Finder's list),
+/// under the hover and the selection.
 fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
-    let shade = if alt {
-        "background: rgba(128, 128, 128, 0.07);"
-    } else {
-        ""
-    };
+    let shade = if alt { look::STRIPE } else { "" };
+    // Finder's dense rows (the rename field may make one taller).
     let mut row = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: row; align-items: center; height: 24px; {shade} {}",
+        "display: flex; flex-direction: row; align-items: center; min-height: 22px; \
+         flex-shrink: 0; {shade} {}",
         item_paint(s, entry)
     ));
     if alt {
@@ -948,7 +988,7 @@ fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
     for c in &s.settings.columns.columns {
         let width = c.width;
         let (cell, extra) = match c.column {
-            Column::Name => (name_cell(s, app, entry, 18.0), ""),
+            Column::Name => (name_cell(s, app, entry, 16.0), ""),
             Column::Size => (
                 Dom::create_span_with_text(AzString::from(model::cell_text(
                     entry,
@@ -983,7 +1023,7 @@ fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
 fn content_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     let mut row = Dom::create_div().with_css(format!(
         "display: flex; flex-direction: row; align-items: center; height: 54px; padding: 0px 8px; \
-         border-bottom: 1px solid rgba(128, 128, 128, 0.18); {}",
+         flex-shrink: 0; {}",
         item_paint(s, entry)
     ));
     if s.settings.item_checkboxes {
@@ -1027,8 +1067,8 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
     let width = layout.cell_width();
     let mut cell = Dom::create_div().with_css(format!(
         "display: flex; flex-direction: column; align-items: center; width: {width}px; \
-         padding: 6px 4px; margin: 2px; {}",
-        item_paint(s, entry)
+         padding: 6px 4px; margin: 3px; {}",
+        cell_paint(s, entry)
     ));
     if s.settings.item_checkboxes {
         cell.add_child(
@@ -1078,7 +1118,7 @@ fn inline_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) 
     let width = layout.cell_width();
     let mut cell = Dom::create_div().with_css(format!(
         "display: flex; flex-direction: row; align-items: center; width: {width}px; \
-         height: 24px; padding: 0px 4px; margin: 1px; {}",
+         height: 24px; padding: 0px 4px; margin: 1px; border-radius: 4px; {}",
         item_paint(s, entry)
     ));
     if s.settings.item_checkboxes {
@@ -1098,7 +1138,7 @@ fn tile_cell(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     } else {
         format!("{}, {}", entry.kind(), browse::format_size(entry.size))
     };
-    let mut css = String::from("width: 250px; margin: 0px 8px 8px 0px;");
+    let mut css = tile_css(250, s.selection.contains(&entry.key));
     if actions::is_cut(s, &entry.key) {
         css.push_str(" opacity: 0.5;");
     }
