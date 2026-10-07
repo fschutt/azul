@@ -17,6 +17,9 @@
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
 //! - `pieces` (feature `azul`): the small DOM pieces every app's screens are
 //!   built from (text, block, flex column / row, buttons).
+//! - `backstage` (feature `azul`): the right side of the File tab in the
+//!   Outlook 2010 look (a page's title, cards, command rows of a button, a
+//!   heading and what it does, two columns, sections, facts).
 //! - `ribbon` (feature `azul`): the office apps' ribbon buttons, columns,
 //!   rows and groups (one builder; the app's command type implements
 //!   `RibbonCommand`).
@@ -41,6 +44,8 @@ pub mod migrate;
 pub mod settings;
 pub mod shortcuts;
 
+#[cfg(feature = "azul")]
+pub mod backstage;
 #[cfg(feature = "azul")]
 pub mod pieces;
 #[cfg(feature = "azul")]

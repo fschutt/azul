@@ -8,7 +8,45 @@
 
 use azul::str::String as AzString;
 
-// ==== File > Add Account / Account Settings ====
+// ==== The main window ====
+
+/// The ribbon (in the mail view; with File open, its tab row over the backstage).
+pub const RIBBON: AzString = AzString::from_const_str("__azmail_ribbon");
+/// The folder pane (Favorites, every account's folder tree, Mail / Calendar / Contacts / Tasks).
+pub const FOLDER_PANE: AzString = AzString::from_const_str("__azmail_folder_pane");
+/// The message list.
+pub const MESSAGE_LIST: AzString = AzString::from_const_str("__azmail_message_list");
+/// The list's empty state while there is no account ("No account yet", Add Account...).
+pub const NO_ACCOUNT: AzString = AzString::from_const_str("__azmail_no_account");
+
+// ==== File (the backstage) ====
+
+/// The File tab: the ribbon's tab row over the backstage.
+pub const BACKSTAGE: AzString = AzString::from_const_str("__azmail_backstage");
+/// File > Info.
+pub const PAGE_INFO: AzString = AzString::from_const_str("__azmail_page_info");
+/// File > Print.
+pub const PAGE_PRINT: AzString = AzString::from_const_str("__azmail_page_print");
+/// File > Help.
+pub const PAGE_HELP: AzString = AzString::from_const_str("__azmail_page_help");
+/// Info's "Add Account" button.
+pub const ADD_ACCOUNT: AzString = AzString::from_const_str("__azmail_add_account");
+/// Info's "Account Settings" button.
+pub const ACCOUNT_SETTINGS: AzString = AzString::from_const_str("__azmail_account_settings");
+/// Info's "Send/Receive" button.
+pub const INFO_SEND_RECEIVE: AzString = AzString::from_const_str("__azmail_info_send_receive");
+/// Print's "Print" button (to a PDF file).
+pub const PRINT: AzString = AzString::from_const_str("__azmail_print");
+/// Print's preview of the PDF's first page.
+pub const PRINT_PREVIEW: AzString = AzString::from_const_str("__azmail_print_preview");
+/// Help's "Keyboard Shortcuts" button.
+pub const HELP_SHORTCUTS: AzString = AzString::from_const_str("__azmail_help_shortcuts");
+/// Help's "Options" button.
+pub const HELP_OPTIONS: AzString = AzString::from_const_str("__azmail_help_options");
+/// Help's "About AzMail" button.
+pub const HELP_ABOUT: AzString = AzString::from_const_str("__azmail_help_about");
+
+// ==== File > Info > Add Account / Account Settings ====
 
 /// The sender's name.
 pub const ACCT_NAME: AzString = AzString::from_const_str("__azmail_acct_name");

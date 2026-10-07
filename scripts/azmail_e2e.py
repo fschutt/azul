@@ -6,21 +6,34 @@
 2. starts AzMail headless (AZ_BACKEND=headless, the debug server on --debug-port) with an empty
    AZMAIL_DATA and the server's password in AZMAIL_TEST_PASSWORD (a headless run never touches
    the real keyring);
-3. walks File > Add Account: name and address; the IMAP server (unencrypted, 127.0.0.1); sending
-   through an SMTP server = the sink, STARTTLS off; Finish - and waits for the first
-   Send / Receive (AZMAIL_SYNC_DONE);
-4. checks the files: account.json with the name and no password, SEND's sending.json with the
+3. the empty data folder opens the REAL window (no wizard in front): the ribbon, the folder pane
+   and the message list's "No account yet" (#__azmail_ribbon, #__azmail_folder_pane,
+   #__azmail_no_account);
+4. walks Add Account (the empty list's button, File > Info's wizard): name and address; the IMAP
+   server (unencrypted, 127.0.0.1); sending through an SMTP server = the sink, STARTTLS off;
+   Finish - and waits for the first Send / Receive (AZMAIL_SYNC_DONE);
+5. checks the files: account.json with the name and no password, SEND's sending.json with the
    route, the synced Inbox;
-5. opens "Re: Garden plan for October", clicks Reply: a SECOND WINDOW opens
+6. opens "Re: Garden plan for October", clicks Reply: a SECOND WINDOW opens
    (AZMAIL_COMPOSE_OPEN <window id> reply); through the debug server addressed to that window
    it checks the To line, the subject and the quote, types a line at the caret (the top) and
    clicks Send;
-6. waits for AZMAIL_SEND_DONE <window id> sent, then checks what the sink received (From with
+7. waits for AZMAIL_SEND_DONE <window id> sent, then checks what the sink received (From with
    the name, To, Subject, In-Reply-To / References of the original, the typed line above the
    quote with "> " marks, an HTML part with a blockquote) and that the window closed, and that
    the mail is in Sent (mail/sent/index.jsonl, and the window's Sent Items);
-7. New E-mail, a subject and a line, Save Draft: the draft is in mail/drafts; Discard closes;
-8. the password is in no file AzMail wrote and in none of its output.
+8. New E-mail, a subject and a line, Save Draft: the draft is in mail/drafts; Discard closes;
+9. the password is in no file AzMail wrote and in none of its output.
+
+The empty phase (`--phase empty`, no servers): an empty data folder opens the real window (the
+ribbon, the folder pane, "No account yet"); File keeps the ribbon's tab row on top (Outlook
+2010: File is the first tab, there is no back button) and shows Info ("No account yet", Add
+Account), Help (About AzMail) and Print (nothing open); Home leaves File; File > Info > Add
+Account opens the wizard and its Cancel returns to Info; Escape leaves File; the empty list's Add
+Account opens the wizard and its Cancel returns to the mail window.
+
+The sample phase also prints: File > Print with the newsletter open makes its PDF (azul's PDF
+writer), draws the first page as the preview (PDF -> SVG -> picture) and Print writes the file.
 
 The submission phase (`--phase submission`, MAIL9 left 2) walks the Sending page's third choice:
 the sink is a submission server (`--auth`: MAIL needs a sign-in); after the wizard the account's
@@ -249,6 +262,12 @@ class Run:
         self.must('click', window, selector=f'#{dom_id}')
         self.frame(window)
 
+    def has_id(self, dom_id, window=None):
+        """Whether a node of `window` has the id `dom_id`."""
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        return any(n.get('id') == dom_id for n in nodes)
+
     def node_with_text(self, text, window=None, within=None):
         """The index of the first node whose text is exactly `text` (in a 1-tuple: index 0 is
         a node too) - inside a node of the class `within` if given - else None.
@@ -367,8 +386,26 @@ class Run:
                       [f'{k}={v}' for k, v in env.items()] + [binary, *app_args]
         self.start('azmail', command, env)
 
+    def check_empty_main_window(self):
+        """With an empty data folder AzMail opens on its real window - the ribbon, the folder
+        pane, the message list saying "No account yet" - with no wizard in front of it."""
+        for dom_id in (PREFIX + 'ribbon', PREFIX + 'folder_pane', PREFIX + 'no_account'):
+            self.until(f'#{dom_id} in the first window', lambda d=dom_id: self.has_id(d), limit=40)
+        if self.has_id(PREFIX + 'acct_email'):
+            raise Failure('the Add Account wizard stands in front of the window')
+        for text in ('Home', 'Send / Receive', 'Folder', 'View', 'No account yet', 'Calendar'):
+            if not self.shows(text):
+                raise Failure(f'the empty window does not show {text!r}')
+        log('an empty data folder opens the real window: ribbon, folder pane, "No account yet"')
+
+    def open_wizard(self):
+        """Add Account from the empty message list: the wizard (File > Info > Add Account's)."""
+        self.click('Add Account')
+        self.until('the Add Account wizard', lambda: self.has_id(PREFIX + 'acct_email'), limit=20)
+
     def add_account(self):
-        self.until('the Add Account wizard', lambda: self.shows('Add Account'))
+        self.check_empty_main_window()
+        self.open_wizard()
         self.type_into('__azmail_acct_name', NAME)
         self.type_into('__azmail_acct_email', USER)
         self.click('Next >')
@@ -755,6 +792,34 @@ class SampleRun(Run):
         except Failure as e:
             self.check('closing an edited mail asks "save changes?"', False, str(e))
 
+    def print_to_pdf(self):
+        """File > Print with the newsletter open: azul's PDF writer makes the PDF, its first page
+        comes back as the preview picture, Print writes it to exports/ in the AzMail folder."""
+        try:
+            self.click_exact('File')
+            self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
+            self.click_exact('Print')
+            self.until('the PDF of the open message', lambda: self.printed('AZMAIL_PRINT_PDF'),
+                       limit=30)
+            shown = self.until('the preview of its first page', lambda: self.printed(
+                'AZMAIL_PRINT_PREVIEW', r'pages=\d+ shown=\S+'), limit=60)[-1]
+            self.frame(None, 2)
+            self.check("File > Print draws the PDF's first page as the preview",
+                       shown.endswith('shown=true') and self.has_id(PREFIX + 'print_preview'),
+                       f'({shown})')
+            self.click_id(PREFIX + 'print')
+            path = self.until('the printed file', lambda: self.printed('AZMAIL_PRINTED'),
+                              limit=30)[-1]
+            with open(path, 'rb') as f:
+                head = f.read(5)
+            self.check('Print writes a PDF file', head == b'%PDF-', f'({path}: {head!r})')
+        except (Failure, OSError) as e:
+            self.check('File > Print', False, str(e))
+        finally:
+            # Home leaves File (the ribbon's tab row stays on top of the backstage).
+            if self.has_id(PREFIX + 'backstage'):
+                self.click_exact('Home')
+
     def zoom_in(self):
         # The status bar's + sits between the slider's track and the percent label: the
         # reading pane's zoom, 100 % -> 110 %, remembered in settings.json.
@@ -797,11 +862,70 @@ class SampleRun(Run):
         window = self.compose_window()
         self.close_guard(window)
         self.check_open_newsletter()
+        self.print_to_pdf()
         self.zoom_in()
         self.restart_keeps_tasks()
         self.check('the zoom is remembered across a restart', self.shows('110%'))
         if self.failures:
             raise Failure(f'{len(self.failures)} check(s) failed: ' + '; '.join(self.failures))
+
+
+# ---- the empty phase (MAIL10): no account - the real window, File's pages, the way back ----
+
+
+class EmptyRun(Run):
+    """No servers, an empty data folder: the real window, File in the Outlook 2010 look (the
+    ribbon's tab row stays, no back button), and every way back to the mail window."""
+
+    def in_file(self):
+        return self.has_id(PREFIX + 'backstage')
+
+    def run(self):
+        log(f'logs and data: {self.tmp}')
+        os.makedirs(self.data)
+        self.start_app()
+        self.check_empty_main_window()
+        # File: the tab row stays on top, Info says there is no account and offers Add Account.
+        self.click_exact('File')
+        self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
+        if not self.has_id(PREFIX + 'ribbon') or not self.shows('Home'):
+            raise Failure("File hid the ribbon's tab row")
+        if not self.has_id(PREFIX + 'add_account') or not self.shows('No account yet'):
+            raise Failure('File > Info offers no Add Account')
+        log('File > Info: the tab row on top, "No account yet", Add Account')
+        # Help: About AzMail and its facts.
+        self.click_exact('Help')
+        self.until('File > Help', lambda: self.has_id(PREFIX + 'page_help'), limit=20)
+        if not self.shows('About AzMail') or not self.has_id(PREFIX + 'help_about'):
+            raise Failure('File > Help shows no About AzMail')
+        # Print: nothing is open, so there is nothing to print yet.
+        self.click_exact('Print')
+        self.until('File > Print', lambda: self.has_id(PREFIX + 'page_print'), limit=20)
+        if not self.shows('No message is open'):
+            raise Failure('File > Print does not say that no message is open')
+        log('File > Help (About AzMail), File > Print (no message open)')
+        # Home leaves File.
+        self.click_exact('Home')
+        self.until('the mail window after Home', lambda: not self.in_file() and self.has_id(
+            PREFIX + 'no_account'), limit=20)
+        # File > Info > Add Account: the wizard; its Cancel returns to File > Info.
+        self.click_exact('File')
+        self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
+        self.click_id(PREFIX + 'add_account')
+        self.until('the wizard', lambda: self.has_id(PREFIX + 'acct_email'), limit=20)
+        self.click_exact('Cancel', within='__azul-native-wizard-layout-buttons')
+        self.until('File > Info after Cancel', lambda: self.has_id(PREFIX + 'page_info') and
+                   not self.has_id(PREFIX + 'acct_email'), limit=20)
+        # Escape leaves File.
+        self.key('escape')
+        self.until('the mail window after Escape', lambda: not self.in_file(), limit=20)
+        # The empty list's Add Account: the wizard; its Cancel returns to the mail window.
+        self.open_wizard()
+        self.click_exact('Cancel', within='__azul-native-wizard-layout-buttons')
+        self.until('the mail window after Cancel', lambda: not self.in_file() and self.has_id(
+            PREFIX + 'no_account'), limit=20)
+        log("Home, Escape and the wizard's Cancel lead back; Cancel returns where Add Account "
+            'was opened')
 
 
 # ---- the submission phase (MAIL9 left 2): the Sending page's third choice and DKIM ----
@@ -998,17 +1122,21 @@ def main():
     parser.add_argument('--timeout', type=float, default=150)
     parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
     parser.add_argument('--keep-logs', action='store_true')
-    parser.add_argument('--phase', choices=('all', 'sample', 'account', 'submission'),
+    parser.add_argument('--phase', choices=('all', 'empty', 'sample', 'account', 'submission'),
                         default='all',
-                        help='sample: --sample, the look and the app-kit flows (no servers); '
-                             'account: the wizard, IMAP, SMTP; submission: Account Settings, '
-                             'Sending: the signed-in route and DKIM, a mail to the sink')
+                        help='empty: no account - the real window, File, the ways back (no '
+                             'servers); sample: --sample, the look and the app-kit flows (no '
+                             'servers); account: the wizard, IMAP, SMTP; submission: Account '
+                             'Settings, Sending: the signed-in route and DKIM, a mail to the sink')
     args = parser.parse_args()
     passed = True
+    if args.phase in ('all', 'empty'):
+        passed &= run_phase(EmptyRun, args, 'empty: the real window with no account, File '
+                                            '(Info, Help, Print), Home / Escape / Cancel')
     if args.phase in ('all', 'sample'):
         passed &= run_phase(SampleRun, args, 'sample: the window fills, ids, To-Do bar store, '
-                                             'compose window, close guard, HTML mail, zoom, '
-                                             'restart')
+                                             'compose window, close guard, HTML mail, File > '
+                                             'Print to PDF, zoom, restart')
     if args.phase in ('all', 'account'):
         passed &= run_phase(Run, args, 'account, Send/Receive, reply window, send through SMTP, '
                                        'Sent, draft')

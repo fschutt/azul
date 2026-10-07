@@ -1,9 +1,12 @@
 //! AzMail: a mail client in the shape of Outlook 2010, on the public azul API.
 //!
-//! - **Accounts**: File > Add Account is a wizard (address and password, the IMAP server, how
-//!   mail is sent); the password or OAuth token goes to the OS keyring, never to a file. The
-//!   account is `<AzMail folder>/<account id>/account.json`, its sending settings `sending.json`
-//!   (SEND's `SendSettings`) next to it.
+//! - **The window is always the real one**: with no account it is the same ribbon, folder pane,
+//!   message list and reading pane, empty - the list says "No account yet" and offers Add
+//!   Account, as File > Info does. No wizard stands in front of the window.
+//! - **Accounts**: File > Info > Add Account is a wizard (address and password, the IMAP
+//!   server, how mail is sent); the password or OAuth token goes to the OS keyring, never to a
+//!   file. The account is `<AzMail folder>/<account id>/account.json`, its sending settings
+//!   `sending.json` (SEND's `SendSettings`) next to it.
 //! - **Send / Receive** syncs every folder on an azul `Thread` (`sync.rs`, `imap_client.rs`) to
 //!   files (`mail/<folder>/<yyyy>/<mm>/<uid>.eml`, `index.jsonl`, `state.json`); the status bar
 //!   shows the progress.
@@ -12,6 +15,10 @@
 //!   Mail / Calendar / Contacts / Tasks), the message list arranged by date, the reading pane
 //!   (the mail on paper, pictures only after "download pictures"), the To-Do bar and the status
 //!   bar (`ui_main.rs`).
+//! - **File** is Outlook 2010's backstage (`ui_backstage.rs`): the ribbon's tab row stays on top,
+//!   no back button; Info (the accounts, Add Account, Account Settings, Send/Receive), Print
+//!   (the open message to a PDF file, with a picture of its first page), Help (shortcuts,
+//!   Options, About), Options (the kit's settings page), Exit.
 //! - **New / Reply / Reply All / Forward** open a second window (`ui_compose.rs`): From, To / Cc
 //!   / Bcc, Subject, a formatting ribbon, azul's shared rich-text editor, attachments; Save writes
 //!   a draft into the Drafts folder, Send hands the mail to `send::send_mail` on a `Thread` and
@@ -28,7 +35,9 @@
 //! `AZMAIL_KEYRING <outcome>`, `AZMAIL_OPEN <folder> <uid>`, `AZMAIL_COMPOSE_OPEN <window id>
 //! <kind>`, `AZMAIL_DRAFT_SAVED <window id> <uid>`, `AZMAIL_SEND_START <window id>`,
 //! `AZMAIL_SEND_DONE <window id> sent|queued|failed <message id or reason>`,
-//! `AZMAIL_COMPOSE_CLOSED <window id>`. The secret is never printed.
+//! `AZMAIL_COMPOSE_CLOSED <window id>`, `AZMAIL_PRINT_PDF <folder> <uid> <bytes>`,
+//! `AZMAIL_PRINT_PREVIEW pages=<n> shown=<bool>`, `AZMAIL_PRINTED <file>`. The secret is never
+//! printed.
 
 pub mod account;
 pub mod args;
@@ -51,6 +60,7 @@ pub mod submit;
 pub mod sync;
 pub mod todo;
 mod ui_account;
+mod ui_backstage;
 mod ui_compose;
 mod ui_main;
 
@@ -153,8 +163,10 @@ pub(crate) struct MailApp {
 
     // -- the ribbon and the backstage --
     pub(crate) ribbon_tab: usize,
-    /// The backstage page shown (`ui_main::PAGE_*`); `None` is the mail view.
+    /// The backstage page shown (`ui_backstage::PAGE_*`); `None` is the mail view.
     pub(crate) backstage: Option<usize>,
+    /// File > Print: the open message as a PDF and its preview.
+    pub(crate) print: Option<ui_backstage::PrintJob>,
     /// The account being added (the wizard) or edited (Account Settings).
     pub(crate) editor: Option<ui_account::AccountEditor>,
 
@@ -279,6 +291,7 @@ impl MailApp {
             zoom: ui_main::zoom_setting(settings.get(ui_main::SET_ZOOM)),
             ribbon_tab: 0,
             backstage: None,
+            print: None,
             editor: None,
             sync: SyncState::Idle,
             notice: String::new(),
@@ -1014,6 +1027,12 @@ pub(crate) enum IoJob {
         domain: String,
         public_key: String,
     },
+    /// File > Print: the message's PDF, as `key` in the AzMail folder (`exports/<name>.pdf`).
+    SavePdf {
+        root: DriveFolder,
+        key: String,
+        bytes: Vec<u8>,
+    },
 }
 
 /// What a write did.
@@ -1029,6 +1048,11 @@ pub(crate) enum IoDone {
     Failed(String),
     DkimKey(Result<dkim::KeyPair, String>),
     DkimChecked(dkim::DnsReport),
+    /// The PDF of File > Print is written: its key and its file.
+    PdfSaved {
+        key: String,
+        path: PathBuf,
+    },
 }
 
 /// Runs `job` on a thread of the window whose callback asks.
@@ -1074,6 +1098,15 @@ extern "C" fn io_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: T
             domain,
             public_key,
         } => IoDone::DkimChecked(dkim::dns_report(&selector, &domain, &public_key)),
+        IoJob::SavePdf { root, key, bytes } => {
+            match MailStore::new(root.clone()).put(&key, &bytes) {
+                Ok(()) => IoDone::PdfSaved {
+                    path: key.split('/').fold(root.path(), |path, name| path.join(name)),
+                    key,
+                },
+                Err(e) => IoDone::Failed(format!("Could not write {key}: {e}")),
+            }
+        }
     };
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
         refany: RefAny::new(done),
@@ -1134,6 +1167,10 @@ extern "C" fn on_io_done(mut app: RefAny, mut payload: RefAny, mut info: Callbac
         }
         IoDone::DkimChecked(report) => {
             ui_account::dkim_checked(s, &report);
+            Update::RefreshDom
+        }
+        IoDone::PdfSaved { key, path } => {
+            ui_backstage::printed(s, &key, path);
             Update::RefreshDom
         }
     })
@@ -1215,16 +1252,16 @@ pub fn start() {
         root_path.display()
     );
     let screen = Screen::of(&args);
-    let first_run = accounts.is_empty();
     let mut state = MailApp::create(root, kit_ref.clone(), screen, accounts);
-    if !first_run {
+    if !state.accounts.is_empty() {
         state.show_account(0);
     }
+    // The window is the mail window from the first start on - with no account it is empty and
+    // its message list offers Add Account (as File > Info does); no wizard stands in front.
     match screen {
-        _ if first_run => ui_account::open_wizard(&mut state, None),
         Screen::AddAccount => ui_account::open_wizard(&mut state, None),
         Screen::Settings => ui_account::open_settings(&mut state),
-        Screen::Backstage => state.backstage = Some(ui_main::PAGE_INFO),
+        Screen::Backstage => state.backstage = Some(ui_backstage::PAGE_INFO),
         Screen::Mail | Screen::Compose | Screen::Reply => {}
     }
 

@@ -54,21 +54,22 @@ pub const SHORTCUTS: [Shortcut; 11] = [
     Shortcut::new("Message", "Mod+U", "Underline"),
 ];
 
-/// AzMail's own categories on the kit's settings page (before Appearance, Data, Shortcuts,
-/// About): none yet - the accounts have their own page (File > Account Settings).
-pub const APP_CATEGORIES: [&str; 0] = [];
+/// AzMail's own categories on the kit's settings page (File > Options; before Appearance,
+/// Data, Shortcuts, About): Mail, the View tab's switches (Outlook's Options has its Mail
+/// page). The accounts have their own pages (File > Info).
+pub const APP_CATEGORIES: [&str; 1] = ["Mail"];
 
 /// The screen AzMail opens on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Screen {
-    /// The mail window (or the Add Account wizard when there is no account).
+    /// The mail window - with no account too (empty; its list offers Add Account).
     #[default]
     Mail,
     /// File > Info.
     Backstage,
-    /// File > Add Account (the wizard).
+    /// File > Info > Add Account (the wizard).
     AddAccount,
-    /// File > Account Settings.
+    /// File > Info > Account Settings (the wizard when there is no account).
     Settings,
     /// The mail window with a New E-mail window over it.
     Compose,

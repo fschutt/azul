@@ -1,4 +1,7 @@
-//! The account wizard (File > Add Account) and Account Settings, on one account editor.
+//! The account wizard (File > Info > Add Account, or the empty message list's Add Account) and
+//! Account Settings, on one account editor. Both are pages of the backstage under Info; the
+//! wizard's Cancel goes back to where it was opened from (the mail window or File > Info) - with
+//! or without an account, the window behind it is the real one.
 //!
 //! Outlook 2010's "Add New Account" is a wizard: who you are (name, address, password), the
 //! incoming server, how mail leaves, and a last page that says what will happen. Account Settings
@@ -30,7 +33,7 @@ use crate::{
     dkim,
     send::SendSettings,
     sending::SendingForm,
-    ids, ui_main, with_app, IoJob, MailApp,
+    ids, ui_backstage, with_app, IoJob, MailApp,
 };
 
 /// The wizard's steps.
@@ -59,6 +62,9 @@ pub(crate) struct AccountEditor {
     pub(crate) step: usize,
     /// Finish / Save was pressed and the files are being written.
     pub(crate) saving: bool,
+    /// Where the wizard's Cancel goes: the backstage page it was opened from (File > Info), or
+    /// `None` for the mail window.
+    pub(crate) return_to: Option<usize>,
     /// A DKIM key made in this editor: its private half goes to the keyring when the account is
     /// saved, its public half into sending.json and the DNS record shown.
     pub(crate) dkim_new_key: Option<dkim::KeyPair>,
@@ -81,6 +87,7 @@ impl AccountEditor {
             drawn,
             step: 0,
             saving: false,
+            return_to: None,
             dkim_new_key: None,
             dkim_busy: false,
             dkim_report: Vec::new(),
@@ -153,17 +160,17 @@ pub(crate) fn dkim_checked(s: &mut MailApp, report: &dkim::DnsReport) {
     );
 }
 
-/// File > Add Account: the wizard, on an empty form (or `prefill`).
+/// File > Info > Add Account: the wizard, on an empty form (or `prefill`). Its Cancel returns to
+/// File > Info when it was opened in the backstage, else to the mail window.
 pub(crate) fn open_wizard(s: &mut MailApp, prefill: Option<AccountForm>) {
-    s.editor = Some(AccountEditor::create(
-        prefill.unwrap_or_default(),
-        false,
-        SendSettings::default(),
-    ));
-    s.backstage = Some(ui_main::PAGE_ADD_ACCOUNT);
+    let mut editor =
+        AccountEditor::create(prefill.unwrap_or_default(), false, SendSettings::default());
+    editor.return_to = s.backstage.map(|_| ui_backstage::PAGE_INFO);
+    s.editor = Some(editor);
+    s.backstage = Some(ui_backstage::PAGE_ADD_ACCOUNT);
 }
 
-/// File > Account Settings for the current account (the wizard when there is none).
+/// File > Info > Account Settings for the current account (the wizard when there is none).
 pub(crate) fn open_settings(s: &mut MailApp) {
     match s.current_account().map(|a| a.id.clone()) {
         Some(id) => open_settings_with_error(s, &id, String::new()),
@@ -179,8 +186,9 @@ pub(crate) fn open_settings_with_error(s: &mut MailApp, account_id: &str, error:
     let settings = SendSettings::load(&s.root, &account.id);
     let mut editor = AccountEditor::create(AccountForm::from_account(&account), true, settings);
     editor.error = error;
+    editor.return_to = s.backstage.map(|_| ui_backstage::PAGE_INFO);
     s.editor = Some(editor);
-    s.backstage = Some(ui_main::PAGE_SETTINGS);
+    s.backstage = Some(ui_backstage::PAGE_SETTINGS);
 }
 
 /// The files are written: the account joins the list (or replaces itself), its typed secret
@@ -301,7 +309,7 @@ fn save(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny) {
 
 // ==== The pages ====
 
-/// File > Add Account: the wizard.
+/// File > Info > Add Account: the wizard.
 pub(crate) fn wizard_page(s: &MailApp, app: &RefAny) -> Dom {
     let Some(editor) = s.editor.as_ref() else {
         return Dom::create_div();
@@ -322,11 +330,11 @@ pub(crate) fn wizard_page(s: &MailApp, app: &RefAny) -> Dom {
             Dom::create_span_with_text("Saving the account and connecting...").with_css(NOTE),
         );
     }
-    let cancel = if s.accounts.is_empty() { "" } else { "Cancel" };
+    // Cancel always: the mail window is there with or without an account.
     WizardLayout::create("Add Account", strings(&WIZARD_STEPS))
         .with_page(page)
         .with_current_step(step)
-        .with_labels("< Back", "Next >", "Finish", cancel)
+        .with_labels("< Back", "Next >", "Finish", "Cancel")
         .with_can_go_next(!editor.saving)
         .with_on_event(app.clone(), on_wizard_event as WizardOnEventCallbackType)
         .dom()
@@ -986,10 +994,10 @@ extern "C" fn on_wizard_event(mut data: RefAny, mut info: CallbackInfo, event: W
             }
             WizardEventKind::Finish => save(s, &mut info, app),
             WizardEventKind::Cancel => {
-                if !s.accounts.is_empty() {
-                    s.editor = None;
-                    s.backstage = None;
+                if s.editor.as_ref().is_some_and(|e| e.saving) {
+                    return Update::DoNothing;
                 }
+                s.backstage = s.editor.take().and_then(|e| e.return_to);
             }
         }
         Update::RefreshDom

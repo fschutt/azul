@@ -2,13 +2,16 @@
 //!
 //! ```text
 //! title row (azul's Titlebar: the window is NoTitle)
-//! ribbon: File | Home | Send / Receive | Folder | View           (or the backstage, full width)
+//! ribbon: File | Home | Send / Receive | Folder | View      (File: its tab row over the backstage)
 //! navigation pane | message list           | reading pane        | To-Do bar
 //! (Favorites, the  | (search, Arrange By:   | (subject, sender,   | (calendar,
 //!  accounts' trees,|  Date, grouped rows)   |  pictures bar, body)|  tasks)
 //!  modules)        |                        |                     |
 //! status bar: items, unread, filter, Send / Receive state
 //! ```
+//!
+//! With no account the window is the same, empty: the message list says "No account yet" and
+//! offers Add Account (the wizard, `ui_account.rs`). File is `ui_backstage.rs`.
 //!
 //! Everything is the toolkit's: `PimShell` (an `OfficeShell`), `Ribbon`, `Backstage`,
 //! `ShellNavigationPane` (`TreeView` per account, unread counts as node badges),
@@ -18,7 +21,7 @@
 
 use azul::{
     callbacks::{
-        BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, ModalOnCloseCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ModalOnCloseCallbackType,
         SummaryListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
         RibbonOnTabClickCallbackType, ShellNavigationPaneOnEventCallbackType,
         SliderOnValueChangeCallbackType, StandardDialogOnEventCallbackType,
@@ -28,7 +31,7 @@ use azul::{
     error::ResultRawImageDecodeImageError,
     http::{HttpBytesResult, HttpRequestConfig},
     image::{ImageRef, RawImage},
-    option::OptionThreadSendMsg,
+    option::{OptionCssPropertyWithConditionsVec, OptionThreadSendMsg},
     prelude::*,
     shells::{
         PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationModule,
@@ -38,39 +41,30 @@ use azul::{
     str::String as AzString,
     vec::U8VecRef,
     widgets::{
-        AboutDialog, Backstage, BackstageNavItem, InfoBar, SummaryList, SummaryListEvent, Modal,
-        ModalState, StandardDialogEvent,
+        AboutDialog, CheckBoxState, InfoBar, SummaryList, SummaryListEvent, Modal, ModalState,
+        StandardDialogEvent,
         SummaryListEventKind, SummaryRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
-        Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, StatusBar,
-        SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom, Titlebar,
-        ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask, TreeViewNode,
+        Ribbon, RibbonAppButton, RibbonBehavior, RibbonButton, RibbonGroup, RibbonItem, RibbonTab,
+        StatusBar, SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom,
+        Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask, TreeViewNode,
     },
 };
 
 use crate::{
     compose::ComposeKind,
     folders::Role,
-    html,
+    html, ids,
     listing::{self, FolderNode, ListRow},
-    message, pictures, ui_account, ui_compose, with_app, MailApp, SyncState,
+    message, pictures, ui_account, ui_backstage, ui_compose, with_app, MailApp, SyncState,
 };
 
-/// The backstage's pages (File).
-pub(crate) const PAGE_INFO: usize = 0;
-pub(crate) const PAGE_ADD_ACCOUNT: usize = 1;
-pub(crate) const PAGE_SETTINGS: usize = 2;
-/// File > Options: the kit's settings page (Appearance, Data, Shortcuts, About).
-pub(crate) const PAGE_OPTIONS: usize = 3;
-/// File > About: the standard About dialog over the window.
-pub(crate) const PAGE_ABOUT: usize = 4;
-pub(crate) const PAGE_EXIT: usize = 5;
-const BACKSTAGE_PAGES: [&str; 6] = [
-    "Info",
-    "Add Account",
-    "Account Settings",
-    "Options",
-    "About",
-    "Exit",
+/// The libraries AzMail is built on and their licences (the About box, File > Help).
+pub(crate) const CREDITS: [(&str, &str); 5] = [
+    ("azul", "MIT"),
+    ("imap", "MIT / Apache-2.0"),
+    ("mail-parser", "MIT / Apache-2.0"),
+    ("micromail", "MIT"),
+    ("rustls", "MIT / Apache-2.0 / ISC"),
 ];
 
 /// The view settings remembered across restarts (the kit's settings.json `values`).
@@ -149,7 +143,7 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
         let page = Dom::create_div()
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
             .with_child(title_row(s))
-            .with_child(azul_appkit::ui::settings_page(&s.kit, Vec::new()));
+            .with_child(azul_appkit::ui::settings_page(&s.kit, mail_options(s, &app)));
         return Dom::create_body()
             .with_css(crate::WINDOW_BODY_CSS)
             .with_child(
@@ -164,9 +158,11 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
             );
     }
     let shell = match s.backstage {
+        // File: the ribbon's tab row stays on top (File is its first tab), the backstage under
+        // it fills the window.
         Some(page) => PimShell::create(Dom::create_div(), Dom::create_div(), Dom::create_div())
             .office_shell()
-            .with_backstage(backstage(s, &app, page)),
+            .with_backstage(ui_backstage::file_tab(s, &app, page)),
         None => {
             let mut pim = PimShell::create(
                 navigation_pane(s, &app),
@@ -181,7 +177,7 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
             }
             // The chrome is the OfficeShell's.
             pim.office_shell()
-                .with_ribbon(ribbon(s, &app))
+                .with_ribbon(ribbon(s, &app, false))
                 .with_status_bar(status_bar(s, &app))
         }
     };
@@ -287,109 +283,20 @@ extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     run_action(&mut data, &mut info, action)
 }
 
-// ==== The backstage (File) ====
+// ==== The About box and File > Options' Mail page ====
 
-fn backstage(s: &MailApp, app: &RefAny, page: usize) -> Dom {
-    let content = match page {
-        PAGE_ADD_ACCOUNT => ui_account::wizard_page(s, app),
-        PAGE_SETTINGS => ui_account::settings_page(s, app),
-        _ => info_page(s, app),
-    };
-    let items: Vec<BackstageNavItem> = BACKSTAGE_PAGES
-        .iter()
-        .enumerate()
-        .map(|(i, label)| {
-            let item = BackstageNavItem::create(*label);
-            if i == PAGE_EXIT {
-                item.with_gap_before()
-            } else {
-                item
-            }
-        })
-        .collect();
-    Backstage::create(items)
-        .with_active_item(page)
-        .with_content(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
-                     padding: 20px 32px; overflow-y: auto;",
-                )
-                .with_child(content),
-        )
-        .with_on_nav_select(app.clone(), on_backstage_nav as BackstageOnNavSelectCallbackType)
-        .with_on_back(app.clone(), on_backstage_back as ButtonOnClickCallbackType)
-        .dom()
-}
-
-fn heading(text: &str) -> Dom {
-    Dom::create_span_with_text(text).with_css("font-size: 26px; margin-bottom: 16px;")
-}
-
-fn line(text: impl Into<AzString>) -> Dom {
-    Dom::create_span_with_text(text).with_css("font-size: 13px; margin-top: 6px;")
-}
-
-/// File > Info: the accounts, and what can be done with them.
-fn info_page(s: &MailApp, app: &RefAny) -> Dom {
-    let mut page = Dom::create_div()
-        .with_css("display: flex; flex-direction: column;")
-        .with_child(heading("Account Information"));
-    if s.accounts.is_empty() {
-        page.add_child(line("No account yet."));
-    }
-    for (i, account) in s.accounts.iter().enumerate() {
-        let current = Some(i) == s.current;
-        let folders = s.folders.get(i).map_or(0, Vec::len);
-        let unread: usize = s.folders.get(i).map_or(0, |list| list.iter().map(|f| f.unread).sum());
-        page.add_child(
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: column; margin-top: 10px;")
-                .with_child(
-                    Dom::create_span_with_text(if current {
-                        format!("{} (shown)", account.sender())
-                    } else {
-                        account.sender()
-                    })
-                    .with_css("font-size: 15px; font-weight: bold;"),
-                )
-                .with_child(line(format!(
-                    "IMAP {}:{} - {folders} folders, {unread} unread - {}",
-                    account.imap.host,
-                    account.imap.port,
-                    crate::sending::describe(&crate::send::SendSettings::load(&s.root, &account.id))
-                ))),
-        );
-    }
-    let button = |label: &str, action: Action| {
-        Button::create(label)
-            .with_on_click(action_ref(app, action), on_action as ButtonOnClickCallbackType)
-            .dom()
-            .with_css("margin-right: 8px;")
-    };
-    page.with_child(
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: row; margin-top: 20px;")
-            .with_child(button("Add Account", Action::AddAccount))
-            .with_child(button("Account Settings", Action::AccountSettings))
-            .with_child(button("Send/Receive All Folders", Action::SendReceive)),
-    )
-    .with_child(line(format!("Mail is kept in {}", s.root.path().display())))
-}
-
-/// File > About: the standard About dialog (the kit's About facts, the libraries AzMail is built
-/// on) in a modal over the window. The keyboard shortcuts are the kit's table (F1).
+/// File > Help > About AzMail: the standard About dialog (the kit's About facts, the libraries
+/// AzMail is built on) in a modal over the window. The keyboard shortcuts are the kit's table
+/// (F1).
 fn about_dialog(app: &RefAny) -> Dom {
     let about = crate::args::ABOUT;
     let dialog = AboutDialog::create(about.name, format!("Version {}", about.version))
         .with_icon("mail")
         .with_description(about.summary)
-        .with_credit("azul", "MIT")
-        .with_credit("imap", "MIT / Apache-2.0")
-        .with_credit("mail-parser", "MIT / Apache-2.0")
-        .with_credit("micromail", "MIT")
-        .with_credit("rustls", "MIT / Apache-2.0 / ISC")
         .with_on_event(app.clone(), on_about_event as StandardDialogOnEventCallbackType);
+    let dialog = CREDITS
+        .iter()
+        .fold(dialog, |dialog, (name, license)| dialog.with_credit(*name, *license));
     Modal::create(dialog.dom())
         .with_title(format!("About {}", about.name))
         .with_open(true)
@@ -415,35 +322,49 @@ extern "C" fn on_about_closed(mut data: RefAny, _info: CallbackInfo, _state: Mod
     .unwrap_or(Update::DoNothing)
 }
 
-extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
-    with_app(&mut data, |s, _| {
-        match index {
-            PAGE_ADD_ACCOUNT => ui_account::open_wizard(s, None),
-            PAGE_SETTINGS => ui_account::open_settings(s),
-            PAGE_OPTIONS => {
-                // The kit's settings page fills the window; Back returns to the mail.
-                azul_appkit::ui::open_settings(&s.kit, None);
-                s.backstage = None;
-                s.editor = None;
-            }
-            PAGE_ABOUT => s.about_open = true,
-            PAGE_EXIT => {
-                info.close_window();
-            }
-            page => {
-                if s.editor.as_ref().is_some_and(|e| e.saving) {
-                    return Update::DoNothing;
-                }
-                s.backstage = Some(page);
-            }
-        }
-        Update::RefreshDom
-    })
-    .unwrap_or(Update::DoNothing)
+/// File > Options' own category ("Mail", before the kit's Appearance, Data, Shortcuts, About):
+/// the View tab's switches as check boxes, as Outlook's Options dialog has its Mail page.
+fn mail_options(s: &MailApp, app: &RefAny) -> Vec<azul_appkit::ui::AppSection> {
+    let check = |label: &str, on: bool, action: Action| {
+        azul_appkit::ui::row(
+            label,
+            CheckBox::create(on)
+                .with_on_toggle(
+                    action_ref(app, action),
+                    on_option_toggle as CheckBoxOnToggleCallbackType,
+                )
+                .dom(),
+        )
+    };
+    vec![azul_appkit::ui::AppSection {
+        category: 0,
+        title: String::from("Mail"),
+        content: azul_appkit::pieces::column(
+            "",
+            vec![
+                check("Reading Pane", s.show_reading, Action::ToggleReading),
+                check("To-Do Bar", s.show_todo, Action::ToggleTodo),
+                check("Navigation Pane", !s.nav_collapsed, Action::ToggleNavigation),
+                check("Newest on top", s.newest_first, Action::ReverseSort),
+                check("Read as plain text", s.plain_text, Action::PlainText),
+                azul_appkit::ui::note(
+                    "The View tab's switches; AzMail remembers them. The accounts are under \
+                     File > Info.",
+                ),
+            ],
+        ),
+    }]
 }
 
-extern "C" fn on_backstage_back(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    run_action(&mut data, &mut info, Action::CloseBackstage)
+/// A check box of File > Options' Mail page: the View tab's action of the same name.
+extern "C" fn on_option_toggle(mut data: RefAny, mut info: CallbackInfo, _state: CheckBoxState) -> Update {
+    let Some((mut app, action)) = data
+        .downcast_ref::<ActionRef>()
+        .map(|r| (r.app.clone(), r.action))
+    else {
+        return Update::DoNothing;
+    };
+    run_action(&mut app, &mut info, action)
 }
 
 // ==== Actions (the ribbon, the backstage's buttons, the window's keys) ====
@@ -473,25 +394,36 @@ pub(crate) enum Action {
     /// The status bar's `-` / `+`: the reading pane's zoom.
     ZoomOut,
     ZoomIn,
+    /// The File tab: opens the backstage, or (open) leaves it.
     OpenFile,
     AddAccount,
     AccountSettings,
     CloseBackstage,
+    /// File > Print > Print: the open message's PDF into the exports folder.
+    Print,
+    /// File > Help > Keyboard Shortcuts: the kit's settings page at its shortcut table.
+    Shortcuts,
+    /// File > Help > Options: the kit's settings page at AzMail's Mail page.
+    Options,
+    /// File > Help > About AzMail: the About box.
+    About,
 }
 
-struct ActionRef {
+pub(crate) struct ActionRef {
     app: RefAny,
     action: Action,
 }
 
-fn action_ref(app: &RefAny, action: Action) -> RefAny {
+/// The callback data of a button that runs `action` ([`on_action`]).
+pub(crate) fn action_ref(app: &RefAny, action: Action) -> RefAny {
     RefAny::new(ActionRef {
         app: app.clone(),
         action,
     })
 }
 
-extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
+/// A button's click: its [`action_ref`]'s action.
+pub(crate) extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, action)) = data
         .downcast_ref::<ActionRef>()
         .map(|r| (r.app.clone(), r.action))
@@ -559,6 +491,9 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 let uids = selected_uids(s);
                 mark_read(s, info, app, &uids, true);
             }
+            Action::SendReceive if s.accounts.is_empty() => {
+                s.notice = String::from("Add an account first: File > Info > Add Account.");
+            }
             Action::SendReceive => crate::start_sync(s, info, app),
             Action::CancelSendReceive => crate::stop_sync(s, info),
             Action::ToggleRead => {
@@ -622,25 +557,48 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 let zoom = zoom_by(s.zoom, steps);
                 set_zoom(s, info, zoom);
             }
-            Action::OpenFile => s.backstage = Some(PAGE_INFO),
+            // File is the ribbon's first tab: clicked while open, it leaves (Outlook 2010).
+            Action::OpenFile if s.backstage.is_some() => leave_backstage(s),
+            Action::OpenFile => s.backstage = Some(ui_backstage::PAGE_INFO),
             Action::AddAccount => ui_account::open_wizard(s, None),
             Action::AccountSettings => ui_account::open_settings(s),
-            Action::CloseBackstage => {
-                let saving = s.editor.as_ref().is_some_and(|e| e.saving);
-                if s.backstage.is_some() && !s.accounts.is_empty() && !saving {
-                    s.backstage = None;
-                    s.editor = None;
+            Action::CloseBackstage => leave_backstage(s),
+            Action::Print => ui_backstage::print_now(s, info, app),
+            Action::Shortcuts | Action::Options => {
+                if s.editor.as_ref().is_some_and(|e| e.saving) {
+                    return Update::DoNothing;
                 }
+                let category = if action == Action::Shortcuts {
+                    "Shortcuts"
+                } else {
+                    crate::args::APP_CATEGORIES[0]
+                };
+                azul_appkit::ui::open_settings(&s.kit, Some(category));
+                s.backstage = None;
+                s.editor = None;
             }
+            Action::About => s.about_open = true,
         }
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
 }
 
+/// Leaves File for the mail - not while an account is being saved (its typed secret goes to
+/// the keyring when the files are written). With no account the mail window is there too.
+fn leave_backstage(s: &mut MailApp) {
+    let saving = s.editor.as_ref().is_some_and(|e| e.saving);
+    if s.backstage.is_some() && !saving {
+        s.backstage = None;
+        s.editor = None;
+    }
+}
+
 // ==== The ribbon ====
 
-fn ribbon(s: &MailApp, app: &RefAny) -> Dom {
+/// The ribbon; with `file_open` only its tab row (File lit, no tab active, the band hidden),
+/// over the backstage: Outlook 2010's File is the ribbon's first tab.
+pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
     let button = |icon: &str, label: &str, action: Action| {
         RibbonButton::create(icon, label)
             .with_on_click(action_ref(app, action), on_action as ButtonOnClickCallbackType)
@@ -732,19 +690,33 @@ fn ribbon(s: &MailApp, app: &RefAny) -> Dom {
             RibbonGroup::create("Message")
                 .with_item(toggle("notes", "Plain Text", Action::PlainText, s.plain_text)),
         );
-    Ribbon::create(vec![home, send_receive, folder, view])
+    let mut ribbon = Ribbon::create(vec![home, send_receive, folder, view])
         .with_app_button(RibbonAppButton::create("File").with_on_click(
             action_ref(app, Action::OpenFile),
             on_action as ButtonOnClickCallbackType,
         ))
         .with_active_tab(s.ribbon_tab)
-        .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
-        .dom_desktop()
+        .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType);
+    if file_open {
+        // An index past the tabs lights none and renders no group (the widget's documented
+        // public-field case); the band itself is hidden, and no double click can bring it back.
+        ribbon.active_tab = usize::MAX;
+        ribbon.style.content_style =
+            OptionCssPropertyWithConditionsVec::Some(ui_backstage::hidden());
+        ribbon = ribbon.with_behavior(RibbonBehavior::inert());
+    }
+    ribbon.dom_desktop().with_id(ids::RIBBON)
 }
 
+/// A ribbon tab: shown; with File open it also leaves File (Outlook 2010's tabs).
 extern "C" fn on_ribbon_tab(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
     with_app(&mut data, |s, _| {
+        if s.editor.as_ref().is_some_and(|e| e.saving) {
+            return Update::DoNothing;
+        }
         s.ribbon_tab = index;
+        s.backstage = None;
+        s.editor = None;
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
@@ -770,7 +742,7 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         SyncState::Done(text) => (text.clone(), StatusBarSyncKind::Connected),
         SyncState::Failed(text) => (text.clone(), StatusBarSyncKind::Error),
         SyncState::Idle if s.accounts.is_empty() => {
-            (String::from("Offline"), StatusBarSyncKind::Offline)
+            (String::from("No account"), StatusBarSyncKind::Offline)
         }
         SyncState::Idle => (String::from("Connected"), StatusBarSyncKind::Connected),
     };
@@ -994,6 +966,7 @@ fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
         .with_module(ShellNavigationModule::create("Contacts", "contacts"))
         .with_module(ShellNavigationModule::create("Tasks", "task_alt"))
         .dom()
+        .with_id(ids::FOLDER_PANE)
 }
 
 extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
@@ -1059,6 +1032,22 @@ fn display_name(entries: &str) -> String {
 fn message_list(s: &MailApp, app: &RefAny) -> Dom {
     if s.module != 0 {
         return module_placeholder(s.module);
+    }
+    if s.accounts.is_empty() {
+        // The real window, empty: one calm line and the way in (as File > Info > Add Account).
+        return ShellEmptyState::create("No account yet")
+            .with_icon("inbox")
+            .with_detail(
+                "Add an e-mail account to receive and send mail. AzMail keeps a copy of every \
+                 folder as files on this computer.",
+            )
+            .with_action_label("Add Account\u{2026}")
+            .with_on_action(
+                action_ref(app, Action::AddAccount),
+                on_action as ButtonOnClickCallbackType,
+            )
+            .dom()
+            .with_id(ids::NO_ACCOUNT);
     }
     let total = s.rows.len();
     let first = s.first_row.min(total.saturating_sub(1));
@@ -1134,6 +1123,7 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         .with_on_scope(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_scroll(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .dom()
+        .with_id(ids::MESSAGE_LIST)
 }
 
 /// Calendar, Contacts and Tasks are other apps.
@@ -1237,7 +1227,8 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
     if !s.show_reading {
         return Dom::create_div();
     }
-    if s.module != 0 {
+    if s.module != 0 || s.accounts.is_empty() {
+        // Without an account the list says it all ("No account yet"): the pane stays blank.
         return Dom::create_div();
     }
     let Some(open) = &s.open else {
