@@ -15,16 +15,24 @@
 //! - [`history`]: undo / redo of whole-state snapshots ([`UndoHistory`]).
 //! - [`migrate`]: the one-time move of an app's folder from the data folders
 //!   older builds used (`azul/`, `Azul/`, `AzNotes/`) into the data root.
-//! - `pieces` (feature `azul`): the small DOM pieces every app's screens are
-//!   built from (text, block, flex column / row, buttons).
+//! - [`options`]: the settings page's model - Outlook 2010's Options dialog
+//!   (the categories, the header line over each, the ids, what Cancel puts
+//!   back).
+//! - `pieces` (feature `look`, part of `azul`): the small DOM pieces every
+//!   app's screens are built from (text, block, flex column / row, buttons).
+//! - `look` (feature `look`, part of `azul`): the settings page's look -
+//!   Outlook 2010's Options dialog in pieces (the category list, the header
+//!   line, banded sections, rows, OK / Cancel) - for the kit's page and for an
+//!   app that draws its settings itself and links azul its own way (AzMeet).
 //! - `backstage` (feature `azul`): the right side of the File tab in the
 //!   Outlook 2010 look (a page's title, cards, command rows of a button, a
 //!   heading and what it does, two columns, sections, facts).
 //! - `ribbon` (feature `azul`): the office apps' ribbon buttons, columns,
 //!   rows and groups (one builder; the app's command type implements
 //!   `RibbonCommand`).
-//! - `ui` (feature `azul`): the settings page on azul's `ShellSettingsLayout`
-//!   (Appearance, Data, Shortcuts, About, plus the app's own sections), the
+//! - `ui` (feature `azul`): the settings page in the shape of Outlook 2010's
+//!   Options dialog (the app's own categories, then General, Data, Shortcuts,
+//!   About; a header line, banded sections, OK / Cancel), the
 //!   window's title row, the window options (`NoTitle`, `--size`), the app
 //!   config (`--theme` / `--mode` over the settings file), the `--shot`
 //!   screenshot timer, and [`files`] jobs on an azul `Thread`.
@@ -41,12 +49,15 @@ pub mod files;
 pub mod find;
 pub mod history;
 pub mod migrate;
+pub mod options;
 pub mod settings;
 pub mod shortcuts;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
-#[cfg(feature = "azul")]
+#[cfg(feature = "look")]
+pub mod look;
+#[cfg(feature = "look")]
 pub mod pieces;
 #[cfg(feature = "azul")]
 pub mod ribbon;

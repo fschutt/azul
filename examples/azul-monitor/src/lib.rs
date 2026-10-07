@@ -100,6 +100,7 @@ use azul::{
 use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
+    settings::AppSettings,
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -661,6 +662,19 @@ pub fn set_speed(s: &mut Monitor, info: &mut CallbackInfo, interval_ms: u64) {
     println!("AZMON_SPEED {interval_ms}");
 }
 
+/// Cancel on the settings page put the settings back: the sampler follows the speed they name.
+fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &AppSettings) {
+    let interval_ms = speed_from_setting(settings.get(SPEED_KEY));
+    if let Some(mut s) = app.downcast_mut::<Monitor>() {
+        if s.interval_ms != interval_ms {
+            s.interval_ms = interval_ms;
+            s.shared.interval_ms.store(interval_ms, Ordering::Relaxed);
+            s.shared.ask(Command::ReadNow);
+            println!("AZMON_SPEED {interval_ms}");
+        }
+    };
+}
+
 // ==== The window ====
 
 /// The window: the RecordsShell (title row, tab row, the tab's page, status
@@ -685,7 +699,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let shell = if kit::settings_open(&s.kit) {
         RecordsShell::create(
             Dom::create_div(),
-            kit::settings_page(&s.kit, ui::settings_sections(s, &app)),
+            kit::settings_page_with_reload(
+                &s.kit,
+                ui::settings_sections(s, &app),
+                &app,
+                reload_settings,
+            ),
         )
     } else if s.model.readings == 0 {
         RecordsShell::create(ui::tools(s, &app), ui::waiting(s))

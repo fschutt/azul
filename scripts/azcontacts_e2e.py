@@ -208,8 +208,8 @@ def body(args, logs, out):
         app.until("the jump", lambda: app.printed("AZCONTACTS_JUMP", r".+"))
         app.key("comma", primary=True)
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
-        app.click(text="Appearance")
-        app.until("the Appearance section", lambda: app.has_id("appkit-theme"))
+        app.click(text="General")
+        app.until("the General options", lambda: app.has_id("appkit-theme"))
         saved = len(app.printed("AZCONTACTS_SETTINGS_SAVED"))
         app.click(text="Flora")
         app.click(text="Dark")
@@ -219,7 +219,7 @@ def body(args, logs, out):
         if settings.get("theme") != "flora" or settings.get("mode") != "dark":
             raise Failure("settings.json does not hold flora / dark: %s" % settings)
         app.screenshot(os.path.join(out, "settings-flora-dark.png"))
-        app.key("escape")
+        app.click(selector="#appkit-settings-ok")  # OK keeps them (Escape would cancel)
         app.until("the settings to close", lambda: not app.has_id("appkit-settings"))
         app.screenshot(os.path.join(out, "list-flora-dark.png"))
 

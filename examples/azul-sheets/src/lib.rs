@@ -2034,13 +2034,9 @@ fn backstage(s: &AppState, app: &RefAny) -> Dom {
             );
         }
         "Options" => {
-            // appkit's settings page: Appearance (the app theme and the mode,
-            // saved and applied at once), Data (the folder), the shortcuts
-            // table, About - one page for every Azlin app (DEDUP_OFFICE D13).
-            match &s.kit {
-                Some(kit_ref) => pane.add_child(kit::settings_page(kit_ref, Vec::new())),
-                None => pane.add_child(line("The settings are not available.")),
-            }
+            // The kit's settings page covers the window instead (backstage_pane); this pane
+            // shows only without a kit.
+            pane.add_child(line("The settings are not available."));
         }
         _ => {
             // The standard About box (DEDUP_OFFICE D12); OK goes back.
@@ -2088,7 +2084,19 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let s = &*guard;
-    let shell = if s.screen == Screen::Backstage {
+    let settings = s.kit.as_ref().filter(|k| kit::settings_open(k));
+    let shell = if let Some(kit_ref) = settings {
+        // File > Options, Mod+,: appkit's settings page (Outlook's Options dialog) - General
+        // (the app theme and the mode, applied at once), Data, the shortcuts, About - one page
+        // for every Azlin app; OK / Cancel return to the workbook.
+        DocumentShell::create(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+                .with_child(kit::settings_page(kit_ref, Vec::new())),
+        )
+        .office_shell()
+        .with_title_row(title_row(s))
+    } else if s.screen == Screen::Backstage {
         DocumentShell::create(Dom::create_div())
             .office_shell()
             .with_title_row(title_row(s))
@@ -3014,8 +3022,17 @@ extern "C" fn on_tab_double_click(mut data: RefAny, mut info: CallbackInfo) -> U
     })
 }
 
-/// Enters the backstage's `pane`; the Open pane lists the data folder.
+/// Enters the backstage's `pane`; the Open pane lists the data folder. Options is the kit's
+/// settings page (Outlook's Options dialog): it covers the window, and OK / Cancel return to
+/// the workbook.
 fn backstage_pane(info: &mut CallbackInfo, app: &RefAny, s: &mut AppState, pane: usize) {
+    if pane == OPTIONS_PANE {
+        if let Some(kit_ref) = &s.kit {
+            kit::open_settings(kit_ref, None);
+            s.screen = Screen::Workbook;
+            return;
+        }
+    }
     s.screen = Screen::Backstage;
     s.backstage_pane = pane.min(BACKSTAGE_ITEMS.len() - 1);
     if BACKSTAGE_ITEMS[s.backstage_pane] == "Open" {
@@ -3228,6 +3245,12 @@ extern "C" fn on_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny
 
 /// The shortcuts no widget takes (the grid has its own keys).
 extern "C" fn on_window_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // The kit's settings page covers the workbook: its keys (Escape = Cancel, F1), and no
+    // workbook key acts under it.
+    let kit_ref = data.downcast_ref::<AppState>().and_then(|s| s.kit.clone());
+    if let Some(kit_ref) = kit_ref.filter(|k| kit::settings_open(k)) {
+        return kit::handle_key(&kit_ref, &mut info).unwrap_or(Update::DoNothing);
+    }
     let key = info.get_current_keyboard_state().current_virtual_keycode.into_option();
     let modifiers = info.get_key_modifiers();
     let command = modifiers.primary_down();

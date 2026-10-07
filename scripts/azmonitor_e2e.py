@@ -286,7 +286,8 @@ def body(args, logs, out):
         app.log("exported %s" % key)
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "10-settings.png"))
-        app.key("escape")
+        app.click(selector="#appkit-settings-ok")  # OK keeps the 2 s (Escape would cancel)
+        app.until("the settings closed", lambda: not app.has_id("appkit-settings"))
 
         app.must("set_mode", mode="dark")
         app.must("wait_settled")

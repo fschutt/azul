@@ -10,8 +10,8 @@ description = """
     --sample, --data-dir), the per-user data layout (one folder per app under
     the data root, the same keys the user's S3 bucket will have), the app
     settings file, the keyboard-shortcut table and the About facts. With the
-    `azul` feature also the shared UI: the settings page on azul's
-    ShellSettingsLayout (Appearance, Data, Shortcuts, About), the window's
+    `azul` feature also the shared UI: the settings page in the shape of
+    Outlook 2010's Options dialog (General, Data, Shortcuts, About), the window's
     title row, the `--shot` screenshot timer and file jobs that run on an
     azul Thread through azul-storage's Drive (a LocalDrive today, an S3Drive
     later). AzCalculator is its first user, AzContacts the second.
@@ -26,13 +26,19 @@ serde_json = "1"
 azul-storage = { path = "../azul-storage" }
 # In Cargo.lock (AzSheets, AzKeys, AzERP): the one CSV reader (`csv` module).
 csv = "1.4"
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"], optional = true }
+# No link mode here: the `azul` feature below adds link-dynamic; `look` alone leaves it to the
+# app's own azul dependency (AzMeet links statically on android / ios).
+azul = { path = "../../dll", package = "azul-dll", default-features = false, optional = true }
 
 [features]
 default = []
+# The settings page's look (Outlook's Options dialog in pieces) and the small
+# DOM pieces, on azul without a link mode: for an app that draws its settings
+# itself and links azul its own way (AzMeet).
+look = ["dep:azul"]
 # The shared UI (settings page, title row, --shot, file jobs on a Thread).
 # The apps turn it on; the unit tests of the plain modules need no libazul.
-azul = ["dep:azul"]
+azul = ["look", "azul/link-dynamic"]
 
 [dev-dependencies]
 # The one temporary folder for tests (azul_storage::testing::TempDir).

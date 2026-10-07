@@ -6,11 +6,14 @@
 //!   `settings.json`, a `--theme` / `--mode` switch winning for one run);
 //! - the title row ([`title_row`]: azul's `Titlebar`, drawn by the app as
 //!   every azul app does);
-//! - the settings page ([`settings_page`], on azul's `ShellSettingsLayout`):
-//!   the app's own categories first, then Appearance (theme and mode, saved
-//!   to `settings.json` and applied at once), Data (the data folder),
-//!   Shortcuts (the app's table) and About. Mod+, opens it, F1 opens it at
-//!   the shortcuts, Escape or Back closes it ([`handle_key`]);
+//! - the settings page ([`settings_page`]) in the shape of Outlook 2010's
+//!   Options dialog ([`crate::options`]): the categories on the left - the
+//!   app's own first, then General (theme and mode, saved to `settings.json`
+//!   and applied at once), Data (the data folder), Shortcuts (the app's
+//!   table) and About - and on the right the chosen category's header line
+//!   over its sections, each a band with its rows; OK keeps the changes,
+//!   Cancel puts back the settings the page found. Mod+, opens it, F1 opens
+//!   it at the shortcuts, Escape is Cancel ([`handle_key`]);
 //! - file jobs on an azul `Thread` ([`spawn_file_jobs`]), so no callback ever
 //!   waits on the disk (or, later, the network);
 //! - the `--shot` screenshot ([`on_window_created`]).
@@ -24,7 +27,6 @@ use std::path::{Path, PathBuf};
 use azul::{
     callbacks::{
         ButtonOnClickCallbackType, CallbackType, LayoutCallbackType, SegmentedOnChangeCallbackType,
-        ShellSettingsLayoutOnCategoryCallbackType, ShellSettingsLayoutOnSearchCallbackType,
         TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType,
     },
     css::DarkLightMode,
@@ -32,14 +34,12 @@ use azul::{
     file::FilePath,
     option::{OptionDarkLightMode, OptionLogicalSize},
     prelude::*,
-    shells::{ShellSettingsLayout, ShellSettingsSection},
     str::String as AzString,
     task::{
         Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg,
         Timer, TimerId,
     },
     time::{Duration, SystemTimeDiff},
-    vec::StringVec,
     widgets::{
         AboutDialog, Button, Modal, ModalState, Segmented, SegmentedState, StandardDialogEvent,
         Titlebar,
@@ -53,13 +53,15 @@ use crate::{
     args::{AppArgs, AppSpec, ModePref, Theme},
     data::{self, app_key},
     files::{run_jobs, FileJob, FileOutcome},
+    look::{self, CategoryItem},
     migrate,
+    options::{categories, category_id, category_index, Category, Snapshot},
     settings::{AppSettings, SETTINGS_FILE},
     shortcuts::{display_keys, groups, Shortcut, KIT_SHORTCUTS},
 };
 
-/// The kit's categories, after the app's own.
-pub const KIT_CATEGORIES: [&str; 4] = ["Appearance", "Data", "Shortcuts", "About"];
+/// The kit's categories, after the app's own ([`crate::options::KIT_CATEGORIES`]).
+pub use crate::options::KIT_CATEGORIES;
 
 /// The write-back tag of a settings save (the kit's own jobs).
 const SETTINGS_TAG: u64 = u64::MAX;
@@ -78,8 +80,6 @@ pub struct Kit {
     pub settings_open: bool,
     /// The settings page's category (an index into [`Kit::categories`]).
     pub category: usize,
-    /// The settings page's search text.
-    pub search: String,
     /// The app's own settings categories (first on the page).
     pub app_categories: Vec<String>,
     /// The last problem saving or reading the settings ("" = none).
@@ -88,17 +88,35 @@ pub struct Kit {
     pub mac: bool,
     /// The About box (azul's standard `AboutDialog`) is open.
     pub about_open: bool,
+    /// The settings as the page found them when it opened: what Cancel puts back.
+    snapshot: Option<Snapshot>,
+    /// While the page shows: how the app re-reads its own copies of its values after Cancel
+    /// ([`settings_page_with_reload`]); dropped when the page closes.
+    reload: Option<Reload>,
+    /// The app's key handler calls [`handle_key`]: Escape is handled there, so the page's own
+    /// key handler (for the apps that do not route their keys through the kit) stays out.
+    keys_routed: bool,
+    /// The prefixes of the values Cancel leaves as they are ([`keep_on_cancel`]).
+    kept_on_cancel: Vec<String>,
+}
+
+/// What an app does after Cancel put its settings back: re-read its own copies of its values
+/// from `settings` (the restored ones). `app` is the data the app handed to
+/// [`settings_page_with_reload`]; the kit is not borrowed while this runs.
+pub type ReloadSettings = fn(app: &mut RefAny, info: &mut CallbackInfo, settings: &AppSettings);
+
+/// An app's [`ReloadSettings`] with its data.
+#[derive(Clone)]
+struct Reload {
+    app: RefAny,
+    reload: ReloadSettings,
 }
 
 impl Kit {
     /// Every category of the settings page: the app's, then the kit's.
     #[must_use]
     pub fn categories(&self) -> Vec<String> {
-        self.app_categories
-            .iter()
-            .cloned()
-            .chain(KIT_CATEGORIES.iter().map(|c| (*c).to_string()))
-            .collect()
+        categories(&self.app_categories)
     }
 
     /// The key of the settings file.
@@ -185,11 +203,14 @@ pub fn create_kit(
         data_root,
         settings_open: false,
         category: 0,
-        search: String::new(),
         app_categories: app_categories.iter().map(|c| (*c).to_string()).collect(),
         notice,
         mac: cfg!(target_os = "macos"),
         about_open: false,
+        snapshot: None,
+        reload: None,
+        keys_routed: false,
+        kept_on_cancel: Vec::new(),
     })
 }
 
@@ -456,25 +477,76 @@ pub fn set_value(kit_ref: &RefAny, info: &mut CallbackInfo, key: &str, value: &s
 
 // ==== Opening and closing the settings ====
 
-/// Shows the settings page, at the category named `category` if given.
+/// Shows the settings page, at the category named `category` if given ("Appearance" finds
+/// General). The settings as they are now are what Cancel puts back; opening the page again
+/// while it shows (F1 on it) keeps the first ones.
 pub fn open_settings(kit_ref: &RefAny, category: Option<&str>) {
     let mut kit = kit_ref.clone();
     if let Some(mut k) = kit.downcast_mut::<Kit>() {
+        if !k.settings_open || k.snapshot.is_none() {
+            let snapshot = Snapshot::take(&k.settings, &k.args);
+            k.snapshot = Some(snapshot);
+        }
         k.settings_open = true;
-        k.search.clear();
         if let Some(name) = category {
-            if let Some(i) = k.categories().iter().position(|c| c == name) {
+            if let Some(i) = category_index(&k.categories(), name) {
                 k.category = i;
             }
         }
     };
 }
 
-/// Hides the settings page.
+/// Hides the settings page, keeping every change (the page's OK; an app's own Back).
 pub fn close_settings(kit_ref: &RefAny) {
     let mut kit = kit_ref.clone();
     if let Some(mut k) = kit.downcast_mut::<Kit>() {
         k.settings_open = false;
+        k.snapshot = None;
+        k.reload = None;
+    };
+}
+
+/// The page's Cancel (and Escape): puts back the settings the page found when it opened - the
+/// theme and the mode shown again at once, `settings.json` written again - and hides the page.
+/// The app's [`ReloadSettings`] (if it gave one) then re-reads its own copies of its values
+/// (on every Cancel). `Some` = the kit's settings changed back.
+pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppSettings> {
+    let mut kit = kit_ref.clone();
+    let (restored, settings, reload) = {
+        let mut guard = kit.downcast_mut::<Kit>()?;
+        let k: &mut Kit = &mut guard;
+        let open = k.settings_open;
+        k.settings_open = false;
+        k.about_open = false;
+        let reload = k.reload.take();
+        let snapshot = k.snapshot.take()?;
+        if open {
+            println!("{}_SETTINGS_CLOSED cancel", k.spec.binary.to_uppercase());
+        }
+        let restored = snapshot.restore_keeping(&mut k.settings, &mut k.args, &k.kept_on_cancel);
+        (restored, k.settings.clone(), reload)
+    };
+    if let Some((theme, mode)) = restored.look {
+        info.set_theme(theme.name());
+        info.set_mode(mode_option(mode));
+    }
+    if restored.save {
+        save_settings(kit_ref, info);
+    }
+    // Every Cancel: the app may keep values of its own beside the kit's settings.
+    if let Some(Reload { mut app, reload }) = reload {
+        reload(&mut app, info, &settings);
+    }
+    (restored.save || restored.look.is_some()).then_some(settings)
+}
+
+/// The values whose key starts with `prefix` record what an action did (AzKeys'
+/// `device_unlock.<vault>`: a key put into the keyring), not a choice: Cancel leaves them as
+/// they are. Called once, at the start.
+pub fn keep_on_cancel(kit_ref: &RefAny, prefix: &str) {
+    let mut kit = kit_ref.clone();
+    if let Some(mut k) = kit.downcast_mut::<Kit>() {
+        k.kept_on_cancel.push(prefix.to_string());
     };
 }
 
@@ -487,8 +559,15 @@ pub fn settings_open(kit_ref: &RefAny) -> bool {
 
 /// The kit's keys, for the app's window key handler to call first:
 /// Mod+, opens the settings, F1 opens them at the shortcuts, Escape closes
-/// them. `Some` = handled (the app returns it), `None` = the app's key.
+/// the About box or cancels the settings. `Some` = handled (the app returns
+/// it), `None` = the app's key.
 pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
+    {
+        let mut kit = kit_ref.clone();
+        if let Some(mut k) = kit.downcast_mut::<Kit>() {
+            k.keys_routed = true;
+        };
+    }
     let key = info
         .get_current_keyboard_state()
         .current_virtual_keycode
@@ -506,13 +585,8 @@ pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
             info.prevent_default();
             Some(Update::RefreshDom)
         }
-        VirtualKeyCode::Escape if about_open(kit_ref) => {
-            set_about_open(kit_ref, false);
-            info.prevent_default();
-            Some(Update::RefreshDom)
-        }
-        VirtualKeyCode::Escape if settings_open(kit_ref) => {
-            close_settings(kit_ref);
+        VirtualKeyCode::Escape if about_open(kit_ref) || settings_open(kit_ref) => {
+            escape(kit_ref, info);
             info.prevent_default();
             Some(Update::RefreshDom)
         }
@@ -520,10 +594,19 @@ pub fn handle_key(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<Update> {
     }
 }
 
+/// Escape on the page: the About box closes first, then Cancel.
+fn escape(kit_ref: &RefAny, info: &mut CallbackInfo) {
+    if about_open(kit_ref) {
+        set_about_open(kit_ref, false);
+    } else {
+        let _changed_back = cancel_settings(kit_ref, info);
+    }
+}
+
 // ==== The settings page ====
 
 /// One of the app's own sections: its category (an index into the app's
-/// categories), its title and its content.
+/// categories), its title (the band over it) and its content (its rows).
 pub struct AppSection {
     pub category: usize,
     pub title: String,
@@ -534,27 +617,9 @@ pub struct AppSection {
 pub use crate::pieces::text;
 use crate::pieces::{column, strs};
 
-/// A settings row: a label column and the control.
-#[must_use]
-pub fn row(label: &str, control: Dom) -> Dom {
-    Dom::create_div()
-        .with_class("appkit-row")
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 6px 0px;")
-        .with_child(
-            Dom::create_div()
-                .with_css("width: 160px; flex-shrink: 0; font-size: 13px;")
-                .with_child(text(label)),
-        )
-        .with_child(control)
-}
-
-/// A line of secondary text under a section's rows.
-#[must_use]
-pub fn note(content: &str) -> Dom {
-    Dom::create_div()
-        .with_css("padding: 4px 0px; font-size: 12px; opacity: 0.75;")
-        .with_child(text(content))
-}
+/// A settings row and a line of secondary text: the look's ([`crate::look`]).
+pub use crate::look::{note, row};
+use crate::look::section;
 
 fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
     let theme_labels: Vec<&str> = Theme::ALL.iter().map(|t| t.label()).collect();
@@ -592,6 +657,9 @@ fn data_section(k: &Kit) -> Dom {
             "Data folder",
             Dom::create_div()
                 .with_id("appkit-data-folder")
+                .with_css(
+                    "flex-grow: 1; min-width: 0px; font-size: 13px; overflow-wrap: anywhere;",
+                )
                 .with_child(text(folder.display().to_string())),
         ),
         note(
@@ -601,22 +669,26 @@ fn data_section(k: &Kit) -> Dom {
     ])
 }
 
-fn shortcuts_section(k: &Kit) -> Dom {
-    let mut children = Vec::new();
-    for (group, items) in groups(&k.shortcuts) {
-        children.push(
-            Dom::create_div()
-                .with_css("padding: 8px 0px 2px 0px; font-size: 12px; font-weight: 600;")
-                .with_child(text(group)),
-        );
-        for s in items {
-            children.push(row(
-                &display_keys(s.keys, k.mac),
-                Dom::create_div().with_child(text(s.action)),
-            ));
-        }
-    }
-    column("", children).with_id("appkit-shortcuts")
+/// The shortcuts: one section per group, a row per shortcut (the keys, what they do).
+fn shortcuts_sections(k: &Kit) -> Dom {
+    let sections = groups(&k.shortcuts)
+        .into_iter()
+        .map(|(group, items)| {
+            let rows = items
+                .iter()
+                .map(|s| {
+                    row(
+                        &display_keys(s.keys, k.mac),
+                        Dom::create_div()
+                            .with_css("flex-grow: 1; min-width: 0px; font-size: 13px;")
+                            .with_child(text(s.action)),
+                    )
+                })
+                .collect();
+            section(group, column("", rows))
+        })
+        .collect();
+    column("min-width: 0px;", sections).with_id("appkit-shortcuts")
 }
 
 fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
@@ -628,7 +700,14 @@ fn about_section(k: &Kit, kit_ref: &RefAny) -> Dom {
         note(k.about.summary),
     ];
     for (label, value) in about_rows(&k.about, &k.data_root) {
-        children.push(row(&label, Dom::create_div().with_child(text(value))));
+        children.push(row(
+            &label,
+            Dom::create_div()
+                .with_css(
+                    "flex-grow: 1; min-width: 0px; font-size: 13px; overflow-wrap: anywhere;",
+                )
+                .with_child(text(value)),
+        ));
     }
     children.push(
         Dom::create_div()
@@ -703,85 +782,149 @@ extern "C" fn on_about_close(kit: RefAny, _info: CallbackInfo, _state: ModalStat
     Update::RefreshDom
 }
 
-/// The settings page: a header (Back, "Settings") over the
-/// `ShellSettingsLayout` with the app's sections and the kit's. With a search
-/// every section is handed in and the layout hides those whose title does
-/// not match; otherwise the sections of the chosen category.
+// ==== The page: the category list, the options pane, OK / Cancel ====
+
+/// The settings page, in the shape of Outlook 2010's Options dialog: the categories on the
+/// left (the app's, then General, Data, Shortcuts, About), on the right the chosen category's
+/// header line over its sections (a band, the rows under it), OK and Cancel under both. A
+/// change takes effect at once; OK keeps it, Cancel and Escape put back what the page found.
+///
+/// An app that keeps its own copies of its values (not only in the kit's settings) hands
+/// [`settings_page_with_reload`] how to read them again after Cancel.
 #[must_use]
 pub fn settings_page(kit_ref: &RefAny, app_sections: Vec<AppSection>) -> Dom {
+    options_page(kit_ref, app_sections, None)
+}
+
+/// [`settings_page`] for an app that keeps its own copies of its values: after Cancel put
+/// the settings back, `reload(app, info, settings)` reads them again.
+#[must_use]
+pub fn settings_page_with_reload(
+    kit_ref: &RefAny,
+    app_sections: Vec<AppSection>,
+    app: &RefAny,
+    reload: ReloadSettings,
+) -> Dom {
+    options_page(
+        kit_ref,
+        app_sections,
+        Some(Reload {
+            app: app.clone(),
+            reload,
+        }),
+    )
+}
+
+fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<Reload>) -> Dom {
+    {
+        // Cancel - the page's button or Escape in the app's key handler - finds the reload
+        // here; it is dropped when the page closes.
+        let mut kit = kit_ref.clone();
+        if let Some(mut k) = kit.downcast_mut::<Kit>() {
+            k.reload = reload;
+        };
+    }
     let mut kit = kit_ref.clone();
     let Some(k) = kit.downcast_ref::<Kit>() else {
         return Dom::create_div();
     };
     let app_count = k.app_categories.len();
     let categories = k.categories();
-    let category = k.category.min(categories.len().saturating_sub(1));
-    let searching = !k.search.trim().is_empty();
+    let chosen = k.category.min(categories.len().saturating_sub(1));
+    let kind = Category::of(chosen, app_count);
+    let label = categories.get(chosen).cloned().unwrap_or_default();
 
-    let mut sections: Vec<(usize, ShellSettingsSection)> = app_sections
-        .into_iter()
-        .map(|s| (s.category, ShellSettingsSection::create(s.title, s.content)))
-        .collect();
-    sections.push((app_count, ShellSettingsSection::create("Appearance", appearance_section(&k, kit_ref))));
-    sections.push((app_count + 1, ShellSettingsSection::create("Data", data_section(&k))));
-    sections.push((
-        app_count + 2,
-        ShellSettingsSection::create("Keyboard shortcuts", shortcuts_section(&k)),
-    ));
-    sections.push((
-        app_count + 3,
-        ShellSettingsSection::create(format!("About {}", k.about.name), about_section(&k, kit_ref)),
-    ));
-
-    let mut layout = ShellSettingsLayout::create(StringVec::from_vec(
-        categories.iter().map(|c| AzString::from(c.as_str())).collect(),
-    ))
-    .with_active_category(category)
-    .with_search(k.search.as_str())
-    .with_on_category(kit_ref.clone(), on_category as ShellSettingsLayoutOnCategoryCallbackType)
-    .with_on_search(kit_ref.clone(), on_search as ShellSettingsLayoutOnSearchCallbackType);
-    for (c, section) in sections {
-        if searching || c == category {
-            layout.add_section(section);
+    let mut pane = vec![look::header_line(
+        "appkit-settings-header",
+        kind.icon(),
+        &kind.header(&label, k.about.name),
+    )];
+    match kind {
+        Category::App(index) => {
+            for s in app_sections.into_iter().filter(|s| s.category == index) {
+                pane.push(section(&s.title, s.content));
+            }
         }
+        Category::General => pane.push(section("Appearance", appearance_section(&k, kit_ref))),
+        Category::Data => pane.push(section("Your data", data_section(&k))),
+        Category::Shortcuts => pane.push(shortcuts_sections(&k)),
+        Category::About => pane.push(section(
+            &format!("About {}", k.about.name),
+            about_section(&k, kit_ref),
+        )),
     }
 
-    let mut header = Dom::create_div()
-        .with_id("appkit-settings-header")
-        .with_css("display: flex; flex-direction: row; align-items: center; padding: 6px 12px;")
-        .with_child(
-            Button::create("Back")
-                .with_icon("arrow_back")
-                .with_on_click(kit_ref.clone(), on_back as ButtonOnClickCallbackType)
-                .dom()
-                .with_id("appkit-settings-back"),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css("padding-left: 12px; font-size: 15px; font-weight: 600;")
-                .with_child(text("Settings")),
-        );
-    if !k.notice.is_empty() {
-        header.add_child(
-            Dom::create_div()
-                .with_id("appkit-settings-notice")
-                .with_css("padding-left: 16px; font-size: 12px;")
-                .with_child(text(k.notice.as_str())),
-        );
-    }
-    Dom::create_div()
-        .with_id("appkit-settings")
-        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(header)
-        .with_child(
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-                .with_child(layout.dom()),
-        )
-        .with_child(about_modal(&k, kit_ref))
+    let items: Vec<CategoryItem<'_>> = categories
+        .iter()
+        .enumerate()
+        .map(|(index, name)| CategoryItem {
+            name: name.as_str(),
+            id: category_id(name),
+            // Outlook's groups: the app's categories, General / Data / Shortcuts, About.
+            rule_before: (index == app_count && app_count > 0)
+                || Category::of(index, app_count) == Category::About,
+        })
+        .collect();
+    let list = look::category_list(
+        "appkit-settings-categories",
+        &items,
+        chosen,
+        &|index| {
+            RefAny::new(CategoryRef {
+                kit: kit_ref.clone(),
+                index,
+            })
+        },
+        on_category,
+    );
+    let page_data = RefAny::new(PageRef {
+        kit: kit_ref.clone(),
+    });
+    let notice = (!k.notice.is_empty()).then(|| {
+        Dom::create_div()
+            .with_id("appkit-settings-notice")
+            .with_child(text(k.notice.as_str()))
+    });
+    let buttons = look::dialog_buttons(
+        "appkit-settings-buttons",
+        notice,
+        vec![
+            look::dialog_button("OK", true, "appkit-settings-ok", &page_data, on_ok),
+            look::dialog_button("Cancel", false, "appkit-settings-cancel", &page_data, on_cancel),
+        ],
+    );
+    look::dialog(
+        "appkit-settings",
+        list,
+        look::options_pane("appkit-settings-pane", pane),
+        buttons,
+    )
+    // Escape for the apps that do not route their keys through `handle_key`.
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+        page_data,
+        on_page_key,
+    )
+    .with_child(about_modal(&k, kit_ref))
 }
 
-// ==== The settings page's callbacks (data: the kit) ====
+// ==== The settings page's callbacks ====
+
+/// A category of the list: the kit and its index.
+struct CategoryRef {
+    kit: RefAny,
+    index: usize,
+}
+
+/// The page's OK / Cancel / Escape: the kit.
+struct PageRef {
+    kit: RefAny,
+}
+
+/// The kit of a page callback's data.
+fn page_kit(data: &mut RefAny) -> Option<RefAny> {
+    data.downcast_ref::<PageRef>().map(|p| p.kit.clone())
+}
 
 /// The user chose the app theme: in effect at once (every window), kept in
 /// settings.json, and winning over a `--theme` switch from now on. The one
@@ -831,22 +974,65 @@ extern "C" fn on_mode(kit: RefAny, mut info: CallbackInfo, state: SegmentedState
     Update::RefreshDom
 }
 
-extern "C" fn on_category(mut kit: RefAny, _info: CallbackInfo, index: usize) -> Update {
-    if let Some(mut k) = kit.downcast_mut::<Kit>() {
-        k.category = index;
-        k.search.clear();
+extern "C" fn on_category(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some((mut kit, index)) =
+        data.downcast_ref::<CategoryRef>().map(|c| (c.kit.clone(), c.index))
+    else {
+        return Update::DoNothing;
+    };
+    let Some(mut k) = kit.downcast_mut::<Kit>() else {
+        return Update::DoNothing;
+    };
+    if k.category == index {
+        return Update::DoNothing;
     }
+    k.category = index;
     Update::RefreshDom
 }
 
-extern "C" fn on_search(mut kit: RefAny, _info: CallbackInfo, text: AzString) -> Update {
-    if let Some(mut k) = kit.downcast_mut::<Kit>() {
-        k.search = text.as_str().to_string();
+/// OK: the changes stay (each was saved as it was made); the page closes.
+extern "C" fn on_ok(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(kit_ref) = page_kit(&mut data) else {
+        return Update::DoNothing;
+    };
+    {
+        let mut kit = kit_ref.clone();
+        if let Some(k) = kit.downcast_ref::<Kit>() {
+            println!("{}_SETTINGS_CLOSED ok", k.spec.binary.to_uppercase());
+        };
     }
+    close_settings(&kit_ref);
     Update::RefreshDom
 }
 
-extern "C" fn on_back(kit: RefAny, _info: CallbackInfo) -> Update {
-    close_settings(&kit);
+/// Cancel: the settings the page found come back; the page closes.
+extern "C" fn on_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = page_kit(&mut data) else {
+        return Update::DoNothing;
+    };
+    let _changed_back = cancel_settings(&kit_ref, &mut info);
+    Update::RefreshDom
+}
+
+/// Escape on the page, for an app whose key handler does not call [`handle_key`] (that one
+/// handles Escape for the others, before this runs: the app's handler sits on an ancestor).
+extern "C" fn on_page_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(kit_ref) = page_kit(&mut data) else {
+        return Update::DoNothing;
+    };
+    let routed = {
+        let mut kit = kit_ref.clone();
+        kit.downcast_ref::<Kit>().map_or(true, |k| k.keys_routed || !k.settings_open)
+    };
+    let escape_key = info
+        .get_current_keyboard_state()
+        .current_virtual_keycode
+        .into_option()
+        == Some(VirtualKeyCode::Escape);
+    if routed || !escape_key {
+        return Update::DoNothing;
+    }
+    escape(&kit_ref, &mut info);
+    info.prevent_default();
     Update::RefreshDom
 }

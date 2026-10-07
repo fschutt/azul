@@ -32,7 +32,7 @@ impl Shortcut {
 pub const KIT_SHORTCUTS: [Shortcut; 3] = [
     Shortcut::new("Window", "Mod+,", "Open the settings"),
     Shortcut::new("Window", "F1", "Show the keyboard shortcuts"),
-    Shortcut::new("Window", "Escape", "Close the settings"),
+    Shortcut::new("Window", "Escape", "Cancel the settings (close them, the changes undone)"),
 ];
 
 /// The keys as the user reads them on this platform: `Mod` is `Cmd` on macOS

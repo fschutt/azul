@@ -60,6 +60,7 @@ use azul_appkit::{
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
     pieces::{block, button, column, flex_row, primary, strs, text},
+    settings::AppSettings,
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
 };
@@ -255,8 +256,8 @@ impl ContactsApp {
         let (data_root, sort, version, ignored) = match k.downcast_ref::<kit::Kit>() {
             Some(kit) => (
                 kit.data_root.clone(),
-                if kit.settings.get("sort") == Some("last") { SortBy::Last } else { SortBy::First },
-                if kit.settings.get("export") == Some("3.0") { Version::V3 } else { Version::V4 },
+                sort_of(&kit.settings),
+                export_version_of(&kit.settings),
                 parse_ignored(kit.settings.get("ignored").unwrap_or("")),
             ),
             None => (PathBuf::from("."), SortBy::First, Version::V4, Vec::new()),
@@ -1356,7 +1357,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let content = if kit::settings_open(&s.kit) {
         column(
             "flex-grow: 1; min-height: 0px;",
-            vec![kit::title_row(SPEC.name), kit::settings_page(&s.kit, settings_sections(s, &app))],
+            vec![
+                kit::title_row(SPEC.name),
+                kit::settings_page_with_reload(
+                    &s.kit,
+                    settings_sections(s, &app),
+                    &app,
+                    reload_settings,
+                ),
+            ],
         )
     } else {
         PimShell::create(navigation(s, &app), list_pane(s, &app), reading_pane(s, &app))
@@ -1786,6 +1795,32 @@ extern "C" fn on_search(mut data: RefAny, mut info: CallbackInfo, state: TextInp
         update,
         valid: TextInputValid::Yes,
     }
+}
+
+/// The list's order the settings name (first names unless `sort` is `last`).
+fn sort_of(settings: &AppSettings) -> SortBy {
+    if settings.get("sort") == Some("last") {
+        SortBy::Last
+    } else {
+        SortBy::First
+    }
+}
+
+/// The vCard version an export writes (4.0 unless `export` is `3.0`).
+fn export_version_of(settings: &AppSettings) -> Version {
+    if settings.get("export") == Some("3.0") {
+        Version::V3
+    } else {
+        Version::V4
+    }
+}
+
+/// Cancel on the settings page put the settings back: the order and the export version follow.
+fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &AppSettings) {
+    if let Some(mut s) = app.downcast_mut::<ContactsApp>() {
+        s.sort = sort_of(settings);
+        s.export_version = export_version_of(settings);
+    };
 }
 
 extern "C" fn on_sort(mut data: RefAny, mut info: CallbackInfo, state: SegmentedState) -> Update {

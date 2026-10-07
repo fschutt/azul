@@ -14,7 +14,7 @@
        to world.json;
     5. Timer: "Tea" is shown; the 1 min preset starts a third timer file;
     6. Stopwatch: the sample's 04:17.36 with five laps; Reset, Start, Lap, Stop;
-    7. the settings page (Mod+,): the Clock section, Flora + Dark saved, Escape closes it;
+    7. the settings page (Mod+,): the Clock section, Flora + Dark saved, OK closes it;
     8. a screenshot of every screen;
     9. with --ring: the 1 min timer rings (AZCLOCK_RING timer), the overlay shows "Time is up",
        Dismiss ends it.
@@ -165,14 +165,14 @@ def body(args, logs, out):
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
         if not app.shows("Ring while closed"):
             raise Failure("the Clock settings are not on the page")
-        app.click(text="Appearance")
-        app.until("the Appearance section", lambda: app.has_id("appkit-theme"))
+        app.click(text="General")
+        app.until("the General options", lambda: app.has_id("appkit-theme"))
         saved_before = len(app.printed("AZCLOCK_SETTINGS_SAVED"))
         app.click(text="Flora")
         app.click(text="Dark")
         app.until("the settings to be saved", lambda: len(app.printed("AZCLOCK_SETTINGS_SAVED")) >= saved_before + 2)
         app.screenshot(os.path.join(out, "settings-flora-dark.png"))
-        app.key("escape")
+        app.click(selector="#appkit-settings-ok")  # OK keeps them (Escape would cancel)
         app.until("the settings page to close", lambda: not app.has_id("appkit-settings"))
         for screen in ["Alarms", "World", "Timer"]:
             app.click(text=screen)

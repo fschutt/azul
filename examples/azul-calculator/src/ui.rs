@@ -43,6 +43,7 @@ use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
+    settings::AppSettings,
     shortcuts::Shortcut,
     ui::{self as kit, AppSection},
 };
@@ -277,11 +278,7 @@ impl CalcApp {
         };
         let mut calc = Calculator::new();
         calc.grouping = grouping;
-        calc.angle = match angle.as_deref() {
-            Some("rad") => AngleUnit::Rad,
-            Some("grad") => AngleUnit::Grad,
-            _ => AngleUnit::Deg,
-        };
+        calc.angle = angle_of(angle.as_deref());
         let screen = args
             .screen
             .as_deref()
@@ -1250,7 +1247,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let s = &*guard;
     let settings = kit::settings_open(&s.kit);
     let content = if settings {
-        kit::settings_page(&s.kit, settings_sections(s, &app))
+        kit::settings_page_with_reload(&s.kit, settings_sections(s, &app), &app, reload_settings)
     } else {
         match s.screen {
             Screen::Date => date_view(s, &app),
@@ -1291,6 +1288,24 @@ fn with_app(
     };
     f(&mut guard, info, &handle);
     Update::RefreshDom
+}
+
+/// The angle unit a setting names (degrees unless it says `rad` or `grad`).
+fn angle_of(setting: Option<&str>) -> AngleUnit {
+    match setting {
+        Some("rad") => AngleUnit::Rad,
+        Some("grad") => AngleUnit::Grad,
+        _ => AngleUnit::Deg,
+    }
+}
+
+/// Cancel on the settings page put the settings back: the calculator's copies of them (the
+/// grouping, the angle unit) follow.
+fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &AppSettings) {
+    if let Some(mut s) = app.downcast_mut::<CalcApp>() {
+        s.calc.grouping = settings.get_bool("grouping", true);
+        s.calc.angle = angle_of(settings.get("angle"));
+    };
 }
 
 fn keep_history(s: &CalcApp) -> bool {
