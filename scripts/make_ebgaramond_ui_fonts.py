@@ -34,6 +34,5 @@ for weight, style in [(400, "Regular"), (700, "Bold")]:
     os.remove(tmp)
     packed = brotli.compress(raw, quality=11)
     open(tmp + ".br", "wb").write(packed)
-    check = TTFont(SRC)
     print(f"{tmp}.br: {len(raw)} B ttf -> {len(packed)} B br, weight {weight}")
 shutil.copyfile("doc/fonts/EBGaramond-OFL.txt", os.path.join(OUT, "EBGaramond-OFL.txt"))
