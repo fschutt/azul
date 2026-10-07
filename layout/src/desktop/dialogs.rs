@@ -1164,6 +1164,62 @@ pub fn msg_box(content: &str) {
 }
 
 #[cfg(test)]
+mod macos_folder_picker_tests {
+    use super::macos_folder_script;
+
+    /// AzCode, 2026-10-07: "selecting a folder does absolutely nothing". tfd
+    /// 0.1.2 ran `choose folder` alone and fed its output to a SECOND
+    /// osascript, `POSIX path of alias Macintosh HD:Users:...:` - unquoted,
+    /// an AppleScript syntax error - so every folder picked on macOS came
+    /// back as "cancelled". The picked folder has to come back as a POSIX
+    /// path from the same script.
+    #[test]
+    fn the_macos_folder_picker_asks_for_the_posix_path_in_the_same_script() {
+        assert_eq!(
+            macos_folder_script("Open a folder", None),
+            "POSIX path of (choose folder with prompt \"Open a folder\")"
+        );
+        assert_eq!(
+            macos_folder_script("Say \"hi\" \\o/", Some("/Users/me/My \"Code\"")),
+            "POSIX path of (choose folder with prompt \"Say \\\"hi\\\" \\\\o/\" default location \
+             (POSIX file \"/Users/me/My \\\"Code\\\"\"))"
+        );
+        assert_eq!(
+            macos_folder_script("Open a folder", Some("")),
+            "POSIX path of (choose folder with prompt \"Open a folder\")",
+            "an empty default path is no default location"
+        );
+    }
+
+    /// The script is AppleScript macOS can compile (`osacompile` parses
+    /// without running it: no dialog opens). tfd's second step did not:
+    /// `osacompile -e 'POSIX path of alias Macintosh HD:Users:me:'` fails
+    /// with -2740.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_macos_folder_picker_script_is_valid_applescript() {
+        let out = std::env::temp_dir().join(format!(
+            "azul-folder-picker-{}.scpt",
+            std::process::id()
+        ));
+        for script in [
+            macos_folder_script("Open a folder", None),
+            macos_folder_script("Open \"a\" folder \\ here", Some("/tmp")),
+        ] {
+            let status = std::process::Command::new("osacompile")
+                .arg("-e")
+                .arg(&script)
+                .arg("-o")
+                .arg(&out)
+                .status()
+                .expect("osacompile runs");
+            assert!(status.success(), "{script}");
+        }
+        let _ = std::fs::remove_file(&out);
+    }
+}
+
+#[cfg(test)]
 mod autotest_generated {
     use super::*;
 
