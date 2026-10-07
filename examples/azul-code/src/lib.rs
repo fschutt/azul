@@ -228,12 +228,12 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 mod tests {
     use super::SHORTCUTS;
 
-    /// The keys `commands::handle_key` takes (Mod+O included: the welcome screen promises it);
-    /// the F1 list must show every one of them.
+    /// The keys `commands::handle_key` takes (Mod+O, Mod+P, Mod+B included: the welcome page
+    /// promises them); the F1 list must show every one of them.
     #[test]
     fn the_shortcut_list_names_every_key_the_window_takes() {
         let window_keys = [
-            "Mod+O", "Mod+S", "Mod+W", "Mod+F", "Mod+H", "Mod+G", "F3", "Escape",
+            "Mod+O", "Mod+P", "Mod+B", "Mod+S", "Mod+W", "Mod+F", "Mod+H", "Mod+G", "F3", "Escape",
         ];
         for key in window_keys {
             assert!(

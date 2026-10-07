@@ -304,4 +304,56 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn the_quick_open_index_walks_the_folders_but_not_build_output_or_version_control() {
+        let dir = temp_dir("index");
+        let root = Root {
+            drive_root: dir.clone(),
+            prefix: String::new(),
+            data_tree: false,
+            name: "ws".to_string(),
+        };
+        let drive = drive_of(&root);
+        let keys = [
+            "Cargo.toml",
+            "src/main.rs",
+            "src/deep/mod.rs",
+            "target/debug/out.rs",
+            ".git/config",
+            "node_modules/x/index.js",
+        ];
+        let writes = keys
+            .iter()
+            .map(|k| DriveJob::Write {
+                key: (*k).to_string(),
+                bytes: b"x".to_vec(),
+            })
+            .collect();
+        let written = run_jobs(&drive, &root.prefix, writes);
+        assert!(written
+            .iter()
+            .all(|o| matches!(o, DriveOutcome::Written { result: Ok(()), .. })));
+        let out = run_jobs(&drive, &root.prefix, vec![DriveJob::Index { limit: 100 }]);
+        match &out[0] {
+            DriveOutcome::Indexed {
+                files,
+                complete,
+                error,
+            } => {
+                let mut files = files.clone();
+                files.sort();
+                assert_eq!(files, vec!["Cargo.toml", "src/deep/mod.rs", "src/main.rs"]);
+                assert!(*complete);
+                assert_eq!(error, &None);
+            }
+            other => panic!("{other:?}"),
+        }
+        let capped = run_jobs(&drive, &root.prefix, vec![DriveJob::Index { limit: 2 }]);
+        assert!(
+            matches!(&capped[0], DriveOutcome::Indexed { files, complete: false, .. } if files.len() == 2),
+            "{capped:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

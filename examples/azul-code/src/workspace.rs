@@ -306,4 +306,85 @@ mod tests {
         assert!(t.active().is_none());
         assert!(t.close(0).is_none());
     }
+
+    #[test]
+    fn the_explorer_hides_what_vscode_hides_and_a_refresh_lists_every_open_folder_again() {
+        let mut w = sample();
+        w.set_listing(
+            "",
+            vec![".git".to_string(), "src".to_string()],
+            vec![".DS_Store".to_string(), "a.rs".to_string()],
+        );
+        let names: Vec<String> = w.rows().iter().map(|r| r.name.clone()).collect();
+        assert_eq!(names, vec!["src", "a.rs"]);
+        assert!(w.toggle("src/", true));
+        w.set_listing("src/", vec![], vec!["main.rs".to_string()]);
+        assert_eq!(w.rows().len(), 3);
+        assert_eq!(w.refresh(), vec![String::new(), "src/".to_string()]);
+        assert!(w.rows().is_empty(), "nothing shows until the listings come back");
+        assert!(!w.is_listed("src/"));
+    }
+
+    #[test]
+    fn a_path_inside_the_workspace_is_its_key_and_a_path_outside_is_not() {
+        let user = Root {
+            drive_root: PathBuf::from("/home/u/project"),
+            prefix: String::new(),
+            data_tree: false,
+            name: "project".to_string(),
+        };
+        assert_eq!(
+            key_of_path(&user, Path::new("/home/u/project/src/main.rs")).as_deref(),
+            Some("src/main.rs")
+        );
+        assert_eq!(key_of_path(&user, Path::new("/home/u/other/main.rs")), None);
+        assert_eq!(key_of_path(&user, Path::new("/home/u/project")), None, "the folder is no file");
+        let sample = sample().root;
+        assert_eq!(
+            key_of_path(&sample, Path::new("/data/code/sample/src/lib.rs")).as_deref(),
+            Some("src/lib.rs")
+        );
+        assert_eq!(key_of_path(&sample, Path::new("/data/code/settings.json")), None, "outside the prefix");
+        assert_ne!(doc_ident(&user, "main.rs"), doc_ident(&sample, "main.rs"));
+        assert_eq!(doc_ident(&user, "src/main.rs"), doc_ident(&user, "src/main.rs"));
+    }
+
+    #[test]
+    fn the_recent_folders_keep_the_last_ten_newest_first_each_once() {
+        let mut recent: Vec<String> = Vec::new();
+        for i in 0..12 {
+            recent = remember(&recent, &format!("/p/{i}"));
+        }
+        assert_eq!(recent.len(), RECENT_MAX);
+        assert_eq!(recent[0], "/p/11");
+        assert_eq!(recent[9], "/p/2");
+        let again = remember(&recent, "/p/5");
+        assert_eq!(again[0], "/p/5");
+        assert_eq!(again.iter().filter(|f| f.as_str() == "/p/5").count(), 1);
+        assert_eq!(again.len(), RECENT_MAX);
+        assert_eq!(recent_from_json(&recent_to_json(&again)), again);
+        assert!(recent_from_json("not json").is_empty());
+        assert!(recent_from_json("").is_empty());
+    }
+
+    #[test]
+    fn quick_open_finds_files_by_the_letters_of_their_path_names_first() {
+        let files: Vec<String> = ["src/main.rs", "src/lib.rs", "README.md", "docs/library.md", "Cargo.toml"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        let found = |query: &str| -> Vec<String> {
+            quick_matches(&files, query, QUICK_MAX)
+                .iter()
+                .map(|&i| files[i].clone())
+                .collect()
+        };
+        assert_eq!(found("lib"), vec!["src/lib.rs", "docs/library.md"]);
+        assert_eq!(found("smr"), vec!["src/main.rs"]);
+        assert_eq!(found("LIB.RS"), vec!["src/lib.rs"], "any case");
+        assert!(found("zzz").is_empty());
+        assert_eq!(quick_matches(&files, "", 3).len(), 3, "an empty query lists the first files");
+        assert!(skipped_folder("target") && skipped_folder(".git") && skipped_folder("node_modules"));
+        assert!(!skipped_folder("src") && !skipped_folder("docs"));
+    }
 }
