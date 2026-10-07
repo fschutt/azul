@@ -474,7 +474,8 @@ extern "C" fn on_table_event(
             DataTableEventKind::Sort => {
                 // Where the selected process is on the screen BEFORE the new
                 // order (`s.table` is still the view the table showed).
-                s.sort_anchor = sort_anchor(&s.table, &s.shown, s.table_page, s.model.selected());
+                s.sort_anchor =
+                    sort_anchor(&s.table, &s.shown, s.table_page, s.model.selected());
                 s.model.set_sort(keys_of(&view));
                 view = in_app_order(view);
                 println!("AZMON_SORT {}", crate::sort_text(s.model.sort()));
