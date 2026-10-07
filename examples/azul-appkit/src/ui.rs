@@ -532,8 +532,8 @@ pub fn close_settings(kit_ref: &RefAny) {
 
 /// The page's Cancel (and Escape): puts back the settings the page found when it opened - the
 /// theme and the mode shown again at once, `settings.json` written again - and hides the page.
-/// The app's [`ReloadSettings`] (if it gave one) then re-reads its own copies of its values.
-/// `Some` = the settings changed back.
+/// The app's [`ReloadSettings`] (if it gave one) then re-reads its own copies of its values
+/// (on every Cancel). `Some` = the kit's settings changed back.
 pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppSettings> {
     let mut kit = kit_ref.clone();
     let (restored, settings, reload) = {
@@ -557,13 +557,11 @@ pub fn cancel_settings(kit_ref: &RefAny, info: &mut CallbackInfo) -> Option<AppS
     if restored.save {
         save_settings(kit_ref, info);
     }
-    if !restored.save && restored.look.is_none() {
-        return None;
-    }
+    // Every Cancel: the app may keep values of its own beside the kit's settings.
     if let Some(Reload { mut app, reload }) = reload {
         reload(&mut app, info, &settings);
     }
-    Some(settings)
+    (restored.save || restored.look.is_some()).then_some(settings)
 }
 
 /// Whether the settings page is showing.
