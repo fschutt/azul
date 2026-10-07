@@ -88,7 +88,7 @@ use crate::{
     model::{
         cardinal, clip_segment, distance_km, distance_text, duration_text, mark_visible,
         overlay_shows, pan_tiles, parse_place, parse_view, pins_from_json, pins_to_json,
-        place_text, route_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
+        place_text, route_line as route_reply_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
         MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
     },
     route::{RouteReply, RouteRequest},
@@ -451,7 +451,7 @@ extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInf
     if s.route_latest.load(Ordering::Acquire) != reply.id {
         return Update::DoNothing;
     }
-    println!("{}", route_line(reply.mode, reply.route, reply.compute_ms));
+    println!("{}", route_reply_line(reply.mode, reply.route, reply.compute_ms));
     s.route = Some(reply);
     Update::RefreshDom
 }

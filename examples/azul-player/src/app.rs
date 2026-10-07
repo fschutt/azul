@@ -640,7 +640,7 @@ extern "C" fn on_scan(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo)
         let mut app_ref = app.clone();
         if let Some(s) = app_ref.downcast_ref::<Player>() {
             save_library(&app, &s, &mut info);
-        }
+        };
     }
     if refresh {
         clamp_focus(&app);

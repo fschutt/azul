@@ -552,7 +552,7 @@ pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 let mut app_ref = app.clone();
                 if let Some(mut s) = app_ref.downcast_mut::<Player>() {
                     focus_tile(&mut s, index);
-                }
+                };
             }
             open_tile(&app, &mut info, index)
         }
