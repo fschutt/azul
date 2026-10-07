@@ -3,15 +3,15 @@
 Worktree: .claude/worktrees/agent-a6a847892daffedc9 (fast-forwarded to fix/input-bugs-2026-09-19 bf61a1c70).
 
 ## DONE
-(none yet)
+- 1877a7dc9 RED spin test; bb350f6bc spins (themes/spin.rs + window.rs hook); c07832f0f design-system seasonal ramps
+- c7fde4c7b EB Garamond 400/700 bundled (text3/ui_fonts.rs, fallback tier)
+- 00b1372b3 flora buttons (kinds, gem, metal edge, double ring, caps, ButtonType::Illuminated)
+- design reference: ~/Downloads/Azlin OS design system.html (widget specimen extracted to /tmp/azlin_ds/widgets_section.html); flora.css wins on conflict
 
 ## IN PROGRESS
-- research: fonts (woff2?), appkit config flow, popup/menu/scrollbar theming
+3. fields / checkbox / radio / switch / slider / progress
 
 ## NEXT
-1. spins: themes/spin.rs (FloraSpin ramps, chain lookup, respin of a Dom), hook in LayoutWindow::style_user_dom_in_scope, RED test layout/tests/a_flora_spin_recolours_only_the_accent.rs
-2. buttons: Illuminated + Quiet kinds, Garamond caps, double focus ring, gem face, lip
-3. fields / checkbox / radio / switch / slider / progress
 4. dropdown popup, menu, tooltip, dialog band, scrollbar
 5. linen ground
 6. EB Garamond bundling
