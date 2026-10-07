@@ -4021,10 +4021,27 @@ pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group:
         v.extend([
             P::simple(CssProperty::const_width(LayoutWidth::const_px(r::DOT_SIZE))),
             P::simple(CssProperty::const_height(LayoutHeight::const_px(r::DOT_SIZE))),
-            P::simple(decl::layers(vec![
-                StyleBackgroundContent::Color(LIGHT_ACC),
-                ORB_GLOSS,
-            ])),
+            // The design system's radio dot: the stone lit at 35% 30%,
+            // `radial-gradient(circle at 35% 30%, acc, deep)`.
+            P::simple(decl::layers(vec![StyleBackgroundContent::RadialGradient(
+                RadialGradient {
+                    shape: Shape::Circle,
+                    size: RadialGradientSize::FarthestCorner,
+                    position: StyleBackgroundPosition {
+                        horizontal: BackgroundPositionHorizontal::Exact(
+                            PixelValue::const_percent(35),
+                        ),
+                        vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(
+                            30,
+                        )),
+                    },
+                    extend_mode: ExtendMode::Clamp,
+                    stops: NormalizedLinearColorStopVec::from_vec(vec![
+                        stop(0, LIGHT_ACC),
+                        stop(100, LIGHT_DEEP),
+                    ]),
+                },
+            )])),
         ]);
         v.extend(decl::radius(r::DOT_RADIUS));
         v.push(P::simple(CssProperty::const_opacity(StyleOpacity::const_new(
@@ -5378,10 +5395,10 @@ pub(crate) fn frame_look() -> crate::widgets::frame::FrameLook {
     let mut content = FRAME_CONTENT_STYLE.to_vec();
     content.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
 
-    // `.fl-label`: font-weight 700, letter-spacing 0.12em, --fl-soft1.
+    // `.fl-label`: the capitals in Garamond (`--font-caps`), bold, tracked
+    // 0.12em, in --fl-soft1 - the specimen's section title.
     let mut title = FRAME_TITLE_STYLE.to_vec();
-    title.push(decl::bold());
-    title.push(decl::letter_spacing_em(0.12));
+    title.extend(caps(CAPS_TITLE));
     title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     FrameLook {
@@ -5466,7 +5483,7 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             14,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)),
     ];
     container.extend(decl::border(1));
     container.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));

@@ -2798,9 +2798,18 @@ mod theme_tests {
             let layers = tc::background(dot, dark)
                 .map(|p| tc::bg_layers(&p))
                 .unwrap_or_default();
+            let StyleBackgroundContent::RadialGradient(g) =
+                layers.first().expect("the dot is painted")
+            else {
+                panic!("dark={dark}: the stone is a radial cut lit at 35% 30%: {layers:?}");
+            };
+            let stops: Vec<_> = g.stops.as_ref().iter().map(|s| s.color).collect();
             assert_eq!(
-                layers.first(),
-                Some(&StyleBackgroundContent::Color(flora::LIGHT_ACC)),
+                stops,
+                vec![
+                    azul_css::props::basic::color::ColorOrSystem::Color(flora::LIGHT_ACC),
+                    azul_css::props::basic::color::ColorOrSystem::Color(flora::LIGHT_DEEP),
+                ],
                 "dark={dark}: the stone is its own colour in both modes"
             );
         }
