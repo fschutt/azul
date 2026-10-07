@@ -5949,13 +5949,21 @@ where
                     transformed = svg_clip.transformed(&user);
                     &transformed
                 };
+                // `fill-rule`, kept on the node (SVG's default is non-zero).
+                let even_odd = node_data
+                    .get_attribute("fill-rule")
+                    .is_some_and(|rule| rule.as_str().trim() == "evenodd");
                 svg_mask_memo::get_or_rasterise(
-                    svg_mask_memo::MaskKind::Clip,
+                    if even_odd {
+                        svg_mask_memo::MaskKind::ClipEvenOdd
+                    } else {
+                        svg_mask_memo::MaskKind::Clip
+                    },
                     svg_clip,
                     &paint_rect,
                     view_box,
                     0.0,
-                    || rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box),
+                    || rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box, even_odd),
                 )
                 .is_some_and(|mask_image| {
                     builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
@@ -12076,8 +12084,10 @@ mod svg_mask_memo {
     /// Which rasteriser drew a mask.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub(super) enum MaskKind {
-        /// `rasterize_svg_clip_to_r8`: the shape's fill region.
+        /// `rasterize_svg_clip_to_r8`: the shape's fill region (non-zero).
         Clip,
+        /// ... with `fill-rule="evenodd"`: overlapping rings cut holes.
+        ClipEvenOdd,
         /// `rasterize_svg_stroke_to_r8`: its stroke.
         Stroke,
     }
@@ -12161,7 +12171,7 @@ mod svg_mask_memo {
         // rect's origin is subtracted from the geometry); a stroke, and a
         // clip in a viewBox, only see the box's size.
         let origin = match (kind, view_box) {
-            (MaskKind::Clip, None) => [
+            (MaskKind::Clip | MaskKind::ClipEvenOdd, None) => [
                 paint_rect.origin.x.to_bits(),
                 paint_rect.origin.y.to_bits(),
             ],
@@ -12437,6 +12447,7 @@ fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
     view_box: Option<(f32, f32, f32, f32)>,
+    even_odd: bool,
 ) -> Option<ImageRef> {
     use agg_rust::{
         basics::FillingRule, color::Rgba8, path_storage::PathStorage, pixfmt_rgba::PixfmtRgba32,
@@ -12529,7 +12540,11 @@ fn rasterize_svg_clip_to_r8(
         let mut rb = RendererBase::new(pf);
 
         let mut ras = RasterizerScanlineAa::new();
-        ras.filling_rule(FillingRule::NonZero);
+        ras.filling_rule(if even_odd {
+            FillingRule::EvenOdd
+        } else {
+            FillingRule::NonZero
+        });
         // FLATTENED first. `PathStorage` stores curve3/curve4 as COMMANDS;
         // the rasteriser does not subdivide them, so feeding it the raw
         // storage draws straight lines between the curve endpoints - a circle

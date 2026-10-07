@@ -22,6 +22,16 @@ const SIDE: f32 = 64.0;
 /// The bounds `(x, y, width, height)` of the dark pixels `svg` paints at the
 /// window's origin (a 64x64 `<svg>`, user space 1:1, no body margin).
 fn painted(svg_content: &str) -> Option<(usize, usize, usize, usize)> {
+    let dark = dark_pixels(svg_content);
+    let xs = dark.iter().map(|p| p.0);
+    let ys = dark.iter().map(|p| p.1);
+    let (x0, x1) = (xs.clone().min()?, xs.max()?);
+    let (y0, y1) = (ys.clone().min()?, ys.max()?);
+    Some((x0, y0, x1 - x0 + 1, y1 - y0 + 1))
+}
+
+/// The dark pixels the `<svg>` content paints.
+fn dark_pixels(svg_content: &str) -> Vec<(usize, usize)> {
     let markup = format!(
         "<html><body style=\"margin: 0px\"><svg width=\"64\" height=\"64\" viewBox=\"0 0 64 \
          64\">{svg_content}</svg></body></html>"
@@ -52,18 +62,13 @@ fn painted(svg_content: &str) -> Option<(usize, usize, usize, usize)> {
     )
     .unwrap();
     let w = pm.width() as usize;
-    let dark: Vec<(usize, usize)> = (0..pm.height() as usize)
+    (0..pm.height() as usize)
         .flat_map(|y| (0..w).map(move |x| (x, y)))
         .filter(|(x, y)| {
             let p = &pm.data()[(y * w + x) * 4..][..4];
             p[3] > 128 && u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]) < 200
         })
-        .collect();
-    let xs = dark.iter().map(|p| p.0);
-    let ys = dark.iter().map(|p| p.1);
-    let (x0, x1) = (xs.clone().min()?, xs.max()?);
-    let (y0, y1) = (ys.clone().min()?, ys.max()?);
-    Some((x0, y0, x1 - x0 + 1, y1 - y0 + 1))
+        .collect()
 }
 
 const SQUARE: &str = r##"<path d="M0 0 L10 0 L10 10 L0 10 Z" fill="#000000"/>"##;
@@ -108,4 +113,19 @@ fn a_stroke_scales_with_its_transform() {
         (3..=5).contains(&bounds.2),
         "the stroke is about 4 px wide: {bounds:?}"
     );
+}
+
+#[test]
+fn an_evenodd_ring_has_a_hole_and_a_nonzero_one_does_not() {
+    // Two squares drawn the same way round: even-odd cuts the inner one out.
+    let ring = |rule: &str| {
+        dark_pixels(&format!(
+            r##"<path d="M0 0 L30 0 L30 30 L0 30 Z M10 10 L20 10 L20 20 L10 20 Z" fill="#000000" fill-rule="{rule}"/>"##
+        ))
+    };
+    let even_odd = ring("evenodd");
+    assert!(even_odd.contains(&(5, 5)), "the ring is filled");
+    assert!(!even_odd.contains(&(15, 15)), "the middle is a hole");
+    let non_zero = ring("nonzero");
+    assert!(non_zero.contains(&(15, 15)), "non-zero fills the middle");
 }
