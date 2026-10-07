@@ -373,7 +373,7 @@ extern "C" fn render_live(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
         let mut handle = app.clone();
         if let Some(mut s) = handle.downcast_mut::<Monitor>() {
             s.strips = strips.steps;
-        }
+        };
     }
     let dom = Dom::create_div()
         .with_css(format!(
