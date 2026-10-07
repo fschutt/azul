@@ -46,7 +46,9 @@ Every node in the new tree is one of four things:
   Old node id maps to new node id. Merge callbacks run. Focus and scroll
   state migrate.
 - **Moved**. Matched against an old node at a different parent or
-  sibling position. Same migration treatment as Stable.
+  sibling position. Same migration treatment as Stable. It is laid out at
+  its new place at once; it SLIDES there only if it declares
+  `animation: move ..` ([Animations](../animations.md#moves)).
 - **Created**. No match. A Mount event fires.
 - **Destroyed**. The old tree had a node here, the new tree doesn't. An
   Unmount event fires. The dataset drops.
@@ -55,6 +57,29 @@ For trees with stable sibling order, structural matching works without
 any help. The third `<li>` inside a `<div id="notes">` matches its
 counterpart in the old tree. Its text content can change and it'll
 still match.
+
+The matching runs in this order, strongest evidence first:
+
+1. **Key or id.** A node with `.with_key(..)` or a CSS id matches the old
+   node with the same key.
+2. **A distinct subtree that moved.** A subtree whose content is UNIQUE in
+   its container on both sides (a paragraph re-paginated onto another page, a
+   sorted row with its own text) follows its content to its new place.
+3. **Its children.** A parent is the old node its already-matched children
+   all descend from - that survives chrome being wrapped around the root.
+4. **Its place.** Everything else matches by position: the same path of
+   sibling indices, node type and classes.
+
+**Identical siblings are matched by place**, never by content: four empty
+cells, a row of pending map tiles, repeated words. When one of them changes
+(a cell gains `selected`), the others keep their own old nodes - they do not
+shift by one to fill the gap, so their state (focus, scroll, a widget's
+dataset) stays with the node it belongs to and nothing appears to "move".
+
+Classes are part of a keyless node's identity: a node whose class list
+changes may be matched as a new node (an unmount and a mount) rather than
+updated in place. Give it a key or an id when its state must survive a class
+change.
 
 For trees whose order can change (sortable lists, drag-and-drop,
 virtualised scrolling), structural matching loses cursor position,
