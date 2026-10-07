@@ -14159,6 +14159,13 @@ impl LayoutWindow {
             let new_cache = &styled_dom.css_property_cache.ptr;
             let old_states = old_result.styled_dom.styled_nodes.as_ref();
             let new_states = styled_dom.styled_nodes.as_ref();
+            let unchanged = unchanged_cascades(
+                old_cache,
+                new_cache,
+                (&old_node_data, &old_hierarchy, old_states),
+                (&new_node_data, &new_hierarchy, new_states),
+                &diff.node_moves,
+            );
             for m in &diff.node_moves {
                 let (Some(old_nd), Some(new_nd)) = (
                     old_node_data.get(m.old_node_id.index()),
@@ -14204,6 +14211,11 @@ impl LayoutWindow {
                 // `animation: move ...`: this node slides to its new place.
                 if let Some(mode) = old_anims.as_ref().and_then(declared_move) {
                     move_modes.insert(m.new_node_id, mode);
+                }
+                // Every input of its cascade is what it was: no property can
+                // have changed, so none is compared (`unchanged_cascades`).
+                if unchanged.get(m.new_node_id.index()).copied().unwrap_or(false) {
+                    continue;
                 }
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
@@ -30012,6 +30024,88 @@ fn with_interaction_of(
 /// `animation: width 1s, color 2s` - web-cascade style). The animation
 /// meta-properties never transition: `animation` appearing or disappearing
 /// is a mode switch, not a value to tween.
+/// Which matched NEW nodes resolve every CSS property exactly as their old
+/// node did - without asking the cascade for one of them.
+///
+/// The restyle diff in `begin_reconciliation` compares every property type
+/// (~200) of every matched pair through the full cascade lookup: for a page
+/// of a few thousand words (AzPdf, AzMaps' label tiles) that was most of
+/// every rebuild, on pages where nothing had changed. A node's answers are a
+/// function of the window's context, the shared global rules, its own node
+/// type, inline style, matched rules, cascaded properties, overrides and
+/// interaction state - and of its PARENT's answers (inheritance). So in
+/// pre-order (a parent before its children): a node whose own inputs equal
+/// its old node's, under a parent that is unchanged and matched to the old
+/// node's parent, answers every property as before. Anything else is left to
+/// the full comparison.
+fn unchanged_cascades(
+    old_cache: &azul_core::prop_cache::CssPropertyCache,
+    new_cache: &azul_core::prop_cache::CssPropertyCache,
+    old: (
+        &[azul_core::dom::NodeData],
+        &[azul_core::styled_dom::NodeHierarchyItem],
+        &[azul_core::styled_dom::StyledNode],
+    ),
+    new: (
+        &[azul_core::dom::NodeData],
+        &[azul_core::styled_dom::NodeHierarchyItem],
+        &[azul_core::styled_dom::StyledNode],
+    ),
+    node_moves: &[azul_core::diff::NodeMove],
+) -> Vec<bool> {
+    let (old_data, old_hierarchy, old_states) = old;
+    let (new_data, new_hierarchy, new_states) = new;
+    let mut unchanged = vec![false; new_data.len()];
+    if old_cache.dynamic_context != new_cache.dynamic_context
+        || old_cache.global_css_props != new_cache.global_css_props
+    {
+        return unchanged;
+    }
+    let mut old_of_new: Vec<Option<NodeId>> = vec![None; new_data.len()];
+    for m in node_moves {
+        if let Some(slot) = old_of_new.get_mut(m.new_node_id.index()) {
+            *slot = Some(m.old_node_id);
+        }
+    }
+    let parent = |h: &[azul_core::styled_dom::NodeHierarchyItem], i: usize| {
+        h.get(i).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+    };
+    for ni in 0..new_data.len() {
+        let Some(old_id) = old_of_new[ni] else {
+            continue;
+        };
+        let oi = old_id.index();
+        let parent_same = match (parent(new_hierarchy, ni), parent(old_hierarchy, oi)) {
+            (None, None) => true,
+            (Some(np), Some(op)) => unchanged[np.index()] && old_of_new[np.index()] == Some(op),
+            _ => false,
+        };
+        if !parent_same {
+            continue;
+        }
+        let (Some(on), Some(nn), Some(os), Some(ns)) = (
+            old_data.get(oi),
+            new_data.get(ni),
+            old_states.get(oi),
+            new_states.get(ni),
+        ) else {
+            continue;
+        };
+        let state_same = with_interaction_of(ns.styled_node_state, os.styled_node_state)
+            == os.styled_node_state;
+        unchanged[ni] = state_same
+            && core::mem::discriminant(on.get_node_type())
+                == core::mem::discriminant(nn.get_node_type())
+            && on.style == nn.style
+            && old_cache.css_props.get_slice(oi) == new_cache.css_props.get_slice(ni)
+            && old_cache.cascaded_props.get_slice(oi) == new_cache.cascaded_props.get_slice(ni)
+            && old_cache.user_overridden_properties.get(oi)
+                == new_cache.user_overridden_properties.get(ni)
+            && old_cache.resolved_inline.get(&oi) == new_cache.resolved_inline.get(&ni);
+    }
+    unchanged
+}
+
 /// The motion `animation: move <duration> [timing]` asks a node's moves for
 /// (the last `move` entry wins, as in [`declared_animation_for`]): a spring
 /// timing as that spring (it runs until it settles; the duration is

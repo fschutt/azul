@@ -842,8 +842,7 @@ pub fn reconcile_dom(
     // state went with them). The content pass is for a DISTINCT subtree that
     // moved, which is unique on both sides.
     let twin_counts = |hashes: &[u64], containers: &[Option<u64>]| {
-        let mut counts: alloc::collections::BTreeMap<(u64, Option<u64>), usize> =
-            alloc::collections::BTreeMap::new();
+        let mut counts: BTreeMap<(u64, Option<u64>), usize> = BTreeMap::new();
         for (idx, h) in hashes.iter().enumerate() {
             let container = containers.get(idx).copied().flatten();
             *counts.entry((*h, container)).or_default() += 1;
