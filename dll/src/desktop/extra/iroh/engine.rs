@@ -803,4 +803,42 @@ mod tests {
         assert!(endpoint.connect("not a ticket").is_err());
         assert!(endpoint.connect(&endpoint.endpoint_id()).is_err());
     }
+
+    /// A relay that never answers (the discard port): binding does not wait for it.
+    const SILENT_RELAY: &str = "http://127.0.0.1:9";
+
+    /// `relay_only` binds no UDP socket, so no direct path can form and nothing is hole-punched:
+    /// the relay carries every packet (AzMeet's `--relay-only`, the E2E's relay phase). The same
+    /// config without it binds one.
+    #[test]
+    fn a_relay_only_endpoint_binds_no_udp_socket_and_offers_no_direct_address() {
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_url(AzString::from_const_str(SILENT_RELAY))
+            .with_relay_only(true);
+        let relayed = Engine::bind(&config).expect("a relay-only endpoint binds");
+        assert!(
+            relayed.endpoint.bound_sockets().is_empty(),
+            "a relay-only endpoint bound {:?}",
+            relayed.endpoint.bound_sockets()
+        );
+        assert_eq!(relayed.endpoint.addr().ip_addrs().count(), 0);
+
+        let direct = Engine::bind(&config.clone().with_relay_only(false)).expect("binds");
+        assert!(
+            !direct.endpoint.bound_sockets().is_empty(),
+            "without relay_only the endpoint has a UDP socket"
+        );
+    }
+
+    /// Relay-only with the relays disabled leaves nothing to carry a packet: refused at bind.
+    #[test]
+    fn relay_only_without_a_relay_is_refused() {
+        let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
+            .with_relay_mode(IrohRelayMode::Disabled)
+            .with_relay_only(true);
+        match Engine::bind(&config) {
+            Ok(_) => panic!("a relay-only endpoint without a relay bound"),
+            Err(reason) => assert!(reason.contains("relay"), "{reason}"),
+        }
+    }
 }
