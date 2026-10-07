@@ -196499,40 +196499,25 @@
                         "struct_fields": [
                             {
                                 "alpn": {
-                                    "type": "String",
-                                    "doc": [
-                                        "Application protocol name. Only peers that bind the same name can connect."
-                                    ]
+                                    "type": "String"
                                 },
                                 "relay_mode": {
-                                    "type": "IrohRelayMode",
-                                    "doc": [
-                                        "Relay fallback for peers without a direct path."
-                                    ]
+                                    "type": "IrohRelayMode"
+                                },
+                                "relay_only": {
+                                    "type": "bool"
                                 },
                                 "relay_url": {
-                                    "type": "String",
-                                    "doc": [
-                                        "Relay server URL, used when `relay_mode` is `Custom`."
-                                    ]
+                                    "type": "String"
                                 },
                                 "secret_key": {
-                                    "type": "U8Vec",
-                                    "doc": [
-                                        "32-byte secret key that fixes the endpoint id. Empty generates a new identity."
-                                    ]
+                                    "type": "U8Vec"
                                 },
                                 "port": {
-                                    "type": "u16",
-                                    "doc": [
-                                        "Local UDP port, 0 for any free port."
-                                    ]
+                                    "type": "u16"
                                 },
                                 "max_frame_bytes": {
-                                    "type": "u32",
-                                    "doc": [
-                                        "Largest inbound frame or message in bytes. Larger ones are dropped."
-                                    ]
+                                    "type": "u32"
                                 }
                             }
                         ],
@@ -196634,6 +196619,23 @@
                                     "type": "IrohConfig"
                                 },
                                 "fn_body": "object.with_max_frame_bytes(max_frame_bytes)"
+                            },
+                            "with_relay_only": {
+                                "doc": [
+                                    "Returns the config that sends every packet through the relay (`relay_only`): no direct path, no hole punching."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "relay_only": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_relay_only(relay_only)"
                             }
                         },
                         "repr": "C"
