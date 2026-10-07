@@ -753,8 +753,18 @@ impl AnimationInterpolationFunction {
     /// trajectory.
     #[must_use]
     pub fn evaluate(self, t: f64) -> f32 {
-        f64_to_f32(self.get_curve().get_y_at_x(t))
+        match self {
+            Self::Spring(spring) => f64_to_f32(spring_progress(spring, t)),
+            _ => f64_to_f32(self.get_curve().get_y_at_x(t)),
+        }
     }
+}
+
+/// A spring's way from 0 to 1 over a declared duration, at linear progress `t`.
+fn spring_progress(_spring: SpringCurve, t: f64) -> f64 {
+    AnimationInterpolationFunction::EaseInOut
+        .get_curve()
+        .get_y_at_x(t)
 }
 
 #[cfg(test)]
@@ -789,6 +799,47 @@ mod autotest_generated {
         assert_eq!(AnimationInterpolationFunction::Ease.evaluate(0.0), 0.0);
         assert!((AnimationInterpolationFunction::Ease.evaluate(1.0) - 1.0).abs() < 1e-6);
         assert!((AnimationInterpolationFunction::Ease.evaluate(2.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_spring_timing_moves_like_a_spring_not_like_an_ease_in_out() {
+        let snappy = AnimationInterpolationFunction::Spring(SpringCurve::SNAPPY);
+        let smooth = AnimationInterpolationFunction::Spring(SpringCurve::SMOOTH);
+        let ease_in_out = AnimationInterpolationFunction::EaseInOut;
+        for spring in [snappy, smooth] {
+            assert_eq!(spring.evaluate(0.0), 0.0, "{spring:?} starts at 0");
+            assert_eq!(spring.evaluate(1.0), 1.0, "{spring:?} ends on its target");
+            assert_eq!(spring.evaluate(-1.0), 0.0);
+            assert_eq!(spring.evaluate(2.0), 1.0);
+            // A spring leaves at speed (an ease-in-out creeps out of its start).
+            assert!(
+                spring.evaluate(0.1) > ease_in_out.evaluate(0.1) + 0.1,
+                "{spring:?} at 0.1: {} vs ease-in-out {}",
+                spring.evaluate(0.1),
+                ease_in_out.evaluate(0.1)
+            );
+            // And is all but there well before the end of its time.
+            assert!(
+                (spring.evaluate(0.6) - 1.0).abs() < 0.03,
+                "{spring:?} at 0.6: {}",
+                spring.evaluate(0.6)
+            );
+        }
+        // The snappy spring overshoots its target and comes back; the smooth one never does.
+        let samples = |f: AnimationInterpolationFunction| -> Vec<f32> {
+            (0..=100).map(|i| f.evaluate(f64::from(i) / 100.0)).collect()
+        };
+        let peak = samples(snappy).into_iter().fold(0.0f32, f32::max);
+        assert!(peak > 1.03 && peak < 1.15, "spring-snappy overshoots: {peak}");
+        let smooth_samples = samples(smooth);
+        assert!(
+            smooth_samples.iter().all(|y| *y <= 1.0 + 1e-3),
+            "spring never overshoots"
+        );
+        assert!(
+            smooth_samples.windows(2).all(|w| w[1] >= w[0] - 1e-6),
+            "spring rises steadily to its target"
+        );
     }
 
     // ---- helpers -----------------------------------------------------------
