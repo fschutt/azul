@@ -740,4 +740,139 @@ mod stream_tests {
             assert_eq!(picture.format, format);
         }
     }
+
+    // ---- a video at a URL ----
+
+    /// What the URL worker test heard, and whether its poster arrived (a send
+    /// callback is a plain C fn pointer: statics of its own, apart from the
+    /// test above).
+    #[cfg(all(feature = "http", feature = "video-native"))]
+    static URL_STATUSES: Mutex<Vec<VideoStatus>> = Mutex::new(Vec::new());
+    #[cfg(all(feature = "http", feature = "video-native"))]
+    static URL_POSTER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    #[cfg(all(feature = "http", feature = "video-native"))]
+    extern "C" fn record_url_status(
+        _sender: *const core::ffi::c_void,
+        msg: ThreadReceiveMsg,
+    ) -> bool {
+        if let ThreadReceiveMsg::WriteBack(mut wb) = msg {
+            if let Some(status) = wb.refany.downcast_ref::<VideoStatus>() {
+                if status.phase == VideoPhase::Paused {
+                    URL_POSTER.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                URL_STATUSES
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push((*status).clone());
+            }
+        }
+        true
+    }
+
+    /// Idle until the poster is in, then "terminate".
+    #[cfg(all(feature = "http", feature = "video-native"))]
+    extern "C" fn recv_until_poster(_: *const core::ffi::c_void) -> OptionThreadSendMsg {
+        if URL_POSTER.load(std::sync::atomic::Ordering::SeqCst) {
+            OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread)
+        } else {
+            OptionThreadSendMsg::None
+        }
+    }
+
+    /// Big Buck Bunny "did not play": a video at a URL was downloaded WHOLE
+    /// (`Range: bytes=0-`, one body capped at 100 MB and 30 s) before its
+    /// first frame. Now it is read by closed range requests, a window at a
+    /// time: the worker shows the first frame (held, the poster) and its
+    /// length from the first parts of the file. Needs this machine's encoder
+    /// and decoder (VideoToolbox) to make and play the clip; skips without
+    /// them.
+    #[cfg(all(feature = "http", feature = "video-native"))]
+    #[test]
+    fn a_video_at_a_url_is_read_by_parts_and_shows_its_poster() {
+        use azul_core::{resources::RawImageFormat, video::VideoFrame};
+        use azul_css::{corety::OptionU8Vec, U8Vec};
+
+        use crate::desktop::extra::{
+            byte_source::test_server,
+            video_codec::{Mp4Muxer, VideoEncoder},
+        };
+
+        // Two seconds of 320 x 180 at 30 fps, from this machine's encoder.
+        let (w, h) = (320_u32, 180_u32);
+        let mut encoder = VideoEncoder::open(w, h, false, 400);
+        if !encoder.is_open() || !super::open_session_decoder(RawImageFormat::BGRA8).is_open() {
+            return;
+        }
+        let mut muxer = Mp4Muxer::create(w, h, 30.0);
+        for i in 0..60_u32 {
+            let shade = (i * 3) as u8;
+            let frame = VideoFrame::new(w, h, U8Vec::from_vec(vec![shade; (w * h * 4) as usize]));
+            assert!(encoder.encode(frame, i % 30 == 0));
+        }
+        encoder.flush();
+        while let OptionU8Vec::Some(packet) = encoder.recv_packet() {
+            assert!(muxer.write_annexb(packet));
+        }
+        let clip = muxer.finish().as_ref().to_vec();
+        assert!(clip.len() > 1_000, "an MP4 came out");
+
+        let (port, _, ranges) = test_server::serve_recording(clip, true);
+        let mut config = VideoConfig::new(VideoSource::Url(azul_core::url::Url::from_parts(
+            "http",
+            "127.0.0.1",
+            port,
+            "/clip.mp4",
+        )));
+        config.autoplay = false;
+        let (tx, _rx) = channel::<ThreadReceiveMsg>();
+        let sender = ThreadSender::new(ThreadSenderInner {
+            ptr: Box::new(tx),
+            send_fn: ThreadSendCallback {
+                cb: record_url_status,
+            },
+            destructor: ThreadSenderDestructorCallback {
+                cb: sender_drop_noop,
+            },
+        });
+        let (_ctl, ctl_rx) = channel::<ThreadSendMsg>();
+        let recv = ThreadReceiver::new(ThreadReceiverInner {
+            ptr: Box::new(ctl_rx),
+            recv_fn: ThreadRecvCallback {
+                cb: recv_until_poster,
+            },
+            destructor: ThreadReceiverDestructorCallback {
+                cb: receiver_drop_noop,
+            },
+        });
+        let init = RefAny::new(VideoDecodeInit {
+            config,
+            client: OptionHttpClient::None,
+        });
+
+        super::video_decode_worker(init, sender, recv);
+
+        let statuses = URL_STATUSES
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let poster = statuses
+            .iter()
+            .find(|s| s.phase == VideoPhase::Paused)
+            .unwrap_or_else(|| panic!("no poster, only {statuses:?}"));
+        assert!(
+            (poster.duration_s - 2.0).abs() < 0.1,
+            "the length is known from the index: {}",
+            poster.duration_s
+        );
+        let asked = ranges.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        assert!(!asked.is_empty(), "the file is read by range requests");
+        for range in &asked {
+            let (start, end) = range.split_once('-').unwrap_or((range, ""));
+            assert!(
+                start.parse::<u64>().is_ok() && end.parse::<u64>().is_ok(),
+                "a closed range, never the whole file at once: {range:?} of {asked:?}"
+            );
+        }
+    }
 }

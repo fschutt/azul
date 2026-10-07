@@ -698,17 +698,29 @@ pub(crate) mod test_server {
         io::{BufRead, BufReader, Write},
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc,
+            Arc, Mutex,
         },
     };
 
     /// Serves `bytes` on a port of its own; the port and the count of requests answered.
     pub(crate) fn serve(bytes: Vec<u8>, ranges: bool) -> (u16, Arc<AtomicUsize>) {
+        let (port, hits, _) = serve_recording(bytes, ranges);
+        (port, hits)
+    }
+
+    /// [`serve`], also recording the value of every `Range` header asked for
+    /// (`"0-1048575"`, `"0-"`).
+    pub(crate) fn serve_recording(
+        bytes: Vec<u8>,
+        ranges: bool,
+    ) -> (u16, Arc<AtomicUsize>, Arc<Mutex<Vec<String>>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
         let port = listener.local_addr().expect("an address").port();
         let bytes = Arc::new(bytes);
         let hits = Arc::new(AtomicUsize::new(0));
+        let asked = Arc::new(Mutex::new(Vec::new()));
         let counted = Arc::clone(&hits);
+        let recorded = Arc::clone(&asked);
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else {
@@ -716,10 +728,11 @@ pub(crate) mod test_server {
                 };
                 let bytes = Arc::clone(&bytes);
                 let hits = Arc::clone(&counted);
-                std::thread::spawn(move || answer_requests(stream, &bytes, ranges, &hits));
+                let asked = Arc::clone(&recorded);
+                std::thread::spawn(move || answer_requests(stream, &bytes, ranges, &hits, &asked));
             }
         });
-        (port, hits)
+        (port, hits, asked)
     }
 
     /// Answers the requests of one connection until it closes.
@@ -728,6 +741,7 @@ pub(crate) mod test_server {
         bytes: &[u8],
         ranges: bool,
         hits: &AtomicUsize,
+        asked: &Mutex<Vec<String>>,
     ) {
         let Ok(read_half) = stream.try_clone() else {
             return;
@@ -750,6 +764,10 @@ pub(crate) mod test_server {
                     break;
                 }
                 if let Some(spec) = header.strip_prefix("range: bytes=") {
+                    asked
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(spec.trim().to_string());
                     let (a, b) = spec.split_once('-').unwrap_or((spec, ""));
                     range = a.trim().parse().ok().map(|a| (a, b.trim().parse().ok()));
                 }
