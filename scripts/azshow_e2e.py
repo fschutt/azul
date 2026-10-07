@@ -10,11 +10,18 @@
        moved by 150 / scale slide units (AZSHOW_FRAME);
     6. VIEW > Slide Sorter, drags slide 1 onto slide 3 - AZSHOW_ORDER (when no drop arrives
        headlessly: a NOTE, and Mod+Down on the focused thumbnail instead);
+    6b. INSERT > Arrow is drawn as SVG (a node of class __azshow_shape_svg: a polygon, where the
+       old clip-path arrow painted its bounding rectangle);
+    6c. TRANSITIONS: Longer x5, then the Fade cell - its preview plays on the canvas and draws
+       frames (AZSHOW_PLAYED transition <frames> <ms>, at least 2 frames: one per timer tick),
+       Apply To All; the Morph cell plays too; ANIMATIONS > Fly In previews the arrow's build;
     7. Mod+S - show/<id>/deck.json holds three slides and the title;
     8. File > Export > Create PDF - the PDF lands IN the data tree, show/exports/<title>.pdf
        (it went through a save dialog to a path outside the tree once);
     9. File > Options is appkit's settings page; File > About the standard About box;
-   10. F5 steps through the show to its end, Escape closes it;
+   10. F5 steps through the show to its end (Right, then Space until AZSHOW_SHOW_ENDED, letting
+       every transition and build finish: each one prints AZSHOW_PLAYED with its frame count),
+       Escape closes it;
    11. the close guard: a close request with unsaved work shows the question, Cancel keeps the
        window (a NOTE when the headless backend does not dispatch the close);
    12. screenshots per step, and flora + dark.
@@ -93,6 +100,25 @@ class Show(k.App):
             for c in d.get("classes") or []:
                 out.add(c)
         return out
+
+    def plays(self):
+        """Every finished play so far: (kind, frames drawn, ms) from AZSHOW_PLAYED."""
+        out = []
+        for line in self.printed("AZSHOW_PLAYED", r"\S+ \d+ \d+"):
+            kind, frames, ms = line.split()
+            out.append((kind, int(frames), int(ms)))
+        return out
+
+    def played(self, what, before, kind):
+        """Waits for a new play of `kind` after the first `before` ones; it must have drawn at
+        least two frames (the first, and one per tick of its timer): one frame is a play whose
+        timer never rebuilt the window - the slide jumped, nothing animated."""
+        new = self.until(what, lambda: [p for p in self.plays()[before:] if p[0] == kind])
+        _, frames, ms = new[-1]
+        if frames < 2:
+            raise k.Failure("%s drew %d frame(s) in %d ms: nothing animated" % (what, frames, ms))
+        self.log("%s: %d frames in %d ms" % (what, frames, ms))
+        return new[-1]
 
 
 def slide_box(app):
@@ -194,6 +220,34 @@ def body(args, logs, out):
         app.click(text="VIEW")
         app.click(text="Normal")
 
+        # ---- a shape CSS cannot draw is SVG: the arrow ----
+        app.click(text="INSERT")
+        app.click_exact("Arrow")
+        app.until("the arrow drawn as SVG", lambda: "__azshow_shape_svg" in app.classes())
+        app.log("the arrow is an SVG polygon")
+        shot("06b-arrow")
+
+        # ---- transitions and builds play: the previews on the canvas ----
+        app.click(text="TRANSITIONS")
+        for _ in range(5):
+            app.click_exact("Longer")
+        before = len(app.plays())
+        app.click_exact("Fade")
+        app.until("the Fade preview", lambda: app.printed("AZSHOW_PREVIEW", r"transition Fade"))
+        app.played("the Fade preview", before, "transition")
+        app.click_exact("Apply To All")
+        before = len(app.plays())
+        app.click_exact("Morph")
+        app.played("the Morph preview", before, "transition")
+        # Back to Fade for the show (Morph between unrelated slides is a fade as well).
+        app.click_exact("Fade")
+        app.click_exact("Apply To All")
+        app.click(text="ANIMATIONS")
+        before = len(app.plays())
+        app.click_exact("Fly In")
+        app.played("the arrow's Fly In preview", before, "build")
+        shot("06c-animations")
+
         # ---- save ----
         before = len(app.printed("AZSHOW_SAVED", r"\S+"))
         app.key("s", primary=True)
@@ -229,18 +283,34 @@ def body(args, logs, out):
 
         # ---- the show ----
         before = len(app.printed("AZSHOW_SHOW", r"\d+ \d+"))
+        plays_before = len(app.plays())
         app.key("f5")
         app.until("the show", lambda: app.printed("AZSHOW_SHOW", r"\d+ \d+")[before:])
         shot("09-show")
-        for key_name in ("space", "right", "space"):
-            app.key(key_name)
+        # Right once, then Space to the end: three slides and the arrow's build. Every move
+        # gets its transition or build played out (AZSHOW_PLAYED) before the next key.
+        for n in range(10):
+            if app.has_line("AZSHOW_SHOW_ENDED"):
+                break
+            moved = len(app.printed("AZSHOW_SHOW", r"\d+ \d+"))
+            app.key("right" if n == 0 else "space")
+            app.until("the show to move", lambda: len(app.printed("AZSHOW_SHOW", r"\d+ \d+")) > moved
+                      or app.has_line("AZSHOW_SHOW_ENDED"))
+            time.sleep(1.2)
         app.until("the end of the show", lambda: app.has_line("AZSHOW_SHOW_ENDED"))
         steps = app.printed("AZSHOW_SHOW", r"\d+ \d+")[before:]
         if len(steps) < 3:
             raise k.Failure("the show did not step through the slides: %s" % steps)
+        plays = app.plays()[plays_before:]
+        kinds = [p[0] for p in plays]
+        if "transition" not in kinds or "build" not in kinds:
+            raise k.Failure("the show played no transition or no build: %s" % plays)
+        still = [p for p in plays if p[1] < 2]
+        if still:
+            raise k.Failure("plays in the show that drew one frame (nothing animated): %s" % still)
         app.key("escape")
         app.until("the show to close", lambda: app.has_line("AZSHOW_SHOW_CLOSED"))
-        app.log("the show stepped: %s" % steps)
+        app.log("the show stepped: %s; played (kind, frames, ms): %s" % (steps, plays))
 
         # ---- the close guard (an unsaved change first) ----
         app.click(text="INSERT")
