@@ -13,13 +13,15 @@ Worktree: .claude/worktrees/agent-a6a847892daffedc9 (fast-forwarded to fix/input
 - 914807832 appkit shared ~/.azlin/config.json + Theme spins + pins (Writer/Sheets/Show)
 - 179538b88 linen ground + Garamond shells; 8f138551e dialog band, popover skin, oak tooltip
 
-## IN PROGRESS
-- menus (dll menu_renderer @theme(flora) rules), dropdown selected row
+- 3955cb11d flora menus + dropdown ticks its choice; c9c0bef02 scrollbar sheet; 22c7b1ebf frame caps / accordion serif / radio stone
+- d6828dbe4 --shot runs ignore the shared look
 
-## NEXT
-- scrollbar UA flora colours (core ua_css) - engine gap: thumb hover unused
-- section titles in caps (card/frame/accordion), radio dot gem
-- report
+## IN PROGRESS
+- (none) - report to the lead
+
+## NEXT (for the lead / later)
+- build + run the suites listed in the report; api.json autofix for ButtonType::Illuminated
+- merge with CHROME11: keep one FONT_CAPS in flora.rs
 4. dropdown popup, menu, tooltip, dialog band, scrollbar
 5. linen ground
 6. EB Garamond bundling
