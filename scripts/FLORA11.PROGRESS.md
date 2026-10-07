@@ -8,10 +8,18 @@ Worktree: .claude/worktrees/agent-a6a847892daffedc9 (fast-forwarded to fix/input
 - 00b1372b3 flora buttons (kinds, gem, metal edge, double ring, caps, ButtonType::Illuminated)
 - design reference: ~/Downloads/Azlin OS design system.html (widget specimen extracted to /tmp/azlin_ds/widgets_section.html); flora.css wins on conflict
 
+- 3d6da796a fields/check box/switch/slider/progress; 7b431c034 field font 14px
+- 0b888fd0a FONT_CAPS rename (CHROME11's name)
+- 914807832 appkit shared ~/.azlin/config.json + Theme spins + pins (Writer/Sheets/Show)
+- 179538b88 linen ground + Garamond shells; 8f138551e dialog band, popover skin, oak tooltip
+
 ## IN PROGRESS
-3. fields / checkbox / radio / switch / slider / progress
+- menus (dll menu_renderer @theme(flora) rules), dropdown selected row
 
 ## NEXT
+- scrollbar UA flora colours (core ua_css) - engine gap: thumb hover unused
+- section titles in caps (card/frame/accordion), radio dot gem
+- report
 4. dropdown popup, menu, tooltip, dialog band, scrollbar
 5. linen ground
 6. EB Garamond bundling
