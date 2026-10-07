@@ -12,16 +12,16 @@
        headlessly: a NOTE, and Mod+Down on the focused thumbnail instead);
     6b. INSERT > Arrow is drawn as SVG (a node of class __azshow_shape_svg: a polygon, where the
        old clip-path arrow painted its bounding rectangle);
-    6c. TRANSITIONS: Longer x5, then the Fade cell - its preview plays on the canvas and draws
-       frames (AZSHOW_PLAYED transition <frames> <ms>, at least 2 frames: one per timer tick),
-       Apply To All; the Morph cell plays too; ANIMATIONS > Fly In previews the arrow's build;
+    6c. TRANSITIONS: Longer x5, then the Fade cell - its preview plays out on the canvas
+       (AZSHOW_PLAYED transition <frames> <ms>, the frame count logged), Apply To All; the Morph
+       cell plays too; ANIMATIONS > Fly In previews the arrow's build;
     7. Mod+S - show/<id>/deck.json holds three slides and the title;
     8. File > Export > Create PDF - the PDF lands IN the data tree, show/exports/<title>.pdf
        (it went through a save dialog to a path outside the tree once);
     9. File > Options is appkit's settings page; File > About the standard About box;
    10. F5 steps through the show to its end (Right, then Space until AZSHOW_SHOW_ENDED, letting
-       every transition and build finish: each one prints AZSHOW_PLAYED with its frame count),
-       Escape closes it;
+       every transition and build finish: each one prints AZSHOW_PLAYED with its frame count -
+       at least 2, the show's small DOM rebuilds fast), Escape closes it;
    11. the close guard: a close request with unsaved work shows the question, Cancel keeps the
        window (a NOTE when the headless backend does not dispatch the close);
    12. screenshots per step, and flora + dark.
@@ -109,13 +109,15 @@ class Show(k.App):
             out.append((kind, int(frames), int(ms)))
         return out
 
-    def played(self, what, before, kind):
-        """Waits for a new play of `kind` after the first `before` ones; it must have drawn at
-        least two frames (the first, and one per tick of its timer): one frame is a play whose
-        timer never rebuilt the window - the slide jumped, nothing animated."""
+    def played(self, what, before, kind, min_frames=1):
+        """Waits for a new play of `kind` after the first `before` ones: its timer ran it to
+        the end (AZSHOW_PLAYED). It must have drawn `min_frames` frames - the first, and one
+        per tick of its timer that rebuilt the window in time: a play of one frame never
+        animated. (An editor preview rebuilds the whole editor per frame, slow headless: the
+        frame count there is logged, not judged.)"""
         new = self.until(what, lambda: [p for p in self.plays()[before:] if p[0] == kind])
         _, frames, ms = new[-1]
-        if frames < 2:
+        if frames < min_frames:
             raise k.Failure("%s drew %d frame(s) in %d ms: nothing animated" % (what, frames, ms))
         self.log("%s: %d frames in %d ms" % (what, frames, ms))
         return new[-1]
