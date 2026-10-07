@@ -196,7 +196,7 @@ pub const THUMBNAIL_CLASS: AzString = AzString::from_const_str("__azdrive_thumbn
 /// A Details row on an odd line (Explorer's alternate shade).
 pub const ROW_ALT_CLASS: AzString = AzString::from_const_str("__azdrive_row_alt");
 /// The source list's column (what the keyboard finds it by).
-pub const SIDEBAR_CLASS: AzString = AzString::from_const_str("__azdrive_sidebar");
+pub const SIDEBAR_CLASS: AzString = AzString::from_const_str("__azdrive_source_list");
 /// A row of the source list - a section title too: the arrow keys walk them in order.
 pub const SIDE_ROW_CLASS: AzString = AzString::from_const_str("__azdrive_side_row");
 /// A section title of the source list.

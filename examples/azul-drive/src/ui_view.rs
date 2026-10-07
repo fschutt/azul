@@ -4,7 +4,7 @@
 //! and the recent places), or a folder in one of Explorer's eight layouts - Details by default
 //! (the file-type icon and name, Date modified, Type, Size under sortable headers on a raised
 //! face, the rows in quiet stripes), the icon layouts on azul's IconGrid - grouped or not, with
-//! item check boxes or not (a hand-built icon cell lifts off the paper under the pointer) -
+//! item check boxes or not (a selected hand-built icon cell or tile lifts off the paper) -
 //! with the InfoBar over it, and Finder's path bar and status line at its foot. Every item takes
 //! a click (Ctrl / Shift too), a double-click, a right-click (the context menu), a drag (a
 //! folder takes the drop: a move, Ctrl a copy) and F2's rename field.
@@ -96,8 +96,8 @@ fn item_paint(s: &DriveState, entry: &Entry) -> String {
     paint(s, entry, false)
 }
 
-/// The paint of an icon cell: an item's, rounded, lifting off the paper under the pointer and
-/// staying lifted while it is selected.
+/// The paint of an icon cell: an item's, rounded, lifting off the paper while it is
+/// selected.
 fn cell_paint(s: &DriveState, entry: &Entry) -> String {
     paint(s, entry, true)
 }
