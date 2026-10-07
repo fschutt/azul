@@ -27,8 +27,11 @@ VSCode's shape around it (the activity bar, the explorer, the tabs, the welcome 
        (`file_open`), Mod+O picks a project folder (AZCODE_FOLDER <dir>), the explorer lists
        it (AZCODE_LISTED / 3) and shows its entries, the empty state goes, the welcome page
        stays (no file is open);
-    9. TABS AND THE SIDE BAR: a click on Cargo.toml opens it in a tab, the tab's close button
-       closes it (the welcome page is back); Mod+B hides the side bar, Mod+B shows it again;
+    9. TABS, OPEN FILE AND THE SIDE BAR: a click on Cargo.toml opens it in a tab, the tab's
+       close button closes it (the welcome page is back); the welcome page's Open File... (the
+       mocked dialog again) opens a file outside the folder on its own (AZCODE_FILE), typed
+       text is saved in that file's own folder; Mod+B hides the side bar, Mod+B shows it
+       again;
     10. QUICK OPEN: Mod+P lists the folder's files (AZCODE_INDEXED), "lib" leaves src/lib.rs,
         Enter opens it.
 
@@ -186,7 +189,8 @@ PROJECT = {
 
 def folder_run(args, logs, out):
     """7-10: the empty start, Mod+O opens the folder the (mocked) folder dialog answers, a tab
-    and its close button, Mod+B, quick open (Mod+P)."""
+    and its close button, Open File... (a file outside the folder), Mod+B, quick open
+    (Mod+P)."""
     binary = e2e.find_binary("AzCode", args.bin, "AZCODE_BIN")
     data_dir = os.path.join(logs, "data-folder")
     os.makedirs(data_dir, exist_ok=True)
@@ -246,6 +250,28 @@ def folder_run(args, logs, out):
         app.until("the tab closed", lambda: not app.has_id("__azcode_tab-0"))
         if not app.has_id("__azcode_welcome"):
             raise Failure("the welcome page is not back after the last tab closed")
+
+        # ---- Open File...: a file outside the folder opens on its own and saves there ----
+        outside = os.path.join(logs, "outside", "scratch.txt")
+        os.makedirs(os.path.dirname(outside), exist_ok=True)
+        with open(outside, "w", encoding="utf-8") as f:
+            f.write("scratch\n")
+        app.must("mock", set={"file_open": {"path": outside}})
+        app.click(selector="#__azcode_welcome-open-file")
+        app.until("the picked file", lambda: outside in app.printed("AZCODE_FILE"))
+        app.until("scratch.txt opened", lambda: app.printed("AZCODE_OPENED", r"scratch\.txt \d+"))
+        app.frame(3)
+        app.click(selector=EDITOR)
+        app.key("home", primary=True)
+        app.must("text_input", text="more ")
+        app.frame(2)
+        app.key("s", primary=True)
+        app.until("scratch.txt saved", lambda: app.printed("AZCODE_SAVED", r"scratch\.txt"))
+        with open(outside, "r", encoding="utf-8") as f:
+            if not f.read().startswith("more scratch"):
+                raise Failure("the file opened on its own was not saved in its own folder")
+        app.click(selector="#__azcode_tab-close-0")
+        app.until("its tab closed", lambda: not app.has_id("__azcode_tab-0"))
 
         # ---- Mod+B hides the side bar and shows it again ----
         app.key("b", primary=True)
