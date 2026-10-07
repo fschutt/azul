@@ -1981,10 +1981,27 @@ fn measured_advance(info: &VirtualViewCallbackInfo, m: &Metrics) -> Option<f32> 
     (advance.is_finite() && advance > 0.0).then_some(advance)
 }
 
+/// An absolute box at `x`, `y` px, as large as its text (a run that
+/// paints no ground).
+fn at(x: f32, y: f32) -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        decl::position(LayoutPosition::Absolute),
+        decl::px_left(x),
+        decl::px_top(y),
+    ]
+}
+
 /// The rows of `screen` in a grid of `grid` cells of `m`, drawn in
 /// `palette` on a `size` px screen: one box per run (its ground, its ink
 /// and attributes, its text), the selection's washes over them, the
 /// cursor, the scroll bar's thumb.
+///
+/// FRAME TO FRAME THE SAME BOXES: a run's box says where it starts (its
+/// cell) and how it is drawn - not how long its text is (only a painted
+/// ground is sized, in cells) - so two frames of plain output (`tree`, a
+/// log) are the same boxes with other texts. That is all a re-render can
+/// tell the engine; a text-only update of the rows needs nothing more from
+/// the view.
 #[allow(clippy::cast_precision_loss)] // cell counts far below 2^24
 pub(crate) fn build_screen(
     screen: &TerminalScreen,
@@ -2009,7 +2026,12 @@ pub(crate) fn build_screen(
             let blank = run.text.as_str().trim_end_matches(' ').is_empty();
             let decorated = run.style.underline || run.style.strikethrough;
             if !blank || colors.paints_ground || decorated {
-                let mut props = place(column as f32 * cw, y, columns as f32 * cw, lh);
+                let x = column as f32 * cw;
+                let mut props = if colors.paints_ground {
+                    place(x, y, columns as f32 * cw, lh)
+                } else {
+                    at(x, y)
+                };
                 // The default ink is the screen's own (inherited): most runs
                 // carry no colour of their own, one or two fewer properties
                 // to cascade a run, every frame.
@@ -2036,7 +2058,9 @@ pub(crate) fn build_screen(
                         StyleTextDecoration::LineThrough,
                     )));
                 }
-                kids.push(if blank {
+                // Blanks keep their text when a line is drawn through them
+                // (an underlined gap); otherwise they are only their ground.
+                kids.push(if blank && !decorated {
                     Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(props))
                 } else {
                     boxed_text(props, run.text.clone())
@@ -2871,6 +2895,55 @@ mod build_tests {
         texts(&dom, &mut t);
         // Every run's text, the cursor's character (a blank: none).
         assert_eq!(t, ["~ ", "$ ls", "Cargo.toml  src", "$ "]);
+    }
+
+    /// The boxes of `dom` depth first - each node's inline style and whether
+    /// it is a text - and, apart, the texts.
+    fn boxes(dom: &Dom, styles: &mut Vec<(azul_css::css::Css, bool)>, texts: &mut Vec<String>) {
+        let text = match dom.root.get_node_type() {
+            azul_core::dom::NodeType::Text(t) => {
+                texts.push(String::from(t.as_ref().as_str()));
+                true
+            }
+            _ => false,
+        };
+        styles.push((dom.root.get_style().clone(), text));
+        for c in dom.children.as_ref() {
+            boxes(c, styles, texts);
+        }
+    }
+
+    #[test]
+    fn two_frames_of_plain_output_are_the_same_boxes_with_other_texts() {
+        // `tree` going by: every row has other text on the next frame, and
+        // the boxes stay - only a text-only update is left to do.
+        let grid = TerminalGridSize::create(40, 3);
+        let m = Metrics::of(13.0, 17.0, Some(8.0));
+        let frame = |lines: [&str; 3]| {
+            let screen = TerminalScreen::create(TerminalLineVec::from_vec(
+                lines
+                    .iter()
+                    .map(|l| TerminalLine::plain(AzString::from(*l)))
+                    .collect(),
+            ));
+            let size = LogicalSize::new(332.0, 51.0);
+            build_screen(&screen, grid, &m, &TerminalPalette::flat(), size, None)
+        };
+        let (mut a, mut a_texts) = (Vec::new(), Vec::new());
+        boxes(
+            &frame(["\u{251c}\u{2500}\u{2500} src", "\u{2502}   lib.rs", "Cargo.toml"]),
+            &mut a,
+            &mut a_texts,
+        );
+        let (mut b, mut b_texts) = (Vec::new(), Vec::new());
+        boxes(
+            &frame(["\u{2502}   lib.rs", "Cargo.toml", "3 directories, 12 files"]),
+            &mut b,
+            &mut b_texts,
+        );
+        assert_eq!(a, b);
+        assert_ne!(a_texts, b_texts);
+        assert_eq!(b_texts[2], "3 directories, 12 files");
     }
 
     #[test]
