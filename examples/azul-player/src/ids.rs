@@ -59,6 +59,10 @@ names! {
     /// The search page and its field.
     SEARCH = "search";
     SEARCH_FIELD = "search-field";
+    /// The address page: its field, its play button, the sample.
+    ADDRESS_FIELD = "address-field";
+    ADDRESS_PLAY = "address-play";
+    ADDRESS_SAMPLE = "address-sample";
     /// The picture viewer and slide show.
     PICTURE = "picture";
     PICTURE_CAPTION = "picture-caption";

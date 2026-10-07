@@ -3,7 +3,8 @@
 //! THE START STRIP is the first screen: the categories stacked down the window - extras,
 //! pictures + videos, music, movies, tv, tasks - the focused one on the middle row with its items
 //! beside it (music library, play all, radio, search; picture library, play favorites, video
-//! library; movie library, open a file; recorded tv; settings, media only, refresh, about, close).
+//! library; movie library, open a file, open an address; recorded tv; settings, media only,
+//! refresh, about, close).
 //! Arrow keys, the wheel and the pointer move through it, Enter opens; an item that cannot work
 //! here says why. Every library is a page: its big lower-case title, its views (albums · artists
 //! · genres · songs; folders · date taken · play slide show; ...), a gallery of tiles - covers,
@@ -13,7 +14,9 @@
 //! WHAT PLAYS: music from the music folder (azul's `AudioPlayer`, gapless, now playing with the
 //! cover, the seek bar and what comes next); pictures in a viewer and a slide show (Ken Burns'
 //! pan and zoom, a cross-fade from one to the next); videos and movies (MP4 / MOV with H.264:
-//! azul's `VideoWidget` for the picture, the same `AudioPlayer` for the sound). A video opens
+//! azul's `VideoWidget` for the picture, the same `AudioPlayer` for the sound), from a file or a
+//! web address (read by range requests while it plays, picture and sound through one download).
+//! A video opens
 //! BEHIND THE CURTAIN (`curtain.rs`): its first picture and its first sound are made ready out of
 //! sight, then the menus fade to black - text, icons, then the blue and its light - and the
 //! picture fades in as picture and sound start together. The transport (bottom right) shows when
@@ -44,7 +47,8 @@
 //! <ready|none> <buffered>`, `AZPLAYER_STATE <phase> <position>`, `AZPLAYER_CLOSE <position>`,
 //! `AZPLAYER_MUSIC <play title|playing|paused|stopped|finished>`, `AZPLAYER_PICTURE <index>
 //! <still|slideshow>`, `AZPLAYER_SLIDESHOW <playing|paused>`, `AZPLAYER_SEARCH <found>`,
-//! `AZPLAYER_FULLSCREEN <on|off>`, `AZPLAYER_QUIT`, `AZPLAYER_ERROR <message>`.
+//! `AZPLAYER_FULLSCREEN <on|off>`, `AZPLAYER_FOCUS <category / item | tile n column c>`,
+//! `AZPLAYER_ADDRESS <url>`, `AZPLAYER_QUIT`, `AZPLAYER_ERROR <message>`.
 
 pub mod app;
 pub mod args;

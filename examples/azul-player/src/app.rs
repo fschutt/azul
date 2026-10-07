@@ -175,6 +175,8 @@ pub struct Player {
     pub strip: StripFocus,
     /// The search's words.
     pub query: String,
+    /// The address page's field (a video on a web server).
+    pub address: String,
     pub viewer: Viewer,
     /// The sound: music, and a video's sound.
     pub audio: Option<AudioPlayer>,
@@ -226,6 +228,7 @@ impl Player {
             nav,
             strip: StripFocus::default(),
             query: String::new(),
+            address: String::new(),
             viewer: Viewer::default(),
             audio: None,
             music: None,

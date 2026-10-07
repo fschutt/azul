@@ -300,6 +300,8 @@ pub enum Screen {
         group: Group,
     },
     Search,
+    /// An address (a video on a web server, played while it downloads).
+    Address,
     NowPlaying,
     /// The picture viewer and the slide show.
     Picture,
@@ -316,6 +318,7 @@ impl Screen {
             Screen::Section(s) => format!("page-{}", s.screen_name()),
             Screen::Group { group, .. } => format!("page-group-{}", short_hash(&group.title)),
             Screen::Search => String::from("page-search"),
+            Screen::Address => String::from("page-address"),
             Screen::NowPlaying => String::from("page-now-playing"),
             Screen::Picture => String::from("page-picture"),
             Screen::Video => String::from("page-video"),

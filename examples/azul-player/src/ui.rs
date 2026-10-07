@@ -198,6 +198,7 @@ fn light_seed(s: &Player, place: &Place) -> usize {
         Screen::Section(section) => 7 + section.index(),
         Screen::Group { section, .. } => 13 + section.index(),
         Screen::Search => 21,
+        Screen::Address => 22,
         Screen::NowPlaying => 23,
         Screen::Picture | Screen::Video => 0,
     }
@@ -257,6 +258,7 @@ fn page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
             gallery_page(s, app, place, &title, Some(&sub), stage)
         }
         Screen::Search => search_page(s, app, place, stage),
+        Screen::Address => address_page(s, app, stage),
         Screen::NowPlaying => now_playing_page(s, app, stage),
         Screen::Picture => picture_page(s, app),
         Screen::Video => Dom::create_div(),
@@ -1183,6 +1185,82 @@ fn search_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
     page
 }
 
+/// The sample address the address page offers (the clip AzWidgets' Video card plays).
+pub const SAMPLE_ADDRESS: &str =
+    "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4";
+
+/// Open an address: the field (Enter plays what it names), a play button, a sample; the video
+/// plays while it downloads.
+fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
+    let field = TextInput::create_url()
+        .with_text(s.address.as_str())
+        .with_placeholder("https://\u{2026}/video.mp4")
+        .with_accessibility_name("The video's address")
+        .with_on_text_input(app.clone(), nav::on_address as TextInputOnTextInputCallbackType)
+        .dom()
+        .with_id(ids::ADDRESS_FIELD)
+        .with_attribute(AttributeType::Autofocus)
+        .with_css("width: 560px;");
+    let play = Dom::create_div()
+        .with_id(ids::ADDRESS_PLAY)
+        .with_css(format!(
+            "display: flex; width: 44px; height: 44px; margin-left: 14px; cursor: pointer; \
+             border-radius: 22px; :focus {{ box-shadow: 0px 0px 14px 2px rgba(118, 196, 255, \
+             0.95); }}"
+        ))
+        .with_child(Dom::create_icon("play_arrow").with_css(format!(
+            "{} width: 44px; height: 44px; border-radius: 22px; font-size: 24px; {}",
+            look::ROUND,
+            look::icon_fade(stage)
+        )));
+    let sample = Dom::create_p_with_text("try: Big Buck Bunny (10 seconds, 360p)").with_css(format!(
+        "margin: 0px; padding: 4px 10px; border-radius: 4px; font-size: 16px; cursor: pointer; \
+         color: {}; {} :hover {{ color: #ffffff; }} :focus {{ box-shadow: 0px 0px 14px 2px \
+         rgba(118, 196, 255, 0.8); }}",
+        look::ACCENT,
+        look::text_fade(stage)
+    ));
+    Dom::create_div()
+        .with_child(text(
+            "open an address",
+            &format!(
+                "position: absolute; left: 56px; top: 30px; {} color: {};",
+                look::PAGE_TITLE,
+                look::INK
+            ),
+            stage,
+        ))
+        .with_child(
+            Dom::create_div()
+                .with_css(
+                    "position: absolute; left: 60px; top: 120px; display: flex; flex-direction: \
+                     row; align-items: center;",
+                )
+                .with_child(field)
+                .with_child(act_part(play, app, Act::OpenAddress, "Play the address")),
+        )
+        .with_child(text(
+            "An MP4 or MOV video (H.264) on a web server plays while it downloads; the sound \
+             starts with the picture.",
+            &format!(
+                "position: absolute; left: 62px; top: 186px; right: 60px; font-size: 18px; \
+                 font-weight: 300; color: {};",
+                look::INK_DIM
+            ),
+            stage,
+        ))
+        .with_child(
+            Dom::create_div()
+                .with_css("position: absolute; left: 54px; top: 236px;")
+                .with_child(act_part(
+                    sample.with_id(ids::ADDRESS_SAMPLE),
+                    app,
+                    Act::Sample,
+                    "Play the sample video, Big Buck Bunny",
+                )),
+        )
+}
+
 // ==== Now playing ====
 
 /// Now playing: the cover large, the song, the album, the seek bar between the times, what
@@ -1516,10 +1594,10 @@ fn picture_page(s: &Player, app: &RefAny) -> Dom {
 /// Hidden while the video opens; faded in from black when picture and sound start.
 fn video_stage(s: &Player, video: &VideoSession, app: &RefAny, stage: Stage) -> Dom {
     let config = VideoConfig {
-        source: if video.path.starts_with("http://") || video.path.starts_with("https://") {
-            VideoSource::Url(AzString::from(video.path.as_str()))
-        } else {
-            VideoSource::File(AzString::from(video.path.as_str()))
+        // A web address plays while it downloads (range requests, a window ahead).
+        source: match media::web_address(&video.path) {
+            Some(url) => VideoSource::Url(url),
+            None => VideoSource::File(AzString::from(video.path.as_str())),
         },
         timestamp: video.seek_s,
         autoplay: true,

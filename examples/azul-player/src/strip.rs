@@ -24,6 +24,8 @@ pub enum Action {
     MovieLibrary,
     /// The file dialog for a video.
     OpenFile,
+    /// A video at an address (played while it downloads).
+    OpenAddress,
     RecordedTv,
     LiveTvSetup,
     Settings,
@@ -116,6 +118,7 @@ pub const CATEGORIES: [Category; 6] = [
         entries: &[
             entry(Action::MovieLibrary, "movie library", "movie"),
             entry(Action::OpenFile, "open a file", "folder_open"),
+            entry(Action::OpenAddress, "open an address", "language"),
         ],
     },
     Category {

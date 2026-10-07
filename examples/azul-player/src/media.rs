@@ -9,10 +9,12 @@ use azul::{
     callbacks::SeekBarOnSeekCallbackType,
     dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
+    error::ResultUrlUrlParseError,
     file::FileTypeList,
     option::{OptionFileTypeList, OptionString},
     prelude::*,
     str::String as AzString,
+    url::Url,
     vec::StringVec,
     video::{VideoPhase, VideoStatus},
     widgets::{SeekBar, SeekBarState},
@@ -272,9 +274,30 @@ impl VideoSession {
     }
 }
 
-/// Opens `path`: the picture from where it was left, paused and HIDDEN, and the sound preloaded
-/// at the same place and held; the menus stay until both are ready (the curtain, in the tick).
+/// The web address `text` names, when it is one AzPlayer plays (http or https): the video is
+/// then read by range requests as it plays, its sound through the same download.
+#[must_use]
+pub fn web_address(text: &str) -> Option<Url> {
+    let text = text.trim();
+    if !(text.starts_with("http://") || text.starts_with("https://")) {
+        return None;
+    }
+    match Url::parse(AzString::from(text)) {
+        ResultUrlUrlParseError::Ok(url) if url.is_http() || url.is_https() => Some(url),
+        _ => None,
+    }
+}
+
+/// Opens `path` - a file or a web address: the picture from where it was left, paused and
+/// HIDDEN, and the sound preloaded at the same place and held; the menus stay until both are
+/// ready (the curtain, in the tick).
 pub fn open_video(app: &RefAny, info: &mut CallbackInfo, path: &str) {
+    // An address as the parser writes it: the picture and the sound then share one download.
+    let address = web_address(path);
+    let path = address
+        .as_ref()
+        .map_or_else(|| path.to_string(), |u| u.href.as_str().to_string());
+    let path = path.as_str();
     close_video(app, info);
     let mut app_ref = app.clone();
     let Some(mut guard) = app_ref.downcast_mut::<Player>() else {
@@ -295,7 +318,10 @@ pub fn open_video(app: &RefAny, info: &mut CallbackInfo, path: &str) {
     let resume = s.history.resume_at(path);
     #[allow(clippy::cast_possible_truncation)]
     let seek_s = resume as f32;
-    let audio_id = s.player().preload_file(AzString::from(path), resume);
+    let audio_id = match address {
+        Some(url) => s.player().preload_url(url.href, resume),
+        None => s.player().preload_file(AzString::from(path), resume),
+    };
     let now = s.now_ms();
     s.video = Some(VideoSession {
         path: path.to_string(),
@@ -459,6 +485,11 @@ pub extern "C" fn on_video_status(
                         audio.seek(target);
                     }
                 }
+            }
+            // The picture waits for its download (a stall): the sound waits with it, and plays
+            // on with it (the arm above).
+            VideoPhase::Loading if video.curtain == Curtain::Open && !video.paused => {
+                audio.pause();
             }
             VideoPhase::Ended | VideoPhase::Failed => audio.pause(),
             _ => {}

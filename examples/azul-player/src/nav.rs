@@ -33,6 +33,10 @@ pub enum Act {
     Tile(usize),
     /// The now-playing inset.
     NowPlaying,
+    /// The address page's play button: the address in the field plays.
+    OpenAddress,
+    /// The address page's sample: it plays.
+    Sample,
 }
 
 /// A part's payload: the app and what it asks for.
@@ -200,6 +204,7 @@ pub fn activate(app: &RefAny, info: &mut CallbackInfo, action: Action) -> Update
             Update::RefreshDom
         }
         Action::OpenFile => media::run(app, info, Command::Open),
+        Action::OpenAddress => page(Screen::Address),
         Action::Settings => media::run(app, info, Command::Settings),
         Action::MediaOnly => media::run(app, info, Command::Fullscreen),
         Action::Refresh => media::run(app, info, Command::Refresh),
@@ -464,9 +469,48 @@ fn enter(app: &RefAny, info: &mut CallbackInfo) -> Update {
                 open_tile(app, info, focus.index)
             }
         }
+        Screen::Address => open_address(app, info, None),
         Screen::NowPlaying | Screen::Picture | Screen::Video => {
             media::run(app, info, Command::PlayPause)
         }
+    }
+}
+
+/// Plays the address in the field (or `sample`): a web address opens like a file - behind the
+/// curtain, read while it downloads; anything else says what an address must be.
+pub fn open_address(app: &RefAny, info: &mut CallbackInfo, sample: Option<&str>) -> Update {
+    let text = {
+        let mut app_ref = app.clone();
+        let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        if let Some(sample) = sample {
+            s.address = sample.to_string();
+        }
+        let text = s.address.trim().to_string();
+        if media::web_address(&text).is_none() {
+            s.notice("An address starts with http:// or https:// and names an MP4 or MOV video.");
+            return Update::RefreshDom;
+        }
+        text
+    };
+    println!("AZPLAYER_ADDRESS {text}");
+    media::open_video(app, info, &text);
+    Update::RefreshDom
+}
+
+/// The address field: what it holds.
+pub extern "C" fn on_address(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Player>() {
+        s.address = state.get_text().as_str().to_string();
+    }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
     }
 }
 
@@ -522,6 +566,8 @@ pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
             app::request_art(&app, &mut info);
             Update::RefreshDom
         }
+        Act::OpenAddress => open_address(&app, &mut info, None),
+        Act::Sample => open_address(&app, &mut info, Some(crate::ui::SAMPLE_ADDRESS)),
     }
 }
 
@@ -694,13 +740,22 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let screen = s.place().screen.clone();
         let gallery = matches!(
             screen,
-            Screen::Start | Screen::Section(_) | Screen::Group { .. } | Screen::Search
+            Screen::Start
+                | Screen::Section(_)
+                | Screen::Group { .. }
+                | Screen::Search
+                | Screen::Address
         );
-        let searching = screen == Screen::Search && !s.query.is_empty();
+        // A field with words in it: Backspace edits it rather than going back.
+        let searching = match screen {
+            Screen::Search => !s.query.is_empty(),
+            Screen::Address => !s.address.is_empty(),
+            _ => false,
+        };
         (screen, searching, media::transport_key(&s, key, gallery))
     };
-    // The search field keeps its letters, Space and Backspace.
-    let typing = screen == Screen::Search
+    // The search and the address fields keep their letters, Space and Backspace.
+    let typing = matches!(screen, Screen::Search | Screen::Address)
         && !matches!(
             key,
             VirtualKeyCode::Up
@@ -746,6 +801,12 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         VirtualKeyCode::Right => Step::Right,
         _ => return Update::DoNothing,
     };
+    // Left / Right move the caret of the search and address fields.
+    if matches!(screen, Screen::Search | Screen::Address)
+        && matches!(step, Step::Left | Step::Right)
+    {
+        return Update::DoNothing;
+    }
     // Left / Right seek in what plays full-window (a minute with Shift); Up / Down were the
     // volume (the transport above).
     if matches!(screen, Screen::Video | Screen::NowPlaying) {

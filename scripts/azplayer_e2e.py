@@ -20,6 +20,9 @@
        the video plays (AZPLAYER_STATE playing) and the curtain opens; the order of the markers is
        checked; then Space pauses, the round play button plays, M mutes (the OSD), F / Escape
        fullscreen, Backspace closes it (AZPLAYER_CLOSE) and the page under it comes back;
+    5b. NETWORK STREAMING: the test video is served by a local file server answering range
+       requests; "open an address" plays it behind the same curtain (the picture and the sound
+       read while they download: AZPLAYER_AUDIO ready, AZPLAYER_STATE playing);
     6. a second run on the same data folder, `--screen recent`: the test video is in recently
        played (player/history.json);
     7. screenshots of the start strip, a library, now playing, the picture viewer, the curtain
@@ -33,10 +36,12 @@ scripts/waves/tools/run_capped.sh on the 8 GB Mac):
 """
 
 import base64
+import http.server
 import os
 import re
 import shutil
 import subprocess
+import threading
 
 import azlin_e2e as e2e
 from azlin_e2e import Failure
@@ -143,6 +148,69 @@ def line_index(app, key, pattern):
 def phase(app):
     last = app.last("AZPLAYER_STATE")
     return last.split()[0] if last else None
+
+
+class RangeHandler(http.server.SimpleHTTPRequestHandler):
+    """A file server that answers range requests (`206`, `Content-Range`), as a video host
+    does: what AzPlayer's streaming reads a window ahead with."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_HEAD(self):
+        self.serve(head=True)
+
+    def do_GET(self):
+        self.serve(head=False)
+
+    def serve(self, head):
+        path = self.translate_path(self.path)
+        if not os.path.isfile(path):
+            self.send_error(404)
+            return
+        size = os.path.getsize(path)
+        start, end = 0, size - 1
+        ranged = False
+        match = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range", ""))
+        if match and (match.group(1) or match.group(2)):
+            ranged = True
+            if match.group(1):
+                start = int(match.group(1))
+                end = int(match.group(2)) if match.group(2) else size - 1
+            else:
+                start = max(0, size - int(match.group(2)))
+            end = min(end, size - 1)
+            if start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", "bytes */%d" % size)
+                self.end_headers()
+                return
+        self.send_response(206 if ranged else 200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        if ranged:
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        self.end_headers()
+        if head:
+            return
+        with open(path, "rb") as f:
+            f.seek(start)
+            left = end - start + 1
+            while left > 0:
+                block = f.read(min(65536, left))
+                if not block:
+                    break
+                self.wfile.write(block)
+                left -= len(block)
+
+
+def serve_folder(folder):
+    """A range-answering file server for `folder` on a free local port: (server, base URL)."""
+    handler = lambda *a, **k: RangeHandler(*a, directory=folder, **k)  # noqa: E731
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, "http://127.0.0.1:%d" % server.server_address[1]
 
 
 def check_strip_and_sections(app, out, have_media):
@@ -336,6 +404,38 @@ def check_video(app, out):
     back_to_start(app)
 
 
+def check_address(app, out, base_url):
+    """Open an address: the test video from a local server answering range requests plays
+    behind the same curtain - the picture and the sound read while they download."""
+    move_strip(app, "down", "music / music library")
+    move_strip(app, "down", "movies / movie library")
+    move_strip(app, "right", "movies / open a file")
+    move_strip(app, "right", "movies / open an address")
+    key_to_page(app, "return", "page-address")
+    url = base_url + "/test-video.mp4"
+    app.text_input("#__azplayer_address-field", url)
+    opens = app.count("AZPLAYER_CURTAIN", "open")
+    playing = app.count("AZPLAYER_STATE", r"playing .*")
+    app.key("return")
+    app.until("the address played", lambda: app.last("AZPLAYER_ADDRESS") == url)
+    app.until("the address's curtain open", lambda: app.count("AZPLAYER_CURTAIN", "open") > opens
+              or phase(app) == "failed")
+    if phase(app) == "failed":
+        raise Failure("the video at %s does not play: %s" % (url, app.last("AZPLAYER_STATE")))
+    app.until("the address's picture plays",
+              lambda: app.count("AZPLAYER_STATE", r"playing .*") > playing)
+    audio = app.last("AZPLAYER_AUDIO") or ""
+    if not audio.startswith("ready"):
+        raise Failure("the sound at the address was not ready with the picture: %r" % audio)
+    app.screenshot(os.path.join(out, "6b-address-playing.png"))
+    closes = app.count("AZPLAYER_CLOSE")
+    app.key("backspace")
+    app.until("the address's video closed", lambda: app.count("AZPLAYER_CLOSE") > closes)
+    wait_page(app, "page-address")
+    back_to_start(app)
+    move_strip(app, "up", "music / music library")
+
+
 def body(args, logs, out):
     binary = e2e.find_binary("AzPlayer", args.bin, "AZPLAYER_BIN")
     data_dir = os.path.join(logs, "data")
@@ -360,6 +460,11 @@ def body(args, logs, out):
         check_music(app, out, have_media)
         if have_media:
             check_video(app, out)
+            server, base_url = serve_folder(folders["videos"])
+            try:
+                check_address(app, out, base_url)
+            finally:
+                server.shutdown()
         app.must("set_mode", mode="dark")
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "7-dark.png"))
