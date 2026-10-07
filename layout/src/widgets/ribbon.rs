@@ -4024,10 +4024,14 @@ static LARGE_ICON_LINE_STYLE: &[Cond] = &[Cond::simple(P::const_line_height(
 
 /// The block around a wrapped label: a block formatting context, so the
 /// label inside it can be as wide as its longer line (a flex item cannot
-/// be `width: min-content`).
+/// be `width: min-content`). Its own line is the label's 13 px, so its strut
+/// adds nothing under the label.
 static LARGE_LABEL_BLOCK_STYLE: &[Cond] = &[
     Cond::simple(P::const_display(LayoutDisplay::Block)),
     Cond::simple(P::const_text_align(StyleTextAlign::Center)),
+    Cond::simple(P::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(13),
+    ))),
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
         inner: FloatValue::const_new(0),
@@ -4036,12 +4040,14 @@ static LARGE_LABEL_BLOCK_STYLE: &[Cond] = &[
 
 /// APPENDED to the large label style for a wrapped label: the label is as
 /// wide as its longer line (its words are joined by no-break spaces but at
-/// the one break) and its lines are 13 px, two of them under the icon.
+/// the one break) and its lines are 13 px, two of them under the 32 px icon:
+/// 58 px, the content box of the 66 px button.
 static LARGE_LABEL_LINES_STYLE: &[Cond] = &[
     Cond::simple(P::const_display(LayoutDisplay::InlineBlock)),
     Cond::simple(P::const_width(LayoutWidth::MinContent)),
     Cond::simple(P::const_text_align(StyleTextAlign::Center)),
-    Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(1))),
+    Cond::simple(P::const_vertical_align(StyleVerticalAlign::Top)),
+    Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(0))),
     Cond::simple(P::const_line_height(StyleLineHeight::Length(
         PixelValue::const_px(13),
     ))),
