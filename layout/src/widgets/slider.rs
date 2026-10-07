@@ -2898,6 +2898,8 @@ mod base_and_skin_tests {
     //! R5: a slider's structure is its base, declared once for every app
     //! theme - never inside a `@theme(<name>)` block.
 
+    use azul_css::props::property::CssPropertyType;
+
     use super::Slider;
     use crate::widgets::themes::{
         theme_blocks::checks::{under, BOTH},
@@ -2917,7 +2919,23 @@ mod base_and_skin_tests {
                 assert_structure_is_shared(
                     &format!("slider at {value} built for {}", t.name()),
                     &dom,
-                    &[],
+                    &[
+                        (
+                            "__azul-native-slider",
+                            CssPropertyType::OverflowX,
+                            "flora's fill hangs off the thumb and the track clips it",
+                        ),
+                        (
+                            "__azul-native-slider",
+                            CssPropertyType::OverflowY,
+                            "flora's fill hangs off the thumb and the track clips it",
+                        ),
+                        (
+                            "__azul-native-slider-thumb",
+                            CssPropertyType::Position,
+                            "flora's thumb holds the fill and the diamond, placed inside it",
+                        ),
+                    ],
                 );
             }
         }

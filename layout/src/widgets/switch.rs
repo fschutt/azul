@@ -192,6 +192,26 @@ fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
     ))
 }
 
+/// The track face a click writes when it flips the switch to `checked`: the
+/// face of the theme the switch was built in (the window's - the handler has
+/// no other way to learn it), in the mode the window shows - flora's stone or
+/// trough (`themes::flora::switch_track_face`, in the theme's accent), else
+/// the widget's own colours.
+pub(crate) fn track_face(checked: bool, dark: bool) -> StyleBackgroundContentVec {
+    match crate::widgets::themes::UiTheme::current() {
+        crate::widgets::themes::UiTheme::Flora => {
+            crate::widgets::themes::flora::switch_track_face(checked, dark)
+        }
+        crate::widgets::themes::UiTheme::Flat => {
+            if checked {
+                TRACK_ON_BG
+            } else {
+                TRACK_OFF_BG
+            }
+        }
+    }
+}
+
 /// Build the track (pill container) style. Background colour is the only
 /// state-dependent property, so the style is built at runtime per the recipe's
 /// "runtime vec if param-dependent" path.
@@ -405,10 +425,7 @@ pub mod input {
     use azul_core::{callbacks::Update, refany::RefAny};
     use azul_css::props::property::CssProperty;
 
-    use super::{
-        SwitchOnToggle, SwitchStateWrapper, KNOB_OFF_TRANSFORM, KNOB_ON_TRANSFORM, TRACK_OFF_BG,
-        TRACK_ON_BG,
-    };
+    use super::{SwitchOnToggle, SwitchStateWrapper, KNOB_OFF_TRANSFORM, KNOB_ON_TRANSFORM};
     use crate::callbacks::CallbackInfo;
 
     #[must_use]
@@ -456,14 +473,16 @@ pub mod input {
         );
 
         // CallbackInfo is Copy, so `info` is still usable after the call above.
+        // The track takes the face of the theme the switch was built in, for
+        // the mode the window shows (`super::track_face`).
+        let dark = info.get_resolved_mode() == azul_core::window::DarkLightMode::Dark;
+        info.set_css_property(
+            track_id,
+            CssProperty::const_background_content(super::track_face(switch.inner.checked, dark)),
+        );
         if switch.inner.checked {
-            info.set_css_property(track_id, CssProperty::const_background_content(TRACK_ON_BG));
             info.set_css_property(knob_id, CssProperty::const_transform(KNOB_ON_TRANSFORM));
         } else {
-            info.set_css_property(
-                track_id,
-                CssProperty::const_background_content(TRACK_OFF_BG),
-            );
             info.set_css_property(knob_id, CssProperty::const_transform(KNOB_OFF_TRANSFORM));
         }
 
