@@ -1951,6 +1951,257 @@ fn pan_viewport(
     (new_lon, new_lat)
 }
 
+// ────────── Map labels — the tile's text, laid out over the tiles ─────────
+
+/// Opens the block of `<text>` labels the tile decoder
+/// (`azul_dll::desktop::extra::map::svg::features_to_svg`) puts at the end of
+/// a tile's SVG, right before `</svg>`.
+///
+/// The tile rasteriser draws no text, and a label baked into a tile's
+/// pixels would be clipped at the tile's edge, scaled with fractional zoom
+/// and turned with the camera. So the render cuts the block out
+/// ([`split_tile_svg`]), rasterises the geometry, and lays the labels out
+/// itself: real text over the whole grid, decluttered across tiles.
+pub const TILE_LABELS_OPEN: &str = "<g id=\"labels\">";
+
+/// One label a decoded tile carries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TileLabel {
+    /// The anchor (the label's middle) in the tile's 0..256 pixel space.
+    pub x: f32,
+    pub y: f32,
+    pub text: String,
+    /// CSS px.
+    pub size: f32,
+    /// The ink and the halo around it (CSS colours).
+    pub fill: String,
+    pub halo: String,
+    /// Lower claims space first (countries before towns before shops).
+    pub priority: i32,
+    /// The MVT layer it came from (`place`, `poi`, `housenumber`, ...).
+    pub kind: String,
+    pub italic: bool,
+    /// Degrees, clockwise: the road a road name runs along; 0 = upright.
+    pub angle: f32,
+}
+
+/// A tile's SVG as the rasteriser's geometry (the label block cut out, still
+/// one whole `<svg>`) and the labels that were in it. An SVG without a
+/// label block is returned as it is.
+#[must_use]
+pub fn split_tile_svg(svg: &str) -> (alloc::borrow::Cow<'_, str>, Vec<TileLabel>) {
+    match svg.find(TILE_LABELS_OPEN) {
+        None => (alloc::borrow::Cow::Borrowed(svg), Vec::new()),
+        Some(at) => {
+            let mut geometry = String::with_capacity(at + 6);
+            geometry.push_str(&svg[..at]);
+            geometry.push_str("</svg>");
+            (
+                alloc::borrow::Cow::Owned(geometry),
+                parse_tile_labels(&svg[at..]),
+            )
+        }
+    }
+}
+
+/// The `<text>` elements of a label block. A malformed element ends the
+/// scan; one without a position or a text is skipped.
+#[must_use]
+pub fn parse_tile_labels(block: &str) -> Vec<TileLabel> {
+    let mut out = Vec::new();
+    let mut rest = block;
+    while let Some(start) = rest.find("<text ") {
+        let after = &rest[start + "<text ".len()..];
+        let Some(tag_end) = after.find('>') else {
+            break;
+        };
+        let attrs = &after[..tag_end];
+        let body = &after[tag_end + 1..];
+        let Some(close) = body.find("</text>") else {
+            break;
+        };
+        let text = xml_unescape(&body[..close]);
+        rest = &body[close + "</text>".len()..];
+        let num = |name: &str| {
+            svg_attr(attrs, name)
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .filter(|v| v.is_finite())
+        };
+        let (Some(x), Some(y)) = (num("x"), num("y")) else {
+            continue;
+        };
+        if text.trim().is_empty() {
+            continue;
+        }
+        out.push(TileLabel {
+            x,
+            y,
+            text,
+            size: num("font-size")
+                .filter(|s| *s > 0.0 && *s < 64.0)
+                .unwrap_or(11.0),
+            fill: svg_attr(attrs, "fill").map_or_else(|| "#333333".to_string(), xml_unescape),
+            halo: svg_attr(attrs, "stroke").map_or_else(|| "#ffffff".to_string(), xml_unescape),
+            priority: svg_attr(attrs, "data-priority")
+                .and_then(|v| v.trim().parse::<i32>().ok())
+                .unwrap_or(i32::MAX / 2),
+            kind: svg_attr(attrs, "data-kind").map(xml_unescape).unwrap_or_default(),
+            italic: svg_attr(attrs, "font-style") == Some("italic"),
+            angle: svg_attr(attrs, "transform")
+                .and_then(parse_rotate)
+                .unwrap_or(0.0),
+        });
+    }
+    out
+}
+
+/// The value of `name="…"` among a tag's attributes (`attrs`: what is
+/// between the tag name and its `>`).
+fn svg_attr<'a>(attrs: &'a str, name: &str) -> Option<&'a str> {
+    let mut from = 0;
+    while let Some(found) = attrs[from..].find(name) {
+        let at = from + found;
+        let starts_a_name = at == 0 || attrs.as_bytes()[at - 1] == b' ';
+        let tail = &attrs[at + name.len()..];
+        if starts_a_name && tail.starts_with("=\"") {
+            let value = &tail[2..];
+            return value.find('"').map(|end| &value[..end]);
+        }
+        from = at + name.len();
+    }
+    None
+}
+
+/// The angle of `rotate(<deg> …)`.
+fn parse_rotate(transform: &str) -> Option<f32> {
+    let inner = transform.trim().strip_prefix("rotate(")?;
+    let first = inner.split([' ', ',', ')']).next()?;
+    first.trim().parse::<f32>().ok().filter(|a| a.is_finite())
+}
+
+/// XML text / attribute escapes undone (`&amp;` last, so `&amp;lt;` stays
+/// the literal `&lt;`).
+fn xml_unescape(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+/// The most labels one frame shows.
+const MAX_LABELS_PER_FRAME: usize = 300;
+
+/// A label is not repeated closer than this to itself (one road name per
+/// tile reads as a repeat every 256 px otherwise).
+const LABEL_REPEAT_PX: f32 = 180.0;
+
+/// House numbers only from this zoom on (the tiles carry them from z14,
+/// where they would bury the streets).
+const HOUSENUMBER_MIN_ZOOM: f32 = 17.0;
+
+/// The box a label's text takes: an estimate (no font is measured on the
+/// render path), generous so a centred line never overflows to one side.
+fn label_box(label: &TileLabel) -> (f32, f32) {
+    let chars = label.text.chars().count() as f32;
+    (chars * label.size * 0.62 + 6.0, label.size * 1.35)
+}
+
+/// The labels the frame shows, as DOM: most important first, none on top
+/// of another, none repeated within [`LABEL_REPEAT_PX`], none outside the
+/// view (with `margin` px to spare for a turned or tilted camera).
+/// `candidates` are `(x, y, label)` in the grid's pixel space.
+#[allow(clippy::cast_precision_loss)] // label counts and character counts are small
+fn map_label_doms(
+    mut candidates: Vec<(f32, f32, TileLabel)>,
+    width: f32,
+    height: f32,
+    viewport: &MapViewport,
+    margin: f32,
+) -> Vec<Dom> {
+    candidates.sort_by_key(|(_, _, l)| l.priority);
+    // Point labels stay upright under the camera's bearing: the grid turns
+    // by it, each label turns back.
+    let counter_rotate = -normalize_bearing(viewport.bearing_deg);
+    let mut taken: Vec<(f32, f32, f32, f32)> = Vec::new();
+    let mut shown: Vec<(String, f32, f32)> = Vec::new();
+    let mut out = Vec::new();
+    for (x, y, label) in candidates {
+        if out.len() >= MAX_LABELS_PER_FRAME {
+            break;
+        }
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        if label.kind == "housenumber" && viewport.zoom < HOUSENUMBER_MIN_ZOOM {
+            continue;
+        }
+        let (w, h) = label_box(&label);
+        let (sin, cos) = label.angle.to_radians().sin_cos();
+        let (bw, bh) = (
+            w * cos.abs() + h * sin.abs(),
+            w * sin.abs() + h * cos.abs(),
+        );
+        let r = (x - bw * 0.5 - 2.0, y - bh * 0.5 - 2.0, x + bw * 0.5 + 2.0, y + bh * 0.5 + 2.0);
+        if r.2 < -margin || r.0 > width + margin || r.3 < -margin || r.1 > height + margin {
+            continue;
+        }
+        if taken
+            .iter()
+            .any(|t| r.0 < t.2 && t.0 < r.2 && r.1 < t.3 && t.1 < r.3)
+        {
+            continue;
+        }
+        if shown
+            .iter()
+            .any(|(text, sx, sy)| *text == label.text && (sx - x).hypot(sy - y) < LABEL_REPEAT_PX)
+        {
+            continue;
+        }
+        taken.push(r);
+        shown.push((label.text.clone(), x, y));
+        let turn = if label.angle.abs() > 0.01 {
+            label.angle
+        } else {
+            counter_rotate
+        };
+        let transform = if turn.abs() > 0.01 {
+            format!(" transform: rotate({turn:.2}deg);")
+        } else {
+            String::new()
+        };
+        let style = format!(
+            "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: {:.1}px; \
+             margin: 0px; font-size: {:.1}px; line-height: {:.1}px; color: {}; text-align: \
+             center; white-space: nowrap; text-shadow: 0px 0px 2px {};{}{}",
+            x - w * 0.5,
+            y - h * 0.5,
+            w,
+            h,
+            label.size,
+            h,
+            label.fill,
+            label.halo,
+            if label.italic { " font-style: italic;" } else { "" },
+            transform,
+        );
+        out.push(
+            crate::widgets::widget_p_with_text(AzString::from(label.text))
+                .with_css(style.as_str())
+                // Part of the one "Map" graphic, like the tiles under it.
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::Nothing,
+                    ..Default::default()
+                }),
+        );
+    }
+    out
+}
+
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
 /// the framework's existing XML→DOM path.
 ///
@@ -2892,6 +3143,9 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             );
     }
 
+    // Every visible tile's labels, in the grid's pixel space.
+    let mut label_candidates: Vec<(f32, f32, TileLabel)> = Vec::new();
+
     for x in x_min..=x_max {
         for y in y_min..=y_max {
             // Tile id wraps horizontally (the column past ±180° shows the far
@@ -2952,22 +3206,35 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             // everything else shows a state glyph + tile id so the grid
             // math + fetch state stay observable.
             match states.get(&id) {
-                Some(TileDisplay::Svg(svg)) => match svg_string_to_dom(svg.as_str()) {
-                    Some(svg_dom) => {
-                        tile_div = tile_div.with_child(svg_dom);
+                Some(TileDisplay::Svg(svg)) => {
+                    // The labels leave the tile here and are laid out over
+                    // the whole grid below, in its pixel space.
+                    let (geometry, labels) = split_tile_svg(svg.as_str());
+                    let (sx, sy) = (size_w as f32 / 256.0, size_h as f32 / 256.0);
+                    label_candidates.extend(labels.into_iter().map(|label| {
+                        (
+                            screen_x as f32 + label.x * sx,
+                            screen_y as f32 + label.y * sy,
+                            label,
+                        )
+                    }));
+                    match svg_string_to_dom(&geometry) {
+                        Some(svg_dom) => {
+                            tile_div = tile_div.with_child(svg_dom);
+                        }
+                        None => {
+                            tile_div = tile_div.with_child(
+                                crate::widgets::widget_p_with_text(alloc::format!(
+                                    "✓? z{z_int}/{x}/{y}"
+                                ))
+                                .with_css(
+                                    "position: absolute; left: 4px; top: 4px; font-size: 11px; \
+                                     color: #888;",
+                                ),
+                            );
+                        }
                     }
-                    None => {
-                        tile_div = tile_div.with_child(
-                            crate::widgets::widget_p_with_text(alloc::format!(
-                                "✓? z{z_int}/{x}/{y}"
-                            ))
-                            .with_css(
-                                "position: absolute; left: 4px; top: 4px; font-size: 11px; color: \
-                                 #888;",
-                            ),
-                        );
-                    }
-                },
+                }
                 other => {
                     let state_tag = match other {
                         Some(TileDisplay::Glyph(g)) => *g,
@@ -2989,6 +3256,18 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         }
     }
 
+    // The labels, over every tile (a tile painted later would cover the
+    // part of a label that crosses into it). A turned or tilted camera shows
+    // more of the grid than its box: keep the labels it may reveal.
+    let label_margin = if camera_transform_css(&viewport, width_px, height_px).is_some() {
+        width_px.max(height_px) * 0.5
+    } else {
+        0.0
+    };
+    for label in map_label_doms(label_candidates, width_px, height_px, &viewport, label_margin) {
+        grid = grid.with_child(label);
+    }
+
     VirtualViewReturn {
         dom: OptionDom::Some(grid),
         materialized: azul_core::geom::LogicalRect::new(
@@ -2999,6 +3278,101 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             azul_core::geom::LogicalPosition::zero(),
             bounds_logical,
         ),
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    /// A tile as the decoder writes it: the geometry, then the label block.
+    const SVG: &str = "<svg viewBox=\"0 0 256 256\"><rect width=\"256\" height=\"256\" \
+                       fill=\"#fff\" /><g id=\"labels\"><text x=\"10.50\" y=\"20.25\" \
+                       font-size=\"12.0\" fill=\"#123456\" stroke=\"#ffffff\" \
+                       stroke-width=\"2.5\" paint-order=\"stroke\" text-anchor=\"middle\" \
+                       dominant-baseline=\"central\" data-kind=\"place\" \
+                       data-priority=\"205\">A &amp; B</text><text x=\"100.00\" y=\"50.00\" \
+                       font-size=\"10.5\" fill=\"#444444\" stroke=\"#ffffff\" \
+                       data-kind=\"waterway\" data-priority=\"1050\" font-style=\"italic\" \
+                       transform=\"rotate(-32.50 100.00 50.00)\">River</text></g></svg>";
+
+    fn label(text: &str, priority: i32, kind: &str) -> TileLabel {
+        TileLabel {
+            x: 0.0,
+            y: 0.0,
+            text: text.to_string(),
+            size: 12.0,
+            fill: "#333333".to_string(),
+            halo: "#ffffff".to_string(),
+            priority,
+            kind: kind.to_string(),
+            italic: false,
+            angle: 0.0,
+        }
+    }
+
+    fn at_zoom(zoom: f32) -> MapViewport {
+        MapViewport {
+            zoom,
+            ..MapViewport::default()
+        }
+    }
+
+    #[test]
+    fn a_tile_svg_splits_into_its_geometry_and_its_labels() {
+        let (geometry, labels) = split_tile_svg(SVG);
+        assert_eq!(
+            geometry,
+            "<svg viewBox=\"0 0 256 256\"><rect width=\"256\" height=\"256\" fill=\"#fff\" \
+             /></svg>"
+        );
+        assert_eq!(labels.len(), 2);
+        let a = &labels[0];
+        assert_eq!((a.x, a.y, a.size), (10.5, 20.25, 12.0));
+        assert_eq!(a.text, "A & B");
+        assert_eq!(
+            (a.fill.as_str(), a.halo.as_str(), a.kind.as_str()),
+            ("#123456", "#ffffff", "place")
+        );
+        assert_eq!((a.priority, a.italic, a.angle), (205, false, 0.0));
+        let b = &labels[1];
+        assert!(b.italic);
+        assert!((b.angle + 32.5).abs() < 1e-4, "{}", b.angle);
+
+        let plain = "<svg><rect /></svg>";
+        let (geometry, labels) = split_tile_svg(plain);
+        assert!(matches!(geometry, alloc::borrow::Cow::Borrowed(g) if g == plain));
+        assert!(labels.is_empty());
+        assert!(parse_tile_labels("<g id=\"labels\"><text x=\"1\" y=\"2\">no close").is_empty());
+        assert!(parse_tile_labels("<text y=\"1\">no x</text>").is_empty());
+    }
+
+    #[test]
+    fn labels_never_overlap_repeat_or_leave_the_view() {
+        let vp = at_zoom(12.0);
+        let doms = |c: Vec<(f32, f32, TileLabel)>, vp: &MapViewport| {
+            map_label_doms(c, 800.0, 600.0, vp, 0.0).len()
+        };
+        // Two labels on one spot: one is shown.
+        let two = vec![
+            (100.0, 100.0, label("Town", 500, "place")),
+            (102.0, 101.0, label("Cafe", 1400, "poi")),
+        ];
+        assert_eq!(doms(two, &vp), 1);
+        // A name again close by: once; far away: twice.
+        let road = |x: f32, y: f32| (x, y, label("Main", 1300, "transportation_name"));
+        assert_eq!(doms(vec![road(100.0, 100.0), road(100.0, 250.0)], &vp), 1);
+        assert_eq!(doms(vec![road(100.0, 100.0), road(500.0, 400.0)], &vp), 2);
+        // Outside the view: none.
+        let gone = vec![
+            (-200.0, 100.0, label("West", 500, "place")),
+            (100.0, 900.0, label("South", 500, "place")),
+        ];
+        assert_eq!(doms(gone, &vp), 0);
+        // House numbers from zoom 17 on.
+        let house = || vec![(100.0, 100.0, label("12", 3000, "housenumber"))];
+        assert_eq!(doms(house(), &at_zoom(16.0)), 0);
+        assert_eq!(doms(house(), &at_zoom(18.0)), 1);
     }
 }
 

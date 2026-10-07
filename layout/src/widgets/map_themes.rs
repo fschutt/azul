@@ -8,6 +8,12 @@
 //! base colour, i.e. land). Every colour is a plain hex so the SVG
 //! rasteriser never has to parse `hsl()`.
 //!
+//! LABELS take `text-color`, `text-halo-color` and `font-size` in a rule of
+//! a label layer (`place`, `poi`, `water_name`, `transportation_name`, ... or
+//! `place.city`); a rule of label properties alone styles no geometry.
+//! Unstyled labels get a built-in paint that follows the canvas (dark ink on
+//! light land, light ink on dark land) and a built-in size per class.
+//!
 //! # Provenance and licences (credit is REQUIRED, see `MapTheme::credit`)
 //!
 //! * `POSITRON`, `DARK`, `BRIGHT`, `LIBERTY` are palette extractions from the styles `OpenFreeMap`
@@ -43,6 +49,10 @@ transportation.motorway { fill: none; stroke: #ffffff; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #d5d5d5; stroke-width: 0.6; }
 boundary { fill: none; stroke: #b3b3b3; stroke-width: 0.6; }
 aeroway { fill: #e9e9e6; stroke: none; }
+place { text-color: #666666; text-halo-color: #ffffff; }
+poi { text-color: #8a8a8a; text-halo-color: #ffffff; }
+water_name { text-color: #7a8a92; text-halo-color: #ffffff; }
+transportation_name { text-color: #7a7a7a; text-halo-color: #ffffff; }
 ";
 
 /// CARTO Dark Matter via `OpenFreeMap` — the dark reference look.
@@ -63,6 +73,10 @@ transportation.motorway { fill: none; stroke: #333333; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #1f1f1f; stroke-width: 0.6; }
 boundary { fill: none; stroke: #3b3b3b; stroke-width: 0.6; }
 aeroway { fill: #161616; stroke: none; }
+place { text-color: #bbbbbb; text-halo-color: #000000; }
+poi { text-color: #8a8a8a; text-halo-color: #000000; }
+water_name { text-color: #5d6a74; text-halo-color: #000000; }
+transportation_name { text-color: #8a8a8a; text-halo-color: #000000; }
 ";
 
 /// OSM Bright via `OpenFreeMap` — the colourful general-purpose look.
@@ -84,6 +98,10 @@ transportation.motorway { fill: none; stroke: #ffcc88; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #bbbbbb; stroke-width: 0.6; }
 boundary { fill: none; stroke: #a4a2ae; stroke-width: 0.7; }
 aeroway { fill: #e8e8e8; stroke: none; }
+place { text-color: #333333; text-halo-color: #ffffff; }
+poi { text-color: #666666; text-halo-color: #ffffff; }
+water_name { text-color: #4d7fa3; text-halo-color: #ffffff; }
+transportation_name { text-color: #555555; text-halo-color: #ffffff; }
 ";
 
 /// OSM Liberty via `OpenFreeMap` — the Bright lineage with a brighter sea.
@@ -105,6 +123,10 @@ transportation.motorway { fill: none; stroke: #ffcc88; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #bbbbbb; stroke-width: 0.6; }
 boundary { fill: none; stroke: #686869; stroke-width: 0.7; }
 aeroway { fill: #e8e8e8; stroke: none; }
+place { text-color: #333333; text-halo-color: #ffffff; }
+poi { text-color: #666666; text-halo-color: #ffffff; }
+water_name { text-color: #4a6fb5; text-halo-color: #ffffff; }
+transportation_name { text-color: #555555; text-halo-color: #ffffff; }
 ";
 
 /// Google Maps' published "Night mode" style array (Apache-2.0 sample).
@@ -125,6 +147,10 @@ transportation.motorway { fill: none; stroke: #746855; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #2f3948; stroke-width: 0.7; }
 boundary { fill: none; stroke: #3e4a5c; stroke-width: 0.7; }
 aeroway { fill: #2f3948; stroke: none; }
+place { text-color: #d59563; text-halo-color: #242f3e; }
+poi { text-color: #d59563; text-halo-color: #242f3e; }
+water_name { text-color: #515c6d; text-halo-color: #242f3e; }
+transportation_name { text-color: #9ca5b3; text-halo-color: #242f3e; }
 ";
 
 /// A Google-Maps-like light look (authored here; colour values only).
@@ -145,6 +171,10 @@ transportation.motorway { fill: none; stroke: #f9d776; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #d4d2cd; stroke-width: 0.6; }
 boundary { fill: none; stroke: #c9c6be; stroke-width: 0.7; }
 aeroway { fill: #e6e4df; stroke: none; }
+place { text-color: #3c4043; text-halo-color: #ffffff; }
+poi { text-color: #5f6368; text-halo-color: #ffffff; }
+water_name { text-color: #4a7ab0; text-halo-color: #ffffff; }
+transportation_name { text-color: #616161; text-halo-color: #ffffff; }
 ";
 
 /// An Apple-Maps-like light look (authored here; colour values only).
@@ -165,6 +195,10 @@ transportation.motorway { fill: none; stroke: #f9d578; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #d2cfc8; stroke-width: 0.6; }
 boundary { fill: none; stroke: #cfcac0; stroke-width: 0.7; }
 aeroway { fill: #e9e6e0; stroke: none; }
+place { text-color: #222222; text-halo-color: #ffffff; }
+poi { text-color: #6b6b6b; text-halo-color: #ffffff; }
+water_name { text-color: #3d7ab5; text-halo-color: #ffffff; }
+transportation_name { text-color: #555555; text-halo-color: #ffffff; }
 ";
 
 /// An Apple-Maps-like dark look (authored here; colour values only).
@@ -185,6 +219,10 @@ transportation.motorway { fill: none; stroke: #5c5133; stroke-width: 2.0; }
 transportation.rail { fill: none; stroke: #2b2b2f; stroke-width: 0.7; }
 boundary { fill: none; stroke: #45454a; stroke-width: 0.7; }
 aeroway { fill: #26262a; stroke: none; }
+place { text-color: #e5e5e7; text-halo-color: #1c1c1e; }
+poi { text-color: #a0a0a5; text-halo-color: #1c1c1e; }
+water_name { text-color: #5f8fbf; text-halo-color: #1c1c1e; }
+transportation_name { text-color: #9a9aa0; text-halo-color: #1c1c1e; }
 ";
 
 /// The `canvas { fill: #rrggbb; }` colour of a sheet, if it declares one.
@@ -261,12 +299,23 @@ mod tests {
                     "{name}: no rule for `{key}`"
                 );
             }
+            // every preset colours its labels
+            for key in ["place", "poi", "water_name", "transportation_name"] {
+                assert!(
+                    sheet.contains(&format!("\n{key} {{ text-color: #")),
+                    "{name}: no label colour for `{key}`"
+                );
+            }
             // hex only: the SVG rasteriser must never be handed hsl()/rgb()
             for decl in sheet.split(';') {
                 if let Some((prop, val)) = decl.split_once(':') {
                     let prop = prop.trim();
                     let val = val.trim();
-                    if prop == "fill" || prop == "stroke" {
+                    if prop == "fill"
+                        || prop == "stroke"
+                        || prop == "text-color"
+                        || prop == "text-halo-color"
+                    {
                         assert!(
                             val == "none" || parse_hex_rgb(val).is_some(),
                             "{name}: `{prop}: {val}` is not `none` or #rrggbb"
