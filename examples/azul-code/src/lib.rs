@@ -1,27 +1,37 @@
-//! AzCode: a code editor on the public azul API.
+//! AzCode: a code editor on the public azul API, in VSCode's shape.
 //!
-//! The window is the S8 `DeveloperShell` (the app-drawn `Titlebar` under
-//! `WindowDecorations::NoTitle`; the activity bar, the explorer, document
-//! tabs over azul's `CodeView`, the status bar) inside a `ShellThemeScope`,
-//! behind a `CloseGuard` that asks "Save changes?". It follows the app theme
-//! (flat / flora) and the OS mode.
+//! The window is azul's `OfficeShell` with the S8 developer shell's panes
+//! (the app-drawn `Titlebar` under `WindowDecorations::NoTitle`; the
+//! activity bar, the side bar - the explorer or the search panel - the
+//! editor with its tabs over azul's `CodeView`, the status bar, quick open)
+//! inside a `ShellThemeScope`, behind a `CloseGuard` that asks "Save
+//! changes?". Without a folder the explorer says "You have not yet opened a
+//! folder." (Open Folder, the recent folders) and the editor shows the
+//! welcome page (Open Folder..., Open File..., the keyboard shortcuts). It
+//! is dark by default, as VSCode is, and follows the app theme (flat /
+//! flora) and the mode the user picks.
 //!
 //! - [`buffer`]: the text of an open file, a piece table (plain Rust).
 //! - [`highlight`]: syntect, incremental by line, checkpoints, a background
 //!   walk for far jumps (plain Rust).
 //! - [`search`]: find / replace (azul-appkit's matcher), go to line.
-//! - [`workspace`]: the explorer's tree and the tabs (plain Rust).
+//! - [`workspace`]: the explorer's tree, the tabs, the recent folders,
+//!   quick open's ranking (plain Rust).
 //! - [`storage`]: the workspace's files through azul-storage's Drive on
 //!   azul Threads; [`sample`]: the sample workspace (`--sample`).
 //! - [`app`], [`commands`], [`ui`]: the state, the commands, the window.
 //!
 //! A workspace is a folder named on the command line (`AzCode ~/project`,
 //! read and written in place through a drive without the data tree's
-//! manifest) or the sample in the data tree (`code/sample/`).
+//! manifest), picked with Open Folder (Mod+O) or from the recent folders,
+//! or the sample in the data tree (`code/sample/`). A file named on the
+//! command line or picked with Open File... opens on its own (its folder is
+//! its drive) when it is not in the workspace.
 //!
 //! On stdout, for scripts (`scripts/azcode_e2e.py`): `AZCODE_READY`,
-//! `AZCODE_LISTED <folder> <n>`, `AZCODE_OPENED <key> <lines>`,
-//! `AZCODE_SAVED <key>`, `AZCODE_FOUND <n>`, `AZCODE_REPLACED <n>`.
+//! `AZCODE_FOLDER <dir>`, `AZCODE_FILE <path>`, `AZCODE_LISTED <folder>
+//! <n>`, `AZCODE_OPENED <key> <lines>`, `AZCODE_SAVED <key>`,
+//! `AZCODE_INDEXED <n>`, `AZCODE_FOUND <n>`, `AZCODE_REPLACED <n>`.
 
 pub mod app;
 pub mod buffer;
@@ -48,7 +58,7 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, ModePref},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -76,10 +86,12 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: sample::APP_FOLDER,
 };
 
-pub const SHORTCUTS: [Shortcut; 15] = [
+pub const SHORTCUTS: [Shortcut; 17] = [
     Shortcut::new("File", "Mod+O", "Open a folder"),
+    Shortcut::new("File", "Mod+P", "Quick open a file of the folder"),
     Shortcut::new("File", "Mod+S", "Save every changed file"),
     Shortcut::new("File", "Mod+W", "Close the tab"),
+    Shortcut::new("Window", "Mod+B", "Show / hide the side bar"),
     Shortcut::new("Find", "Mod+F", "Find in the file"),
     Shortcut::new("Find", "Mod+H", "Replace in the file"),
     Shortcut::new("Find", "F3 / Shift+F3", "Next / previous match"),
@@ -105,14 +117,24 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.clone());
+    dark_by_default(&kit_ref, &args);
     let data_root = {
         let mut k = kit_ref.clone();
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
         root.unwrap_or_default()
     };
     let mut st = AppState::new(kit_ref.clone(), data_root, args.sample);
-    if let Some(folder) = args.files.first().filter(|p| p.is_dir()) {
-        st.workspace_to_open = Some(commands::folder_root(folder));
+    st.recent = recent_of(&kit_ref);
+    if let Some(named) = args.files.first() {
+        // Absolute: `AzCode .` names the folder by its name, not ".".
+        let path = std::path::absolute(named).unwrap_or_else(|_| named.clone());
+        if path.is_dir() {
+            st.workspace_to_open = Some(commands::folder_root(&path));
+        } else if path.is_file() {
+            st.file_to_open = Some(path);
+        } else {
+            st.notice = format!("{} is neither a folder nor a file.", path.display());
+        }
     }
     if args.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
@@ -120,6 +142,43 @@ pub fn start() {
     let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
     App::create(RefAny::new(st), config).run(window);
+}
+
+/// VSCode's default: dark until the user picks a mode - a `--mode` switch,
+/// or the settings page's Mode, which the settings file keeps. (The kit's
+/// own default follows the OS.) The settings page shows Dark then, and a
+/// save of the settings keeps it.
+fn dark_by_default(kit_ref: &RefAny, args: &AppArgs) {
+    if args.mode.is_some() {
+        return;
+    }
+    let mut kit_ref = kit_ref.clone();
+    let Some(mut k) = kit_ref.downcast_mut::<kit::Kit>() else {
+        return;
+    };
+    let file = azul_appkit::data::local_path(&k.data_root, &k.settings_key());
+    if !names_a_mode(&file) {
+        k.settings.mode = ModePref::Dark;
+    }
+}
+
+/// Whether the settings file at `path` names a mode (no file, a file that
+/// is not JSON or an empty `mode`: no).
+fn names_a_mode(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|file| file.get("mode").and_then(|m| m.as_str()).map(|m| !m.trim().is_empty()))
+        .unwrap_or(false)
+}
+
+/// The recent folders the settings keep.
+fn recent_of(kit_ref: &RefAny) -> Vec<String> {
+    let mut kit_ref = kit_ref.clone();
+    let recent = kit_ref
+        .downcast_ref::<kit::Kit>()
+        .and_then(|k| k.settings.get(commands::RECENT_KEY).map(workspace::recent_from_json));
+    recent.unwrap_or_default()
 }
 
 // ==== The window ====
@@ -167,6 +226,9 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
         commands::open_workspace(st, &mut info, &app, root);
     } else if st.sample {
         commands::open_sample(st, &mut info, &app);
+    }
+    if let Some(path) = st.file_to_open.take() {
+        commands::open_path(st, &mut info, &app, &path);
     }
     // Far jumps are coloured on a Thread; the timer starts the walks.
     let timer = Timer::create(app.clone(), commands::highlight_tick, info.get_system_time_fn())
@@ -228,12 +290,12 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 mod tests {
     use super::SHORTCUTS;
 
-    /// The keys `commands::handle_key` takes (Mod+O included: the welcome screen promises it);
-    /// the F1 list must show every one of them.
+    /// The keys `commands::handle_key` takes (Mod+O, Mod+P, Mod+B included: the welcome page
+    /// promises them); the F1 list must show every one of them.
     #[test]
     fn the_shortcut_list_names_every_key_the_window_takes() {
         let window_keys = [
-            "Mod+O", "Mod+S", "Mod+W", "Mod+F", "Mod+H", "Mod+G", "F3", "Escape",
+            "Mod+O", "Mod+P", "Mod+B", "Mod+S", "Mod+W", "Mod+F", "Mod+H", "Mod+G", "F3", "Escape",
         ];
         for key in window_keys {
             assert!(
@@ -243,5 +305,26 @@ mod tests {
                 "the F1 list does not name {key}"
             );
         }
+    }
+
+    /// AzCode is dark by default, as VSCode is: only a settings file that names a mode
+    /// (the settings page's Mode writes it) or a `--mode` switch picks another.
+    #[test]
+    fn azcode_is_dark_until_the_settings_file_names_a_mode() {
+        let dir = std::env::temp_dir().join(format!("azcode-mode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temporary folder");
+        let file = dir.join("settings.json");
+        assert!(!super::names_a_mode(&file), "no file names no mode");
+        for (text, named) in [
+            ("{\"theme\": \"flat\", \"mode\": \"light\"}", true),
+            ("{\"theme\": \"flat\", \"mode\": \"system\"}", true),
+            ("{\"theme\": \"flat\", \"mode\": \"\"}", false),
+            ("{\"theme\": \"flora\"}", false),
+            ("not json", false),
+        ] {
+            std::fs::write(&file, text).expect("the settings file");
+            assert_eq!(super::names_a_mode(&file), named, "{text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

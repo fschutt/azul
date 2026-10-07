@@ -16,7 +16,7 @@ use crate::{
     buffer::{Edit, LineEnding, Pos, TextBuffer},
     highlight::{syntax_for, Highlighter, TokenKind},
     search::{self, Found},
-    workspace::{file_name, Root, TabDoc, Tabs, Workspace},
+    workspace::{doc_ident, file_name, quick_matches, Root, TabDoc, Tabs, Workspace, QUICK_MAX},
 };
 
 /// The text of an open file: the CodeView's data (its own `RefAny`, apart
@@ -34,8 +34,14 @@ pub struct DocText {
 /// One open file (a tab).
 pub struct Doc {
     pub id: u64,
-    /// The workspace key (`src/main.rs`).
+    /// Where the file is: the workspace's root, or its own folder for a file
+    /// opened alone (Open File..., a file named on the command line).
+    pub root: Root,
+    /// The key in `root` (`src/main.rs`).
     pub key: String,
+    /// The file's place on disk ([`doc_ident`]): what tells two open files
+    /// apart.
+    pub ident: String,
     pub name: String,
     /// The [`DocText`].
     pub text: RefAny,
@@ -51,15 +57,15 @@ pub struct Doc {
 
 impl TabDoc for Doc {
     fn key(&self) -> &str {
-        &self.key
+        &self.ident
     }
 }
 
 impl Doc {
-    /// A file read from the workspace: `bytes` (UTF-8, invalid bytes
+    /// File `key` of `root`, read: `bytes` (UTF-8, invalid bytes
     /// replaced).
     #[must_use]
-    pub fn open(id: u64, key: &str, bytes: &[u8]) -> Doc {
+    pub fn open(id: u64, root: &Root, key: &str, bytes: &[u8]) -> Doc {
         let text = String::from_utf8_lossy(bytes);
         let buffer = TextBuffer::from_text(&text);
         let first_line = buffer.line(0);
@@ -70,7 +76,9 @@ impl Doc {
         let ending = buffer.line_ending();
         Doc {
             id,
+            root: root.clone(),
             key: key.to_string(),
+            ident: doc_ident(root, key),
             name,
             text: RefAny::new(DocText {
                 buffer,
@@ -270,11 +278,24 @@ pub struct FindState {
     pub current: Option<usize>,
 }
 
-/// A save in flight: the file, and the undo depth its bytes are.
+/// A save in flight: the file ([`Doc::ident`]), and the undo depth its
+/// bytes are.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingSave {
-    pub key: String,
+    pub ident: String,
     pub depth: usize,
+}
+
+/// Where quick open's list of the workspace's files is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndexState {
+    /// Not asked for yet (or the workspace changed).
+    #[default]
+    None,
+    /// The walk runs on a Thread.
+    Running,
+    /// [`AppState::index`] holds the files.
+    Done,
 }
 
 /// Everything the window shows.
@@ -285,6 +306,8 @@ pub struct AppState {
     pub sample: bool,
     /// A folder named on the command line, opened when the window exists.
     pub workspace_to_open: Option<Root>,
+    /// A file named on the command line, opened when the window exists.
+    pub file_to_open: Option<PathBuf>,
     pub workspace: Option<Workspace>,
     pub tabs: Tabs<Doc>,
     pub side: Side,
@@ -299,6 +322,18 @@ pub struct AppState {
     pub writing_sample: bool,
     /// The window's size (the CodeView's viewport hint).
     pub window: (f32, f32),
+    /// The side bar shows (Mod+B; a click on the active activity icon hides
+    /// it).
+    pub side_visible: bool,
+    /// The side bar's share of the width beside the editor (its splitter).
+    pub side_ratio: f32,
+    /// The folders opened last, newest first (kept in the settings).
+    pub recent: Vec<String>,
+    /// Quick open (Mod+P) is showing, with what was typed.
+    pub quick: Option<String>,
+    /// The workspace's files (keys) for quick open.
+    pub index: Vec<String>,
+    pub index_state: IndexState,
     next_id: u64,
 }
 
@@ -310,6 +345,7 @@ impl AppState {
             data_root,
             sample,
             workspace_to_open: None,
+            file_to_open: None,
             workspace: None,
             tabs: Tabs::default(),
             side: Side::Explorer,
@@ -321,6 +357,12 @@ impl AppState {
             saving: Vec::new(),
             writing_sample: false,
             window: (1280.0, 800.0),
+            side_visible: true,
+            side_ratio: 0.22,
+            recent: Vec::new(),
+            quick: None,
+            index: Vec::new(),
+            index_state: IndexState::None,
             next_id: 1,
         }
     }
@@ -337,9 +379,18 @@ impl AppState {
         let workspace = self.workspace.as_ref().map(|w| w.root.name.clone());
         match (self.tabs.active(), workspace) {
             (Some(doc), Some(w)) => format!("{} - {w} - AzCode", doc.name),
+            (Some(doc), None) => format!("{} - AzCode", doc.name),
             (None, Some(w)) => format!("{w} - AzCode"),
-            _ => "AzCode".to_string(),
+            (None, None) => "AzCode".to_string(),
         }
+    }
+
+    /// The files quick open lists for what was typed (indices into
+    /// [`Self::index`], best first).
+    #[must_use]
+    pub fn quick_files(&self) -> Vec<usize> {
+        let query = self.quick.as_deref().unwrap_or("");
+        quick_matches(&self.index, query, QUICK_MAX)
     }
 
     /// Some open file has unsaved changes.
