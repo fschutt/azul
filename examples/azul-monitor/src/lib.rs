@@ -29,7 +29,9 @@
 //! Only the first reading (the empty state gives way to the page) and what
 //! the user does (a tab, a sort, a selection, the question) rebuild it.
 //! While the user scrolls or drags in the table a reading leaves it alone
-//! (the rows do not re-sort under the pointer).
+//! (the rows do not re-sort under the pointer). The table's scroll position
+//! is a place in the processes, not a row number: a build after a reading
+//! keeps the processes in view where they were ([`table::sync`]).
 //!
 //! SMOOTH GRAPHS: between two readings a frame timer ([`on_frame`], 25 a
 //! second, only while a tab with graphs shows) slides each graph's strip
@@ -55,9 +57,11 @@
 //! On stdout, for scripts (`scripts/azmonitor_e2e.py`): `AZMON_LAYOUT <n>`
 //! every time `layout()` runs, `AZMON_READY <processes>` at the first
 //! reading, `AZMON_TICK <readings> <processes> <shown>` at every reading,
-//! `AZMON_TOP <pid> <name>` (the first row), `AZMON_VIEW <top> <redrawn>`
-//! (the table's first row shown and whether the reading redrew the table),
-//! `AZMON_SCROLL <top>` (the table scrolled), `AZMON_SORT <text>`,
+//! `AZMON_TOP <pid> <name>` (the first row), `AZMON_VIEW <top> <pid>
+//! <selected> <name>` at every build of the table (its first row shown and
+//! that row's process; the selected process' row of the screen, `-` none,
+//! `out` not in view), `AZMON_SCROLL <top>` (the table scrolled),
+//! `AZMON_SORT <text>`,
 //! `AZMON_SHOWN <shown>` after a filter, `AZMON_SELECT <pid> <name>`,
 //! `AZMON_ASK <pid> <name>` (the question opens), `AZMON_END <pid> <force>`,
 //! `AZMON_NOTICE <text>`, `AZMON_SCREEN <name>`, `AZMON_SPEED <ms>`,
@@ -273,8 +277,17 @@ pub struct Monitor {
     pub kit: RefAny,
     /// The readings so far.
     pub model: Model,
-    /// The process table's view (scroll, selection, the header's arrows).
+    /// The process table's view (scroll, selection, the header's arrows):
+    /// its positions are places in `shown`.
     pub table: DataTableView,
+    /// The rows the process table showed when it was last built (process
+    /// ids, top to bottom). Its next build carries `table` over to the
+    /// model's rows of then (`table::sync`).
+    pub shown: Vec<u32>,
+    /// How many rows the process table showed when it was last built.
+    pub table_page: usize,
+    /// What the table's next build keeps in view after a new sort.
+    pub sort_anchor: Option<table::SortAnchor>,
     /// The screen shown.
     pub screen: Screen,
     /// The sample machine instead of this computer (`--sample`).
@@ -325,6 +338,9 @@ impl Monitor {
             kit,
             model,
             table,
+            shown: Vec::new(),
+            table_page: 0,
+            sort_anchor: None,
             screen,
             sample: args.sample,
             shared: Arc::new(Shared::new(interval_ms)),
@@ -490,14 +506,10 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         }
         s.model.apply(snapshot);
         s.note_reading(std::time::Instant::now());
+        // The table's view stays as the table shows it: its next build
+        // carries it over to the new rows (`table::sync`) - not while the
+        // hand is on it.
         let hands_on = s.hands_on_table();
-        if !hands_on {
-            // The selection follows its process to its new row; while the
-            // hand is on the table, the view stays as the hand left it.
-            let selected = s.model.selected_position();
-            let shown = s.model.shown_count();
-            table::follow_selection(&mut s.table, selected, shown);
-        }
         if first {
             println!("AZMON_READY {}", s.model.process_count());
         }
@@ -512,11 +524,6 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         }
         let settings = kit::settings_open(&s.kit);
         let plan = ticks::plan(first, s.screen, settings, hands_on);
-        println!(
-            "AZMON_VIEW {} {}",
-            s.table.top,
-            plan.views.contains(&LiveView::Table)
-        );
         ensure_frames(&handle, s, &mut info);
         (plan, ui::status_labels(s))
     };

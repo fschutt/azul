@@ -717,6 +717,16 @@ impl Model {
         self.shown.get(position).and_then(|i| self.rows.get(*i))
     }
 
+    /// The ids of the processes shown, top to bottom (the table's rows).
+    #[must_use]
+    pub fn shown_pids(&self) -> Vec<u32> {
+        self.shown
+            .iter()
+            .filter_map(|i| self.rows.get(*i))
+            .map(|r| r.pid)
+            .collect()
+    }
+
     /// Where process `pid` is among the rows shown.
     #[must_use]
     pub fn position_of(&self, pid: u32) -> Option<usize> {
@@ -728,6 +738,11 @@ impl Model {
     /// Selects the process shown at `position` (`None`: nothing).
     pub fn select_position(&mut self, position: Option<usize>) {
         self.selected = position.and_then(|p| self.shown_row(p)).map(|r| r.pid);
+    }
+
+    /// Selects process `pid` (`None`, or a process that has ended: nothing).
+    pub fn select(&mut self, pid: Option<u32>) {
+        self.selected = pid.filter(|p| self.rows.iter().any(|r| r.pid == *p));
     }
 
     /// The selected process' id.
@@ -1241,6 +1256,36 @@ mod tests {
         assert_eq!(m.selected_row(), None);
         m.set_filter("");
         assert_eq!(m.selected_position(), Some(1));
+    }
+
+    #[test]
+    fn the_shown_processes_are_the_rows_ids_top_to_bottom() {
+        let mut m = Model::new();
+        m.apply(reading(
+            1000,
+            vec![
+                proc(1, "cargo", "u", 10.0, 1),
+                proc(2, "rustc", "u", 90.0, 1),
+                proc(3, "rustdoc", "u", 50.0, 1),
+            ],
+        ));
+        assert_eq!(m.shown_pids(), vec![2, 3, 1]);
+        m.set_filter("rust");
+        assert_eq!(m.shown_pids(), vec![2, 3]);
+    }
+
+    #[test]
+    fn a_process_is_selected_by_its_id_while_it_runs() {
+        let mut m = Model::new();
+        m.apply(reading(1000, vec![proc(7, "a", "u", 1.0, 1)]));
+        m.select(Some(7));
+        assert_eq!(m.selected(), Some(7));
+        // A process that has ended (the table still showed it): nothing.
+        m.select(Some(8));
+        assert_eq!(m.selected(), None);
+        m.select(Some(7));
+        m.select(None);
+        assert_eq!(m.selected(), None);
     }
 
     #[test]

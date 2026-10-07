@@ -208,10 +208,9 @@ extern "C" fn on_filter(
         };
         let s = &mut *guard;
         s.model.set_filter(&query);
-        let selected = s.model.selected_position();
         let shown = s.model.shown_count();
+        // From the first row; the build carries the selection over.
         s.table.top = 0;
-        table::follow_selection(&mut s.table, selected, shown);
         println!("AZMON_SHOWN {shown}");
         status_labels(s)
     };
@@ -388,15 +387,20 @@ extern "C" fn render_live(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
     VirtualViewReturn::with_dom(dom, rect, rect)
 }
 
-/// The process table at `w` x `h` (the guard on the app is dropped before
-/// the table asks the app for its cells).
+/// The process table at `w` x `h`: its view carried over to the rows of now
+/// first (`table::sync`: the processes in view stay where they were). The
+/// guard on the app is dropped before the table asks the app for its cells.
 fn process_table(app: &RefAny, w: f32, h: f32) -> Dom {
     let mut handle = app.clone();
-    let Some((view, rows)) = handle.downcast_ref::<Monitor>().map(|s| {
-        (
-            s.table.clone(),
-            u32::try_from(s.model.shown_count()).unwrap_or(u32::MAX),
-        )
+    let Some((view, rows)) = handle.downcast_mut::<Monitor>().map(|mut guard| {
+        let s = &mut *guard;
+        let count = s.model.shown_count();
+        let page = table::rows_in_view(&s.table, count, w, h);
+        let anchor = s.sort_anchor.take();
+        table::sync(&mut s.table, &mut s.shown, &s.model, page, anchor);
+        s.table_page = page;
+        table::print_view(s, page);
+        (s.table.clone(), u32::try_from(count).unwrap_or(u32::MAX))
     }) else {
         return Dom::create_div();
     };
