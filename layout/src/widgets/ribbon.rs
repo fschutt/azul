@@ -6929,3 +6929,274 @@ mod flora_tests {
         }
     }
 }
+
+/// Office 2010's control kinds: two-line large labels, split buttons with
+/// their own arrow part, small items stacked three to a column and the list
+/// gallery of Quick Steps.
+#[cfg(test)]
+mod office_2010_kinds_tests {
+    use azul_core::dom::NodeType;
+
+    use super::*;
+
+    extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    extern "C" fn pick(_: RefAny, _: CallbackInfo, _: usize) -> Update {
+        Update::DoNothing
+    }
+
+    fn has_class(node: &Dom, name: &str) -> bool {
+        node.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    /// Every non-empty text node under `node`, depth first.
+    fn texts(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Text(t) = node.root.get_node_type() {
+            if !t.as_str().is_empty() {
+                out.push(t.as_str().to_string());
+            }
+        }
+        for c in node.children.as_ref() {
+            out.extend(texts(c));
+        }
+        out
+    }
+
+    /// Every icon name under `node`, depth first.
+    fn icons(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Icon(i) = node.root.get_node_type() {
+            out.push(i.as_ref().as_str().to_string());
+        }
+        for c in node.children.as_ref() {
+            out.extend(icons(c));
+        }
+        out
+    }
+
+    fn name_of(node: &Dom) -> Option<String> {
+        node.root
+            .get_accessibility_info()
+            .and_then(|i| i.accessibility_name.as_ref().map(|n| n.as_str().to_string()))
+    }
+
+    /// The items row of the only group of a one-tab flat ribbon.
+    fn items_of(group: RibbonGroup) -> Dom {
+        let dom = Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Home")).with_group(group),
+        ]))
+        .with_theme(UiTheme::Flat)
+        .dom_desktop();
+        let content = dom
+            .children
+            .as_ref()
+            .iter()
+            .find(|c| has_class(c, "__azul-native-ribbon-content"))
+            .expect("the content band")
+            .clone();
+        content.children.as_ref()[0].children.as_ref()[0].clone()
+    }
+
+    fn button(icon: &str, label: &str) -> RibbonButton {
+        RibbonButton::new(AzString::from(icon), AzString::from(label))
+    }
+
+    #[test]
+    fn a_large_label_breaks_where_its_longer_line_is_shortest() {
+        let split = |label: &str| {
+            let words: Vec<&str> = label.split_whitespace().collect();
+            balanced_break(&words).map(|k| (words[..k].join(" "), words[k..].join(" ")))
+        };
+        let pair = |a: &str, b: &str| Some((a.to_string(), b.to_string()));
+        assert_eq!(split("New E-mail"), pair("New", "E-mail"));
+        assert_eq!(split("Send/Receive All Folders"), pair("Send/Receive", "All Folders"));
+        assert_eq!(split("Recover Deleted Items"), pair("Recover", "Deleted Items"));
+        assert_eq!(split("Mark All as Read"), pair("Mark All", "as Read"));
+        assert_eq!(split("Clean Up Folder"), pair("Clean Up", "Folder"));
+        // A tie keeps the longer first line (Outlook's "Run Rules / Now").
+        assert_eq!(split("Run Rules Now"), pair("Run Rules", "Now"));
+        assert_eq!(split("Delete"), None);
+    }
+
+    #[test]
+    fn a_large_labels_one_break_is_a_plain_space_and_the_rest_no_break_ones() {
+        assert_eq!(large_label_text("New E-mail", false), "New E-mail");
+        assert_eq!(
+            large_label_text("Send/Receive All Folders", false),
+            "Send/Receive All\u{a0}Folders"
+        );
+        // A menu's arrow is glued to the last word; a one-word label puts it
+        // on a line of its own.
+        assert_eq!(large_label_text("New Items", true), "New Items\u{a0}");
+        assert_eq!(large_label_text("Move", true), "Move ");
+    }
+
+    #[test]
+    fn a_two_word_large_button_keeps_its_label_whole_and_named() {
+        let items = items_of(
+            RibbonGroup::new(AzString::from("New"))
+                .with_item(RibbonItem::LargeButton(button("mail", "New E-mail"))),
+        );
+        let node = &items.children.as_ref()[0];
+        assert!(matches!(node.root.get_node_type(), NodeType::Button));
+        // One text node, the label as the user reads it: scripts find the
+        // button by "New E-mail".
+        assert_eq!(texts(node), vec!["New E-mail".to_string()]);
+        assert_eq!(name_of(node).as_deref(), Some("New E-mail"));
+        let content = &node.children.as_ref()[0];
+        assert!(has_class(content, "__azul-native-ribbon-large-content"));
+        assert_eq!(icons(content), vec!["mail".to_string()]);
+        assert!(has_class(
+            &content.children.as_ref()[1],
+            "__azul-native-ribbon-large-label"
+        ));
+    }
+
+    #[test]
+    fn a_large_menu_button_puts_its_arrow_after_the_last_word() {
+        let items = items_of(RibbonGroup::new(AzString::from("New")).with_item(
+            RibbonItem::LargeButton(button("mail", "New Items").with_arrow(RibbonArrow::Menu)),
+        ));
+        let node = &items.children.as_ref()[0];
+        assert_eq!(
+            icons(node),
+            vec!["mail".to_string(), "arrow_drop_down".to_string()]
+        );
+        assert_eq!(texts(node), vec!["New Items\u{a0}".to_string()]);
+        // A one-word menu keeps the Button's own column: icon, label, arrow.
+        let items = items_of(RibbonGroup::new(AzString::from("Move")).with_item(
+            RibbonItem::LargeButton(
+                button("drive_file_move", "Move").with_arrow(RibbonArrow::Menu),
+            ),
+        ));
+        let ch = items.children.as_ref()[0].children.as_ref();
+        assert_eq!(ch.len(), 3, "[icon, label, arrow]");
+    }
+
+    #[test]
+    fn a_split_button_with_an_arrow_callback_is_two_buttons() {
+        type Cb = crate::widgets::button::ButtonOnClickCallbackType;
+        for large in [true, false] {
+            let rb = button("content_paste", "Paste")
+                .with_on_click(RefAny::new(1u8), noop as Cb)
+                .with_on_arrow_click(RefAny::new(2u8), noop as Cb);
+            assert_eq!(rb.arrow, RibbonArrow::Split);
+            let item = if large {
+                RibbonItem::LargeButton(rb)
+            } else {
+                RibbonItem::SmallButton(rb)
+            };
+            let items = items_of(RibbonGroup::new(AzString::from("Clipboard")).with_item(item));
+            let split = &items.children.as_ref()[0];
+            assert!(has_class(split, RIBBON_SPLIT_CLASS), "large: {large}");
+            let parts = split.children.as_ref();
+            assert_eq!(parts.len(), 2, "[main, arrow]");
+            assert!(has_class(&parts[0], RIBBON_SPLIT_MAIN_CLASS));
+            assert!(has_class(&parts[1], RIBBON_SPLIT_ARROW_CLASS));
+            for part in parts {
+                assert!(matches!(part.root.get_node_type(), NodeType::Button));
+                assert_eq!(
+                    part.root.get_callbacks().as_ref().len(),
+                    1,
+                    "each part its own click"
+                );
+            }
+            assert_eq!(name_of(&parts[0]).as_deref(), Some("Paste"));
+            assert_eq!(name_of(&parts[1]).as_deref(), Some("Paste options"));
+            assert!(icons(&parts[1]).contains(&"arrow_drop_down".to_string()));
+        }
+        // Without an arrow callback a split button is still one button.
+        let items = items_of(RibbonGroup::new(AzString::from("Clipboard")).with_item(
+            RibbonItem::LargeButton(
+                button("content_paste", "Paste").with_arrow(RibbonArrow::Split),
+            ),
+        ));
+        assert!(matches!(
+            items.children.as_ref()[0].root.get_node_type(),
+            NodeType::Button
+        ));
+    }
+
+    #[test]
+    fn small_items_at_a_groups_top_level_stack_three_to_a_column() {
+        let small = |label: &str| RibbonItem::SmallButton(button("label", label));
+        let group = RibbonGroup::new(AzString::from("Delete"))
+            .with_item(small("Ignore"))
+            .with_item(small("Clean Up"))
+            .with_item(small("Junk"))
+            .with_item(small("Spam"))
+            .with_item(RibbonItem::LargeButton(button("delete", "Delete")))
+            .with_item(small("Alone"));
+        let items = items_of(group);
+        let ch = items.children.as_ref();
+        assert_eq!(ch.len(), 4, "[column of 3, column of 1, large, small]");
+        assert!(has_class(&ch[0], "__azul-native-ribbon-column"));
+        assert_eq!(ch[0].children.as_ref().len(), 3);
+        assert!(has_class(&ch[1], "__azul-native-ribbon-column"));
+        assert_eq!(ch[1].children.as_ref().len(), 1);
+        assert!(matches!(ch[2].root.get_node_type(), NodeType::Button));
+        assert!(
+            matches!(ch[3].root.get_node_type(), NodeType::Button),
+            "one small item alone stays"
+        );
+        assert_eq!(texts(&ch[0]), vec!["Ignore", "Clean Up", "Junk"]);
+    }
+
+    #[test]
+    fn a_list_gallery_shows_its_commands_icon_beside_name_in_columns_of_three() {
+        let names = [
+            "Move to: ?",
+            "Team E-mail",
+            "Reply & Delete",
+            "To Manager",
+            "Done",
+            "Create New",
+            "Hidden",
+        ];
+        let cells: Vec<RibbonGalleryCell> = names
+            .iter()
+            .map(|n| RibbonGalleryCell::new(Dom::create_icon("label"), AzString::from(*n)))
+            .collect();
+        let gallery = RibbonGallery::new(RibbonGalleryCellVec::from_vec(cells))
+            .with_columns(2)
+            .with_on_select(RefAny::new(0u8), pick as RibbonGalleryOnSelectCallbackType);
+        let items = items_of(
+            RibbonGroup::new(AzString::from("Quick Steps"))
+                .with_item(RibbonItem::Gallery(gallery)),
+        );
+        let wrapper = &items.children.as_ref()[0];
+        let frame = &wrapper.children.as_ref()[0];
+        let strip = &frame.children.as_ref()[0];
+        assert!(has_class(strip, RIBBON_GALLERY_LIST_CLASS));
+        let columns = strip.children.as_ref();
+        assert_eq!(columns.len(), 2, "two columns of three; the seventh is behind More");
+        assert_eq!(
+            texts(&columns[0]),
+            vec!["Move to: ?", "Team E-mail", "Reply & Delete"]
+        );
+        assert_eq!(texts(&columns[1]), vec!["To Manager", "Done", "Create New"]);
+        for column in columns {
+            for cell in column.children.as_ref() {
+                assert!(
+                    !has_class(cell, "__azul-native-ribbon-gallery-cell-selected"),
+                    "a command stays unlit"
+                );
+                assert!(has_class(
+                    &cell.children.as_ref()[0],
+                    "__azul-native-ribbon-gallery-cell-icon"
+                ));
+                assert_eq!(cell.root.get_callbacks().as_ref().len(), 1);
+            }
+        }
+        // More shows every command.
+        let panel = &wrapper.children.as_ref()[1];
+        assert_eq!(panel.children.as_ref().len(), names.len());
+    }
+}
