@@ -1036,7 +1036,7 @@ const CAPS_FAMILIES: &[StyleFontFamily] = &[
 
 /// `--font-caps`: `'EB Garamond', Georgia, serif` - the bundled face first
 /// (`text3::ui_fonts`), so it holds on every machine.
-pub(crate) const CAPS_FAMILY: StyleFontFamilyVec =
+pub(crate) const FONT_CAPS: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(CAPS_FAMILIES);
 
 /// A command's capitals: the specimen's 13.5px bold small capitals tracked
@@ -1052,7 +1052,7 @@ pub(crate) const CAPS_LABEL: (isize, f32) = (10, 0.1);
 #[must_use]
 pub(crate) fn caps((px, em): (isize, f32)) -> Vec<CssPropertyWithConditions> {
     alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(CAPS_FAMILY)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
         super::decl::font_size(px),
         super::decl::bold(),
         CssPropertyWithConditions::simple(CssProperty::TextTransform(
@@ -1631,7 +1631,7 @@ pub(crate) fn well() -> [CssPropertyWithConditions; 2] {
 
 /// `--font-serif`: running text in flora is Garamond too - the same stack as
 /// the capitals, set upright.
-pub(crate) const SERIF_FAMILY: StyleFontFamilyVec = CAPS_FAMILY;
+pub(crate) const SERIF_FAMILY: StyleFontFamilyVec = FONT_CAPS;
 
 /// A flora field at rest: a solid 1px `--fl-bd2` rule at the house radius
 /// around field paper, sunk by the well, in the house ink - each light value
