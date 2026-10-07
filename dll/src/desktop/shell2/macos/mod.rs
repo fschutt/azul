@@ -1857,6 +1857,57 @@ fn layout_safe_area_insets(
     ((top - titlebar_band).max(0.0), left, bottom, right)
 }
 
+/// Where AppKit's close / minimize / zoom buttons go for a window's
+/// `MacWindowOptions::traffic_light_position`.
+#[allow(dead_code)]
+fn traffic_light_frames(
+    _window_height: f64,
+    _container_width: f64,
+    _position: (f64, f64),
+    _button: (f64, f64),
+    _pitch: f64,
+) -> ((f64, f64, f64, f64), [(f64, f64); 3]) {
+    todo!("traffic_light_frames")
+}
+
+#[cfg(test)]
+mod traffic_light_tests {
+    use super::traffic_light_frames;
+
+    /// A 600pt-tall window, AppKit's 14x16 buttons 20pt apart, the lights
+    /// asked at (20, 18) - the close button's top-left, from the window's
+    /// top-left. The titlebar container is pinned to the window's top and
+    /// made `16 + 2 * 18` tall, so the buttons sit 18pt below its top and
+    /// above its bottom; their origins are in its bottom-left coordinates.
+    #[test]
+    fn the_traffic_lights_sit_where_the_window_option_puts_them() {
+        let (container, origins) =
+            traffic_light_frames(600.0, 800.0, (20.0, 18.0), (14.0, 16.0), 20.0);
+        assert_eq!(
+            container,
+            (0.0, 548.0, 800.0, 52.0),
+            "the container: pinned to the window's top, 16 + 2 * 18 tall, as wide as it was"
+        );
+        assert_eq!(
+            origins,
+            [(20.0, 18.0), (40.0, 18.0), (60.0, 18.0)],
+            "close at x 20, minimize and zoom at AppKit's own pitch"
+        );
+        let close_top_from_window_top = container.3 - (origins[0].1 + 16.0);
+        assert_eq!(close_top_from_window_top, 18.0, "the close button's top is 18pt down");
+    }
+
+    /// The lights cannot leave the window: a position above or left of its
+    /// corner is the corner.
+    #[test]
+    fn a_traffic_light_position_outside_the_window_is_its_corner() {
+        let (container, origins) =
+            traffic_light_frames(600.0, 800.0, (-5.0, -3.0), (14.0, 16.0), 20.0);
+        assert_eq!(container, (0.0, 584.0, 800.0, 16.0));
+        assert_eq!(origins, [(0.0, 0.0), (20.0, 0.0), (40.0, 0.0)]);
+    }
+}
+
 #[cfg(test)]
 mod safe_area_tests {
     use super::layout_safe_area_insets;
