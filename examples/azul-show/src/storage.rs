@@ -289,7 +289,7 @@ mod tests {
                 let mut titles: Vec<String> = decks.iter().map(|d| d.title.clone()).collect();
                 titles.sort();
                 assert_eq!(titles, vec![String::from("Alpha"), String::from("Beta")]);
-                assert!(decks.iter().all(|d| d.slides == 10));
+                assert!(decks.iter().all(|d| d.slides == 11));
             }
             other => panic!("{other:?}"),
         }
