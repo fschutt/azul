@@ -8,13 +8,17 @@
        lies over its top edge;
     3. the controls: zoom in (`AZMAPS_VIEW ... 3.0`); the keys: Right (the longitude grows), Up
        (the latitude grows), `-` (zoom 2.0 again);
+    3b. a drag pans the map (`AZMAPS_VIEW` moves) in the map's own view: it renders again
+       (`AZ_MAP_RENDER`, `--stats`) while the window is NOT rebuilt for every pointer move
+       (`AZMAPS_LAYOUT` - nothing of AzMaps' own is on the map yet);
     4. a click on the map drops a pin (`AZMAPS_PINS 1`), written to maps/pins.json
        (`AZMAPS_PINS_SAVED 1`); the sidebar's recents list it (`#__azmaps_place-0`);
     5. the place's row centres the map on it and opens its card - a popover at its pin, a window
        of its own (`AZMAPS_PLACE 0`); the card's Directions makes it the destination
        (`AZMAPS_TRAVEL car - <lat>,<lon>`) and closes the card;
     6. the travel panel: walking (`AZMAPS_TRAVEL walk ...`), a start typed in
-       (`AZMAPS_TRAVEL walk 48.2082,16.3738 ...`) shows the distance; the viewport is kept in
+       (`AZMAPS_TRAVEL walk 48.2082,16.3738 ...`) shows the distance, and the route worker answers
+       off the UI thread (`AZMAPS_ROUTE walk <km> <minutes> <ms>`); the viewport is kept in
        maps/settings.json once it rests;
     7. the sidebar hides and shows again (`AZMAPS_SIDEBAR closed` / `open`);
     8. the gear opens azul-appkit's settings page, About the standard About box
@@ -23,7 +27,10 @@
    10. a second start opens where the first one was left (the kept `AZMAPS_VIEW`) with its pin
        (`AZMAPS_PINS_LOADED 1`).
 
-Tiles need the network: headless runs see the map's ground, the pins and the chrome. Run ONE app at
+Tiles need the network: headless runs see the map's ground, the pins and the chrome (offline, the
+tile workers fail fast; `AZ_MAP_TILES` / `AZ_MAP_TILE` lines are logged, not required). AzMaps
+runs with `--stats`, so the log carries the counters to measure with: `AZMAPS_LAYOUT <n>` per
+window rebuild, `AZ_MAP_RENDER <us> <tiles> <labels>` per render of the map's view. Run ONE app at
 a time, through the capped runner:
 
     scripts/waves/tools/run_capped.sh --cap-mb 1500 --seconds 240 --log /tmp/azmaps.log -- \\
@@ -78,7 +85,8 @@ def body(args, logs, out):
     os.makedirs(data_dir, exist_ok=True)
 
     def start(name):
-        app = e2e.App(name, binary, ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT)],
+        app = e2e.App(name, binary,
+                      ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--stats"],
                       args.debug_port, logs, args.timeout)
         app.until("AzMaps' window", lambda: app.has_id(MAP))
         app.frame(2)
@@ -113,6 +121,30 @@ def body(args, logs, out):
         app.key("minus")
         wait_view(app, "- zooms out", lambda lat, lon, zoom: abs(zoom - 2.0) < 0.05)
 
+        # A drag pans the map in its own view. Nothing of AzMaps' own is on the map yet (no pin,
+        # no route, no location), so the window is not rebuilt for the pointer moves - only the
+        # map's view renders again. (The kept viewport's settings save ends in one rebuild of
+        # its own: let it happen first, and allow one.)
+        app.until("the map renders its own view", lambda: app.count("AZ_MAP_RENDER") > 0)
+        app.until("the viewport kept before the drag",
+                  lambda: kept_view(data_dir) == app.last("AZMAPS_VIEW"))
+        app.frame(3)
+        layouts, renders, before = app.count("AZMAPS_LAYOUT"), app.count("AZ_MAP_RENDER"), view(app)
+        app.drag(WIDTH * 0.65, HEIGHT * 0.55, WIDTH * 0.5, HEIGHT * 0.45, steps=8)
+        wait_view(app, "a drag pans the map",
+                  lambda lat, lon, zoom: (round(lat, 4), round(lon, 4)) != before[:2])
+        rebuilt = app.count("AZMAPS_LAYOUT") - layouts
+        rendered = app.count("AZ_MAP_RENDER") - renders
+        app.log("drag: %d window rebuild(s), %d render(s) of the map's view, last %s"
+                % (rebuilt, rendered, app.last("AZ_MAP_RENDER")))
+        if rendered < 1:
+            raise Failure("the drag did not render the map's view again")
+        if rebuilt > 1:
+            raise Failure("a drag over a map with nothing of AzMaps' own on it rebuilt the window "
+                          "%d times (once per pointer move?)" % rebuilt)
+        tiles = app.last("AZ_MAP_TILES")
+        app.log("tiles (ready pending fetching failed drawn): %s" % (tiles or "no tile came back yet"))
+
         # A pin: dropped, saved, listed in the recents.
         app.click(selector="#" + MAP)
         app.expect_line("AZMAPS_PINS", "1", "a click on the map drops a pin")
@@ -143,6 +175,10 @@ def body(args, logs, out):
         app.until("the start typed in",
                   lambda: app.printed("AZMAPS_TRAVEL", r"walk 48\.2082,16\.3738 -?\d.+"))
         app.until("the distance", lambda: app.has_id("__azmaps_travel-distance"))
+        # Both ends are places: the route worker answers, off the UI thread.
+        app.until("the route worker's answer",
+                  lambda: app.printed("AZMAPS_ROUTE", r"walk \d+\.\d \d+ \d+\.\d{3}"))
+        app.log("route: %s" % app.last("AZMAPS_ROUTE"))
         app.screenshot(os.path.join(out, "4-travel.png"))
 
         # The viewport is kept once it rests (the row moved it last).
