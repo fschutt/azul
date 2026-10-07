@@ -675,7 +675,7 @@ pub struct QueuedJob {
     pub dialog_shown: bool,
 }
 
-/// The transfers, one running at a time (the status bar shows it).
+/// The transfers, one running at a time (the source list's activity area shows it).
 #[derive(Debug, Clone, Default)]
 pub struct TransferQueue {
     jobs: Vec<QueuedJob>,
@@ -774,7 +774,7 @@ impl TransferQueue {
         self.running().map(|j| j.progress.percent())
     }
 
-    /// The status bar's line: "Copying 3 items - 1 of 3 (25%), 2 waiting".
+    /// The running transfer's line: "Copying 3 items - 1 of 3 (25%), 2 waiting".
     #[must_use]
     pub fn status_text(&self) -> String {
         let Some(job) = self.running() else {

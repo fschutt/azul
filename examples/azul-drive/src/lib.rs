@@ -8,21 +8,25 @@
 //! Properties, Upload / Download on a cloud drive, Sort, the Large icons /
 //! List / Details views, Select all, "See more" with every other command;
 //! the Navigation / Preview / Details pane switches and the Options at its
-//! right end - the drive commands on This PC); the navigation pane (the trees
-//! of Quick access, This PC with the drives - local and cloud - and their
-//! folders, listed lazily, and Network with the cloud drives); the content
-//! (This PC's drive tiles, Quick access's pinned folders, or a folder in one
-//! of Explorer's eight layouts - Details by default, the icon layouts on
-//! azul's IconGrid - grouped or not, with check boxes or not); the preview
-//! pane OR the details pane at the right; the status bar ("N items", "N items
-//! selected, X MB", the running transfer, the Details / Large icons switch).
+//! right end - the drive commands on This PC). Under it the body is a Finder
+//! window in the app theme (`look`: flora's linen, leaves and Garamond
+//! capitals; Office 2010's silver in flat): the navigation pane is Finder's
+//! source list (`ui_sidebar`: FAVORITES - Quick access, the standard
+//! folders, the pins -, LOCATIONS - This PC and the drives on this computer,
+//! their folders listed lazily -, CLOUD - the S3 drives with their state -,
+//! the transfers' activity, + and the actions); the content is a leaf on the
+//! page (This PC's drive tiles, Quick access's pinned folders, or a folder in
+//! one of Explorer's eight layouts - Details by default, the icon layouts on
+//! azul's IconGrid - grouped or not, with check boxes or not) with Finder's
+//! path bar and status line ("N items, N selected, X available") at its foot;
+//! the preview pane OR the details pane at the right, a leaf too.
 //! The Options and About are the backstage (See more > Options, the gear).
 //!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
 //! storage call goes through `azul_storage::Drive` on an azul `Thread`; no
 //! callback waits on a drive. Copies, moves, uploads and downloads go
-//! through ONE queue (one transfer at a time, progress in the status bar):
+//! through ONE queue (one transfer at a time, progress in the source list):
 //! a plan first (every file under a folder, every name taken at the target),
 //! a dialog per conflict (Replace / Skip / Keep both, for all), then the run.
 //! Delete moves an item into `.azdrive-trash/` on a local drive (Ctrl+Z
@@ -64,11 +68,15 @@ pub mod fileops;
 mod ids;
 mod jobs;
 pub mod keys;
+/// The body's looks in flat and flora, by day and at night.
+mod look;
 pub mod model;
 pub mod preview;
 mod ui_commands;
 mod ui_dialogs;
 mod ui_panes;
+/// The navigation pane: Finder's source list.
+mod ui_sidebar;
 mod ui_view;
 
 use std::{
@@ -124,6 +132,12 @@ const RECENT_PLACES: usize = 10;
 
 /// A node of the navigation tree: a drive's folder.
 pub(crate) type TreeKey = (String, String);
+
+/// The content's leaf frame across: the page's padding either side and the leaf's rule.
+const LEAF_FRAME_X: f32 = 2.0 * 8.0 + 2.0;
+/// ... and down, with the leaf's foot: the page's padding, the rule, the path bar (24 px and its
+/// rule) and the status line (22 px and its rule).
+const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0 + 25.0 + 23.0;
 
 // ==== Drives ====
 
@@ -349,14 +363,17 @@ pub(crate) enum Popup {
     Transfers { auto: bool },
 }
 
-/// The navigation tree: which nodes are open, whose children are listed
-/// (the folder prefixes, one listing per expand), which are being listed.
+/// The source list: which sections are open, which drives and folders show their folders,
+/// whose folders are listed (the folder prefixes, one listing per opening), which are being
+/// listed.
 #[derive(Default)]
 pub(crate) struct TreeState {
-    pub quick_open: bool,
-    pub this_pc_open: bool,
-    /// Network: the cloud drives (network locations) and "Add network location".
-    pub network_open: bool,
+    /// FAVORITES: Quick access, the standard folders, the pins.
+    pub favorites_open: bool,
+    /// LOCATIONS: This PC and the drives on this computer.
+    pub locations_open: bool,
+    /// CLOUD: the S3 drives and "Add S3 drive".
+    pub cloud_open: bool,
     pub expanded: HashSet<TreeKey>,
     pub loaded: HashMap<TreeKey, Vec<String>>,
     pub listing: HashSet<TreeKey>,
@@ -401,6 +418,8 @@ pub(crate) struct DriveState {
     /// The items being dragged in the window (their drive, their items).
     pub dragging: Option<(String, Vec<SourceItem>)>,
     pub tree: TreeState,
+    /// The standard folders the Home drive holds (Desktop, Documents, ...): FAVORITES' rows.
+    pub standard_folders: Vec<ui_sidebar::Favorite>,
     /// Closed group headers (by label) of the folder view and This PC.
     pub groups_closed: HashSet<String>,
     /// The icon layouts' grid as its last event left it: the first row in view, a rubber band
@@ -643,15 +662,16 @@ impl DriveState {
         if self.settings.preview_pane || self.settings.details_pane {
             width *= self.pane_ratios.1;
         }
-        self.settings.layout.columns_in(width - 32.0)
+        self.settings.layout.columns_in(width - 32.0 - LEAF_FRAME_X)
     }
 
     /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
-    /// window less the panes beside it (their shares as the splitters left them) and the chrome
-    /// over and under it. An estimate that errs small - an empty strip, never a clipped row.
+    /// window less the panes beside it (their shares as the splitters left them), the chrome
+    /// over it and the leaf's frame and foot around it. An estimate that errs small - an empty
+    /// strip, never a clipped row.
     pub fn content_size(&self, window: (f32, f32)) -> (f32, f32) {
-        /// The title row, the navigation row, the command bar and the status bar.
-        const CHROME_PX: f32 = 184.0;
+        /// The title row, the navigation row and the command bar.
+        const CHROME_PX: f32 = 160.0;
         /// A splitter and the pane's edges.
         const SPLITTER_PX: f32 = 8.0;
         let (mut width, mut height) = window;
@@ -667,7 +687,8 @@ impl DriveState {
         if self.settings.preview_pane || self.settings.details_pane {
             width = width * self.pane_ratios.1 - SPLITTER_PX;
         }
-        height -= CHROME_PX;
+        height -= CHROME_PX + LEAF_FRAME_Y;
+        width -= LEAF_FRAME_X;
         if self.message.is_some() {
             height -= 52.0;
         }
@@ -874,17 +895,25 @@ pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState)
     start_listing(info, app, s, false);
 }
 
-/// The local volumes' size and free space, from the OS.
+/// The local volumes' size and free space, from the OS - and the standard folders the Home
+/// drive holds (FAVORITES' rows: a Downloads folder made since shows after This PC's refresh).
 pub(crate) fn refresh_disks(s: &mut DriveState) {
     let mut found = Vec::new();
+    let mut home = None;
     for slot in &s.slots {
         if let DriveLocation::Local { root } = &slot.entry.location {
             if let Some(space) = FilePath::create(root.as_str()).disk_space().into_option() {
                 found.push((slot.entry.id.clone(), (space.total, space.free)));
             }
+            if slot.entry.id == HOME_ID {
+                home = Some(PathBuf::from(root));
+            }
         }
     }
     s.disk.extend(found);
+    if let Some(home) = home {
+        s.standard_folders = ui_sidebar::standard_folders(&home);
+    }
 }
 
 /// The place above the open one: the parent folder, the drive's root, This PC.
@@ -1483,30 +1512,31 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         s.window_width
     };
 
+    // Finder's body under Explorer's command bar: the source list, the content as a leaf on the
+    // page (its path bar and status line at its foot), the right pane a leaf too.
     let mut browser = BrowserShell::create(
         chrome(s, &app, width),
-        ui_panes::navigation_pane(s, &app),
+        ui_sidebar::sidebar(s, &app),
         ui_view::content(s, &app, s.content_size(window)),
     )
     .with_tree_visible(s.settings.navigation_pane)
     .with_tree_ratio(s.pane_ratios.0)
     .with_content_ratio(s.pane_ratios.1);
     if s.settings.preview_pane {
-        browser = browser.with_preview(ui_panes::preview_pane(s, &app, dark));
+        browser = browser.with_preview(ui_view::on_page(ui_panes::preview_pane(s, &app, dark)));
     }
     let mut shell = browser.office_shell();
     // Explorer 10's right side: the preview pane OR the details pane.
     if s.settings.details_pane && !s.settings.preview_pane {
         shell.add_pane(
-            ShellPane::create(DETAILS_PANE_ID, ui_panes::details_pane(s))
+            ShellPane::create(DETAILS_PANE_ID, ui_view::on_page(ui_panes::details_pane(s)))
                 .with_kind(ShellPaneKind::Side)
                 .with_label("Details"),
         );
     }
-    // The title row and the status bar are the OfficeShell's.
+    // The title row is the OfficeShell's; the counts are the leaf's status line (no status bar).
     let mut shell = shell
         .with_title_row(title_row(s))
-        .with_status_bar(ui_panes::status_bar(s, &app))
         .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
     if let Some(page) = s.backstage_shown() {
         shell = shell.with_backstage(ui_dialogs::backstage(s, &app, page));
@@ -1739,11 +1769,13 @@ pub fn start() {
         column_drag: None,
         dragging: None,
         tree: TreeState {
-            quick_open: true,
-            this_pc_open: true,
-            network_open: true,
+            favorites_open: true,
+            locations_open: true,
+            cloud_open: true,
             ..TreeState::default()
         },
+        // Read with the volumes' sizes, below (`refresh_disks`).
+        standard_folders: Vec::new(),
         groups_closed: HashSet::new(),
         grid_view: IconGridView::create(),
         pane_ratios: (0.22, 0.7),

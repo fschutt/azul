@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """AzDrive end to end: add an S3 drive through the dialog, browse to /mail/inbox/, download ONE file,
-walk the navigation tree, go Back / Forward / Up.
+walk the source list, go Back / Forward / Up.
 
     1. starts the local S3 (s3_server.py, stdlib backend, in this process) with the bucket
        `azdrive-e2e` holding mail/inbox/0001.eml, 0002.eml, mail/sent/0003.eml, docs/readme.txt
@@ -12,15 +12,17 @@ walk the navigation tree, go Back / Forward / Up.
        endpoint, region, bucket, access key and secret key into the form, clicks "Test
        connection" (asserts it says "Connection OK" after exactly one ListObjectsV2 call) and
        "Save drive";
-    4. asserts the drives file names the drive and holds neither key;
+    4. asserts the drives file names the drive and holds neither key, and the source list shows
+       the drive in CLOUD (its row selected, its eject button);
     5. double-clicks the "mail" and "inbox" folders (the view shows 0001.eml), and asserts that
        browsing fetched listings only, not one object;
     6. selects 0001.eml, clicks "Download" (the command bar of a cloud drive's folder: a
        transfer into the Downloads folder), and
        asserts the downloaded bytes are the object's and that the server saw exactly one
        GetObject, for mail/inbox/0001.eml;
-    7. clicks "Home" in the navigation tree (the Home drive lists, notes.txt shows), then the
-       address bar's Back (mail/inbox/ again), Forward (Home again) and Up ("This PC").
+    7. clicks Home in the source list (`#__azdrive_side_drive_home`: the Home drive lists,
+       notes.txt shows), then the address bar's Back (mail/inbox/ again), Forward (Home again)
+       and Up ("This PC").
 
 Usage (from the azul repository, after building libazul with the debug server and AzDrive):
 
@@ -162,6 +164,22 @@ class App:
 
     def shows(self, text, dom_id=None):
         return any(text in t for t in self.texts(dom_id))
+
+    def nodes(self, dom_id=None):
+        """The window's nodes (`index`, `type`, `id`, `classes`, `text`, ...)."""
+        answer = self.op("get_node_hierarchy", dom_id=dom_id)
+        return [d for d in dicts(answer) if "index" in d and "type" in d]
+
+    def ids(self, dom_id=None):
+        """The DOM ids of the window's nodes."""
+        return {n.get("id") for n in self.nodes(dom_id) if n.get("id")}
+
+    def classes_of(self, node_id, dom_id=None):
+        """The classes of the node whose DOM id is `node_id` (none when it is not there)."""
+        for n in self.nodes(dom_id):
+            if n.get("id") == node_id:
+                return n.get("classes") or []
+        return []
 
     def printed(self, key, pattern=r"\S+"):
         """Every `<KEY> <value>` line the app printed on stdout."""
@@ -347,6 +365,13 @@ def run(args, logs):
         drive_id = added[-1]
         app.until("the drive's root listing", lambda: app.printed("AZDRIVE_LISTED", r"%s / \d+" % re.escape(drive_id)))
         log("AzDrive saved %s and lists its root" % drive_id)
+        # The source list's CLOUD section: the drive's row (selected: the window shows it), its
+        # state and its eject button (src/ui_sidebar.rs, the ids of src/ids.rs).
+        row = "__azdrive_side_drive_" + re.sub(r"[^A-Za-z0-9_-]", "_", drive_id).lower()
+        app.until("the drive's row in CLOUD", lambda: row in app.ids())
+        app.until("its eject button", lambda: row.replace("_drive_", "_eject_") in app.ids())
+        app.until("its row selected", lambda: "__azdrive_side_selected" in app.classes_of(row))
+        log("the source list shows %s in CLOUD, selected, with its eject button" % drive_id)
 
         # 4. The drives file: the drive, no keys.
         with open(drives_file, "r", encoding="utf-8") as f:
@@ -397,11 +422,11 @@ def run(args, logs):
         log("downloaded %s (%d bytes, identical); the server saw one GetObject (%s)%s" % (
             path, len(data), gets[0], ", and %d HEAD" % len(heads) if heads else ""))
 
-        # 7. The navigation tree, then Back / Forward / Up on the address bar.
+        # 7. The source list's Home (LOCATIONS), then Back / Forward / Up on the address bar.
         home_listed = r"home / \d+"
         before = len(app.printed("AZDRIVE_LISTED", home_listed))
-        app.must("click", text="Home")
-        app.until("the Home drive listed from the tree",
+        app.must("click", selector="#__azdrive_side_drive_home")
+        app.until("the Home drive listed from the source list",
                   lambda: len(app.printed("AZDRIVE_LISTED", home_listed)) > before)
         app.until("notes.txt in the Home drive", lambda: app.shows("notes.txt"))
         inbox_listed = r"%s mail/inbox/ \d+" % re.escape(drive_id)
@@ -416,9 +441,9 @@ def run(args, logs):
         before = len(app.printed("AZDRIVE_PLACE", r"this-pc"))
         nav_click(app, 3, "Up")
         app.until("Up to This PC", lambda: len(app.printed("AZDRIVE_PLACE", r"this-pc")) > before)
-        log("the tree opened the Home drive; Back, Forward and Up walked the history")
+        log("the source list opened the Home drive; Back, Forward and Up walked the history")
         log("PASS: AzDrive added an S3 drive, browsed to /mail/inbox/, downloaded exactly one "
-            "object, and walked the tree and the history")
+            "object, and walked the source list and the history")
         return True
     except Failure:
         for name, path in (("stdout", app.out_path), ("stderr", app.err_path)):
