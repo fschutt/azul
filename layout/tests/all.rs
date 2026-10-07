@@ -958,3 +958,6 @@ mod an_hvif_icon_resolves_at_the_size_it_is_shown;
 
 #[path = "a_flora_spin_recolours_only_the_accent.rs"]
 mod a_flora_spin_recolours_only_the_accent;
+
+#[path = "a_virtual_views_content_inherits_from_its_host.rs"]
+mod a_virtual_views_content_inherits_from_its_host;
