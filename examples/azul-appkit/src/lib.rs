@@ -18,8 +18,12 @@
 //! - [`options`]: the settings page's model - Outlook 2010's Options dialog
 //!   (the categories, the header line over each, the ids, what Cancel puts
 //!   back).
-//! - `pieces` (feature `azul`): the small DOM pieces every app's screens are
-//!   built from (text, block, flex column / row, buttons).
+//! - `pieces` (feature `look`, part of `azul`): the small DOM pieces every
+//!   app's screens are built from (text, block, flex column / row, buttons).
+//! - `look` (feature `look`, part of `azul`): the settings page's look -
+//!   Outlook 2010's Options dialog in pieces (the category list, the header
+//!   line, banded sections, rows, OK / Cancel) - for the kit's page and for an
+//!   app that draws its settings itself and links azul its own way (AzMeet).
 //! - `backstage` (feature `azul`): the right side of the File tab in the
 //!   Outlook 2010 look (a page's title, cards, command rows of a button, a
 //!   heading and what it does, two columns, sections, facts).
@@ -51,7 +55,9 @@ pub mod shortcuts;
 
 #[cfg(feature = "azul")]
 pub mod backstage;
-#[cfg(feature = "azul")]
+#[cfg(feature = "look")]
+pub mod look;
+#[cfg(feature = "look")]
 pub mod pieces;
 #[cfg(feature = "azul")]
 pub mod ribbon;

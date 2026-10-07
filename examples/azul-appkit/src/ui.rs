@@ -30,7 +30,7 @@ use azul::{
         TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType,
     },
     css::DarkLightMode,
-    dom::{DomId, TabIndex, VirtualKeyCode},
+    dom::{DomId, VirtualKeyCode},
     file::FilePath,
     option::{OptionDarkLightMode, OptionLogicalSize},
     prelude::*,
@@ -41,8 +41,8 @@ use azul::{
     },
     time::{Duration, SystemTimeDiff},
     widgets::{
-        AboutDialog, Button, ButtonType, Modal, ModalState, Segmented, SegmentedState,
-        StandardDialogEvent, Titlebar,
+        AboutDialog, Button, Modal, ModalState, Segmented, SegmentedState, StandardDialogEvent,
+        Titlebar,
     },
     window::{WindowCreateOptions, WindowDecorations},
 };
@@ -53,6 +53,7 @@ use crate::{
     args::{AppArgs, AppSpec, ModePref, Theme},
     data::{self, app_key},
     files::{run_jobs, FileJob, FileOutcome},
+    look::{self, CategoryItem},
     migrate,
     options::{categories, category_id, category_index, Category, Snapshot},
     settings::{AppSettings, SETTINGS_FILE},
@@ -61,34 +62,6 @@ use crate::{
 
 /// The kit's categories, after the app's own ([`crate::options::KIT_CATEGORIES`]).
 pub use crate::options::KIT_CATEGORIES;
-
-// ==== The look of the settings page (Outlook 2010's Options dialog) ====
-//
-// The colours are the theme's (`system:` colours), named here so a palette - Office 2010's
-// silver and orange, or any other - can be swapped in without touching the page.
-
-/// The dialog's own surface: around the two panes and under OK / Cancel.
-const DIALOG_BG: &str = "system:window-background";
-/// The category list's and the options pane's surface (Outlook's white panes).
-const PANE_BG: &str = "system:control-background";
-/// The frame of the two panes, and the rules between the groups of categories.
-const PANE_EDGE: &str = "system:separator";
-/// The selected category (Outlook 2010: the orange bar).
-const SELECTED_BG: &str = "system:selection-background";
-/// The selected category's text.
-const SELECTED_TEXT: &str = "system:selection-text";
-/// A category under the pointer.
-const HOVER_BG: &str = "system:selection-background-inactive";
-/// A section's band (Outlook's grey "User Interface options" bar over the rows).
-const BAND_BG: &str = "system:window-background";
-/// The header line's text ("General options for working with AzNotes.") and a row's note.
-const QUIET_TEXT: &str = "system:secondary-text";
-/// The header line's icon.
-const HEADER_ICON: &str = "system:accent";
-/// The width of the category list (it gives way down to 100 px in a narrow window).
-const CATEGORY_WIDTH: &str = "180px";
-/// The width of a row's label column (it gives way down to 72 px).
-const LABEL_WIDTH: &str = "160px";
 
 /// The write-back tag of a settings save (the kit's own jobs).
 const SETTINGS_TAG: u64 = u64::MAX;
@@ -644,77 +617,9 @@ pub struct AppSection {
 pub use crate::pieces::text;
 use crate::pieces::{column, strs};
 
-/// A settings row: a label column and the control (Outlook's "Color scheme: [Silver]").
-#[must_use]
-pub fn row(label: &str, control: Dom) -> Dom {
-    Dom::create_div()
-        .with_class("appkit-row")
-        .with_css(
-            "display: flex; flex-direction: row; align-items: center; padding: 4px 0px; \
-             min-width: 0px;",
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(format!(
-                    "width: {LABEL_WIDTH}; flex-shrink: 1; min-width: 72px; padding-right: 8px; \
-                     font-size: 13px;"
-                ))
-                .with_child(text(label)),
-        )
-        .with_child(control)
-}
-
-/// A line of secondary text under a section's rows.
-#[must_use]
-pub fn note(content: &str) -> Dom {
-    Dom::create_div()
-        .with_css(format!("padding: 4px 0px; font-size: 12px; color: {QUIET_TEXT};"))
-        .with_child(text(content))
-}
-
-/// A section's band: its title in bold on Outlook's grey bar.
-fn band(title: &str) -> Dom {
-    Dom::create_div()
-        .with_class("appkit-band")
-        .with_css(format!(
-            "padding: 4px 8px; margin-top: 12px; background: {BAND_BG}; font-size: 13px; \
-             font-weight: bold;"
-        ))
-        .with_child(text(title))
-}
-
-/// A section: its band over its rows, the rows indented under it.
-fn section(title: &str, content: Dom) -> Dom {
-    column(
-        "flex-shrink: 0; min-width: 0px;",
-        vec![
-            band(title),
-            Dom::create_div()
-                .with_css("padding: 6px 4px 4px 20px; min-width: 0px;")
-                .with_child(content),
-        ],
-    )
-}
-
-/// The line over a category's sections: a big icon and what the category is for.
-fn header_line(icon: &str, line: &str) -> Dom {
-    Dom::create_div()
-        .with_id("appkit-settings-header")
-        .with_css(
-            "display: flex; flex-direction: row; align-items: center; padding: 2px 0px 6px \
-             0px; flex-shrink: 0;",
-        )
-        .with_child(Dom::create_icon(icon).with_css(format!(
-            "font-size: 32px; color: {HEADER_ICON}; margin-right: 12px; flex-shrink: 0;"
-        )))
-        .with_child(
-            Dom::create_div()
-                .with_css(format!(
-                    "flex-grow: 1; min-width: 0px; font-size: 15px; color: {QUIET_TEXT};"
-                ))
-                .with_child(text(line)),
-        )
-}
+/// A settings row and a line of secondary text: the look's ([`crate::look`]).
+pub use crate::look::{note, row};
+use crate::look::section;
 
 fn appearance_section(k: &Kit, kit_ref: &RefAny) -> Dom {
     let theme_labels: Vec<&str> = Theme::ALL.iter().map(|t| t.label()).collect();
@@ -879,58 +784,6 @@ extern "C" fn on_about_close(kit: RefAny, _info: CallbackInfo, _state: ModalStat
 
 // ==== The page: the category list, the options pane, OK / Cancel ====
 
-/// The category list: the app's categories, a rule, General / Data / Shortcuts, a rule, About
-/// (Outlook's groups); the chosen one on the selection's colour.
-fn category_list(kit_ref: &RefAny, categories: &[String], chosen: usize, app_count: usize) -> Dom {
-    let rule = || {
-        Dom::create_div().with_css(format!(
-            "height: 1px; margin: 5px 8px; background: {PANE_EDGE}; flex-shrink: 0;"
-        ))
-    };
-    let item = "padding: 6px 12px; margin: 1px 4px; font-size: 13px; border-radius: 2px; \
-                cursor: pointer; flex-shrink: 0;";
-    let mut items = Vec::with_capacity(categories.len() + 2);
-    for (index, name) in categories.iter().enumerate() {
-        if (index == app_count && app_count > 0)
-            || Category::of(index, app_count) == Category::About
-        {
-            items.push(rule());
-        }
-        let css = if index == chosen {
-            format!("{item} background: {SELECTED_BG}; color: {SELECTED_TEXT};")
-        } else {
-            format!("{item} color: system:text; :hover {{ background: {HOVER_BG}; }}")
-        };
-        let data = RefAny::new(CategoryRef {
-            kit: kit_ref.clone(),
-            index,
-        });
-        items.push(
-            Dom::create_div()
-                .with_id(category_id(name))
-                .with_css(css)
-                .with_tab_index(TabIndex::Auto)
-                .with_child(text(name.as_str()))
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    on_category,
-                )
-                // Enter / Space on the focused category (the engine's keyboard activation).
-                .with_callback(EventFilter::Hover(HoverEventFilter::Click), data, on_category),
-        );
-    }
-    column(
-        &format!(
-            "width: {CATEGORY_WIDTH}; flex-shrink: 1; min-width: 100px; min-height: 0px; \
-             padding: 4px 0px; background: {PANE_BG}; border: 1px solid {PANE_EDGE}; \
-             overflow-y: auto; overflow-x: hidden;"
-        ),
-        items,
-    )
-    .with_id("appkit-settings-categories")
-}
-
 /// The settings page, in the shape of Outlook 2010's Options dialog: the categories on the
 /// left (the app's, then General, Data, Shortcuts, About), on the right the chosen category's
 /// header line over its sections (a band, the rows under it), OK and Cancel under both. A
@@ -981,7 +834,11 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
     let kind = Category::of(chosen, app_count);
     let label = categories.get(chosen).cloned().unwrap_or_default();
 
-    let mut pane = vec![header_line(kind.icon(), &kind.header(&label, k.about.name))];
+    let mut pane = vec![look::header_line(
+        "appkit-settings-header",
+        kind.icon(),
+        &kind.header(&label, k.about.name),
+    )];
     match kind {
         Category::App(index) => {
             for s in app_sections.into_iter().filter(|s| s.category == index) {
@@ -997,78 +854,58 @@ fn options_page(kit_ref: &RefAny, app_sections: Vec<AppSection>, reload: Option<
         )),
     }
 
+    let items: Vec<CategoryItem<'_>> = categories
+        .iter()
+        .enumerate()
+        .map(|(index, name)| CategoryItem {
+            name: name.as_str(),
+            id: category_id(name),
+            // Outlook's groups: the app's categories, General / Data / Shortcuts, About.
+            rule_before: (index == app_count && app_count > 0)
+                || Category::of(index, app_count) == Category::About,
+        })
+        .collect();
+    let list = look::category_list(
+        "appkit-settings-categories",
+        &items,
+        chosen,
+        &|index| {
+            RefAny::new(CategoryRef {
+                kit: kit_ref.clone(),
+                index,
+            })
+        },
+        on_category,
+    );
     let page_data = RefAny::new(PageRef {
         kit: kit_ref.clone(),
     });
-    let body = Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: row; flex-grow: 1; min-height: 0px; min-width: 0px; \
-             padding: 10px 10px 0px 10px;",
-        )
-        .with_child(category_list(kit_ref, &categories, chosen, app_count))
-        .with_child(
-            // The scrolling pane holds one column that does not shrink: a long category
-            // scrolls instead of squeezing its rows.
-            Dom::create_div()
-                .with_id("appkit-settings-pane")
-                .with_css(format!(
-                    "display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; \
-                     min-width: 0px; min-height: 0px; margin-left: 8px; background: {PANE_BG}; \
-                     border: 1px solid {PANE_EDGE}; overflow-y: auto; overflow-x: hidden;"
-                ))
-                .with_child(column(
-                    "flex-shrink: 0; min-width: 0px; padding: 12px 18px 18px 18px;",
-                    pane,
-                )),
-        );
-
-    let mut buttons = Dom::create_div().with_id("appkit-settings-buttons").with_css(
-        "display: flex; flex-direction: row; align-items: center; padding: 10px; flex-shrink: 0;",
-    );
-    buttons.add_child(if k.notice.is_empty() {
-        Dom::create_div().with_css("flex-grow: 1;")
-    } else {
+    let notice = (!k.notice.is_empty()).then(|| {
         Dom::create_div()
             .with_id("appkit-settings-notice")
-            .with_css(format!(
-                "flex-grow: 1; min-width: 0px; padding-right: 12px; font-size: 12px; color: \
-                 {QUIET_TEXT};"
-            ))
             .with_child(text(k.notice.as_str()))
     });
-    buttons.add_child(
-        Dom::create_div().with_css("min-width: 88px; margin-left: 8px;").with_child(
-            Button::create("OK")
-                .with_button_type(ButtonType::Primary)
-                .with_on_click(page_data.clone(), on_ok as ButtonOnClickCallbackType)
-                .dom()
-                .with_id("appkit-settings-ok"),
-        ),
+    let buttons = look::dialog_buttons(
+        "appkit-settings-buttons",
+        notice,
+        vec![
+            look::dialog_button("OK", true, "appkit-settings-ok", &page_data, on_ok),
+            look::dialog_button("Cancel", false, "appkit-settings-cancel", &page_data, on_cancel),
+        ],
     );
-    buttons.add_child(
-        Dom::create_div().with_css("min-width: 88px; margin-left: 8px;").with_child(
-            Button::create("Cancel")
-                .with_on_click(page_data.clone(), on_cancel as ButtonOnClickCallbackType)
-                .dom()
-                .with_id("appkit-settings-cancel"),
-        ),
-    );
-
-    Dom::create_div()
-        .with_id("appkit-settings")
-        .with_css(format!(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: \
-             0px; background: {DIALOG_BG}; color: system:text;"
-        ))
-        // Escape for the apps that do not route their keys through `handle_key`.
-        .with_callback(
-            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-            page_data,
-            on_page_key,
-        )
-        .with_child(body)
-        .with_child(buttons)
-        .with_child(about_modal(&k, kit_ref))
+    look::dialog(
+        "appkit-settings",
+        list,
+        look::options_pane("appkit-settings-pane", pane),
+        buttons,
+    )
+    // Escape for the apps that do not route their keys through `handle_key`.
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+        page_data,
+        on_page_key,
+    )
+    .with_child(about_modal(&k, kit_ref))
 }
 
 // ==== The settings page's callbacks ====
