@@ -1045,7 +1045,11 @@ mod tests {
         y: 791,
     };
 
-    fn props(layer: &str, class: Option<&str>, name: &str) -> serde_json::Map<String, serde_json::Value> {
+    fn props(
+        layer: &str,
+        class: Option<&str>,
+        name: &str,
+    ) -> serde_json::Map<String, serde_json::Value> {
         let mut props = serde_json::Map::new();
         props.insert("layer".to_string(), serde_json::Value::String(layer.to_string()));
         props.insert("name".to_string(), serde_json::Value::String(name.to_string()));
@@ -1055,7 +1059,13 @@ mod tests {
         props
     }
 
-    fn named_point(layer: &str, class: Option<&str>, name: &str, lon: f64, lat: f64) -> geojson::Feature {
+    fn named_point(
+        layer: &str,
+        class: Option<&str>,
+        name: &str,
+        lon: f64,
+        lat: f64,
+    ) -> geojson::Feature {
         geojson::Feature {
             bbox: None,
             geometry: Some(geojson::Geometry::new(geojson::Value::Point(vec![lon, lat]))),
@@ -1065,7 +1075,12 @@ mod tests {
         }
     }
 
-    fn named_line(layer: &str, class: Option<&str>, name: &str, coords: Vec<Vec<f64>>) -> geojson::Feature {
+    fn named_line(
+        layer: &str,
+        class: Option<&str>,
+        name: &str,
+        coords: Vec<Vec<f64>>,
+    ) -> geojson::Feature {
         geojson::Feature {
             bbox: None,
             geometry: Some(geojson::Geometry::new(geojson::Value::LineString(coords))),
@@ -1183,6 +1198,7 @@ mod tests {
         let s = MapCss::parse("").label_style("place", Some("town"));
         assert!(luma(parse_hex_rgb(&s.color).expect("hex ink")) < 0.5, "{s:?}");
         let s = MapCss::parse("canvas { fill: #101010; }").label_style("poi", None);
-        assert!(luma(parse_hex_rgb(&s.color).expect("hex ink")) > 0.5, "no rules, dark land: {s:?}");
+        let ink = parse_hex_rgb(&s.color).expect("hex ink");
+        assert!(luma(ink) > 0.5, "no rules, dark land: {s:?}");
     }
 }
