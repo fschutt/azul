@@ -162,6 +162,37 @@ def thumbnail_drawn(app):
     return False
 
 
+def item_node(app, name):
+    """The node of the folder's item labelled `name` - its name label, so never a command bar
+    tool or a crumb showing the same text ("New folder" is a tool too)."""
+    nodes = app.hierarchy()
+    by_index = {n["index"]: n for n in nodes}
+    for n in nodes:
+        classes = n.get("classes") or []
+        if C("name") in classes or GRID_LABEL in classes:
+            texts = [n.get("text")] + [by_index.get(c, {}).get("text")
+                                       for c in n.get("children") or []]
+            if name in texts:
+                return n["index"]
+    return None
+
+
+def open_item(app, name):
+    """Double-clicks the folder's item `name` (on the nearest node from its label up that has a
+    box, as App.click_exact does)."""
+    node = app.until('the item "%s"' % name, lambda: item_node(app, name))
+    app.settle(limit=2.0)
+    parents = {n["index"]: n.get("parent") for n in app.hierarchy()}
+    while isinstance(node, int) and node >= 0:
+        answer = app.op("double_click", node_id=node, button="left")
+        if isinstance(answer, dict) and answer.get("status") != "error":
+            break
+        node = parents.get(node)
+    else:
+        raise Failure('double_click on the item "%s": no node from its label up has a box' % name)
+    app.frame()
+
+
 def item_names(app):
     """The names of the folder's items, in the order the view shows them."""
     names = []
@@ -340,8 +371,9 @@ def run(args, logs):
         app.after("notes.txt selected", "AZDRIVE_SELECTED", r"1 Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
         app.after("Copy", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.command("copy"))
+        # The item, not the command bar's "New folder" tool (the first text "New folder").
         app.after("into New folder", "AZDRIVE_LISTED", r"home Documents/New folder/ \d+",
-                  lambda: app.click_exact("New folder", double=True))
+                  lambda: open_item(app, "New folder"))
         target = os.path.join(docs, "New folder")
         app.after("the paste", "AZDRIVE_TRANSFER", r"\d+ done 1", lambda: app.command("paste"))
         app.until("the copy on disk", lambda: os.path.isfile(os.path.join(target, "notes.txt")))
