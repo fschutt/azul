@@ -829,7 +829,9 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
             info.close_window();
         } else {
             if index == 0 {
+                let was_open = azul_appkit::ui::settings_open(&s.kit);
                 azul_appkit::ui::open_settings(&s.kit, None);
+                crate::options_opened(s, was_open);
             }
             s.backstage = Some(index);
         }
@@ -909,7 +911,12 @@ fn options(s: &DriveState, app: &RefAny) -> Dom {
     Dom::create_div()
         .with_id(ids::SETTINGS)
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-        .with_child(azul_appkit::ui::settings_page(&s.kit, sections))
+        .with_child(azul_appkit::ui::settings_page_with_reload(
+            &s.kit,
+            sections,
+            app,
+            crate::reload_settings,
+        ))
 }
 
 /// The sections of one of AzDrive's categories: (title, content).

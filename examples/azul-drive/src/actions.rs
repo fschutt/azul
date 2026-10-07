@@ -413,8 +413,10 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             save_settings(info, app, s);
         }
         Action::Options => {
+            let was_open = azul_appkit::ui::settings_open(&s.kit);
             s.backstage = Some(0);
             azul_appkit::ui::open_settings(&s.kit, Some("View"));
+            crate::options_opened(s, was_open);
         }
         Action::AddDrive => {
             if s.popup.is_none() {
@@ -576,9 +578,14 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
     // closes them.
     let kit = data.downcast_ref::<DriveState>().map(|s| s.kit.clone());
     if let Some(kit) = kit {
+        let was_open = azul_appkit::ui::settings_open(&kit);
         if let Some(update) = azul_appkit::ui::handle_key(&kit, &mut info) {
             if let Some(mut s) = data.downcast_mut::<DriveState>() {
-                s.backstage = azul_appkit::ui::settings_open(&kit).then_some(0);
+                let open = azul_appkit::ui::settings_open(&kit);
+                s.backstage = open.then_some(0);
+                if open {
+                    crate::options_opened(&mut s, was_open);
+                }
             }
             return update;
         }

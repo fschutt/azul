@@ -400,6 +400,9 @@ pub(crate) struct DriveState {
     pub ribbon_tab: usize,
     /// The FILE backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
+    /// AzDrive's own settings as the Options found them when they opened: what their Cancel
+    /// puts back (`reload_settings`).
+    pub settings_found: Option<Settings>,
     pub clipboard: Option<ClipboardItems>,
     pub queue: TransferQueue,
     pub transfers: HashMap<u64, TransferJob>,
@@ -863,6 +866,33 @@ pub(crate) fn tree_invalidate(
     if s.tree.loaded.remove(&node).is_some() && s.tree.expanded.contains(&node) {
         start_tree_listing(info, app, s, node);
     }
+}
+
+/// The Options opened (`was_open`: they showed already): AzDrive's own settings as they are
+/// now are what the Options' Cancel puts back.
+pub(crate) fn options_opened(s: &mut DriveState, was_open: bool) {
+    if !was_open {
+        s.settings_found = Some(s.settings.clone());
+    }
+}
+
+/// Cancel on the Options (azul-appkit's settings page): AzDrive's own settings - the view, the
+/// navigation - come back as the Options found them, and the settings file is written again.
+pub(crate) fn reload_settings(
+    app: &mut RefAny,
+    info: &mut CallbackInfo,
+    _settings: &azul_appkit::AppSettings,
+) {
+    let handle = app.clone();
+    if let Some(mut guard) = app.downcast_mut::<DriveState>() {
+        let s = &mut *guard;
+        if let Some(found) = s.settings_found.take() {
+            if s.settings != found {
+                s.settings = found;
+                save_settings(info, &handle, s);
+            }
+        }
+    };
 }
 
 /// Writes the settings file (on a Thread, through the settings folder's drive).
@@ -1614,6 +1644,7 @@ pub fn start() {
         groups_closed: HashSet::new(),
         ribbon_tab: 0,
         backstage: (args.screen == args::Screen::Settings).then_some(0),
+        settings_found: None,
         clipboard: None,
         queue: TransferQueue::default(),
         transfers: HashMap::new(),
@@ -1640,6 +1671,9 @@ pub fn start() {
         audio: None,
         kit,
     };
+    if args.screen == args::Screen::Settings {
+        state.settings_found = Some(state.settings.clone());
+    }
     refresh_disks(&mut state);
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
