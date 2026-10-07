@@ -872,9 +872,17 @@ extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCal
         }
         s.total = total;
     }
+    // The meter's throttle runs on the clock, not on the song's position (which starts over at
+    // the next song or jumps back with a seek, and froze the meter until it caught up).
+    if changed {
+        // The window is rebuilt with an empty meter: the throttle starts over with it.
+        s.meter = LevelMeterThrottle::create(100);
+    }
     let level = LevelMeter::peak_level(state.peak_left.max(state.peak_right)).round();
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let now_ms = (state.position_s.max(0.0) * 1000.0) as u64;
+    #[allow(clippy::cast_possible_truncation)]
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
     if let Some(level) = s.meter.next(level, now_ms).into_option() {
         if let Some(meter) = info
             .callback_info
