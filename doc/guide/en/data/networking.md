@@ -201,6 +201,7 @@ extern "C" fn pump(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackR
 - `send_message(peer, data)` is reliable and ordered, for chat and control data.
 - When the link cannot carry everything, higher priority goes first. Frames start at 0 and messages at 1; `set_track_priority(track, priority)` and `set_message_priority(priority)` change that for every peer. A call app that sends video as messages sets its audio track to 2, so video never starves audio.
 - `peer_stats(peer)` reports whether the path is direct or relayed, the RTT, the congestion window, frame counters, and the outgoing message backlog (`messages_queued`, `message_bytes_queued`: accepted by `send_message`, not yet handed to the connection).
+- `IrohConfig::with_relay_only(true)` binds no UDP socket, so there is never a direct path and nothing is hole-punched: every packet goes through the relay (`relay_mode` `Default` or `Custom`; with relays disabled `bind` fails). Use it on networks that block UDP, or to test a relay. A local relay for tests is iroh's own server in dev mode, `iroh-relay --dev` (plain HTTP on port 3340), reached with `with_relay_url("http://127.0.0.1:3340")`.
 - Nothing arrives unless you poll `recv`, so drive it from a timer.
 - For rooms, `IrohLoadBalancer` picks the peers that forward media for everyone (`backbone_size`, `select_backbone`), and `IrohTileRole::rendition_height` picks the resolution a video tile should request.
 

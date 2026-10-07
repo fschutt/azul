@@ -160,6 +160,11 @@ impl Engine {
                 RelayMode::custom([url])
             }
         };
+        if config.relay_only && config.relay_mode == IrohRelayMode::Disabled {
+            return Err(
+                "IrohConfig.relay_only needs a relay: relay_mode Default or Custom".to_string(),
+            );
+        }
         let mut builder = Endpoint::builder(presets::Minimal)
             .alpns(vec![alpn.clone()])
             .relay_mode(relay_mode);
@@ -170,7 +175,12 @@ impl Engine {
             })?;
             builder = builder.secret_key(SecretKey::from_bytes(key));
         }
-        if config.port != 0 {
+        if config.relay_only {
+            // No IP transport: no UDP socket, no direct address in the ticket, no hole punching
+            // (and no QUIC address discovery, which needs one). The relay carries every packet;
+            // `port` names a UDP socket, so it does not apply.
+            builder = builder.clear_ip_transports();
+        } else if config.port != 0 {
             builder = builder
                 .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port)))
                 .map_err(|e| format!("invalid port {}: {e}", config.port))?;
