@@ -38,13 +38,13 @@ const BLUE_RAMP: [ColorU; 4] = [
     ColorU::rgb(0x7A, 0x93, 0xC6),
 ];
 
-/// flora.css's `leaf` alternate, the stone of `flora:green`, in the same
-/// order.
+/// The design system's Ordinary-time stone, the stone of `flora:green`, in
+/// the same order.
 const GREEN_RAMP: [ColorU; 4] = [
-    ColorU::rgb(0x44, 0x68, 0x4F),
-    ColorU::rgb(0x2F, 0x4C, 0x39),
-    ColorU::rgb(0xE1, 0xE6, 0xE1),
-    ColorU::rgb(0x7F, 0xA9, 0x8C),
+    ColorU::rgb(0x3E, 0x6B, 0x4A),
+    ColorU::rgb(0x2C, 0x4E, 0x36),
+    ColorU::rgb(0xE4, 0xEB, 0xE2),
+    ColorU::rgb(0x7B, 0xA9, 0x89),
 ];
 
 fn same_rgb(a: ColorU, b: ColorU) -> bool {

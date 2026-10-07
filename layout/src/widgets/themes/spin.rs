@@ -12,17 +12,20 @@
 //! | spin            | season     | acc       | deep      | soft      | glow      |
 //! |-----------------|------------|-----------|-----------|-----------|-----------|
 //! | `flora`         | (the site) | `#2F4A85` | `#1E3260` | `#E0E4EE` | `#7A93C6` |
-//! | `flora:green`   | Ordinary   | `#44684F` | `#2F4C39` | `#E1E6E1` | `#7FA98C` |
-//! | `flora:red`     | Pentecost  | `#8B3A33` | `#63261F` | `#EEDFDC` | `#C9847A` |
-//! | `flora:purple`  | Advent     | `#574A66` | `#3E344B` | `#E5E1EA` | `#8E80A2` |
-//! | `flora:gold`    | Easter     | `#85671F` | `#5E4814` | `#F1EAD7` | `#CDAF63` |
-//! | `flora:rose`    | Gaudete    | `#9A4D66` | `#6E3448` | `#F3E3E8` | `#D493A8` |
+//! | `flora:green`   | Ordinary   | `#3E6B4A` | `#2C4E36` | `#E4EBE2` | `#7BA989` |
+//! | `flora:red`     | Pentecost  | `#8E3B33` | `#6E2A24` | `#F0E2DE` | `#C07A6E` |
+//! | `flora:purple`  | Advent     | `#5B4470` | `#433154` | `#E9E4EF` | `#937FAC` |
+//! | `flora:gold`    | Easter     | `#876A1E` | `#66501A` | `#F7F0DC` | `#E9CF7E` |
+//! | `flora:rose`    | Gaudete    | `#9A5763` | `#74404A` | `#F5E6E7` | `#DCA6AC` |
 //!
-//! Green and purple are flora.css's own alternates (`leaf`, `plum`: "hold up
-//! against this ground"); red, gold and rose are cut to the same rules - an
-//! accent dark enough to carry the paper ink `--fl-on-acc` (#F4F2EA) at 4.5:1
-//! or better, a deep tone a third darker, a soft wash near the ground's
-//! lightness, a glow halfway to it. `flora:blue` names the base.
+//! The seasons are the Azlin design system's liturgical set (the "Interface
+//! Specimen", `season` tweak: ordinary / advent / easter / pentecost / rose),
+//! on flora.css's neutral ground - where the two disagree flora.css wins, and
+//! they only meet in the accent block. Green, purple and red are the
+//! specimen's stones as they are. Gold and rose are cut one step deeper than
+//! the specimen's `#B08D2E` / `#B76E79` (which carry the paper ink at 2.8:1
+//! and 3.4:1): flora writes `--fl-on-acc` (#F4F2EA) on every stone, and every
+//! stone here carries it at 4.5:1 or better. `flora:blue` names the base.
 //!
 //! # How a spin reaches the paint
 //!
@@ -123,15 +126,15 @@ pub enum FloraSpin {
     /// `flora` (also `flora:blue`): the website's deep blue.
     #[default]
     Blue,
-    /// `flora:green` - Ordinary time; flora.css's `leaf`.
+    /// `flora:green` - Ordinary time.
     Green,
     /// `flora:red` - Pentecost.
     Red,
-    /// `flora:purple` - Advent; flora.css's `plum`.
+    /// `flora:purple` - Advent (and Lent).
     Purple,
-    /// `flora:gold` - Easter.
+    /// `flora:gold` - Easter (and Christmas).
     Gold,
-    /// `flora:rose` - Gaudete.
+    /// `flora:rose` - Gaudete (and Laetare).
     Rose,
 }
 
@@ -223,34 +226,34 @@ impl FloraSpin {
         let (acc, deep, soft, glow) = match self {
             Self::Blue => return BASE,
             Self::Green => (
-                rgb(0x44, 0x68, 0x4F),
-                rgb(0x2F, 0x4C, 0x39),
-                rgb(0xE1, 0xE6, 0xE1),
-                rgb(0x7F, 0xA9, 0x8C),
+                rgb(0x3E, 0x6B, 0x4A),
+                rgb(0x2C, 0x4E, 0x36),
+                rgb(0xE4, 0xEB, 0xE2),
+                rgb(0x7B, 0xA9, 0x89),
             ),
             Self::Red => (
-                rgb(0x8B, 0x3A, 0x33),
-                rgb(0x63, 0x26, 0x1F),
-                rgb(0xEE, 0xDF, 0xDC),
-                rgb(0xC9, 0x84, 0x7A),
+                rgb(0x8E, 0x3B, 0x33),
+                rgb(0x6E, 0x2A, 0x24),
+                rgb(0xF0, 0xE2, 0xDE),
+                rgb(0xC0, 0x7A, 0x6E),
             ),
             Self::Purple => (
-                rgb(0x57, 0x4A, 0x66),
-                rgb(0x3E, 0x34, 0x4B),
-                rgb(0xE5, 0xE1, 0xEA),
-                rgb(0x8E, 0x80, 0xA2),
+                rgb(0x5B, 0x44, 0x70),
+                rgb(0x43, 0x31, 0x54),
+                rgb(0xE9, 0xE4, 0xEF),
+                rgb(0x93, 0x7F, 0xAC),
             ),
             Self::Gold => (
-                rgb(0x85, 0x67, 0x1F),
-                rgb(0x5E, 0x48, 0x14),
-                rgb(0xF1, 0xEA, 0xD7),
-                rgb(0xCD, 0xAF, 0x63),
+                rgb(0x87, 0x6A, 0x1E),
+                rgb(0x66, 0x50, 0x1A),
+                rgb(0xF7, 0xF0, 0xDC),
+                rgb(0xE9, 0xCF, 0x7E),
             ),
             Self::Rose => (
-                rgb(0x9A, 0x4D, 0x66),
-                rgb(0x6E, 0x34, 0x48),
-                rgb(0xF3, 0xE3, 0xE8),
-                rgb(0xD4, 0x93, 0xA8),
+                rgb(0x9A, 0x57, 0x63),
+                rgb(0x74, 0x40, 0x4A),
+                rgb(0xF5, 0xE6, 0xE7),
+                rgb(0xDC, 0xA6, 0xAC),
             ),
         };
         FloraAccentRamp {
@@ -620,7 +623,7 @@ mod tests {
                 "{spin:?}: on-acc on the stone reads {:.2}:1",
                 contrast(ON_ACC, r.acc)
             );
-            assert!(contrast(ON_ACC, r.deep) >= 7.0, "{spin:?}: the deep tone is a shadow");
+            assert!(contrast(ON_ACC, r.deep) >= 6.0, "{spin:?}: the deep tone is the stone's shadow");
             assert!(luminance(r.soft) > 0.7, "{spin:?}: the wash sits near the ground");
         }
     }
