@@ -249,6 +249,20 @@ const W13_FIELD_BORDER: ColorU = ColorU {
     a: 255,
 };
 
+// -- the Office 2010 palette (seeds RibbonTheme::office_2010) --
+//
+// Sampled from Outlook 2010 (Silver): the rest of it is the flat theme's
+// tokens, which ARE Office 2010.
+
+/// The ribbon's foot and the tab strip's rule (#BAC0C9): a shade darker than
+/// the panes' hairline, as the band's edge against the window.
+const O10_BORDER: ColorU = ColorU {
+    r: 186,
+    g: 192,
+    b: 201,
+    a: 255,
+};
+
 // -- Theme --
 
 /// Color palette from which a full [`RibbonStyle`] is derived via
@@ -323,6 +337,45 @@ impl RibbonTheme {
             selected_bg: W13_SELECTED_BG,
             field_border: W13_FIELD_BORDER,
         }
+    }
+
+    /// The Office 2010 palette (Silver), the flat theme's ribbon and the
+    /// default: white paper fading to silver in the band, Outlook's orange
+    /// File tab, grey captions, the warm yellow hover in a gold rim, the
+    /// orange pressed face, the deeper yellow of a toggled-on command. A
+    /// palette that keeps these hover and pressed colours is painted with
+    /// Office 2010's two-stop faces (the band's fade, the yellow / orange
+    /// gradients); any other is painted in its plain colours.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self {
+            chrome_bg: WHITE,
+            content_bg: WHITE,
+            accent: flat::FILE_TAB,
+            accent_hover: flat::FILE_TAB_HOVER,
+            accent_text: WHITE,
+            text: flat::LIGHT_INK,
+            label: flat::LIGHT_SOFT1,
+            icon: flat::LIGHT_ICON,
+            border: O10_BORDER,
+            separator: flat::LIGHT_BD,
+            hover_bg: flat::LIGHT_HB,
+            hover_border: flat::LIGHT_HOVER_BORDER,
+            pressed_bg: flat::LIGHT_PT,
+            checked_bg: flat::LIGHT_CHECKED_BOTTOM,
+            selected_bg: flat::LIGHT_CHECKED_BOTTOM,
+            field_border: flat::LIGHT_BD,
+        }
+    }
+
+    /// Whether this palette carries Office 2010's states (its hover and
+    /// pressed colours), so its parts take Office 2010's faces.
+    #[must_use]
+    pub(crate) const fn has_office_2010_faces(&self) -> bool {
+        const fn same(a: ColorU, b: ColorU) -> bool {
+            a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a
+        }
+        same(self.hover_bg, flat::LIGHT_HB) && same(self.pressed_bg, flat::LIGHT_PT)
     }
 
     /// Extracts a ribbon palette from the OS theme (accent color, selection
@@ -418,7 +471,7 @@ impl RibbonTheme {
 
 impl Default for RibbonTheme {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -776,15 +829,52 @@ fn push_bottom_border_both(v: &mut Vec<Cond>, t: &RibbonTheme, field: fn(&Ribbon
 //     genuine per-mode value in both palettes, so their twins are `DARK_ACC` (`theme_tab`,
 //     `theme_combo_field`).
 
-/// Hover fill of a control on the neutral chrome, light and dark.
+/// Hover fill of a control on the neutral chrome, light and dark: Office
+/// 2010's yellow face for a palette with its states
+/// ([`RibbonTheme::has_office_2010_faces`]), else the palette's colour.
 fn push_chrome_hover_fill(v: &mut Vec<Cond>, t: &RibbonTheme) {
-    v.extend(flat::hover_bg_both(t.hover_bg, flat::DARK_HT));
+    if t.has_office_2010_faces() {
+        v.extend(flat::hover_face_both());
+    } else {
+        v.extend(flat::hover_bg_both(t.hover_bg, flat::DARK_HT));
+    }
 }
 
 /// Hover border of a control on the neutral chrome, all four edges, light and
-/// dark.
+/// dark (by night Office 2010's rim is the amber one).
 fn push_chrome_hover_border(v: &mut Vec<Cond>, t: &RibbonTheme) {
-    v.extend(flat::hover_border_both(t.hover_border, flat::DARK_BD));
+    let dark = if t.has_office_2010_faces() {
+        flat::DARK_HOVER_BORDER
+    } else {
+        flat::DARK_BD
+    };
+    v.extend(flat::hover_border_both(t.hover_border, dark));
+}
+
+/// Pressed fill of a control on the neutral chrome, light and dark: Office
+/// 2010's orange face, or the palette's colour.
+fn push_chrome_pressed_fill(v: &mut Vec<Cond>, t: &RibbonTheme) {
+    if t.has_office_2010_faces() {
+        v.extend(flat::active_face_both());
+    } else {
+        v.extend(flat::active_bg_both(t.pressed_bg, flat::DARK_PT));
+    }
+}
+
+/// The resting face of a toggled-on command or a picked gallery cell, and
+/// its rim: Office 2010's deeper yellow in its own rim, or the palette's
+/// `fill` in its hover border.
+fn push_checked_face(v: &mut Vec<Cond>, t: &RibbonTheme, fill: fn(&RibbonTheme) -> ColorU) {
+    if t.has_office_2010_faces() {
+        v.extend(flat::checked_face_both());
+        v.extend(super::themes::decl::themed_border_color(
+            flat::LIGHT_CHECKED_BORDER,
+            flat::DARK_CHECKED_BORDER,
+        ));
+    } else {
+        v.extend(bg_both(t, fill));
+        push_border_colors_both(v, t, |p| p.hover_border);
+    }
 }
 
 /// Bottom border only (tab underline / ribbon bottom edge).
@@ -818,7 +908,7 @@ fn push_button_chassis(v: &mut Vec<Cond>, t: &RibbonTheme) {
     push_chrome_hover_border(v, t);
     // Pressed: page-neutral chrome, so the dark twin is the theme's pressed
     // face — see the `Interactive states` note above.
-    v.extend(flat::active_bg_both(t.pressed_bg, flat::DARK_PT));
+    push_chrome_pressed_fill(v, t);
 }
 
 fn theme_container(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
@@ -960,7 +1050,13 @@ fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         })),
         Cond::simple(P::const_height(LayoutHeight::const_px(92))),
     ];
-    v.extend(bg_both(t, |p| p.content_bg));
+    // Office 2010's band is paper at its top (where the active tab merges in)
+    // fading to silver at its foot.
+    if t.has_office_2010_faces() {
+        v.extend(flat::band_face_both());
+    } else {
+        v.extend(bg_both(t, |p| p.content_bg));
+    }
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1153,8 +1249,8 @@ fn theme_arrow_icon(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 /// Appended to a button's container style when [`RibbonButton::toggled`] is
 /// set. Inline properties resolve last-wins, so these override the base.
 fn theme_checked(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v: Vec<Cond> = bg_both(t, |p| p.checked_bg).to_vec();
-    push_border_colors_both(&mut v, t, |p| p.hover_border);
+    let mut v: Vec<Cond> = Vec::new();
+    push_checked_face(&mut v, t, |p| p.checked_bg);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1205,8 +1301,8 @@ fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 /// Appended to [`RibbonStyle::gallery_cell_style`] for the selected cell.
 fn theme_gallery_cell_selected(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v: Vec<Cond> = bg_both(t, |p| p.selected_bg).to_vec();
-    push_border_colors_both(&mut v, t, |p| p.hover_border);
+    let mut v: Vec<Cond> = Vec::new();
+    push_checked_face(&mut v, t, |p| p.selected_bg);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -1965,10 +2061,17 @@ pub struct RibbonStyle {
 }
 
 impl RibbonStyle {
-    /// The the Office-2013-era look look (white chrome, #2B579A accents) - the default.
+    /// The the Office-2013-era look look (white chrome, #2B579A accents).
     #[must_use]
     pub const fn office_2013() -> Self {
         Self::from_theme(RibbonTheme::office_2013())
+    }
+
+    /// The Office 2010 look (see [`RibbonTheme::office_2010`]) - the default,
+    /// and the flat theme's ribbon.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self::from_theme(RibbonTheme::office_2010())
     }
 
     /// Derives every part style from the given palette. This is the styling
@@ -2507,7 +2610,7 @@ impl RibbonStyle {
 
 impl Default for RibbonStyle {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -2588,7 +2691,7 @@ pub struct Ribbon {
     pub active_tab: usize,
     /// Optional callback fired when a tab is clicked (receives the tab index).
     pub on_tab_click: OptionRibbonOnTabClick,
-    /// All part styles (defaults to the the Office-2013-era look look).
+    /// All part styles (defaults to the Office 2010 look).
     pub style: RibbonStyle,
     /// Which interactions the ribbon handles by itself (defaults to the classic behavior).
     pub behavior: RibbonBehavior,
@@ -3290,7 +3393,7 @@ impl RibbonGalleryCell {
 
 impl Ribbon {
     /// Creates a new ribbon with the given tabs, the first tab active and the
-    /// the Office-2013-era look default style.
+    /// Office 2010 default style ([`RibbonStyle::office_2010`]).
     #[must_use]
     pub fn new(tabs: RibbonTabVec) -> Self {
         Self {
@@ -3298,7 +3401,7 @@ impl Ribbon {
             tabs,
             active_tab: 0,
             on_tab_click: None.into(),
-            style: RibbonStyle::office_2013(),
+            style: RibbonStyle::office_2010(),
             behavior: RibbonBehavior::office_2013(),
             theme: OptionUiTheme::None,
         }
@@ -5395,20 +5498,20 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn ribbon_new_defaults_to_office_2013_with_tab_zero_active() {
+    fn ribbon_new_defaults_to_office_2010_with_tab_zero_active() {
         for count in [0usize, 1, 2, 9] {
             let r = Ribbon::new(tabs(count));
             assert_eq!(r.tabs.len(), count);
             assert_eq!(r.active_tab, 0);
             assert!(r.on_tab_click.is_none());
             assert!(r.app_button.is_none());
-            assert_eq!(r.style, RibbonStyle::office_2013());
+            assert_eq!(r.style, RibbonStyle::office_2010());
         }
     }
 
     #[test]
-    fn ribbon_style_default_is_office_2013() {
-        assert_eq!(RibbonStyle::default(), RibbonStyle::office_2013());
+    fn ribbon_style_default_is_office_2010() {
+        assert_eq!(RibbonStyle::default(), RibbonStyle::office_2010());
     }
 
     #[test]
@@ -5567,7 +5670,7 @@ mod tests {
         assert!(has_class(&ch[4], "__azul-native-ribbon-tab-filler"));
 
         // the active tab carries the active style, the others the plain style
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         assert_eq!(inline_props(&ch[1]), style_props(&s.resolved_tab_style()));
         assert_eq!(
             inline_props(&ch[2]),
@@ -5804,7 +5907,7 @@ mod tests {
         assert_eq!(text_of(&ch[1]), Some("Paste"));
         assert_eq!(icon_name_of(&ch[2]), Some("arrow_drop_down"));
 
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         // Verbatim, states included: the ribbon injects a complete part style
         // (its hover/pressed pairs now come from `flat::hover_bg_both` etc.),
         // and `Button::dom` appends nothing over an injected container style —
@@ -5850,7 +5953,7 @@ mod tests {
         let rb = small_btn("format_align_left", "").with_toggled(true);
         let node = render_item(RibbonItem::SmallButton(rb));
 
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         let mut expected = style_props(&s.resolved_small_button_style());
         expected.extend(style_props(&s.resolved_checked_style()));
         // Verbatim: the injected style is the whole inline style (see
@@ -6085,14 +6188,22 @@ mod tests {
             "gallery cell",
             cell.root.style.iter_inline_properties(),
         );
+        // The default palette is Office 2010's: the hover is its yellow face,
+        // and by night the theme's amber one.
         assert_eq!(
             state_fill(cell, PseudoStateType::Hover, false),
-            P::const_background_content(bg_vec(RibbonTheme::office_2013().hover_bg)),
-            "the light half is the palette's own value, unchanged by the move"
+            super::super::themes::decl::layers(vec![super::super::themes::decl::face(
+                flat::LIGHT_HT,
+                flat::LIGHT_HB
+            )]),
+            "the light half is Office 2010's hover face"
         );
         assert_eq!(
             state_fill(cell, PseudoStateType::Hover, true),
-            P::const_background_content(bg_vec(flat::DARK_HT)),
+            super::super::themes::decl::layers(vec![super::super::themes::decl::face(
+                flat::DARK_HT,
+                flat::DARK_HB
+            )]),
             "a cell sits on the neutral chrome, so its dark hover is the theme's hover face"
         );
 
@@ -6237,7 +6348,7 @@ mod tests {
         }
 
         // selected cell style = base + selected extras appended
-        let s = RibbonStyle::office_2013();
+        let s = RibbonStyle::default();
         let mut expected = style_props(&s.resolved_gallery_cell_style());
         expected.extend(style_props(&s.resolved_gallery_cell_selected_style()));
         assert_eq!(inline_props(&cells[2]), expected);
@@ -6886,6 +6997,8 @@ mod tests {
 
         let dom = Ribbon::new(tabs(2))
             .with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013())
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, content) = parts(&dom);
@@ -6944,6 +7057,8 @@ mod tests {
 
         let dom = Ribbon::new(tabs(2))
             .with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013())
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -7067,7 +7182,8 @@ mod tests {
         use std::collections::BTreeSet;
 
         let mut twins_seen = 0usize;
-        for (name, part) in every_builder(&RibbonTheme::office_2013()) {
+        let palettes = [RibbonTheme::office_2013(), RibbonTheme::office_2010()];
+        for (name, part) in palettes.iter().flat_map(every_builder) {
             let mut light: Vec<(CssPropertyType, usize)> = Vec::new();
             let mut dark: Vec<(CssPropertyType, usize)> = Vec::new();
             for (i, c) in part.as_ref().iter().enumerate() {
@@ -7180,6 +7296,8 @@ mod tests {
 
         let dom = Ribbon::new(tabs(2))
             .with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013())
             .with_app_button(RibbonAppButton::new(AzString::from("FILE")))
             .dom();
         let (bar, _) = parts(&dom);
@@ -7231,7 +7349,9 @@ mod tests {
     fn the_chrome_goes_dark_with_the_window() {
         use crate::widgets::theme_probe::dark;
 
-        let dom = Ribbon::new(tabs(2)).with_theme(UiTheme::Flat).dom();
+        let dom = Ribbon::new(tabs(2)).with_theme(UiTheme::Flat)
+            // The Office 2013 palette: the twins of plain colours.
+            .with_style(RibbonStyle::office_2013()).dom();
         let (bar, content) = parts(&dom);
         let colours = |node: &Dom| dark(node).iter().filter_map(colour_of).collect::<Vec<_>>();
         assert_eq!(
