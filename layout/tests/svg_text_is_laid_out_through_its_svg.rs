@@ -108,3 +108,50 @@ fn a_tspans_dx_moves_its_first_character_and_scales_with_the_svg() {
     let back = second_x(200, "-5") - second_x(200, "0");
     assert!(close(back, -5.0), "a negative dx (kerning) moves it back: {back}");
 }
+
+#[test]
+fn a_point_on_a_word_of_a_scaled_text_hits_that_word() {
+    // printpdf's text: the page drawn at 1.5x its viewBox. "AzPdf" is the
+    // 15th..19th character; a point in its middle must hit a cursor inside
+    // it, not the start of the text.
+    let markup = r#"<html><body style="margin: 0px"><svg width="918" height="1188" viewBox="0 0 612 792"><text x="0" y="0" font-family="Helvetica, Arial, sans-serif" font-size="28" transform="matrix(1 -0 -0 1 72 92)">Page 1 of the AzPdf test</text></svg></body></html>"#;
+    let parsed = azul_layout::xml::parse_xml(markup).expect("the markup parses");
+    let mut dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(1000.0, 1200.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .unwrap();
+    let xs: Vec<(f32, f32)> = {
+        let dl = &lw.get_layout_result(&DomId::ROOT_ID).unwrap().display_list;
+        dl.items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text { glyphs, .. } => {
+                    Some(glyphs.iter().map(|g| (g.point.x, g.point.y)).collect::<Vec<_>>())
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+    // The middle of "AzPdf": between its 2nd and 3rd glyph, a little above
+    // the baseline.
+    let (x, y) = ((xs[15].0 + xs[16].0) / 2.0 + 0.5 * (xs[17].0 - xs[16].0), xs[15].1 - 10.0);
+    let (block, cursor) = lw
+        .hittest_text_position_global(DomId::ROOT_ID, azul_core::geom::LogicalPosition::new(x, y))
+        .expect("the point hits the text");
+    let byte = lw.byte_offset_of_cursor(block, &cursor).expect("a byte of the text");
+    assert!(
+        (14..=19).contains(&byte),
+        "a point on \"AzPdf\" ({x}, {y}) hits a cursor inside it, not byte {byte}"
+    );
+}

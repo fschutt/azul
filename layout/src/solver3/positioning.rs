@@ -304,10 +304,20 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // its children disappear. §10.3.7: their used size never depends
             // on in-flow layout, so recomputing is deterministic.
             let element_size = {
-                let intrinsic = tree
+                let mut intrinsic = tree
                     .warm(LayoutNodeId::new(node_index))
                     .and_then(|w| w.intrinsic_sizes)
                     .unwrap_or_default();
+                // An SVG text is measured in its user units and laid out
+                // scaled through its `<svg>` (`fc::layout_ifc`): its box is
+                // as wide as what it draws, or a click on the text past its
+                // unscaled width misses it.
+                if let Some(scale) = super::svg::text_scale(ctx.styled_dom, tree, node_index) {
+                    intrinsic.min_content_width *= scale;
+                    intrinsic.max_content_width *= scale;
+                    intrinsic.min_content_height *= scale;
+                    intrinsic.max_content_height *= scale;
+                }
                 let Ok(size) = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),

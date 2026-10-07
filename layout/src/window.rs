@@ -21314,7 +21314,8 @@ impl LayoutWindow {
             // and the metadata elements (`Title`, `Meta`, `Script`, `Style`,
             // ...), which are never rendered; the non-rendered option model of
             // a form control (`DataList`, `OptGroup`, `SelectOption`); the
-            // `Svg*` family, whose text is drawn by its `SvgText` elements; the
+            // `Svg*` family, whose text is drawn by its `SvgText` elements
+            // (blocks of their own, below); the
             // pseudo-element nodes (`Before`, `After`, `Marker`, `Placeholder`),
             // which are generated content and not document text; and the void
             // elements (`Hr`, `Wbr`, `Col`), which have no children (`Br` is
@@ -21405,7 +21406,18 @@ impl LayoutWindow {
             | NodeType::Rt
             | NodeType::Rtc
             | NodeType::Rp
-            | NodeType::Data => self.collect_text_from_children(dom_id, node_id),
+            | NodeType::Data
+            // a part of an SVG text
+            | NodeType::SvgTspan => self.collect_text_from_children(dom_id, node_id),
+            // An SVG text is a text block of its own: its characters, with
+            // the space a tspan's `dx` puts before its own - the items its
+            // layout numbers (`solver3::svg::svg_text_content`), so a caret
+            // or a selection in it maps to its text.
+            NodeType::SvgText => solver3::svg::svg_text_content(
+                &layout_result.styled_dom,
+                &self.collect_text_from_children(dom_id, node_id),
+                1.0,
+            ),
             // A `<br>` is the hard line break `solver3::fc` lays it out as:
             // an item of its own, so the runs behind it keep the numbers
             // the layout's carets give them, a flat text has its '\n', and
@@ -24402,8 +24414,8 @@ impl LayoutWindow {
     ) -> Option<(TextBlock, TextCursor)> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        // (vertical distance, horizontal distance, layout index)
-        let mut best: Option<(f32, f32, usize)> = None;
+        // (vertical distance, horizontal distance, area, layout index)
+        let mut best: Option<(f32, f32, f32, usize)> = None;
         for (_, root) in self.text_block_roots(dom_id, filter) {
             let idx = root.index();
             // Rank against where the candidate actually IS on screen
@@ -24432,17 +24444,25 @@ impl LayoutWindow {
             } else {
                 0.0
             };
+            // Among blocks equally near - the pointer inside several - the
+            // SMALLEST: a block's own text over the block it sits in (an SVG
+            // text inside the `<svg>` an outer paragraph holds as an inline).
+            // The first scanned won, which is the outermost.
+            let area = screen.size.width * screen.size.height;
             let better = match &best {
                 None => true,
-                Some((best_dy, best_dx, _)) => {
-                    dy < *best_dy || (dy - *best_dy).abs() < f32::EPSILON && dx < *best_dx
+                Some((best_dy, best_dx, best_area, _)) => {
+                    let same = |a: f32, b: f32| (a - b).abs() < f32::EPSILON;
+                    dy < *best_dy
+                        || same(dy, *best_dy) && dx < *best_dx
+                        || same(dy, *best_dy) && same(dx, *best_dx) && area < *best_area
                 }
             };
             if better {
-                best = Some((dy, dx, idx));
+                best = Some((dy, dx, area, idx));
             }
         }
-        let (_, _, layout_idx) = best?;
+        let (_, _, _, layout_idx) = best?;
         // The winning block's own space, via the one conversion chain (this
         // used to be spelled out inline and skipped the content inset).
         let local = self.window_point_to_ifc_local(dom_id, layout_idx, position)?;
