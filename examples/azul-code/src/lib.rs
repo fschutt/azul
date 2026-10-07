@@ -58,7 +58,7 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::{AppArgs, AppSpec, ModePref},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -117,6 +117,7 @@ pub fn start() {
         }
     };
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.clone());
+    dark_by_default(&kit_ref, &args);
     let data_root = {
         let mut k = kit_ref.clone();
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
@@ -141,6 +142,34 @@ pub fn start() {
     let config = kit::app_config(&kit_ref);
     let window = kit::window_options(&kit_ref, layout, (1280.0, 800.0), (720.0, 480.0), on_window_created);
     App::create(RefAny::new(st), config).run(window);
+}
+
+/// VSCode's default: dark until the user picks a mode - a `--mode` switch,
+/// or the settings page's Mode, which the settings file keeps. (The kit's
+/// own default follows the OS.) The settings page shows Dark then, and a
+/// save of the settings keeps it.
+fn dark_by_default(kit_ref: &RefAny, args: &AppArgs) {
+    if args.mode.is_some() {
+        return;
+    }
+    let mut kit_ref = kit_ref.clone();
+    let Some(mut k) = kit_ref.downcast_mut::<kit::Kit>() else {
+        return;
+    };
+    let file = azul_appkit::data::local_path(&k.data_root, &k.settings_key());
+    if !names_a_mode(&file) {
+        k.settings.mode = ModePref::Dark;
+    }
+}
+
+/// Whether the settings file at `path` names a mode (no file, a file that
+/// is not JSON or an empty `mode`: no).
+fn names_a_mode(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|file| file.get("mode").and_then(|m| m.as_str()).map(|m| !m.trim().is_empty()))
+        .unwrap_or(false)
 }
 
 /// The recent folders the settings keep.
