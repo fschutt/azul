@@ -221,6 +221,9 @@ def body(args, logs, out):
         app.click(text="Options")
         app.until("the settings page", lambda: app.has_id("appkit-theme") and app.has_id("appkit-mode"))
         shot("07-options")
+        # OK returns to the backstage; About is its own page there.
+        app.click(selector="#appkit-settings-ok")
+        app.until("the backstage again", lambda: not app.has_id("appkit-settings"))
         app.click(text="About")
         app.until("the About box", lambda: "__azul-native-about-dialog" in app.classes())
         shot("08-about")

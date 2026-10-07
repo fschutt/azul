@@ -10,8 +10,9 @@
     5. Scientific: sin(30) + 2^10 = 1,024.5 in degrees; Programmer: F5 (HEX), 2A5F shows
        10,847 in DEC, bit 0 toggles it to 2A5E; Convert shows 42.195 km = 26.21875746 mi;
        Date shows the difference screen;
-    6. the settings page (Ctrl+,): Appearance -> Flora and Dark are saved to
-       calculator/settings.json; Escape closes it;
+    6. the settings page (Ctrl+,, Outlook's Options dialog): General -> Flora and Dark are
+       saved to calculator/settings.json; OK keeps them; on the page again Flat, then Escape
+       (Cancel) puts Flora back into the file;
     7. a screenshot of every screen, in flat light and flora dark;
     8. last, Ctrl/Cmd+C copies "42" (the engine's Copy shortcut bug would end the run early).
 
@@ -157,8 +158,8 @@ def body(args, logs, out):
         app.click(text="Standard")
         app.key("comma", primary=True)
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
-        app.click(text="Appearance")
-        app.until("the Appearance section", lambda: app.has_id("appkit-theme"))
+        app.click(text="General")
+        app.until("the General options", lambda: app.has_id("appkit-theme"))
         saved_before = len(app.printed("AZCALCULATOR_SETTINGS_SAVED"))
         app.click(text="Flora")
         app.click(text="Dark")
@@ -179,9 +180,28 @@ def body(args, logs, out):
         app.expect_line("AZCALCULATOR_ABOUT", "closed", "Escape closes the About box first")
         if not app.has_id("appkit-settings"):
             raise Failure("Escape on the About box closed the settings page too")
-        app.key("escape")
+        app.click(selector="#appkit-settings-ok")
+        app.expect_line("AZCALCULATOR_SETTINGS_CLOSED", "ok", "OK closes the settings")
         app.until("the settings page to close", lambda: not app.has_id("appkit-settings"))
         app.screenshot(os.path.join(out, "standard-flora-dark.png"))
+        # Cancel: Flat chosen on the page, then Escape - Flora is back, in the file too.
+        app.key("comma", primary=True)
+        app.until("the settings page again", lambda: app.has_id("appkit-settings"))
+        app.click(text="General")
+        app.until("the General options again", lambda: app.has_id("appkit-theme"))
+        saved_before = len(app.printed("AZCALCULATOR_SETTINGS_SAVED"))
+        app.click(text="Flat")
+        app.until("Flat saved", lambda: len(app.printed("AZCALCULATOR_SETTINGS_SAVED")) > saved_before)
+        app.key("escape")
+        app.expect_line("AZCALCULATOR_SETTINGS_CLOSED", "cancel", "Escape cancels the settings")
+        app.until("Flora written back",
+                  lambda: len(app.printed("AZCALCULATOR_SETTINGS_SAVED")) >= saved_before + 2)
+        with open(os.path.join(data_dir, "calculator", "settings.json"), "r", encoding="utf-8") as f:
+            settings = json.load(f)
+        if settings.get("theme") != "flora" or settings.get("mode") != "dark":
+            raise Failure("Cancel did not put flora / dark back: %s" % settings)
+        if app.has_id("appkit-settings"):
+            raise Failure("Escape (Cancel) left the settings page open")
 
         # Last: Ctrl/Cmd+C copies the result. A keypad Button holds the focus
         # after the clicks above, and the engine's Copy shortcut claims the

@@ -348,7 +348,7 @@ def first_session(app, data, out):
     app.must("set_mode", mode="light")
     app.click("#__aznotes_open-settings")
     # azul-appkit's settings page: AzNotes' categories, then the kit's.
-    app.until("the settings", lambda: app.shows("Appearance") and app.shows("Text size"))
+    app.until("the settings", lambda: app.shows("General") and app.shows("Text size"))
     app.screenshot(os.path.join(out, "settings.png"))
     app.key("escape")
     return note_id

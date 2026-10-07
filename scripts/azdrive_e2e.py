@@ -400,8 +400,8 @@ def run(args, logs):
         if NAMING["prefixed"]:
             # The Options are azul-appkit's page: Appearance saves the theme into the data
             # tree (drive/settings.json), so it is there on the next start.
-            app.click_exact("Appearance")
-            app.until("the Appearance section", lambda: app.shows("Theme"))
+            app.click_exact("General")
+            app.until("the General options", lambda: app.shows("Theme"))
             app.after("the theme saved", "AZDRIVE_SETTINGS_SAVED", r"drive/settings\.json",
                       lambda: app.click_exact("Flora"))
             saved = os.path.join(logs, "data", "drive", "settings.json")

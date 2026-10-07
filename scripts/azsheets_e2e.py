@@ -11,8 +11,9 @@
     6. B2 and VIEW > Freeze Panes - `AZSHEETS_FROZEN 1 1` and the freeze line;
     7. Mod+S - `AZSHEETS_SAVED <id>`, sheets/<id>.xlsx and .json on disk;
     8. DATA > CSV - the export lands IN the data tree, sheets/exports/<title>.csv;
-    9. Mod+, - the Options pane is appkit's settings page (theme / mode switches, the shortcuts);
-       About - the standard About box names IronCalc;
+    9. Mod+, - appkit's settings page (Outlook's Options dialog: theme / mode switches, the
+       shortcuts) covers the window, OK returns; File > About - the standard About box names
+       IronCalc;
    10. File > New > the Budget sample - its rows arrive (only the title did once: a ragged
        paste block lost every row of another length);
    11. the close guard: a close request with unsaved work shows the question, Cancel keeps
@@ -192,6 +193,10 @@ def first_session(binary, args, logs, data_dir, out):
         app.key("comma", primary=True)
         app.until("the settings page", lambda: app.has_id("appkit-theme") and app.has_id("appkit-mode"))
         app.screenshot(os.path.join(out, "options.png"))
+        # OK returns to the workbook; About is the backstage's (File > About).
+        app.click(selector="#appkit-settings-ok")
+        app.until("the workbook again", lambda: not app.has_id("appkit-settings"))
+        app.click(text="FILE")
         app.click(text="About")
         app.until("the About box", lambda: app.shows("IronCalc 0.8.3"))
         app.screenshot(os.path.join(out, "about.png"))
