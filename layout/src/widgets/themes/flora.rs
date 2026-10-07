@@ -1031,11 +1031,13 @@ const SERIF_STR: AzString = AzString::from_const_str("serif");
 const CAPS_FAMILIES: &[StyleFontFamily] = &[
     StyleFontFamily::System(EB_GARAMOND_STR),
     StyleFontFamily::System(GEORGIA_STR),
+    StyleFontFamily::System(AzString::from_const_str("Times New Roman")),
     StyleFontFamily::System(SERIF_STR),
 ];
 
-/// `--font-caps`: `'EB Garamond', Georgia, serif` - the bundled face first
-/// (`text3::ui_fonts`), so it holds on every machine.
+/// `--font-caps`: `'EB Garamond', Georgia, 'Times New Roman', serif` - the
+/// UI hand flora sets its tabs, buttons and headings in; the bundled face
+/// first (`text3::ui_fonts`), so it holds on every machine.
 pub(crate) const FONT_CAPS: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(CAPS_FAMILIES);
 
@@ -6575,17 +6577,6 @@ pub const TAB_SIDE: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
 const TAB_FADE_MS: u32 = 200;
 /// `--fl-dur-slow`: light moving across a stone.
 const STONE_FADE_MS: u32 = 1200;
-
-const FONT_CAPS_FAMILIES: &[StyleFontFamily] = &[
-    StyleFontFamily::System(AzString::from_const_str("EB Garamond")),
-    StyleFontFamily::System(AzString::from_const_str("Georgia")),
-    StyleFontFamily::System(AzString::from_const_str("Times New Roman")),
-    StyleFontFamily::System(AzString::from_const_str("serif")),
-];
-/// `--font-caps`: `'EB Garamond', Georgia, 'Times New Roman', serif` - the UI
-/// hand flora sets its tabs and headings in.
-pub(crate) const FONT_CAPS: StyleFontFamilyVec =
-    StyleFontFamilyVec::from_const_slice(FONT_CAPS_FAMILIES);
 
 /// A tab's label in flora: the UI hand's capitals, tracked out - flora.css's
 /// `.nav-links a` (17px all-small-caps at 700, 0.07em) set as true capitals of

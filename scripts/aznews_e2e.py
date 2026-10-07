@@ -235,6 +235,7 @@ def sample_run(args, logs, out):
         app.expect_line("AZNEWS_SAMPLE_WRITTEN", "127", "the sample's files (the list + 3 per feed)")
         if len(feed_files(data_dir, "items.json")) != 42:
             raise Failure("expected 42 items.json files")
+        app.detect_naming("__aznews_", "toolbar-refresh")
         app.frame(3)
         app.settle()
         app.screenshot(os.path.join(out, "sample.png"))
