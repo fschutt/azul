@@ -110,7 +110,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 32] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 199] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 200] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -223,6 +223,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 199] = [
     (CssPropertyType::BackgroundSize, "background-size"),
     (CssPropertyType::BackgroundRepeat, "background-repeat"),
     (CssPropertyType::BackgroundClip, "background-clip"),
+    (CssPropertyType::FontVariantNumeric, "font-variant-numeric"),
     (
         CssPropertyType::BorderTopLeftRadius,
         "border-top-left-radius",
@@ -555,6 +556,7 @@ pub type StyleListStylePositionValue = CssPropertyValue<StyleListStylePosition>;
 pub type StringSetValue = CssPropertyValue<StringSet>;
 pub type StyleZoomValue = CssPropertyValue<StyleZoom>;
 pub type StyleBackgroundClipValue = CssPropertyValue<StyleBackgroundClip>;
+pub type StyleFontVariantNumericValue = CssPropertyValue<StyleFontVariantNumeric>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CssKeyMap {
@@ -876,6 +878,7 @@ pub enum CssProperty {
     StringSet(StringSetValue),
     Zoom(StyleZoomValue),
     BackgroundClip(StyleBackgroundClipValue),
+    FontVariantNumeric(StyleFontVariantNumericValue),
 }
 
 impl_option!(
@@ -1142,6 +1145,7 @@ pub enum CssPropertyType {
     StringSet,
     Zoom,
     BackgroundClip,
+    FontVariantNumeric,
 }
 
 impl CssPropertyType {
@@ -1344,6 +1348,7 @@ impl CssPropertyType {
         Self::StringSet,
         Self::Zoom,
         Self::BackgroundClip,
+        Self::FontVariantNumeric,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1589,6 +1594,7 @@ impl CssPropertyType {
             Self::StringSet => "string-set",
             Self::Zoom => "zoom",
             Self::BackgroundClip => "background-clip",
+            Self::FontVariantNumeric => "font-variant-numeric",
         }
     }
 
@@ -1601,7 +1607,8 @@ impl CssPropertyType {
     pub const fn is_inheritable(&self) -> bool {
         use self::CssPropertyType::{
             BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells, FontFamily,
-            FontSize, FontStyle, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
+            FontSize, FontStyle, FontVariantNumeric, FontWeight, HangingPunctuation,
+            HyphenationLanguage, Hyphens,
             LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
             OverflowWrap, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
             TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
@@ -1610,6 +1617,7 @@ impl CssPropertyType {
         match self {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
+            FontVariantNumeric |
 
             // Text properties
             TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
@@ -1820,7 +1828,8 @@ impl CssPropertyType {
             BorderTopWidth, BoxDecorationBreak, BoxShadowBottom, BoxShadowLeft, BoxShadowRight,
             BoxShadowTop, BoxSizing, CaretAnimationDuration, CaretColor, CaretWidth, Clip,
             ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
-            FontFamily, FontSize, FontStyle, FontWeight, HangingPunctuation, Height,
+            FontFamily, FontSize, FontStyle, FontVariantNumeric, FontWeight, HangingPunctuation,
+            Height,
             HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
             LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
             MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
@@ -1903,8 +1912,8 @@ impl CssPropertyType {
             // Font/text properties — IFC-only if inside inline context,
             // otherwise no layout impact (block with only block children
             // inherits but doesn't directly reflow).
-            FontFamily | FontSize | FontWeight | FontStyle | LetterSpacing | WordSpacing
-            | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
+            FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | LetterSpacing
+            | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
@@ -3771,6 +3780,11 @@ pub fn parse_css_property(
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
+            CssPropertyType::FontVariantNumeric => CssProperty::FontVariantNumeric(
+                parse_style_font_variant_numeric(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
             CssPropertyType::TableLayout => CssProperty::TableLayout(
                 parse_table_layout(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
@@ -4910,6 +4924,7 @@ impl_from_css_prop!(StyleListStylePosition, CssProperty::ListStylePosition);
 impl_from_css_prop!(StringSet, CssProperty::StringSet);
 impl_from_css_prop!(StyleZoom, CssProperty::Zoom);
 impl_from_css_prop!(StyleBackgroundClip, CssProperty::BackgroundClip);
+impl_from_css_prop!(StyleFontVariantNumeric, CssProperty::FontVariantNumeric);
 impl_from_css_prop!(LayoutTableLayout, CssProperty::TableLayout);
 impl_from_css_prop!(StyleBorderCollapse, CssProperty::BorderCollapse);
 impl_from_css_prop!(LayoutBorderSpacing, CssProperty::BorderSpacing);
@@ -5117,6 +5132,7 @@ impl CssProperty {
             Self::StringSet(v) => v.get_css_value_fmt(),
             Self::Zoom(v) => v.get_css_value_fmt(),
             Self::BackgroundClip(v) => v.get_css_value_fmt(),
+            Self::FontVariantNumeric(v) => v.get_css_value_fmt(),
             Self::TableLayout(v) => v.get_css_value_fmt(),
             Self::BorderCollapse(v) => v.get_css_value_fmt(),
             Self::BorderSpacing(v) => v.get_css_value_fmt(),
@@ -5661,6 +5677,7 @@ impl CssProperty {
             Self::StringSet(_) => CssPropertyType::StringSet,
             Self::Zoom(_) => CssPropertyType::Zoom,
             Self::BackgroundClip(_) => CssPropertyType::BackgroundClip,
+            Self::FontVariantNumeric(_) => CssPropertyType::FontVariantNumeric,
             Self::TableLayout(_) => CssPropertyType::TableLayout,
             Self::BorderCollapse(_) => CssPropertyType::BorderCollapse,
             Self::BorderSpacing(_) => CssPropertyType::BorderSpacing,
@@ -6165,6 +6182,10 @@ impl CssProperty {
     #[must_use]
     pub const fn background_clip(input: StyleBackgroundClip) -> Self {
         Self::BackgroundClip(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variant_numeric(input: StyleFontVariantNumeric) -> Self {
+        Self::FontVariantNumeric(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn table_layout(input: LayoutTableLayout) -> Self {
@@ -7452,6 +7473,13 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_font_variant_numeric(&self) -> Option<&StyleFontVariantNumericValue> {
+        match self {
+            Self::FontVariantNumeric(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
         match self {
             Self::TableLayout(f) => Some(f),
@@ -7584,7 +7612,7 @@ impl CssProperty {
             TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top, Transform,
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
-            Zoom, BackgroundClip,
+            Zoom, BackgroundClip, FontVariantNumeric,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -7772,6 +7800,7 @@ impl CssProperty {
             StringSet(c) => c.is_initial(),
             Zoom(c) => c.is_initial(),
             BackgroundClip(c) => c.is_initial(),
+            FontVariantNumeric(c) => c.is_initial(),
             TableLayout(c) => c.is_initial(),
             BorderCollapse(c) => c.is_initial(),
             BorderSpacing(c) => c.is_initial(),
@@ -8207,6 +8236,10 @@ impl CssProperty {
     #[must_use]
     pub const fn const_background_clip(input: StyleBackgroundClip) -> Self {
         Self::BackgroundClip(StyleBackgroundClipValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variant_numeric(input: StyleFontVariantNumeric) -> Self {
+        Self::FontVariantNumeric(StyleFontVariantNumericValue::Exact(input))
     }
     #[must_use]
     pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
@@ -8987,6 +9020,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::BackgroundClip(p) => format!(
             "CssProperty::BackgroundClip({})",
             print_css_property_value(p, tabs, "StyleBackgroundClip")
+        ),
+        CssProperty::FontVariantNumeric(p) => format!(
+            "CssProperty::FontVariantNumeric({})",
+            print_css_property_value(p, tabs, "StyleFontVariantNumeric")
         ),
         CssProperty::TableLayout(p) => format!(
             "CssProperty::TableLayout({})",

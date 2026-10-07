@@ -216,6 +216,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::StringSet(v) => prop_value(v, "StringSet", "StringSetValue", "StringSet", Some("string_set")),
         P::Zoom(v) => prop_value(v, "Zoom", "StyleZoomValue", "StyleZoom", None),
         P::BackgroundClip(v) => prop_value(v, "BackgroundClip", "StyleBackgroundClipValue", "StyleBackgroundClip", Some("background_clip")),
+        P::FontVariantNumeric(v) => prop_value(v, "FontVariantNumeric", "StyleFontVariantNumericValue", "StyleFontVariantNumeric", None),
     }
 }
 
@@ -2850,6 +2851,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleFontStyle", "css"),
     ("StyleFontStyleValue", "css"),
     ("StyleFontValue", "css"),
+    ("StyleFontVariantNumeric", "css"),
+    ("StyleFontVariantNumericValue", "css"),
     ("StyleFontWeight", "css"),
     ("StyleFontWeightValue", "css"),
     ("StyleHangingPunctuation", "css"),
@@ -3829,6 +3832,7 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("StringSet", "StringSetValue", "string_set"),
     ("Zoom", "StyleZoomValue", ""),
     ("BackgroundClip", "StyleBackgroundClipValue", "background_clip"),
+    ("FontVariantNumeric", "StyleFontVariantNumericValue", ""),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -4045,6 +4049,7 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "StringSet",
     "Zoom",
     "BackgroundClip",
+    "FontVariantNumeric",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -6870,6 +6875,24 @@ impl Lower for crate::props::basic::font::StyleFontWeight {
             Self::Bolder => "Bolder",
         };
         Expr::unit("StyleFontWeight", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font::StyleFontVariantNumeric {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontVariantNumeric",
+            vec![
+                ("lining_nums", self.lining_nums.lower()),
+                ("oldstyle_nums", self.oldstyle_nums.lower()),
+                ("proportional_nums", self.proportional_nums.lower()),
+                ("tabular_nums", self.tabular_nums.lower()),
+                ("diagonal_fractions", self.diagonal_fractions.lower()),
+                ("stacked_fractions", self.stacked_fractions.lower()),
+                ("ordinal", self.ordinal.lower()),
+                ("slashed_zero", self.slashed_zero.lower()),
+            ],
+        )
     }
 }
 

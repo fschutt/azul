@@ -115,7 +115,7 @@ use azul_css::{
             StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
             StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipValue,
-            WidowsValue,
+            StyleFontVariantNumericValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -4251,6 +4251,12 @@ impl CssPropertyCache {
         as_background_clip
     );
     impl_get_prop!(
+        get_font_variant_numeric,
+        StyleFontVariantNumericValue,
+        FontVariantNumeric,
+        as_font_variant_numeric
+    );
+    impl_get_prop!(
         get_transform,
         StyleTransformVecValue,
         Transform,
@@ -5964,8 +5970,9 @@ impl CssPropertyCache {
                     {
                         CssProperty::LineHeight(CssPropertyValue::Exact(lh.computed(font_size_px)))
                     }
-                    // `bolder` / `lighter` from a `*` rule: the number the
-                    // cascade computed, if it has one.
+                    // `bolder` / `lighter` from a `*` rule computes against
+                    // the host's parent, which only the cascade knows: the
+                    // weight `computed_values` holds stays.
                     CssProperty::FontWeight(CssPropertyValue::Exact(w)) if w.is_relative() => {
                         continue;
                     }

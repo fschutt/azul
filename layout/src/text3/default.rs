@@ -21,7 +21,7 @@ use crate::{
     text3::{
         cache::{
             BidiDirection, BidiLevel, FontManager, FontSelector, FontVariantCaps,
-            FontVariantLigatures, FontVariantNumeric, Glyph, GlyphOrientation, GlyphSource,
+            FontVariantLigatures, Glyph, GlyphOrientation, GlyphSource,
             LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
             TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
         },
@@ -632,17 +632,10 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
         FontVariantCaps::Normal => {}
     }
 
-    // Numeric
-    match style.font_variant_numeric {
-        FontVariantNumeric::LiningNums => add_on(b"lnum"),
-        FontVariantNumeric::OldstyleNums => add_on(b"onum"),
-        FontVariantNumeric::ProportionalNums => add_on(b"pnum"),
-        FontVariantNumeric::TabularNums => add_on(b"tnum"),
-        FontVariantNumeric::DiagonalFractions => add_on(b"frac"),
-        FontVariantNumeric::StackedFractions => add_on(b"afrc"),
-        FontVariantNumeric::Ordinal => add_on(b"ordn"),
-        FontVariantNumeric::SlashedZero => add_on(b"zero"),
-        FontVariantNumeric::Normal => {}
+    // Numeric: every feature the value asks for - it combines groups
+    // (`tabular-nums slashed-zero` is `tnum` AND `zero`).
+    for tag in style.font_variant_numeric.opentype_features() {
+        add_on(&tag);
     }
 }
 
@@ -2280,7 +2273,10 @@ mod autotest_generated {
 
         let combined = StyleProperties {
             font_variant_ligatures: FontVariantLigatures::Discretionary,
-            font_variant_numeric: FontVariantNumeric::TabularNums,
+            font_variant_numeric: crate::text3::cache::FontVariantNumeric {
+                tabular_nums: true,
+                ..Default::default()
+            },
             font_variant_caps: FontVariantCaps::TitlingCaps,
             ..StyleProperties::default()
         };
@@ -2318,16 +2314,31 @@ mod autotest_generated {
             FontVariantCaps::Unicase,
             FontVariantCaps::TitlingCaps,
         ];
+        use crate::text3::cache::FontVariantNumeric;
+        let one = |set: fn(&mut FontVariantNumeric)| {
+            let mut value = FontVariantNumeric::NORMAL;
+            set(&mut value);
+            value
+        };
         let numeric = [
-            FontVariantNumeric::Normal,
-            FontVariantNumeric::LiningNums,
-            FontVariantNumeric::OldstyleNums,
-            FontVariantNumeric::ProportionalNums,
-            FontVariantNumeric::TabularNums,
-            FontVariantNumeric::DiagonalFractions,
-            FontVariantNumeric::StackedFractions,
-            FontVariantNumeric::Ordinal,
-            FontVariantNumeric::SlashedZero,
+            FontVariantNumeric::NORMAL,
+            one(|v| v.lining_nums = true),
+            one(|v| v.oldstyle_nums = true),
+            one(|v| v.proportional_nums = true),
+            one(|v| v.tabular_nums = true),
+            one(|v| v.diagonal_fractions = true),
+            one(|v| v.stacked_fractions = true),
+            one(|v| v.ordinal = true),
+            one(|v| v.slashed_zero = true),
+            // The widest value the grammar allows: one per group, both flags.
+            FontVariantNumeric {
+                oldstyle_nums: true,
+                tabular_nums: true,
+                stacked_fractions: true,
+                ordinal: true,
+                slashed_zero: true,
+                ..FontVariantNumeric::NORMAL
+            },
         ];
 
         // a pre-existing feature must survive: the helper appends, never clears
@@ -2348,9 +2359,10 @@ mod autotest_generated {
                     add_variant_features(&style, &mut features);
                     assert_eq!(features[0].feature_tag, sentinel.feature_tag);
                     assert_eq!(features[0].alternate, Some(7));
-                    // at most 2 (caps) + 1 (ligature) + 1 (numeric) new tags
+                    // at most 2 (caps) + 1 (ligature) + 5 (numeric: one per
+                    // group, ordinal, slashed-zero) new tags
                     assert!(
-                        features.len() <= 5,
+                        features.len() <= 9,
                         "{l:?}/{c:?}/{n:?} emitted too many features"
                     );
                     for f in &features[1..] {

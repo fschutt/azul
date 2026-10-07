@@ -4157,6 +4157,21 @@ pub fn get_style_properties_for_state(
         })
         .unwrap_or_default();
 
+    // `font-variant-numeric` (inherited): the OpenType numeric features the
+    // shaper turns on (`tnum`, `lnum`, `zero`, ...). Rare: a DOM that
+    // declares it nowhere (`DOM_HAS_FONT_VARIANT_NUMERIC` clear) skips the
+    // cascade walk.
+    let font_variant_numeric = if cache.compact_cache.as_ref().is_some_and(|cc| {
+        !cc.dom_declared(azul_css::compact_cache::DOM_HAS_FONT_VARIANT_NUMERIC)
+    }) {
+        crate::text3::cache::FontVariantNumeric::NORMAL
+    } else {
+        cache
+            .get_font_variant_numeric(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or_default()
+    };
+
     StyleProperties {
         font_stack,
         font_size_px: font_size,
@@ -4175,9 +4190,10 @@ pub fn get_style_properties_for_state(
         // cluster fell back to the IFC root's alignment (baseline), so sub/super/length
         // vertical-align on inline spans had no effect.
         vertical_align: get_vertical_align_for_node(styled_dom, dom_id, viewport_size),
+        font_variant_numeric,
         // These still use defaults - could be extended in future:
         // font_features, font_variations, writing_mode,
-        // text_orientation, text_combine_upright, font_variant_*
+        // text_orientation, text_combine_upright, the other font_variant_*
         ..Default::default()
     }
 }
