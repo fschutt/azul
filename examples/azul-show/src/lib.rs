@@ -15,7 +15,10 @@
 //! `AZSHOW_FRAME <element id> x y w h rotation` (a drag or nudge committed),
 //! `AZSHOW_VIEW <name>`, `AZSHOW_SHOW <slide> <step>` (the show moved),
 //! `AZSHOW_SHOW_ENDED` (past the last slide), `AZSHOW_SHOW_CLOSED` (the show is over), `AZSHOW_SAVED <id>`,
-//! `AZSHOW_OPENED <id>`, `AZSHOW_LISTED <n>`, `AZSHOW_EXPORTED <kind> <bytes>`.
+//! `AZSHOW_OPENED <id>`, `AZSHOW_LISTED <n>`, `AZSHOW_EXPORTED <kind> <bytes>`,
+//! `AZSHOW_PREVIEW <transition <kind>|build <click>>` (a preview starts on the canvas),
+//! `AZSHOW_PLAYED <transition|build> <frames> <ms>` (a transition or build played out, in the
+//! show or as a preview, having drawn `<frames>` frames).
 
 pub mod app;
 pub mod args;
@@ -44,11 +47,11 @@ use azul::{
     },
     css::EventFilter,
     dom::{Dom, DomId, VirtualKeyCode},
-    error::ResultRawImageDecodeImageError,
+    error::{ResultParsedSvgSvgParseError, ResultRawImageDecodeImageError},
     image::{ImageRef, RawImage},
     shells::{DocumentShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    svg::{CssPath, CssPathSelector},
+    svg::{CssPath, CssPathSelector, ParsedSvg, SvgFitTo, SvgParseOptions, SvgRenderOptions},
     task::{
         TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSender, ThreadWriteBackMsg,
         Timer, TimerId,
@@ -264,35 +267,47 @@ extern "C" fn presenter_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> T
     }
 }
 
-/// The build / transition player: redraws both windows until it is done.
+/// The build / transition player (`commands::armed`): rebuilds the windows
+/// (the show and its presenter, or the editor with its preview) every frame
+/// until its play is done; stops when another play took its place. On the
+/// last frame `AZSHOW_PLAYED <transition|build> <frames drawn> <ms>`.
 pub extern "C" fn on_play_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let Some(mut st) = data.downcast_mut::<AppState>() else {
+    let stop = TimerCallbackReturn {
+        should_update: Update::DoNothing,
+        should_terminate: TerminateTimer::Terminate,
+    };
+    let tick = data.downcast_ref::<crate::app::PlayTick>().map(|t| (t.app.clone(), t.timer));
+    let Some((mut app, timer)) = tick else {
+        return stop;
+    };
+    let Some(mut guard) = app.downcast_mut::<AppState>() else {
+        return stop;
+    };
+    let st = &mut *guard;
+    let in_show = st.show.is_some();
+    let slot = match st.show.as_mut() {
+        Some(rt) => &mut rt.play,
+        None => &mut st.preview,
+    };
+    let Some((done, label, frames, ms)) = slot.as_ref().filter(|p| p.timer == timer).map(|p| {
+        let label = if p.transition.is_some() { "transition" } else { "build" };
+        (p.done(), label, p.frames.get(), p.duration_ms)
+    }) else {
+        return stop;
+    };
+    // The show runs in two windows; the preview in the editor's.
+    let should_update = if in_show { Update::RefreshDomAllWindows } else { Update::RefreshDom };
+    if done {
+        *slot = None;
+        println!("AZSHOW_PLAYED {label} {frames} {ms}");
         return TimerCallbackReturn {
-            should_update: Update::DoNothing,
+            should_update,
             should_terminate: TerminateTimer::Terminate,
         };
-    };
-    let done = match st.show.as_mut() {
-        Some(rt) => match &rt.play {
-            Some(p) if !p.done() => false,
-            Some(_) => {
-                rt.play = None;
-                true
-            }
-            None => true,
-        },
-        None => true,
-    };
-    if done {
-        st.playing_timer = false;
     }
     TimerCallbackReturn {
-        should_update: Update::RefreshDomAllWindows,
-        should_terminate: if done {
-            TerminateTimer::Terminate
-        } else {
-            TerminateTimer::Continue
-        },
+        should_update,
+        should_terminate: TerminateTimer::Continue,
     }
 }
 
@@ -358,12 +373,22 @@ extern "C" fn storage_thread(mut init: RefAny, mut sender: ThreadSender, _receiv
     )));
 }
 
-/// A picture's bytes decoded for the renderer.
+/// A picture's bytes decoded for the renderer: a raster image, or an SVG
+/// drawn by azul's SVG renderer 1600 px wide (sharp on a full slide).
 fn decode_image(bytes: &[u8]) -> Option<ImageRef> {
-    match RawImage::decode_image_bytes_any(U8VecRef::from(bytes)) {
-        ResultRawImageDecodeImageError::Ok(image) => ImageRef::create_rawimage(image).into_option(),
-        _ => None,
+    if let ResultRawImageDecodeImageError::Ok(image) = RawImage::decode_image_bytes_any(U8VecRef::from(bytes)) {
+        return ImageRef::create_rawimage(image).into_option();
     }
+    if !bytes.windows(4).any(|w| w == b"<svg") {
+        return None;
+    }
+    let parsed = match ParsedSvg::from_bytes(U8VecRef::from(bytes), SvgParseOptions::create_default()) {
+        ResultParsedSvgSvgParseError::Ok(parsed) => parsed,
+        ResultParsedSvgSvgParseError::Err(_) => return None,
+    };
+    let mut options = SvgRenderOptions::create_default();
+    options.fit = SvgFitTo::Width(1600);
+    ImageRef::create_rawimage(parsed.render(options).into_option()?).into_option()
 }
 
 extern "C" fn on_storage_done(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {

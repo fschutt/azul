@@ -109,7 +109,7 @@ fn visible_cells(kind: GalleryKind) -> usize {
         GalleryKind::Layout => 3,
         GalleryKind::NewSlide | GalleryKind::Theme => 4,
         GalleryKind::Variant | GalleryKind::Fonts => 3,
-        GalleryKind::Transition => 4,
+        GalleryKind::Transition => 5,
         GalleryKind::Animation => 6,
     }
 }
@@ -284,10 +284,17 @@ fn home_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
         .with_group(group(
             "Drawing",
             vec![
-                column(vec![
-                    row(ShapeKind::ALL[..3].iter().map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false)).collect()),
-                    row(ShapeKind::ALL[3..].iter().map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false)).collect()),
-                ]),
+                column(
+                    ShapeKind::ALL
+                        .chunks(3)
+                        .map(|three| {
+                            row(three
+                                .iter()
+                                .map(|k| icon_button(app, k.icon(), k.label(), Command::Shape(*k), false))
+                                .collect())
+                        })
+                        .collect(),
+                ),
                 column(vec![
                     small(app, "flip_to_front", "Bring to Front", Command::Arrange(ZOrder::BringToFront)),
                     small(app, "flip_to_back", "Send to Back", Command::Arrange(ZOrder::SendToBack)),
@@ -331,10 +338,14 @@ fn insert_tab(app: &RefAny) -> RibbonTab {
         .with_group(group("Images", vec![large(app, "image", "Pictures", Command::Picture)]))
         .with_group(group(
             "Illustrations",
-            vec![column(vec![
-                row(ShapeKind::ALL[..3].iter().map(|k| small(app, k.icon(), k.label(), Command::Shape(*k))).collect()),
-                row(ShapeKind::ALL[3..].iter().map(|k| small(app, k.icon(), k.label(), Command::Shape(*k))).collect()),
-            ])],
+            // Three rows of three: the boxes, the line and the arrows, the
+            // diamond, the chevron and the line arrow (drawn as SVG).
+            vec![column(
+                ShapeKind::ALL
+                    .chunks(3)
+                    .map(|three| row(three.iter().map(|k| small(app, k.icon(), k.label(), Command::Shape(*k))).collect()))
+                    .collect(),
+            )],
         ))
         .with_group(group(
             "Charts",
@@ -436,8 +447,12 @@ fn design_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
 fn transitions_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
     let t = ed.map(|e| e.slide().transition).unwrap_or_default();
     let selected = TransitionKind::ALL.iter().position(|k| *k == t.kind).unwrap_or(0);
-    let colors = ["#9e9e9e", "#6d8cc0", "#7fa98c", "#b3837a"];
+    let colors = ["#9e9e9e", "#6d8cc0", "#7fa98c", "#b3837a", "#9c7fb8"];
     RibbonTab::create(s("TRANSITIONS"))
+        .with_group(group(
+            "Preview",
+            vec![large(app, "play_circle", "Preview", Command::PreviewTransition)],
+        ))
         .with_group(
             group(
                 "Transition to This Slide",
@@ -490,6 +505,10 @@ fn animations_tab(app: &RefAny, ed: Option<&Editor>) -> RibbonTab {
         .and_then(|e| e.selection.keys.as_ref().first().and_then(|id| e.slide().build_step_of(*id)))
         .map_or_else(|| String::from("Order: -"), |n| format!("Order: {}", n + 1));
     RibbonTab::create(s("ANIMATIONS"))
+        .with_group(group(
+            "Preview",
+            vec![large(app, "play_circle", "Preview", Command::PreviewBuild)],
+        ))
         .with_group(
             group("Animation", vec![gallery(app, GalleryKind::Animation, cells, selected)]).with_fills_space(true),
         )
@@ -699,6 +718,10 @@ mod tests {
         assert_eq!(
             gallery_command(GalleryKind::Transition, 2),
             Some(Command::Transition(TransitionKind::Push))
+        );
+        assert_eq!(
+            gallery_command(GalleryKind::Transition, 4),
+            Some(Command::Transition(TransitionKind::Morph))
         );
         assert_eq!(gallery_command(GalleryKind::Layout, 99), None);
     }

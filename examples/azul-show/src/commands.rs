@@ -17,7 +17,7 @@ use azul::{
 };
 
 use crate::{
-    app::{AppState, BackstagePage, Command, CommandData, Play, Screen, ShowRuntime},
+    app::{AppState, BackstagePage, Command, CommandData, Play, PlayTick, Screen, ShowRuntime, TransitionFrom},
     editor::Editor,
     model::{sample_deck, Deck, FontScheme, ShowMove, ShowState},
     render::{self, RenderOptions},
@@ -145,6 +145,7 @@ pub fn start_show(s: &mut AppState, info: &mut CallbackInfo, from_current: bool)
     ed.stop_editing();
     let from = if from_current { ed.current } else { 0 };
     let state = ShowState::start(&ed.deck, from);
+    s.preview = None;
     let presenter = !s.args.no_presenter;
     s.show = Some(ShowRuntime {
         state,
@@ -204,18 +205,82 @@ pub fn end_show(s: &mut AppState, info: &mut CallbackInfo) -> Update {
     Update::RefreshDomAllWindows
 }
 
-/// Starts the timer that plays builds and transitions (one at a time).
+/// Arms the timer that plays `play` frame by frame (`on_play_tick`): every
+/// play has its own (a timer finding another play in its place stops), so a
+/// timer that died with its window - the presenter's, closed mid-play - can
+/// never keep the next play from running.
+#[must_use]
+pub fn armed(app: &RefAny, info: &mut CallbackInfo, mut play: Play) -> Play {
+    let id = TimerId::unique();
+    play.timer = id.id;
+    let tick = RefAny::new(PlayTick {
+        app: app.clone(),
+        timer: id.id,
+    });
+    let timer = Timer::create(tick, crate::on_play_tick, info.get_system_time_fn())
+        .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
+    info.add_timer(id, timer);
+    play
+}
+
+/// Plays `play` in the show.
 fn play(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo, play: Play) {
-    let Some(rt) = s.show.as_mut() else {
+    if let Some(rt) = s.show.as_mut() {
+        rt.play = Some(armed(app, info, play));
+    }
+}
+
+/// TRANSITIONS > Preview (and a pick in its gallery): the current slide's
+/// transition on the canvas, from the slide before it (from black on the
+/// first). Nothing without a transition.
+pub fn preview_transition(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) {
+    let Some(ed) = s.editor.as_ref() else {
         return;
     };
-    rt.play = Some(play);
-    if !s.playing_timer {
-        s.playing_timer = true;
-        let timer = Timer::create(app.clone(), crate::on_play_tick, info.get_system_time_fn())
-            .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
-        info.add_timer(TimerId::unique(), timer);
+    let t = ed.slide().transition;
+    if t.kind == crate::model::TransitionKind::None || s.show.is_some() {
+        return;
     }
+    let from = match ed.current.checked_sub(1) {
+        Some(i) => TransitionFrom::Slide(i),
+        None => TransitionFrom::Black,
+    };
+    let preview = Play::new(ed.current, Vec::new(), Some(from), t.duration_ms);
+    s.preview = Some(armed(app, info, preview));
+    println!("AZSHOW_PREVIEW transition {}", t.kind.label());
+}
+
+/// ANIMATIONS > Preview (and a pick in its gallery): the build of the first
+/// selected object that has one - else the slide's first build - on the
+/// canvas, with every object of the same click.
+pub fn preview_build(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo) {
+    let Some(ed) = s.editor.as_ref() else {
+        return;
+    };
+    if s.show.is_some() {
+        return;
+    }
+    let slide = ed.slide();
+    let steps = slide.build_steps();
+    let step = ed
+        .selection
+        .keys
+        .as_ref()
+        .iter()
+        .find_map(|id| slide.build_step_of(*id))
+        .unwrap_or(0);
+    let Some(ids) = steps.get(step).cloned() else {
+        return;
+    };
+    let duration_ms = ids
+        .iter()
+        .filter_map(|id| slide.element(*id).and_then(|e| e.animation))
+        .map(|a| a.duration_ms)
+        .max()
+        .unwrap_or(500);
+    let preview = Play::new(ed.current, ids, None, duration_ms);
+    s.preview = Some(armed(app, info, preview));
+    println!("AZSHOW_PREVIEW build {}", step + 1);
 }
 
 /// A show key: forward, back, a blank screen, a jump.
@@ -255,32 +320,17 @@ pub fn show_move(s: &mut AppState, app: &RefAny, info: &mut CallbackInfo, cmd: &
                 .map(|a| a.duration_ms)
                 .max()
                 .unwrap_or(500);
-            play(
-                s,
-                app,
-                info,
-                Play {
-                    ids,
-                    transition_from: None,
-                    started: std::time::Instant::now(),
-                    duration_ms,
-                },
-            );
+            play(s, app, info, Play::new(state.slide, ids, None, duration_ms));
         }
         ShowMove::Slide if forward => {
             let t = deck.slides[state.slide].transition;
-            if t.kind != crate::model::TransitionKind::None {
-                play(
-                    s,
-                    app,
-                    info,
-                    Play {
-                        ids: Vec::new(),
-                        transition_from: Some(before.slide),
-                        started: std::time::Instant::now(),
-                        duration_ms: t.duration_ms,
-                    },
-                );
+            if t.kind == crate::model::TransitionKind::None {
+                if let Some(rt) = s.show.as_mut() {
+                    rt.play = None;
+                }
+            } else {
+                let from = Some(TransitionFrom::Slide(before.slide));
+                play(s, app, info, Play::new(state.slide, Vec::new(), from, t.duration_ms));
             }
         }
         _ => {
@@ -380,6 +430,7 @@ fn picture_filter() -> OptionFileTypeList {
             AzString::from("*.jpeg"),
             AzString::from("*.gif"),
             AzString::from("*.bmp"),
+            AzString::from("*.svg"),
         ]
         .into(),
         document_descriptor: AzString::from("Pictures"),
@@ -519,6 +570,14 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
             return Update::RefreshDom;
         }
         C::StartShow { from_current } => return start_show(s, info, from_current),
+        C::PreviewTransition => {
+            preview_transition(s, app, info);
+            return Update::RefreshDom;
+        }
+        C::PreviewBuild => {
+            preview_build(s, app, info);
+            return Update::RefreshDom;
+        }
         C::View(v) => {
             if let Some(ed) = s.editor.as_mut() {
                 ed.stop_editing();
@@ -574,6 +633,10 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         _ => {}
     }
 
+    // A pick in the TRANSITIONS / ANIMATIONS galleries plays at once, as
+    // PowerPoint previews it.
+    let preview_transition_after = matches!(cmd, C::Transition(_));
+    let preview_build_after = matches!(cmd, C::Animation(Some(_)));
     let Some(ed) = s.editor.as_mut() else {
         return Update::DoNothing;
     };
@@ -670,6 +733,11 @@ pub fn apply(app: &RefAny, s: &mut AppState, cmd: Command, info: &mut CallbackIn
         C::Animation(effect) => ed.set_animation(effect),
         C::MoveAnimation(d) => ed.move_animation(d),
         _ => return Update::DoNothing,
+    }
+    if preview_transition_after {
+        preview_transition(s, app, info);
+    } else if preview_build_after {
+        preview_build(s, app, info);
     }
     Update::RefreshDom
 }

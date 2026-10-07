@@ -49,6 +49,20 @@ impl Color {
         Self { a, ..self }
     }
 
+    /// The colour `t` (0..1) of the way from this one to `to`, channel by
+    /// channel (the Morph transition recolours a shape so).
+    #[must_use]
+    pub fn lerp(self, to: Color, t: f32) -> Color {
+        let t = t.clamp(0.0, 1.0);
+        let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+        Color {
+            r: mix(self.r, to.r),
+            g: mix(self.g, to.g),
+            b: mix(self.b, to.b),
+            a: mix(self.a, to.a),
+        }
+    }
+
     /// `#rrggbb`, or `#rrggbbaa` when not opaque.
     #[must_use]
     pub fn hex(&self) -> String {
@@ -298,6 +312,21 @@ impl Frame {
             rotation: self.rotation,
         }
     }
+
+    /// The frame `t` (0..1) of the way from this one to `to`: position,
+    /// size and rotation (the Morph transition moves a shape so).
+    #[must_use]
+    pub fn lerp(&self, to: &Frame, t: f32) -> Frame {
+        let t = t.clamp(0.0, 1.0);
+        let mix = |a: f32, b: f32| a + (b - a) * t;
+        Frame {
+            x: mix(self.x, to.x),
+            y: mix(self.y, to.y),
+            w: mix(self.w, to.w),
+            h: mix(self.h, to.h),
+            rotation: mix(self.rotation, to.rotation),
+        }
+    }
 }
 
 // ==== Text ====
@@ -489,16 +518,23 @@ pub enum ShapeKind {
     Triangle,
     Line,
     Arrow,
+    Diamond,
+    Chevron,
+    /// A line with an arrowhead at its right end (a connector).
+    LineArrow,
 }
 
 impl ShapeKind {
-    pub const ALL: [ShapeKind; 6] = [
+    pub const ALL: [ShapeKind; 9] = [
         Self::Rect,
         Self::RoundRect,
         Self::Ellipse,
         Self::Triangle,
         Self::Line,
         Self::Arrow,
+        Self::Diamond,
+        Self::Chevron,
+        Self::LineArrow,
     ];
 
     #[must_use]
@@ -510,6 +546,9 @@ impl ShapeKind {
             Self::Triangle => "Triangle",
             Self::Line => "Line",
             Self::Arrow => "Arrow",
+            Self::Diamond => "Diamond",
+            Self::Chevron => "Chevron",
+            Self::LineArrow => "Line Arrow",
         }
     }
 
@@ -523,7 +562,17 @@ impl ShapeKind {
             Self::Triangle => "change_history",
             Self::Line => "horizontal_rule",
             Self::Arrow => "arrow_right_alt",
+            Self::Diamond => "diamond",
+            Self::Chevron => "double_arrow",
+            Self::LineArrow => "east",
         }
+    }
+
+    /// Whether it is drawn as a stroke (its colour is the outline, not a
+    /// fill): a line, a line with an arrowhead.
+    #[must_use]
+    pub const fn is_line(self) -> bool {
+        matches!(self, Self::Line | Self::LineArrow)
     }
 }
 
@@ -907,10 +956,14 @@ pub enum TransitionKind {
     Fade,
     Push,
     Wipe,
+    /// PowerPoint's Morph (Keynote's Magic Move): an object on both slides
+    /// moves, resizes and recolours from its old place to its new one, the
+    /// others fade out and in ([`morph_pairs`] says which are the same).
+    Morph,
 }
 
 impl TransitionKind {
-    pub const ALL: [TransitionKind; 4] = [Self::None, Self::Fade, Self::Push, Self::Wipe];
+    pub const ALL: [TransitionKind; 5] = [Self::None, Self::Fade, Self::Push, Self::Wipe, Self::Morph];
 
     #[must_use]
     pub const fn label(self) -> &'static str {
@@ -919,6 +972,7 @@ impl TransitionKind {
             Self::Fade => "Fade",
             Self::Push => "Push",
             Self::Wipe => "Wipe",
+            Self::Morph => "Morph",
         }
     }
 }
@@ -1165,6 +1219,59 @@ impl Slide {
     pub fn build_step_of(&self, element: u64) -> Option<usize> {
         self.build_steps().iter().position(|s| s.contains(&element))
     }
+}
+
+/// What makes an element on one slide "the same" as one on the next for the
+/// Morph transition: its placeholder role, else its kind and content (the
+/// shapes of a duplicated slide keep both, under new ids).
+fn morph_signature(e: &Element) -> String {
+    if let Some(role) = e.placeholder {
+        return format!("placeholder:{role:?}");
+    }
+    match &e.kind {
+        ElementKind::Text { body } => format!("text:{}", body.text()),
+        ElementKind::Shape { shape, body, .. } => format!("shape:{shape:?}:{}", body.text()),
+        ElementKind::Image { media, .. } => format!("image:{media}"),
+        ElementKind::Table { rows, .. } => {
+            format!("table:{}", rows.first().map(|r| r.join("\t")).unwrap_or_default())
+        }
+        ElementKind::Chart { chart, title } => format!("chart:{chart:?}:{title}"),
+        ElementKind::Video { media } => format!("video:{media}"),
+        ElementKind::Group { children } => format!(
+            "group:{}",
+            children.iter().map(morph_signature).collect::<Vec<_>>().join("|")
+        ),
+    }
+}
+
+/// The elements the Morph transition from `from` to `to` moves instead of
+/// fading: pairs of indices (into `from.elements`, into `to.elements`), in
+/// the z-order of `to`. The same id first, then the same placeholder role or
+/// the same kind and content; every element is in one pair at most.
+#[must_use]
+pub fn morph_pairs(from: &Slide, to: &Slide) -> Vec<(usize, usize)> {
+    let mut used = vec![false; from.elements.len()];
+    let mut pairs = Vec::new();
+    let mut open = Vec::new();
+    for (j, b) in to.elements.iter().enumerate() {
+        match from.elements.iter().position(|a| a.id == b.id) {
+            Some(i) if !used[i] => {
+                used[i] = true;
+                pairs.push((i, j));
+            }
+            _ => open.push(j),
+        }
+    }
+    let signatures: Vec<String> = from.elements.iter().map(morph_signature).collect();
+    for j in open {
+        let wanted = morph_signature(&to.elements[j]);
+        if let Some(i) = (0..from.elements.len()).find(|&i| !used[i] && signatures[i] == wanted) {
+            used[i] = true;
+            pairs.push((i, j));
+        }
+    }
+    pairs.sort_by_key(|&(_, j)| j);
+    pairs
 }
 
 // ==== Deck ====
@@ -1678,7 +1785,35 @@ pub fn sample_deck(id: &str, theme: Theme) -> Deck {
     deck.slides[shapes].elements.extend(boxes);
     deck.slides[shapes].notes = String::from("The bucket is S3: AWS, R2 or a MinIO at home.");
 
-    let quote = deck.add_slide(6, LayoutKind::Blank);
+    // The same picture rearranged, entered with Morph: the bucket rises to
+    // the middle and grows, the devices and the arrows follow it.
+    if let Some(morph) = deck.duplicate_slide(shapes) {
+        let slide = &mut deck.slides[morph];
+        let frames = [
+            Frame::new(160.0, 700.0, 400.0, 220.0),
+            Frame::new(660.0, 300.0, 600.0, 300.0),
+            Frame::new(1360.0, 700.0, 400.0, 220.0),
+            Frame {
+                rotation: -30.0,
+                ..Frame::new(470.0, 560.0, 220.0, 60.0)
+            },
+            Frame {
+                rotation: 30.0,
+                ..Frame::new(1230.0, 560.0, 220.0, 60.0)
+            },
+        ];
+        // The title first, then the three boxes and the two arrows.
+        for (element, frame) in slide.elements.iter_mut().skip(1).zip(frames) {
+            element.frame = frame;
+        }
+        slide.transition = Transition {
+            kind: TransitionKind::Morph,
+            duration_ms: 900,
+        };
+        slide.notes = String::from("Everything goes through the bucket - Morph moves the picture.");
+    }
+
+    let quote = deck.add_slide(7, LayoutKind::Blank);
     let id = deck.mint();
     let mut body = TextBody::plain("\u{201c}The best file format is the one you can still open in twenty years.\u{201d}", 64.0);
     body.valign = VAlign::Middle;
@@ -1694,19 +1829,19 @@ pub fn sample_deck(id: &str, theme: Theme) -> Deck {
         .push(Element::new(id, Frame::new(200.0, 300.0, 1520.0, 480.0), ElementKind::Text { body }));
     deck.slides[quote].notes = String::from("Pause after the quote.");
 
-    let hidden = deck.add_slide(7, LayoutKind::TitleAndContent);
+    let hidden = deck.add_slide(8, LayoutKind::TitleAndContent);
     set(&mut deck, hidden, PlaceholderRole::Title, "Backup: pricing details");
     set(&mut deck, hidden, PlaceholderRole::Body, "Storage at cost\nNo seat licences");
     deck.slides[hidden].hidden = true;
     deck.slides[hidden].notes = String::from("Only if someone asks about money.");
 
-    let next = deck.add_slide(8, LayoutKind::TitleAndContent);
+    let next = deck.add_slide(9, LayoutKind::TitleAndContent);
     set(&mut deck, next, PlaceholderRole::Title, "What comes next");
     set(&mut deck, next, PlaceholderRole::Body, "Import .pptx\nCharts\nPresenting from the phone");
     deck.slides[next].section = Some(String::from("Outlook"));
     deck.slides[next].notes = String::from("Ask for feedback on the order.");
 
-    let end = deck.add_slide(9, LayoutKind::TitleSlide);
+    let end = deck.add_slide(10, LayoutKind::TitleSlide);
     set(&mut deck, end, PlaceholderRole::Title, "Thank you");
     set(&mut deck, end, PlaceholderRole::Subtitle, "Questions?");
     deck.slides[end].notes = String::from("Leave this up during the questions.");
@@ -2136,14 +2271,65 @@ mod tests {
     #[test]
     fn the_sample_deck_has_sections_a_hidden_slide_builds_and_notes_everywhere() {
         let d = sample_deck("s", Theme::office());
-        assert_eq!(d.slides.len(), 10);
+        assert_eq!(d.slides.len(), 11);
         assert!(d.slides.iter().all(|s| !s.notes.is_empty()), "notes on every slide");
         assert_eq!(d.slides.iter().filter(|s| s.hidden).count(), 1);
         assert_eq!(d.section_of(0), Some("Introduction"));
         assert_eq!(d.section_of(4), Some("The apps"));
         assert!(d.slides.iter().any(|s| !s.build_steps().is_empty()));
         assert_eq!(d.slides[1].title(), "Agenda");
-        assert_eq!(d.shown_slides().len(), 9);
+        assert_eq!(d.shown_slides().len(), 10);
+        // Slide 7 morphs out of slide 6: every object of it is one of slide 6's, moved.
+        assert_eq!(d.slides[6].transition.kind, TransitionKind::Morph);
+        let pairs = morph_pairs(&d.slides[5], &d.slides[6]);
+        assert_eq!(pairs.len(), d.slides[6].elements.len());
+        assert!(pairs.iter().any(|&(i, j)| d.slides[5].elements[i].frame != d.slides[6].elements[j].frame));
+    }
+
+    // ---- the Morph transition ----
+
+    #[test]
+    fn morph_pairs_the_same_objects_and_leaves_the_others_to_fade() {
+        let mut d = deck();
+        let a = d.add_slide(1, LayoutKind::TitleOnly);
+        let left = shape(&mut d, 100.0);
+        let right = shape(&mut d, 900.0);
+        let mut other = shape(&mut d, 500.0);
+        if let ElementKind::Shape { shape, .. } = &mut other.kind {
+            *shape = ShapeKind::Ellipse;
+        }
+        d.slides[a].elements.extend([left, right, other]);
+        let b = d.duplicate_slide(a).expect("the copy");
+        // On the copy the two rectangles swap places and the oval goes.
+        let copy = &mut d.slides[b];
+        copy.elements.remove(3);
+        copy.elements[1].frame.x = 900.0;
+        copy.elements[2].frame.x = 100.0;
+        // New ids, the same title and shapes: the title and both rectangles
+        // pair (in order), the oval fades out.
+        assert_ne!(d.slides[a].elements[1].id, d.slides[b].elements[1].id);
+        assert_eq!(morph_pairs(&d.slides[a], &d.slides[b]), vec![(0, 0), (1, 1), (2, 2)]);
+        // A slide with its own ids pairs by id first, whatever moved.
+        let same = d.slides[a].clone();
+        let mut shuffled = same.clone();
+        shuffled.elements.reverse();
+        assert_eq!(morph_pairs(&same, &shuffled), vec![(3, 0), (2, 1), (1, 2), (0, 3)]);
+    }
+
+    #[test]
+    fn a_frame_and_a_colour_go_part_of_the_way() {
+        let a = Frame::new(0.0, 0.0, 100.0, 50.0);
+        let b = Frame {
+            rotation: 90.0,
+            ..Frame::new(200.0, 100.0, 300.0, 150.0)
+        };
+        assert_eq!(a.lerp(&b, 0.0), a);
+        assert_eq!(a.lerp(&b, 1.0), b);
+        let half = a.lerp(&b, 0.5);
+        assert_eq!((half.x, half.y, half.w, half.h, half.rotation), (100.0, 50.0, 200.0, 100.0, 45.0));
+        assert_eq!(a.lerp(&b, 7.0), b, "clamped");
+        let c = Color::rgb(0, 100, 200).lerp(Color::rgb(200, 100, 0), 0.5);
+        assert_eq!(c, Color::rgb(100, 100, 100));
     }
 
     #[test]

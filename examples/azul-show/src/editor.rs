@@ -435,7 +435,8 @@ impl Editor {
     pub fn insert_shape(&mut self, kind: ShapeKind) -> u64 {
         let (w, h) = match kind {
             ShapeKind::Line => (600.0, 40.0),
-            ShapeKind::Arrow => (400.0, 160.0),
+            ShapeKind::LineArrow => (600.0, 60.0),
+            ShapeKind::Arrow | ShapeKind::Chevron => (400.0, 160.0),
             _ => (400.0, 300.0),
         };
         let frame = self.centered(w, h);
@@ -453,9 +454,9 @@ impl Editor {
         self.insert(
             ElementKind::Shape {
                 shape: kind,
-                fill: if kind == ShapeKind::Line { None } else { Some(accent) },
-                stroke: if kind == ShapeKind::Line { Some(accent) } else { None },
-                stroke_width: if kind == ShapeKind::Line { 6.0 } else { 0.0 },
+                fill: if kind.is_line() { None } else { Some(accent) },
+                stroke: if kind.is_line() { Some(accent) } else { None },
+                stroke_width: if kind.is_line() { 6.0 } else { 0.0 },
                 body,
             },
             frame,
@@ -751,9 +752,15 @@ impl Editor {
 
     // ==== Transitions and builds ====
 
+    /// The selected slides' transition - the slide on the canvas's always
+    /// (its preview plays at once).
     pub fn set_transition(&mut self, kind: TransitionKind) {
         self.checkpoint();
-        for i in self.selected_slides() {
+        let mut picked = self.selected_slides();
+        if !picked.contains(&self.current) {
+            picked.push(self.current);
+        }
+        for i in picked {
             if let Some(s) = self.deck.slides.get_mut(i) {
                 s.transition.kind = kind;
             }

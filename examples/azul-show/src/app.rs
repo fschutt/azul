@@ -3,7 +3,7 @@
 //! (snap guides, marquee), the pictures, the slide show in flight; and the
 //! [`Command`]s the ribbon, the backstage, the menus and the keys run.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
+use std::{cell::Cell, collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 
 use azul::{
     callbacks::RefAny,
@@ -124,18 +124,50 @@ pub enum Screen {
     Show,
 }
 
-/// A build or a transition playing in the show.
+/// Where a transition comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransitionFrom {
+    /// The slide with this index.
+    Slide(usize),
+    /// A black screen (the editor's preview of the first slide's transition).
+    Black,
+}
+
+/// A build or a transition playing, in the show or as the editor's preview
+/// on the canvas. Every frame of it is the slide drawn at its progress: the
+/// player's timer (`on_play_tick`) rebuilds the window until it is done.
 #[derive(Debug, Clone)]
 pub struct Play {
+    /// The slide it plays on (its index).
+    pub slide: usize,
     /// The elements whose build plays (empty for a transition).
     pub ids: Vec<u64>,
-    /// A transition from this slide to the current one.
-    pub transition_from: Option<usize>,
+    /// A transition into `slide` from here.
+    pub transition: Option<TransitionFrom>,
     pub started: Instant,
     pub duration_ms: u32,
+    /// The id of the timer that plays it (`TimerId::id`): a timer finding
+    /// another play in its place stops - every play has its own.
+    pub timer: usize,
+    /// How many frames were drawn while it played (`AZSHOW_PLAYED`).
+    pub frames: Cell<u32>,
 }
 
 impl Play {
+    /// A play on `slide` starting now (its timer is armed by `commands::armed`).
+    #[must_use]
+    pub fn new(slide: usize, ids: Vec<u64>, transition: Option<TransitionFrom>, duration_ms: u32) -> Self {
+        Self {
+            slide,
+            ids,
+            transition,
+            started: Instant::now(),
+            duration_ms,
+            timer: 0,
+            frames: Cell::new(0),
+        }
+    }
+
     /// 0..1, how far it has played.
     #[must_use]
     pub fn progress(&self) -> f32 {
@@ -147,6 +179,17 @@ impl Play {
     pub fn done(&self) -> bool {
         self.progress() >= 1.0
     }
+
+    /// One more frame of it was drawn.
+    pub fn count_frame(&self) {
+        self.frames.set(self.frames.get().saturating_add(1));
+    }
+}
+
+/// The payload of a play's timer: the app and the timer's own id.
+pub struct PlayTick {
+    pub app: RefAny,
+    pub timer: usize,
 }
 
 /// The slide show in flight.
@@ -278,8 +321,10 @@ pub struct AppState {
     /// The DOM id (a text's editing host, a table's cell) that gets the
     /// focus after the next layout.
     pub focus_text: Option<String>,
-    /// The build / transition player's timer is running.
-    pub playing_timer: bool,
+    /// The editor's preview of the current slide's transition or a build,
+    /// playing on the canvas (TRANSITIONS / ANIMATIONS > Preview, and a pick
+    /// in their galleries).
+    pub preview: Option<Play>,
     /// The Find / Replace pane, while it is open.
     pub find: Option<crate::find::FindState>,
     /// The window is asking "save changes?" (the close guard).
@@ -317,7 +362,7 @@ impl AppState {
             busy: 0,
             args,
             focus_text: None,
-            playing_timer: false,
+            preview: None,
             find: None,
             asking_close: false,
             close_after_save: false,
@@ -443,6 +488,11 @@ pub enum Command {
     TransitionToAll,
     Animation(Option<AnimationEffect>),
     MoveAnimation(i32),
+    /// TRANSITIONS > Preview: the current slide's transition on the canvas.
+    PreviewTransition,
+    /// ANIMATIONS > Preview: the selection's build (else the slide's first)
+    /// on the canvas.
+    PreviewBuild,
     // ---- slide show ----
     StartShow { from_current: bool },
     ShowNext,
