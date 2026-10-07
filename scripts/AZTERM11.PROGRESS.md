@@ -23,13 +23,17 @@ E2E for all of it.
   tabs (width 180px, min 110px, no-drag) and the "+" after it.
 
 ## DONE
-(none yet)
+- 39ef40483 test(terminal_view): RED - pixel scrolling, the slide, line_below, the follow button
+- 7ba839928 feat(terminal_view): GREEN - the same
 
 ## IN PROGRESS
-- widget RED tests
+- AzTerm RED tests (lib.rs / sample.rs / session.rs tests)
 
 ## NEXT
-- widget GREEN, AzTerm RED tests, AzTerm changes, E2E
+- AzTerm: last tab closes the window; the strip as the title bar (scroller,
+  equal widths, reveal); scroll.rs ViewScroll (relative scroll events, new
+  lines, follow); sample stream (`seq N`, `yes | head -n N`); tick throttle
+- E2E: scripts/azterm_e2e.py
 
 ## Open questions / for the lead
 - api.json: TerminalScreen gains line_below / scroll_fraction / new_lines,
