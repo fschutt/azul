@@ -952,6 +952,11 @@ enum PlaybackClock {
     Held,
     /// Running since `since_s` (on the caller's clock) from `base_s`.
     Running { since_s: f64 },
+    /// Playing, but WAITING at `base_s` since `since_s` for frames that are
+    /// not decoded yet (a download slower than the video, a decoder catching
+    /// up after a resume): the clock stands until [`RESUME_LEAD_S`] is
+    /// decoded past it.
+    Stalled { since_s: f64 },
     /// Stopped at the end of a video that does not loop.
     Ended,
 }
@@ -964,7 +969,10 @@ enum PlaybackClock {
 /// of the schedule reading a clock itself. Frames may arrive in any order —
 /// `VideoToolbox` hands them back in DECODE order — and are kept in
 /// PRESENTATION order. The clock starts with the first frame on screen, not
-/// with the download, so a slow network never eats the start of the video.
+/// with the download, so a slow network never eats the start of the video;
+/// and it never runs ahead of the frames: a playing video whose next frames
+/// are not decoded yet STALLS (reported as `Loading` once the wait lasts
+/// [`STALL_REPORT_S`]) and plays on once [`RESUME_LEAD_S`] is decoded.
 #[derive(Debug)]
 pub struct VideoPlayback {
     /// Decoded frames, sorted by presentation time: `(pts_s, frame)`.
@@ -988,6 +996,8 @@ pub struct VideoPlayback {
     /// One frame's time, from the worker ([`set_frame_interval`](Self::set_frame_interval));
     /// 1/30 s until then. Says whether the frame due at a position is held.
     frame_s: f32,
+    /// Held, how much is kept decoded past the poster ([`set_preroll`](Self::set_preroll)).
+    preroll_s: f32,
 }
 
 /// What one [`VideoPlayback::tick`] asks of the decode worker.
@@ -1026,6 +1036,7 @@ impl VideoPlayback {
             looping,
             paused,
             frame_s: 1.0 / 30.0,
+            preroll_s: 0.0,
         }
     }
 
@@ -1038,7 +1049,23 @@ impl VideoPlayback {
     /// once: for an app that holds a video only to start it in step with
     /// something else (its sound). A poster nobody may ever play keeps none.
     pub const fn set_preroll(&mut self, seconds: f32) {
-        let _ = seconds;
+        self.preroll_s = sanitize_position(seconds);
+    }
+
+    /// The newest presentation time decoded, if any frame is.
+    fn newest(&self) -> Option<f32> {
+        self.frames.last().map(|(pts, _)| *pts)
+    }
+
+    /// Whether playback can run from `position_s` without waiting: the frame
+    /// due there is held, and every frame is in or [`RESUME_LEAD_S`] is
+    /// decoded past it.
+    fn has_lead(&self, position_s: f32) -> bool {
+        self.holds_frame_at(position_s)
+            && (self.complete
+                || self.newest().is_some_and(|newest| {
+                    newest + PTS_TOLERANCE_S >= position_s + RESUME_LEAD_S
+                }))
     }
 
     /// One frame lasts `frame_s` (ignored unless positive and finite).
@@ -1072,9 +1099,10 @@ impl VideoPlayback {
     /// `decoded_until_s` is the presentation time of the newest frame it
     /// decoded since it last (re)started, `None` before the first. Held, the
     /// schedule wants the poster - the frame at its position - and nothing
-    /// after it; playing, [`DECODE_LOOKAHEAD_S`] ahead of the clock; ended,
-    /// or with every frame in, nothing. This is what keeps a `<video>` nobody
-    /// plays from holding its whole clip decoded.
+    /// after it (but its [`preroll`](Self::set_preroll)); playing or waiting
+    /// on frames, [`DECODE_LOOKAHEAD_S`] ahead of the clock; ended, or with
+    /// every frame in, nothing. This is what keeps a `<video>` nobody plays
+    /// from holding its whole clip decoded.
     #[must_use]
     pub fn wants_frame(&self, now_s: f64, decoded_until_s: Option<f32>) -> bool {
         if self.complete {
@@ -1084,8 +1112,8 @@ impl VideoPlayback {
             return true;
         };
         match self.clock {
-            PlaybackClock::Held => self.base_s > decoded_until + PTS_TOLERANCE_S,
-            PlaybackClock::Running { .. } => {
+            PlaybackClock::Held => self.base_s + self.preroll_s > decoded_until + PTS_TOLERANCE_S,
+            PlaybackClock::Running { .. } | PlaybackClock::Stalled { .. } => {
                 decoded_until < self.position(now_s) + DECODE_LOOKAHEAD_S
             }
             PlaybackClock::Ended => false,
@@ -1112,10 +1140,15 @@ impl VideoPlayback {
         }
     }
 
-    /// The worker restarted its decode: the end is not in until it is handed
-    /// in again.
-    pub const fn restart_decode(&mut self) {
+    /// The worker restarted its decode (a seek past the frames held, a loop
+    /// wrap): the end is not in until it is handed in again, and the old
+    /// run's frames go - kept, frames AHEAD of the clock from the old run
+    /// would hide that the new run has not decoded the frames the clock is
+    /// at (the picture on screen stays until the next one is presented).
+    pub fn restart_decode(&mut self) {
         self.complete = false;
+        self.frames.clear();
+        self.presented = None;
     }
 
     /// Drop the frames more than [`DECODE_KEEP_BEHIND_S`] behind the clock,
@@ -1166,7 +1199,9 @@ impl VideoPlayback {
                 let elapsed = if elapsed > 0.0 { elapsed } else { 0.0 };
                 self.base_s + elapsed as f32
             }
-            PlaybackClock::Held | PlaybackClock::Ended => self.base_s,
+            PlaybackClock::Held | PlaybackClock::Stalled { .. } | PlaybackClock::Ended => {
+                self.base_s
+            }
         }
     }
 
@@ -1209,7 +1244,7 @@ impl VideoPlayback {
 
     /// Hold on the frame on screen.
     pub fn pause(&mut self, now_s: f64) {
-        if let PlaybackClock::Running { .. } = self.clock {
+        if let PlaybackClock::Running { .. } | PlaybackClock::Stalled { .. } = self.clock {
             self.base_s = self.clamp_to_end(self.position(now_s));
             self.clock = PlaybackClock::Held;
         }
@@ -1219,7 +1254,9 @@ impl VideoPlayback {
 
     /// Play on from the frame on screen, or from the start once the video
     /// ended. Before the first frame this only arms playback: the clock
-    /// starts with the first frame.
+    /// starts with the first frame. Without [`RESUME_LEAD_S`] decoded past
+    /// the frame on screen, playback waits for it (stalled) rather than
+    /// running ahead of the decoder.
     pub fn resume(&mut self, now_s: f64) {
         if self.clock == PlaybackClock::Ended {
             self.base_s = 0.0;
@@ -1227,7 +1264,11 @@ impl VideoPlayback {
         }
         self.paused = false;
         if self.clock == PlaybackClock::Held && !self.frames.is_empty() {
-            self.clock = PlaybackClock::Running { since_s: now_s };
+            self.clock = if self.has_lead(self.base_s) {
+                PlaybackClock::Running { since_s: now_s }
+            } else {
+                PlaybackClock::Stalled { since_s: now_s }
+            };
         }
         self.reported = None;
     }
@@ -1238,7 +1279,9 @@ impl VideoPlayback {
         let target = self.clamp_to_end(sanitize_position(position_s));
         self.base_s = target;
         match self.clock {
-            PlaybackClock::Running { .. } => self.clock = PlaybackClock::Running { since_s: now_s },
+            PlaybackClock::Running { .. } | PlaybackClock::Stalled { .. } => {
+                self.clock = PlaybackClock::Running { since_s: now_s };
+            }
             PlaybackClock::Ended => {
                 if self.duration_s <= 0.0 || target < self.duration_s {
                     self.clock = PlaybackClock::Held;
@@ -1252,8 +1295,19 @@ impl VideoPlayback {
     /// Advance to `now_s`: which frame is due, and what the app should hear.
     #[must_use]
     pub fn tick(&mut self, now_s: f64) -> VideoTick {
-        let Some(newest) = self.frames.last().map(|(pts, _)| *pts) else {
-            let status = self.report(VideoPhase::Loading, self.base_s);
+        let Some(newest) = self.newest() else {
+            // Nothing decoded yet (or since a restart): a playing clock waits
+            // where it stands.
+            let phase = match self.clock {
+                PlaybackClock::Running { .. } => {
+                    self.base_s = self.position(now_s);
+                    self.clock = PlaybackClock::Stalled { since_s: now_s };
+                    VideoPhase::Playing
+                }
+                PlaybackClock::Stalled { .. } => self.phase_at(now_s),
+                PlaybackClock::Held | PlaybackClock::Ended => VideoPhase::Loading,
+            };
+            let status = self.report(phase, self.base_s);
             return VideoTick {
                 present: None,
                 status,
@@ -1264,6 +1318,13 @@ impl VideoPlayback {
         if !self.paused && self.clock == PlaybackClock::Held {
             self.clock = PlaybackClock::Running { since_s: now_s };
         }
+        // A wait for the decoder ends once a lead is decoded past the frame
+        // it waits on.
+        if let PlaybackClock::Stalled { .. } = self.clock {
+            if self.has_lead(self.base_s) {
+                self.clock = PlaybackClock::Running { since_s: now_s };
+            }
+        }
         let mut position = self.position(now_s);
         if let PlaybackClock::Running { .. } = self.clock {
             let end = if self.duration_s > 0.0 {
@@ -1271,10 +1332,12 @@ impl VideoPlayback {
             } else {
                 newest
             };
-            if !self.complete && position > newest {
-                // Playback outran the decoder: wait for it on its newest frame.
-                self.rebase(newest, now_s);
-                position = newest;
+            if !self.complete && position > newest + STALL_SLACK_FRAMES * self.frame_s {
+                // Playback outran the decoder (the download): wait on the
+                // newest frame - or, after a seek past it, at the target.
+                position = newest.max(self.base_s);
+                self.base_s = position;
+                self.clock = PlaybackClock::Stalled { since_s: now_s };
             } else if self.complete && position >= end {
                 if self.looping && end > 0.0 {
                     position %= end;
@@ -1293,10 +1356,12 @@ impl VideoPlayback {
         // loop wrap): keep the picture - not the stale frame after it - while
         // the worker decodes from its keyframe again (`restart_wanted`).
         if self.clock != PlaybackClock::Ended && !self.holds_frame_at(position) {
-            let phase = match self.clock {
-                PlaybackClock::Held => VideoPhase::Paused,
-                PlaybackClock::Running { .. } | PlaybackClock::Ended => VideoPhase::Playing,
-            };
+            if let PlaybackClock::Running { .. } = self.clock {
+                // Nothing to show at the clock: it waits for the frames there.
+                self.base_s = position;
+                self.clock = PlaybackClock::Stalled { since_s: now_s };
+            }
+            let phase = self.phase_at(now_s);
             let status = self.report(phase, position);
             return VideoTick {
                 present: None,
@@ -1316,13 +1381,26 @@ impl VideoPlayback {
             self.presented = Some(index);
             Some(index)
         };
-        let phase = match self.clock {
-            PlaybackClock::Held => VideoPhase::Paused,
-            PlaybackClock::Running { .. } => VideoPhase::Playing,
-            PlaybackClock::Ended => VideoPhase::Ended,
-        };
+        let phase = self.phase_at(now_s);
         let status = self.report(phase, position);
         VideoTick { present, status }
+    }
+
+    /// What the app hears of the clock at `now_s`: a wait for the decoder is
+    /// still `Playing` for a moment (a hitch), then `Loading` (buffering).
+    fn phase_at(&self, now_s: f64) -> VideoPhase {
+        match self.clock {
+            PlaybackClock::Held => VideoPhase::Paused,
+            PlaybackClock::Running { .. } => VideoPhase::Playing,
+            PlaybackClock::Stalled { since_s } => {
+                if now_s - since_s >= STALL_REPORT_S {
+                    VideoPhase::Loading
+                } else {
+                    VideoPhase::Playing
+                }
+            }
+            PlaybackClock::Ended => VideoPhase::Ended,
+        }
     }
 
     /// The status to hand out, if the app has not heard it yet: a new phase,
