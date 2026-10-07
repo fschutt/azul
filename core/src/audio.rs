@@ -136,6 +136,10 @@ pub struct AudioPlayerState {
     pub position_s: f64,
     /// The length of the track heard now, in seconds (0 when unknown).
     pub duration_s: f64,
+    /// Decoded audio waiting ahead of the listener, in seconds. A track handed over with
+    /// `AudioPlayer::preload_file` is ready to start at once (`play`) when this is above zero:
+    /// the file is open, the output is open, and its first samples are decoded.
+    pub buffered_s: f64,
     /// The id of the track heard now (what `load_*` / `queue_*` returned); 0 = none.
     pub track: u64,
     /// The id of the last track that could not be opened (0 = none): its reason is

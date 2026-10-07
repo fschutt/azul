@@ -197,6 +197,20 @@ impl PlayerCore {
         self.start_now(id, source, out);
     }
 
+    /// Makes `source` (track `id`) the track heard next, from `position_s`, and HOLDS: nothing
+    /// is heard until [`set_paused`](Self::set_paused)`(false)`; what was playing and queued is
+    /// dropped.
+    pub(crate) fn preload(
+        &mut self,
+        id: u64,
+        source: Box<dyn PcmSource>,
+        position_s: f64,
+        out: &dyn PcmOutput,
+    ) {
+        let _ = position_s;
+        self.load(id, source, out);
+    }
+
     /// `source` becomes the track being decoded, heard from the next frame written.
     fn start_now(&mut self, id: u64, source: Box<dyn PcmSource>, out: &dyn PcmOutput) {
         self.restart_output(out);
@@ -392,6 +406,7 @@ impl PlayerCore {
         AudioPlayerState {
             position_s,
             duration_s,
+            buffered_s: 0.0,
             track,
             failed_track: 0,
             volume: self.volume,
@@ -753,6 +768,17 @@ impl AudioPlayer {
         self.send_track(|id| Command::Load(id, spec))
     }
 
+    /// Gets the audio file at `path` ready to play from `position_s` and HOLDS: the file and the
+    /// output are opened and the first samples decoded on the player's thread, nothing is heard
+    /// until [`play`](Self::play) - which then starts at once (a video's sound that must start
+    /// with its first picture). What was playing and queued is dropped. Ready when
+    /// `AudioPlayerState::buffered_s` is above zero for this id. Returns the track's id; 0 when
+    /// closed.
+    pub fn preload_file(&self, path: azul_css::AzString, position_s: f64) -> u64 {
+        let _ = position_s;
+        self.load_file(path)
+    }
+
     /// Plays the audio file at `path` after the queued ones, gaplessly. Returns its id.
     pub fn queue_file(&self, path: azul_css::AzString) -> u64 {
         let path = path.as_str().to_string();
@@ -918,6 +944,35 @@ mod handle_tests {
     }
 
     #[test]
+    fn a_preloaded_file_is_ready_and_silent_until_play_then_starts_where_it_was_preloaded() {
+        let player = AudioPlayer::create_with(synthetic);
+        let path = std::env::temp_dir().join(format!(
+            "azul-player-preload-{}.wav",
+            std::process::id()
+        ));
+        let wav: Vec<u8> = tone(3.0).as_ref().to_vec();
+        std::fs::write(&path, wav).expect("the test file is written");
+        let id = player.preload_file(AzString::from(path.to_string_lossy().into_owned()), 1.0);
+        assert!(id > 0);
+        let ready = wait(&player, Duration::from_secs(2), |s| {
+            s.track == id && s.buffered_s > 0.0
+        });
+        assert!(ready.buffered_s > 0.0, "ready to start: {ready:?}");
+        assert!(!ready.playing, "held: {ready:?}");
+        std::thread::sleep(Duration::from_millis(200));
+        let held = player.get_state();
+        assert!(!held.playing, "{held:?}");
+        assert!(
+            (held.position_s - 1.0).abs() < 0.01,
+            "nothing is heard while held: {held:?}"
+        );
+        player.play();
+        let s = wait(&player, Duration::from_secs(2), |s| s.position_s > 1.05);
+        assert!(s.playing && s.position_s > 1.05, "{s:?}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn a_pause_holds_the_position_and_a_seek_moves_it() {
         let player = AudioPlayer::create_with(synthetic);
         player.load_bytes(tone(3.0), AzString::from("wav"));
@@ -960,6 +1015,8 @@ pub(crate) mod player_tests {
         pub played: Cell<u64>,
         pub clears: Cell<u32>,
         pub paused: Cell<bool>,
+        /// The output plays again after a clear (AVFoundation's player node: `stop`, `play`).
+        pub clear_resumes: Cell<bool>,
     }
 
     impl FakeOutput {
@@ -973,6 +1030,7 @@ pub(crate) mod player_tests {
                 played: Cell::new(0),
                 clears: Cell::new(0),
                 paused: Cell::new(false),
+                clear_resumes: Cell::new(false),
             }
         }
 
@@ -1025,6 +1083,9 @@ pub(crate) mod player_tests {
         fn clear(&self) -> bool {
             self.queued.set(0);
             self.clears.set(self.clears.get() + 1);
+            if self.clear_resumes.get() {
+                self.paused.set(false);
+            }
             true
         }
     }
@@ -1194,6 +1255,78 @@ pub(crate) mod player_tests {
         core.set_paused(false, &out);
         assert!(!out.paused.get());
         assert!(core.state(&out).playing);
+    }
+
+    #[test]
+    fn a_preloaded_track_is_decoded_ahead_and_heard_only_after_play() {
+        let out = FakeOutput::new(1000, 1, 10_000);
+        let mut core = PlayerCore::new(1000, 1, 100, 300);
+        core.preload(1, Ramp::boxed(1000, 2000, 0.0), 0.5, &out);
+        core.pump(&out);
+        core.pump(&out);
+        assert!(out.paused.get(), "the output holds");
+        assert!(
+            out.left().is_empty(),
+            "nothing reaches the output while held"
+        );
+        let s = core.state(&out);
+        assert_eq!(s.track, 1);
+        assert!(!s.playing && !s.finished, "{s:?}");
+        assert!(
+            close(s.position_s, 0.5),
+            "held at the preload position: {}",
+            s.position_s
+        );
+        assert!(
+            s.buffered_s >= 0.1 - 1e-9,
+            "a chunk is decoded ahead, ready to start: {}",
+            s.buffered_s
+        );
+        core.set_paused(false, &out);
+        core.pump(&out);
+        assert!(!out.paused.get());
+        let left = out.left();
+        assert_eq!(left.len(), 300, "play fills the lead at once");
+        assert!(
+            (left[0] - 500.0 / 100_000.0).abs() < 1e-6,
+            "the first frame heard is the preload position's: {}",
+            left[0]
+        );
+        assert!(
+            left.windows(2)
+                .all(|w| (w[1] - w[0] - 1.0 / 100_000.0).abs() < 1e-6),
+            "no frame lost or repeated between the chunk decoded ahead and the rest"
+        );
+        out.advance(100);
+        let s = core.state(&out);
+        assert!(s.playing);
+        assert!(close(s.position_s, 0.6), "{}", s.position_s);
+    }
+
+    #[test]
+    fn a_seek_while_held_decodes_ahead_from_the_target_and_the_output_stays_held() {
+        let out = FakeOutput::new(1000, 1, 10_000);
+        // An output whose clear plays it again (AVFoundation's player node does).
+        out.clear_resumes.set(true);
+        let mut core = PlayerCore::new(1000, 1, 100, 300);
+        core.preload(1, Ramp::boxed(1000, 2000, 0.0), 0.0, &out);
+        assert!(out.paused.get(), "held after the preload's clear");
+        core.pump(&out);
+        core.seek(1.5, &out);
+        assert!(out.paused.get(), "a seek while held stays held");
+        core.pump(&out);
+        assert!(out.left().is_empty(), "nothing heard while held");
+        let s = core.state(&out);
+        assert!(close(s.position_s, 1.5), "{}", s.position_s);
+        assert!(s.buffered_s > 0.0, "decoded ahead from the target");
+        core.set_paused(false, &out);
+        core.pump(&out);
+        let left = out.left();
+        assert!(
+            (left[0] - 1500.0 / 100_000.0).abs() < 1e-6,
+            "the first frame heard is the target's: {}",
+            left[0]
+        );
     }
 
     #[test]
