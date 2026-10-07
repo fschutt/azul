@@ -14152,6 +14152,8 @@ impl LayoutWindow {
         // scope wins (the enum is ordered None < IfcOnly < SizingOnly < Full).
         let mut restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
         let mut captured_transitions: Vec<CssTransition> = Vec::new();
+        let mut move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode> =
+            BTreeMap::new();
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
@@ -14199,6 +14201,10 @@ impl LayoutWindow {
                         }
                         _ => None,
                     });
+                // `animation: move ...`: this node slides to its new place.
+                if let Some(mode) = old_anims.as_ref().and_then(declared_move) {
+                    move_modes.insert(m.new_node_id, mode);
+                }
 
                 let mut worst = azul_css::props::property::RelayoutScope::None;
                 let mut changed_any = false;
@@ -14442,6 +14448,7 @@ impl LayoutWindow {
             events: diff.events,
             old_node_data,
             animate_moves: true,
+            move_modes,
         }
     }
 
@@ -14497,26 +14504,33 @@ impl LayoutWindow {
         .into_iter()
         .collect();
 
-        if pending.animate_moves && !pending.node_moves.is_empty() {
-            // Collected BEFORE seeding: the Last accessor borrows self to read
-            // the freshly solved rects, and seeding borrows it mutably.
-            let correspondences = azul_core::animation::correspondences_from_moves(
-                &pending.node_moves,
-                &pending.new_node_data,
-                &pending.new_hierarchy,
-                |old_id| pending.first_rects.get(&old_id).copied(),
-                |new_id| {
-                    self.get_node_bounds(dom_id, new_id)
-                        .map(layout_rect_to_logical)
-                },
-            );
-            azul_core::animation::seed_moves(
-                &mut self.animations,
-                correspondences,
-                azul_core::animation::InterpolationMode::Spring(
-                    azul_core::animation::Spring::SMOOTH,
-                ),
-            );
+        if pending.animate_moves && !pending.move_modes.is_empty() {
+            // Only the nodes that declare a move slide (`move_modes`); every
+            // other node is laid out at its new place. Collected BEFORE
+            // seeding: the Last accessor borrows self to read the freshly
+            // solved rects, and seeding borrows it mutably.
+            let declared: Vec<azul_core::diff::NodeMove> = pending
+                .node_moves
+                .iter()
+                .filter(|m| pending.move_modes.contains_key(&m.new_node_id))
+                .cloned()
+                .collect();
+            for m in declared {
+                let Some(mode) = pending.move_modes.get(&m.new_node_id).cloned() else {
+                    continue;
+                };
+                let correspondences = azul_core::animation::correspondences_from_moves(
+                    core::slice::from_ref(&m),
+                    &pending.new_node_data,
+                    &pending.new_hierarchy,
+                    |old_id| pending.first_rects.get(&old_id).copied(),
+                    |new_id| {
+                        self.get_node_bounds(dom_id, new_id)
+                            .map(layout_rect_to_logical)
+                    },
+                );
+                azul_core::animation::seed_moves(&mut self.animations, correspondences, mode);
+            }
         }
 
         // Enters are opt-in like exits (USER ruling 2026-08-17): a mounted
@@ -29854,6 +29868,12 @@ pub struct PendingReconciliation {
     /// rebuild that is no state change - a window resize reflows in place,
     /// it does not slide the layout after the dragged edge.
     pub animate_moves: bool,
+    /// The matched nodes that DECLARE a move - `animation: move <duration>
+    /// [timing]` on the OLD tree, like every entry of that list - with the
+    /// motion they asked for (NEW `NodeId`s). Moves are opt-in, as enters
+    /// and exits are (user, 2026-10-07): a node not in here is laid out at
+    /// its new place, it does not slide there.
+    pub move_modes: BTreeMap<NodeId, azul_core::animation::InterpolationMode>,
 }
 
 /// `LayoutRect` (integer origin, what the layout query returns) → `LogicalRect`
@@ -29992,6 +30012,26 @@ fn with_interaction_of(
 /// `animation: width 1s, color 2s` - web-cascade style). The animation
 /// meta-properties never transition: `animation` appearing or disappearing
 /// is a mode switch, not a value to tween.
+/// The motion `animation: move <duration> [timing]` asks a node's moves for
+/// (the last `move` entry wins, as in [`declared_animation_for`]): a spring
+/// timing as that spring (it runs until it settles; the duration is
+/// ignored), any other as its curve over the duration. `None`: the node
+/// declares no move and does not slide.
+fn declared_move(
+    anims: &azul_css::props::basic::animation::StyleAnimationVec,
+) -> Option<azul_core::animation::InterpolationMode> {
+    use azul_core::animation::InterpolationMode;
+    use azul_css::props::basic::animation::AnimationInterpolationFunction as F;
+    let anim = anims.as_ref().iter().rev().find(|a| a.name.as_str() == "move")?;
+    Some(match anim.timing.to_interpolation() {
+        F::Spring(spring) => InterpolationMode::Spring(spring),
+        function => InterpolationMode::Curve {
+            function,
+            duration_secs: anim.duration.millis() as f32 / 1000.0,
+        },
+    })
+}
+
 fn declared_animation_for(
     anims: &azul_css::props::basic::animation::StyleAnimationVec,
     ty: azul_css::props::property::CssPropertyType,

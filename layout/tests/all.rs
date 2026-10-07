@@ -876,6 +876,8 @@ mod focusing_a_search_field_by_its_id_focuses_its_text;
 mod a_button_fades_into_its_hover_face;
 #[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]
 mod a_rebuild_under_the_pointer_starts_no_transition;
+#[path = "a_rebuild_slides_only_what_declares_a_move.rs"]
+mod a_rebuild_slides_only_what_declares_a_move;
 #[path = "an_inline_blocks_baseline_is_its_last_line_box.rs"]
 mod an_inline_blocks_baseline_is_its_last_line_box;
 #[path = "a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content.rs"]
