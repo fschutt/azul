@@ -875,6 +875,12 @@ fn push_checked_face(v: &mut Vec<Cond>, t: &RibbonTheme, fill: fn(&RibbonTheme) 
         v.extend(bg_both(t, fill));
         push_border_colors_both(v, t, |p| p.hover_border);
     }
+    // The states again: this face is APPENDED after the part's own states,
+    // and a resting face after them would shadow them (last match wins) - a
+    // toggled button lit no hover and no press.
+    push_chrome_hover_fill(v, t);
+    push_chrome_hover_border(v, t);
+    push_chrome_pressed_fill(v, t);
 }
 
 /// Bottom border only (tab underline / ribbon bottom edge).
