@@ -1781,6 +1781,11 @@ pub(crate) const TERMINAL_WHEEL_NOTCH_PX: f32 = crate::widgets::cell_grid::WHEEL
 /// down a trackpad) shows older lines. Taken as it came, a turn up at the
 /// output asked for an offset below 0 - nothing moved, the scrollback could
 /// not be reached - and a turn down went INTO it.
+///
+/// No cap on the notches of one delta (a flick goes far; the offset stops
+/// at the oldest line), and nothing beyond a notch is kept for later - a
+/// capped remainder would scroll on at the next turn, whichever way.
+#[allow(clippy::cast_possible_truncation)] // whole notches of a finite travel, saturating
 pub(crate) fn wheel_delta_action(
     screen: &TerminalScreen,
     travel: &mut f32,
@@ -1788,7 +1793,13 @@ pub(crate) fn wheel_delta_action(
     point: TerminalPoint,
     modifiers: KeyModifiers,
 ) -> KeyAction {
-    let notches = crate::widgets::cell_grid::wheel_steps(travel, -dy, TERMINAL_WHEEL_NOTCH_PX);
+    if !dy.is_finite() || !travel.is_finite() {
+        *travel = 0.0;
+        return KeyAction::Nothing;
+    }
+    *travel -= dy;
+    let notches = (*travel / TERMINAL_WHEEL_NOTCH_PX) as i64;
+    *travel %= TERMINAL_WHEEL_NOTCH_PX;
     wheel_action(screen, notches, point, modifiers)
 }
 
@@ -3600,6 +3611,14 @@ mod view_tests {
         assert_eq!(
             wheel_delta_action(&at_output, &mut travel, step, p, NONE),
             KeyAction::Scroll(3)
+        );
+        assert!(travel.abs() < click);
+        // A flick goes as far as it says (no cap), and nothing of it is
+        // kept to scroll on at the next turn.
+        let mut travel = 0.0;
+        assert_eq!(
+            wheel_delta_action(&at_output, &mut travel, click * 30.0, p, NONE),
+            KeyAction::Scroll(90)
         );
         assert!(travel.abs() < click);
         // A program that hears the pointer hears a wheel turned up as such.
