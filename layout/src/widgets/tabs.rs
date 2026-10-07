@@ -44,8 +44,10 @@ const TAB_FACE_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark
 // theme, so an unpinned bar declares it once, outside every `@theme` block.
 // What the themes lay out differently by design stays in their skins: the
 // header's `align-items` (flora sets its tabs ON the strip's rule, `end`;
-// flat's native tabs hang from the top of the bar) and the spacer before the
-// first tab (flat's grows, `flex-grow: 1`; flora's is a fixed 8px, `0`).
+// flat's native tabs hang from the top of the bar), the spacer before the
+// first tab (flat's grows, `flex-grow: 1`; flora's is a fixed curve's width,
+// `0`) and flora's selected tab, `position: relative` for the curves it hangs
+// off its sides (the Australis tab, below).
 
 /// The bar: a flex row of spacer, tabs, spacer. Without `display: flex` the
 /// row's `flex-direction` does nothing and the tabs stack vertically.
@@ -1448,6 +1450,16 @@ impl TabHeader {
         // their classes, datasets, click and arrow keys are the same in every
         // theme.
         let look = TabHeaderLook::of(self.theme);
+        // Flora cuts its selected tab as Firefox's (`australis_curves`): the
+        // curves are nodes, so they are in the tree when it is built for
+        // flora - the pinned look, or the app theme the DOM is built for (a
+        // theme switch rebuilds the DOM, as for every widget whose looks
+        // build different trees).
+        let curves = {
+            use crate::widgets::themes::{flora, UiTheme};
+            let theme = self.theme.into_option().unwrap_or_else(UiTheme::current);
+            (theme == UiTheme::Flora).then(|| flora::tab_curves(false))
+        };
         let on_click_is_some = self.on_click.is_some();
         // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
         // tab, or the first when the index is out of range. The arrow keys
@@ -1562,6 +1574,14 @@ impl TabHeader {
                         tab_dom = tab_dom.with_tab_index(crate::widgets::roving::item_tab_index(
                             tab_idx, tab_stop,
                         ));
+                    }
+                    // The selected tab's curves, after its label text.
+                    if tab_is_active {
+                        if let Some(curves) = curves.as_ref() {
+                            for curve in australis_curves(curves) {
+                                tab_dom.add_child(curve);
+                            }
+                        }
                     }
                     tab_items.push(tab_dom);
                 }
@@ -3746,12 +3766,13 @@ mod autotest_generated {
 }
 
 /// The tab bar's two looks (W5b). Flat is the Windows-native control. Flora
-/// is flora's navigation strip: raised chrome closed along its foot by a 2px
-/// metal rule; the unselected tabs sit behind the rule in soft ink, lift to
-/// the hover face under the pointer and sink when pressed; the selected tab
-/// is the sunken accent stone in a metal surround that breaks the rule and
-/// opens onto its panel - a leaf in a hairline, open at the top. The tabs,
-/// their classes, datasets, click and arrow keys are the widget's in both.
+/// is flora's navigation strip cut as Firefox's tab row (Australis): raised
+/// chrome closed along its foot by a 2px metal rule; the unselected tabs
+/// stand on the rule in soft ink, lift to the hover face under the pointer
+/// and sink when pressed; the selected tab is the sunken accent stone in a
+/// metal surround that climbs its S-curved sides, breaks the rule and opens
+/// onto its panel - a leaf in a hairline, open at the top. The tabs, their
+/// classes, datasets, click and arrow keys are the widget's in both.
 #[cfg(test)]
 mod theme_tests {
     use azul_core::dom::Dom;
@@ -3861,25 +3882,33 @@ mod theme_tests {
                 flora::RAISED_FACE_LIGHT
             };
             assert_eq!(layers(&dom, dark, None), vec![chrome], "dark={dark}: the strip");
-            // The rule runs under both spacers and every unselected tab.
-            for i in [0usize, 1, 3, 4, 5] {
-                let node = child(&dom, i);
-                assert_eq!(
-                    width(node, CssPropertyType::BorderBottomWidth, dark),
-                    Some(2.0),
-                    "dark={dark}: child {i} carries the rule's gauge"
-                );
-                assert_eq!(
-                    colour(node, CssPropertyType::BorderBottomColor, dark, None),
-                    Some(flora::TAB_METAL),
-                    "dark={dark}: child {i} carries the metal"
-                );
-            }
+            // The rule is the strip's own, an inset line along its foot: it
+            // runs under both spacers and every unselected tab, and the
+            // selected tab stands over it.
+            assert_eq!(
+                tc::resolve(&dom, CssPropertyType::BoxShadowBottom, dark, None),
+                Some(crate::widgets::themes::decl::shadow(
+                    -2,
+                    0,
+                    0,
+                    flora::TAB_METAL,
+                    true
+                )),
+                "dark={dark}: the strip's foot is the metal rule"
+            );
             for i in [1usize, 3, 4] {
+                let tab = child(&dom, i);
                 assert_eq!(
-                    tc::text_color(child(&dom, i), dark),
+                    tc::text_color(tab, dark),
                     Some(if dark { flora::DARK_SOFT1 } else { flora::LIGHT_SOFT1 }),
                     "dark={dark}: unselected tab {i} is written in soft ink"
+                );
+                assert_eq!(
+                    tc::resolve(tab, CssPropertyType::MarginBottom, dark, None),
+                    Some(azul_css::props::property::CssProperty::const_margin_bottom(
+                        LayoutMarginBottom::const_px(2)
+                    )),
+                    "dark={dark}: unselected tab {i} stands on the rule, which stays in sight"
                 );
             }
         }
@@ -3892,24 +3921,44 @@ mod theme_tests {
         for dark in [false, true] {
             assert_eq!(
                 layers(active, dark, None),
-                flora::selected_stone(),
-                "dark={dark}: the sunken stone, its own colour in both modes"
+                flora::australis_face(flora::STONE_STREAK),
+                "dark={dark}: the sunken stone stood upright, its own colour in both modes"
             );
             assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
-            for (w, c) in [
-                (CssPropertyType::BorderTopWidth, CssPropertyType::BorderTopColor),
-                (CssPropertyType::BorderLeftWidth, CssPropertyType::BorderLeftColor),
-                (CssPropertyType::BorderRightWidth, CssPropertyType::BorderRightColor),
-            ] {
-                assert_eq!(width(active, w, dark), Some(2.0), "dark={dark}: {w:?}");
-                assert_eq!(colour(active, c, dark, None), Some(flora::TAB_METAL), "{c:?}");
-            }
+            assert_eq!(width(active, CssPropertyType::BorderTopWidth, dark), Some(2.0));
             assert_eq!(
-                width(active, CssPropertyType::BorderBottomWidth, dark),
-                None,
-                "dark={dark}: the selected tab breaks the rule - no foot of its own"
+                colour(active, CssPropertyType::BorderTopColor, dark, None),
+                Some(flora::TAB_METAL),
+                "dark={dark}: the metal along its top"
+            );
+            for w in [
+                CssPropertyType::BorderLeftWidth,
+                CssPropertyType::BorderRightWidth,
+                CssPropertyType::BorderBottomWidth,
+            ] {
+                assert_eq!(
+                    width(active, w, dark).unwrap_or(0.0),
+                    0.0,
+                    "dark={dark}: {w:?} - its sides are its curves, and it has no foot: it \
+                     breaks the rule"
+                );
+            }
+        }
+        // Its sides: the two curves, after its label, each the S in the metal.
+        let kids = active.children.as_ref();
+        assert_eq!(kids.len(), 3, "the label, then the two curves");
+        for (i, class) in [(1usize, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
+            assert!(tc::has_class(&kids[i], class));
+            let stroke = tc::find(&kids[i], CURVE_STROKE_CLASS).expect("the S");
+            assert_eq!(
+                colour(stroke, CssPropertyType::BorderTopColor, false, None),
+                Some(flora::TAB_METAL)
             );
         }
+        assert!(
+            tc::find(&bar(UiTheme::Flat), CURVE_LEFT_CLASS).is_none(),
+            "flat's native tabs are boxes"
+        );
     }
 
     #[test]
@@ -3934,9 +3983,11 @@ mod theme_tests {
                     "dark={dark}: tab {i}'s label darkens to the ink under the pointer"
                 );
                 assert_eq!(
-                    colour(tab, CssPropertyType::BorderBottomColor, dark, hover),
-                    Some(flora::TAB_METAL),
-                    "dark={dark}: a hovered tab keeps the rule at its foot"
+                    tc::resolve(tab, CssPropertyType::MarginBottom, dark, hover),
+                    Some(azul_css::props::property::CssProperty::const_margin_bottom(
+                        LayoutMarginBottom::const_px(2)
+                    )),
+                    "dark={dark}: a hovered tab still stands on the rule, which stays in sight"
                 );
             }
             // The arrow keys move focus to ANY tab, so every tab rings.
@@ -3990,9 +4041,27 @@ mod theme_tests {
         tc::assert_theme_invariants("flora tab panel", &padded);
     }
 
+    /// `dom` without the selected tab's curves, at any depth.
+    fn without_curves(dom: &Dom) -> Dom {
+        let mut d = dom.clone();
+        d.children = DomVec::from_vec(
+            dom.children
+                .as_ref()
+                .iter()
+                .filter(|c| {
+                    !tc::has_class(c, CURVE_LEFT_CLASS) && !tc::has_class(c, CURVE_RIGHT_CLASS)
+                })
+                .map(without_curves)
+                .collect(),
+        );
+        d
+    }
+
+    /// The tabs are the widget's in both looks; flora's selected tab only
+    /// adds its two curves.
     #[test]
     fn both_looks_build_the_same_tabs_datasets_and_accessibility_tree() {
-        let (flat, flora) = (bar(UiTheme::Flat), bar(UiTheme::Flora));
+        let (flat, flora) = (bar(UiTheme::Flat), without_curves(&bar(UiTheme::Flora)));
         let (a, b) = (tc::nodes(&flat), tc::nodes(&flora));
         assert_eq!(a.len(), b.len(), "the same tree of nodes");
         assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora));
@@ -4062,7 +4131,12 @@ mod structure_tests {
             (
                 "__azul-native-tabs-before-tabs",
                 CssPropertyType::FlexGrow,
-                "flat's leading spacer grows (1); flora's tabs start a fixed 8px in (0)",
+                "flat's leading spacer grows (1); flora's tabs start a fixed curve's width in (0)",
+            ),
+            (
+                "__azul-native-tabs-tab-active",
+                CssPropertyType::Position,
+                "flora hangs the Australis curves off its selected tab",
             ),
         ];
         for t in BOTH {
