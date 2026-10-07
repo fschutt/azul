@@ -35,6 +35,18 @@ Account opens the wizard and its Cancel returns to the mail window.
 The sample phase also prints: File > Print with the newsletter open makes its PDF (azul's PDF
 writer), draws the first page as the preview (PDF -> SVG -> picture) and Print writes the file.
 
+The local phase (`--phase local`, AZMAIL11: no account, no IMAP server): New E-mail opens a
+message window of its own (AZMAIL_COMPOSE_OPEN <window id> new) whose From line is typed; Save
+Draft puts the draft into Local Folders' Drafts (AZMAIL_DRAFT_SAVED, the folder pane lists it);
+Send leaves from this computer - through Local Folders' own sending.json, a relay that is down -
+so the mail waits in their Outbox with a note (AZMAIL_SEND_DONE <id> queued, the Outbox lists
+it); Send/Receive (F9) sends it once the relay (the SMTP sink) is up, into Local Folders' Sent
+Items (AZMAIL_OUTBOX_DONE); File > Info's New E-mail and Ctrl/Cmd+N open message windows with
+the From line remembered; File > Options opens a window of its own over File
+(AZMAIL_SETTINGS_OPEN <window id>) and Cancel closes it; Ctrl/Cmd+, opens it again, its To-Do Bar
+switch hides the main window's To-Do bar at once, and Escape (Cancel) brings it back - in
+settings.json too, the remembered From line kept.
+
 The submission phase (`--phase submission`, MAIL9 left 2) walks the Sending page's third choice:
 the sink is a submission server (`--auth`: MAIL needs a sign-in); after the wizard the account's
 own outgoing server (account.json `smtp`, which the wizard has no field for) is pointed at the sink
@@ -62,6 +74,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -928,6 +941,322 @@ class EmptyRun(Run):
             'was opened')
 
 
+# ---- the local phase (AZMAIL11): no account - writing, Local Folders, File > Options ----
+
+LOCAL_FROM = 'Ada Lovelace <ada@example.org>'
+LOCAL_TO = 'cleo@example.org'
+LOCAL_SUBJECT = 'Bulb order'
+LOCAL_LINE = 'Two hundred tulip bulbs, please.'
+OPTIONS_WINDOW = 'azmail-options'
+NO_MODIFIERS = {'shift': False, 'ctrl': False, 'alt': False, 'meta': False}
+
+
+def closed_port():
+    """A port of 127.0.0.1 nobody listens on (bound, then let go): a relay that is down."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+class LocalRun(Run):
+    """No account at all: a message is written in a window of its own, kept in Local Folders,
+    sent from this computer (here through a relay on this computer: the default route, straight
+    to the recipients' mail servers, is out of a test's reach); File > Options is a window of its
+    own whose Cancel puts the view back."""
+
+    def __init__(self, args):
+        super().__init__(args)
+        # The data root is the run's (settings.json, the To-Do bar's tasks); AzMail's folder is
+        # the usual one in it.
+        self.mail_root = os.path.join(self.data, 'mail')
+        self.local = os.path.join(self.mail_root, 'local')
+
+    def start_local_app(self):
+        binary = find_binary(self.args.bin)
+        env = {
+            'AZ_BACKEND': 'headless',
+            'AZ_DEBUG': str(self.debug),
+            'AZLIN_DATA': self.data,
+            # The look every Azlin app shares (~/.azlin/config.json) stays out of the run.
+            'AZLIN_CONFIG': 'off',
+            'AZMAIL_DATA': self.mail_root,
+        }
+        command = [binary, '--size', f'{MAIN_SIZE[0]}x{MAIN_SIZE[1]}']
+        if self.args.runner:
+            command = [self.args.runner, '--cap-mb', '1500', '--seconds',
+                       str(int(self.args.timeout) + 30), '--log',
+                       self.runner_log('azmail'), '--', 'env'] + \
+                      [f'{k}={v}' for k, v in env.items()] + command
+        log(f'AzMail: {binary} (no account, AZLIN_DATA={self.data})')
+        self.start('azmail', command, env)
+
+    def start_sink(self):
+        self.start('sink', [sys.executable, os.path.join(HERE, 'azmail_smtp_sink.py'), '0',
+                            self.sink_dir], {})
+        self.smtp_port = int(self.until('the SMTP sink', lambda: (re.search(
+            r'^AZMAIL_SINK_READY (\d+)$', self.output('sink'), re.M) or [None, None])[1]))
+        log(f'SMTP sink 127.0.0.1:{self.smtp_port}')
+
+    def write_local_route(self, port):
+        """Local Folders' own sending.json: through the SMTP server at `port` on this computer,
+        STARTTLS off. Read at every send and every Send/Receive."""
+        os.makedirs(self.local, exist_ok=True)
+        with open(os.path.join(self.local, 'sending.json'), 'w', encoding='utf-8') as f:
+            json.dump({'route': {'kind': 'smtp', 'host': '127.0.0.1', 'port': port},
+                       'tls': 'off'}, f, indent=2)
+            f.write('\n')
+
+    @staticmethod
+    def index(path):
+        try:
+            with open(path, encoding='utf-8') as f:
+                return [json.loads(line) for line in f if line.strip()]
+        except OSError:
+            return []
+
+    def outbox(self):
+        folder = os.path.join(self.local, 'outbox')
+        entries = []
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            if name.endswith('.json'):
+                with open(os.path.join(folder, name), encoding='utf-8') as f:
+                    entries.append(json.load(f))
+        return entries
+
+    def settings_value(self, key):
+        try:
+            with open(os.path.join(self.mail_root, 'settings.json'), encoding='utf-8') as f:
+                return (json.load(f).get('values') or {}).get(key)
+        except (OSError, ValueError):
+            return None
+
+    def has_class(self, cls, window=None):
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        return any(cls in (n.get('classes') or []) for n in nodes)
+
+    def window_ids(self):
+        answer = self.must('list_windows')
+        data = answer.get('data') if isinstance(answer, dict) else None
+        value = data.get('value') if isinstance(data, dict) and 'value' in data else data
+        return [w.get('window_id') for w in (value or {}).get('windows') or []]
+
+    def in_file(self):
+        return self.has_id(PREFIX + 'backstage')
+
+    def opened_new(self, count):
+        """The id of the `count`-th new message window, once it is open."""
+        def nth():
+            lines = self.printed('AZMAIL_COMPOSE_OPEN', r'\S+ new')
+            return lines[count - 1] if len(lines) >= count else None
+        window = self.until(f'new message window {count}', nth, limit=20).split()[0]
+        self.until(f'{window} over the debug server',
+                   lambda: self.shows('Untitled - Message (HTML)', window), limit=20)
+        return window
+
+    def close_compose(self, window):
+        self.must('close', window)
+        self.frame(None, 2)
+        self.until(f'{window} to close', lambda: window in self.printed('AZMAIL_COMPOSE_CLOSED'),
+                   limit=20)
+
+    def write_without_account(self):
+        """New E-mail (the ribbon) with no account: a message window of its own; From typed."""
+        self.click('New E-mail')
+        window = self.opened_new(1)
+        if window not in self.window_ids():
+            raise Failure(f'{window} is not a window of its own: {self.window_ids()}')
+        if self.has_id(PREFIX + 'compose_to'):
+            raise Failure('the message is drawn into the main window')
+        if not self.has_id(PREFIX + 'compose_from', window):
+            raise Failure('without an account the message window has no From field to type in')
+        if not self.shows('No account: AzMail sends this message from this computer', window):
+            raise Failure('the message window does not say how mail leaves without an account')
+        self.type_into(PREFIX + 'compose_from', LOCAL_FROM, window)
+        self.type_into(PREFIX + 'compose_to', LOCAL_TO, window)
+        self.type_into(PREFIX + 'compose_subject', LOCAL_SUBJECT, window)
+        self._focus_editor(window)
+        self.must('text_input', window, text=LOCAL_LINE)
+        self.frame(window, 2)
+        # The caret, not the node texts: typing does not rebuild the editor's DOM (reply()).
+        self.until('the typed line in the editor', lambda: self.caret(window) == (
+            'p#__azmail_compose_body-0.__azul-rte-block', len(LOCAL_LINE.encode('utf-8'))),
+            limit=20)
+        log(f'New E-mail without an account: {window}, a window of its own, From typed')
+        return window
+
+    def save_draft(self, window):
+        """Save Draft: Local Folders' Drafts, listed in the folder pane."""
+        self.click('Save Draft', window)
+        saved = self.until('the draft', lambda: [line for line in self.printed('AZMAIL_DRAFT_SAVED')
+                                                 if line.startswith(window + ' ')], limit=30)
+        drafts = self.index(os.path.join(self.local, 'mail', 'drafts', 'index.jsonl'))
+        if [d.get('subject') for d in drafts] != [LOCAL_SUBJECT]:
+            raise Failure(f'local/mail/drafts holds {drafts}')
+        if LOCAL_FROM.split('<')[1].rstrip('>') not in drafts[0].get('from', ''):
+            raise Failure(f'the draft is not from the typed address: {drafts[0]}')
+        self.until('the remembered From line',
+                   lambda: self.settings_value('local_from') == LOCAL_FROM, limit=20)
+        self.click_exact('Drafts')
+        self.until('Local Folders > Drafts to list the draft',
+                   lambda: self.shows(f'To: {LOCAL_TO}'), limit=20)
+        log(f'draft saved ({saved[-1]}): local/mail/drafts, listed under Local Folders > Drafts')
+
+    def send_to_outbox(self, window):
+        """Send while the relay is down: the mail waits in Local Folders' Outbox, the window
+        says so, and it is out of Drafts."""
+        self.click_id(PREFIX + 'compose_send', window)
+        done = self.until('the send', lambda: [line for line in self.printed('AZMAIL_SEND_DONE')
+                                               if line.startswith(window + ' ')], limit=60)
+        if done[-1].split(' ', 2)[1] != 'queued':
+            raise Failure(f'the mail did not wait in the Outbox: {done[-1]}')
+        self.until('the Outbox note in the message window',
+                   lambda: self.shows('In the Outbox of Local Folders', window), limit=20)
+        entries = self.outbox()
+        if [e.get('subject') for e in entries] != [LOCAL_SUBJECT] or \
+                entries[0].get('state') != 'queued':
+            raise Failure(f'local/outbox holds {entries}')
+        if self.index(os.path.join(self.local, 'mail', 'drafts', 'index.jsonl')):
+            raise Failure('the sent draft is still in Drafts')
+        self.until('Drafts to be empty', lambda: not self.shows(f'To: {LOCAL_TO}'), limit=20)
+        self.close_compose(window)
+        self.click_exact('Outbox')
+        self.until('Local Folders > Outbox to list the mail',
+                   lambda: self.shows(f'To: {LOCAL_TO}'), limit=20)
+        log(f'Send: {done[-1]} - in local/outbox and listed under Local Folders > Outbox')
+
+    def send_receive(self):
+        """Send/Receive (F9) without an account: Local Folders' Outbox goes out (the relay is up
+        now), into their Sent Items."""
+        self.start_sink()
+        self.write_local_route(self.smtp_port)
+        self.key('f9')
+        done = self.until('the Outbox to go out', lambda: self.printed(
+            'AZMAIL_OUTBOX_DONE', r'sent=\d+ queued=\d+ failed=\d+'), limit=60)
+        if done[-1] != 'sent=1 queued=0 failed=0':
+            raise Failure(f'Send/Receive: {done[-1]}')
+        eml = os.path.join(self.sink_dir, '0001.eml')
+        self.until('the sink to store the mail', lambda: os.path.isfile(eml), limit=20)
+        with open(eml, 'rb') as f:
+            msg = email.message_from_bytes(f.read(), policy=email.policy.default)
+        if msg['From'] != LOCAL_FROM or LOCAL_TO not in (msg['To'] or '') or \
+                msg['Subject'] != LOCAL_SUBJECT:
+            raise Failure(f'From {msg["From"]!r}, To {msg["To"]!r}, Subject {msg["Subject"]!r}')
+        if LOCAL_LINE not in msg.get_body(preferencelist=('plain',)).get_content():
+            raise Failure('the typed line is not in the text part')
+        if self.outbox():
+            raise Failure(f'local/outbox still holds {self.outbox()}')
+        sent = self.index(os.path.join(self.local, 'mail', 'sent', 'index.jsonl'))
+        if [e.get('subject') for e in sent] != [LOCAL_SUBJECT]:
+            raise Failure(f'local/mail/sent holds {sent}')
+        self.click_exact('Sent Items')
+        self.until('Local Folders > Sent Items to list it',
+                   lambda: self.shows(f'To: {LOCAL_TO}'), limit=20)
+        log('Send/Receive sent the Outbox from this computer: the sink got it, Sent Items has it')
+
+    def more_ways_to_write(self):
+        """File > Info's New E-mail and Ctrl/Cmd+N: message windows too, the From line
+        remembered."""
+        self.click_exact('File')
+        self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
+        self.click_id(PREFIX + 'info_new_mail')
+        window = self.opened_new(2)
+        self.until('the remembered From line', lambda: self.shows(LOCAL_FROM, window), limit=20)
+        self.close_compose(window)
+        if not self.in_file():
+            raise Failure('the main window left File when the message window opened')
+        self.click_exact('Home')
+        self.until('the mail window', lambda: not self.in_file(), limit=20)
+        self.key('n', primary=True)
+        self.close_compose(self.opened_new(3))
+        log("File > Info's New E-mail and Ctrl/Cmd+N open message windows, From remembered")
+
+    def options_window(self):
+        """File > Options: a window of its own over File; Cancel closes it, File stays."""
+        self.click_exact('File')
+        self.until('File > Info', lambda: self.has_id(PREFIX + 'page_info'), limit=20)
+        self.click_exact('Options')
+        opened = self.until('the Options window', lambda: self.printed('AZMAIL_SETTINGS_OPEN'),
+                            limit=20)
+        if opened[-1] != OPTIONS_WINDOW:
+            raise Failure(f'AZMAIL_SETTINGS_OPEN {opened[-1]}')
+        self.until('the Options window over the debug server',
+                   lambda: self.has_id('appkit-settings', OPTIONS_WINDOW), limit=20)
+        if OPTIONS_WINDOW not in self.window_ids():
+            raise Failure(f'no window {OPTIONS_WINDOW}: {self.window_ids()}')
+        if self.has_id('appkit-settings'):
+            raise Failure('File > Options drew its page into the main window')
+        if not self.in_file():
+            raise Failure('the main window left File when the Options window opened')
+        if not self.has_id(PREFIX + 'option_todo_bar', OPTIONS_WINDOW):
+            raise Failure("the Options window does not open at AzMail's Mail page")
+        self.settle(OPTIONS_WINDOW)
+        self.must('click', OPTIONS_WINDOW, selector='#appkit-settings-cancel')
+        self.frame(None)
+        self.until('Cancel to close the Options window', lambda: OPTIONS_WINDOW in self.printed(
+            'AZMAIL_SETTINGS_WINDOW_CLOSED'), limit=20)
+        if 'cancel' not in self.printed('AZMAIL_SETTINGS_CLOSED'):
+            raise Failure(f'AZMAIL_SETTINGS_CLOSED {self.printed("AZMAIL_SETTINGS_CLOSED")}')
+        self.until('the Options window to be gone',
+                   lambda: OPTIONS_WINDOW not in self.window_ids(), limit=20)
+        if not self.in_file():
+            raise Failure('the main window did not stay as it was (File > Info)')
+        log('File > Options: a window of its own over File; Cancel closed it, File stayed')
+
+    def options_cancel_puts_the_view_back(self):
+        """Ctrl/Cmd+, from the mail: the To-Do Bar switch hides the main window's To-Do bar at
+        once; Escape (Cancel) closes the window and brings it back, in settings.json too."""
+        self.click_exact('Home')
+        self.until('the mail window', lambda: not self.in_file(), limit=20)
+        self.until('the To-Do bar', lambda: self.has_class('__azul-native-todo-bar'), limit=20)
+        self.key('comma', primary=True)
+        self.until('the Options window again', lambda: len(self.printed('AZMAIL_SETTINGS_OPEN'))
+                   >= 2, limit=20)
+        self.until('its Mail page', lambda: self.has_id(PREFIX + 'option_todo_bar',
+                                                        OPTIONS_WINDOW), limit=20)
+        self.click_id(PREFIX + 'option_todo_bar', OPTIONS_WINDOW)
+        self.until('the main window to hide its To-Do bar',
+                   lambda: not self.has_class('__azul-native-todo-bar'), limit=20)
+        self.until('settings.json to say so', lambda: self.settings_value('todo_bar') == 'false',
+                   limit=20)
+        # Escape is Cancel; the window closes with it (its key_up may find it gone).
+        self.must('key_down', OPTIONS_WINDOW, key='escape', modifiers=NO_MODIFIERS)
+        try:
+            self.op('key_up', OPTIONS_WINDOW, key='escape', modifiers=NO_MODIFIERS)
+        except (OSError, ValueError):
+            pass
+        self.frame(None, 2)
+        self.until('Escape to close the Options window', lambda: self.printed(
+            'AZMAIL_SETTINGS_WINDOW_CLOSED').count(OPTIONS_WINDOW) >= 2, limit=20)
+        self.until('the To-Do bar back in the main window',
+                   lambda: self.has_class('__azul-native-todo-bar'), limit=20)
+        self.until('settings.json back', lambda: self.settings_value('todo_bar') in (None, 'true'),
+                   limit=20)
+        if self.settings_value('local_from') != LOCAL_FROM:
+            raise Failure('Cancel forgot the remembered From line (it records what was typed)')
+        log('Ctrl/Cmd+, opened Options; a switch showed in the main window at once; Escape put '
+            'the view back (settings.json too)')
+
+    def run(self):
+        log(f'logs and data: {self.tmp}')
+        os.makedirs(self.data)
+        os.makedirs(self.sink_dir)
+        # Local Folders send through a relay on this computer that is down: Send waits.
+        self.write_local_route(closed_port())
+        self.start_local_app()
+        self.check_empty_main_window()
+        # The folder pane's group (the empty list's text names Local Folders too).
+        self.until('Local Folders in the folder pane',
+                   lambda: self.node_with_text('Local Folders'), limit=20)
+        window = self.write_without_account()
+        self.save_draft(window)
+        self.send_to_outbox(window)
+        self.send_receive()
+        self.more_ways_to_write()
+        self.options_window()
+        self.options_cancel_puts_the_view_back()
+
+
 # ---- the submission phase (MAIL9 left 2): the Sending page's third choice and DKIM ----
 
 SUBMISSION_TO = 'ben@example.org'
@@ -1122,17 +1451,25 @@ def main():
     parser.add_argument('--timeout', type=float, default=150)
     parser.add_argument('--runner', help='run_capped.sh (caps the app\'s memory and time)')
     parser.add_argument('--keep-logs', action='store_true')
-    parser.add_argument('--phase', choices=('all', 'empty', 'sample', 'account', 'submission'),
+    parser.add_argument('--phase', choices=('all', 'empty', 'local', 'sample', 'account',
+                                            'submission'),
                         default='all',
                         help='empty: no account - the real window, File, the ways back (no '
-                             'servers); sample: --sample, the look and the app-kit flows (no '
-                             'servers); account: the wizard, IMAP, SMTP; submission: Account '
-                             'Settings, Sending: the signed-in route and DKIM, a mail to the sink')
+                             'servers); local: no account - a message window, Local Folders '
+                             '(Drafts, Outbox, Sent Items), Send/Receive, File > Options in its '
+                             'own window (the SMTP sink only); sample: --sample, the look and the '
+                             'app-kit flows (no servers); account: the wizard, IMAP, SMTP; '
+                             'submission: Account Settings, Sending: the signed-in route and '
+                             'DKIM, a mail to the sink')
     args = parser.parse_args()
     passed = True
     if args.phase in ('all', 'empty'):
         passed &= run_phase(EmptyRun, args, 'empty: the real window with no account, File '
                                             '(Info, Help, Print), Home / Escape / Cancel')
+    if args.phase in ('all', 'local'):
+        passed &= run_phase(LocalRun, args, 'local: no account - a message window of its own, '
+                                            'Local Folders (Drafts, Outbox, Sent Items), '
+                                            'Send/Receive, File > Options in its own window')
     if args.phase in ('all', 'sample'):
         passed &= run_phase(SampleRun, args, 'sample: the window fills, ids, To-Do bar store, '
                                              'compose window, close guard, HTML mail, File > '
