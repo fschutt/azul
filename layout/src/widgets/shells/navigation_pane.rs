@@ -309,6 +309,13 @@ pub struct ShellNavigationPane {
     pub theme: OptionUiTheme,
     /// Collapsed to the strip of module icons.
     pub collapsed: bool,
+    /// Outlook 2010's pane: every group IS its tree - no group header over
+    /// it, the tree's root row (the account's address, with its disclosure
+    /// triangle) heads it, and the trees follow one another down the pane.
+    /// A root's triangle is the tree's own toggle (`NodeToggled`, index 0);
+    /// there is no `GroupToggled`. `false` (the default): each group under
+    /// its header, as a file manager's groups.
+    pub trees_only: bool,
 }
 
 impl ShellNavigationPane {
@@ -324,7 +331,21 @@ impl ShellNavigationPane {
             active_module: 0,
             theme: OptionUiTheme::None,
             collapsed: false,
+            trees_only: false,
         }
+    }
+
+    /// Every group is its tree, headed by the tree's root (see
+    /// [`Self::trees_only`]).
+    pub const fn set_trees_only(&mut self, trees_only: bool) {
+        self.trees_only = trees_only;
+    }
+
+    /// [`Self::set_trees_only`] for the builder chain.
+    #[must_use]
+    pub const fn with_trees_only(mut self, trees_only: bool) -> Self {
+        self.set_trees_only(trees_only);
+        self
     }
 
     /// The slot above the groups.
@@ -824,6 +845,54 @@ fn footer(collapsed: bool, on_event: &OptionShellNavigationPaneOnEvent, inner: O
         .with_child(button.dom().with_accessibility_name(name))
 }
 
+/// One group's tree, reporting its clicks, toggles and drops as the group's.
+fn group_tree(
+    tree: TreeViewNode,
+    group: usize,
+    is_open: bool,
+    on_event: &OptionShellNavigationPaneOnEvent,
+    inner: Option<UiTheme>,
+) -> TreeView {
+    let group_ref = RefAny::new(PartRef {
+        on_event: on_event.clone(),
+        group,
+        index: 0,
+        expand: is_open,
+    });
+    let mut tree = TreeView::new(tree)
+        .with_on_node_click(group_ref.clone(), on_tree_click as TreeViewOnNodeClickCallbackType)
+        .with_on_node_toggle(group_ref.clone(), on_tree_toggle as TreeViewOnNodeToggleCallbackType);
+    // A pane the app listens to is a drop target: a drop on a node is
+    // its `NodeDropped`.
+    if on_event.is_some() {
+        tree = tree.with_on_node_drop(group_ref, on_tree_drop as TreeViewOnNodeDropCallbackType);
+    }
+    if let Some(t) = inner {
+        tree = tree.with_theme(t);
+    }
+    tree
+}
+
+/// The groups of a `trees_only` pane: every tree in the scroll column, one
+/// under the other, each headed by its own root row.
+fn trees(
+    groups: ShellNavigationGroupVec,
+    on_event: &OptionShellNavigationPaneOnEvent,
+    inner: Option<UiTheme>,
+    look: &ShellLook,
+) -> Dom {
+    let trees: Vec<Dom> = groups
+        .into_library_owned_vec()
+        .into_iter()
+        .enumerate()
+        .map(|(i, g)| group_tree(g.tree, i, g.is_open, on_event, inner).dom())
+        .collect();
+    Dom::create_div()
+        .with_class(AzString::from_const_str(GROUPS_CLASS))
+        .with_css_props(part(SCROLL_COLUMN_BASE, &look.nav_groups))
+        .with_children(DomVec::from_vec(trees))
+}
+
 /// The groups: the accordion in its Groups variant, a tree per body.
 fn groups(
     groups: ShellNavigationGroupVec,
@@ -837,23 +906,7 @@ fn groups(
         .into_iter()
         .enumerate()
         .map(|(i, g)| {
-            let group_ref = RefAny::new(PartRef {
-                on_event: on_event.clone(),
-                group: i,
-                index: 0,
-                expand: g.is_open,
-            });
-            let mut tree = TreeView::new(g.tree)
-                .with_on_node_click(group_ref.clone(), on_tree_click as TreeViewOnNodeClickCallbackType)
-                .with_on_node_toggle(group_ref.clone(), on_tree_toggle as TreeViewOnNodeToggleCallbackType);
-            // A pane the app listens to is a drop target: a drop on a node is
-            // its `NodeDropped`.
-            if on_event.is_some() {
-                tree = tree.with_on_node_drop(group_ref, on_tree_drop as TreeViewOnNodeDropCallbackType);
-            }
-            if let Some(t) = inner {
-                tree = tree.with_theme(t);
-            }
+            let tree = group_tree(g.tree, i, g.is_open, on_event, inner);
             let mut section = AccordionSection::new(g.title, tree.dom()).with_open(g.is_open);
             if let OptionUsize::Some(n) = g.count {
                 section = section.with_count(n);
@@ -893,6 +946,7 @@ pub(crate) fn build(pane: ShellNavigationPane, look: &ShellLook) -> Dom {
         active_module,
         theme,
         collapsed,
+        trees_only,
     } = pane;
     let inner = inner_theme(theme);
     let mut classes = root_classes(NAV_CLASS, look).into_library_owned_vec();
@@ -911,7 +965,11 @@ pub(crate) fn build(pane: ShellNavigationPane, look: &ShellLook) -> Dom {
                     .with_child(h),
             );
         }
-        children.push(groups(pane_groups, &on_event, inner, look));
+        children.push(if trees_only {
+            trees(pane_groups, &on_event, inner, look)
+        } else {
+            groups(pane_groups, &on_event, inner, look)
+        });
         if !modules.as_ref().is_empty() {
             children.push(switcher(modules, active_module, false, &on_event, inner, look));
         }
@@ -1190,5 +1248,60 @@ mod drop_tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, ShellNavigationPaneEventKind::NodeDropped);
         assert_eq!((events[0].group, events[0].index), (1, 2));
+    }
+}
+
+/// Outlook 2010's pane (`trees_only`): the trees under no group headers.
+#[cfg(test)]
+mod trees_only_tests {
+    use azul_core::dom::NodeType;
+
+    use super::*;
+    use crate::widgets::{
+        shells::fixtures::navigation_pane,
+        themes::{theme_checks as tc, UiTheme},
+    };
+
+    fn texts(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Text(t) = node.root.get_node_type() {
+            if !t.as_str().is_empty() {
+                out.push(t.as_str().to_string());
+            }
+        }
+        for c in node.children.as_ref() {
+            out.extend(texts(c));
+        }
+        out
+    }
+
+    #[test]
+    fn a_trees_only_pane_heads_every_tree_with_its_root_and_no_group_header() {
+        let dom = navigation_pane()
+            .with_trees_only(true)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let groups = tc::find(&dom, GROUPS_CLASS).expect("the groups column");
+        assert!(
+            tc::find(groups, "__azul-native-accordion").is_none(),
+            "no accordion: the trees are the groups"
+        );
+        let trees = groups.children.as_ref();
+        assert_eq!(trees.len(), 2, "one tree per group");
+        for tree in trees {
+            assert!(tc::has_class(tree, "__azul-native-tree-view"));
+        }
+        // The account's address once - its tree's root row - not again over
+        // it as a group header.
+        let all = texts(groups);
+        assert_eq!(
+            all.iter().filter(|t| t.as_str() == "me@example.org").count(),
+            1,
+            "{all:?}"
+        );
+        // The default keeps the headers.
+        let headed = navigation_pane().with_theme(UiTheme::Flat).dom();
+        let groups = tc::find(&headed, GROUPS_CLASS).expect("the groups column");
+        assert!(tc::find(groups, "__azul-native-accordion").is_some());
     }
 }

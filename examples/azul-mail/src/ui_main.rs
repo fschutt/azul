@@ -3,12 +3,17 @@
 //! ```text
 //! title row (azul's Titlebar: the window is NoTitle)
 //! ribbon: File | Home | Send / Receive | Folder | View      (File: its tab row over the backstage)
-//! navigation pane | message list           | reading pane        | To-Do bar
-//! (Favorites, the  | (search, Arrange By:   | (subject, sender,   | (calendar,
-//!  accounts' trees,|  Date, grouped rows)   |  pictures bar, body)|  tasks)
-//!  modules)        |                        |                     |
-//! status bar: items, unread, filter, Send / Receive state
+//! navigation pane  | message list           | reading pane        | To-Do bar
+//! (Drag Your Favor-| (search, Arrange By:   | (subject, sender,   | (calendar,
+//!  ite Folders Here|  Date, grouped two-line|  Sent / To / Cc,    |  appointments,
+//!  the accounts'   |  rows)                 |  attachments, body, |  tasks)
+//!  trees, modules) |                        |  People Pane)       |
+//! status bar: Items, Unread, a notice | All folders are up to date. Connected to ... | zoom
 //! ```
+//!
+//! The ribbon is Outlook 2010's, tab for tab and control kind for control kind (see
+//! [`ribbon`]): Home's New | Delete | Respond | Quick Steps | Move | Tags | Find, Send /
+//! Receive, Folder, View.
 //!
 //! With no account the window is the same, empty: the message list says "No account yet" and
 //! offers Add Account (the wizard, `ui_account.rs`). File is `ui_backstage.rs`.
@@ -21,17 +26,18 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ModalOnCloseCallbackType,
-        SummaryListOnEventCallbackType, ReadingPaneOnEventCallbackType, ResumeCallbackType,
-        RibbonOnTabClickCallbackType, ShellNavigationPaneOnEventCallbackType,
-        SliderOnValueChangeCallbackType, StandardDialogOnEventCallbackType,
-        ToDoBarOnEventCallbackType, WriteBackCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType, ComboBoxOnSelectCallbackType,
+        ModalOnCloseCallbackType, SummaryListOnEventCallbackType, ReadingPaneOnEventCallbackType,
+        ResumeCallbackType, RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType,
+        ShellNavigationPaneOnEventCallbackType, SliderOnValueChangeCallbackType,
+        StandardDialogOnEventCallbackType, ToDoBarOnEventCallbackType, WriteBackCallbackType,
     },
     dom::VirtualKeyCode,
     error::ResultRawImageDecodeImageError,
     http::{HttpBytesResult, HttpRequestConfig},
     image::{ImageRef, RawImage},
-    option::{OptionCssPropertyWithConditionsVec, OptionThreadSendMsg},
+    menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, MenuPopupPosition, StringMenuItem},
+    option::{OptionCssPropertyWithConditionsVec, OptionMenuItemIcon, OptionThreadSendMsg},
     prelude::*,
     shells::{
         PimShell, ShellEmptyState, ShellNavigationGroup, ShellNavigationModule,
@@ -41,10 +47,11 @@ use azul::{
     str::String as AzString,
     vec::U8VecRef,
     widgets::{
-        AboutDialog, CheckBoxState, InfoBar, SummaryList, SummaryListEvent, Modal, ModalState,
-        StandardDialogEvent,
+        AboutDialog, CheckBoxState, ComboBox, ComboBoxState, InfoBar, SummaryList,
+        SummaryListEvent, Modal, ModalState, StandardDialogEvent,
         SummaryListEventKind, SummaryRow, ReadingPane, ReadingPaneEvent, ReadingPaneEventKind,
-        Ribbon, RibbonAppButton, RibbonBehavior, RibbonButton, RibbonGroup, RibbonItem, RibbonTab,
+        Ribbon, RibbonAppButton, RibbonArrow, RibbonBehavior, RibbonButton, RibbonGallery,
+        RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonStyle, RibbonTab,
         StatusBar, SliderState, StatusBarSegment, StatusBarSync, StatusBarSyncKind, StatusBarZoom,
         Titlebar, ToDoBar, ToDoBarEvent, ToDoBarEventKind, ToDoTask, TreeViewNode,
     },
@@ -386,7 +393,6 @@ pub(crate) enum Action {
     ToggleRead,
     ToggleFlag,
     MarkAllRead,
-    UnreadOnly,
     ReverseSort,
     ToggleNavigation,
     ToggleReading,
@@ -408,7 +414,54 @@ pub(crate) enum Action {
     Options,
     /// File > Help > About AzMail: the About box.
     About,
+    /// Home > New Items: the menu of the new items AzMail makes.
+    NewItemsMenu,
+    /// A command AzMail does not have (yet): its line in the status bar says why.
+    Notice(&'static str),
+    /// Home > Respond > More: the menu of the other answers.
+    MoreRespondMenu,
+    /// Home > Tags > Follow Up's arrow: the flag's menu.
+    FollowUpMenu,
+    /// Home > Find > Address Book: the Contacts module.
+    AddressBook,
+    /// Home > Find > Filter E-mail: the filter menu.
+    FilterMenu,
+    /// Show every message (`false`) or only the unread ones (`true`).
+    FilterUnread(bool),
+    /// Send / Receive > Send/Receive Groups: the menu of what one Send / Receive covers.
+    SendReceiveGroupsMenu,
+    /// Send / Receive > Show Progress: how the Send / Receive goes, in the status bar.
+    ShowProgress,
+    /// Folder > Folder Properties: the shown folder's facts, in the status bar.
+    FolderProperties,
+    /// View > Layout's menus (Navigation Pane, Reading Pane, To-Do Bar).
+    NavigationPaneMenu,
+    ReadingPaneMenu,
+    TodoBarMenu,
+    /// Show (`true`) or hide the navigation pane, the reading pane, the To-Do bar.
+    ShowNavigation(bool),
+    ShowReading(bool),
+    ShowTodo(bool),
 }
+
+/// Outlook 2010's Quick Steps (icon, name, what it does in AzMail): two columns of three.
+const QUICK_STEPS: [(&str, &str, Action); 6] = [
+    ("drive_file_move", "Move to: ?", Action::Move),
+    ("group", "Team E-mail", Action::NewMail),
+    ("reply", "Reply & Delete", Action::Reply),
+    ("forward", "To Manager", Action::Forward),
+    ("done", "Done", Action::Done),
+    ("add", "Create New", Action::Notice(QUICK_STEPS_FIXED)),
+];
+
+/// Why the commands that change the server's folders are not there yet.
+const READ_ONLY: &str = "AzMail keeps the server's folders as they are (it receives read-only); \
+                         deleting, moving and filing come with two-way sync.";
+/// Why Quick Steps cannot be made yet.
+const QUICK_STEPS_FIXED: &str = "AzMail's Quick Steps are fixed: Move to, Team E-mail, Reply & \
+                                 Delete, To Manager, Done.";
+/// Why the server tools of Send / Receive are greyed.
+const WHOLE_MESSAGES: &str = "AzMail downloads whole messages: there are no headers to mark.";
 
 pub(crate) struct ActionRef {
     app: RefAny,
@@ -526,11 +579,6 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 let uids: Vec<u32> = s.entries.iter().map(|e| e.uid).collect();
                 mark_read(s, info, app, &uids, true);
             }
-            Action::UnreadOnly => {
-                s.scope = if s.scope == 1 { 0 } else { 1 };
-                s.first_row = 0;
-                s.rebuild_view();
-            }
             Action::ReverseSort => {
                 s.newest_first = !s.newest_first;
                 s.first_row = 0;
@@ -579,10 +627,149 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 s.editor = None;
             }
             Action::About => s.about_open = true,
+            Action::Notice(text) => s.notice = String::from(text),
+            Action::NewItemsMenu => {
+                open_menu_below(
+                    info,
+                    vec![
+                        menu_item(&app, "E-mail Message", Action::NewMail),
+                        MenuItem::Separator,
+                        greyed_item("Appointment"),
+                        greyed_item("Meeting"),
+                        greyed_item("Contact"),
+                        greyed_item("Task"),
+                    ],
+                );
+                return Update::DoNothing;
+            }
+            Action::MoreRespondMenu => {
+                open_menu_below(
+                    info,
+                    vec![
+                        menu_item(&app, "Forward", Action::Forward),
+                        greyed_item("Forward as Attachment"),
+                        greyed_item("Reply with Meeting"),
+                    ],
+                );
+                return Update::DoNothing;
+            }
+            Action::FollowUpMenu => {
+                open_menu_below(info, vec![menu_item(&app, "Flag / Clear Flag", Action::ToggleFlag)]);
+                return Update::DoNothing;
+            }
+            Action::FilterMenu => {
+                open_menu_below(
+                    info,
+                    vec![
+                        check_item(&app, "All Mail", Action::FilterUnread(false), s.scope == 0),
+                        check_item(&app, "Unread", Action::FilterUnread(true), s.scope == 1),
+                    ],
+                );
+                return Update::DoNothing;
+            }
+            Action::SendReceiveGroupsMenu => {
+                open_menu_below(
+                    info,
+                    vec![menu_item(&app, "All Accounts", Action::SendReceive)],
+                );
+                return Update::DoNothing;
+            }
+            Action::NavigationPaneMenu => {
+                open_menu_below(
+                    info,
+                    vec![
+                        check_item(&app, "Normal", Action::ShowNavigation(true), !s.nav_collapsed),
+                        check_item(&app, "Minimized", Action::ShowNavigation(false), s.nav_collapsed),
+                    ],
+                );
+                return Update::DoNothing;
+            }
+            Action::ReadingPaneMenu => {
+                open_menu_below(
+                    info,
+                    vec![
+                        check_item(&app, "Right", Action::ShowReading(true), s.show_reading),
+                        check_item(&app, "Off", Action::ShowReading(false), !s.show_reading),
+                    ],
+                );
+                return Update::DoNothing;
+            }
+            Action::TodoBarMenu => {
+                open_menu_below(
+                    info,
+                    vec![
+                        check_item(&app, "Normal", Action::ShowTodo(true), s.show_todo),
+                        check_item(&app, "Off", Action::ShowTodo(false), !s.show_todo),
+                    ],
+                );
+                return Update::DoNothing;
+            }
+            Action::FilterUnread(unread) => {
+                s.scope = usize::from(unread);
+                s.first_row = 0;
+                s.rebuild_view();
+            }
+            Action::AddressBook => s.module = 2,
+            Action::ShowProgress => {
+                s.notice = match &s.sync {
+                    SyncState::Running {
+                        status, percent, ..
+                    } => format!("Send/Receive: {status} ({percent:.0}%)."),
+                    SyncState::Done(text) | SyncState::Failed(text) => format!("Last Send/Receive: {text}"),
+                    SyncState::Idle => String::from("Nothing is being sent or received."),
+                };
+            }
+            Action::FolderProperties => {
+                let unread = s.view.iter().filter(|e| !s.flags.is_read(e)).count();
+                let folder = current_folder_label(s).unwrap_or_else(|| String::from("No folder"));
+                s.notice = format!("{folder}: {} items, {unread} unread.", s.entries.len());
+            }
+            Action::ShowNavigation(on) => {
+                s.nav_collapsed = !on;
+                remember(s, info, SET_NAVIGATION_COLLAPSED, s.nav_collapsed);
+            }
+            Action::ShowReading(on) => {
+                s.show_reading = on;
+                remember(s, info, SET_READING_PANE, s.show_reading);
+            }
+            Action::ShowTodo(on) => {
+                s.show_todo = on;
+                remember(s, info, SET_TODO_BAR, s.show_todo);
+            }
         }
         Update::RefreshDom
     })
     .unwrap_or(Update::DoNothing)
+}
+
+// ==== Menus (a ribbon button's ▾) ====
+
+/// A menu entry running `action`.
+fn menu_item(app: &RefAny, label: &str, action: Action) -> MenuItem {
+    MenuItem::String(StringMenuItem::create(label).with_callback(action_ref(app, action), on_action))
+}
+
+/// A menu entry with a check mark (the state it is in).
+fn check_item(app: &RefAny, label: &str, action: Action, checked: bool) -> MenuItem {
+    let mut item = StringMenuItem::create(label).with_callback(action_ref(app, action), on_action);
+    item.icon = OptionMenuItemIcon::Some(MenuItemIcon::Checkbox(checked));
+    MenuItem::String(item)
+}
+
+/// A menu entry AzMail has not got: greyed.
+fn greyed_item(label: &str) -> MenuItem {
+    let mut item = StringMenuItem::create(label);
+    item.menu_item_state = MenuItemState::Greyed;
+    MenuItem::String(item)
+}
+
+/// Opens `items` as a drop-down under the ribbon button that asked for it (where the pointer
+/// is when there is none).
+fn open_menu_below(info: &mut CallbackInfo, items: Vec<MenuItem>) {
+    let menu = Menu::create(items).with_popup_position(MenuPopupPosition::BottomOfHitRect);
+    if !info.open_menu_for_hit_node(menu.clone()) {
+        info.open_menu(menu);
+    }
 }
 
 /// Leaves File for the mail - not while an account is being saved (its typed secret goes to
@@ -599,6 +786,11 @@ fn leave_backstage(s: &mut MailApp) {
 
 /// The ribbon; with `file_open` only its tab row (File lit, no tab active, the band hidden),
 /// over the backstage: Outlook 2010's File is the ribbon's first tab.
+///
+/// Every tab is Outlook 2010's, control kind for control kind: large buttons (icon over a label
+/// of one or two lines, a menu's ▾ under it), small ones stacked three to a column, Follow Up a
+/// split button, Quick Steps a list gallery, Find a Contact a combo box. What AzMail cannot do
+/// (it receives read-only) says why in the status bar, or is greyed with its reason.
 pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
     let button = |icon: &str, label: &str, action: Action| {
         RibbonButton::create(icon, label)
@@ -607,85 +799,181 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
     let big = |icon: &str, label: &str, action: Action| {
         RibbonItem::LargeButton(button(icon, label, action))
     };
+    let big_menu = |icon: &str, label: &str, action: Action| {
+        RibbonItem::LargeButton(button(icon, label, action).with_arrow(RibbonArrow::Menu))
+    };
     let small = |icon: &str, label: &str, action: Action| {
         RibbonItem::SmallButton(button(icon, label, action))
+    };
+    let small_menu = |icon: &str, label: &str, action: Action| {
+        RibbonItem::SmallButton(button(icon, label, action).with_arrow(RibbonArrow::Menu))
     };
     let toggle = |icon: &str, label: &str, action: Action, on: bool| {
         RibbonItem::SmallButton(button(icon, label, action).with_toggled(on))
     };
+    // A command AzMail has not got: greyed, its reason the tooltip.
+    let off = |icon: &str, label: &str, why: &str| {
+        RibbonButton::create(icon, label).with_disabled(why)
+    };
     let syncing = matches!(s.sync, SyncState::Running { .. });
 
+    // Home: New | Delete | Respond | Quick Steps | Move | Tags | Find.
+    let quick_steps: Vec<RibbonGalleryCell> = QUICK_STEPS
+        .iter()
+        .map(|(icon, label, _)| RibbonGalleryCell::create(Dom::create_icon(*icon), *label))
+        .collect();
+    let quick_steps = RibbonGallery::create(quick_steps)
+        .with_columns(2)
+        .with_on_select(app.clone(), on_quick_step as RibbonGalleryOnSelectCallbackType);
+    let follow_up = button("flag", "Follow Up", Action::ToggleFlag).with_on_arrow_click(
+        action_ref(app, Action::FollowUpMenu),
+        on_action as ButtonOnClickCallbackType,
+    );
     let home = RibbonTab::create("Home")
-        .with_group(RibbonGroup::create("New").with_item(big("mail", "New E-mail", Action::NewMail)))
-        .with_group(RibbonGroup::create("Delete").with_item(big("delete", "Delete", Action::Delete)))
+        .with_group(
+            RibbonGroup::create("New")
+                .with_item(big("mail", "New E-mail", Action::NewMail))
+                .with_item(big_menu("description", "New Items", Action::NewItemsMenu)),
+        )
+        .with_group(
+            RibbonGroup::create("Delete")
+                .with_item(small("visibility_off", "Ignore", Action::Notice(READ_ONLY)))
+                .with_item(small_menu("cleaning_services", "Clean Up", Action::Notice(READ_ONLY)))
+                .with_item(small_menu("report", "Junk", Action::Notice(READ_ONLY)))
+                .with_item(big("delete", "Delete", Action::Delete)),
+        )
         .with_group(
             RibbonGroup::create("Respond")
                 .with_item(big("reply", "Reply", Action::Reply))
                 .with_item(big("reply_all", "Reply All", Action::ReplyAll))
-                .with_item(big("forward", "Forward", Action::Forward)),
+                .with_item(big("forward", "Forward", Action::Forward))
+                .with_item(small(
+                    "calendar_month",
+                    "Meeting",
+                    Action::Notice("Meetings are AzCalendar's: plan one there."),
+                ))
+                .with_item(small_menu("more_horiz", "More", Action::MoreRespondMenu)),
         )
         .with_group(
             RibbonGroup::create("Quick Steps")
-                .with_item(small("done", "Done", Action::Done))
-                .with_item(small("group", "Team E-mail", Action::NewMail))
-                .with_item(small("reply", "Reply & Delete", Action::Reply)),
+                .with_item(RibbonItem::Gallery(quick_steps))
+                .with_launcher(
+                    action_ref(app, Action::Notice(QUICK_STEPS_FIXED)),
+                    on_action as ButtonOnClickCallbackType,
+                ),
         )
         .with_group(
             RibbonGroup::create("Move")
-                .with_item(small("drive_file_move", "Move", Action::Move))
-                .with_item(small("rule", "Rules", Action::Move)),
+                .with_item(big_menu("drive_file_move", "Move", Action::Move))
+                .with_item(big_menu("rule", "Rules", Action::Notice(READ_ONLY))),
         )
         .with_group(
             RibbonGroup::create("Tags")
-                .with_item(small("mark_email_unread", "Unread/Read", Action::ToggleRead))
-                .with_item(small("flag", "Follow Up", Action::ToggleFlag)),
+                .with_item(big("mark_email_unread", "Unread/ Read", Action::ToggleRead))
+                .with_item(big_menu(
+                    "label",
+                    "Categorize",
+                    Action::Notice("Categories come with two-way sync."),
+                ))
+                .with_item(RibbonItem::LargeButton(follow_up)),
         )
-        .with_group(RibbonGroup::create("Find").with_item(toggle(
-            "filter_list",
-            "Unread Mail",
-            Action::UnreadOnly,
-            s.scope == 1,
-        )))
         .with_group(
-            RibbonGroup::create("Send/Receive")
-                .with_item(big("sync", "Send/Receive All Folders", Action::SendReceive)),
+            RibbonGroup::create("Find")
+                .with_item(RibbonItem::Combo(find_contact(s, app)))
+                .with_item(small("contacts", "Address Book", Action::AddressBook))
+                .with_item(small_menu("filter_list", "Filter E-mail", Action::FilterMenu)),
         );
-    let send_receive = RibbonTab::create("Send / Receive").with_group(
-        RibbonGroup::create("Send & Receive")
-            .with_item(big("sync", "Send/Receive All Folders", Action::SendReceive))
-            .with_item(toggle("cancel", "Cancel All", Action::CancelSendReceive, syncing)),
-    );
+
+    // Send / Receive: Send & Receive | Download | Server.
+    let mut cancel_all = button("cancel", "Cancel All", Action::CancelSendReceive);
+    if !syncing {
+        cancel_all = cancel_all.with_disabled("Nothing is being sent or received.");
+    }
+    let send_receive = RibbonTab::create("Send / Receive")
+        .with_group(
+            RibbonGroup::create("Send & Receive")
+                .with_item(big("sync", "Send/Receive All Folders", Action::SendReceive))
+                .with_item(small("refresh", "Update Folder", Action::SendReceive))
+                .with_item(small("send", "Send All", Action::SendReceive))
+                .with_item(small_menu("folder", "Send/Receive Groups", Action::SendReceiveGroupsMenu)),
+        )
+        .with_group(
+            RibbonGroup::create("Download")
+                .with_item(big("hourglass_empty", "Show Progress", Action::ShowProgress))
+                .with_item(RibbonItem::LargeButton(cancel_all)),
+        )
+        .with_group(
+            RibbonGroup::create("Server")
+                .with_item(RibbonItem::LargeButton(off("download", "Download Headers", WHOLE_MESSAGES)))
+                .with_item(RibbonItem::SmallButton(
+                    off("download_done", "Mark to Download", WHOLE_MESSAGES).with_arrow(RibbonArrow::Menu),
+                ))
+                .with_item(RibbonItem::SmallButton(
+                    off("file_download_off", "Unmark to Download", WHOLE_MESSAGES)
+                        .with_arrow(RibbonArrow::Menu),
+                ))
+                .with_item(RibbonItem::SmallButton(
+                    off("task_alt", "Process Marked Headers", WHOLE_MESSAGES).with_arrow(RibbonArrow::Menu),
+                )),
+        );
+
+    // Folder: New | Actions | Clean Up | Properties.
     let folder = RibbonTab::create("Folder")
         .with_group(
-            RibbonGroup::create("Clean Up")
-                .with_item(small("mark_email_read", "Mark All as Read", Action::MarkAllRead)),
+            RibbonGroup::create("New")
+                .with_item(RibbonItem::LargeButton(off("create_new_folder", "New Folder", READ_ONLY)))
+                .with_item(RibbonItem::LargeButton(off("saved_search", "New Search Folder", READ_ONLY))),
         )
         .with_group(
             RibbonGroup::create("Actions")
-                .with_item(small("refresh", "Update Folder", Action::SendReceive)),
+                .with_item(RibbonItem::LargeButton(off(
+                    "drive_file_rename_outline",
+                    "Rename Folder",
+                    READ_ONLY,
+                )))
+                .with_item(RibbonItem::SmallButton(off("file_copy", "Copy Folder", READ_ONLY)))
+                .with_item(RibbonItem::SmallButton(off("drive_file_move", "Move Folder", READ_ONLY)))
+                .with_item(RibbonItem::SmallButton(off("folder_delete", "Delete Folder", READ_ONLY))),
+        )
+        .with_group(
+            RibbonGroup::create("Clean Up")
+                .with_item(big("mark_email_read", "Mark All as Read", Action::MarkAllRead))
+                .with_item(RibbonItem::LargeButton(off("rule", "Run Rules Now", READ_ONLY)))
+                .with_item(RibbonItem::LargeButton(
+                    off("cleaning_services", "Clean Up Folder", READ_ONLY).with_arrow(RibbonArrow::Menu),
+                ))
+                .with_item(RibbonItem::LargeButton(off("delete_sweep", "Delete All", READ_ONLY))),
+        )
+        .with_group(
+            RibbonGroup::create("Properties")
+                .with_item(big("info", "Folder Properties", Action::FolderProperties)),
         );
+
+    // View: Arrangement | Layout | Message.
     let view = RibbonTab::create("View")
-        .with_group(RibbonGroup::create("Arrangement").with_item(toggle(
-            "swap_vert",
-            "Reverse Sort",
-            Action::ReverseSort,
-            !s.newest_first,
-        )))
+        .with_group(
+            RibbonGroup::create("Arrangement")
+                .with_item(RibbonItem::LargeButton(
+                    button(
+                        "calendar_month",
+                        "Date",
+                        Action::Notice("Messages are arranged by date."),
+                    )
+                    .with_toggled(true),
+                ))
+                .with_item(toggle("swap_vert", "Reverse Sort", Action::ReverseSort, !s.newest_first))
+                .with_item(toggle(
+                    "filter_list",
+                    "Unread Only",
+                    Action::FilterUnread(s.scope != 1),
+                    s.scope == 1,
+                )),
+        )
         .with_group(
             RibbonGroup::create("Layout")
-                .with_item(toggle(
-                    "view_sidebar",
-                    "Navigation Pane",
-                    Action::ToggleNavigation,
-                    !s.nav_collapsed,
-                ))
-                .with_item(toggle(
-                    "chrome_reader_mode",
-                    "Reading Pane",
-                    Action::ToggleReading,
-                    s.show_reading,
-                ))
-                .with_item(toggle("checklist", "To-Do Bar", Action::ToggleTodo, s.show_todo)),
+                .with_item(big_menu("view_sidebar", "Navigation Pane", Action::NavigationPaneMenu))
+                .with_item(big_menu("chrome_reader_mode", "Reading Pane", Action::ReadingPaneMenu))
+                .with_item(big_menu("checklist", "To-Do Bar", Action::TodoBarMenu)),
         )
         .with_group(
             RibbonGroup::create("Message")
@@ -707,6 +995,51 @@ pub(crate) fn ribbon(s: &MailApp, app: &RefAny, file_open: bool) -> Dom {
         ribbon = ribbon.with_behavior(RibbonBehavior::inert());
     }
     ribbon.dom_desktop().with_id(ids::RIBBON)
+}
+
+/// Home > Find: Outlook's "Find a Contact" box - the people of the shown folder; picking one
+/// searches the list for their mail.
+fn find_contact(s: &MailApp, app: &RefAny) -> ComboBox {
+    let mut names: Vec<String> = Vec::new();
+    for entry in &s.view {
+        let name = display_name(&entry.from);
+        if !name.is_empty() && !names.contains(&name) {
+            names.push(name);
+            if names.len() == 30 {
+                break;
+            }
+        }
+    }
+    let names: Vec<AzString> = names.into_iter().map(AzString::from).collect();
+    RibbonStyle::create_default()
+        .styled_combo_box(names, "", 150)
+        .with_placeholder("Find a Contact")
+        .with_accessibility_name("Find a Contact")
+        .with_on_select(app.clone(), on_find_contact as ComboBoxOnSelectCallbackType)
+}
+
+/// A contact picked (or typed) in Find a Contact: the list shows their mail.
+extern "C" fn on_find_contact(mut data: RefAny, _info: CallbackInfo, state: ComboBoxState) -> Update {
+    with_app(&mut data, |s, _| {
+        let name = state.text.as_str().trim().to_string();
+        if name.is_empty() || name == s.search {
+            return Update::DoNothing;
+        }
+        s.search = name;
+        s.first_row = 0;
+        s.selection = azul::widgets::ListSelection::create();
+        s.rebuild_view();
+        Update::RefreshDom
+    })
+    .unwrap_or(Update::DoNothing)
+}
+
+/// A Quick Step clicked: what it does in AzMail ([`QUICK_STEPS`]).
+extern "C" fn on_quick_step(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    let Some((_, _, action)) = QUICK_STEPS.get(index) else {
+        return Update::DoNothing;
+    };
+    run_action(&mut data, &mut info, *action)
 }
 
 /// A ribbon tab: shown; with File open it also leaves File (Outlook 2010's tabs).
@@ -732,7 +1065,9 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         segments.push(StatusBarSegment::create("Filter applied"));
     }
     segments.push(StatusBarSegment::create(format!("Items: {}", s.view.len())));
-    segments.push(StatusBarSegment::create(format!("Unread: {unread}")));
+    if unread > 0 {
+        segments.push(StatusBarSegment::create(format!("Unread: {unread}")));
+    }
     if !s.notice.is_empty() {
         segments.push(StatusBarSegment::create(s.notice.as_str()));
     }
@@ -740,12 +1075,13 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         SyncState::Running {
             status, percent, ..
         } => (format!("{status} ({percent:.0}%)"), StatusBarSyncKind::Syncing),
-        SyncState::Done(text) => (text.clone(), StatusBarSyncKind::Connected),
+        // Outlook 2010: "All folders are up to date." beside "Connected to ...".
+        SyncState::Done(_) => (up_to_date(s), StatusBarSyncKind::Connected),
         SyncState::Failed(text) => (text.clone(), StatusBarSyncKind::Error),
         SyncState::Idle if s.accounts.is_empty() => {
             (String::from("No account"), StatusBarSyncKind::Offline)
         }
-        SyncState::Idle => (String::from("Connected"), StatusBarSyncKind::Connected),
+        SyncState::Idle => (up_to_date(s), StatusBarSyncKind::Connected),
     };
     // Outlook's zoom at the right end: the reading pane's, `-` / `+` by ten, the slider over the
     // buttons' whole range.
@@ -760,6 +1096,18 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         ))
         .with_zoom(zoom)
         .dom()
+}
+
+/// The status bar's sync line while nothing runs: Outlook 2010's "All folders are up to date.",
+/// and the server the shown account is connected to.
+fn up_to_date(s: &MailApp) -> String {
+    match s.current_account() {
+        Some(account) => format!(
+            "All folders are up to date.   Connected to {}",
+            account.imap.host
+        ),
+        None => String::from("All folders are up to date."),
+    }
 }
 
 // ==== The To-Do bar ====
@@ -898,29 +1246,18 @@ fn tree_node(node: &FolderNode, role_of: &dyn Fn(&str) -> Role, selected: &dyn F
     tree
 }
 
+/// The navigation pane as Outlook 2010 has it: "Drag Your Favorite Folders Here" over every
+/// account's tree - its address the root, the folders under it in Outlook's order, the unread
+/// counts as badges - and the big module buttons at the bottom (Mail, Calendar, Contacts,
+/// Tasks).
 fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
     let mut pane = ShellNavigationPane::create()
         .with_label("Mail")
+        .with_header(favorites_hint())
+        .with_trees_only(true)
         .with_active_module(s.module)
         .with_collapsed(s.nav_collapsed)
         .with_on_event(app.clone(), on_nav_event as ShellNavigationPaneOnEventCallbackType);
-
-    // Favorites: the shown account's Inbox and Sent Items.
-    let current_folders = s.current.and_then(|i| s.folders.get(i));
-    let role_of = |key: &str| -> Role {
-        current_folders
-            .and_then(|list| list.iter().find(|f| f.key == key))
-            .map_or(Role::Other, |f| f.role)
-    };
-    let mut favorites = TreeViewNode::create("Favorites").with_expanded(true);
-    for node in listing::favorites(current_folders.map_or(&[][..], Vec::as_slice)) {
-        let picked = |key: &str| s.favorite_picked && s.folder.as_deref() == Some(key);
-        favorites = favorites.with_child(tree_node(&node, &role_of, &picked));
-    }
-    pane = pane.with_group(
-        ShellNavigationGroup::create("Favorites", favorites)
-            .with_open(s.groups_open.first().copied().unwrap_or(true)),
-    );
 
     // Every account: its address over its folders.
     for (i, account) in s.accounts.iter().enumerate() {
@@ -932,27 +1269,18 @@ fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
                 .map_or(Role::Other, |f| f.role)
         };
         let here = Some(i) == s.current;
-        let picked = |key: &str| here && !s.favorite_picked && s.folder.as_deref() == Some(key);
-        let mut root = TreeViewNode::create(account.email.as_str())
-            .with_icon("account_circle")
-            .with_expanded(true);
+        let picked = |key: &str| here && s.folder.as_deref() == Some(key);
+        let open = s.groups_open.get(i + 1).copied().unwrap_or(true);
+        let mut root = TreeViewNode::create(account.email.as_str()).with_expanded(open);
         for node in listing::folder_tree(folders) {
             root = root.with_child(tree_node(&node, &roles, &picked));
         }
-        let inbox_unread: usize = folders
-            .iter()
-            .filter(|f| f.role == Role::Inbox)
-            .map(|f| f.unread)
-            .sum();
-        let mut group = ShellNavigationGroup::create(account.email.as_str(), root)
-            .with_open(s.groups_open.get(i + 1).copied().unwrap_or(true));
-        if inbox_unread > 0 {
-            group = group.with_count(inbox_unread);
-        }
-        pane = pane.with_group(group);
+        pane = pane.with_group(
+            ShellNavigationGroup::create(account.email.as_str(), root).with_open(open),
+        );
     }
 
-    let unread: usize = current_folders.map_or(0, |list| {
+    let unread: usize = s.current.and_then(|i| s.folders.get(i)).map_or(0, |list| {
         list.iter()
             .filter(|f| f.role == Role::Inbox)
             .map(|f| f.unread)
@@ -970,41 +1298,48 @@ fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
         .with_id(ids::FOLDER_PANE)
 }
 
+/// The Favorites strip at the top of the pane: Outlook 2010's hint while it holds no folder.
+fn favorites_hint() -> Dom {
+    Dom::create_div()
+        .with_css(
+            "display: flex; flex-direction: row; flex-grow: 1; padding: 5px 8px 6px 10px; \
+             border-bottom: 1px dashed system:separator;",
+        )
+        .with_child(
+            Dom::create_span_with_text("Drag Your Favorite Folders Here")
+                .with_css("font-size: 12px; color: system:secondary-text;"),
+        )
+}
+
 extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNavigationPaneEvent) -> Update {
     with_app(&mut data, |s, _| {
         match event.kind {
-            ShellNavigationPaneEventKind::GroupToggled => {
-                if let Some(open) = s.groups_open.get_mut(event.group) {
+            // The pane is trees only: an account's root triangle is its tree's toggle.
+            ShellNavigationPaneEventKind::GroupToggled => return Update::DoNothing,
+            ShellNavigationPaneEventKind::NodeToggled => {
+                if event.index != 0 {
+                    return Update::DoNothing;
+                }
+                if let Some(open) = s.groups_open.get_mut(event.group + 1) {
                     *open = event.expand;
                 }
             }
             ShellNavigationPaneEventKind::NodeClicked => {
-                // Row 0 of a group's tree is its root (Favorites, the account's address).
-                if event.group == 0 {
-                    let folders = s.current.and_then(|i| s.folders.get(i)).cloned().unwrap_or_default();
-                    let keys = listing::preorder_keys(&listing::favorites(&folders));
-                    if let Some(key) = event.index.checked_sub(1).and_then(|k| keys.get(k)) {
-                        s.show_folder(key);
-                        s.favorite_picked = true;
-                    }
-                } else {
-                    let account = event.group - 1;
-                    if account >= s.accounts.len() {
-                        return Update::DoNothing;
-                    }
-                    if s.current != Some(account) {
-                        s.show_account(account);
-                    }
-                    let folders = s.folders.get(account).cloned().unwrap_or_default();
-                    let keys = listing::preorder_keys(&listing::folder_tree(&folders));
-                    if let Some(key) = event.index.checked_sub(1).and_then(|k| keys.get(k)) {
-                        s.show_folder(key);
-                    }
-                    s.favorite_picked = false;
+                // Row 0 of an account's tree is its root (its address).
+                let account = event.group;
+                if account >= s.accounts.len() {
+                    return Update::DoNothing;
+                }
+                if s.current != Some(account) {
+                    s.show_account(account);
+                }
+                let folders = s.folders.get(account).cloned().unwrap_or_default();
+                let keys = listing::preorder_keys(&listing::folder_tree(&folders));
+                if let Some(key) = event.index.checked_sub(1).and_then(|k| keys.get(k)) {
+                    s.show_folder(key);
                 }
                 s.module = 0;
             }
-            ShellNavigationPaneEventKind::NodeToggled => return Update::DoNothing,
             // Drag and drop onto folders is not wired yet (messages stay put).
             ShellNavigationPaneEventKind::NodeDropped => return Update::DoNothing,
             ShellNavigationPaneEventKind::ModuleSelected => s.module = event.index,
@@ -1101,10 +1436,6 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         .with_row_height(ROW_HEIGHT)
         .with_search(s.search.as_str())
         .with_search_placeholder(format!("Search {folder}"))
-        .with_scopes(
-            vec![AzString::from("All"), AzString::from("Unread")],
-            s.scope,
-        )
         .with_sort(
             "Arrange By:",
             "Date",
@@ -1121,7 +1452,6 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
         .with_on_delete(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_sort(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_search(app.clone(), on_list_event as SummaryListOnEventCallbackType)
-        .with_on_scope(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .with_on_scroll(app.clone(), on_list_event as SummaryListOnEventCallbackType)
         .dom()
         .with_id(ids::MESSAGE_LIST)
@@ -1281,7 +1611,7 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
     let name = display_name(&sender);
     // The PIM apps' avatar initials (DEDUP_EDITORS B24).
     let initials = azul_pim::initials::initials(&name);
-    pane = pane.with_people(vec![AzString::from(initials)], format!("More about: {name}"));
+    pane = pane.with_people(vec![AzString::from(initials)], format!("See more about: {name}."));
     let html = open.sanitized.as_ref().filter(|_| !s.plain_text);
     if let Some(sanitized) = html {
         if sanitized.blocked_images > 0 && !open.pictures {

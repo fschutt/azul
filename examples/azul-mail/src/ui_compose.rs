@@ -35,7 +35,8 @@ use azul::{
     vec::RichTextSpanVec,
     widgets::{
         ButtonType, MessageBox, MessageBoxKind, Modal, ModalState, OnTextInputReturn, Ribbon,
-        RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RichBlockKind, RichFormat,
+        RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonRow, RibbonTab, RichBlockKind,
+        RichFormat,
         RichTextCommand, RichTextDoc, RichTextEditor, RichTextEditorState, StandardDialogEvent,
         StandardDialogEventKind, StatusBar, StatusBarSegment, TextInputState, TextInputValid,
         Titlebar,
@@ -425,44 +426,53 @@ fn compose_ribbon(c: &Compose, app: &RefAny) -> Dom {
     let small = |icon: &str, label: &str, action: ComposeAction| {
         RibbonItem::SmallButton(button(icon, label, action))
     };
-    // Pressed: what the caret's text and block are.
-    let toggle = |icon: &str, label: &str, action: ComposeAction, on: bool| {
-        RibbonItem::SmallButton(button(icon, label, action).with_toggled(on))
+    // Pressed: what the caret's text and block are. Icon only, named for assistive technology:
+    // Outlook 2010's Basic Text group is rows of such buttons (B I U over the list buttons).
+    let toggle = |icon: &str, name: &str, action: ComposeAction, on: bool| {
+        RibbonItem::SmallButton(button(icon, "", action).with_toggled(on).with_alt(name))
     };
+    let row = |items: Vec<RibbonItem>| RibbonItem::Row(RibbonRow::create().with_items(items));
     let body = &c.body;
     let message = RibbonTab::create("Message")
         .with_group(
-            RibbonGroup::create("Basic Text")
-                .with_item(toggle(
-                    "format_bold",
-                    "Bold",
-                    ComposeAction::Bold,
-                    body.is_current_format(RichFormat::Bold),
-                ))
-                .with_item(toggle(
-                    "format_italic",
-                    "Italic",
-                    ComposeAction::Italic,
-                    body.is_current_format(RichFormat::Italic),
-                ))
-                .with_item(toggle(
-                    "format_underlined",
-                    "Underline",
-                    ComposeAction::Underline,
-                    body.is_current_format(RichFormat::Underline),
-                ))
-                .with_item(toggle(
-                    "format_list_bulleted",
-                    "Bullets",
-                    ComposeAction::Bullets,
-                    body.is_current_kind(RichBlockKind::Bullet(0)),
-                ))
-                .with_item(toggle(
-                    "format_list_numbered",
-                    "Numbering",
-                    ComposeAction::Numbering,
-                    body.is_current_kind(RichBlockKind::Numbered(0)),
-                )),
+            RibbonGroup::create("Basic Text").with_item(RibbonItem::Column(
+                RibbonColumn::create().with_items(vec![
+                    row(vec![
+                        toggle(
+                            "format_bold",
+                            "Bold",
+                            ComposeAction::Bold,
+                            body.is_current_format(RichFormat::Bold),
+                        ),
+                        toggle(
+                            "format_italic",
+                            "Italic",
+                            ComposeAction::Italic,
+                            body.is_current_format(RichFormat::Italic),
+                        ),
+                        toggle(
+                            "format_underlined",
+                            "Underline",
+                            ComposeAction::Underline,
+                            body.is_current_format(RichFormat::Underline),
+                        ),
+                    ]),
+                    row(vec![
+                        toggle(
+                            "format_list_bulleted",
+                            "Bullets",
+                            ComposeAction::Bullets,
+                            body.is_current_kind(RichBlockKind::Bullet(0)),
+                        ),
+                        toggle(
+                            "format_list_numbered",
+                            "Numbering",
+                            ComposeAction::Numbering,
+                            body.is_current_kind(RichBlockKind::Numbered(0)),
+                        ),
+                    ]),
+                ]),
+            )),
         )
         .with_group(
             RibbonGroup::create("Include")

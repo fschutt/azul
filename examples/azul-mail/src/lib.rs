@@ -127,9 +127,8 @@ pub(crate) struct MailApp {
     pub(crate) folders: Vec<Vec<FolderInfo>>,
     /// The folder shown (its key, in the current account).
     pub(crate) folder: Option<String>,
-    /// The folder was picked in Favorites (that tree shows the selection).
-    pub(crate) favorite_picked: bool,
-    /// Which groups are open: Favorites, then one per account.
+    /// Which account trees are open in the navigation pane: slot 0 (Favorites' once) unused,
+    /// then one per account.
     pub(crate) groups_open: Vec<bool>,
     pub(crate) nav_collapsed: bool,
     /// Mail, Calendar, Contacts, Tasks.
@@ -271,7 +270,6 @@ impl MailApp {
             dkim_keys: HashMap::new(),
             folders: vec![Vec::new(); n],
             folder: None,
-            favorite_picked: false,
             groups_open: vec![true; n + 1],
             nav_collapsed: view(ui_main::SET_NAVIGATION_COLLAPSED, false),
             module: 0,
@@ -405,7 +403,6 @@ impl MailApp {
         self.current = Some(index);
         self.folder = None;
         self.open = None;
-        self.favorite_picked = false;
         self.reload_folders();
         self.reload_messages();
     }

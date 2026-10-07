@@ -149,18 +149,15 @@ const TEXT_COLOR: ColorU = ColorU {
     b: 30,
     a: 255,
 };
+/// The selected row: Outlook 2010's navigation pane - the light selection
+/// blue (#C1DCFC) under the ordinary ink.
 const SELECTED_BG: ColorU = ColorU {
-    r: 0,
-    g: 120,
-    b: 215,
+    r: 193,
+    g: 220,
+    b: 252,
     a: 255,
 };
-const SELECTED_TEXT: ColorU = ColorU {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 255,
-};
+const SELECTED_TEXT: ColorU = TEXT_COLOR;
 /// The tree is a FIELD, like the list view next to it: it draws its own
 /// surface. Without one the control was transparent and inherited whatever it
 /// happened to sit on, which is why it read as a floating list of labels
@@ -190,9 +187,9 @@ const TEXT_COLOR_DARK: ColorU = ColorU {
     a: 255,
 };
 const SELECTED_BG_DARK: ColorU = ColorU {
-    r: 9,
-    g: 71,
-    b: 113,
+    r: 46,
+    g: 74,
+    b: 110,
     a: 255,
 };
 const ICON_COLOR_DARK: ColorU = ColorU {
@@ -344,6 +341,11 @@ pub(crate) static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
             SELECTED_BG_DARK,
         )]),
     )),
+    // The selected label is the ordinary ink on the light blue, so by night
+    // it is the night's ink on the night's blue.
+    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
+        inner: TEXT_COLOR_DARK,
+    })),
 ];
 
 // -- Children container style: flat's, on `CHILDREN_BASE` --

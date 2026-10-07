@@ -31,8 +31,13 @@ use crate::widgets::button::{Button, ButtonOnClick};
 // reaches for `SUR` or `INK` instead of an inline `ColorU { r: 178, .. }` can
 // then be written once and read correctly under either theme, which is the
 // whole point of having themes rather than two hand-maintained copies of every
-// widget. The VALUES are what makes this theme flat: plain surfaces, one thin
-// border weight, and "gradient" stops that are simply equal.
+// widget. The VALUES are what makes this theme flat: Office 2010 - Silver by
+// day, Black by night (sampled from Outlook 2010). Plain silver-blue panes and
+// bands around white paper, one thin border weight, near-black ink, a mid
+// blue accent; the control faces are the two-stop faces Office drew: the
+// raised face white to silver, hover the warm yellow (HT -> HB), pressed the
+// darker orange (PT -> PB). By night the panes are neutral greys and the
+// hover a muted amber, so a lit control still reads warm.
 //
 // Names follow flora.css so the two stay comparable:
 //   PG/SUR/DESK/STRIP/TRACK  surfaces, back to front
@@ -55,131 +60,131 @@ pub const LIGHT_PG: ColorU = ColorU {
 };
 /// Surface: panels and cards sitting on the page.
 pub const LIGHT_SUR: ColorU = ColorU {
-    r: 248,
-    g: 249,
-    b: 250,
+    r: 237,
+    g: 241,
+    b: 245,
     a: 255,
 };
 /// Desk: the recessed area a document sits on.
 pub const LIGHT_DESK: ColorU = ColorU {
-    r: 241,
-    g: 243,
-    b: 245,
+    r: 220,
+    g: 225,
+    b: 231,
     a: 255,
 };
 /// Strip: toolbars and header bands.
 pub const LIGHT_STRIP: ColorU = ColorU {
-    r: 233,
-    g: 236,
+    r: 228,
+    g: 233,
     b: 239,
     a: 255,
 };
 /// Track: scrollbar and slider grooves.
 pub const LIGHT_TRACK: ColorU = ColorU {
-    r: 222,
-    g: 226,
-    b: 230,
+    r: 227,
+    g: 231,
+    b: 236,
     a: 255,
 };
 /// Default border.
 pub const LIGHT_BD: ColorU = ColorU {
-    r: 206,
-    g: 212,
-    b: 218,
+    r: 194,
+    g: 201,
+    b: 210,
     a: 255,
 };
 /// Lighter border, for internal divisions.
 pub const LIGHT_BD2: ColorU = ColorU {
-    r: 222,
-    g: 226,
-    b: 230,
+    r: 214,
+    g: 220,
+    b: 227,
     a: 255,
 };
 /// Stronger border, for emphasis or focus.
 pub const LIGHT_BD3: ColorU = ColorU {
-    r: 173,
-    g: 181,
-    b: 189,
+    r: 154,
+    g: 164,
+    b: 177,
     a: 255,
 };
 /// Faintest border.
 pub const LIGHT_BD4: ColorU = ColorU {
-    r: 233,
-    g: 236,
-    b: 239,
+    r: 228,
+    g: 232,
+    b: 237,
     a: 255,
 };
 /// Border that reads as a highlight.
 pub const LIGHT_BD5: ColorU = ColorU {
-    r: 248,
-    g: 249,
-    b: 250,
+    r: 255,
+    g: 255,
+    b: 255,
     a: 255,
 };
 /// Separator line.
 pub const LIGHT_SEP: ColorU = ColorU {
-    r: 222,
-    g: 226,
-    b: 230,
+    r: 211,
+    g: 217,
+    b: 224,
     a: 255,
 };
 /// Fainter separator.
 pub const LIGHT_SEP2: ColorU = ColorU {
-    r: 233,
-    g: 236,
-    b: 239,
+    r: 226,
+    g: 230,
+    b: 235,
     a: 255,
 };
 /// Body text.
 pub const LIGHT_INK: ColorU = ColorU {
-    r: 33,
-    g: 37,
-    b: 41,
+    r: 30,
+    g: 30,
+    b: 30,
     a: 255,
 };
 /// Secondary text.
 pub const LIGHT_INK2: ColorU = ColorU {
-    r: 73,
-    g: 80,
-    b: 87,
+    r: 58,
+    g: 65,
+    b: 75,
     a: 255,
 };
 /// Introductory / lead text.
 pub const LIGHT_INTRO: ColorU = ColorU {
-    r: 108,
-    g: 117,
-    b: 125,
+    r: 84,
+    g: 92,
+    b: 103,
     a: 255,
 };
 /// Muted text, still readable.
 pub const LIGHT_SOFT1: ColorU = ColorU {
-    r: 134,
-    g: 142,
-    b: 150,
+    r: 98,
+    g: 106,
+    b: 118,
     a: 255,
 };
 /// Muted text, hint level.
 pub const LIGHT_SOFT2: ColorU = ColorU {
-    r: 173,
-    g: 181,
-    b: 189,
+    r: 133,
+    g: 140,
+    b: 151,
     a: 255,
 };
 /// Barely-there text.
 pub const LIGHT_SOFT3: ColorU = ColorU {
-    r: 206,
-    g: 212,
-    b: 218,
+    r: 174,
+    g: 180,
+    b: 189,
     a: 255,
 };
 /// Icon glyphs.
 pub const LIGHT_ICON: ColorU = ColorU {
-    r: 73,
-    g: 80,
-    b: 87,
+    r: 61,
+    g: 85,
+    b: 116,
     a: 255,
 };
-/// Raised control, top of the face (flat: equal to RB).
+/// Raised control, top of the face (Office 2010: white over the silver RB).
 pub const LIGHT_RT: ColorU = ColorU {
     r: 255,
     g: 255,
@@ -188,37 +193,37 @@ pub const LIGHT_RT: ColorU = ColorU {
 };
 /// Raised control, bottom of the face.
 pub const LIGHT_RB: ColorU = ColorU {
-    r: 248,
-    g: 249,
-    b: 250,
+    r: 233,
+    g: 237,
+    b: 242,
     a: 255,
 };
 /// Hovered control, top of the face.
 pub const LIGHT_HT: ColorU = ColorU {
-    r: 241,
-    g: 243,
-    b: 245,
+    r: 254,
+    g: 244,
+    b: 196,
     a: 255,
 };
 /// Hovered control, bottom of the face.
 pub const LIGHT_HB: ColorU = ColorU {
-    r: 233,
-    g: 236,
-    b: 239,
+    r: 253,
+    g: 227,
+    b: 141,
     a: 255,
 };
 /// Pressed control, top of the face.
 pub const LIGHT_PT: ColorU = ColorU {
-    r: 222,
-    g: 226,
-    b: 230,
+    r: 247,
+    g: 193,
+    b: 90,
     a: 255,
 };
 /// Pressed control, bottom of the face.
 pub const LIGHT_PB: ColorU = ColorU {
-    r: 206,
-    g: 212,
-    b: 218,
+    r: 251,
+    g: 219,
+    b: 128,
     a: 255,
 };
 /// Input field fill.
@@ -230,65 +235,65 @@ pub const LIGHT_FLD: ColorU = ColorU {
 };
 /// Secondary field fill (readonly, inset).
 pub const LIGHT_FLD2: ColorU = ColorU {
-    r: 248,
-    g: 249,
-    b: 250,
+    r: 244,
+    g: 246,
+    b: 249,
     a: 255,
 };
 /// Disabled control fill.
 pub const LIGHT_DISBG: ColorU = ColorU {
-    r: 233,
-    g: 236,
-    b: 239,
+    r: 238,
+    g: 240,
+    b: 243,
     a: 255,
 };
 /// Disabled control text.
 pub const LIGHT_DISTX: ColorU = ColorU {
-    r: 173,
-    g: 181,
-    b: 189,
+    r: 151,
+    g: 158,
+    b: 168,
     a: 255,
 };
 /// Quiet fill, e.g. a toolbar button at rest.
 pub const LIGHT_QT: ColorU = ColorU {
-    r: 248,
-    g: 249,
-    b: 250,
+    r: 243,
+    g: 245,
+    b: 248,
     a: 255,
 };
 /// Quiet fill, one step stronger.
 pub const LIGHT_QT2: ColorU = ColorU {
-    r: 241,
-    g: 243,
-    b: 245,
+    r: 232,
+    g: 236,
+    b: 241,
     a: 255,
 };
 /// Accent.
 pub const LIGHT_ACC: ColorU = ColorU {
-    r: 13,
-    g: 110,
-    b: 253,
+    r: 42,
+    g: 99,
+    b: 184,
     a: 255,
 };
 /// Accent, pressed.
 pub const LIGHT_DEEP: ColorU = ColorU {
-    r: 10,
-    g: 88,
-    b: 202,
+    r: 30,
+    g: 79,
+    b: 153,
     a: 255,
 };
 /// Accent, muted.
 pub const LIGHT_SOFT: ColorU = ColorU {
-    r: 110,
-    g: 168,
-    b: 254,
+    r: 157,
+    g: 192,
+    b: 236,
     a: 255,
 };
 /// Accent as a focus glow (translucent).
 pub const LIGHT_GLOW: ColorU = ColorU {
-    r: 13,
-    g: 110,
-    b: 253,
+    r: 42,
+    g: 99,
+    b: 184,
     a: 64,
 };
 /// Text and icons ON an accent fill.
@@ -302,247 +307,247 @@ pub const LIGHT_ON_ACC: ColorU = ColorU {
 // Dark mode colors
 /// Page: the window canvas behind everything.
 pub const DARK_PG: ColorU = ColorU {
-    r: 33,
-    g: 37,
-    b: 41,
+    r: 31,
+    g: 31,
+    b: 31,
     a: 255,
 };
 /// Surface: panels and cards sitting on the page.
 pub const DARK_SUR: ColorU = ColorU {
-    r: 52,
-    g: 58,
-    b: 64,
+    r: 45,
+    g: 45,
+    b: 45,
     a: 255,
 };
 /// Desk: the recessed area a document sits on.
 pub const DARK_DESK: ColorU = ColorU {
-    r: 26,
-    g: 29,
-    b: 33,
+    r: 25,
+    g: 25,
+    b: 25,
     a: 255,
 };
 /// Strip: toolbars and header bands.
 pub const DARK_STRIP: ColorU = ColorU {
-    r: 43,
-    g: 48,
-    b: 53,
+    r: 56,
+    g: 56,
+    b: 56,
     a: 255,
 };
 /// Track: scrollbar and slider grooves.
 pub const DARK_TRACK: ColorU = ColorU {
-    r: 73,
-    g: 80,
-    b: 87,
+    r: 71,
+    g: 71,
+    b: 71,
     a: 255,
 };
 /// Default border.
 pub const DARK_BD: ColorU = ColorU {
-    r: 73,
-    g: 80,
+    r: 87,
+    g: 87,
     b: 87,
     a: 255,
 };
 /// Lighter border, for internal divisions.
 pub const DARK_BD2: ColorU = ColorU {
-    r: 52,
-    g: 58,
-    b: 64,
+    r: 61,
+    g: 61,
+    b: 61,
     a: 255,
 };
 /// Stronger border, for emphasis or focus.
 pub const DARK_BD3: ColorU = ColorU {
-    r: 108,
-    g: 117,
-    b: 125,
+    r: 118,
+    g: 118,
+    b: 118,
     a: 255,
 };
 /// Faintest border.
 pub const DARK_BD4: ColorU = ColorU {
-    r: 43,
-    g: 48,
-    b: 53,
+    r: 51,
+    g: 51,
+    b: 51,
     a: 255,
 };
 /// Border that reads as a highlight.
 pub const DARK_BD5: ColorU = ColorU {
-    r: 33,
-    g: 37,
-    b: 41,
+    r: 38,
+    g: 38,
+    b: 38,
     a: 255,
 };
 /// Separator line.
 pub const DARK_SEP: ColorU = ColorU {
-    r: 73,
-    g: 80,
-    b: 87,
+    r: 77,
+    g: 77,
+    b: 77,
     a: 255,
 };
 /// Fainter separator.
 pub const DARK_SEP2: ColorU = ColorU {
-    r: 52,
+    r: 58,
     g: 58,
-    b: 64,
+    b: 58,
     a: 255,
 };
 /// Body text.
 pub const DARK_INK: ColorU = ColorU {
-    r: 248,
-    g: 249,
-    b: 250,
+    r: 242,
+    g: 242,
+    b: 242,
     a: 255,
 };
 /// Secondary text.
 pub const DARK_INK2: ColorU = ColorU {
-    r: 222,
-    g: 226,
-    b: 230,
+    r: 218,
+    g: 218,
+    b: 218,
     a: 255,
 };
 /// Introductory / lead text.
 pub const DARK_INTRO: ColorU = ColorU {
-    r: 173,
-    g: 181,
-    b: 189,
+    r: 184,
+    g: 184,
+    b: 184,
     a: 255,
 };
 /// Muted text, still readable.
 pub const DARK_SOFT1: ColorU = ColorU {
-    r: 134,
-    g: 142,
-    b: 150,
+    r: 158,
+    g: 158,
+    b: 158,
     a: 255,
 };
 /// Muted text, hint level.
 pub const DARK_SOFT2: ColorU = ColorU {
-    r: 108,
-    g: 117,
+    r: 125,
+    g: 125,
     b: 125,
     a: 255,
 };
 /// Barely-there text.
 pub const DARK_SOFT3: ColorU = ColorU {
-    r: 73,
-    g: 80,
-    b: 87,
+    r: 92,
+    g: 92,
+    b: 92,
     a: 255,
 };
 /// Icon glyphs.
 pub const DARK_ICON: ColorU = ColorU {
-    r: 222,
-    g: 226,
-    b: 230,
+    r: 218,
+    g: 218,
+    b: 218,
     a: 255,
 };
-/// Raised control, top of the face (flat: equal to RB).
+/// Raised control, top of the face (Office 2010: white over the silver RB).
 pub const DARK_RT: ColorU = ColorU {
-    r: 60,
-    g: 66,
-    b: 73,
+    r: 69,
+    g: 69,
+    b: 69,
     a: 255,
 };
 /// Raised control, bottom of the face.
 pub const DARK_RB: ColorU = ColorU {
-    r: 52,
+    r: 58,
     g: 58,
-    b: 64,
+    b: 58,
     a: 255,
 };
 /// Hovered control, top of the face.
 pub const DARK_HT: ColorU = ColorU {
-    r: 73,
-    g: 80,
-    b: 87,
+    r: 88,
+    g: 74,
+    b: 36,
     a: 255,
 };
 /// Hovered control, bottom of the face.
 pub const DARK_HB: ColorU = ColorU {
-    r: 60,
-    g: 66,
-    b: 73,
+    r: 75,
+    g: 63,
+    b: 31,
     a: 255,
 };
 /// Pressed control, top of the face.
 pub const DARK_PT: ColorU = ColorU {
-    r: 43,
-    g: 48,
-    b: 53,
+    r: 58,
+    g: 47,
+    b: 18,
     a: 255,
 };
 /// Pressed control, bottom of the face.
 pub const DARK_PB: ColorU = ColorU {
-    r: 33,
-    g: 37,
-    b: 41,
+    r: 46,
+    g: 38,
+    b: 16,
     a: 255,
 };
 /// Input field fill.
 pub const DARK_FLD: ColorU = ColorU {
-    r: 43,
-    g: 48,
-    b: 53,
+    r: 38,
+    g: 38,
+    b: 38,
     a: 255,
 };
 /// Secondary field fill (readonly, inset).
 pub const DARK_FLD2: ColorU = ColorU {
-    r: 52,
-    g: 58,
-    b: 64,
+    r: 48,
+    g: 48,
+    b: 48,
     a: 255,
 };
 /// Disabled control fill.
 pub const DARK_DISBG: ColorU = ColorU {
-    r: 52,
-    g: 58,
-    b: 64,
+    r: 54,
+    g: 54,
+    b: 54,
     a: 255,
 };
 /// Disabled control text.
 pub const DARK_DISTX: ColorU = ColorU {
-    r: 108,
-    g: 117,
-    b: 125,
+    r: 128,
+    g: 128,
+    b: 128,
     a: 255,
 };
 /// Quiet fill, e.g. a toolbar button at rest.
 pub const DARK_QT: ColorU = ColorU {
-    r: 43,
+    r: 48,
     g: 48,
-    b: 53,
+    b: 48,
     a: 255,
 };
 /// Quiet fill, one step stronger.
 pub const DARK_QT2: ColorU = ColorU {
-    r: 52,
+    r: 58,
     g: 58,
-    b: 64,
+    b: 58,
     a: 255,
 };
 /// Accent.
 pub const DARK_ACC: ColorU = ColorU {
-    r: 59,
-    g: 130,
-    b: 246,
+    r: 70,
+    g: 131,
+    b: 214,
     a: 255,
 };
 /// Accent, pressed.
 pub const DARK_DEEP: ColorU = ColorU {
-    r: 37,
-    g: 99,
-    b: 235,
+    r: 52,
+    g: 104,
+    b: 184,
     a: 255,
 };
 /// Accent, muted.
 pub const DARK_SOFT: ColorU = ColorU {
-    r: 96,
-    g: 165,
-    b: 250,
+    r: 127,
+    g: 176,
+    b: 234,
     a: 255,
 };
 /// Accent as a focus glow (translucent).
 pub const DARK_GLOW: ColorU = ColorU {
-    r: 59,
-    g: 130,
-    b: 246,
+    r: 70,
+    g: 131,
+    b: 214,
     a: 80,
 };
 /// Text and icons ON an accent fill.
@@ -563,6 +568,206 @@ pub const LIGHT_FG: ColorU = LIGHT_INK;
 pub const DARK_BG: ColorU = DARK_SUR;
 /// Deprecated alias for [`DARK_INK`].
 pub const DARK_FG: ColorU = DARK_INK;
+
+// ---------------------------------------------------------------------------
+// Office 2010's faces.
+//
+// The states Office 2010 draws on a control, each a two-stop face in a
+// hairline: under the pointer the warm yellow (`HT` -> `HB`) in a gold rim,
+// pressed the darker orange (`PT` -> `PB`) in a brown one, a toggled-on
+// command the deeper yellow in its own rim, a selected row or item the light
+// blue of Outlook's message list in a blue one. By night the same states in
+// amber and night blue. The ribbon band is white paper fading to silver at
+// its foot; the File tab is Outlook 2010's orange in either mode.
+// ---------------------------------------------------------------------------
+
+/// The gold rim of a hovered control (#E5C365).
+pub const LIGHT_HOVER_BORDER: ColorU = ColorU {
+    r: 229,
+    g: 195,
+    b: 101,
+    a: 255,
+};
+/// The rim of a hovered control by night.
+pub const DARK_HOVER_BORDER: ColorU = ColorU {
+    r: 158,
+    g: 126,
+    b: 52,
+    a: 255,
+};
+/// The brown rim of a pressed control (#C2913C).
+pub const LIGHT_PRESSED_BORDER: ColorU = ColorU {
+    r: 194,
+    g: 145,
+    b: 60,
+    a: 255,
+};
+/// The rim of a pressed control by night.
+pub const DARK_PRESSED_BORDER: ColorU = ColorU {
+    r: 184,
+    g: 140,
+    b: 58,
+    a: 255,
+};
+/// A toggled-on command, top of its face (#FDE9A3).
+pub const LIGHT_CHECKED_TOP: ColorU = ColorU {
+    r: 253,
+    g: 233,
+    b: 163,
+    a: 255,
+};
+/// A toggled-on command, foot of its face (#F9D976).
+pub const LIGHT_CHECKED_BOTTOM: ColorU = ColorU {
+    r: 249,
+    g: 217,
+    b: 118,
+    a: 255,
+};
+/// The rim of a toggled-on command (#D8B266).
+pub const LIGHT_CHECKED_BORDER: ColorU = ColorU {
+    r: 216,
+    g: 178,
+    b: 102,
+    a: 255,
+};
+/// A toggled-on command by night, top of its face.
+pub const DARK_CHECKED_TOP: ColorU = ColorU {
+    r: 77,
+    g: 64,
+    b: 32,
+    a: 255,
+};
+/// A toggled-on command by night, foot of its face.
+pub const DARK_CHECKED_BOTTOM: ColorU = ColorU {
+    r: 66,
+    g: 55,
+    b: 27,
+    a: 255,
+};
+/// The rim of a toggled-on command by night.
+pub const DARK_CHECKED_BORDER: ColorU = ColorU {
+    r: 168,
+    g: 133,
+    b: 58,
+    a: 255,
+};
+/// A selected row, top of its face (#D9EAFD).
+pub const LIGHT_SELECTION_TOP: ColorU = ColorU {
+    r: 217,
+    g: 234,
+    b: 253,
+    a: 255,
+};
+/// A selected row, foot of its face (#C1DCFC) - Outlook's selected message.
+pub const LIGHT_SELECTION_BOTTOM: ColorU = ColorU {
+    r: 193,
+    g: 220,
+    b: 252,
+    a: 255,
+};
+/// The rim of a selected row (#84ACDD).
+pub const LIGHT_SELECTION_BORDER: ColorU = ColorU {
+    r: 132,
+    g: 172,
+    b: 221,
+    a: 255,
+};
+/// A selected row by night, top of its face.
+pub const DARK_SELECTION_TOP: ColorU = ColorU {
+    r: 52,
+    g: 83,
+    b: 122,
+    a: 255,
+};
+/// A selected row by night, foot of its face.
+pub const DARK_SELECTION_BOTTOM: ColorU = ColorU {
+    r: 46,
+    g: 74,
+    b: 110,
+    a: 255,
+};
+/// The rim of a selected row by night.
+pub const DARK_SELECTION_BORDER: ColorU = ColorU {
+    r: 74,
+    g: 120,
+    b: 176,
+    a: 255,
+};
+/// The foot of the ribbon band (#E9EEF4): the band is [`LIGHT_PG`] at its
+/// top, fading to this.
+pub const LIGHT_BAND_BOTTOM: ColorU = ColorU {
+    r: 233,
+    g: 238,
+    b: 244,
+    a: 255,
+};
+/// The foot of the ribbon band by night: [`DARK_SUR`] at its top.
+pub const DARK_BAND_BOTTOM: ColorU = ColorU {
+    r: 38,
+    g: 38,
+    b: 38,
+    a: 255,
+};
+/// Outlook 2010's File tab (#E4882C), white text on it, in either mode.
+pub const FILE_TAB: ColorU = ColorU {
+    r: 228,
+    g: 136,
+    b: 44,
+    a: 255,
+};
+/// The File tab under the pointer (#F09A3E).
+pub const FILE_TAB_HOVER: ColorU = ColorU {
+    r: 240,
+    g: 154,
+    b: 62,
+    a: 255,
+};
+
+/// The hovered face, light (`HT` -> `HB`) and dark, on `:hover`.
+#[must_use]
+pub fn hover_face_both() -> [CssPropertyWithConditions; 2] {
+    super::decl::hover_layers(
+        vec![super::decl::face(LIGHT_HT, LIGHT_HB)],
+        vec![super::decl::face(DARK_HT, DARK_HB)],
+    )
+}
+
+/// The pressed face, light (`PT` -> `PB`) and dark, on `:active`.
+#[must_use]
+pub fn active_face_both() -> [CssPropertyWithConditions; 2] {
+    super::decl::active_layers(
+        vec![super::decl::face(LIGHT_PT, LIGHT_PB)],
+        vec![super::decl::face(DARK_PT, DARK_PB)],
+    )
+}
+
+/// A toggled-on command's resting face, light and dark.
+#[must_use]
+pub fn checked_face_both() -> [CssPropertyWithConditions; 2] {
+    super::decl::themed_layers(
+        vec![super::decl::face(LIGHT_CHECKED_TOP, LIGHT_CHECKED_BOTTOM)],
+        vec![super::decl::face(DARK_CHECKED_TOP, DARK_CHECKED_BOTTOM)],
+    )
+}
+
+/// A selected row's resting face, light and dark.
+#[must_use]
+pub fn selection_face_both() -> [CssPropertyWithConditions; 2] {
+    super::decl::themed_layers(
+        vec![super::decl::face(LIGHT_SELECTION_TOP, LIGHT_SELECTION_BOTTOM)],
+        vec![super::decl::face(DARK_SELECTION_TOP, DARK_SELECTION_BOTTOM)],
+    )
+}
+
+/// The ribbon band's face: paper at the top fading to silver, light and
+/// dark.
+#[must_use]
+pub fn band_face_both() -> [CssPropertyWithConditions; 2] {
+    super::decl::themed_layers(
+        vec![super::decl::face(LIGHT_PG, LIGHT_BAND_BOTTOM)],
+        vec![super::decl::face(DARK_SUR, DARK_BAND_BOTTOM)],
+    )
+}
 
 #[must_use]
 pub fn button(btn: Button) -> Dom {
@@ -677,6 +882,11 @@ pub fn button(btn: Button) -> Dom {
         // button in light grey.
         match btn_type.surface() {
             crate::widgets::button::ButtonSurface::Neutral => {
+                // Office 2010's raised face: white over silver, its dark
+                // twin the desktop's button face right after it.
+                container_style.push(CssPropertyWithConditions::simple(super::decl::layers(
+                    vec![super::decl::face(LIGHT_RT, LIGHT_RB)],
+                )));
                 container_style.push(system_palette::DARK_BUTTON_FACE);
                 container_style.push(system_palette::DARK_BUTTON_TEXT);
                 container_style.extend(system_palette::dark_border(system_palette::SEPARATOR));
@@ -1807,23 +2017,23 @@ pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
 // them hold their styles in `static [CssPropertyWithConditions]` slices, and a
 // const slice cannot splice a function's return value.
 
-/// Row hover, light mode: the Explorer selection tint (#E5F3FF).
+/// Row hover, light mode: Outlook 2010's pale selection blue (#E4EFFC).
 ///
 /// Deliberately NOT [`LIGHT_HT`]. A list or tree ROW hovers to the selection
 /// blue; a control FACE hovers to the neutral grey. They are different surfaces
 /// and the two tokens are not interchangeable.
 pub const LIGHT_ROW_HOVER: ColorU = ColorU {
-    r: 229,
-    g: 243,
-    b: 255,
+    r: 228,
+    g: 239,
+    b: 252,
     a: 255,
 };
 
 /// Row hover, dark mode: the twin of [`LIGHT_ROW_HOVER`].
 pub const DARK_ROW_HOVER: ColorU = ColorU {
-    r: 42,
-    g: 45,
-    b: 46,
+    r: 50,
+    g: 58,
+    b: 70,
     a: 255,
 };
 
@@ -1909,14 +2119,14 @@ pub const FOCUS_BORDER_RIGHT_DARK: CssPropertyWithConditions =
         StyleBorderRightColor { inner: DARK_ACC },
     ));
 
-/// Option-row hover for a drop-down list, light mode (#EAF4FC).
+/// Option-row hover for a drop-down list, light mode (#EBF3FD).
 ///
 /// A shade lighter than [`LIGHT_ROW_HOVER`]: a menu that is already floating
 /// over the page needs less contrast than a row inside a field.
 pub const LIGHT_OPTION_HOVER: ColorU = ColorU {
-    r: 234,
-    g: 244,
-    b: 252,
+    r: 235,
+    g: 243,
+    b: 253,
     a: 255,
 };
 
@@ -2105,39 +2315,44 @@ pub fn button_states(
 
     let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
     let neutral = button_type.surface() == crate::widgets::button::ButtonSurface::Neutral;
-    let (dark_hover, dark_active) = if neutral {
-        (DARK_HT, DARK_PT)
+
+    // The neutral button takes Office 2010's faces: the warm yellow under the
+    // pointer, the orange while pressed (light and dark, `hover_face_both`).
+    // A coloured command keeps its own colours in both modes.
+    let mut out = if neutral {
+        let mut v = hover_face_both().to_vec();
+        v.extend(active_face_both());
+        v
     } else {
-        (bg_hover, bg_active)
+        alloc::vec![
+            CssPropertyWithConditions::on_hover(bg(bg_hover)),
+            CssPropertyWithConditions::dark_on_hover(bg(bg_hover)),
+            CssPropertyWithConditions::on_active(bg(bg_active)),
+            CssPropertyWithConditions::dark_on_active(bg(bg_active)),
+        ]
     };
 
-    let mut out = alloc::vec![
-        CssPropertyWithConditions::on_hover(bg(bg_hover)),
-        CssPropertyWithConditions::dark_on_hover(bg(dark_hover)),
-        CssPropertyWithConditions::on_active(bg(bg_active)),
-        CssPropertyWithConditions::dark_on_active(bg(dark_active)),
-    ];
-
     // The neutral button is the only one with a visible resting border, so it is
-    // the only one whose border reacts to hover.
+    // the only one whose border reacts to hover - Office's gold rim.
     if neutral {
-        let light = ColorU::rgb(173, 181, 189);
+        let light = LIGHT_HOVER_BORDER;
+        let dark = DARK_HOVER_BORDER;
         for (l, d) in [
             (
                 CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
-                CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
+                CssProperty::const_border_top_color(StyleBorderTopColor { inner: dark }),
             ),
             (
                 CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: light }),
-                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: DARK_BD }),
+                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: dark }),
             ),
             (
                 CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
-                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: DARK_BD }),
+                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: dark }),
             ),
             (
                 CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
-                CssProperty::const_border_right_color(StyleBorderRightColor { inner: DARK_BD }),
+                CssProperty::const_border_right_color(StyleBorderRightColor { inner: dark }),
             ),
         ] {
             out.push(CssPropertyWithConditions::on_hover(l));
@@ -2293,42 +2508,42 @@ pub const LIGHT_LIST_HEADER_PRESSED_SHADOW: ColorU = ColorU {
     a: 255,
 };
 
-/// Row hover fill, light mode (#E5F3FB).
+/// Row hover fill, light mode (#E4EFFC): Outlook 2010's message list.
 ///
 /// Not [`LIGHT_ROW_HOVER`] (#E5F3FF): the list's tint is four units short in
 /// the blue channel. Kept as the widget had it — this is a move, not a restyle
 /// — though nothing but the value separates the two, and a later pass may well
 /// decide a list row and a tree row should hover alike.
 pub const LIGHT_LIST_ROW_HOVER: ColorU = ColorU {
-    r: 229,
-    g: 243,
+    r: 228,
+    g: 239,
+    b: 252,
+    a: 255,
+};
+
+/// Row hover ring, light mode (#B8D6FB).
+pub const LIGHT_LIST_ROW_HOVER_BORDER: ColorU = ColorU {
+    r: 184,
+    g: 214,
     b: 251,
     a: 255,
 };
 
-/// Row hover ring, light mode (#65B5DC).
-pub const LIGHT_LIST_ROW_HOVER_BORDER: ColorU = ColorU {
-    r: 101,
-    g: 181,
-    b: 220,
-    a: 255,
-};
-
-/// Focused-row fill, light mode (#B8E0F3): a stronger tint than
+/// Focused-row fill, light mode (#C1DCFC, Outlook 2010's selected message): a stronger tint than
 /// [`LIGHT_LIST_ROW_HOVER`], so the keyboard cursor row stays distinct from a
 /// row the pointer merely passes over.
 pub const LIGHT_LIST_ROW_FOCUS: ColorU = ColorU {
-    r: 184,
-    g: 224,
-    b: 243,
+    r: 193,
+    g: 220,
+    b: 252,
     a: 255,
 };
 
-/// Focused-row ring, light mode (#26A0DA).
+/// Focused-row ring, light mode (#84ACDD).
 pub const LIGHT_LIST_ROW_FOCUS_BORDER: ColorU = ColorU {
-    r: 38,
-    g: 160,
-    b: 218,
+    r: 132,
+    g: 172,
+    b: 221,
     a: 255,
 };
 
@@ -4745,9 +4960,9 @@ const TILE_BAR_TRACK: ColorU = ColorU {
 };
 /// The tile icon's steel blue, by day and by night.
 const TILE_ICON_LIGHT: ColorU = ColorU {
-    r: 74,
-    g: 122,
-    b: 181,
+    r: 61,
+    g: 106,
+    b: 168,
     a: 255,
 };
 const TILE_ICON_DARK: ColorU = ColorU {
@@ -4756,17 +4971,17 @@ const TILE_ICON_DARK: ColorU = ColorU {
     b: 224,
     a: 255,
 };
-/// Explorer's selection blue (#CCE8FF); the tree's dark selection at night.
+/// Outlook 2010's selection blue (#C1DCFC); a night-blue selection in the dark.
 const TILE_SELECTED_LIGHT: ColorU = ColorU {
-    r: 204,
-    g: 232,
-    b: 255,
+    r: 193,
+    g: 220,
+    b: 252,
     a: 255,
 };
 const TILE_SELECTED_DARK: ColorU = ColorU {
-    r: 9,
-    g: 71,
-    b: 113,
+    r: 46,
+    g: 74,
+    b: 110,
     a: 255,
 };
 
@@ -5412,9 +5627,10 @@ fn flat_sheet() -> Vec<CssPropertyWithConditions> {
 // apart, the sender in the ink and bold when unread, the subject, the
 // preview and the date in the secondary inks, the glyphs in the tile's
 // steel blue; a row washes to the row-hover blue under the pointer, the
-// selected one takes the selection blue, focus is an inset ring; a group
-// header is a band of the strip colour. At night the desktop's surfaces and
-// inks and the tree's dark selection.
+// selected one takes the selection face (light blue, top to foot), focus is
+// an inset ring; a group header ("Today", "Older") is its name in semibold
+// on the paper over a faint rule. At night the theme's surfaces and inks and
+// the night-blue selection.
 
 /// Flat's summary-list look.
 #[must_use]
@@ -5437,12 +5653,14 @@ pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLo
     row.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
     row.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
 
+    // A group header is Outlook 2010's: its name in semibold ink on the list's
+    // paper, a faint rule under it (no band).
     let mut group = vec![decl::font_size(12), decl::semibold()];
-    group.extend(decl::padding(3, 8, 3, 8));
-    group.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    group.extend(decl::padding(8, 8, 3, 8));
+    group.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
     group.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
     group.extend(decl::border_bottom(1));
-    group.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    group.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
 
     let mut icon = vec![decl::font_size(18)];
     icon.extend(decl::margin(0, 8, 0, 0));
@@ -5467,7 +5685,8 @@ pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLo
         rows: Vec::new(),
         row,
         row_unread: Vec::new(),
-        row_selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        // Outlook 2010's selected message: the light blue face.
+        row_selected: selection_face_both().to_vec(),
         group,
         icon,
         from: Vec::new(),

@@ -146,6 +146,64 @@ const W13_THUMB_BORDER: ColorU = ColorU {
     a: 255,
 };
 
+// -- the Office 2010 palette (seeds StatusBarTheme::office_2010) --
+//
+// Outlook 2010's status bar (Silver): a silver strip under a hairline, dark
+// text, the warm yellow hover and orange press of every Office 2010 control.
+// Unlike the 2013 accent strip it is page-neutral chrome, so it goes dark
+// with the window (Office 2010 Black).
+
+/// The bar (#DDE2E8): the palette value of the strip, which is drawn as a
+/// face from [`O10_BAR_TOP`] to [`O10_BAR_BOTTOM`].
+const O10_BAR: ColorU = ColorU {
+    r: 221,
+    g: 226,
+    b: 232,
+    a: 255,
+};
+/// The top of the bar's face (#E9EDF1).
+const O10_BAR_TOP: ColorU = ColorU {
+    r: 233,
+    g: 237,
+    b: 241,
+    a: 255,
+};
+/// The foot of the bar's face (#CDD3DA).
+const O10_BAR_BOTTOM: ColorU = ColorU {
+    r: 205,
+    g: 211,
+    b: 218,
+    a: 255,
+};
+/// The bar's text (#3C4048).
+const O10_TEXT: ColorU = ColorU {
+    r: 60,
+    g: 64,
+    b: 72,
+    a: 255,
+};
+/// The zoom rail on the silver bar (#9AA3AF).
+const O10_RAIL: ColorU = ColorU {
+    r: 154,
+    g: 163,
+    b: 175,
+    a: 255,
+};
+/// A sync error's glyph on the silver bar (#C42B1C).
+const O10_SYNC_ERROR: ColorU = ColorU {
+    r: 196,
+    g: 43,
+    b: 28,
+    a: 255,
+};
+/// A sync error's glyph on the dark bar (#FF8A80).
+const O10_SYNC_ERROR_DARK: ColorU = ColorU {
+    r: 255,
+    g: 138,
+    b: 128,
+    a: 255,
+};
+
 // -- Metrics (the Office-2013-era look, logical px) --
 
 /// Bar height.
@@ -310,6 +368,37 @@ impl StatusBarTheme {
         }
     }
 
+    /// The Office 2010 palette (Silver), the flat theme's bar and the
+    /// default: a silver strip under a hairline, dark text, the yellow
+    /// hover, the orange press, the toggled-on yellow for the active view.
+    /// This palette's bar is page-neutral chrome: it goes dark with the
+    /// window, its states are Office 2010's faces (`is_office_2010`).
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self {
+            bar_bg: O10_BAR,
+            text: O10_TEXT,
+            hover_bg: flat::LIGHT_HB,
+            pressed_bg: flat::LIGHT_PT,
+            view_active_bg: flat::LIGHT_CHECKED_BOTTOM,
+            rail: O10_RAIL,
+            thumb: WHITE,
+            thumb_border: flat::LIGHT_BD3,
+            sync_error: O10_SYNC_ERROR,
+        }
+    }
+
+    /// Whether this is Office 2010's silver bar (its strip colour): drawn as
+    /// page-neutral chrome with Office 2010's faces, each colour with its
+    /// dark twin. Any other palette is an accent strip in its own colours.
+    #[must_use]
+    pub(crate) const fn is_office_2010(&self) -> bool {
+        self.bar_bg.r == O10_BAR.r
+            && self.bar_bg.g == O10_BAR.g
+            && self.bar_bg.b == O10_BAR.b
+            && self.bar_bg.a == O10_BAR.a
+    }
+
     /// Extracts a bar palette from the OS theme.
     ///
     /// The status bar is an ACCENT-FILLED strip, so it is the accent colour
@@ -345,7 +434,7 @@ impl StatusBarTheme {
 
 impl Default for StatusBarTheme {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -407,8 +496,40 @@ fn push_flat_button(v: &mut Vec<Cond>, t: &StatusBarTheme) {
     // would be worse than today's light-only rule; see
     // `themes::flat::hover_bg_both` for the rule, and `flat::button_states`
     // for the same call on a Primary button.
+    //
+    // Office 2010's silver bar is page-neutral instead: its controls take the
+    // theme's yellow and orange faces in a gold rim, amber by night.
+    if t.is_office_2010() {
+        v.extend(flat::hover_face_both());
+        v.extend(flat::hover_border_both(
+            flat::LIGHT_HOVER_BORDER,
+            flat::DARK_HOVER_BORDER,
+        ));
+        v.extend(flat::active_face_both());
+        return;
+    }
     v.extend(flat::hover_bg_both(t.hover_bg, t.hover_bg));
     v.extend(flat::active_bg_both(t.pressed_bg, t.pressed_bg));
+}
+
+/// A text or glyph colour on the bar: the palette's own on the accent strip
+/// (no twin - the strip keeps its colour), and on Office 2010's silver bar
+/// with the theme's dark ink after it.
+fn push_ink(v: &mut Vec<Cond>, t: &StatusBarTheme, light: ColorU, dark: ColorU) {
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_ink(light, dark));
+    } else {
+        v.push(cond_text_color(light));
+    }
+}
+
+/// A fill on the bar, as [`push_ink`].
+fn push_fill(v: &mut Vec<Cond>, t: &StatusBarTheme, light: ColorU, dark: ColorU) {
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_fill(light, dark));
+    } else {
+        v.push(cond_bg(light));
+    }
 }
 
 /// 1px solid border on all four sides in the given color.
@@ -470,8 +591,23 @@ fn theme_bar(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
         TEXT_PX,
     ))));
-    v.push(cond_bg(t.bar_bg));
-    v.push(cond_text_color(t.text));
+    if t.is_office_2010() {
+        // The silver strip under its hairline (an inset line: no height).
+        v.extend(super::themes::decl::themed_layers(
+            vec![super::themes::decl::face(O10_BAR_TOP, O10_BAR_BOTTOM)],
+            vec![super::themes::decl::face(flat::DARK_STRIP, flat::DARK_SUR)],
+        ));
+        v.extend(super::themes::decl::themed_ink(t.text, flat::DARK_INK));
+        v.extend(super::themes::decl::themed_inset_shadow(
+            1,
+            0,
+            flat::LIGHT_BD,
+            flat::DARK_BD,
+        ));
+    } else {
+        v.push(cond_bg(t.bar_bg));
+        v.push(cond_text_color(t.text));
+    }
     v.push(Cond::simple(P::const_padding_left(
         LayoutPaddingLeft::const_px(6),
     )));
@@ -498,26 +634,29 @@ fn theme_segment(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_segment_icon(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX - 1))),
-        cond_text_color(t.text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX - 1,
+    )))];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_segment_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(TEXT_PX))),
-        cond_text_color(t.text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        TEXT_PX,
+    )))];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The sync indicator's glyph when the sync failed: the segment glyph in the
 /// palette's error colour.
 fn theme_sync_icon_error(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX - 1))),
-        cond_text_color(t.sync_error),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX - 1,
+    )))];
+    push_ink(&mut v, t, t.sync_error, O10_SYNC_ERROR_DARK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_filler(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
@@ -558,14 +697,27 @@ fn theme_view_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 /// constructor, and `scripts/check_widget_theme_migration.py` counts such
 /// calls in this file.
 fn theme_active_view_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
+    if t.is_office_2010() {
+        // Office 2010's toggled-on yellow in its rim, the states after it so
+        // the face does not shadow them.
+        let mut v = flat::checked_face_both().to_vec();
+        v.extend(super::themes::decl::themed_border_color(
+            flat::LIGHT_CHECKED_BORDER,
+            flat::DARK_CHECKED_BORDER,
+        ));
+        v.extend(flat::hover_face_both());
+        v.extend(flat::active_face_both());
+        return CssPropertyWithConditionsVec::from_vec(v);
+    }
     CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.view_active_bg)])
 }
 
 fn theme_view_icon(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX))),
-        cond_text_color(t.text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX,
+    )))];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_zoom(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
@@ -591,10 +743,11 @@ fn theme_zoom_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_zoom_icon(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(ICON_PX - 2))),
-        cond_text_color(t.text),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        ICON_PX - 2,
+    )))];
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// Positioning context for the rail line, the center tick and the slider.
@@ -613,26 +766,28 @@ fn theme_zoom_track_host(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 
 /// The 1px horizontal rail line behind the slider.
 fn theme_zoom_rail(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_position(LayoutPosition::Absolute)),
         Cond::simple(P::const_left(LayoutLeft::const_px(0))),
         Cond::simple(P::const_top(LayoutTop::const_px(BAR_HEIGHT / 2))),
         Cond::simple(P::const_width(LayoutWidth::const_px(ZOOM_TRACK_W))),
         Cond::simple(P::const_height(LayoutHeight::const_px(1))),
-        cond_bg(t.rail),
-    ])
+    ];
+    push_fill(&mut v, t, t.rail, flat::DARK_BD3);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The small vertical tick marking the 100% center of the rail.
 fn theme_zoom_tick(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_position(LayoutPosition::Absolute)),
         Cond::simple(P::const_left(LayoutLeft::const_px(ZOOM_TRACK_W / 2))),
         Cond::simple(P::const_top(LayoutTop::const_px(BAR_HEIGHT / 2 - 3))),
         Cond::simple(P::const_width(LayoutWidth::const_px(1))),
         Cond::simple(P::const_height(LayoutHeight::const_px(7))),
-        cond_bg(t.rail),
-    ])
+    ];
+    push_fill(&mut v, t, t.rail, flat::DARK_BD3);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// Injected into the embedded [`Slider`]'s `track_style`: a transparent
@@ -660,8 +815,8 @@ fn theme_slider_thumb(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_width(LayoutWidth::const_px(ZOOM_THUMB_W))),
         Cond::simple(P::const_height(LayoutHeight::const_px(ZOOM_THUMB_H))),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        cond_bg(t.thumb),
     ];
+    push_fill(&mut v, t, t.thumb, flat::DARK_RT);
     v.push(Cond::simple(P::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )));
@@ -694,6 +849,13 @@ fn theme_slider_thumb(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
             inner: BorderStyle::Solid,
         },
     )));
+    if t.is_office_2010() {
+        v.extend(super::themes::decl::themed_border_color(
+            t.thumb_border,
+            flat::DARK_BD3,
+        ));
+        return CssPropertyWithConditionsVec::from_vec(v);
+    }
     v.push(Cond::simple(P::const_border_top_color(
         StyleBorderTopColor {
             inner: t.thumb_border,
@@ -736,7 +898,7 @@ fn theme_zoom_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
         TEXT_PX,
     ))));
-    v.push(cond_text_color(t.text));
+    push_ink(&mut v, t, t.text, flat::DARK_INK);
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -888,10 +1050,17 @@ pub struct StatusBarStyle {
 }
 
 impl StatusBarStyle {
-    /// The the Office-2013-era look look (#2B579A bar, white text) - the default.
+    /// The the Office-2013-era look look (#2B579A bar, white text).
     #[must_use]
     pub const fn office_2013() -> Self {
         Self::from_theme(StatusBarTheme::office_2013())
+    }
+
+    /// The Office 2010 look (the silver bar, see
+    /// [`StatusBarTheme::office_2010`]) - the default, the flat theme's bar.
+    #[must_use]
+    pub const fn office_2010() -> Self {
+        Self::from_theme(StatusBarTheme::office_2010())
     }
 
     /// Every part style, derived from the OS theme - see
@@ -1122,7 +1291,7 @@ impl StatusBarStyle {
 
 impl Default for StatusBarStyle {
     fn default() -> Self {
-        Self::office_2013()
+        Self::office_2010()
     }
 }
 
@@ -1552,14 +1721,14 @@ static CLS_SYNC: &[IdOrClass] = &[Class(AzString::from_const_str(
 
 impl StatusBar {
     /// Creates a status bar with the given left segments, no view switcher
-    /// and no zoom cluster, in the the Office-2013-era look style.
+    /// and no zoom cluster, in the Office 2010 style.
     #[must_use]
     pub fn new(segments: StatusBarSegmentVec) -> Self {
         Self {
             segments,
             views: None.into(),
             zoom: None.into(),
-            style: StatusBarStyle::office_2013(),
+            style: StatusBarStyle::office_2010(),
             sync: None.into(),
             theme: OptionUiTheme::None,
         }
@@ -2173,19 +2342,19 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_new_defaults_to_office_2013_with_no_clusters() {
+    fn status_bar_new_defaults_to_office_2010_with_no_clusters() {
         for count in [0usize, 1, 3] {
             let s = StatusBar::new(segs(count));
             assert_eq!(s.segments.len(), count);
             assert!(s.views.is_none());
             assert!(s.zoom.is_none());
-            assert_eq!(s.style, StatusBarStyle::office_2013());
+            assert_eq!(s.style, StatusBarStyle::office_2010());
         }
     }
 
     #[test]
-    fn status_bar_style_default_is_office_2013() {
-        assert_eq!(StatusBarStyle::default(), StatusBarStyle::office_2013());
+    fn status_bar_style_default_is_office_2010() {
+        assert_eq!(StatusBarStyle::default(), StatusBarStyle::office_2010());
     }
 
     #[test]
@@ -2351,7 +2520,12 @@ mod tests {
         // An inert text segment is a plain <div> carrying the flat chassis, so
         // the state rules on it are this widget's alone (a clickable segment
         // expands to a Button, which appends its own on top).
-        let dom = StatusBar::new(segs(1)).with_theme(UiTheme::Flat).dom();
+        // The 2013 palette's accent strip (Office 2010's silver bar is
+        // page-neutral: its states take the theme's faces).
+        let dom = StatusBar::new(segs(1))
+            .with_style(StatusBarStyle::office_2013())
+            .with_theme(UiTheme::Flat)
+            .dom();
         let segment = &dom.children.as_ref()[0];
         assert_every_state_rule_has_a_dark_twin(
             "segment",
