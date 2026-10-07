@@ -1,8 +1,11 @@
 //! The window, in the look of Spotify's 2010 desktop player (`look.rs`): charcoal panes edge to
-//! edge under glossy grey bars, the lime of the old logo for what plays and for Play.
+//! edge under glossy grey bars, the lime of the old logo for what plays and for Play. The
+//! player's own hand everywhere, in every theme (`HAND`: the platform's UI sans), and nothing in
+//! it is selectable text but the search field.
 //!
-//! - THE TOOL BAR under the title row: back and forward (round, glossy), the search field, the
-//!   status on the right.
+//! - THE TOOL BAR is the window's title bar (the window is `NoTitle`, there is no title row):
+//!   back and forward (round, glossy), the search field, the status on the right; the bar moves
+//!   the window and a double click on it zooms, clear of the window's own controls.
 //! - THE SIDEBAR: Play Queue; LIBRARY - Recently Added, Artists, Albums, Songs, Genres; PLAYLISTS -
 //!   the user's, then "New Playlist"; at its foot the cover of the song that plays.
 //! - THE PAGE (a VirtualView: only the lines in view are built, `page.rs` says what they are): a
@@ -27,19 +30,19 @@ use azul::{
     dialog::{FileDialog, FileOpenResult},
     dom::TabIndex,
     menu::{Menu, MenuItem, StringMenuItem},
-    option::{OptionColorU, OptionString},
+    option::OptionString,
     prelude::*,
     shells::{ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     widgets::{
         Button, LevelMeter, MediaControlsAction, OnTextInputReturn, SeekBar, Slider, SliderState,
-        TextInputState, TextInputValid, Titlebar,
+        TextInputState, TextInputValid, UiTheme,
     },
 };
 use azul_appkit::ui as kit;
 
 use crate::{
-    app::{self, LibraryRef, Music, FOLDER_SETTING, SPEC},
+    app::{self, LibraryRef, Music, FOLDER_SETTING},
     art, ids,
     library::Library,
     look::{self, Look},
@@ -52,8 +55,21 @@ use crate::{
 
 /// The sidebar's width, px.
 const SIDEBAR_W: f32 = 220.0;
+/// The tool bar's height, px: it is the window's title bar.
+const TOOLBAR_H: f32 = 40.0;
 /// A column that fills what it is given.
 const COLUMN: &str = "display: flex; flex-direction: column; min-height: 0px; min-width: 0px;";
+/// The player's own hand, on the window's root AND on the page's root: a VirtualView's DOM is
+/// styled on its own and inherits nothing from the window, so the page's tables, which set no
+/// family, fell to the engine's default serif. The platform's UI sans (`system:ui`: SF on macOS,
+/// Segoe UI on Windows, the desktop's font on Linux) at the tables' 12px, in every theme - a
+/// theme's chrome hand (flora sets its scopes in Garamond) stops here. And the player is chrome,
+/// not text: `user-select` inherits, so no label, cell or title is selectable (the search field
+/// says `text` again), and the pointer stays an arrow over the words.
+const HAND: &str = "font-family: system:ui; font-size: 12px; user-select: none; cursor: default;";
+/// A control in the tool bar - the window's title bar - keeps its press: the framework's walk up
+/// to the bar's `drag` stops at it.
+const NO_DRAG: &str = "-azul-app-region: no-drag;";
 
 // ==== Small parts ====
 
@@ -100,7 +116,7 @@ fn round_button(
         .with_id(id)
         .with_css(format!(
             "display: flex; flex-shrink: 0; width: {size}px; height: {size}px; margin-left: 6px; \
-             cursor: pointer;"
+             cursor: pointer; {NO_DRAG}"
         ))
         .with_accessibility_name(name)
         // The box takes the click, the focus and the name; its icon is the face (a `:hover` on
@@ -182,14 +198,27 @@ fn cover(seed: &str, label: &str, size: f32, round: bool, look: &Look) -> Dom {
         .with_child(face)
 }
 
-/// The green play button over a cover or a tile under the pointer: plays `pick`'s songs.
-fn cover_play(look: &Look, title: &str, pick: RefAny) -> Dom {
+/// The card play button's radius, px (it is 36px wide).
+const PLAY_R: f32 = 18.0;
+
+/// How far in from a round cover's bottom-right corner (`size` px wide) its play button sits:
+/// on the diagonal, 4px inside the circle. The cover clips to its circle, so the square covers'
+/// 8px from the corner cut the button in half on an artist.
+fn round_inset(size: f32) -> f32 {
+    let radius = size / 2.0;
+    let along = (radius - PLAY_R - 4.0).max(0.0) / std::f32::consts::SQRT_2;
+    (radius - along - PLAY_R).max(8.0).round()
+}
+
+/// The green play button over a cover or a tile under the pointer, `inset` px in from its
+/// bottom-right corner: plays `pick`'s songs.
+fn cover_play(look: &Look, title: &str, pick: RefAny, inset: f32) -> Dom {
     Dom::create_div()
         .with_class(ids::CARD_PLAY)
-        .with_css(
-            "position: absolute; right: 8px; bottom: 8px; display: flex; width: 36px; height: \
-             36px; cursor: pointer;",
-        )
+        .with_css(format!(
+            "position: absolute; right: {inset}px; bottom: {inset}px; display: flex; width: \
+             36px; height: 36px; cursor: pointer;"
+        ))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_name(format!("Play {title}"))
         .with_callback(
@@ -208,8 +237,9 @@ fn cover_play(look: &Look, title: &str, pick: RefAny) -> Dom {
 
 // ==== The window ====
 
-/// The window: the title row, the tool bar, the sidebar beside the page, the now-playing bar -
-/// in the theme scope; the keys and the desktop's media requests on the body.
+/// The window: the tool bar (its title bar), the sidebar beside the page, the now-playing bar -
+/// in the theme scope, in the player's own hand; the keys and the desktop's media requests on
+/// the body.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
@@ -232,10 +262,9 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_child(main_pane(s, &app, look));
     let root = Dom::create_div()
         .with_css(format!(
-            "{COLUMN} flex-grow: 1; background: {}; color: {}; font-size: 12px;",
+            "{COLUMN} {HAND} flex-grow: 1; background: {}; color: {};",
             look.page, look.text
         ))
-        .with_child(title_row(look))
         .with_child(toolbar(s, &app, look))
         .with_child(middle)
         .with_child(now_playing_bar(s, &app, look));
@@ -254,31 +283,31 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         )
 }
 
-/// The title row (the window is `NoTitle`) in the bars' charcoal.
-fn title_row(look: &Look) -> Dom {
-    let (r, g, b) = look.title_rgb;
-    let (tr, tg, tb) = look.title_text_rgb;
-    let ground = ColorU::rgb(r, g, b);
-    let mut bar = Titlebar::create(SPEC.name)
-        .with_background(ground)
-        .with_background_inactive(ground)
-        .without_border_bottom();
-    bar.title_color = ColorU::rgb(tr, tg, tb);
-    bar.title_color_inactive = OptionColorU::Some(ColorU::rgb(tr, tg, tb));
-    bar.dom()
-}
-
-/// The tool bar: back, forward, the search field; the status on the right.
+/// The tool bar, which IS the window's title bar (the window is `NoTitle`; a title row over it
+/// only said "AzMusic" and took 28px): back, forward, the search field; the status on the
+/// right. The bar moves the window - `-azul-app-region: drag`, which the framework hands to the
+/// window manager, and on which a double click zooms (maximizes) - and leaves the window's own
+/// controls their room: the traffic lights' width before Back on macOS, the software controls'
+/// after the status on Linux, nothing on Windows (its caption stays above). Those are azul's
+/// `TabsInTitlebar::platform()` offsets, the ones the ribbon apps' tab strips take. Its buttons
+/// and the search field say `no-drag`: a press on them is theirs.
 fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
+    let chrome = kit::tabs_in_titlebar();
     let back = (!s.back.is_empty()).then(|| (app.clone(), on_back as CallbackType));
     let forward = (!s.forward.is_empty()).then(|| (app.clone(), on_forward as CallbackType));
     let search = TextInput::create_search()
         .with_text(s.query.as_str())
         .with_placeholder("Search")
         .with_accessibility_name("Search the library")
+        // The flat field in every theme: flora writes a field's value in Garamond, and the
+        // player's hand is a sans.
+        .with_theme(UiTheme::Flat)
         .with_on_text_input(app.clone(), on_search as TextInputOnTextInputCallbackType)
         .dom()
-        .with_id(ids::SEARCH);
+        .with_id(ids::SEARCH)
+        // The one text in the player a user may select (`HAND` says none), and a control of the
+        // title bar.
+        .with_css(format!("{NO_DRAG} user-select: text;"));
     let status = if s.status.is_empty() {
         s.with_library(|library| page::count(library.tracks.len(), "song"))
     } else {
@@ -288,9 +317,12 @@ fn toolbar(s: &Music, app: &RefAny, look: &Look) -> Dom {
         .with_id(ids::TOOLBAR)
         .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: \
-             44px; padding: 0px 12px 0px 6px; box-sizing: border-box; background: {}; \
-             border-bottom: 1px solid {};",
-            look.bar, look.line
+             {TOOLBAR_H}px; padding: 0px {}px 0px {}px; box-sizing: border-box; background: {}; \
+             border-bottom: 1px solid {}; -azul-app-region: drag;",
+            12.0 + chrome.right,
+            6.0 + chrome.left,
+            look.bar,
+            look.line
         ))
         .with_child(round_button(
             look,
@@ -507,6 +539,8 @@ fn empty_library(s: &Music, app: &RefAny) -> Dom {
     } else {
         String::from("Reading the library\u{2026}")
     };
+    // Flat in every theme: flora sets its shells in Garamond and its buttons in Garamond
+    // capitals, and the player's hand is a sans.
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
         .with_child(
@@ -515,12 +549,14 @@ fn empty_library(s: &Music, app: &RefAny) -> Dom {
                 .with_detail(detail.as_str())
                 .with_action_label("Scan the music folder")
                 .with_on_action(app.clone(), on_scan as ButtonOnClickCallbackType)
+                .with_theme(UiTheme::Flat)
                 .dom()
                 .with_id(ids::EMPTY),
         )
         .with_child(
             Button::create("Use the sample library")
                 .with_on_click(app.clone(), on_sample as ButtonOnClickCallbackType)
+                .with_theme(UiTheme::Flat)
                 .dom()
                 .with_css("align-self: center; margin: 8px;"),
         )
@@ -651,8 +687,10 @@ extern "C" fn render_page(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
         heard: s.heard_index(library),
         plays_page: plays_page(s, library, &built.tracks),
     };
+    // The page's DOM inherits nothing from the window: its root states the player's hand again.
     let mut root = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: column; width: {width}px;"
+        "display: flex; flex-direction: column; width: {width}px; {HAND} color: {};",
+        ctx.look.text
     ));
     for i in first..end {
         root.add_child(line_dom(&ctx, &built.lines[i], tops[i + 1] - tops[i]));
@@ -1004,12 +1042,13 @@ fn track_row(
         } else {
             ("play_arrow", "Play")
         };
-        Dom::create_icon(icon)
+        // A box takes the click, the focus, the class and the name; the icon is only its face.
+        // Icon resolution replaces an icon node with its glyph - the style survives, the class,
+        // the tab stop and the callback do not - so the icon alone was a dead glyph: a click on
+        // it only selected the row.
+        Dom::create_div()
             .with_class(ids::ROW_PLAY)
-            .with_css(format!(
-                "font-size: 16px; color: {}; cursor: pointer; :hover {{ color: {}; }}",
-                look.text, look.accent
-            ))
+            .with_css("display: flex; align-items: center; cursor: pointer;")
             .with_tab_index(TabIndex::Auto)
             .with_accessibility_name(format!("{word} {title}"))
             .with_callback(
@@ -1017,6 +1056,10 @@ fn track_row(
                 pick(),
                 on_row_play,
             )
+            .with_child(Dom::create_icon(icon).with_css(format!(
+                "font-size: 16px; color: {}; :hover {{ color: {}; }}",
+                look.text, look.accent
+            )))
     } else if heard {
         let icon = if s.state.playing {
             "volume_up"
@@ -1216,7 +1259,12 @@ fn card(ctx: &Ctx<'_>, kind: CardKind, item: usize, gap: f32) -> Dom {
         cover(&seed, &title, size, kind == CardKind::Artist, look)
     };
     if hovered {
-        picture.add_child(cover_play(look, &title, pick()));
+        let inset = if kind == CardKind::Artist {
+            round_inset(size)
+        } else {
+            8.0
+        };
+        picture.add_child(cover_play(look, &title, pick(), inset));
     }
     let align = if kind == CardKind::Artist {
         "text-align: center;"
@@ -1454,7 +1502,9 @@ fn now_playing_bar(s: &Music, app: &RefAny, look: &Look) -> Dom {
                      flex-shrink: 0; margin-left: 12px;",
                 )
                 .with_child(
-                    LevelMeter::create(0.0)
+                    // Built at the level the meter shows (the throttle's): a rebuild - any click
+                    // that refreshes the window - no longer empties it until the next move.
+                    LevelMeter::create(s.meter.level)
                         .with_accessibility_name("Level")
                         .dom()
                         .with_id(ids::LEVEL)
@@ -1757,7 +1807,15 @@ extern "C" fn on_row_menu(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Menu::create(items)
     };
     app::rerender_page(&mut info);
-    let _opened = info.open_menu_for_hit_node(menu);
+    // At the pointer, as a context menu opens. `open_menu_for_hit_node` is a drop-down's rule:
+    // it hung the menu under the row's bottom-left corner and made it at least as wide as the
+    // row - the whole page.
+    match info.get_cursor_relative_to_viewport().into_option() {
+        Some(at) => info.open_menu_at(menu, at),
+        None => {
+            let _opened = info.open_menu_for_hit_node(menu);
+        }
+    }
     Update::DoNothing
 }
 
@@ -2048,5 +2106,21 @@ mod tests {
         assert!(LEAD_CELL.contains("width: 36px"));
         assert!(TIME_CELL.contains("width: 56px"));
         assert!(grow_cell(4).contains("flex-grow: 4"));
+    }
+
+    #[test]
+    fn a_round_covers_play_button_lies_inside_its_circle() {
+        for size in [150.0_f32, 180.0, 240.0, 320.0] {
+            let inset = round_inset(size);
+            let radius = size / 2.0;
+            // The button's centre, from the cover's centre, along each axis.
+            let along = radius - inset - PLAY_R;
+            let reach = along * std::f32::consts::SQRT_2 + PLAY_R;
+            assert!(
+                reach <= radius,
+                "{size}px: the button reaches {reach}px out, the circle {radius}px"
+            );
+            assert!(inset >= 8.0, "{size}px: never closer to the edge than a square's");
+        }
     }
 }

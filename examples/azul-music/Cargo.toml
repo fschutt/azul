@@ -11,7 +11,7 @@ description = """
     song tables in a VirtualView, playlists as files in the data tree, a play
     queue with shuffle and repeat, gapless playback through azul's AudioPlayer,
     the now-playing bar (SeekBar, Slider, LevelMeter) and the OS media keys /
-    now-playing widget. NoTitle with the app-drawn Titlebar, dark by default,
+    now-playing widget. NoTitle, its tool bar the title bar, dark by default,
     light and dark.
 """
 publish = false
