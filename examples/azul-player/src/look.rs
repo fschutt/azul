@@ -143,25 +143,38 @@ pub fn picture_fade(stage: Stage) -> String {
 
 // ==== The focus ====
 
-/// A tile's face: scaled up when focused, on a snappy spring.
+/// How much a focused tile grows (a song's row a little less).
+pub const FOCUS_SCALE: f32 = 1.07;
+pub const FOCUS_SCALE_ROW: f32 = 1.03;
+
+/// A tile's face: scaled up by `scale` when focused, on a snappy spring; faded out with the
+/// icons when the curtain falls.
 #[must_use]
-pub fn face(focused: bool) -> String {
+pub fn face(focused: bool, scale: f32, stage: Stage) -> String {
     format!(
-        "transform: scale({}); animation: transform 280ms spring-snappy;",
-        if focused { "1.07" } else { "1" }
+        "transform: scale({}); opacity: {}; animation: transform 280ms spring-snappy, opacity \
+         {}ms {}ms ease-in;",
+        if focused { scale } else { 1.0 },
+        if stage.menus { 1 } else { 0 },
+        curtain::ICON_FADE_MS,
+        curtain::ICON_DELAY_MS
     )
 }
 
-/// The glow over a focused face: the bright rim and the soft blue-white light around it, a
-/// layer of its own whose opacity fades in fast and out a little slower.
+/// The glow over a focused face (`w` x `h` at its corner): the bright rim and the soft
+/// blue-white light around it - a layer of its own that scales with the face and whose opacity
+/// fades in fast; gone when the curtain falls.
 #[must_use]
-pub fn glow(focused: bool, radius: f32) -> String {
+pub fn glow(focused: bool, scale: f32, w: f32, h: f32, radius: f32, stage: Stage) -> String {
+    let lit = focused && stage.menus;
     format!(
-        "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; border-radius: \
-         {radius}px; box-shadow: 0px 0px 18px 3px rgba(118, 196, 255, 0.85); border: 2px solid \
-         rgba(236, 246, 255, 0.95); opacity: {}; animation: opacity {}ms ease-out;",
-        if focused { 1 } else { 0 },
-        if focused { 140 } else { 220 }
+        "position: absolute; left: 0px; top: 0px; width: {w}px; height: {h}px; box-sizing: \
+         border-box; border-radius: {radius}px; box-shadow: 0px 0px 18px 3px rgba(118, 196, 255, \
+         0.85); border: 2px solid rgba(236, 246, 255, 0.95); transform: scale({}); opacity: {}; \
+         animation: transform 280ms spring-snappy, opacity {}ms ease-out;",
+        if focused { scale } else { 1.0 },
+        if lit { 1 } else { 0 },
+        if lit { 140 } else { 220 }
     )
 }
 

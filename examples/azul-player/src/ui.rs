@@ -169,11 +169,13 @@ fn root(s: &Player, app: &RefAny) -> Dom {
 /// The menus: the ground, the page, the corner pieces, the inset, a notice.
 fn menus(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     let place = s.menus_place();
+    // Before a video the menus go to black as one with the ground (what is not text or an icon -
+    // a tile's face, a panel - goes with the blue).
     let mut menus = Dom::create_div()
         .with_id(ids::MENUS)
-        .with_css(look::FILL);
+        .with_css(format!("{} {}", look::FILL, look::ground_fade(stage)));
     if place.screen.on_ground() {
-        menus.add_child(ground(s, place, stage));
+        menus.add_child(ground(s, place));
     }
     menus.add_child(page(s, app, place, stage));
     menus.add_child(corner(s, app, place, stage));
@@ -205,17 +207,13 @@ fn light_seed(s: &Player, place: &Place) -> usize {
 }
 
 /// The ground: Media Center's blue, flora's shafts drifting slowly over it, the bloom off the
-/// upper-left corner, the far corner falling away. Fades to black LAST before a video.
-fn ground(s: &Player, place: &Place, stage: Stage) -> Dom {
+/// upper-left corner, the far corner falling away. Fades to black LAST before a video (with
+/// the menus it is in).
+fn ground(s: &Player, place: &Place) -> Dom {
     let light = Light::for_seed(light_seed(s, place));
     Dom::create_div()
         .with_id(ids::GROUND)
-        .with_css(format!(
-            "{} {} {}",
-            look::FILL,
-            look::GROUND_BASE,
-            look::ground_fade(stage)
-        ))
+        .with_css(format!("{} {}", look::FILL, look::GROUND_BASE))
         .with_child(Dom::create_div().with_id(ids::RAYS_FAR).with_css(format!(
             "position: absolute; left: -14%; top: -16%; width: 128%; height: 132%; {} \
              opacity: {:.2}; transform: translate({:.1}px, 0px); {}",
@@ -649,7 +647,7 @@ fn strip_items(
                          height: {STRIP_TILE_H}px; box-sizing: border-box; border-radius: 4px; \
                          display: flex; align-items: center; justify-content: center; {face_bg} \
                          {}",
-                        look::face(focused)
+                        look::face(focused, look::FOCUS_SCALE, stage)
                     ))
                     .with_child(icon(
                         entry.icon,
@@ -664,10 +662,13 @@ fn strip_items(
                         stage,
                     )),
             )
-            .with_child(Dom::create_div().with_css(format!(
-                "{} width: {STRIP_TILE_W}px; height: {STRIP_TILE_H}px; {}",
-                look::glow(focused, 4.0).replace("right: 0px; bottom: 0px;", ""),
-                look::face(focused).replace("animation: transform", "animation: opacity 160ms ease-out, transform")
+            .with_child(Dom::create_div().with_css(look::glow(
+                focused,
+                look::FOCUS_SCALE,
+                STRIP_TILE_W,
+                STRIP_TILE_H,
+                4.0,
+                stage,
             )))
             .with_child(text(
                 entry.label,
@@ -1066,7 +1067,7 @@ fn gallery_tile(
                      row; align-items: center; padding: 0px 12px; background: rgba(255, 255, \
                      255, {}); {}",
                     if focused { "0.16" } else { "0.05" },
-                    look::face(focused).replace("1.07", "1.03")
+                    look::face(focused, look::FOCUS_SCALE_ROW, stage)
                 ))
                 .with_child(icon(
                     icon_name,
@@ -1096,12 +1097,13 @@ fn gallery_tile(
                         )),
                 ),
         );
-        dom.add_child(Dom::create_div().with_css(format!(
-            "{} width: {aw}px; height: {ah}px; {}",
-            look::glow(focused, 4.0).replace("right: 0px; bottom: 0px;", ""),
-            look::face(focused)
-                .replace("1.07", "1.03")
-                .replace("animation: transform", "animation: opacity 160ms ease-out, transform")
+        dom.add_child(Dom::create_div().with_css(look::glow(
+            focused,
+            look::FOCUS_SCALE_ROW,
+            aw,
+            ah,
+            4.0,
+            stage,
         )));
     } else {
         dom.add_child(
@@ -1109,14 +1111,17 @@ fn gallery_tile(
                 .with_css(format!(
                     "position: absolute; left: 0px; top: 0px; width: {aw}px; height: {ah}px; \
                      border-radius: 4px; overflow: hidden; background: #0b2a55; {}",
-                    look::face(focused)
+                    look::face(focused, look::FOCUS_SCALE, stage)
                 ))
                 .with_child(art_face(art, &title, aw, ah, icon_name, stage)),
         );
-        dom.add_child(Dom::create_div().with_css(format!(
-            "{} width: {aw}px; height: {ah}px; {}",
-            look::glow(focused, 4.0).replace("right: 0px; bottom: 0px;", ""),
-            look::face(focused).replace("animation: transform", "animation: opacity 160ms ease-out, transform")
+        dom.add_child(Dom::create_div().with_css(look::glow(
+            focused,
+            look::FOCUS_SCALE,
+            aw,
+            ah,
+            4.0,
+            stage,
         )));
         dom.add_child(
             Dom::create_div()
