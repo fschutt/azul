@@ -344,7 +344,8 @@ pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) 
 /// of its own on every backend).
 const OPTGROUP_INDENT: &str = "\u{2003}";
 
-/// The popup menu of `dd`: one item per choice, each reporting its index; each
+/// The popup menu of `dd`: one item per choice, each reporting its index, the
+/// selected one ticked; each
 /// `<optgroup>` heading right before its options as a DISABLED item without a
 /// callback (so nothing can pick it and the menu's keyboard navigation passes
 /// over it), its options indented. Without groups this is the plain list.
@@ -367,13 +368,19 @@ pub(crate) fn build_menu_items(dd: &DropDown) -> Vec<MenuItem> {
         } else {
             choice.clone()
         };
-        items.push(MenuItem::String(StringMenuItem::create(label).with_callback(
+        let mut item = StringMenuItem::create(label).with_callback(
             RefAny::new(ChoiceCallbackData {
                 choice_id: idx,
                 on_choice_change: dd.on_choice_change.clone(),
             }),
             on_choice_selected as usize,
-        )));
+        );
+        // The current choice is ticked, as a native pop-up button ticks it
+        // (and a theme can wash its row: `menu-item-checked`).
+        if idx == dd.selected {
+            item.icon = Some(azul_core::menu::MenuItemIcon::Checkbox(true)).into();
+        }
+        items.push(MenuItem::String(item));
     }
     // A group that starts at (or past) the end holds no options; its heading
     // still shows, as HTML's does.
