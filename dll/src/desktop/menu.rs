@@ -80,6 +80,19 @@ pub(crate) fn resolve_position_strategy(
     }
 }
 
+/// Where a menu a callback opened appears, in the window's logical
+/// coordinates: `requested` is the position the callback named
+/// (`open_menu_at`, `open_menu_for_node`), `None` for a bare `open_menu`.
+#[must_use]
+pub(crate) fn resolve_open_menu_position(
+    requested: Option<LogicalPosition>,
+    _strategy: MenuPopupPosition,
+    _cursor: Option<LogicalPosition>,
+    _anchor: Option<LogicalRect>,
+) -> LogicalPosition {
+    requested.unwrap_or(LogicalPosition::new(0.0, 0.0))
+}
+
 /// Calculate optimal menu position based on MenuPopupPosition strategy
 ///
 /// Algorithm depends on the position strategy:
@@ -1040,5 +1053,79 @@ mod chain_tests {
             should_open_submenu(Some(3), 5),
             "a different parent item opens its own submenu"
         );
+    }
+}
+
+/// Where a menu a callback opened appears when the callback named no
+/// position (`CallbackInfo::open_menu`, `TimerCallbackInfo::open_menu`).
+/// Pure: the cursor and the anchor are handed in, so these run headless.
+#[cfg(test)]
+mod open_position_tests {
+    use super::*;
+
+    fn cursor() -> Option<LogicalPosition> {
+        Some(LogicalPosition::new(300.0, 200.0))
+    }
+
+    /// `open_menu(menu)` with the menu's default strategy (`AutoCursor`):
+    /// the menu opens at the pointer. It used to open at the window's
+    /// top-left corner, (0, 0), wherever the user had clicked.
+    #[test]
+    fn a_menu_opened_without_a_position_opens_at_the_cursor() {
+        let pos =
+            resolve_open_menu_position(None, MenuPopupPosition::AutoCursor, cursor(), None);
+        assert_eq!((pos.x, pos.y), (300.0, 200.0));
+        // Every cursor-relative strategy starts from the pointer too; the
+        // backend decides the side.
+        for strategy in [
+            MenuPopupPosition::BottomLeftOfCursor,
+            MenuPopupPosition::BottomRightOfCursor,
+            MenuPopupPosition::TopLeftOfCursor,
+            MenuPopupPosition::TopRightOfCursor,
+        ] {
+            let pos = resolve_open_menu_position(None, strategy, cursor(), None);
+            assert_eq!((pos.x, pos.y), (300.0, 200.0), "{strategy:?}");
+        }
+    }
+
+    /// A position the callback named (`open_menu_at`, `open_menu_for_node`)
+    /// is where the menu opens, whatever the menu's own strategy and
+    /// wherever the pointer is.
+    #[test]
+    fn a_menu_opened_at_an_explicit_position_keeps_it() {
+        let named = Some(LogicalPosition::new(40.0, 60.0));
+        for strategy in [
+            MenuPopupPosition::AutoCursor,
+            MenuPopupPosition::AutoHitRect,
+            MenuPopupPosition::BottomOfHitRect,
+        ] {
+            let pos = resolve_open_menu_position(named, strategy, cursor(), None);
+            assert_eq!((pos.x, pos.y), (40.0, 60.0), "{strategy:?}");
+        }
+    }
+
+    /// A hit-rect strategy hangs the menu off the anchor's bottom-left
+    /// corner, as `open_menu_for_node` does; without an anchor it falls back
+    /// to the pointer rather than to the window's corner.
+    #[test]
+    fn a_hit_rect_menu_without_a_position_hangs_off_its_anchor_or_the_cursor() {
+        let anchor = Some(LogicalRect::new(
+            LogicalPosition::new(100.0, 50.0),
+            LogicalSize::new(120.0, 24.0),
+        ));
+        let pos =
+            resolve_open_menu_position(None, MenuPopupPosition::AutoHitRect, cursor(), anchor);
+        assert_eq!((pos.x, pos.y), (100.0, 74.0));
+        let pos =
+            resolve_open_menu_position(None, MenuPopupPosition::BottomOfHitRect, cursor(), None);
+        assert_eq!((pos.x, pos.y), (300.0, 200.0));
+    }
+
+    /// No pointer in the window and nothing to anchor to: the corner is all
+    /// that is left.
+    #[test]
+    fn a_menu_with_nothing_to_open_at_opens_at_the_origin() {
+        let pos = resolve_open_menu_position(None, MenuPopupPosition::AutoCursor, None, None);
+        assert_eq!((pos.x, pos.y), (0.0, 0.0));
     }
 }
