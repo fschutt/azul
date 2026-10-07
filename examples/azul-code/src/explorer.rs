@@ -15,7 +15,7 @@
 
 use azul::{
     callbacks::ButtonOnClickCallbackType,
-    dom::{DomId, NodeId, TabIndex, VirtualKeyCode},
+    dom::{AccessibilityInfo, AccessibilityRole, DomId, NodeId, TabIndex, VirtualKeyCode},
     prelude::*,
     widgets::{Button, ButtonType},
 };
@@ -65,7 +65,7 @@ pub fn explorer(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::EXPLORER)
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name(format!("Files of {}", w.root.name))
+        .with_accessibility_info(AccessibilityInfo::named(format!("Files of {}", w.root.name), AccessibilityRole::Outline))
         .with_callback(
             EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
             app.clone(),
@@ -158,7 +158,7 @@ fn row_dom(app: &RefAny, row: &Row, selected: bool) -> Dom {
              flex-shrink: 0; padding-left: {indent}px; padding-right: 8px; cursor: pointer; \
              white-space: nowrap; overflow: hidden; font-size: 13px; {look}"
         ))
-        .with_accessibility_name(format!("{}{state}", row.name))
+        .with_accessibility_info(AccessibilityInfo::named(format!("{}{state}", row.name), AccessibilityRole::OutlineItem))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseUp),
             RefAny::new(RowRef {

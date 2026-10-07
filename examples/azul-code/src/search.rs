@@ -145,26 +145,37 @@ pub fn preview_of(line: &str, start: usize, end: usize) -> (String, usize, usize
 }
 
 /// Every match of `needle` in `text` (a whole file; LF, CRLF or CR line
-/// breaks), top to bottom, at most `max`. A file without the needle is
-/// passed over in one scan before any line is split.
+/// breaks, counted as the buffer a file opens in counts them), top to
+/// bottom, at most `max`. A file without the needle is passed over in one
+/// scan before any line is split.
 #[must_use]
 pub fn find_in_text(text: &str, needle: &str, how: TextMatch, max: usize) -> Vec<Hit> {
     let mut out = Vec::new();
     if needle.is_empty() || needle.contains('\n') || max == 0 {
         return out;
     }
-    // The buffer a file opens in leaves the BOM out: so do the offsets here.
+    // The buffer a file opens in leaves the BOM out and reads CRLF and a
+    // lone CR as one break: so do the lines and offsets here.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let normalized;
+    let text = if text.contains('\r') {
+        normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        normalized.as_str()
+    } else {
+        text
+    };
+    // Character by character, as the matcher compares (`str::to_lowercase`
+    // would apply the final-sigma rule the matcher does not).
+    let lower = |s: &str| s.chars().flat_map(char::to_lowercase).collect::<String>();
     let holds = if how.match_case {
         text.contains(needle)
     } else {
-        text.to_lowercase().contains(&needle.to_lowercase())
+        lower(text).contains(&lower(needle))
     };
     if !holds {
         return out;
     }
-    for (line, raw) in text.split('\n').enumerate() {
-        let content = raw.strip_suffix('\r').unwrap_or(raw);
+    for (line, content) in text.split('\n').enumerate() {
         for (start, end) in matches(content, needle, how) {
             let (preview, preview_start, preview_end) = preview_of(content, start, end);
             out.push(Hit {
@@ -265,6 +276,16 @@ mod tests {
         assert_eq!(find_in_text(text, "picked", TextMatch::default(), 1).len(), 1, "at most max");
         assert!(find_in_text(text, "absent", TextMatch::default(), 100).is_empty());
         assert!(find_in_text(text, "", TextMatch::default(), 100).is_empty());
+        // A lone CR is a break, as in the buffer the file opens in; a BOM is no column.
+        let mixed = "\u{feff}a\rpicked\r\nx picked";
+        let lines: Vec<(usize, usize)> = find_in_text(mixed, "picked", TextMatch::default(), 100)
+            .iter()
+            .map(|h| (h.line, h.start))
+            .collect();
+        assert_eq!(lines, vec![(1, 0), (2, 2)]);
+        let buffer = TextBuffer::from_text(mixed);
+        assert_eq!(buffer.line(1), "picked");
+        assert_eq!(buffer.line(2), "x picked");
     }
 
     #[test]

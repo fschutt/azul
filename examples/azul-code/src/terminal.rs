@@ -22,7 +22,7 @@ use azul::{
         TerminalViewDataSourceCallbackType, TerminalViewOnEventCallbackType, TimerCallbackInfo,
         TimerCallbackReturn,
     },
-    dom::ClipboardContent,
+    dom::{AccessibilityInfo, AccessibilityRole, ClipboardContent},
     option::OptionString,
     prelude::*,
     str::String as AzString,
@@ -232,8 +232,10 @@ fn start_ticking(st: &mut AppState, info: &mut CallbackInfo, app: &RefAny) {
 /// new title or an ended shell rebuilds the window (a shell that ended
 /// leaves the panel; the last one closes it).
 pub extern "C" fn terminal_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+    // Borrowed elsewhere this tick: the next one looks (ending here would
+    // leave `ticking` set and no timer to read the shells).
     let Some(mut guard) = data.downcast_mut::<AppState>() else {
-        return TimerCallbackReturn::terminate_unchanged();
+        return TimerCallbackReturn::continue_unchanged();
     };
     let st = &mut *guard;
     let panel = &mut st.panel;
@@ -413,7 +415,7 @@ fn terminal_tab(app: &RefAny, index: usize, t: &TerminalTab, active: bool) -> Do
              margin-right: 4px; border-radius: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; \
              :hover {{ background: rgba(128, 128, 128, 0.25); }} {look}"
         ))
-        .with_accessibility_name(format!("Terminal {}: {}", t.number, t.title))
+        .with_accessibility_info(AccessibilityInfo::named(format!("Terminal {}: {}", t.number, t.title), AccessibilityRole::PageTab))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseUp),
             RefAny::new(TerminalRef {

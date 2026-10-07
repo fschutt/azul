@@ -12,7 +12,7 @@
 
 use azul::{
     callbacks::{ButtonOnClickCallbackType, TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType},
-    dom::VirtualKeyCode,
+    dom::{AccessibilityInfo, AccessibilityRole, VirtualKeyCode},
     prelude::*,
     str::String as AzString,
     widgets::{Button, OnTextInputReturn, TextInput, TextInputState, TextInputValid},
@@ -73,7 +73,7 @@ pub fn search_panel(app: &RefAny, st: &AppState) -> Dom {
     let results = Dom::create_virtual_view(RefAny::new(ResultsRef { app: app.clone() }), render_results)
         .with_id(ids::SEARCH_RESULTS)
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
-        .with_accessibility_name("Search results");
+        .with_accessibility_info(AccessibilityInfo::named("Search results", AccessibilityRole::List));
     column(vec![
         side_title("SEARCH", Vec::new()),
         Dom::create_div()
@@ -146,7 +146,7 @@ fn row_dom(app: &RefAny, st: &AppState, index: usize, row: ResultRow) -> Dom {
             let folded = st.search.folded.contains(&file.key);
             let folder = parent_folder(&file.key).unwrap_or("").trim_end_matches('/').to_string();
             dom.with_css(format!("{base} padding-left: 8px;"))
-                .with_accessibility_name(format!("{}, {} matches", file.key, file.hits.len()))
+                .with_accessibility_info(AccessibilityInfo::named(format!("{}, {} matches", file.key, file.hits.len()), AccessibilityRole::ListItem))
                 .with_child(
                     Dom::create_icon(if folded { "chevron_right" } else { "expand_more" })
                         .with_css("font-size: 16px; width: 16px; flex-shrink: 0;"),
@@ -167,7 +167,7 @@ fn row_dom(app: &RefAny, st: &AppState, index: usize, row: ResultRow) -> Dom {
             let matched = &hit.preview[hit.preview_start..hit.preview_end];
             let after = &hit.preview[hit.preview_end..];
             dom.with_css(format!("{base} padding-left: 40px;"))
-                .with_accessibility_name(format!("Line {}: {}", hit.line + 1, hit.preview))
+                .with_accessibility_info(AccessibilityInfo::named(format!("Line {}: {}", hit.line + 1, hit.preview), AccessibilityRole::ListItem))
                 .with_child(Dom::create_span_with_text(before))
                 .with_child(
                     Dom::create_span_with_text(matched)
