@@ -13,7 +13,9 @@
 //! Every tab is a [`session::Session`]: the user's shell on a PTY
 //! (alacritty_terminal's tty + event loop), or with `--sample` a recorded
 //! session replayed into a terminal with no PTY (it echoes what is typed).
-//! A shell that ends closes its tab. The terminal is azul's `TerminalView`:
+//! A shell that ends closes its tab. Closing the LAST tab - Cmd+W, its x,
+//! `exit` in its shell alike - closes the window, as iTerm does: a window
+//! never stands without a tab. The terminal is azul's `TerminalView`:
 //! its data callback answers with [`vt::screen`] for the grid it has room
 //! for (a new grid resizes the engine and the PTY), its events carry the
 //! bytes for the program, the scroll and the selection gestures.
@@ -28,7 +30,8 @@
 //! On stdout, for scripts (`scripts/azterm_e2e.py`): `AZTERM_READY`,
 //! `AZTERM_TABS <n>`, `AZTERM_ACTIVE <index>`, `AZTERM_HISTORY <index>
 //! <lines>` (a new tab's scrollback), `AZTERM_SCROLL <offset>` (the view
-//! after a scroll), `AZTERM_COPIED <chars>`, `AZTERM_EXITED <index>`.
+//! after a scroll), `AZTERM_COPIED <chars>`, `AZTERM_EXITED <index>`,
+//! `AZTERM_CLOSE` (the last tab closed: the window closes).
 
 pub mod ids;
 pub mod sample;
@@ -304,17 +307,21 @@ impl AppState {
 
     /// Closes tab `index` (its shell gets SIGHUP); the session that was
     /// active stays active, the one after a closed active tab takes over.
-    pub fn close_tab(&mut self, index: usize) {
-        if index < self.tabs.len() {
-            self.tabs.remove(index);
-            if index < self.active {
-                self.active -= 1;
-            } else if self.active >= self.tabs.len() {
-                self.active = self.tabs.len().saturating_sub(1);
-            }
+    /// Returns whether that was the last tab: the window closes with it, as
+    /// iTerm's does - a window never stands without a tab.
+    pub fn close_tab(&mut self, index: usize) -> bool {
+        if index >= self.tabs.len() {
+            return false;
+        }
+        self.tabs.remove(index);
+        if index < self.active {
+            self.active -= 1;
+        } else if self.active >= self.tabs.len() {
+            self.active = self.tabs.len().saturating_sub(1);
         }
         self.touch_active();
         println!("AZTERM_TABS {}", self.tabs.len());
+        self.tabs.is_empty()
     }
 
     /// Activates tab `index`.
@@ -336,13 +343,14 @@ impl AppState {
         self.select_tab(next);
     }
 
-    /// Does what a window chord or a menu item asks.
-    pub fn apply(&mut self, key: WindowKey) {
+    /// Does what a window chord or a menu item asks; returns whether the
+    /// window closes (the last tab closed).
+    pub fn apply(&mut self, key: WindowKey) -> bool {
         match key {
             WindowKey::NewTab => self.open_tab(),
             WindowKey::CloseTab => {
                 let active = self.active;
-                self.close_tab(active);
+                return self.close_tab(active);
             }
             WindowKey::NextTab => self.cycle_tab(1),
             WindowKey::PreviousTab => self.cycle_tab(-1),
@@ -354,6 +362,7 @@ impl AppState {
             WindowKey::Bigger => self.font_size = (self.font_size + 1.0).min(FONT_RANGE.1),
             WindowKey::Smaller => self.font_size = (self.font_size - 1.0).max(FONT_RANGE.0),
         }
+        false
     }
 
     /// Scrolls the active tab's view (Cmd + a navigation key); the caller
@@ -542,7 +551,9 @@ fn notice_bar(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::NOTICE)
 }
 
-/// The terminal of the active tab, in a positioned box it fills.
+/// The terminal of the active tab, in a positioned box it fills. No tab is
+/// open only when the first shell could not start (closing the last tab
+/// closes the window): the notice says why, the empty state offers another.
 fn pane(app: &RefAny, st: &AppState) -> Dom {
     let pane = Dom::create_div().with_id(ids::PANE).with_css(PANE_CSS);
     let Some(tab) = st.tabs.get(st.active) else {
@@ -849,10 +860,17 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
             println!("AZTERM_EXITED {i}");
         }
     }
-    // A shell that ended closes its tab.
+    // A shell that ended closes its tab; the last one closes the window.
+    let mut closes = false;
     for i in ended.into_iter().rev() {
-        st.close_tab(i);
+        closes |= st.close_tab(i);
         rebuild = true;
+    }
+    if closes {
+        drop(st);
+        println!("AZTERM_CLOSE");
+        info.callback_info.close_window();
+        return TimerCallbackReturn::terminate_unchanged();
     }
     st.streak = if output { st.streak.saturating_add(1) } else { 0 };
     let render = output && renders_now(st.streak);
@@ -876,36 +894,48 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
     }
 }
 
-/// `key` on the app, the window rebuilt.
-fn apply_key(data: &mut RefAny, key: WindowKey) -> Update {
-    if let Some(mut st) = data.downcast_mut::<AppState>() {
-        st.apply(key);
+/// What a change to the tabs leaves: the window rebuilt - or, the last tab
+/// closed, the window closed (never a window without a tab).
+fn after_tabs(info: &mut CallbackInfo, closes: bool) -> Update {
+    if closes {
+        println!("AZTERM_CLOSE");
+        info.close_window();
+        Update::DoNothing
+    } else {
+        Update::RefreshDom
     }
-    Update::RefreshDom
 }
 
-extern "C" fn on_new_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::NewTab)
+/// `key` on the app, the window rebuilt (or closed with its last tab).
+fn apply_key(data: &mut RefAny, info: &mut CallbackInfo, key: WindowKey) -> Update {
+    let closes = data
+        .downcast_mut::<AppState>()
+        .is_some_and(|mut st| st.apply(key));
+    after_tabs(info, closes)
 }
 
-extern "C" fn on_close_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::CloseTab)
+extern "C" fn on_new_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::NewTab)
 }
 
-extern "C" fn on_next_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::NextTab)
+extern "C" fn on_close_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::CloseTab)
 }
 
-extern "C" fn on_previous_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::PreviousTab)
+extern "C" fn on_next_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::NextTab)
 }
 
-extern "C" fn on_bigger_text(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::Bigger)
+extern "C" fn on_previous_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::PreviousTab)
 }
 
-extern "C" fn on_smaller_text(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::Smaller)
+extern "C" fn on_bigger_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::Bigger)
+}
+
+extern "C" fn on_smaller_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::Smaller)
 }
 
 extern "C" fn on_settings(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -951,10 +981,10 @@ extern "C" fn on_tab_close_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     };
     // The tab under the button must not take the click as well.
     info.stop_propagation();
-    if let Some(mut st) = app.downcast_mut::<AppState>() {
-        st.close_tab(index);
-    }
-    Update::RefreshDom
+    let closes = app
+        .downcast_mut::<AppState>()
+        .is_some_and(|mut st| st.close_tab(index));
+    after_tabs(&mut info, closes)
 }
 
 extern "C" fn on_about(
@@ -1020,7 +1050,7 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     info.prevent_default();
-    apply_key(&mut data, action)
+    apply_key(&mut data, &mut info, action)
 }
 
 #[cfg(test)]
