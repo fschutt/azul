@@ -156,11 +156,25 @@ fn new_id_namespace() -> IdNamespace {
     IdNamespace(id)
 }
 
+/// What a `VirtualView` callback measures item DOMs against: the window that
+/// invokes it, and what the view's content inherits from its host
+/// ([`LayoutWindow::inherited_values_of_host`]) - an item is measured in the
+/// font it will be laid out in, or the sizes it reports are the default
+/// serif's. Lives on the invoking frame for the length of the callback (the
+/// `ctx` of [`virtual_view_measure_dom_trampoline`]).
+#[cfg(feature = "std")]
+struct VirtualViewMeasureContext {
+    window: *const LayoutWindow,
+    inherited_from_host: azul_core::prop_cache::InheritedFromHost,
+}
+
 /// Trampoline for `VirtualViewCallbackInfo::measure_dom` /
 /// `measure_dom_shrink_to_fit` (headless item sizing): `ctx` is the invoking
-/// `LayoutWindow`, `dom` was `ManuallyDrop`'d by the caller and is moved out
-/// here exactly once. `mode` picks the extent (block root stretched to the
-/// box) or the shrink-to-fit (max-content width) answer.
+/// view's [`VirtualViewMeasureContext`], `dom` was `ManuallyDrop`'d by the
+/// caller and is moved out here exactly once. `mode` picks the extent (block
+/// root stretched to the box) or the shrink-to-fit (max-content width)
+/// answer. The DOM is styled as the view's own content is: inheriting from
+/// the view's host.
 #[cfg(feature = "std")]
 extern "C" fn virtual_view_measure_dom_trampoline(
     ctx: *mut core::ffi::c_void,
@@ -171,16 +185,30 @@ extern "C" fn virtual_view_measure_dom_trampoline(
     if ctx.is_null() || dom.is_null() {
         return LogicalSize::zero();
     }
-    // SAFETY: ctx is the LayoutWindow that constructed the callback info
-    // (same liveness contract as CallbackInfo's internal window pointer);
-    // both measure paths only need &self and work on scratch caches.
-    let lw = unsafe { &*(ctx as *const LayoutWindow) };
+    // SAFETY: ctx is the `VirtualViewMeasureContext` on the frame of the
+    // invoke that constructed the callback info, and its window the
+    // LayoutWindow running that invoke (same liveness contract as
+    // CallbackInfo's internal window pointer); both measure paths only need
+    // &self and work on scratch caches.
+    let measure = unsafe { &*(ctx as *const VirtualViewMeasureContext) };
+    if measure.window.is_null() {
+        return LogicalSize::zero();
+    }
+    let lw = unsafe { &*measure.window };
     let dom = unsafe { core::ptr::read(dom) };
+    let styled_dom = lw.style_user_dom_inheriting(
+        dom,
+        &lw.current_window_state,
+        FORM_SCOPE_MEASURE,
+        measure.inherited_from_host.clone(),
+    );
     match mode {
-        azul_core::callbacks::MeasureDomMode::Extent => lw.measure_dom(dom, available),
-        azul_core::callbacks::MeasureDomMode::ShrinkToFit => {
-            lw.measure_dom_shrink_to_fit(dom, available)
+        azul_core::callbacks::MeasureDomMode::Extent => {
+            lw.measure_styled_dom(&styled_dom, available)
         }
+        azul_core::callbacks::MeasureDomMode::ShrinkToFit => lw
+            .measure_styled_dom_shrink_to_fit(&styled_dom, available)
+            .unwrap_or_else(LogicalSize::zero),
     }
 }
 
@@ -9838,13 +9866,18 @@ impl LayoutWindow {
             )));
         }
 
-        // Use the override styled_dom if provided, otherwise read from layout_results
-        let (virtual_view_node, content_sized) = if let Some(styled_dom) = styled_dom_override {
+        // Use the override styled_dom if provided, otherwise read from layout_results.
+        // What the view's content inherits is read off the host HERE, where
+        // its DOM is at hand in both cases.
+        let (virtual_view_node, content_sized, inherited_from_host) = if let Some(styled_dom) =
+            styled_dom_override
+        {
             let node_data_container = styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
             (
                 node_data.get_virtual_view_node_ref()?.clone(),
                 Self::virtual_view_content_sized_axes(styled_dom, node_id),
+                Self::inherited_values_of_host(styled_dom, node_id),
             )
         } else {
             let layout_result = self.layout_results.get(&parent_dom_id)?;
@@ -9859,6 +9892,7 @@ impl LayoutWindow {
                 (
                     vv.clone(),
                     Self::virtual_view_content_sized_axes(&layout_result.styled_dom, node_id),
+                    Self::inherited_values_of_host(&layout_result.styled_dom, node_id),
                 )
             } else {
                 if let Some(msgs) = debug_messages {
@@ -9884,6 +9918,7 @@ impl LayoutWindow {
             &virtual_view_node,
             bounds,
             content_sized,
+            inherited_from_host,
             window_state,
             renderer_resources,
             system_callbacks,
@@ -9946,7 +9981,13 @@ impl LayoutWindow {
     /// `Some(child_dom_id)` if the callback was invoked and the child DOM was laid out.
     /// The parent's display list generator will then use this ID to reference the child's
     /// display list. Returns `None` if the callback was not invoked.
+    ///
+    /// `inherited_from_host` is what the view's content inherits from its host
+    /// node ([`Self::inherited_values_of_host`]): a fresh DOM is styled
+    /// inheriting it, and a view the relayout KEEPS follows it when it moved
+    /// ([`Self::follow_host_in_kept_view`]).
     #[allow(clippy::too_many_lines)] // 5 re-invocation rules + recursive layout in one flow
+    #[allow(clippy::too_many_arguments)] // the view, its box and the pass it is laid out in
     fn invoke_virtual_view_callback_impl(
         &mut self,
         parent_dom_id: DomId,
@@ -9954,6 +9995,7 @@ impl LayoutWindow {
         virtual_view_node: &azul_core::dom::VirtualViewNode,
         bounds: LogicalRect,
         content_sized: (bool, bool),
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -10000,6 +10042,18 @@ impl LayoutWindow {
                     .and_then(|child| self.layout_results.get(&child))
                     .is_some_and(|child| size_eq(child.viewport.size, bounds.size));
                 if !carried || fits {
+                    // The DOM stays - but what it inherits from the host
+                    // may have moved since it was styled.
+                    if let Some(child) = nested {
+                        self.follow_host_in_kept_view(
+                            child,
+                            inherited_from_host,
+                            window_state,
+                            renderer_resources,
+                            system_callbacks,
+                            debug_messages,
+                        );
+                    }
                     return nested;
                 }
                 VirtualViewCallbackReason::InitialRender
@@ -10063,12 +10117,19 @@ impl LayoutWindow {
         );
         // Inject the headless-measure hook so the VirtualView callback can
         // size item DOMs (VirtualViewCallbackInfo::measure_dom → the
-        // trampoline below → LayoutWindow::measure_dom on scratch caches).
-        // Same raw-window-pointer liveness contract as CallbackInfo.
+        // trampoline above → this window's measure path on scratch caches),
+        // styled as the view's content is: inheriting from the host. Same
+        // raw-window-pointer liveness contract as CallbackInfo; the context
+        // lives on this frame until the callback returns.
+        #[cfg(feature = "std")]
+        let measure_context = VirtualViewMeasureContext {
+            window: core::ptr::from_ref::<Self>(self),
+            inherited_from_host: inherited_from_host.clone(),
+        };
         #[cfg(feature = "std")]
         callback_info.set_measure_dom_fn(
             virtual_view_measure_dom_trampoline,
-            core::ptr::from_mut::<Self>(self).cast(),
+            core::ptr::from_ref(&measure_context).cast_mut().cast(),
         );
 
         // Clone the user data for the callback
@@ -10076,6 +10137,8 @@ impl LayoutWindow {
 
         // Invoke the user's VirtualView callback
         let callback_return = virtual_view_node.callback.invoke(callback_data, callback_info);
+        #[cfg(feature = "std")]
+        drop(measure_context);
 
         // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
         self.virtual_view_manager
@@ -10134,10 +10197,15 @@ impl LayoutWindow {
                 // In the VIEW's form-control scope: its raw `<input>`s become
                 // widgets too, and remember their values apart from the
                 // layout callback's controls at the same tree path.
-                self.style_user_dom_in_scope(
+                //
+                // Inheriting from the host: the view is part of the host's
+                // document, so its text takes the host's font, colour,
+                // `user-select`, ... unless it declares its own.
+                self.style_user_dom_inheriting(
                     dom,
                     &self.current_window_state,
                     form_scope_of_virtual_view(parent_dom_id, node_id),
+                    inherited_from_host,
                 )
             }
             azul_core::dom::OptionDom::None => {
@@ -10164,9 +10232,21 @@ impl LayoutWindow {
                         callback_return.virtual_rect.size,
                         Some(callback_return.materialized.origin),
                     );
-                    return self
+                    let nested = self
                         .virtual_view_manager
                         .get_nested_dom_id(parent_dom_id, node_id);
+                    // The kept DOM follows its host all the same.
+                    if let Some(child) = nested {
+                        self.follow_host_in_kept_view(
+                            child,
+                            inherited_from_host,
+                            window_state,
+                            renderer_resources,
+                            system_callbacks,
+                            debug_messages,
+                        );
+                    }
+                    return nested;
                 }
             }
         };
@@ -10232,17 +10312,93 @@ impl LayoutWindow {
         // re-materialization silently reverts the visible text to the
         // pre-edit state — "scrolling clears what I just typed", only the
         // (remapped) caret surviving.
+        self.reapply_overlay_text_of(child_dom_id);
+
+        Some(child_dom_id)
+    }
+
+    /// Re-apply the uncommitted edits `content_overlay` holds for the nodes
+    /// of `dom` (typed text the app has not been handed yet) after the DOM
+    /// was laid out again from its own text by a path the funnel's
+    /// overlay-reapply tail does not run on (a view's child).
+    fn reapply_overlay_text_of(&mut self, dom: DomId) {
         let dirty: Vec<NodeId> = self
             .content_overlay
             .iter_text()
-            .filter(|((d, _), _)| *d == child_dom_id)
+            .filter(|((d, _), _)| *d == dom)
             .map(|((_, n), _)| *n)
             .collect();
         for n in dirty {
-            self.reapply_dirty_text_node(child_dom_id, n);
+            self.reapply_dirty_text_node(dom, n);
         }
+    }
 
-        Some(child_dom_id)
+    /// A view the relayout KEEPS (its host node unchanged: the funnel's
+    /// `unchanged_virtual_views`, or a check that asked for no re-render)
+    /// keeps its DOM as it was styled and laid out - but what that DOM
+    /// inherits from its host may have moved since: the host's DOM was
+    /// restyled (its own `color`, an ancestor's), or the window switched
+    /// light / dark, which moves the host's UA colour and the view's own
+    /// mode-dependent rules alike. Nothing else re-styles a kept DOM, so its
+    /// text kept the old colour on the new background.
+    ///
+    /// Re-seed it ([`StyledDom::set_inherited_from_host`]) under the window's
+    /// context and lay it out again, in place: the same arena under the same
+    /// `DomId`, so there is nothing to reconcile and every node-keyed manager
+    /// stays valid; at the viewport it was laid out at, so nothing about the
+    /// view's materialization changes. Two comparisons, nothing else, while
+    /// neither moved - the common relayout.
+    fn follow_host_in_kept_view(
+        &mut self,
+        child: DomId,
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) {
+        let context = self.dynamic_selector_context(window_state);
+        let Some(kept) = self.layout_results.get(&child) else {
+            return;
+        };
+        let cache = kept.styled_dom.get_css_property_cache();
+        let host_moved = cache.inherited_from_host != inherited_from_host;
+        let mode_moved = cache
+            .dynamic_context
+            .as_deref()
+            .is_none_or(|kept_context| kept_context.mode != context.mode);
+        if !host_moved && !mode_moved {
+            return;
+        }
+        let viewport = LogicalRect::new(LogicalPosition::zero(), kept.viewport.size);
+        let Some(kept) = self.layout_results.remove(&child) else {
+            return;
+        };
+        let mut styled_dom = kept.styled_dom;
+        // The context first, the host's values under it: both re-run what
+        // they invalidate (and the layout pass below finds the context in
+        // place).
+        styled_dom.set_dynamic_selector_context(context);
+        styled_dom.set_inherited_from_host(inherited_from_host);
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "VirtualView child {child:?} re-styled in place: its host's inherited values \
+                 (moved: {host_moved}) or the mode (moved: {mode_moved}) changed"
+            )));
+        }
+        if self
+            .layout_dom_recursive_with_viewport(
+                styled_dom,
+                window_state,
+                renderer_resources,
+                system_callbacks,
+                debug_messages,
+                Some(viewport),
+            )
+            .is_ok()
+        {
+            self.reapply_overlay_text_of(child);
+        }
     }
 
     // Query methods for callbacks
@@ -18969,9 +19125,28 @@ impl LayoutWindow {
     #[must_use]
     pub fn style_user_dom_in_scope(
         &self,
+        dom: Dom,
+        window_state: &FullWindowState,
+        form_scope: u64,
+    ) -> StyledDom {
+        self.style_user_dom_inheriting(dom, window_state, form_scope, Vec::new())
+    }
+
+    /// [`Self::style_user_dom_in_scope`] for a DOM HOSTED by a node of another
+    /// one - a `VirtualView`'s content, or an item DOM its callback measures:
+    /// the root inherits `inherited_from_host` (the host's values,
+    /// [`Self::inherited_values_of_host`]) from the first cascade on, as any
+    /// element inherits from its parent. A view is a virtualized part of the
+    /// same document, not an iframe: its text is in its host's font, colour,
+    /// `user-select`, `cursor`, ... unless it declares its own. Empty = a
+    /// document of its own, exactly [`Self::style_user_dom_in_scope`].
+    #[must_use]
+    pub fn style_user_dom_inheriting(
+        &self,
         mut dom: Dom,
         window_state: &FullWindowState,
         form_scope: u64,
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
     ) -> StyledDom {
         // The form controls are widgets built HERE, after `layout()`
         // returned: build them for this window's theme, like the rest of its
@@ -19008,7 +19183,12 @@ impl LayoutWindow {
             .as_deref()
             .map_or(&[][..], |loaded| core::slice::from_ref(&loaded.css));
         let Some(provider) = self.icon_provider.as_ref() else {
-            return StyledDom::create_from_dom_with_user_sheets(dom, context, user_sheets);
+            return StyledDom::create_from_dom_inheriting(
+                dom,
+                context,
+                user_sheets,
+                inherited_from_host,
+            );
         };
         // The shell sets style and provider together, so the fallback only
         // covers a DOM styled before the first `regenerate_layout`. Resolving
@@ -19022,13 +19202,47 @@ impl LayoutWindow {
             fallback = azul_css::system::SystemStyle::default();
             &fallback
         };
-        azul_core::icon::styled_dom_resolving_icons_with_user_sheets(
-            dom,
+        if inherited_from_host.is_empty() {
+            return azul_core::icon::styled_dom_resolving_icons_with_user_sheets(
+                dom,
+                provider,
+                system_style,
+                context,
+                user_sheets,
+            );
+        }
+        // A hosted DOM: the same two steps as
+        // `styled_dom_resolving_icons_with_user_sheets` (keep them in step),
+        // the cascade inheriting from the host from its first pass on - a
+        // view re-materializes on every edge scroll, a second cascade to
+        // re-seed it would double its styling cost.
+        azul_core::icon::resolve_icons_in_dom_with_context(
+            &mut dom,
             provider,
             system_style,
-            context,
-            user_sheets,
-        )
+            context.as_ref(),
+        );
+        StyledDom::create_from_dom_inheriting(dom, context, user_sheets, inherited_from_host)
+    }
+
+    /// What a DOM hosted at `host` - the content of the `VirtualView` at that
+    /// node of `styled_dom` - inherits from it
+    /// (`CssPropertyCache::inherited_values_for_hosted_dom`): the host's
+    /// resting values, its font size computed the way the layout computes it.
+    #[must_use]
+    pub fn inherited_values_of_host(
+        styled_dom: &StyledDom,
+        host: NodeId,
+    ) -> azul_core::prop_cache::InheritedFromHost {
+        let node_data_container = styled_dom.node_data.as_container();
+        let Some(node_data) = node_data_container.get(host) else {
+            return Vec::new();
+        };
+        let resting = azul_core::styled_dom::StyledNodeState::default();
+        let font_size_px = solver3::getters::get_element_font_size(styled_dom, host, &resting);
+        styled_dom
+            .get_css_property_cache()
+            .inherited_values_for_hosted_dom(node_data, &host, font_size_px)
     }
 }
 

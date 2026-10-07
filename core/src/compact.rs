@@ -498,6 +498,39 @@ impl CssPropertyCache {
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
 
+        // A HOSTED DOM's root inherits from its host (`inherited_from_host`,
+        // a VirtualView's host): its values, encoded once, are the slots the
+        // root copies in Step 1 where any other node copies its parent's -
+        // and the font size and weight its own `em` / `bolder` resolve
+        // against. `None` for a document of its own.
+        let host_parent = (!self.inherited_from_host.is_empty()).then(|| {
+            let mut tier1: u64 = 0;
+            let mut dims = CompactNodeProps::default();
+            let mut cold = CompactNodePropsCold::default();
+            let mut text = CompactTextProps::default();
+            for (_, value) in &self.inherited_from_host {
+                apply_css_property_to_compact(
+                    &value.property,
+                    &mut tier1,
+                    &mut dims,
+                    &mut cold,
+                    &mut text,
+                    &mut result.font_hash_to_families,
+                );
+                // A rare text property the host hands down is as present in
+                // this DOM as one it declares (the readers skip the cascade
+                // walk for a type no node has).
+                update_dom_declared_flags(&value.property, &mut result.dom_declared_flags);
+            }
+            (tier1, dims, cold, text)
+        });
+        let root_parent_font_px = host_parent
+            .as_ref()
+            .and_then(|(_, dims, _, _)| decode_pixel_value_u32(dims.font_size))
+            .filter(|pv| pv.metric == SizeMetric::Px)
+            .map_or(16.0, |pv| pv.number.get());
+        let root_parent_tier1 = host_parent.as_ref().map(|(tier1, _, _, _)| *tier1);
+
         // Pre-encode global CSS properties (from `*` rules) into compact form.
         // These are applied as baseline for every node before inheritance.
         let mut global_tier1: u64 = 0;
@@ -766,6 +799,16 @@ impl CssPropertyCache {
                     // Inheritable tier2b: all text properties
                     result.tier2b_text[i] = result.tier2b_text[pi];
                 }
+            } else if let Some((tier1, dims, cold, text)) = host_parent.as_ref() {
+                // The root of a HOSTED DOM copies its host's slots, exactly
+                // the inheritable ones a child copies from its parent above.
+                result.tier1_enums[i] = *tier1 & INHERITABLE_TIER1_MASK;
+                result.tier2_dims[i].font_size = dims.font_size;
+                result.tier2_cold[i].border_spacing_h = cold.border_spacing_h;
+                result.tier2_cold[i].border_spacing_v = cold.border_spacing_v;
+                result.tier2_cold[i].tab_size = cold.tab_size;
+                result.tier2_cold[i].cursor = cold.cursor;
+                result.tier2b_text[i] = *text;
             }
 
             {
@@ -797,7 +840,8 @@ impl CssPropertyCache {
             // path agree (theme-chain analysis 2026-09-12, R1/I4).
             apply_ua_css_to_compact(
                 nd,
-                i == 0,
+                i,
+                &self.inherited_from_host,
                 self.dynamic_context.as_deref(),
                 &mut result.tier1_enums[i],
                 &mut result.tier2_dims[i],
@@ -1063,13 +1107,24 @@ impl CssPropertyCache {
             // Resolve font-size from em/percent/pt/etc. to px.
             // CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
             // Pre-order traversal guarantees parent's font_size is already resolved.
-            resolve_font_size_to_px(&mut result.tier2_dims, i, parent_id);
+            // A hosted root resolves against its host's size.
+            resolve_font_size_to_px_against(
+                &mut result.tier2_dims,
+                i,
+                parent_id,
+                root_parent_font_px,
+            );
 
             // `bolder` / `lighter` compute against the parent's weight (CSS
             // Fonts 4 s2.2): the children copy this slot in Step 1, so they
             // inherit the number, not the keyword (which made every `<b>` and
             // its text ask for 900, and a `<b>` in a `<b>` no bolder).
-            resolve_relative_font_weight(&mut result.tier1_enums, i, parent_id);
+            resolve_relative_font_weight(
+                &mut result.tier1_enums,
+                i,
+                parent_id,
+                root_parent_tier1,
+            );
 
             // A `line-height` in `em` / `%` computes to a length against THIS
             // node's font size, resolved just above (`rem` against the
@@ -1156,9 +1211,14 @@ pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
     // against `is_inheritable()` — it was the only disagreement.
     | (WRITING_MODE_MASK << WRITING_MODE_SHIFT);
 
+#[allow(clippy::too_many_arguments)] // the node, its place and its five compact slots
 fn apply_ua_css_to_compact(
     node: &NodeData,
-    is_root: bool,
+    node_index: usize,
+    inherited_from_host: &[(
+        azul_css::props::property::CssPropertyType,
+        crate::prop_cache::CssPropertyWithOrigin,
+    )],
     ctx: Option<&azul_css::dynamic_selector::DynamicSelectorContext>,
     tier1: &mut u64,
     dims: &mut CompactNodeProps,
@@ -1170,8 +1230,12 @@ fn apply_ua_css_to_compact(
     >,
 ) {
     // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
-    // per-pass copies this replaced had drifted apart (see its doc).
+    // per-pass copies this replaced had drifted apart (see its doc). The
+    // document root's own defaults by the ONE rule the slow path shares
+    // (`takes_root_ua_default`: a hosted root inherits its host's instead).
     for pt in crate::ua_css::UA_PROPERTY_TYPES {
+        let is_root =
+            crate::prop_cache::takes_root_ua_default(node_index, *pt, inherited_from_host);
         if let Some(ua_prop) = crate::ua_css::get_ua_default(node, is_root, *pt, ctx) {
             apply_css_property_to_compact(ua_prop, tier1, dims, cold, text, font_hash_map);
         }
@@ -1186,18 +1250,30 @@ fn apply_ua_css_to_compact(
 /// (`StyleFontWeight::computed`). A slot copied from the parent is already a
 /// number (the parent was computed first: pre-order arena), so a keyword here
 /// is always the node's OWN declaration.
-fn resolve_relative_font_weight(tier1: &mut [u64], node_idx: usize, parent_id: Option<NodeId>) {
+///
+/// `root_parent` is the tier-1 word a node WITHOUT a parent computes against:
+/// `None` (the `normal` weight) for a document's root, the host's slots for
+/// a hosted root (`CssPropertyCache::inherited_from_host`).
+fn resolve_relative_font_weight(
+    tier1: &mut [u64],
+    node_idx: usize,
+    parent_id: Option<NodeId>,
+    root_parent: Option<u64>,
+) {
     let own = decode_font_weight(tier1[node_idx]);
     if !own.is_relative() {
         return;
     }
-    let parent = parent_id
-        .map(|pid| pid.index())
-        .filter(|&pi| pi < node_idx)
-        .map_or(
-            azul_css::props::basic::font::StyleFontWeight::Normal,
-            |pi| decode_font_weight(tier1[pi]),
-        );
+    let parent = match parent_id {
+        Some(pid) => Some(pid.index())
+            .filter(|&pi| pi < node_idx)
+            .map(|pi| tier1[pi]),
+        None => root_parent,
+    }
+    .map_or(
+        azul_css::props::basic::font::StyleFontWeight::Normal,
+        decode_font_weight,
+    );
     let encoded = u64::from(style_font_weight_to_u8(own.computed(parent)));
     let mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
     tier1[node_idx] =
@@ -1208,6 +1284,19 @@ fn resolve_font_size_to_px(
     tier2_dims: &mut [CompactNodeProps],
     node_idx: usize,
     parent_id: Option<NodeId>,
+) {
+    resolve_font_size_to_px_against(tier2_dims, node_idx, parent_id, 16.0);
+}
+
+/// [`resolve_font_size_to_px`], a node WITHOUT a parent resolving its `em`
+/// and `%` against `root_parent_px`: the 16px initial value for a
+/// document's root, the host's computed size for a hosted root
+/// (`CssPropertyCache::inherited_from_host`).
+fn resolve_font_size_to_px_against(
+    tier2_dims: &mut [CompactNodeProps],
+    node_idx: usize,
+    parent_id: Option<NodeId>,
+    root_parent_px: f32,
 ) {
     let raw_fs = tier2_dims[node_idx].font_size;
     if raw_fs == U32_SENTINEL || raw_fs >= U32_SENTINEL_THRESHOLD {
@@ -1223,7 +1312,7 @@ fn resolve_font_size_to_px(
     // out-of-bounds parent ref cannot panic, and require `pid < node_idx` so a
     // forward reference falls back to the 16px CSS initial value instead of
     // reading an unresolved (still em/%) parent value.
-    let parent_font_size_px = parent_id.map_or(16.0, |pid| {
+    let parent_font_size_px = parent_id.map_or(root_parent_px, |pid| {
         let pi = pid.index();
         debug_assert!(
             pi < node_idx,

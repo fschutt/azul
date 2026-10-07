@@ -1164,6 +1164,19 @@ impl StyledDom {
         css: Css,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
     ) -> Self {
+        Self::create_with_context_inheriting(dom, css, context, Vec::new())
+    }
+
+    /// [`Self::create_with_context`] for a DOM whose root inherits from a
+    /// HOST outside it (`inherited_from_host`, see
+    /// [`CssPropertyCache::inherited_from_host`]): the first cascade already
+    /// hands the host's values down - no second pass.
+    fn create_with_context_inheriting(
+        dom: &mut Dom,
+        css: Css,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> Self {
         use core::mem;
 
         let mut swap_dom = Dom::create_body();
@@ -1209,7 +1222,13 @@ impl StyledDom {
             .collect::<Vec<NodeHierarchyItem>>()
             .into();
 
-        Self::create_from_compact_dom(compact_dom, css, node_hierarchy, context)
+        Self::create_from_compact_dom(
+            compact_dom,
+            css,
+            node_hierarchy,
+            context,
+            inherited_from_host,
+        )
     }
 
     /// Creates a `StyledDom` from a `FastDom` (arena-based DOM).
@@ -1289,7 +1308,13 @@ impl StyledDom {
         // 4. Delegate to create() which handles cascade, UA CSS, etc. We need a mutable Dom to pass
         //    to create(), but we already have CompactDom. Instead, inline the cascade logic from
         //    create() with our CompactDom.
-        Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items, None)
+        Self::create_from_compact_dom(
+            compact_dom,
+            combined_css,
+            node_hierarchy_items,
+            None,
+            Vec::new(),
+        )
     }
 
     /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built hierarchy items.
@@ -1303,6 +1328,7 @@ impl StyledDom {
         mut css: Css,
         node_hierarchy: NodeHierarchyItemVec,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
         use crate::dom::EventFilter;
 
@@ -1340,6 +1366,10 @@ impl StyledDom {
         // builder (and `compute_inherited_values`) evaluate — answers for the
         // window this DOM is about to be shown in. See `create_with_context`.
         css_property_cache.dynamic_context = context.map(Box::new);
+        // What the root inherits from a host outside this DOM, installed
+        // before the cascade for the same reason: every stage reads it where
+        // it reads a parent (`CssPropertyCache::inherited_from_host`).
+        css_property_cache.inherited_from_host = inherited_from_host;
 
         let html_tree = construct_html_cascade_tree(
             &compact_dom.node_hierarchy.as_ref(),
@@ -1528,9 +1558,26 @@ impl StyledDom {
     /// own priorities and conditions (`@theme(<theme>)`).
     #[must_use]
     pub fn create_from_dom_with_user_sheets(
+        dom: Dom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[azul_css::css::Css],
+    ) -> Self {
+        Self::create_from_dom_inheriting(dom, context, user_sheets, Vec::new())
+    }
+
+    /// [`Self::create_from_dom_with_user_sheets`] for a DOM HOSTED by a node
+    /// of another one - the content of a `VirtualView`: its root inherits
+    /// `inherited_from_host` (the host's values,
+    /// [`CssPropertyCache::inherited_values_for_hosted_dom`]) as any element
+    /// inherits from its parent, from the first cascade on. Empty = a
+    /// document of its own, exactly
+    /// [`Self::create_from_dom_with_user_sheets`].
+    #[must_use]
+    pub fn create_from_dom_inheriting(
         mut dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
         user_sheets: &[azul_css::css::Css],
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
         use azul_css::css::Css;
 
@@ -1569,7 +1616,7 @@ impl StyledDom {
         strip_css_from_dom(&mut dom);
 
         // 4. Use existing StyledDom::create to flatten + cascade
-        Self::create_with_context(&mut dom, combined_css, context)
+        Self::create_with_context_inheriting(&mut dom, combined_css, context, inherited_from_host)
     }
 
     /// Appends another `StyledDom` as a child to the `self.root`
@@ -1875,6 +1922,35 @@ impl StyledDom {
         self.recascade_ua_inheritance_and_compact();
         // The new sheet may add or drop `:backdrop` rules.
         self.sync_backdrop_state();
+    }
+
+    /// Re-seed what this DOM's root inherits from the node that hosts it
+    /// ([`CssPropertyCache::inherited_from_host`]) and re-run the cascade it
+    /// feeds - the HOST's values moved: its DOM was restyled (a `color` of
+    /// its own or of an ancestor changed), the window switched light / dark
+    /// and the host's UA colour with it. A `VirtualView`'s DOM is kept
+    /// across relayouts of an unchanged host, so nothing else would ever
+    /// tell it.
+    ///
+    /// The whole cascade, not just its tail: the root's `cascaded_props`
+    /// carry the old values, and only the author cascade's inheritance walk
+    /// rebuilds them. Returns `false`, re-running nothing, when `values` is
+    /// what the DOM already inherits - the common relayout.
+    pub fn set_inherited_from_host(
+        &mut self,
+        values: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> bool {
+        if self.get_css_property_cache().inherited_from_host == values {
+            return false;
+        }
+        cascade_trace(|| "inherited-from-host values changed: RESTYLED".to_string());
+        self.css_property_cache.downcast_mut().inherited_from_host = values;
+        let css = self
+            .get_css_property_cache()
+            .retained_author_css
+            .clone();
+        self.restyle(css);
+        true
     }
 
     /// Feed `:backdrop` (GTK: the window is not the active one) into the
