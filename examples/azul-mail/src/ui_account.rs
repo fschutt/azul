@@ -170,9 +170,14 @@ pub(crate) fn open_wizard(s: &mut MailApp, prefill: Option<AccountForm>) {
     s.backstage = Some(ui_backstage::PAGE_ADD_ACCOUNT);
 }
 
-/// File > Info > Account Settings for the current account (the wizard when there is none).
+/// File > Info > Account Settings for the current account - the first one while Local Folders
+/// are shown - (the wizard when there is none).
 pub(crate) fn open_settings(s: &mut MailApp) {
-    match s.current_account().map(|a| a.id.clone()) {
+    match s
+        .current_account()
+        .or(s.accounts.first())
+        .map(|a| a.id.clone())
+    {
         Some(id) => open_settings_with_error(s, &id, String::new()),
         None => open_wizard(s, None),
     }

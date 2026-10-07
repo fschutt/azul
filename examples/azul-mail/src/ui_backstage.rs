@@ -16,13 +16,15 @@
 //! backstage pieces (`azul_appkit::backstage`):
 //!
 //! - **Info**: every account as a card (a click shows it), Add Account (the wizard), Account
-//!   Settings, Send/Receive and the mailbox. The wizard and Account Settings are pages under
-//!   Info (Info stays lit, as Outlook's dialogs open over File > Info).
+//!   Settings, Send/Receive and the mailbox; without an account New E-mail too (writing needs
+//!   none: Local Folders keep it). The wizard and Account Settings are pages under Info (Info
+//!   stays lit, as Outlook's dialogs open over File > Info).
 //! - **Print**: the open message as a PDF (A4, memo style) made by azul's PDF writer; its first
 //!   page comes back as a picture (PDF -> SVG -> pixels, on a Thread) for the preview, and
 //!   Print writes the file to `exports/` in the AzMail folder (`AZMAIL_PRINTED <file>`).
 //! - **Help**: the keyboard shortcuts, Options, and About AzMail (the facts, the About box).
-//! - **Options**: the kit's settings page (Mail, Appearance, Data, Shortcuts, About).
+//! - **Options**: the kit's settings page (Mail, Appearance, Data, Shortcuts, About) in a window
+//!   of its own, as Outlook 2010's Options dialog (`ui_options.rs`); File stays behind it.
 //! - **Exit** closes the window.
 
 use std::path::PathBuf;
@@ -53,7 +55,7 @@ use crate::{
 pub(crate) const PAGE_INFO: usize = 0;
 pub(crate) const PAGE_PRINT: usize = 1;
 pub(crate) const PAGE_HELP: usize = 2;
-/// File > Options: the kit's settings page (it fills the window; Back leaves it).
+/// File > Options: the kit's settings page, in a window of its own (`ui_options.rs`).
 pub(crate) const PAGE_OPTIONS: usize = 3;
 pub(crate) const PAGE_EXIT: usize = 4;
 /// File > Info > Add Account: the wizard.
@@ -148,10 +150,9 @@ extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, index: 
         }
         match index {
             PAGE_OPTIONS => {
-                // The kit's settings page fills the window; Back returns to the mail.
-                azul_appkit::ui::open_settings(&s.kit, Some(crate::args::APP_CATEGORIES[0]));
-                s.backstage = None;
-                s.editor = None;
+                // Outlook 2010's Options dialog: a window of its own over File, which stays.
+                crate::ui_options::open(s, &mut info, crate::args::APP_CATEGORIES[0]);
+                return Update::RefreshDomAllWindows;
             }
             PAGE_EXIT => {
                 info.close_window();
@@ -192,8 +193,13 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
         ));
     }
     for (i, account) in s.accounts.iter().enumerate() {
-        let folders = s.folders.get(i).map_or(0, Vec::len);
-        let unread: usize = s.folders.get(i).map_or(0, |list| list.iter().map(|f| f.unread).sum());
+        // The synced folders (an Outbox with mail in it is none, and its count is no unread).
+        let synced = |f: &&crate::listing::FolderInfo| f.key != crate::listing::OUTBOX_KEY;
+        let folders = s.folders.get(i).map_or(0, |list| list.iter().filter(synced).count());
+        let unread: usize = s
+            .folders
+            .get(i)
+            .map_or(0, |list| list.iter().filter(synced).map(|f| f.unread).sum());
         let server = format!(
             "IMAP {}:{} - {folders} folders, {unread} unread",
             account.imap.host, account.imap.port
@@ -231,6 +237,22 @@ fn info_page(s: &MailApp, app: &RefAny) -> Dom {
                 on_action as ButtonOnClickCallbackType,
             )),
     );
+    if s.accounts.is_empty() {
+        // Writing needs no account.
+        children.push(command(
+            command_button(
+                "New E-mail",
+                "mail",
+                ids::INFO_NEW_MAIL,
+                action_ref(app, Action::NewMail),
+                on_action as ButtonOnClickCallbackType,
+            ),
+            "New E-mail",
+            "Write a message without an account: AzMail sends it from this computer, straight \
+             to the recipients' mail servers, and Local Folders keep it (Send/Receive sends \
+             what waits in their Outbox).",
+        ));
+    }
     if !s.accounts.is_empty() {
         children.push(command(
             command_button(

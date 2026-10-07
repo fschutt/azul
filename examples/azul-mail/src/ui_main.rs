@@ -16,7 +16,10 @@
 //! Receive, Folder, View.
 //!
 //! With no account the window is the same, empty: the message list says "No account yet" and
-//! offers Add Account (the wizard, `ui_account.rs`). File is `ui_backstage.rs`.
+//! offers Add Account (the wizard, `ui_account.rs`), and the navigation pane shows Local Folders
+//! (Drafts, Sent Items, Outbox): where the mail written without an account goes (New E-mail
+//! needs none, `ui_compose.rs`). File is `ui_backstage.rs`, File > Options a window of its own
+//! (`ui_options.rs`).
 //!
 //! Everything is the toolkit's: `PimShell` (an `OfficeShell`), `Ribbon`, `Backstage`,
 //! `ShellNavigationPane` (`TreeView` per account, unread counts as node badges),
@@ -62,7 +65,8 @@ use crate::{
     folders::Role,
     html, ids,
     listing::{self, FolderNode, ListRow},
-    message, pictures, ui_account, ui_backstage, ui_compose, with_app, MailApp, SyncState,
+    message, pictures, ui_account, ui_backstage, ui_compose, ui_options, with_app, MailApp,
+    SyncState,
 };
 
 /// The libraries AzMail is built on and their licences (the About box, File > Help).
@@ -95,6 +99,24 @@ pub(crate) fn zoom_setting(value: Option<&str>) -> f32 {
         .and_then(|v| v.trim().parse::<f32>().ok())
         .filter(|z| z.is_finite())
         .map_or(100.0, |z| z.clamp(ZOOM_MIN, ZOOM_MAX))
+}
+
+/// The View tab's switches and the reading pane's zoom as `settings` (the kit's settings.json
+/// values) have them: read at the start, and again after File > Options' Cancel put the
+/// settings back (the Options window's reload, `ui_options.rs`).
+pub(crate) fn read_view_settings(s: &mut MailApp, settings: &azul_appkit::AppSettings) {
+    let view = |key: &str, default: bool| settings.get_bool(key, default);
+    s.nav_collapsed = view(SET_NAVIGATION_COLLAPSED, false);
+    s.show_reading = view(SET_READING_PANE, true);
+    s.show_todo = view(SET_TODO_BAR, true);
+    s.plain_text = view(SET_PLAIN_TEXT, false);
+    s.zoom = zoom_setting(settings.get(SET_ZOOM));
+    let newest_first = view(SET_NEWEST_FIRST, true);
+    if newest_first != s.newest_first {
+        s.newest_first = newest_first;
+        s.first_row = 0;
+        s.rebuild_view();
+    }
 }
 
 /// `zoom` moved by `steps` clicks of the status bar's `-` / `+` (negative: out), inside the
@@ -146,25 +168,7 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
         return Dom::create_body();
     };
     let s = &*guard;
-    // File > Options: the kit's settings page fills the window (Back or Escape leaves it).
-    if azul_appkit::ui::settings_open(&s.kit) {
-        let page = Dom::create_div()
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
-            .with_child(title_row(s))
-            .with_child(azul_appkit::ui::settings_page(&s.kit, mail_options(s, &app)));
-        return Dom::create_body()
-            .with_css(crate::WINDOW_BODY_CSS)
-            .with_child(
-                ShellThemeScope::create(page)
-                    .with_accent(ShellThemeAccent::Blue)
-                    .dom(),
-            )
-            .with_callback(
-                EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-                app,
-                on_main_key,
-            );
-    }
+    // File > Options is a window of its own (`ui_options.rs`): this one stays as it is.
     let shell = match s.backstage {
         // File: the ribbon's tab row stays on top (File is its first tab), the backstage under
         // it fills the window.
@@ -216,12 +220,15 @@ pub(crate) extern "C" fn layout_main(mut data: RefAny, info: LayoutCallbackInfo)
 }
 
 /// The window's title row, drawn by azul (the window is `NoTitle`): Outlook's "Inbox -
-/// ada@example.org - AzMail".
+/// ada@example.org - AzMail" ("Drafts - Local Folders - AzMail").
 fn title_row(s: &MailApp) -> Dom {
     let folder = current_folder_label(s);
     let title = match (folder, s.current_account()) {
         (Some(folder), Some(account)) => format!("{folder} - {} - AzMail", account.email),
         (None, Some(account)) => format!("{} - AzMail", account.email),
+        (Some(folder), None) if s.shows_local() => {
+            format!("{folder} - {} - AzMail", listing::LOCAL_FOLDERS)
+        }
         _ => String::from("AzMail"),
     };
     Titlebar::create(title).without_border_bottom().dom()
@@ -238,11 +245,11 @@ fn current_folder_label(s: &MailApp) -> Option<String> {
         .map(|f| listing::folder_label(f.role, &f.display))
 }
 
-/// The main window is up: the kit's `--shot` timer, and what `--screen compose` / `reply`
-/// asked for.
+/// The main window is up: what `--screen compose` / `reply` / `options` asked for opens over
+/// it, and the kit's `--shot` timer starts - in the window the screen is (a message window and
+/// File > Options start it themselves once they are up), else here.
 pub(crate) extern "C" fn on_main_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_app(&mut data, |s, app| {
-        azul_appkit::ui::on_window_created(&s.kit, &mut info);
         match s.screen {
             crate::args::Screen::Compose => {
                 ui_compose::open_compose(s, &mut info, app, ComposeKind::New);
@@ -253,12 +260,19 @@ pub(crate) extern "C" fn on_main_window_created(mut data: RefAny, mut info: Call
                     ListRow::Message(uid) => Some(*uid),
                     ListRow::Group(_) => None,
                 });
-                if let Some(uid) = first {
-                    let _ = s.open_message(uid);
-                    ui_compose::open_compose(s, &mut info, app, ComposeKind::Reply);
+                match first {
+                    Some(uid) => {
+                        let _ = s.open_message(uid);
+                        ui_compose::open_compose(s, &mut info, app, ComposeKind::Reply);
+                    }
+                    // Nothing to answer: the screenshot is this window's.
+                    None => azul_appkit::ui::on_window_created(&s.kit, &mut info),
                 }
             }
-            _ => {}
+            crate::args::Screen::Options => {
+                ui_options::open(s, &mut info, crate::args::APP_CATEGORIES[0]);
+            }
+            _ => azul_appkit::ui::on_window_created(&s.kit, &mut info),
         }
         Update::RefreshDom
     })
@@ -266,13 +280,10 @@ pub(crate) extern "C" fn on_main_window_created(mut data: RefAny, mut info: Call
 }
 
 /// Window keys: Ctrl/Cmd+N new mail, Ctrl/Cmd+R reply, Ctrl/Cmd+Shift+R reply all, Ctrl/Cmd+F
-/// forward, F9 Send / Receive, Escape leaves the backstage.
+/// forward, F9 Send / Receive, Escape leaves the backstage; the kit's keys open File > Options'
+/// window - Ctrl/Cmd+, at the Mail page, F1 at the shortcuts (the window handles them itself
+/// once it is open, `ui_options.rs`).
 extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    // The kit's keys first: Mod+, (File > Options), F1 (the shortcuts), Escape (leave them).
-    let kit_ref = data.downcast_ref::<MailApp>().map(|s| s.kit.clone());
-    if let Some(update) = kit_ref.and_then(|k| azul_appkit::ui::handle_key(&k, &mut info)) {
-        return update;
-    }
     let keyboard = info.get_current_keyboard_state();
     let Some(key) = keyboard.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
@@ -284,10 +295,15 @@ extern "C" fn on_main_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         VirtualKeyCode::R if primary && modifiers.shift => Action::ReplyAll,
         VirtualKeyCode::R if primary => Action::Reply,
         VirtualKeyCode::F if primary => Action::Forward,
+        VirtualKeyCode::Comma if primary => Action::Options,
+        VirtualKeyCode::F1 => Action::Shortcuts,
         VirtualKeyCode::F9 => Action::SendReceive,
         VirtualKeyCode::Escape => Action::CloseBackstage,
         _ => return Update::DoNothing,
     };
+    if matches!(action, Action::Options | Action::Shortcuts) {
+        info.prevent_default();
+    }
     run_action(&mut data, &mut info, action)
 }
 
@@ -331,9 +347,10 @@ extern "C" fn on_about_closed(mut data: RefAny, _info: CallbackInfo, _state: Mod
 }
 
 /// File > Options' own category ("Mail", before the kit's Appearance, Data, Shortcuts, About):
-/// the View tab's switches as check boxes, as Outlook's Options dialog has its Mail page.
-fn mail_options(s: &MailApp, app: &RefAny) -> Vec<azul_appkit::ui::AppSection> {
-    let check = |label: &str, on: bool, action: Action| {
+/// the View tab's switches as check boxes, as Outlook's Options dialog has its Mail page. The
+/// page is in a window of its own (`ui_options.rs`).
+pub(crate) fn mail_options(s: &MailApp, app: &RefAny) -> Vec<azul_appkit::ui::AppSection> {
+    let check = |label: &str, on: bool, action: Action, id: AzString| {
         azul_appkit::ui::row(
             label,
             CheckBox::create(on)
@@ -341,7 +358,8 @@ fn mail_options(s: &MailApp, app: &RefAny) -> Vec<azul_appkit::ui::AppSection> {
                     action_ref(app, action),
                     on_option_toggle as CheckBoxOnToggleCallbackType,
                 )
-                .dom(),
+                .dom()
+                .with_id(id),
         )
     };
     vec![azul_appkit::ui::AppSection {
@@ -350,11 +368,16 @@ fn mail_options(s: &MailApp, app: &RefAny) -> Vec<azul_appkit::ui::AppSection> {
         content: azul_appkit::pieces::column(
             "",
             vec![
-                check("Reading Pane", s.show_reading, Action::ToggleReading),
-                check("To-Do Bar", s.show_todo, Action::ToggleTodo),
-                check("Navigation Pane", !s.nav_collapsed, Action::ToggleNavigation),
-                check("Newest on top", s.newest_first, Action::ReverseSort),
-                check("Read as plain text", s.plain_text, Action::PlainText),
+                check("Reading Pane", s.show_reading, Action::ToggleReading, ids::OPTION_READING_PANE),
+                check("To-Do Bar", s.show_todo, Action::ToggleTodo, ids::OPTION_TODO_BAR),
+                check(
+                    "Navigation Pane",
+                    !s.nav_collapsed,
+                    Action::ToggleNavigation,
+                    ids::OPTION_NAVIGATION_PANE,
+                ),
+                check("Newest on top", s.newest_first, Action::ReverseSort, ids::OPTION_NEWEST_FIRST),
+                check("Read as plain text", s.plain_text, Action::PlainText, ids::OPTION_PLAIN_TEXT),
                 azul_appkit::ui::note(
                     "The View tab's switches; AzMail remembers them. The accounts are under \
                      File > Info.",
@@ -364,7 +387,8 @@ fn mail_options(s: &MailApp, app: &RefAny) -> Vec<azul_appkit::ui::AppSection> {
     }]
 }
 
-/// A check box of File > Options' Mail page: the View tab's action of the same name.
+/// A check box of File > Options' Mail page: the View tab's action of the same name - the main
+/// window shows it at once.
 extern "C" fn on_option_toggle(mut data: RefAny, mut info: CallbackInfo, _state: CheckBoxState) -> Update {
     let Some((mut app, action)) = data
         .downcast_ref::<ActionRef>()
@@ -372,7 +396,10 @@ extern "C" fn on_option_toggle(mut data: RefAny, mut info: CallbackInfo, _state:
     else {
         return Update::DoNothing;
     };
-    run_action(&mut app, &mut info, action)
+    match run_action(&mut app, &mut info, action) {
+        Update::DoNothing => Update::DoNothing,
+        _ => Update::RefreshDomAllWindows,
+    }
 }
 
 // ==== Actions (the ribbon, the backstage's buttons, the window's keys) ====
@@ -545,8 +572,9 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
                 let uids = selected_uids(s);
                 mark_read(s, info, app, &uids, true);
             }
-            Action::SendReceive if s.accounts.is_empty() => {
-                s.notice = String::from("Add an account first: File > Info > Add Account.");
+            // No account shown (none at all, or Local Folders): their Outbox goes out.
+            Action::SendReceive if s.current_account().is_none() => {
+                crate::send_local_outbox(s, info, app);
             }
             Action::SendReceive => crate::start_sync(s, info, app),
             Action::CancelSendReceive => crate::stop_sync(s, info),
@@ -614,17 +642,15 @@ pub(crate) fn run_action(data: &mut RefAny, info: &mut CallbackInfo, action: Act
             Action::CloseBackstage => leave_backstage(s),
             Action::Print => ui_backstage::print_now(s, info, app),
             Action::Shortcuts | Action::Options => {
-                if s.editor.as_ref().is_some_and(|e| e.saving) {
-                    return Update::DoNothing;
-                }
+                // A window of its own, as Outlook 2010's Options dialog; File (or whatever
+                // this window shows) stays behind it. Open already: it shows the category.
                 let category = if action == Action::Shortcuts {
                     "Shortcuts"
                 } else {
                     crate::args::APP_CATEGORIES[0]
                 };
-                azul_appkit::ui::open_settings(&s.kit, Some(category));
-                s.backstage = None;
-                s.editor = None;
+                ui_options::open(s, info, category);
+                return Update::RefreshDomAllWindows;
             }
             Action::About => s.about_open = true,
             Action::Notice(text) => s.notice = String::from(text),
@@ -1075,12 +1101,12 @@ fn status_bar(s: &MailApp, app: &RefAny) -> Dom {
         SyncState::Running {
             status, percent, ..
         } => (format!("{status} ({percent:.0}%)"), StatusBarSyncKind::Syncing),
+        // Without an account nothing is connected (Local Folders' Outbox went out: the
+        // notice says how).
+        _ if s.accounts.is_empty() => (String::from("No account"), StatusBarSyncKind::Offline),
         // Outlook 2010: "All folders are up to date." beside "Connected to ...".
         SyncState::Done(_) => (up_to_date(s), StatusBarSyncKind::Connected),
         SyncState::Failed(text) => (text.clone(), StatusBarSyncKind::Error),
-        SyncState::Idle if s.accounts.is_empty() => {
-            (String::from("No account"), StatusBarSyncKind::Offline)
-        }
         SyncState::Idle => (up_to_date(s), StatusBarSyncKind::Connected),
     };
     // Outlook's zoom at the right end: the reading pane's, `-` / `+` by ten, the slider over the
@@ -1230,11 +1256,16 @@ fn folder_icon(role: Role) -> &'static str {
     }
 }
 
-/// A folder of the tree as a tree node: its unread count as the node's badge, selected when
-/// `selected` says so.
+/// A folder of the tree as a tree node: its unread count as the node's badge (the Outbox's:
+/// how many wait in it), selected when `selected` says so.
 fn tree_node(node: &FolderNode, role_of: &dyn Fn(&str) -> Role, selected: &dyn Fn(&str) -> bool) -> TreeViewNode {
+    let icon = if node.key == listing::OUTBOX_KEY {
+        "outbox"
+    } else {
+        folder_icon(role_of(&node.key))
+    };
     let mut tree = TreeViewNode::create(node.label.as_str())
-        .with_icon(folder_icon(role_of(&node.key)))
+        .with_icon(icon)
         .with_expanded(true)
         .with_selected(selected(&node.key));
     if node.unread > 0 {
@@ -1246,9 +1277,30 @@ fn tree_node(node: &FolderNode, role_of: &dyn Fn(&str) -> Role, selected: &dyn F
     tree
 }
 
+/// Mailbox `i`'s group in the navigation pane: `name` (the account's address, "Local
+/// Folders") as the root of its folder tree.
+fn mailbox_group(s: &MailApp, i: usize, name: &str) -> ShellNavigationGroup {
+    let folders = s.folders.get(i).map_or(&[][..], Vec::as_slice);
+    let roles = |key: &str| -> Role {
+        folders
+            .iter()
+            .find(|f| f.key == key)
+            .map_or(Role::Other, |f| f.role)
+    };
+    let here = Some(i) == s.current;
+    let picked = |key: &str| here && s.folder.as_deref() == Some(key);
+    let open = s.groups_open.get(i + 1).copied().unwrap_or(true);
+    let mut root = TreeViewNode::create(name).with_expanded(open);
+    for node in listing::folder_tree(folders) {
+        root = root.with_child(tree_node(&node, &roles, &picked));
+    }
+    ShellNavigationGroup::create(name, root).with_open(open)
+}
+
 /// The navigation pane as Outlook 2010 has it: "Drag Your Favorite Folders Here" over every
 /// account's tree - its address the root, the folders under it in Outlook's order, the unread
-/// counts as badges - and the big module buttons at the bottom (Mail, Calendar, Contacts,
+/// counts as badges - then Local Folders (the mail written without an account: always while
+/// there is no account), and the big module buttons at the bottom (Mail, Calendar, Contacts,
 /// Tasks).
 fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
     let mut pane = ShellNavigationPane::create()
@@ -1261,23 +1313,11 @@ fn navigation_pane(s: &MailApp, app: &RefAny) -> Dom {
 
     // Every account: its address over its folders.
     for (i, account) in s.accounts.iter().enumerate() {
-        let folders = s.folders.get(i).map_or(&[][..], Vec::as_slice);
-        let roles = |key: &str| -> Role {
-            folders
-                .iter()
-                .find(|f| f.key == key)
-                .map_or(Role::Other, |f| f.role)
-        };
-        let here = Some(i) == s.current;
-        let picked = |key: &str| here && s.folder.as_deref() == Some(key);
-        let open = s.groups_open.get(i + 1).copied().unwrap_or(true);
-        let mut root = TreeViewNode::create(account.email.as_str()).with_expanded(open);
-        for node in listing::folder_tree(folders) {
-            root = root.with_child(tree_node(&node, &roles, &picked));
-        }
-        pane = pane.with_group(
-            ShellNavigationGroup::create(account.email.as_str(), root).with_open(open),
-        );
+        pane = pane.with_group(mailbox_group(s, i, account.email.as_str()));
+    }
+    // Local Folders: the group after the accounts' (`MailApp::local_index`).
+    if s.local_visible() {
+        pane = pane.with_group(mailbox_group(s, s.local_index(), listing::LOCAL_FOLDERS));
     }
 
     let unread: usize = s.current.and_then(|i| s.folders.get(i)).map_or(0, |list| {
@@ -1325,15 +1365,18 @@ extern "C" fn on_nav_event(mut data: RefAny, _info: CallbackInfo, event: ShellNa
                 }
             }
             ShellNavigationPaneEventKind::NodeClicked => {
-                // Row 0 of an account's tree is its root (its address).
-                let account = event.group;
-                if account >= s.accounts.len() {
+                // Row 0 of a mailbox's tree is its root (an account's address, "Local
+                // Folders"); the groups are the accounts', then Local Folders' when shown.
+                let mailbox = event.group;
+                let shown = mailbox < s.accounts.len()
+                    || (mailbox == s.local_index() && s.local_visible());
+                if !shown {
                     return Update::DoNothing;
                 }
-                if s.current != Some(account) {
-                    s.show_account(account);
+                if s.current != Some(mailbox) {
+                    s.show_account(mailbox);
                 }
-                let folders = s.folders.get(account).cloned().unwrap_or_default();
+                let folders = s.folders.get(mailbox).cloned().unwrap_or_default();
                 let keys = listing::preorder_keys(&listing::folder_tree(&folders));
                 if let Some(key) = event.index.checked_sub(1).and_then(|k| keys.get(k)) {
                     s.show_folder(key);
@@ -1369,13 +1412,14 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
     if s.module != 0 {
         return module_placeholder(s.module);
     }
-    if s.accounts.is_empty() {
+    if s.accounts.is_empty() && !s.shows_local() {
         // The real window, empty: one calm line and the way in (as File > Info > Add Account).
         return ShellEmptyState::create("No account yet")
             .with_icon("inbox")
             .with_detail(
-                "Add an e-mail account to receive and send mail. AzMail keeps a copy of every \
-                 folder as files on this computer.",
+                "Add an e-mail account to receive mail. AzMail keeps a copy of every folder as \
+                 files on this computer. Writing needs no account: a new message is sent from \
+                 this computer, and Local Folders keep what you write.",
             )
             .with_action_label("Add Account\u{2026}")
             .with_on_action(
@@ -1389,8 +1433,9 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
     let first = s.first_row.min(total.saturating_sub(1));
     let end = (first + LIST_WINDOW).min(total);
     let role = s.folder.as_deref().map_or(Role::Other, Role::of_key);
-    // Sent Items and Drafts show whom the mail is to, as Outlook does.
-    let outgoing = matches!(role, Role::Sent | Role::Drafts);
+    let outbox = s.folder.as_deref() == Some(listing::OUTBOX_KEY);
+    // Sent Items, Drafts and the Outbox show whom the mail is to, as Outlook does.
+    let outgoing = outbox || matches!(role, Role::Sent | Role::Drafts);
     let today = chrono::NaiveDate::from_ymd_opt(s.today.0 as i32, s.today.1, s.today.2)
         .unwrap_or_default();
     let rows: Vec<SummaryRow> = s.rows[first..end]
@@ -1414,6 +1459,7 @@ fn message_list(s: &MailApp, app: &RefAny) -> Dom {
                 };
                 let read = s.flags.is_read(entry);
                 let icon = match role {
+                    _ if outbox => "outbox",
                     Role::Drafts => "drafts",
                     Role::Sent => "send",
                     _ if read => "drafts",
@@ -1558,8 +1604,9 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
     if !s.show_reading {
         return Dom::create_div();
     }
-    if s.module != 0 || s.accounts.is_empty() {
-        // Without an account the list says it all ("No account yet"): the pane stays blank.
+    if s.module != 0 || (s.accounts.is_empty() && !s.shows_local()) {
+        // Without an account the list says it all ("No account yet"): the pane stays blank
+        // (Local Folders show their mail as an account's).
         return Dom::create_div();
     }
     let Some(open) = &s.open else {
