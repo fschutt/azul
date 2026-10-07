@@ -537,10 +537,14 @@ fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
                 "font-size: 13px; white-space: nowrap; opacity: 0.7;"
             },
         ));
+    // The dot is a plain box, not an icon: icon resolution replaces an icon
+    // node whole - its classes too - so a class on `Dom::create_icon` never
+    // reached the window.
     let glyph = if doc.dirty {
-        Dom::create_icon("circle")
+        Dom::create_div()
             .with_class(ids::TAB_DIRTY_CLASS)
-            .with_css("font-size: 10px;")
+            .with_accessibility_name("Unsaved changes")
+            .with_css("width: 8px; height: 8px; border-radius: 4px; background: system:text; opacity: 0.85;")
     } else if active {
         Dom::create_icon("close").with_css("font-size: 16px;")
     } else {
