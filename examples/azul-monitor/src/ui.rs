@@ -354,14 +354,23 @@ pub fn live_view(app: &RefAny, view: LiveView) -> Dom {
 }
 
 /// A live view's callback: its content at the view's size, in its own
-/// theme scope. The graphs it drew are what the frame timer slides.
+/// theme scope. The graphs it drew are what the frame timer shifts: they are
+/// drawn where the scroll stands now (a reading's new drawing goes on from
+/// where the last one was), and the app remembers which readings and which
+/// shift they were drawn with.
 extern "C" fn render_live(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let Some((app, view)) = data.downcast_ref::<Live>().map(|l| (l.app.clone(), l.view)) else {
         return VirtualViewReturn::default();
     };
     let size = info.bounds.get_logical_size();
     let (w, h) = (size.width.max(1.0), size.height.max(1.0));
-    let mut strips = Strips::default();
+    // Where the scroll stands now (the guard is gone before the page asks
+    // the app for its numbers).
+    let mut monitor = app.clone();
+    let (lag, readings) = monitor.downcast_ref::<Monitor>().map_or((0.0, 0), |s| {
+        (s.graph_lag(s.clock_ms(), s.model.readings), s.model.readings)
+    });
+    let mut strips = Strips::at(lag);
     let content = match view {
         LiveView::Table => process_table(&app, w, h),
         LiveView::Performance => performance(&app, &mut strips, w, h),
@@ -372,6 +381,8 @@ extern "C" fn render_live(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
         let mut handle = app.clone();
         if let Some(mut s) = handle.downcast_mut::<Monitor>() {
             s.strips = strips.steps;
+            s.drawn = readings;
+            s.shifted = strips.lag;
         };
     }
     let dom = Dom::create_div()
