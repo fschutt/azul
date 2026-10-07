@@ -4,9 +4,12 @@
 Walks Explorer's main flows through azul's debug server and asserts on the node tree, the
 node layout, AzDrive's stdout markers and the files on disk:
 
-     1. This PC: the drive tiles, the ribbon's FILE / HOME / SHARE / VIEW / DRIVE;
+     1. This PC: the drive tiles; Explorer's chrome - the navigation row, the command bar with
+        This PC's drive commands and the pane switches, the navigation pane's Quick access /
+        This PC / Network;
      2. open the Home drive (double-click its tile);
-     3. every layout of VIEW > Layout (the gallery), back to Details;
+     3. every layout (Ctrl+Shift+1..8; the icon layouts are azul's IconGrid), then the
+        command bar's Large icons / List / Details;
      4. sort: the Name header twice, then Size;
      5. into Documents; select (click, Ctrl+click, Shift+click), Select all, Escape;
      6. type-ahead ("r" selects report.md);
@@ -17,12 +20,13 @@ node layout, AzDrive's stdout markers and the files on disk:
     10. Delete: into the trash folder (on disk), Undo brings it back;
     11. Backspace (up), Alt+Left (back), Alt+Right (forward);
     12. the panes: Preview pane (a text and an image preview), a thumbnail in Large icons,
-        Navigation pane off / on, Details pane off / on;
+        Navigation pane off / on, the Details pane in the preview pane's place (they share
+        the right side) and off, Alt+P: the preview pane again;
     13. Properties (Alt+Enter) in the in-window sheet, OK;
-    14. FILE: the backstage with the Options, Escape;
+    14. the command bar's Options (the gear): the backstage with the Options, Escape;
     15. flora + dark: a screenshot;
     16. Ctrl+A / Ctrl+C with the content pane focused (the engine handed them to the text
-        selection until 2026-10-03; steps 5, 7, 9 and 10 use the ribbon's buttons for the
+        selection until 2026-10-03; steps 5, 7, 9 and 10 use the command bar's tools for the
         same commands, so they do not depend on it).
 
 Usage (from the azul repository, after building libazul with the debug server and AzDrive):
@@ -82,7 +86,7 @@ def log(line):
 class Drive(e2e.App):
     """AzDrive under its debug server: the shared driver (`scripts/azlin_e2e.py`) with AzDrive's
     own reading of the window - two frames after an op, the texts of the text nodes, "has" as
-    laid out with a size - and its ribbon."""
+    laid out with a size - and its command bar."""
 
     def frame(self, n=2):
         super().frame(n)
@@ -102,22 +106,12 @@ class Drive(e2e.App):
         rect = value.get("rect") or {}
         return rect.get("width", 0) > 0 and rect.get("height", 0) > 0
 
-    def ribbon(self, label):
-        """Clicks the HOME tab's button whose label starts with `label`, then shows VIEW again
-        (where the walk keeps the ribbon, so "New folder" in the list is not the ribbon's)."""
-        def found():
-            for n in self.hierarchy():
-                if (n.get("text") or "").startswith(label):
-                    return n.get("parent", n["index"])
-            return None
-        self.click_exact("HOME")
-        node = self.until('the ribbon\'s "%s"' % label, found)
-        # The HOME tab's groups slide in: a click lands where the button is painted (the
-        # settle of App.click, 05ef3a8f4).
-        self.settle(limit=2.0)
-        self.must("click", node_id=node, button="left")
-        self.frame()
-        self.click_exact("VIEW")
+    def command(self, name):
+        """Clicks the command bar's tool `name` (`#__azdrive_cmd_<name>`, src/ids.rs) - by its
+        id, so "Copy" in the list is never the tool's."""
+        selector = "#" + I("cmd-" + name)
+        self.until('the command bar\'s "%s"' % name, lambda: self.has(selector))
+        self.click(selector=selector)
 
     def screenshot(self, path):
         """Waits for the animations first (the details pane slides its rows in)."""
@@ -125,8 +119,8 @@ class Drive(e2e.App):
         super().screenshot(path)
 
 
-# Explorer's layout keys: Ctrl+Shift+<digit>. (The ribbon's Layout gallery shows a strip that
-# clips its later cells; the keys reach every layout.)
+# Explorer's layout keys: Ctrl+Shift+<digit> (the command bar has three of the views, See more >
+# Layout all eight in a menu; the keys reach every layout).
 LAYOUTS = [
     ("1", "extra_large_icons"),
     ("2", "large_icons"),
@@ -139,13 +133,43 @@ LAYOUTS = [
 ]
 
 
+# The icon layouts are azul's IconGrid (layout/src/widgets/icon_grid.rs): its items, their
+# labels and the boxes of their icons or thumbnails carry the widget's classes.
+GRID_ITEM = "__azul-native-icon-grid-item"
+GRID_LABEL = "__azul-native-icon-grid-label"
+GRID_THUMB = "__azul-native-icon-grid-thumb"
+
+
+def item_count(app):
+    """How many of the folder's items the view shows (hand-built, or the IconGrid's)."""
+    return sum(1 for n in app.hierarchy()
+               if C("item") in (n.get("classes") or []) or GRID_ITEM in (n.get("classes") or []))
+
+
+def thumbnail_drawn(app):
+    """Whether a picture shows as a thumbnail: a hand-built cell's (`__azdrive_thumbnail`), or
+    an image in an IconGrid item's icon box."""
+    nodes = app.hierarchy()
+    if any(C("thumbnail") in (n.get("classes") or []) for n in nodes):
+        return True
+    by_index = {n["index"]: n for n in nodes}
+    for n in nodes:
+        if GRID_THUMB in (n.get("classes") or []):
+            for child in n.get("children") or []:
+                kind = str(by_index.get(child, {}).get("type") or "").lower()
+                if "image" in kind or kind == "img":
+                    return True
+    return False
+
+
 def item_names(app):
     """The names of the folder's items, in the order the view shows them."""
     names = []
     nodes = app.hierarchy()
     by_index = {n["index"]: n for n in nodes}
     for n in nodes:
-        if C("name") in (n.get("classes") or []):
+        classes = n.get("classes") or []
+        if C("name") in classes or GRID_LABEL in classes:
             if n.get("text"):
                 names.append(n["text"])
                 continue
@@ -186,13 +210,24 @@ def run(args, logs):
                   app.nodes_with_class("azdrive-drive"))
         NAMING["prefixed"] = bool(app.nodes_with_class("__azdrive_drive"))
         log("names: %s" % ("__azdrive_ prefixed" if NAMING["prefixed"] else "unprefixed (older build)"))
-        for tab in ("FILE", "HOME", "SHARE", "VIEW", "DRIVE"):
-            app.until("the ribbon tab %s" % tab, lambda: app.exact(tab) is not None)
+        # Explorer's chrome: the navigation row over the command bar (This PC's drive
+        # commands, the views, See more; the pane switches and the gear at its right end).
+        app.until("the command bar", lambda: app.has("#" + I("command-bar")))
+        for tool in ("add-drive", "add-folder", "remove-drive", "sort", "layout-icons",
+                     "layout-list", "layout-details", "more", "navigation-pane",
+                     "preview-pane", "details-pane", "options"):
+            app.until("the command bar's %s" % tool, lambda: app.has("#" + I("cmd-" + tool)))
+        if not app.nodes_with_class("__azul-native-address-bar-nav"):
+            raise Failure("the navigation row has no Back / Forward / Up")
+        app.until("the navigation pane", lambda: app.has("#" + I("nav-pane")))
+        for root in ("Quick access", "This PC", "Network"):
+            app.until("the navigation pane's %s" % root, lambda: app.exact(root) is not None)
         app.until("This PC's groups", lambda: app.shows("Devices and drives"))
         if not app.has("#shell-tree") or not app.has("#shell-content"):
             raise Failure("the navigation pane and the content pane are not laid out")
         app.screenshot(os.path.join(out, "01-this-pc.png"))
-        log("1. This PC: drive tiles, the five ribbon tabs, the navigation and content panes")
+        log("1. This PC: drive tiles, the navigation row, the command bar, the navigation pane "
+            "(Quick access, This PC, Network) and the content pane")
 
         # 2. The Home drive.
         # On the tile's icon: its centre is the capacity bar, a ProgressBar, which is a
@@ -208,20 +243,24 @@ def run(args, logs):
         if ".hidden-settings" in item_names(app):
             raise Failure("a hidden item shows while Hidden items is off")
 
-        # 3. Every layout (Ctrl+Shift+1..8), and one through the ribbon's gallery.
+        # 3. Every layout (Ctrl+Shift+1..8), then the command bar's three views.
         for digit, name in LAYOUTS:
             app.after("the layout %s" % name, "AZDRIVE_LAYOUT", re.escape(name),
                       lambda: app.key(digit, primary=True, shift=True))
             app.until("the %s view" % name, lambda: C("layout-" + name) in app.classes())
-            app.until("the items of %s" % name, lambda: len(app.nodes_with_class(C("item"))) >= 5)
+            app.until("the items of %s" % name, lambda: item_count(app) >= 5)
             if name in ("large_icons", "tiles"):
                 app.screenshot(os.path.join(out, "03-%s.png" % name))
-        app.click_exact("VIEW")
-        app.after("Large icons from the gallery", "AZDRIVE_LAYOUT", r"large_icons",
-                  lambda: app.click_exact("Large icons"))
-        app.after("Details from the status bar's switch", "AZDRIVE_LAYOUT", r"details",
-                  lambda: app.key("6", primary=True, shift=True))
-        log("3. all eight layouts render the folder (keys and the ribbon's gallery)")
+        app.after("Large icons from the command bar", "AZDRIVE_LAYOUT", r"large_icons",
+                  lambda: app.command("layout-icons"))
+        app.until("the icon grid (azul's IconGrid)", lambda: app.has("#" + I("icon-grid")))
+        app.until("the grid's items", lambda: len(app.nodes_with_class(GRID_ITEM)) >= 5)
+        app.after("List from the command bar", "AZDRIVE_LAYOUT", r"list",
+                  lambda: app.command("layout-list"))
+        app.after("Details from the command bar", "AZDRIVE_LAYOUT", r"details",
+                  lambda: app.command("layout-details"))
+        log("3. all eight layouts render the folder (the icon layouts on azul's IconGrid); the "
+            "command bar's Large icons / List / Details switch them")
 
         # 4. Sort by the Name header (twice: descending), then by Size.
         app.until("the Details header", lambda: app.has("#" + I("details-header")))
@@ -256,7 +295,7 @@ def run(args, logs):
             app.click_exact("data.csv"),
             app.op("key_up", key="shift", modifiers={"shift": False})))
         app.after("Escape", "AZDRIVE_SELECTED", r"0 -", lambda: app.key("escape"))
-        app.after("Select all", "AZDRIVE_SELECTED", r"3 .*", lambda: app.ribbon("Select all"))
+        app.after("Select all", "AZDRIVE_SELECTED", r"3 .*", lambda: app.command("select-all"))
         app.after("Escape", "AZDRIVE_SELECTED", r"0 -", lambda: app.key("escape"))
         log("5. click, Ctrl+click, Shift+click, Select all and Escape select as Explorer does")
 
@@ -283,7 +322,7 @@ def run(args, logs):
         app.until("todo.txt on disk", lambda: os.path.isfile(os.path.join(docs, "todo.txt")))
         if os.path.exists(os.path.join(docs, "notes.txt")):
             raise Failure("notes.txt is still there after the rename")
-        app.ribbon("Undo")
+        app.command("undo")
         app.until("notes.txt back on disk (Undo)",
                   lambda: os.path.isfile(os.path.join(docs, "notes.txt")))
         log("7. F2 renamed notes.txt to todo.txt on disk; Undo renamed it back")
@@ -300,14 +339,14 @@ def run(args, logs):
         # 9. Copy / paste; a conflict; Keep both.
         app.after("notes.txt selected", "AZDRIVE_SELECTED", r"1 Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
-        app.after("Copy", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.ribbon("Copy"))
+        app.after("Copy", "AZDRIVE_CLIPBOARD", r"copy 1", lambda: app.command("copy"))
         app.after("into New folder", "AZDRIVE_LISTED", r"home Documents/New folder/ \d+",
                   lambda: app.click_exact("New folder", double=True))
         target = os.path.join(docs, "New folder")
-        app.after("the paste", "AZDRIVE_TRANSFER", r"\d+ done 1", lambda: app.ribbon("Paste"))
+        app.after("the paste", "AZDRIVE_TRANSFER", r"\d+ done 1", lambda: app.command("paste"))
         app.until("the copy on disk", lambda: os.path.isfile(os.path.join(target, "notes.txt")))
         app.after("the conflict", "AZDRIVE_TRANSFER", r"\d+ conflict 1",
-                  lambda: app.ribbon("Paste"))
+                  lambda: app.command("paste"))
         app.until("the conflict dialog", lambda: app.has("#" + I("conflict")))
         app.screenshot(os.path.join(out, "09-conflict.png"))
         app.after("keep both", "AZDRIVE_TRANSFER", r"\d+ done 1",
@@ -323,7 +362,7 @@ def run(args, logs):
         trashed = glob.glob(os.path.join(home, ".azdrive-trash", "*", "Documents", "New folder", "notes (2).txt"))
         if not trashed:
             raise Failure("the deleted file is not in the trash folder")
-        app.ribbon("Undo")
+        app.command("undo")
         app.until("notes (2).txt back (Undo)",
                   lambda: os.path.isfile(os.path.join(target, "notes (2).txt")))
         log("10. Delete moved the file into .azdrive-trash; Undo brought it back")
@@ -336,11 +375,12 @@ def run(args, logs):
                   lambda: app.key("right", alt=True))
         log("11. Backspace went up, Alt+Left back, Alt+Right forward")
 
-        # 12. The panes.
-        app.click_exact("VIEW")
-        app.after("the preview pane", "AZDRIVE_PANES", r"true true true",
-                  lambda: app.click_exact("Preview pane"))
+        # 12. The panes: the preview pane and the details pane share the window's right side
+        # (Explorer's rule), so the preview pane's switch takes the details pane away.
+        app.after("the preview pane", "AZDRIVE_PANES", r"true true false",
+                  lambda: app.command("preview-pane"))
         app.until("the preview pane laid out", lambda: app.has("#shell-preview"))
+        app.until("no details pane beside it", lambda: not app.has("#shell-details"))
         app.after("a text preview", "AZDRIVE_PREVIEW", r"text Documents/notes\.txt",
                   lambda: app.click_exact("notes.txt"))
         app.until("the text in the preview", lambda: app.has("#" + I("preview-text")))
@@ -351,26 +391,31 @@ def run(args, logs):
                   lambda: app.click_exact("gradient.png"))
         app.until("the image in the preview", lambda: app.has("#" + I("preview-image")))
         app.screenshot(os.path.join(out, "12-preview.png"))
-        # Large icons show the picture as a thumbnail.
+        # Large icons (the IconGrid) show the picture as a thumbnail.
         app.after("a thumbnail", "AZDRIVE_THUMBNAIL", r"Pictures/gradient\.png",
                   lambda: app.key("2", primary=True, shift=True))
-        app.until("the thumbnail drawn", lambda: C("thumbnail") in app.classes())
+        app.until("the thumbnail drawn", lambda: thumbnail_drawn(app))
         app.screenshot(os.path.join(out, "12-thumbnails.png"))
         app.after("back to Details", "AZDRIVE_LAYOUT", r"details",
                   lambda: app.key("6", primary=True, shift=True))
-        app.after("the navigation pane off", "AZDRIVE_PANES", r"false true true",
-                  lambda: app.click_exact("Navigation pane"))
+        app.after("the navigation pane off", "AZDRIVE_PANES", r"false true false",
+                  lambda: app.command("navigation-pane"))
         app.until("no tree", lambda: not app.has("#shell-tree"))
-        app.after("the navigation pane on", "AZDRIVE_PANES", r"true true true",
-                  lambda: app.click_exact("Navigation pane"))
+        app.after("the navigation pane on", "AZDRIVE_PANES", r"true true false",
+                  lambda: app.command("navigation-pane"))
         app.until("the tree back", lambda: app.has("#shell-tree"))
-        app.after("the details pane off", "AZDRIVE_PANES", r"true true false",
-                  lambda: app.click_exact("Details pane"))
+        app.after("the details pane in the preview pane's place", "AZDRIVE_PANES",
+                  r"true false true", lambda: app.command("details-pane"))
+        app.until("the details pane laid out", lambda: app.has("#shell-details"))
+        app.until("no preview pane", lambda: not app.has("#shell-preview"))
+        app.after("the details pane off", "AZDRIVE_PANES", r"true false false",
+                  lambda: app.command("details-pane"))
         app.until("no details pane", lambda: not app.has("#shell-details"))
-        app.after("the details pane on", "AZDRIVE_PANES", r"true true true",
-                  lambda: app.click_exact("Details pane"))
-        app.until("the details pane back", lambda: app.has("#shell-details"))
-        log("12. Preview pane (text and image), Navigation pane and Details pane toggle")
+        app.after("Alt+P: the preview pane again", "AZDRIVE_PANES", r"true true false",
+                  lambda: app.key("p", alt=True))
+        app.until("the preview pane back", lambda: app.has("#shell-preview"))
+        log("12. Preview pane (text and image), the thumbnail in Large icons, Navigation pane, "
+            "the Details pane in the preview's place, Alt+P")
 
         # 13. Properties.
         app.after("gradient.png selected", "AZDRIVE_SELECTED", r"1 Pictures/gradient\.png",
@@ -393,8 +438,8 @@ def run(args, logs):
         app.until("its Play button", lambda: app.has("#" + I("preview-play")))
         log("13b. chime.wav previews as a sound with Play")
 
-        # 14. FILE: the backstage and the Options.
-        app.click_exact("FILE")
+        # 14. The command bar's gear: the backstage and the Options.
+        app.command("options")
         app.until("the Options", lambda: app.has("#" + I("settings")))
         app.screenshot(os.path.join(out, "14-options.png"))
         if NAMING["prefixed"]:
@@ -411,7 +456,8 @@ def run(args, logs):
             app.until("flat in the settings file", lambda: '"flat"' in open(saved).read())
         app.key("escape")
         app.until("the backstage closed", lambda: not app.has("#" + I("settings")))
-        log("14. FILE opened the Options (the theme saved into the data tree); Escape closed them")
+        log("14. the gear opened the Options (the theme saved into the data tree); Escape closed "
+            "them")
 
         # 15. Flora, dark.
         app.must("set_theme", theme="flora")

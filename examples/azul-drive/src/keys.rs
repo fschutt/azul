@@ -108,6 +108,10 @@ pub enum Command {
     ToggleFocused,
     /// Ctrl+Shift+1..8: Explorer's layouts, Extra large icons (1) .. Content (8).
     Layout(u8),
+    /// Alt+P: the preview pane on or off (Explorer's key).
+    PreviewPane,
+    /// Alt+Shift+P: the details pane on or off (Explorer's key).
+    DetailsPane,
     /// A letter or digit typed: jump to the name starting with it.
     TypeAhead(char),
 }
@@ -115,7 +119,7 @@ pub enum Command {
 /// The keyboard shortcuts as the Options' "Keyboard shortcuts" section lists them (azul-appkit's
 /// table, `Mod` = Cmd on macOS, Ctrl elsewhere). A test checks that every one of them runs a
 /// command in [`command_for`], so the list cannot drift from the keys (DEDUP_OFFICE D13).
-pub const SHORTCUTS: [Shortcut; 26] = [
+pub const SHORTCUTS: [Shortcut; 28] = [
     Shortcut::new("Open and go", "Enter", "Open the selected item"),
     Shortcut::new("Open and go", "Alt+Enter", "Properties"),
     Shortcut::new("Open and go", "Backspace", "Up one level"),
@@ -142,6 +146,8 @@ pub const SHORTCUTS: [Shortcut; 26] = [
     Shortcut::new("View", "Mod+Shift+2", "Large icons"),
     Shortcut::new("View", "Mod+Shift+5", "List"),
     Shortcut::new("View", "Mod+Shift+6", "Details"),
+    Shortcut::new("View", "Alt+P", "Preview pane"),
+    Shortcut::new("View", "Alt+Shift+P", "Details pane"),
 ];
 
 /// Explorer's keyboard.
@@ -178,6 +184,8 @@ pub fn command_for(key: Key, mods: Mods) -> Option<Command> {
         Key::Space if ctrl => Command::ToggleFocused,
         Key::Char('n') if ctrl && shift && !alt => Command::NewFolder,
         Key::Char(c @ '1'..='8') if ctrl && shift && !alt => Command::Layout(c as u8 - b'0'),
+        Key::Char('p') if alt && !ctrl && shift => Command::DetailsPane,
+        Key::Char('p') if alt && !ctrl => Command::PreviewPane,
         Key::Char('r') if plain_ctrl => Command::Refresh,
         Key::Char('f' | 'e') if plain_ctrl => Command::Search,
         Key::Char('c') if plain_ctrl => Command::Copy,
@@ -329,6 +337,26 @@ mod tests {
         }
         assert_eq!(command_for(Key::Char('9'), CTRL_SHIFT), None);
         assert_eq!(command_for(Key::Char('0'), CTRL_SHIFT), None);
+    }
+
+    /// Explorer's pane keys: Alt+P the preview pane, Alt+Shift+P the details pane; a plain p
+    /// still types ahead.
+    #[test]
+    fn alt_p_toggles_the_preview_pane_and_alt_shift_p_the_details_pane() {
+        const ALT_SHIFT: Mods = Mods {
+            shift: true,
+            ctrl: false,
+            alt: true,
+        };
+        assert_eq!(command_for(Key::Char('p'), ALT), Some(Command::PreviewPane));
+        assert_eq!(
+            command_for(Key::Char('p'), ALT_SHIFT),
+            Some(Command::DetailsPane)
+        );
+        assert_eq!(
+            command_for(Key::Char('p'), NONE),
+            Some(Command::TypeAhead('p'))
+        );
     }
 
     /// `Mod+Shift+N` -> (`Char('n')`, Ctrl + Shift), as the table spells keys.

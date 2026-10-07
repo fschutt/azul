@@ -1,5 +1,6 @@
-//! What AzDrive does: every command of the ribbon, the context menus and
-//! the keyboard is an [`Action`], run by [`run_action`] on the state. The
+//! What AzDrive does: every command of the command bar, its menus, the
+//! context menus and the keyboard is an [`Action`], run by [`run_action`] on
+//! the state. The
 //! storage work goes to a `Thread` ([`crate::spawn`]); this module decides
 //! what to ask for, keeps the transfer queue moving, and answers the
 //! threads' results that need more than a refresh.
@@ -13,7 +14,7 @@ use std::{
 use azul::{
     dialog::{FileDialog, FileOpenMultiResult, FileOpenResult},
     dom::{ClipboardContent, DomNodeId, FocusTarget, VirtualKeyCode},
-    menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, StringMenuItem},
+    menu::{Menu, MenuItem, MenuItemIcon, MenuItemState, MenuPopupPosition, StringMenuItem},
     option::{OptionFileTypeList, OptionMenuItemIcon},
     prelude::*,
     str::String as AzString,
@@ -40,7 +41,7 @@ use crate::{
 
 // ==== Actions ====
 
-/// A setting the ribbon turns on and off.
+/// A setting the command bar and its View menus turn on and off.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Toggle {
     NavigationPane,
@@ -52,7 +53,7 @@ pub(crate) enum Toggle {
     ConfirmDelete,
 }
 
-/// Every command of the ribbon, the context menus and the backstage.
+/// Every command of the command bar, the menus and the backstage.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum Action {
     // Clipboard
@@ -103,6 +104,10 @@ pub(crate) enum Action {
     ToggleColumn(Column),
     FitColumns,
     Options,
+    /// The backstage's About page.
+    About,
+    /// The command bar's "See more" (...): every command the bar has no room for.
+    MoreMenu,
     // Drives
     AddDrive,
     AddLocalDrive,
@@ -118,7 +123,7 @@ pub(crate) enum Action {
     ShowTransfers,
 }
 
-/// A ribbon button's / menu item's click data.
+/// A button's / menu item's click data.
 pub(crate) struct ActionRef {
     pub app: RefAny,
     pub action: Action,
@@ -132,7 +137,7 @@ pub(crate) fn action_ref(app: &RefAny, action: Action) -> RefAny {
     })
 }
 
-/// A ribbon button, a menu item or a backstage button was clicked.
+/// A button, a menu item or a backstage button was clicked.
 pub(crate) extern "C" fn on_action(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, action)) = data
         .downcast_ref::<ActionRef>()
@@ -163,8 +168,28 @@ pub(crate) fn check_item(app: &RefAny, label: &str, action: Action, checked: boo
     MenuItem::String(item)
 }
 
-/// Why `action` cannot run now, or `None` when it can (the ribbon greys the
-/// button and says why).
+/// A menu entry running `action`, greyed when it cannot run now.
+fn able_item(app: &RefAny, s: &DriveState, label: &str, action: Action) -> MenuItem {
+    let disabled = why_not(s, &action).is_some();
+    menu_item(app, label, action, disabled)
+}
+
+/// A submenu.
+fn submenu(label: &str, children: Vec<MenuItem>) -> MenuItem {
+    MenuItem::String(StringMenuItem::create(AzString::from(label)).with_children(children))
+}
+
+/// Opens `items` as a drop-down under the button that asked for it (a command bar tool, the
+/// address bar's chevron); where the pointer is when there is no button.
+pub(crate) fn open_menu_below(info: &mut CallbackInfo, items: Vec<MenuItem>) {
+    let menu = Menu::create(items).with_popup_position(MenuPopupPosition::BottomOfHitRect);
+    if !info.open_menu_for_hit_node(menu.clone()) {
+        info.open_menu(menu);
+    }
+}
+
+/// Why `action` cannot run now, or `None` when it can (the command bar greys
+/// the tool and says why).
 pub(crate) fn why_not(s: &DriveState, action: &Action) -> Option<String> {
     let in_folder = s.current_drive().is_some();
     let selected = !s.selection.is_empty() && in_folder;
@@ -263,45 +288,17 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
                 error: String::new(),
             });
         }
-        Action::DeleteMenu => {
-            let items = vec![
-                menu_item(app, "Recycle (to the trash folder)", Action::Delete, false),
-                menu_item(app, "Permanently delete", Action::DeletePermanently, false),
-                MenuItem::Separator,
-                check_item(
-                    app,
-                    "Show delete confirmation",
-                    Action::Toggle(Toggle::ConfirmDelete),
-                    s.settings.confirm_delete,
-                ),
-            ];
-            info.open_menu_for_hit_node(Menu::create(items));
-        }
+        Action::DeleteMenu => open_menu_below(info, delete_items(app, s)),
         Action::Delete => delete_selected(info, app, s, false),
         Action::DeletePermanently => delete_selected(info, app, s, true),
         Action::Rename => start_rename(s),
         Action::NewFolder => new_item(info, app, s, "New folder", true),
-        Action::NewItemMenu => {
-            let items = vec![
-                menu_item(app, "Folder", Action::NewFolder, false),
-                MenuItem::Separator,
-                menu_item(app, "Text Document", Action::NewTextDocument, false),
-                menu_item(app, "Empty file", Action::NewEmptyFile, false),
-            ];
-            info.open_menu_for_hit_node(Menu::create(items));
-        }
+        Action::NewItemMenu => open_menu_below(info, new_items(app)),
         Action::NewTextDocument => new_item(info, app, s, "New Text Document.txt", false),
         Action::NewEmptyFile => new_item(info, app, s, "New file", false),
         Action::Properties => show_properties(info, app, s),
         Action::Open | Action::Edit => open_selected(info, app, s),
-        Action::OpenMenu => {
-            let items = vec![
-                menu_item(app, "Open", Action::Open, false),
-                menu_item(app, "Download", Action::Download, false),
-                menu_item(app, "Properties", Action::Properties, false),
-            ];
-            info.open_menu_for_hit_node(Menu::create(items));
-        }
+        Action::OpenMenu => open_menu_below(info, open_items(app)),
         Action::SelectAll => select_all(info, app, s),
         Action::SelectNone => {
             s.selection.clear();
@@ -328,79 +325,19 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
         }
         Action::Toggle(which) => toggle(info, app, s, which),
         Action::SetLayout(layout) => set_layout(info, app, s, layout),
-        Action::SortMenu => {
-            let mut items: Vec<MenuItem> = model::ColumnLayout::default()
-                .visible()
-                .into_iter()
-                .chain(s.settings.columns.visible())
-                .fold(Vec::<Column>::new(), |mut all, c| {
-                    if !all.contains(&c) {
-                        all.push(c);
-                    }
-                    all
-                })
-                .into_iter()
-                .map(|c| {
-                    check_item(
-                        app,
-                        c.label(),
-                        Action::SortBy(c),
-                        s.settings.sort.column == c,
-                    )
-                })
-                .collect();
-            items.push(MenuItem::Separator);
-            items.push(check_item(
-                app,
-                "Ascending",
-                Action::SortDescending(false),
-                !s.settings.sort.descending,
-            ));
-            items.push(check_item(
-                app,
-                "Descending",
-                Action::SortDescending(true),
-                s.settings.sort.descending,
-            ));
-            info.open_menu_for_hit_node(Menu::create(items));
-        }
+        Action::SortMenu => open_menu_below(info, sort_items(app, s)),
         Action::SortBy(column) => sort_by(info, app, s, column, None),
         Action::SortDescending(descending) => {
             let column = s.settings.sort.column;
             sort_by(info, app, s, column, Some(descending));
         }
-        Action::GroupMenu => {
-            let items: Vec<MenuItem> = GroupBy::ALL
-                .iter()
-                .map(|g| check_item(app, g.label(), Action::GroupBy(*g), s.settings.group_by == *g))
-                .collect();
-            info.open_menu_for_hit_node(Menu::create(items));
-        }
+        Action::GroupMenu => open_menu_below(info, group_items(app, s)),
         Action::GroupBy(group) => {
             s.settings.group_by = group;
             println!("AZDRIVE_GROUP {}", group.label());
             save_settings(info, app, s);
         }
-        Action::ColumnsMenu => {
-            let items: Vec<MenuItem> = Column::ALL
-                .iter()
-                .map(|c| {
-                    let mut item = check_item(
-                        app,
-                        c.label(),
-                        Action::ToggleColumn(*c),
-                        s.settings.columns.is_visible(*c),
-                    );
-                    if *c == Column::Name {
-                        if let MenuItem::String(ref mut string) = item {
-                            string.menu_item_state = MenuItemState::Greyed;
-                        }
-                    }
-                    item
-                })
-                .collect();
-            info.open_menu_for_hit_node(Menu::create(items));
-        }
+        Action::ColumnsMenu => open_menu_below(info, column_items(app, s)),
         Action::ToggleColumn(column) => {
             s.settings.columns.toggle(column);
             save_settings(info, app, s);
@@ -416,6 +353,8 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             s.backstage = Some(0);
             azul_appkit::ui::open_settings(&s.kit, Some("View"));
         }
+        Action::About => s.backstage = Some(1),
+        Action::MoreMenu => open_menu_below(info, more_items(app, s)),
         Action::AddDrive => {
             if s.popup.is_none() {
                 open_drive_form(s, None);
@@ -456,7 +395,7 @@ pub(crate) fn run_action(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveSta
             if items.is_empty() {
                 s.info("No places visited yet.");
             } else {
-                info.open_menu_for_hit_node(Menu::create(items));
+                open_menu_below(info, items);
             }
         }
         Action::CloseBackstage => s.backstage = None,
@@ -589,6 +528,9 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
     let Some(command) = keys::command_for(key_of(code), mods) else {
         return Update::DoNothing;
     };
+    if grid_handles(command) && in_icon_grid(&info) {
+        return Update::DoNothing;
+    }
     let app = data.clone();
     let Some(mut guard) = data.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
@@ -610,13 +552,21 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
     Update::RefreshDom
 }
 
-/// The window was resized: the grid's rows for the arrow keys.
+/// The window was resized: the grid's rows for the arrow keys; a new width rebuilds the
+/// window (the command bar moves what no longer fits into its "more" menu, the icon grid
+/// draws exactly its new viewport).
 pub(crate) extern "C" fn on_resized(mut data: RefAny, info: CallbackInfo) -> Update {
     let width = info.get_current_window_state().size.dimensions.width;
-    if let Some(mut s) = data.downcast_mut::<DriveState>() {
-        s.window_width = width;
+    let Some(mut s) = data.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    let changed = (s.window_width - width).abs() >= 1.0;
+    s.window_width = width;
+    if changed || crate::ui_view::uses_icon_grid(&s) {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
     }
-    Update::DoNothing
 }
 
 /// A transfer that runs this long shows Explorer's progress dialog (once).
@@ -713,7 +663,45 @@ pub(crate) fn run_command(
                 set_layout(info, app, s, *layout);
             }
         }
+        Command::PreviewPane => run_action(info, app, s, Action::Toggle(Toggle::PreviewPane)),
+        Command::DetailsPane => run_action(info, app, s, Action::Toggle(Toggle::DetailsPane)),
     }
+}
+
+/// Whether the keyboard focus is on the icon layouts' grid (azul's IconGrid), which moves,
+/// selects, opens and types ahead by itself - and reports it as its events.
+fn in_icon_grid(info: &CallbackInfo) -> bool {
+    let Some(mut node) = info.get_focused_node().into_option() else {
+        return false;
+    };
+    for _ in 0..4 {
+        let classes = info.get_node_classes(node);
+        if classes
+            .as_slice()
+            .iter()
+            .any(|c| c.as_str() == "__azul-native-icon-grid")
+        {
+            return true;
+        }
+        match info.get_parent(node).into_option() {
+            Some(parent) => node = parent,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// The keys the focused icon grid handles itself (the window's keyboard leaves them).
+fn grid_handles(command: Command) -> bool {
+    matches!(
+        command,
+        Command::Move { .. }
+            | Command::ToggleFocused
+            | Command::TypeAhead(_)
+            | Command::Open
+            | Command::SelectAll
+            | Command::ContextMenu
+    )
 }
 
 /// Ctrl+F: the address bar's search box gets the focus.
@@ -1358,6 +1346,12 @@ fn destination_menu(
     s: &mut DriveState,
     kind: TransferKind,
 ) {
+    let items = destination_items(app, s, kind);
+    open_menu_below(info, items);
+}
+
+/// The entries of Move to / Copy to.
+fn destination_items(app: &RefAny, s: &DriveState, kind: TransferKind) -> Vec<MenuItem> {
     let wrap = |place: Place| match kind {
         TransferKind::Move => Action::MoveTo(place),
         _ => Action::CopyTo(place),
@@ -1393,7 +1387,7 @@ fn destination_menu(
         Action::ChooseLocation(kind),
         false,
     ));
-    info.open_menu_for_hit_node(Menu::create(items));
+    items
 }
 
 /// The selected items into the folder `place`.
@@ -1451,11 +1445,18 @@ pub(crate) fn drop_on_place(
         s.warn("Drop the items on a folder of a drive.");
         return;
     };
-    // A folder never lands on itself.
+    // A folder never lands on itself, and an item dropped into the folder it is in stays
+    // there (Explorer does nothing: a drag let go over its own folder's view).
     let items: Vec<SourceItem> = items
         .into_iter()
-        .filter(|item| !(source_id == target_id && item.key == target_prefix))
+        .filter(|item| {
+            !(source_id == target_id
+                && (item.key == target_prefix || key::parent_prefix(&item.key) == target_prefix))
+        })
         .collect();
+    if items.is_empty() {
+        return;
+    }
     let kind = if copy || source_id != target_id {
         TransferKind::Copy
     } else {
@@ -2131,13 +2132,24 @@ pub(crate) fn sort_by(
     save_settings(info, app, s);
 }
 
-/// A View setting on or off.
+/// A View setting on or off. The preview pane and the details pane share the
+/// window's right side, as in Explorer: turning one on turns the other off.
 fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Toggle) {
     let settings = &mut s.settings;
     match which {
         Toggle::NavigationPane => settings.navigation_pane = !settings.navigation_pane,
-        Toggle::PreviewPane => settings.preview_pane = !settings.preview_pane,
-        Toggle::DetailsPane => settings.details_pane = !settings.details_pane,
+        Toggle::PreviewPane => {
+            settings.preview_pane = !settings.preview_pane;
+            if settings.preview_pane {
+                settings.details_pane = false;
+            }
+        }
+        Toggle::DetailsPane => {
+            settings.details_pane = !settings.details_pane;
+            if settings.details_pane {
+                settings.preview_pane = false;
+            }
+        }
         Toggle::ItemCheckboxes => settings.item_checkboxes = !settings.item_checkboxes,
         Toggle::Extensions => settings.show_extensions = !settings.show_extensions,
         Toggle::HiddenItems => settings.show_hidden = !settings.show_hidden,
@@ -2159,7 +2171,7 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
                 crate::start_tree_listing(info, app, s, node);
             }
         }
-        Toggle::PreviewPane => {
+        Toggle::PreviewPane | Toggle::DetailsPane => {
             s.clear_preview();
             request_preview(info, app, s);
         }
@@ -2169,6 +2181,237 @@ fn toggle(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, which: Togg
 }
 
 // ==== Menus ====
+
+/// Delete's choices: into the trash, for good, and whether to ask first.
+fn delete_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
+    vec![
+        menu_item(app, "Recycle (to the trash folder)", Action::Delete, false),
+        menu_item(app, "Permanently delete", Action::DeletePermanently, false),
+        MenuItem::Separator,
+        check_item(
+            app,
+            "Show delete confirmation",
+            Action::Toggle(Toggle::ConfirmDelete),
+            s.settings.confirm_delete,
+        ),
+    ]
+}
+
+/// New: a folder, a text document, an empty file.
+fn new_items(app: &RefAny) -> Vec<MenuItem> {
+    vec![
+        menu_item(app, "Folder", Action::NewFolder, false),
+        MenuItem::Separator,
+        menu_item(app, "Text Document", Action::NewTextDocument, false),
+        menu_item(app, "Empty file", Action::NewEmptyFile, false),
+    ]
+}
+
+/// Open's choices.
+fn open_items(app: &RefAny) -> Vec<MenuItem> {
+    vec![
+        menu_item(app, "Open", Action::Open, false),
+        menu_item(app, "Download", Action::Download, false),
+        menu_item(app, "Properties", Action::Properties, false),
+    ]
+}
+
+/// Sort by: the default columns and the shown ones, then the direction.
+fn sort_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
+    let mut items: Vec<MenuItem> = model::ColumnLayout::default()
+        .visible()
+        .into_iter()
+        .chain(s.settings.columns.visible())
+        .fold(Vec::<Column>::new(), |mut all, c| {
+            if !all.contains(&c) {
+                all.push(c);
+            }
+            all
+        })
+        .into_iter()
+        .map(|c| {
+            check_item(
+                app,
+                c.label(),
+                Action::SortBy(c),
+                s.settings.sort.column == c,
+            )
+        })
+        .collect();
+    items.push(MenuItem::Separator);
+    items.push(check_item(
+        app,
+        "Ascending",
+        Action::SortDescending(false),
+        !s.settings.sort.descending,
+    ));
+    items.push(check_item(
+        app,
+        "Descending",
+        Action::SortDescending(true),
+        s.settings.sort.descending,
+    ));
+    items
+}
+
+/// Group by: none or one of the groupings.
+fn group_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
+    GroupBy::ALL
+        .iter()
+        .map(|g| check_item(app, g.label(), Action::GroupBy(*g), s.settings.group_by == *g))
+        .collect()
+}
+
+/// The Details layout's columns (Name always stays).
+fn column_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
+    Column::ALL
+        .iter()
+        .map(|c| {
+            let mut item = check_item(
+                app,
+                c.label(),
+                Action::ToggleColumn(*c),
+                s.settings.columns.is_visible(*c),
+            );
+            if *c == Column::Name {
+                if let MenuItem::String(ref mut string) = item {
+                    string.menu_item_state = MenuItemState::Greyed;
+                }
+            }
+            item
+        })
+        .collect()
+}
+
+/// Explorer's eight layouts, the current one checked.
+fn layout_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
+    ViewLayout::ALL
+        .iter()
+        .map(|l| check_item(app, l.label(), Action::SetLayout(*l), s.settings.layout == *l))
+        .collect()
+}
+
+/// View > Show: the panes and what the items show.
+fn show_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
+    let settings = &s.settings;
+    vec![
+        check_item(
+            app,
+            "Navigation pane",
+            Action::Toggle(Toggle::NavigationPane),
+            settings.navigation_pane,
+        ),
+        check_item(
+            app,
+            "Preview pane",
+            Action::Toggle(Toggle::PreviewPane),
+            settings.preview_pane,
+        ),
+        check_item(
+            app,
+            "Details pane",
+            Action::Toggle(Toggle::DetailsPane),
+            settings.details_pane,
+        ),
+        MenuItem::Separator,
+        check_item(
+            app,
+            "Item check boxes",
+            Action::Toggle(Toggle::ItemCheckboxes),
+            settings.item_checkboxes,
+        ),
+        check_item(
+            app,
+            "File name extensions",
+            Action::Toggle(Toggle::Extensions),
+            settings.show_extensions,
+        ),
+        check_item(
+            app,
+            "Hidden items",
+            Action::Toggle(Toggle::HiddenItems),
+            settings.show_hidden,
+        ),
+    ]
+}
+
+/// The command bar's "See more" (...): every command of the window the bar
+/// has no tool for - Windows 11's "..." menu, Windows 7's Organize.
+fn more_items(app: &RefAny, s: &DriveState) -> Vec<MenuItem> {
+    let undo_label = s
+        .undo
+        .last()
+        .map_or_else(|| String::from("Undo"), UndoOp::label);
+    let pinned = match &s.place {
+        Place::Folder { drive, prefix } => s.settings.is_pinned(drive, prefix),
+        _ => false,
+    };
+    let in_folder = s.current_drive().is_some();
+    let mut items = vec![
+        able_item(app, s, &undo_label, Action::Undo),
+        MenuItem::Separator,
+        able_item(app, s, "Select all", Action::SelectAll),
+        able_item(app, s, "Select none", Action::SelectNone),
+        able_item(app, s, "Invert selection", Action::InvertSelection),
+        MenuItem::Separator,
+        able_item(app, s, "Open", Action::Open),
+        able_item(app, s, "Edit", Action::Edit),
+        able_item(
+            app,
+            s,
+            if pinned {
+                "Unpin from Quick access"
+            } else {
+                "Pin to Quick access"
+            },
+            Action::Pin,
+        ),
+        able_item(app, s, "Copy path", Action::CopyPath),
+    ];
+    if in_folder && !s.selection.is_empty() {
+        items.push(submenu("Move to", destination_items(app, s, TransferKind::Move)));
+        items.push(submenu("Copy to", destination_items(app, s, TransferKind::Copy)));
+    } else {
+        items.push(menu_item(app, "Move to", Action::MoveToMenu, true));
+        items.push(menu_item(app, "Copy to", Action::CopyToMenu, true));
+    }
+    items.extend([
+        able_item(app, s, "Permanently delete", Action::DeletePermanently),
+        able_item(app, s, "Compress to ZIP file", Action::Zip),
+        MenuItem::Separator,
+        able_item(app, s, "Share (copy the addresses)", Action::Share),
+        able_item(app, s, "Email", Action::Email),
+        able_item(app, s, "Upload files...", Action::Upload),
+        able_item(app, s, "Download", Action::Download),
+        MenuItem::Separator,
+        submenu("Layout", layout_items(app, s)),
+        submenu("Show", show_items(app, s)),
+    ]);
+    if in_folder {
+        let mut columns = column_items(app, s);
+        columns.push(MenuItem::Separator);
+        columns.push(menu_item(app, "Size all columns to fit", Action::FitColumns, false));
+        items.push(submenu("Group by", group_items(app, s)));
+        items.push(submenu("Columns", columns));
+    } else {
+        items.push(menu_item(app, "Group by", Action::GroupMenu, true));
+        items.push(menu_item(app, "Columns", Action::ColumnsMenu, true));
+    }
+    items.extend([
+        MenuItem::Separator,
+        menu_item(app, "Add S3 drive (a network location)...", Action::AddDrive, false),
+        menu_item(app, "Add a folder as a drive...", Action::AddLocalDrive, false),
+        able_item(app, s, "Remove drive", Action::RemoveDrive),
+        able_item(app, s, "Drive properties", Action::DriveProperties),
+        able_item(app, s, "Refresh", Action::Refresh),
+        MenuItem::Separator,
+        menu_item(app, "Transfers...", Action::ShowTransfers, false),
+        menu_item(app, "Options", Action::Options, false),
+        menu_item(app, "About AzDrive", Action::About, false),
+        menu_item(app, "Close window", Action::CloseWindow, false),
+    ]);
+    items
+}
 
 /// The context menu of the selection (or of the folder itself when nothing
 /// is selected), as Explorer's right-click and the menu key show it.

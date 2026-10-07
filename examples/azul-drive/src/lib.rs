@@ -1,17 +1,22 @@
-//! AzDrive: a file manager on the public azul API that works like Windows
-//! 10's File Explorer with the Ribbon.
+//! AzDrive: a file manager on the public azul API that looks and works like
+//! Windows' File Explorer (7 / 10).
 //!
-//! The window is the S5 `BrowserShell`: the app-drawn title row, the Ribbon
-//! (FILE opens the backstage with the Options; HOME: Clipboard, Organize,
-//! New, Open, Select; SHARE: Send; VIEW: Panes, Layout, Current view,
-//! Show/hide; DRIVE: the drives) over the address bar (Back / Forward /
-//! Recent locations / Up, the breadcrumb with a menu per crumb, the typed
-//! path, Refresh, Search); the navigation pane (Quick access and This PC with
-//! the drives and their folders, listed lazily), the content (This PC's
-//! drive tiles, Quick access's pinned folders, or a folder in one of
-//! Explorer's eight layouts, grouped or not, with check boxes or not), the
-//! preview pane, the details pane and the status bar ("N items", "N items
-//! selected", the running transfer, the Details / Large icons switch).
+//! The window is the S5 `BrowserShell`: the app-drawn title row; the
+//! navigation row (Back / Forward / Recent locations / Up, the breadcrumb with
+//! a menu per crumb and the typed path, Refresh, "Search <folder>") over the
+//! command bar (New folder, New item, Cut, Copy, Paste, Rename, Delete, Undo,
+//! Properties, Upload / Download on a cloud drive, Sort, the Large icons /
+//! List / Details views, Select all, "See more" with every other command;
+//! the Navigation / Preview / Details pane switches and the Options at its
+//! right end - the drive commands on This PC); the navigation pane (the trees
+//! of Quick access, This PC with the drives - local and cloud - and their
+//! folders, listed lazily, and Network with the cloud drives); the content
+//! (This PC's drive tiles, Quick access's pinned folders, or a folder in one
+//! of Explorer's eight layouts - Details by default, the icon layouts on
+//! azul's IconGrid - grouped or not, with check boxes or not); the preview
+//! pane OR the details pane at the right; the status bar ("N items", "N items
+//! selected, X MB", the running transfer, the Details / Large icons switch).
+//! The Options and About are the backstage (See more > Options, the gear).
 //!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
@@ -58,9 +63,9 @@ mod jobs;
 pub mod keys;
 pub mod model;
 pub mod preview;
+mod ui_commands;
 mod ui_dialogs;
 mod ui_panes;
-mod ui_ribbon;
 mod ui_view;
 
 use std::{
@@ -70,14 +75,15 @@ use std::{
 };
 
 use azul::{
+    callbacks::ShellOnPaneResizeCallbackType,
     css::DarkLightMode,
     error::KeyringResult,
     file::FilePath,
     prelude::*,
-    shells::{BrowserShell, ShellThemeScope},
+    shells::{BrowserShell, ShellPane, ShellPaneKind, ShellThemeScope},
     str::String as AzString,
     url::Url,
-    widgets::{AlertKind, Dialog, Titlebar},
+    widgets::{AlertKind, Dialog, IconGridView, Titlebar},
 };
 use azul_storage::{
     azul_transport::AzulTransport,
@@ -349,13 +355,13 @@ pub(crate) enum Popup {
 pub(crate) struct TreeState {
     pub quick_open: bool,
     pub this_pc_open: bool,
+    /// Network: the cloud drives (network locations) and "Add network location".
+    pub network_open: bool,
     pub expanded: HashSet<TreeKey>,
     pub loaded: HashMap<TreeKey, Vec<String>>,
     pub listing: HashSet<TreeKey>,
     /// Nodes to list once their drive's keys are read.
     pub pending: Vec<TreeKey>,
-    /// The navigation pane's groups that are closed: Quick access, This PC.
-    pub groups_closed: [bool; 2],
 }
 
 /// A column edge being dragged in the Details header.
@@ -397,8 +403,13 @@ pub(crate) struct DriveState {
     pub tree: TreeState,
     /// Closed group headers (by label) of the folder view and This PC.
     pub groups_closed: HashSet<String>,
-    pub ribbon_tab: usize,
-    /// The FILE backstage, open on its page (0 the Options, 1 About).
+    /// The icon layouts' grid as its last event left it: the first row in view, a rubber band
+    /// in progress (its selection is the app's, handed in on every build).
+    pub grid_view: IconGridView,
+    /// The splitters' shares: the navigation pane's of the window, the content's beside the
+    /// right pane (preview or details).
+    pub pane_ratios: (f32, f32),
+    /// The backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
     pub clipboard: Option<ClipboardItems>,
     pub queue: TransferQueue,
@@ -617,19 +628,50 @@ impl DriveState {
     }
 
     /// The items per row of a grid layout, for the arrow keys (the content
-    /// is the window minus the navigation and preview panes).
+    /// is the window minus the navigation pane and the right pane).
     pub fn grid_columns(&self) -> usize {
         if !self.settings.layout.is_grid() {
             return 1;
         }
         let mut width = self.window_width;
         if self.settings.navigation_pane {
-            width *= 0.78;
+            width *= 1.0 - self.pane_ratios.0;
         }
-        if self.settings.preview_pane {
-            width *= 0.7;
+        if self.settings.preview_pane || self.settings.details_pane {
+            width *= self.pane_ratios.1;
         }
         self.settings.layout.columns_in(width - 32.0)
+    }
+
+    /// The px the content pane has, for the icon grid (which draws exactly its viewport): the
+    /// window less the panes beside it (their shares as the splitters left them) and the chrome
+    /// over and under it. An estimate that errs small - an empty strip, never a clipped row.
+    pub fn content_size(&self, window: (f32, f32)) -> (f32, f32) {
+        /// The title row, the navigation row, the command bar and the status bar.
+        const CHROME_PX: f32 = 184.0;
+        /// A splitter and the pane's edges.
+        const SPLITTER_PX: f32 = 8.0;
+        let (mut width, mut height) = window;
+        if width <= 0.0 {
+            width = self.window_width;
+        }
+        if height <= 0.0 {
+            height = 760.0;
+        }
+        if self.settings.navigation_pane {
+            width = width * (1.0 - self.pane_ratios.0) - SPLITTER_PX;
+        }
+        if self.settings.preview_pane || self.settings.details_pane {
+            width = width * self.pane_ratios.1 - SPLITTER_PX;
+        }
+        height -= CHROME_PX;
+        if self.message.is_some() {
+            height -= 52.0;
+        }
+        if self.next.is_some() {
+            height -= 44.0;
+        }
+        ((width - 8.0).max(120.0), height.max(120.0))
     }
 
     /// Prints the selection for scripts.
@@ -800,6 +842,7 @@ pub(crate) fn go(
     s.next = None;
     s.selection = Selection::default();
     s.selected_pin = None;
+    s.grid_view = IconGridView::create();
     s.clear_preview();
     s.thumbnails.clear();
     s.thumbnails_pending.clear();
@@ -1350,33 +1393,91 @@ fn title_row(s: &DriveState) -> Dom {
         .dom()
 }
 
+/// Explorer's chrome over the panes: the navigation row (Back, Forward, Up, the breadcrumb,
+/// "Search <folder>") over the command bar. It stands in the shell's address bar slot (the
+/// `shell-address-bar` host), with no ribbon over it.
+fn chrome(s: &DriveState, app: &RefAny, width: f32) -> Dom {
+    Dom::create_div()
+        .with_id(ids::CHROME)
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(ui_panes::address_bar(s, app))
+        .with_child(ui_commands::command_bar(s, app, width))
+}
+
+/// The DOM id of the details pane, which shares the right side with the preview pane.
+const DETAILS_PANE_ID: &str = "shell-details";
+
+/// A splitter was dragged: the pane left of it keeps its new share (the navigation pane's of
+/// the window, the content's beside the right pane), handed back on every rebuild - and the
+/// icon grid takes the new width.
+extern "C" fn on_pane_resize(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    pane: usize,
+    ratio: f32,
+) -> Update {
+    let Some(mut s) = data.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    if !ratio.is_finite() || ratio <= 0.05 || ratio >= 0.95 {
+        return Update::DoNothing;
+    }
+    // The index counts the panes shown: the navigation pane first, when it is.
+    let nav = s.settings.navigation_pane;
+    if nav && pane == 0 {
+        s.pane_ratios.0 = ratio;
+    } else if (nav && pane == 1) || (!nav && pane == 0) {
+        s.pane_ratios.1 = ratio;
+    } else {
+        return Update::DoNothing;
+    }
+    if ui_view::uses_icon_grid(&s) {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // Reading the mode makes a light / dark switch rebuild the window.
     let dark = matches!(info.get_mode(), DarkLightMode::Dark);
+    let window = (info.get_window_width(), info.get_window_height());
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<DriveState>() else {
         return Dom::create_body();
     };
     let s = &*guard;
+    let width = if window.0 > 0.0 {
+        window.0
+    } else {
+        s.window_width
+    };
 
     let mut browser = BrowserShell::create(
-        ui_panes::address_bar(s, &app),
+        chrome(s, &app, width),
         ui_panes::navigation_pane(s, &app),
-        ui_view::content(s, &app),
+        ui_view::content(s, &app, s.content_size(window)),
     )
-    .with_ribbon(ui_ribbon::ribbon(s, &app))
-    .with_tree_visible(s.settings.navigation_pane);
+    .with_tree_visible(s.settings.navigation_pane)
+    .with_tree_ratio(s.pane_ratios.0)
+    .with_content_ratio(s.pane_ratios.1);
     if s.settings.preview_pane {
         browser = browser.with_preview(ui_panes::preview_pane(s, &app, dark));
     }
-    if s.settings.details_pane {
-        browser = browser.with_details(ui_panes::details_pane(s));
+    let mut shell = browser.office_shell();
+    // Explorer 10's right side: the preview pane OR the details pane.
+    if s.settings.details_pane && !s.settings.preview_pane {
+        shell.add_pane(
+            ShellPane::create(DETAILS_PANE_ID, ui_panes::details_pane(s))
+                .with_kind(ShellPaneKind::Side)
+                .with_label("Details"),
+        );
     }
-    // The chrome is the OfficeShell's.
-    let mut shell = browser
-        .office_shell()
+    // The title row and the status bar are the OfficeShell's.
+    let mut shell = shell
         .with_title_row(title_row(s))
-        .with_status_bar(ui_panes::status_bar(s, &app));
+        .with_status_bar(ui_panes::status_bar(s, &app))
+        .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
     if let Some(page) = s.backstage_shown() {
         shell = shell.with_backstage(ui_dialogs::backstage(s, &app, page));
     }
@@ -1542,6 +1643,10 @@ pub fn start() {
     if let Some(layout) = args.layout {
         settings.layout = layout;
     }
+    // The preview pane and the details pane share the right side (an older build showed both).
+    if settings.preview_pane && settings.details_pane {
+        settings.details_pane = false;
+    }
 
     let mut slots = vec![
         Slot::new(DriveEntry {
@@ -1609,10 +1714,12 @@ pub fn start() {
         tree: TreeState {
             quick_open: true,
             this_pc_open: true,
+            network_open: true,
             ..TreeState::default()
         },
         groups_closed: HashSet::new(),
-        ribbon_tab: 0,
+        grid_view: IconGridView::create(),
+        pane_ratios: (0.22, 0.7),
         backstage: (args.screen == args::Screen::Settings).then_some(0),
         clipboard: None,
         queue: TransferQueue::default(),
