@@ -53,8 +53,6 @@ names! {
     TILE = "tile";
     /// The "open a file" tile of the recent page.
     OPEN = "open";
-    /// The recent files' page.
-    LIBRARY = "library";
     /// What plays: its page, and the small inset over the other pages.
     NOW_PLAYING = "now-playing";
     INSET = "inset";

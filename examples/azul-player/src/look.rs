@@ -188,10 +188,10 @@ pub const KEYFRAMES: &str = "\
 @keyframes azp-rise-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0px); } }
 @keyframes azp-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes azp-fade-out { from { opacity: 1; } to { opacity: 0; } }
-@keyframes azp-burns-0 { 0% { opacity: 0; transform: scale(1); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1.09); } }
-@keyframes azp-burns-1 { 0% { opacity: 0; transform: scale(1.09); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1); } }
-@keyframes azp-burns-2 { 0% { opacity: 0; transform: scale(1.07) translateX(-2%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1.07) translateX(2%); } }
-@keyframes azp-burns-3 { 0% { opacity: 0; transform: scale(1.07) translateY(2%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1.07) translateY(-2%); } }
+@keyframes azp-burns-0 { 0% { opacity: 0; transform: scale(1.09) translateX(0%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateX(0%); } }
+@keyframes azp-burns-1 { 0% { opacity: 0; transform: scale(1.08) translateX(-2.5%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateX(0%); } }
+@keyframes azp-burns-2 { 0% { opacity: 0; transform: scale(1.08) translateX(2.5%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateX(0%); } }
+@keyframes azp-burns-3 { 0% { opacity: 0; transform: scale(1.08) translateY(2.5%); } 12% { opacity: 1; } 100% { opacity: 1; transform: scale(1) translateY(0%); } }
 ";
 
 /// A page's entrance and exit: in on a spring (it leaves at speed, scales down into place), out
@@ -218,7 +218,9 @@ pub fn tile_motion(order: usize) -> String {
 }
 
 /// A slide of the slide show: Ken Burns' slow pan and zoom (one of four, by the slide's number),
-/// the fade in at its start; the fade out when the next one comes is its exit.
+/// the fade in at its start; the fade out when the next one comes is its exit. Every pan and
+/// zoom ENDS at rest: the exit is drawn from the picture as laid out, so a slide that ended
+/// zoomed in would jump back before it fades.
 #[must_use]
 pub fn slide_motion(index: usize, seconds: u64) -> String {
     format!(

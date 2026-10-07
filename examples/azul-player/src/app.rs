@@ -1,98 +1,92 @@
-//! The app's state, its start, the history file, opening a file, keeping the sound (azul's
-//! AudioPlayer) with the picture (azul's VideoWidget), the transport (one [`Command`] for every
-//! button, menu item and key) and the chrome shown and hidden over the video. The window is
+//! The app's state and its plumbing: the start (switches, the kit, the window), the data in the
+//! data tree (`player/history.json`, `player/library.json`, through the azul-storage Drive on a
+//! Thread), the library scans and the pictures on their workers (`scan.rs`), the tick (the
+//! video's curtain, the music's queue, the slide show, the chrome that hides itself, the clock).
+//! What plays is `media.rs`, where the focus goes and what a key does is `nav.rs`, the window is
 //! `ui.rs`.
 //!
-//! WHILE A VIDEO PLAYS THE WINDOW IS NOT REBUILT for what changes often: the chrome over the
-//! picture (top and bottom strips) and the OSD are shown and hidden IN PLACE (their `visibility`,
-//! `CallbackInfo::set_css_property`), the time played and the seek bar move in place. The video
-//! box never changes size when the chrome comes and goes (the chrome lies OVER the picture), so
-//! the decoder is never re-targeted by it. A rebuild is left for what the user does (play /
-//! pause, a seek, fullscreen) and for a change of the video's phase.
+//! WHAT CHANGES OFTEN IS CHANGED IN PLACE: the chrome over a video or a slide show and the OSD
+//! (their `opacity`, which their declared fade then eases), the time played and the seek bar,
+//! the clock. A rebuild is left for what the user does and for a new phase of what plays - and a
+//! rebuild is where the motion comes from: the engine slides what moved, fades in what came and
+//! fades out what went.
+
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
 
 use azul::{
     audio::AudioPlayer,
     callbacks::{TimerCallbackInfo, TimerCallbackReturn, WriteBackCallbackType},
-    css::StyleVisibility,
-    dialog::{FileDialog, FileOpenResult},
-    dom::VirtualKeyCode,
-    file::FileTypeList,
-    option::{OptionFileTypeList, OptionRendererOptions, OptionString},
+    css::{FloatValue, PercentageValue, StyleOpacity},
+    file::FilePath,
+    image::ImageRef,
+    option::OptionFilePath,
     prelude::*,
     str::String as AzString,
     task::{Timer, TimerId},
     time::{Duration, SystemTimeDiff},
-    vec::StringVec,
-    video::{VideoPhase, VideoStatus},
-    widgets::{SeekBar, SeekBarState},
-    window::{HwAcceleration, WindowFrame},
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
     files::{FileJob, FileOutcome},
     shortcuts::Shortcut,
     ui as kit,
 };
 
 use crate::{
+    args::{Args, FolderArgs, SPEC},
+    gallery::Grid,
     history::{History, HISTORY_FILE},
     ids,
-    sync::{volume_osd, ControlsVisibility, SyncGuard},
+    library::{Item, Library, Shelf, Status, LIBRARY_FILE, RECORDED_TV},
+    media::{self, Music, VideoSession, Viewer},
+    pages::{self, Place, Screen, Section, Tile},
+    scan::{self, ArtDone, ArtJob, ArtSource, ScanBatch},
+    strip::StripFocus,
+    sync::ControlsVisibility,
 };
 
 // ==== The app's facts ====
 
-/// The screens `--screen` opens.
-pub const SCREENS: [&str; 2] = ["library", "settings"];
-
-pub const SPEC: AppSpec = AppSpec {
-    name: "AzPlayer",
-    binary: "AzPlayer",
-    summary: "a video player: MP4 / MOV with H.264 and AAC, fullscreen, resume where you stopped",
-    screens: &SCREENS,
-    files_help: "the video files to open (the first plays)",
-};
-
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzPlayer",
     version: env!("CARGO_PKG_VERSION"),
-    summary: "Video files played by azul's VideoWidget, their sound by azul's AudioPlayer, kept \
-              together; recent files resume where you stopped. Part of the Azlin apps, built \
-              with azul.",
+    summary: "A media center in the look of Windows Media Center: music, pictures and slide \
+              shows, videos and movies. Videos play with azul's VideoWidget, their sound with \
+              azul's AudioPlayer, started together; recent files resume where you stopped. Part \
+              of the Azlin apps, built with azul.",
     license: "MIT",
     app_folder: "player",
 };
 
 /// The keyboard shortcuts the settings page lists.
-pub const SHORTCUTS: [Shortcut; 9] = [
+pub const SHORTCUTS: [Shortcut; 14] = [
+    Shortcut::new("Moving around", "Arrow keys", "Move the focus"),
+    Shortcut::new("Moving around", "Enter", "Open, play"),
+    Shortcut::new("Moving around", "Backspace  Escape", "Back"),
+    Shortcut::new("Moving around", "Home", "The start screen"),
+    Shortcut::new("Moving around", "Mouse wheel", "Scroll the strip or the gallery"),
     Shortcut::new("Playback", "Space", "Play / pause"),
-    Shortcut::new("Playback", "Left  Right", "Back / forward 10 seconds"),
-    Shortcut::new(
-        "Playback",
-        "Shift+Left  Shift+Right",
-        "Back / forward a minute",
-    ),
-    Shortcut::new("Playback", "Up  Down", "Volume up / down"),
+    Shortcut::new("Playback", "Left  Right", "Back / forward 10 seconds (videos, music)"),
+    Shortcut::new("Playback", "Shift+Left  Shift+Right", "Back / forward a minute"),
+    Shortcut::new("Playback", "Page Up  Page Down", "Previous / next song or picture"),
+    Shortcut::new("Playback", "Up  Down", "Volume up / down (while something plays)"),
     Shortcut::new("Playback", "M", "Mute"),
-    Shortcut::new("Window", "F  F11  Double-click", "Fullscreen"),
+    Shortcut::new("Window", "F  F11  Double-click", "Fullscreen (media only)"),
     Shortcut::new("Window", "Escape", "Leave fullscreen"),
-    Shortcut::new("Window", "Backspace", "Back to the library"),
     Shortcut::new("File", "Mod+O", "Open a video"),
 ];
 
 /// The settings page's own categories (none: the kit's are enough).
 const APP_CATEGORIES: [&str; 0] = [];
 
-/// How often the controls' auto-hide and the OSD are looked at.
-const TICK_MS: u64 = 250;
-/// How long the OSD shows.
-const OSD_MS: u64 = 1_200;
-/// The history is written at most this often while a video plays (media seconds).
-const SAVE_EVERY_S: f64 = 10.0;
-/// The jumps of the rewind / fast-forward buttons, seconds.
-const REWIND_S: f64 = 10.0;
-const FORWARD_S: f64 = 30.0;
+/// How often the tick looks at what plays, the curtain and the chrome.
+pub const TICK_MS: u64 = 100;
+/// How long the OSD and a notice show.
+pub const OSD_MS: u64 = 1_200;
+pub const NOTICE_MS: u64 = 3_200;
 
 /// The write-back tags of the app's file jobs.
 const TAG_LOAD: u64 = 1;
@@ -100,71 +94,154 @@ const TAG_SAVE: u64 = 2;
 
 // ==== State ====
 
+/// The folders the libraries read.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Folders {
+    pub music: PathBuf,
+    pub pictures: PathBuf,
+    pub videos: PathBuf,
+    pub tv: PathBuf,
+}
+
+impl Folders {
+    /// The folders asked for on the command line, else the user's own (`FilePath`'s, else the
+    /// home folder's `Music`, `Pictures`, `Videos`); recorded TV is in the videos folder.
+    #[must_use]
+    pub fn resolve(asked: &FolderArgs) -> Folders {
+        let path = |p: OptionFilePath| -> Option<PathBuf> {
+            p.into_option()
+                .map(|dir| PathBuf::from(dir.inner.as_str()))
+                .filter(|p| !p.as_os_str().is_empty())
+        };
+        let home = path(FilePath::get_home_dir()).unwrap_or_default();
+        let music = asked
+            .music
+            .clone()
+            .or_else(|| path(FilePath::get_audio_dir()))
+            .unwrap_or_else(|| home.join("Music"));
+        let pictures = asked
+            .pictures
+            .clone()
+            .or_else(|| path(FilePath::get_picture_dir()))
+            .unwrap_or_else(|| home.join("Pictures"));
+        let videos = asked
+            .videos
+            .clone()
+            .or_else(|| path(FilePath::get_video_dir()))
+            .unwrap_or_else(|| home.join("Videos"));
+        let tv = asked.tv.clone().unwrap_or_else(|| videos.join(RECORDED_TV));
+        Folders {
+            music,
+            pictures,
+            videos,
+            tv,
+        }
+    }
+
+    /// The folder of `shelf`.
+    #[must_use]
+    pub fn of(&self, shelf: Shelf) -> &PathBuf {
+        match shelf {
+            Shelf::Music => &self.music,
+            Shelf::Pictures => &self.pictures,
+            Shelf::Videos => &self.videos,
+            Shelf::Tv => &self.tv,
+        }
+    }
+}
+
+/// A picture made on a worker: the image and its size in pixels (`None`: it could not be read).
+pub type Art = Option<(ImageRef, f32, f32)>;
+
 /// The app's state.
 pub struct Player {
     /// The appkit kit (settings, data root, the settings page's state).
     pub kit: RefAny,
+    pub args: Args,
+    pub folders: Folders,
     pub history: History,
-    /// The file playing (its path), or the library screen.
-    pub file: Option<String>,
-    /// Asked of the video widget: hold (`true`) or play.
-    pub paused: bool,
-    /// Asked of the video widget: the last seek target, in seconds.
-    pub seek_s: f32,
-    /// What the video widget last reported.
-    pub status: VideoStatus,
-    /// The sound: the file's audio track.
+    pub library: Library,
+    /// What a running scan found so far, per library (in [`Shelf::ALL`] order): swapped in when
+    /// it is done (or shown at once while the library is empty).
+    pub scanning: [Option<Vec<Item>>; 4],
+    /// The pictures made so far (thumbnails, covers, the viewer's copies), by key.
+    pub art: HashMap<String, Art>,
+    /// The keys a worker is making.
+    pub art_pending: HashSet<String>,
+    /// A picture worker runs (one at a time).
+    pub art_busy: bool,
+    /// The pages, the first the start strip; the last shows.
+    pub nav: Vec<Place>,
+    pub strip: StripFocus,
+    /// The search's words.
+    pub query: String,
+    pub viewer: Viewer,
+    /// The sound: music, and a video's sound.
     pub audio: Option<AudioPlayer>,
+    pub music: Option<Music>,
+    pub video: Option<VideoSession>,
     pub volume: f32,
     pub muted: bool,
     pub fullscreen: bool,
+    /// The pointer or a key last moved (the chrome and the corner's back button show).
     pub controls: ControlsVisibility,
-    /// The chrome over the video showed at the last look (shown and hidden in place).
+    /// The chrome showed at the last look (shown and hidden in place).
     pub controls_shown: bool,
-    /// When the sound is moved to the picture.
-    pub sync: SyncGuard,
-    /// The whole second the time label shows (-1: none yet).
-    pub elapsed_shown: i64,
     /// The on-screen display and until when it shows (ms on `clock`).
     pub osd: Option<(String, u64)>,
-    /// The media time of the last history write.
-    pub saved_at_s: f64,
+    /// A sentence for a moment (why an item cannot work here, a library that is empty).
+    pub notice: Option<(String, u64)>,
     /// The app's monotonic clock.
     pub clock: std::time::Instant,
     pub ticking: bool,
-    /// The window's size.
+    /// The window's size (logical px).
     pub window: (f32, f32),
-    pub args: AppArgs,
+    /// The wheel's travel not yet turned into a step.
+    pub wheel: f32,
+    /// The clock's text as shown ("21:45").
+    pub clock_text: String,
 }
 
 impl Player {
-    fn new(kit: RefAny, args: AppArgs) -> Self {
+    fn new(kit: RefAny, args: Args) -> Self {
+        let folders = Folders::resolve(&args.folders);
+        let window = args.kit.size.unwrap_or((1100.0, 700.0));
+        let mut nav = vec![Place::new(Screen::Start)];
+        let screen = args.kit.screen.clone().unwrap_or_default();
+        if let Some(section) = Section::by_screen_name(&screen) {
+            nav.push(Place::new(Screen::Section(section)));
+        } else if screen == "now-playing" {
+            nav.push(Place::new(Screen::NowPlaying));
+        }
         Self {
             kit,
+            args,
+            folders,
             history: History::default(),
-            file: None,
-            paused: true,
-            seek_s: 0.0,
-            status: VideoStatus {
-                message: AzString::from(""),
-                position_s: 0.0,
-                duration_s: 0.0,
-                phase: VideoPhase::Loading,
-            },
+            library: Library::default(),
+            scanning: [None, None, None, None],
+            art: HashMap::new(),
+            art_pending: HashSet::new(),
+            art_busy: false,
+            nav,
+            strip: StripFocus::default(),
+            query: String::new(),
+            viewer: Viewer::default(),
             audio: None,
+            music: None,
+            video: None,
             volume: 1.0,
             muted: false,
             fullscreen: false,
             controls: ControlsVisibility::default(),
             controls_shown: true,
-            sync: SyncGuard::default(),
-            elapsed_shown: -1,
             osd: None,
-            saved_at_s: 0.0,
+            notice: None,
             clock: std::time::Instant::now(),
             ticking: false,
-            window: args.size.unwrap_or((1100.0, 700.0)),
-            args,
+            window,
+            wheel: 0.0,
+            clock_text: wall_clock(),
         }
     }
 
@@ -174,20 +251,41 @@ impl Player {
         u64::try_from(self.clock.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
-    /// Whether the video plays (as the widget says).
+    /// The page that shows.
     #[must_use]
-    pub fn playing(&self) -> bool {
-        self.status.phase == VideoPhase::Playing && !self.paused
+    pub fn place(&self) -> &Place {
+        // `nav` always holds the start strip.
+        &self.nav[self.nav.len() - 1]
     }
 
-    /// Whether the controls show now.
+    pub fn place_mut(&mut self) -> &mut Place {
+        let last = self.nav.len() - 1;
+        &mut self.nav[last]
+    }
+
+    /// The page the MENUS show: the page under a video while its curtain is down.
     #[must_use]
-    pub fn controls_visible(&self) -> bool {
-        self.file.is_none() || self.controls.visible(self.now_ms(), self.playing())
+    pub fn menus_place(&self) -> &Place {
+        let n = self.nav.len();
+        if self.place().screen == Screen::Video && n >= 2 {
+            &self.nav[n - 2]
+        } else {
+            self.place()
+        }
+    }
+
+    /// The audio player, made on first use.
+    pub fn player(&mut self) -> &AudioPlayer {
+        let volume = if self.muted { 0.0 } else { self.volume };
+        self.audio.get_or_insert_with(|| {
+            let p = AudioPlayer::create();
+            p.set_volume(volume);
+            p
+        })
     }
 
     /// The data root and the app's key for `name`.
-    fn root_and_key(&self, name: &str) -> Option<(std::path::PathBuf, String)> {
+    fn root_and_key(&self, name: &str) -> Option<(PathBuf, String)> {
         let mut kit = self.kit.clone();
         let found = kit
             .downcast_ref::<kit::Kit>()
@@ -196,73 +294,164 @@ impl Player {
     }
 
     /// Shows `text` on the OSD for a moment.
-    fn osd(&mut self, text: String) {
+    pub fn osd(&mut self, text: String) {
         let until = self.now_ms() + OSD_MS;
         self.osd = Some((text, until));
     }
 
-    /// The file's title (its name without the folder and the extension).
-    #[must_use]
-    pub fn title(&self) -> String {
-        self.file
-            .as_deref()
-            .and_then(|p| std::path::Path::new(p).file_stem())
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string()
+    /// Shows a sentence for a moment (why an item cannot work, a library that is empty).
+    pub fn notice(&mut self, text: &str) {
+        let until = self.now_ms() + NOTICE_MS;
+        println!("AZPLAYER_NOTICE {text}");
+        self.notice = Some((text.to_string(), until));
     }
+
+    /// The pointer or a key moved: the chrome shows (and hides itself later).
+    pub fn activity(&mut self) {
+        let now = self.now_ms();
+        self.controls.activity(now);
+    }
+
+    /// The items of `shelf` as shown (a running scan's, while the library is still empty).
+    #[must_use]
+    pub fn items(&self, shelf: Shelf) -> &[Item] {
+        &self.library.shelf(shelf).items
+    }
+
+    /// The tiles of the page that shows (a library's page, a group's page, search).
+    #[must_use]
+    pub fn page_tiles(&self, place: &Place) -> Vec<Tile> {
+        match &place.screen {
+            Screen::Section(section) => {
+                let views = section.views();
+                let view = views[place.focus.view.min(views.len() - 1)];
+                pages::tiles(*section, view, &self.library, &self.history)
+            }
+            Screen::Group { shelf, group, .. } => pages::group_tiles(*shelf, group),
+            Screen::Search => search_tiles(&self.library, &self.query),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The gallery's grid on a page with `tiles`, in this window.
+    #[must_use]
+    pub fn grid(&self, tiles: &[Tile]) -> Grid {
+        let (w, h) = self.gallery_area();
+        Grid::new(pages::tile_kind(tiles), w, h)
+    }
+
+    /// The gallery's area (logical px): under the title and the views, over the status line.
+    #[must_use]
+    pub fn gallery_area(&self) -> (f32, f32) {
+        let title_row = if self.fullscreen { 0.0 } else { 32.0 };
+        (
+            (self.window.0 - crate::ui::GALLERY_LEFT).max(100.0),
+            (self.window.1 - title_row - crate::ui::GALLERY_TOP - crate::ui::GALLERY_BOTTOM)
+                .max(80.0),
+        )
+    }
+}
+
+/// The search's tiles: every song, picture and video whose words match.
+#[must_use]
+pub fn search_tiles(library: &Library, query: &str) -> Vec<Tile> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for shelf in [Shelf::Music, Shelf::Videos, Shelf::Tv, Shelf::Pictures] {
+        let items = &library.shelf(shelf).items;
+        for index in crate::library::by_title(items) {
+            if crate::library::matches(&items[index], query) {
+                out.push(Tile::Item { shelf, index });
+            }
+        }
+    }
+    out
+}
+
+/// The time of day, "21:45" (UTC when the local offset is not known to the standard library:
+/// the clock asks the system for it through `date`'s format only where it can).
+#[must_use]
+pub fn wall_clock() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let local = secs.saturating_add_signed(local_offset_s());
+    format!("{}:{:02}", (local / 3600) % 24, (local / 60) % 60)
+}
+
+/// The local time's offset from UTC in seconds, read once from the system (`date +%z`; 0 when
+/// it cannot be read).
+fn local_offset_s() -> i64 {
+    static OFFSET: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *OFFSET.get_or_init(|| {
+        let Ok(out) = std::process::Command::new("date").arg("+%z").output() else {
+            return 0;
+        };
+        let text = String::from_utf8_lossy(&out.stdout);
+        let t = text.trim();
+        if t.len() != 5 {
+            return 0;
+        }
+        let sign = if t.starts_with('-') { -1 } else { 1 };
+        let hours: i64 = t[1..3].parse().unwrap_or(0);
+        let minutes: i64 = t[3..5].parse().unwrap_or(0);
+        sign * (hours * 3600 + minutes * 60)
+    })
 }
 
 /// The app's start: switches, the kit (settings, data root), the window.
 pub fn start() {
-    let args = match AppArgs::from_env(&SPEC) {
+    let args = match Args::from_env() {
         Ok(a) => a,
         Err(message) => {
             println!("{message}");
             std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
         }
     };
-    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.clone());
-    if args.screen.as_deref() == Some("settings") {
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &APP_CATEGORIES, args.kit.clone());
+    if args.kit.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
     let app = Player::new(kit_ref.clone(), args);
     let mut config = kit::app_config(&kit_ref);
     config.expose_system_media_controls = true;
-    let mut window = kit::window_options(
+    // The focus is the app's own Media Center glow, drawn on every focusable part (`look.rs`):
+    // the engine's blue ring around the focused box is off.
+    config.system_animations.focus_ring_duration_ms = 0;
+    // The renderer is the desktop default (the CPU renderer, what the E2E runs see too): the
+    // pages' exits - a page fading out as the next comes in, the slide show's cross-fade - are
+    // drawn there (`AZ_BACKEND=gpu` still picks WebRender, where an exit is not drawn yet).
+    let window = kit::window_options(
         &kit_ref,
         crate::ui::layout,
         (1100.0, 700.0),
-        (560.0, 380.0),
+        (640.0, 420.0),
         on_window_created,
     );
-    // A player paints a window-sized picture every frame: on the GPU (its YUV shader shows the
-    // decoder's NV12 as it is), not on the CPU renderer that is the desktop default. The GPU
-    // path falls back to the CPU when it cannot start; `AZ_BACKEND` still decides when it is set
-    // (the E2E runs headless).
-    window.window_state.renderer_options.hw_accel = HwAcceleration::Enabled;
-    if let OptionRendererOptions::Some(renderer) = &mut window.renderer {
-        renderer.hw_accel = HwAcceleration::Enabled;
-    }
     App::create(RefAny::new(app), config).run(window);
 }
 
-// ==== The history file ====
+// ==== The data tree: the history and the library file ====
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
-    let Some((kit_ref, key)) = data
-        .downcast_ref::<Player>()
-        .map(|s| (s.kit.clone(), s.root_and_key(HISTORY_FILE)))
-    else {
+    let Some((kit_ref, history, library)) = data.downcast_ref::<Player>().map(|s| {
+        (
+            s.kit.clone(),
+            s.root_and_key(HISTORY_FILE),
+            s.root_and_key(LIBRARY_FILE),
+        )
+    }) else {
         return Update::DoNothing;
     };
     kit::on_window_created(&kit_ref, &mut info);
-    if let Some((root, key)) = key {
+    if let (Some((root, history)), Some((_, library))) = (history, library) {
         kit::spawn_file_jobs(
             &mut info,
             &root,
-            vec![FileJob::Get { key }],
+            vec![FileJob::Get { key: history }, FileJob::Get { key: library }],
             app.clone(),
             TAG_LOAD,
             on_files as WriteBackCallbackType,
@@ -291,29 +480,48 @@ extern "C" fn on_files(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo
         }
         for outcome in reply.outcomes {
             if let FileOutcome::Got {
+                key,
                 result: Ok(Some(bytes)),
-                ..
             } = outcome
             {
-                if let Ok(h) = History::from_json(&String::from_utf8_lossy(&bytes)) {
-                    s.history = h;
+                let text = String::from_utf8_lossy(&bytes);
+                if key.ends_with(HISTORY_FILE) {
+                    if let Ok(h) = History::from_json(&text) {
+                        s.history = h;
+                    }
+                } else if key.ends_with(LIBRARY_FILE) {
+                    match Library::from_json(&text) {
+                        Ok(library) => s.library = library,
+                        Err(why) => println!("AZPLAYER_ERROR {why}"),
+                    }
                 }
             }
         }
         println!("AZPLAYER_HISTORY {}", s.history.entries.len());
+        println!(
+            "AZPLAYER_LIBRARY cached {} {} {} {}",
+            s.library.music.items.len(),
+            s.library.pictures.items.len(),
+            s.library.videos.items.len(),
+            s.library.tv.items.len()
+        );
         s.args
+            .kit
             .files
             .first()
             .map(|p| p.to_string_lossy().into_owned())
     };
+    // The libraries are scanned again, every start, on their workers.
+    scan_all(&app, &mut info);
     if let Some(path) = first {
-        open(&app, &mut info, &path);
+        media::open_video(&app, &mut info, &path);
     }
+    request_art(&app, &mut info);
     Update::RefreshDom
 }
 
 /// Writes the history into the data tree, on a Thread.
-fn save_history(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
+pub fn save_history(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
     if let Some((root, key)) = s.root_and_key(HISTORY_FILE) {
         kit::spawn_file_jobs(
             info,
@@ -329,124 +537,306 @@ fn save_history(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
     }
 }
 
-// ==== Opening a file ====
+/// Writes the library file into the data tree, on a Thread.
+fn save_library(app: &RefAny, s: &Player, info: &mut CallbackInfo) {
+    if let Some((root, key)) = s.root_and_key(LIBRARY_FILE) {
+        kit::spawn_file_jobs(
+            info,
+            &root,
+            vec![FileJob::Put {
+                key,
+                bytes: s.library.to_json().into_bytes(),
+            }],
+            app.clone(),
+            TAG_SAVE,
+            on_files as WriteBackCallbackType,
+        );
+    }
+}
 
-/// Plays `path`: the picture from where it was left, the sound from the same place.
-pub fn open(app: &RefAny, info: &mut CallbackInfo, path: &str) {
+// ==== The library scans ====
+
+/// Scans every library again, each on its own worker.
+pub fn scan_all(app: &RefAny, info: &mut CallbackInfo) {
     let mut app_ref = app.clone();
     let Some(mut s) = app_ref.downcast_mut::<Player>() else {
         return;
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    s.history.touch(path, now);
-    let resume = s.history.resume_at(path);
-    s.file = Some(path.to_string());
-    #[allow(clippy::cast_possible_truncation)]
-    {
-        s.seek_s = resume as f32;
+    for (i, shelf) in Shelf::ALL.into_iter().enumerate() {
+        if s.scanning[i].is_some() {
+            continue;
+        }
+        let folder = s.folders.of(shelf).clone();
+        // Recorded TV is its own library: the video scan leaves its folder out.
+        let skip = (shelf == Shelf::Videos).then(|| s.folders.tv.clone());
+        s.scanning[i] = Some(Vec::new());
+        s.library.shelf_mut(shelf).status = Status::Scanning;
+        s.library.shelf_mut(shelf).folder = folder.to_string_lossy().into_owned();
+        scan::spawn_scan(info, app, shelf, folder, skip, on_scan as WriteBackCallbackType);
     }
-    s.paused = false;
-    s.saved_at_s = resume;
-    s.sync = SyncGuard::default();
-    s.elapsed_shown = -1;
-    s.status = VideoStatus {
-        message: AzString::from(""),
-        position_s: s.seek_s,
-        duration_s: 0.0,
-        phase: VideoPhase::Loading,
-    };
-    let volume = if s.muted { 0.0 } else { s.volume };
-    let audio = s.audio.get_or_insert_with(AudioPlayer::create);
-    let _track = audio.load_file(AzString::from(path));
-    audio.set_volume(volume);
-    if resume > 0.0 {
-        audio.seek(resume);
-    }
-    let now_ms = s.now_ms();
-    s.controls.activity(now_ms);
-    s.controls_shown = true;
-    println!("AZPLAYER_OPEN {path} {resume:.1}");
-    save_history(app, &s, info);
 }
 
-/// Opens the file dialog for a video.
-pub extern "C" fn on_open(data: RefAny, _info: CallbackInfo) -> Update {
-    let filter = OptionFileTypeList::Some(FileTypeList {
-        document_types: StringVec::from_vec(vec![
-            AzString::from("mp4"),
-            AzString::from("m4v"),
-            AzString::from("mov"),
-        ]),
-        document_descriptor: AzString::from("Video"),
-    });
-    let _request =
-        FileDialog::open_file("Open a video", OptionString::None, filter, data, on_picked);
-    Update::DoNothing
-}
-
-extern "C" fn on_picked(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
-    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+extern "C" fn on_scan(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(batch) = msg.downcast_mut::<ScanBatch>().map(|mut b| ScanBatch {
+        shelf: b.shelf,
+        items: std::mem::take(&mut b.items),
+        first: b.first,
+        done: b.done,
+        cut: b.cut,
+        missing: b.missing,
+    }) else {
         return Update::DoNothing;
     };
-    let Some(path) = picked.path.into_option() else {
-        return Update::DoNothing;
-    };
-    open(&data, &mut info, path.inner.as_str());
-    Update::RefreshDom
-}
-
-/// A recent file in the library (a tile or a menu item) was picked.
-pub struct RecentPick {
-    pub app: RefAny,
-    pub path: String,
-}
-
-pub extern "C" fn on_recent(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((app, path)) = data
-        .downcast_ref::<RecentPick>()
-        .map(|p| (p.app.clone(), p.path.clone()))
-    else {
-        return Update::DoNothing;
-    };
-    open(&app, &mut info, &path);
-    Update::RefreshDom
-}
-
-/// Back to the library (the file stops; its position is kept).
-pub extern "C" fn on_close_file(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let app = data.clone();
-    let Some(mut s) = data.downcast_mut::<Player>() else {
+    let (refresh, save) = {
+        let Some(mut s) = data.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        let i = Shelf::ALL
+            .iter()
+            .position(|x| *x == batch.shelf)
+            .unwrap_or(0);
+        let found = s.scanning[i].get_or_insert_with(Vec::new);
+        if batch.first {
+            found.clear();
+        }
+        found.extend(batch.items);
+        let empty = s.library.shelf(batch.shelf).items.is_empty();
+        if batch.done {
+            let items = s.scanning[i].take().unwrap_or_default();
+            let shelf = s.library.shelf_mut(batch.shelf);
+            let changed = shelf.items != items;
+            shelf.items = items;
+            shelf.cut = batch.cut;
+            shelf.status = if batch.missing {
+                Status::Missing
+            } else {
+                Status::Ready
+            };
+            println!(
+                "AZPLAYER_SCAN {} {} {}",
+                batch.shelf.word().replace(' ', "-"),
+                shelf.items.len(),
+                if batch.missing { "missing" } else { "ready" }
+            );
+            (true, changed)
+        } else if empty {
+            // A first scan shows what it finds as it goes.
+            let so_far = s.scanning[i].clone().unwrap_or_default();
+            s.library.shelf_mut(batch.shelf).items = so_far;
+            (true, false)
+        } else {
+            (false, false)
+        }
+    };
+    if save {
+        let mut app_ref = app.clone();
+        if let Some(s) = app_ref.downcast_ref::<Player>() {
+            save_library(&app, &s, &mut info);
+        }
+    }
+    if refresh {
+        clamp_focus(&app);
+        request_art(&app, &mut info);
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+/// A library that changed under a page: its focus stays on a tile that exists.
+fn clamp_focus(app: &RefAny) {
+    let mut app_ref = app.clone();
+    let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+        return;
+    };
+    let place = s.place().clone();
+    let count = s.page_tiles(&place).len();
+    let focus = &mut s.place_mut().focus;
+    if count == 0 {
+        focus.index = 0;
+        focus.first_col = 0;
+    } else if focus.index >= count {
+        focus.index = count - 1;
+    }
+}
+
+// ==== The pictures ====
+
+/// The key of a picture file's thumbnail, of a song's cover, of the viewer's copy.
+#[must_use]
+pub fn thumb_key(path: &str) -> String {
+    format!("t:{path}")
+}
+#[must_use]
+pub fn cover_key(path: &str) -> String {
+    format!("c:{path}")
+}
+#[must_use]
+pub fn full_key(path: &str) -> String {
+    format!("f:{path}")
+}
+
+/// The thumbnails' size on the worker (device px: twice the tiles' logical size).
+const THUMB_PX: u32 = 440;
+/// The covers' size (now playing shows them large).
+const COVER_PX: u32 = 640;
+
+/// The picture a tile shows, as a job: a picture's thumbnail, an album's cover (its first song
+/// with one), a picture folder's first picture.
+#[must_use]
+pub fn tile_art(s: &Player, tile: &Tile) -> Option<ArtJob> {
+    let job = |key: String, source: ArtSource, max_px: u32| ArtJob {
+        key,
+        source,
+        max_px,
+    };
+    match tile {
+        Tile::Item {
+            shelf: Shelf::Pictures,
+            index,
+        } => {
+            let path = &s.items(Shelf::Pictures).get(*index)?.path;
+            Some(job(thumb_key(path), ArtSource::Picture(path.clone()), THUMB_PX))
+        }
+        Tile::Group {
+            shelf: Shelf::Pictures,
+            group,
+        } => {
+            let path = &s.items(Shelf::Pictures).get(*group.items.first()?)?.path;
+            Some(job(thumb_key(path), ArtSource::Picture(path.clone()), THUMB_PX))
+        }
+        Tile::Group {
+            shelf: Shelf::Music,
+            group,
+        } => {
+            let songs = s.items(Shelf::Music);
+            let path = &group
+                .items
+                .iter()
+                .filter_map(|i| songs.get(*i))
+                .find(|song| song.has_cover)?
+                .path;
+            Some(job(cover_key(path), ArtSource::Cover(path.clone()), COVER_PX))
+        }
+        _ => None,
+    }
+}
+
+/// The viewer's copy of a picture: the window's size, on a retina screen twice that.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub fn full_job(s: &Player, path: &str) -> ArtJob {
+    let side = (s.window.0.max(s.window.1) * 2.0).clamp(800.0, 2560.0) as u32;
+    ArtJob {
+        key: full_key(path),
+        source: ArtSource::Picture(path.to_string()),
+        max_px: side,
+    }
+}
+
+/// The pictures the window wants and nobody has made yet: the tiles in view, the song that
+/// plays, the viewer's picture and the next one.
+fn wanted_art(s: &Player) -> Vec<ArtJob> {
+    let mut jobs: Vec<ArtJob> = Vec::new();
+    let place = s.menus_place().clone();
+    let tiles = s.page_tiles(&place);
+    if !tiles.is_empty() {
+        let grid = s.grid(&tiles);
+        for i in grid.built(place.focus.first_col, tiles.len()) {
+            if let Some(job) = tile_art(s, &tiles[i]) {
+                jobs.push(job);
+            }
+        }
+    }
+    if place.screen == Screen::Start || place.screen == Screen::NowPlaying || s.music.is_some() {
+        if let Some(song) = s.music.as_ref().and_then(|m| m.current_item(s)) {
+            if song.has_cover {
+                jobs.push(ArtJob {
+                    key: cover_key(&song.path),
+                    source: ArtSource::Cover(song.path.clone()),
+                    max_px: COVER_PX,
+                });
+            }
+        }
+    }
+    if place.screen == Screen::Picture {
+        let n = s.viewer.paths.len();
+        if n > 0 {
+            for k in [s.viewer.index, (s.viewer.index + 1) % n] {
+                jobs.push(full_job(s, &s.viewer.paths[k]));
+            }
+        }
+    }
+    let mut seen = HashSet::new();
+    jobs.retain(|j| {
+        !s.art.contains_key(&j.key) && !s.art_pending.contains(&j.key) && seen.insert(j.key.clone())
+    });
+    jobs.truncate(24);
+    jobs
+}
+
+/// Starts a picture worker for what the window wants, unless one runs (it asks again when it is
+/// done).
+pub fn request_art(app: &RefAny, info: &mut CallbackInfo) {
+    let mut app_ref = app.clone();
+    let Some(mut s) = app_ref.downcast_mut::<Player>() else {
+        return;
+    };
+    if s.art_busy {
+        return;
+    }
+    let jobs = wanted_art(&s);
+    if jobs.is_empty() {
+        return;
+    }
+    for job in &jobs {
+        s.art_pending.insert(job.key.clone());
+    }
+    s.art_busy = true;
+    scan::spawn_art(info, app, jobs, on_art as WriteBackCallbackType);
+}
+
+extern "C" fn on_art(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(done) = msg.downcast_mut::<ArtDone>().map(|mut d| ArtDone {
+        key: std::mem::take(&mut d.key),
+        image: d.image.take(),
+        last: d.last,
+    }) else {
         return Update::DoNothing;
     };
-    if let Some(path) = s.file.take() {
-        let (position, duration) = (
-            f64::from(s.status.position_s),
-            f64::from(s.status.duration_s),
-        );
-        s.history.set_position(&path, position, duration);
-        save_history(&app, &s, &mut info);
+    let app = data.clone();
+    {
+        let Some(mut s) = data.downcast_mut::<Player>() else {
+            return Update::DoNothing;
+        };
+        s.art_pending.remove(&done.key);
+        s.art.insert(done.key, done.image);
+        if done.last {
+            s.art_busy = false;
+            s.art_pending.clear();
+        }
     }
-    if let Some(a) = s.audio.as_ref() {
-        a.stop();
+    if done.last {
+        request_art(&app, &mut info);
     }
-    s.paused = true;
     Update::RefreshDom
 }
 
 // ==== In place: the chrome, the OSD, the labels ====
 
-/// Shows (`true`) or hides the node marked `marker` in place: its `visibility`, no rebuild, no
-/// relayout. Nothing when it is not in the window.
+/// Shows (`true`) or hides the node marked `marker` in place: its `opacity` (the node's declared
+/// fade eases it), no rebuild, no relayout. Nothing when it is not in the window.
 pub fn set_shown(info: &mut CallbackInfo, marker: AzString, shown: bool) {
     if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
-        let visibility = if shown {
-            StyleVisibility::Visible
-        } else {
-            StyleVisibility::Hidden
+        // An opacity is a percentage: 100 is opaque.
+        let percent = if shown { 100.0 } else { 0.0 };
+        let opacity = StyleOpacity {
+            inner: PercentageValue {
+                number: FloatValue::create(percent),
+            },
         };
-        info.set_css_property(node, CssProperty::visibility(visibility));
+        info.set_css_property(node, CssProperty::opacity(opacity));
     }
 }
 
@@ -457,14 +847,16 @@ pub fn set_text(info: &mut CallbackInfo, marker: AzString, text: &str) {
     }
 }
 
-/// The chrome over the video (top and bottom strips) on or off, in place.
-fn show_chrome(info: &mut CallbackInfo, shown: bool) {
+/// The chrome over what plays (the top and the bottom strips) and the corner's back button, on
+/// or off, in place.
+pub fn show_chrome(info: &mut CallbackInfo, shown: bool) {
     set_shown(info, ids::TOP, shown);
     set_shown(info, ids::BAR, shown);
+    set_shown(info, ids::CORNER, shown);
 }
 
 /// The OSD as the state has it, in place: its text and whether it shows.
-fn show_osd(s: &Player, info: &mut CallbackInfo) {
+pub fn show_osd(s: &Player, info: &mut CallbackInfo) {
     match &s.osd {
         Some((text, _)) => {
             set_text(info, ids::OSD_TEXT, text);
@@ -474,385 +866,9 @@ fn show_osd(s: &Player, info: &mut CallbackInfo) {
     }
 }
 
-// ==== The picture and the sound ====
+// ==== The tick ====
 
-/// The video widget reports where it is (about four times a second while it plays): the sound
-/// follows (only a lasting drift, see [`SyncGuard`]), the seek bar and the time move in place,
-/// the position is remembered. Only a new phase rebuilds the window.
-pub extern "C" fn on_video_status(
-    mut data: RefAny,
-    mut info: CallbackInfo,
-    status: VideoStatus,
-) -> Update {
-    let app = data.clone();
-    let Some(mut guard) = data.downcast_mut::<Player>() else {
-        return Update::DoNothing;
-    };
-    let s = &mut *guard;
-    let now_ms = s.now_ms();
-    let phase_changed = status.phase != s.status.phase;
-    let duration_changed = (status.duration_s - s.status.duration_s).abs() > 0.01;
-    s.status = status.clone();
-    let position = f64::from(status.position_s);
-    if let Some(audio) = s.audio.as_ref() {
-        match status.phase {
-            VideoPhase::Playing => {
-                let heard = audio.get_state();
-                if !heard.playing && !heard.finished {
-                    audio.play();
-                }
-                if heard.track != 0 && !heard.finished {
-                    if let Some(target) = s.sync.correct(position, heard.position_s, now_ms) {
-                        audio.seek(target);
-                    }
-                }
-            }
-            VideoPhase::Paused | VideoPhase::Loading => audio.pause(),
-            VideoPhase::Ended | VideoPhase::Failed => audio.pause(),
-        }
-    }
-    if phase_changed {
-        let word = match status.phase {
-            VideoPhase::Loading => "loading",
-            VideoPhase::Paused => "paused",
-            VideoPhase::Playing => "playing",
-            VideoPhase::Ended => "ended",
-            VideoPhase::Failed => "failed",
-        };
-        println!("AZPLAYER_STATE {word} {position:.1}");
-    }
-    // Remember where it is, now and then (and at the end: from the start next time).
-    if let Some(path) = s.file.clone() {
-        let ended = status.phase == VideoPhase::Ended;
-        if ended || (position - s.saved_at_s).abs() >= SAVE_EVERY_S {
-            let at = if ended { 0.0 } else { position };
-            s.history
-                .set_position(&path, at, f64::from(status.duration_s));
-            s.saved_at_s = position;
-            save_history(&app, s, &mut info);
-        }
-    }
-    if phase_changed {
-        // The play / pause button and the notes follow the phase: one rebuild.
-        return Update::RefreshDom;
-    }
-    // In place: the seek bar, the time played (once a second), the length when it is known.
-    if let Some(seek) = info.get_node_id_by_marker(ids::SEEK).into_option() {
-        SeekBar::update_position(info, seek, position);
-    }
-    #[allow(clippy::cast_possible_truncation)]
-    let whole = position.max(0.0).floor() as i64;
-    if whole != s.elapsed_shown {
-        s.elapsed_shown = whole;
-        let text = SeekBar::media_time(position.max(0.0));
-        set_text(&mut info, ids::ELAPSED, text.as_str());
-    }
-    if duration_changed {
-        let text = SeekBar::media_time(f64::from(status.duration_s));
-        set_text(&mut info, ids::TOTAL, text.as_str());
-    }
-    Update::DoNothing
-}
-
-/// Seeks the picture and the sound to `seconds`.
-fn seek(s: &mut Player, seconds: f64) {
-    let duration = f64::from(s.status.duration_s);
-    let target = if duration > 0.0 {
-        seconds.clamp(0.0, duration)
-    } else {
-        seconds.max(0.0)
-    };
-    #[allow(clippy::cast_possible_truncation)]
-    let mut t = target as f32;
-    // The widget seeks when its timestamp CHANGES: a second seek to the same place moves a
-    // millisecond so it is a change.
-    if (t - s.seek_s).abs() < f32::EPSILON {
-        t += 0.001;
-    }
-    s.seek_s = t;
-    s.sync.reset();
-    if let Some(a) = s.audio.as_ref() {
-        a.seek(f64::from(t));
-    }
-    // The OSD names the target of a real jump (not of a nudge within the sync band).
-    if (f64::from(s.status.position_s) - target).abs() > crate::sync::DEAD_BAND_S {
-        let text = SeekBar::media_time(target).as_str().to_string();
-        s.osd(text);
-    }
-}
-
-/// Plays or pauses (an ended video starts over).
-fn toggle(s: &mut Player) {
-    if s.file.is_none() {
-        return;
-    }
-    if s.status.phase == VideoPhase::Ended {
-        seek(s, 0.0);
-        s.paused = false;
-    } else {
-        s.paused = !s.paused;
-    }
-    s.sync.reset();
-    if let Some(a) = s.audio.as_ref() {
-        if s.paused {
-            a.pause();
-        } else {
-            a.play();
-        }
-    }
-}
-
-/// Stops: held at the start (the file stays open).
-fn stop(s: &mut Player) {
-    if s.file.is_none() {
-        return;
-    }
-    s.paused = true;
-    if let Some(a) = s.audio.as_ref() {
-        a.pause();
-    }
-    seek(s, 0.0);
-    s.osd(String::from("Stopped"));
-}
-
-fn set_volume(s: &mut Player, volume: f32) {
-    s.volume = volume.clamp(0.0, 1.0);
-    s.muted = false;
-    if let Some(a) = s.audio.as_ref() {
-        a.set_volume(s.volume);
-    }
-    let text = volume_osd(s.volume, false);
-    s.osd(text);
-}
-
-fn toggle_mute(s: &mut Player) {
-    s.muted = !s.muted;
-    if let Some(a) = s.audio.as_ref() {
-        a.set_volume(if s.muted { 0.0 } else { s.volume });
-    }
-    let text = volume_osd(s.volume, s.muted);
-    s.osd(text);
-}
-
-/// Fullscreen on / off: the window's frame (and the system kept awake while it plays).
-fn set_fullscreen(s: &mut Player, info: &mut CallbackInfo, on: bool) {
-    s.fullscreen = on;
-    let mut ws = info.get_current_window_state();
-    ws.flags.frame = if on {
-        WindowFrame::Fullscreen
-    } else {
-        WindowFrame::Normal
-    };
-    ws.flags.prevent_system_sleep = on;
-    info.modify_window_state(ws);
-}
-
-// ==== The transport: one command for every button, menu item and key ====
-
-/// What a button of the chrome, a menu item or a key asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Command {
-    /// The file dialog.
-    Open,
-    /// Back to the library (the file stops, its position is kept).
-    Library,
-    /// The settings page.
-    Settings,
-    PlayPause,
-    /// Held at the start.
-    Stop,
-    /// From the start.
-    Restart,
-    /// Back [`REWIND_S`].
-    Rewind,
-    /// Forward [`FORWARD_S`].
-    Forward,
-    Mute,
-    VolumeUp,
-    VolumeDown,
-    Fullscreen,
-}
-
-/// A button's or a menu item's payload: the app and what it asks for.
-pub struct CommandRef {
-    pub app: RefAny,
-    pub command: Command,
-}
-
-/// A button of the chrome or a menu item.
-pub extern "C" fn on_command(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some((app, command)) = data
-        .downcast_ref::<CommandRef>()
-        .map(|c| (c.app.clone(), c.command))
-    else {
-        return Update::DoNothing;
-    };
-    run(&app, &mut info, command)
-}
-
-/// Does `command`. The volume changes only the OSD (in place); the rest rebuilds the window once
-/// (the play / pause button, the widget's timestamp or `paused` it hands to the decoder).
-pub fn run(app: &RefAny, info: &mut CallbackInfo, command: Command) -> Update {
-    match command {
-        Command::Open => return on_open(app.clone(), *info),
-        Command::Library => return on_close_file(app.clone(), *info),
-        Command::Settings => {
-            let mut app_ref = app.clone();
-            let kit_ref = app_ref.downcast_ref::<Player>().map(|s| s.kit.clone());
-            if let Some(kit_ref) = kit_ref {
-                kit::open_settings(&kit_ref, None);
-            }
-            return Update::RefreshDom;
-        }
-        _ => {}
-    }
-    let mut app_ref = app.clone();
-    let Some(mut guard) = app_ref.downcast_mut::<Player>() else {
-        return Update::DoNothing;
-    };
-    let s = &mut *guard;
-    let now = s.now_ms();
-    s.controls.activity(now);
-    let position = f64::from(s.status.position_s);
-    let mut rebuild = true;
-    match command {
-        Command::PlayPause => toggle(s),
-        Command::Stop => stop(s),
-        Command::Restart => seek(s, 0.0),
-        Command::Rewind => seek(s, position - REWIND_S),
-        Command::Forward => seek(s, position + FORWARD_S),
-        Command::Mute => toggle_mute(s),
-        Command::VolumeUp => {
-            let v = s.volume + 0.1;
-            set_volume(s, v);
-            rebuild = false;
-        }
-        Command::VolumeDown => {
-            let v = s.volume - 0.1;
-            set_volume(s, v);
-            rebuild = false;
-        }
-        Command::Fullscreen => {
-            let on = !s.fullscreen;
-            set_fullscreen(s, info, on);
-        }
-        Command::Open | Command::Library | Command::Settings => {}
-    }
-    // The chrome and the OSD as the state has them, in place - also what a rebuild then keeps.
-    if s.file.is_some() && !s.controls_shown {
-        s.controls_shown = true;
-        show_chrome(info, true);
-    }
-    show_osd(s, info);
-    if rebuild {
-        Update::RefreshDom
-    } else {
-        Update::DoNothing
-    }
-}
-
-/// The seek bar: the picture and the sound seek on release (a drag only moves the bar).
-pub extern "C" fn on_seek(mut data: RefAny, _info: CallbackInfo, state: SeekBarState) -> Update {
-    let Some(mut s) = data.downcast_mut::<Player>() else {
-        return Update::DoNothing;
-    };
-    let now = s.now_ms();
-    s.controls.activity(now);
-    if state.dragging {
-        return Update::DoNothing;
-    }
-    seek(&mut s, state.position_s);
-    Update::RefreshDom
-}
-
-/// The pointer moved over the window: the chrome shows, in place.
-pub extern "C" fn on_pointer(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let Some(mut s) = data.downcast_mut::<Player>() else {
-        return Update::DoNothing;
-    };
-    let now = s.now_ms();
-    s.controls.activity(now);
-    if !s.controls_shown {
-        s.controls_shown = true;
-        show_chrome(&mut info, true);
-    }
-    Update::DoNothing
-}
-
-/// A double-click on the picture: fullscreen on / off.
-pub extern "C" fn on_video_double_click(data: RefAny, mut info: CallbackInfo) -> Update {
-    run(&data, &mut info, Command::Fullscreen)
-}
-
-/// The window's keys: the kit's first, then the player's (not while the settings show: their
-/// search field takes Space and Backspace).
-pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let app = data.clone();
-    let Some(kit_ref) = data.downcast_ref::<Player>().map(|s| s.kit.clone()) else {
-        return Update::DoNothing;
-    };
-    let fullscreen = data.downcast_ref::<Player>().is_some_and(|s| s.fullscreen);
-    let key = info
-        .get_current_keyboard_state()
-        .current_virtual_keycode
-        .into_option();
-    // Escape leaves fullscreen before the kit sees it.
-    if !(fullscreen && key == Some(VirtualKeyCode::Escape)) {
-        if let Some(update) = kit::handle_key(&kit_ref, &mut info) {
-            return update;
-        }
-    }
-    let Some(key) = key else {
-        return Update::DoNothing;
-    };
-    let modifiers = info.get_key_modifiers();
-    let primary = modifiers.primary_down();
-    let shift = modifiers.shift;
-    if key == VirtualKeyCode::O && primary {
-        info.prevent_default();
-        return on_open(app, info);
-    }
-    if kit::settings_open(&kit_ref) {
-        return Update::DoNothing;
-    }
-    let has_file = data.downcast_ref::<Player>().is_some_and(|s| s.file.is_some());
-    let command = match key {
-        VirtualKeyCode::Space | VirtualKeyCode::PlayPause => Some(Command::PlayPause),
-        VirtualKeyCode::Up => Some(Command::VolumeUp),
-        VirtualKeyCode::Down => Some(Command::VolumeDown),
-        VirtualKeyCode::M => Some(Command::Mute),
-        VirtualKeyCode::F | VirtualKeyCode::F11 => Some(Command::Fullscreen),
-        VirtualKeyCode::Escape if fullscreen => Some(Command::Fullscreen),
-        VirtualKeyCode::Back if has_file => Some(Command::Library),
-        _ => None,
-    };
-    if let Some(command) = command {
-        info.prevent_default();
-        return run(&app, &mut info, command);
-    }
-    let step = if shift { 60.0 } else { 10.0 };
-    {
-        let Some(mut s) = data.downcast_mut::<Player>() else {
-            return Update::DoNothing;
-        };
-        let position = f64::from(s.status.position_s);
-        let target = match key {
-            VirtualKeyCode::Left => position - step,
-            VirtualKeyCode::Right => position + step,
-            _ => return Update::DoNothing,
-        };
-        let now = s.now_ms();
-        s.controls.activity(now);
-        seek(&mut s, target);
-        show_osd(&s, &mut info);
-    }
-    info.prevent_default();
-    Update::RefreshDom
-}
-
-// ==== The tick: the controls' auto-hide and the OSD, in place ====
-
-fn ensure_ticking(app: &RefAny, info: &mut CallbackInfo) {
+pub fn ensure_ticking(app: &RefAny, info: &mut CallbackInfo) {
     let mut app_ref = app.clone();
     let Some(mut s) = app_ref.downcast_mut::<Player>() else {
         return;
@@ -869,21 +885,51 @@ fn ensure_ticking(app: &RefAny, info: &mut CallbackInfo) {
     );
 }
 
-/// Every 250 ms: the chrome hides (or shows) and the OSD goes - in place, never a rebuild (a
-/// rebuild while the video plays is a frame the picture can miss).
+/// Every 100 ms: the video's curtain (is the picture ready, the sound; the next step of the
+/// fade), the music's queue, the slide show, the chrome that hides itself and the OSD (in
+/// place), the clock (in place, once a minute). A rebuild only when a phase changed.
 extern "C" fn on_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let Some(mut s) = data.downcast_mut::<Player>() else {
-        return TimerCallbackReturn::terminate_unchanged();
-    };
-    let now = s.now_ms();
-    let visible = s.controls_visible();
-    if visible != s.controls_shown {
-        s.controls_shown = visible;
-        show_chrome(&mut info.callback_info, visible);
+    let app = data.clone();
+    let mut refresh = false;
+    let mut wants_art = false;
+    {
+        let Some(mut guard) = data.downcast_mut::<Player>() else {
+            return TimerCallbackReturn::terminate_unchanged();
+        };
+        let s = &mut *guard;
+        let now = s.now_ms();
+        let cb = &mut info.callback_info;
+        refresh |= media::tick_video(s, cb, now);
+        refresh |= media::tick_music(s, cb);
+        let (slide, art) = media::tick_viewer(s, now);
+        refresh |= slide;
+        wants_art |= art;
+        // The chrome over what plays hides itself while it plays, in place.
+        let visible = s.controls.visible(now, media::chrome_hides(s));
+        if visible != s.controls_shown {
+            s.controls_shown = visible;
+            show_chrome(cb, visible);
+        }
+        if s.osd.as_ref().is_some_and(|(_, until)| now >= *until) {
+            s.osd = None;
+            set_shown(cb, ids::OSD, false);
+        }
+        if s.notice.as_ref().is_some_and(|(_, until)| now >= *until) {
+            s.notice = None;
+            refresh = true;
+        }
+        let clock = wall_clock();
+        if clock != s.clock_text {
+            s.clock_text = clock;
+            set_text(cb, ids::CLOCK_TEXT, &s.clock_text);
+        }
     }
-    if s.osd.as_ref().is_some_and(|(_, until)| now >= *until) {
-        s.osd = None;
-        set_shown(&mut info.callback_info, ids::OSD, false);
+    if wants_art {
+        request_art(&app, &mut info.callback_info);
     }
-    TimerCallbackReturn::continue_unchanged()
+    if refresh {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_unchanged()
+    }
 }

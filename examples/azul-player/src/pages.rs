@@ -107,7 +107,8 @@ pub enum View {
     Months,
     Titles,
     Recent,
-    /// Not a view: the slide show of every picture (the last word of the pictures' row).
+    /// Every picture; Enter on its word plays them as a slide show (the last word of the
+    /// pictures' row).
     SlideShow,
 }
 
@@ -211,6 +212,8 @@ pub fn tiles(section: Section, view: View, library: &Library, history: &History)
             let pictures = &library.pictures.items;
             match view {
                 View::Months => groups(Shelf::Pictures, library::months(pictures)),
+                // The slide show's view: every picture (Enter on the word plays them all).
+                View::SlideShow => items(Shelf::Pictures, library::by_title(pictures)),
                 _ => groups(Shelf::Pictures, library::folders(pictures)),
             }
         }
