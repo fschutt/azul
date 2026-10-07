@@ -484,8 +484,8 @@ pub const DARK_ON_ACC: ColorU = ColorU {
 // comma list, whose first layer is on top.
 //
 // Not transcribed, and why:
-// * `--fl-grain` / `--fl-fibre`: `repeating-linear-gradient` with PIXEL stops (`0 1px, transparent
-//   1px 3px`); a stop here is a percentage.
+// * `--fl-fibre`: the one-direction raster (`--fl-grain`, both directions, is the flora ground -
+//   `linen_ground`, now that a stop can sit at a length).
 // * `--fl-rolled-tab`: a `calc()` stop.
 // * The `mask-image` gradients (not backgrounds) and the `.docs-card::after` sheen (a keyframe
 //   animation).
@@ -7167,14 +7167,67 @@ pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
 // glow at night. ONE look for every shell (`ShellLook`), paint and metrics
 // only: the structure is the shells' own (`shells::*_BASE`).
 
-/// A font declaration pair: the chrome size and the system family.
+/// A font declaration pair: the chrome size and flora's hand - Garamond
+/// (`--font-serif` / `--font-caps`, the bundled EB Garamond first), the face
+/// every flora surface writes in; what a shell's content inherits.
 fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             px,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
     ]
+}
+
+/// A stop at `px` along the gradient line (a length stop, for a raster).
+const fn px_stop(px: isize, color: ColorU) -> NormalizedLinearColorStop {
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorOrSystem::color(color),
+        offset_px: FloatValue::const_new(px),
+    }
+}
+
+/// One hairline raster of `--fl-grain`: `repeating-linear-gradient(<angle>,
+/// <ink> 0 1px, transparent 1px 3px)` - a 1px line every 3px. Its clear
+/// half is the ink at no alpha, so no renderer fringes the hard stop.
+#[must_use]
+fn grain_raster(angle: isize, ink: ColorU) -> StyleBackgroundContent {
+    let clear = ColorU { a: 0, ..ink };
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(angle),
+        extend_mode: ExtendMode::Repeat,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            px_stop(0, ink),
+            px_stop(1, ink),
+            px_stop(1, clear),
+            px_stop(3, clear),
+        ]),
+    })
+}
+
+/// The flora GROUND: the page (`--fl-pg`) and the linen it rests on -
+/// flora.css's `--fl-grain`, "two hairline rasters the whole ground rests
+/// on": `rgba(90,86,74,.030)` across and `.022` down by day,
+/// `rgba(0,0,0,.20)` / `.14` at night. Two repeating gradients, each one
+/// display item with a native repeat (no tiles), painted over the page
+/// colour: what `body` wears on the website, here the shells' and the theme
+/// scope's root.
+#[must_use]
+pub(crate) fn linen_ground(dark: bool) -> Vec<StyleBackgroundContent> {
+    if dark {
+        alloc::vec![
+            StyleBackgroundContent::Color(DARK_PG),
+            grain_raster(0, ColorU::new(0, 0, 0, 51)),
+            grain_raster(90, ColorU::new(0, 0, 0, 36)),
+        ]
+    } else {
+        alloc::vec![
+            StyleBackgroundContent::Color(LIGHT_PG),
+            grain_raster(0, ColorU::new(90, 86, 74, 8)),
+            grain_raster(90, ColorU::new(90, 86, 74, 6)),
+        ]
+    }
 }
 
 /// `border-right: 1px solid` without a colour.
@@ -7270,7 +7323,7 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
     // ---- OfficeShell ----
     let mut shell_root = shell_font(13).to_vec();
     shell_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    shell_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    shell_root.extend(decl::themed_layers(linen_ground(false), linen_ground(true)));
 
     let mut shell_rail = strip();
     shell_rail.extend(hairline_right());
@@ -7397,7 +7450,7 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
     // ---- ShellThemeScope ----
     let mut scope_root = shell_font(13).to_vec();
     scope_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    scope_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    scope_root.extend(decl::themed_layers(linen_ground(false), linen_ground(true)));
 
     // ---- the bars ----
     let mut toolbar_row = decl::padding(4, 8, 4, 8).to_vec();
