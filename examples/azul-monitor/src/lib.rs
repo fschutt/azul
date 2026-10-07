@@ -29,12 +29,17 @@
 //! Only the first reading (the empty state gives way to the page) and what
 //! the user does (a tab, a sort, a selection, the question) rebuild it.
 //! While the user scrolls or drags in the table a reading leaves it alone
-//! (the rows do not re-sort under the pointer).
+//! (the rows do not re-sort under the pointer). The table's scroll position
+//! is a place in the processes, not a row number: a build after a reading
+//! keeps the processes in view where they were ([`table::sync`]).
 //!
-//! SMOOTH GRAPHS: between two readings a frame timer ([`on_frame`], 25 a
-//! second, only while a tab with graphs shows) slides each graph's strip
-//! left by the share of the interval that passed, so the history scrolls
-//! instead of jumping a step a second ([`graph`]).
+//! SMOOTH GRAPHS: the graphs stand where a steady SCROLL stands (the reading
+//! at their right edge, a reading number with a fraction, `graph::Scroll`);
+//! a frame timer ([`on_frame`], 25 a second, only while a tab with graphs
+//! shows) shifts each graph's strip as the scroll moves, and a reading
+//! neither resets nor jolts it - its new drawing is shifted to where the
+//! scroll stands, the newest reading comes in from the right edge, and the
+//! pace adapts to when the readings really arrive ([`graph`]).
 //!
 //! END PROCESS: select a row, then "End Process" (or Delete): a question
 //! (azul's `MessageBox` in a `Modal`) - End (SIGTERM), Kill (SIGKILL) or
@@ -55,9 +60,11 @@
 //! On stdout, for scripts (`scripts/azmonitor_e2e.py`): `AZMON_LAYOUT <n>`
 //! every time `layout()` runs, `AZMON_READY <processes>` at the first
 //! reading, `AZMON_TICK <readings> <processes> <shown>` at every reading,
-//! `AZMON_TOP <pid> <name>` (the first row), `AZMON_VIEW <top> <redrawn>`
-//! (the table's first row shown and whether the reading redrew the table),
-//! `AZMON_SCROLL <top>` (the table scrolled), `AZMON_SORT <text>`,
+//! `AZMON_TOP <pid> <name>` (the first row), `AZMON_VIEW <top> <pid>
+//! <selected> <name>` at every build of the table (its first row shown and
+//! that row's process; the selected process' row of the screen, `-` none,
+//! `out` not in view), `AZMON_SCROLL <top>` (the table scrolled),
+//! `AZMON_SORT <text>`,
 //! `AZMON_SHOWN <shown>` after a filter, `AZMON_SELECT <pid> <name>`,
 //! `AZMON_ASK <pid> <name>` (the question opens), `AZMON_END <pid> <force>`,
 //! `AZMON_NOTICE <text>`, `AZMON_SCREEN <name>`, `AZMON_SPEED <ms>`,
@@ -273,8 +280,17 @@ pub struct Monitor {
     pub kit: RefAny,
     /// The readings so far.
     pub model: Model,
-    /// The process table's view (scroll, selection, the header's arrows).
+    /// The process table's view (scroll, selection, the header's arrows):
+    /// its positions are places in `shown`.
     pub table: DataTableView,
+    /// The rows the process table showed when it was last built (process
+    /// ids, top to bottom). Its next build carries `table` over to the
+    /// model's rows of then (`table::sync`).
+    pub shown: Vec<u32>,
+    /// How many rows the process table showed when it was last built.
+    pub table_page: usize,
+    /// What the table's next build keeps in view after a new sort.
+    pub sort_anchor: Option<table::SortAnchor>,
     /// The screen shown.
     pub screen: Screen,
     /// The sample machine instead of this computer (`--sample`).
@@ -295,14 +311,20 @@ pub struct Monitor {
     pub clock: std::time::Instant,
     /// When the user last scrolled / dragged in the table (ms on `clock`).
     pub table_touched_ms: Option<u64>,
-    /// When the latest reading arrived (the graphs slide from there).
+    /// When the latest reading arrived (the time between readings is learned
+    /// from it).
     pub reading_at: Option<std::time::Instant>,
     /// The time between two readings as they really arrive, ms (an average).
     pub gap_ms: f64,
+    /// Where the graphs stand: the reading at their right edge, moving on
+    /// (`None` before the first reading).
+    pub scroll: Option<graph::Scroll>,
     /// The steps of the graphs drawn last, strip by strip (`graph::Strips`).
     pub strips: Vec<f32>,
-    /// The share of a step the strips were slid last (1 = a full step).
-    pub slid: f64,
+    /// The readings the graphs shown were drawn with (their newest).
+    pub drawn: u64,
+    /// The lag the strips were shifted by last (`graph::Scroll::lag`).
+    pub shifted: f64,
     /// The frame timer runs.
     pub animating: bool,
     /// The network graph's top, bytes per second (moves in calm steps).
@@ -325,6 +347,9 @@ impl Monitor {
             kit,
             model,
             table,
+            shown: Vec::new(),
+            table_page: 0,
+            sort_anchor: None,
             screen,
             sample: args.sample,
             shared: Arc::new(Shared::new(interval_ms)),
@@ -337,8 +362,10 @@ impl Monitor {
             table_touched_ms: None,
             reading_at: None,
             gap_ms: interval_ms as f64,
+            scroll: None,
             strips: Vec::new(),
-            slid: 0.0,
+            drawn: 0,
+            shifted: 0.0,
             animating: false,
             net_top: 0.0,
         }
@@ -348,6 +375,26 @@ impl Monitor {
     #[must_use]
     pub fn now_ms(&self) -> u64 {
         u64::try_from(self.clock.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Milliseconds on the app's clock with their fraction (the graphs'
+    /// scroll moves a fraction of a pixel a frame).
+    #[must_use]
+    pub fn clock_ms(&self) -> f64 {
+        self.clock.elapsed().as_secs_f64() * 1000.0
+    }
+
+    /// How many readings right of the graphs' right edge the newest reading
+    /// of a drawing of `newest` readings stands at `now_ms` (its strips'
+    /// shift in steps): where the scroll stands - 0 while paused, the newest
+    /// reading at the edge.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // reading counts far below 2^52
+    pub fn graph_lag(&self, now_ms: f64, newest: u64) -> f64 {
+        match self.scroll {
+            Some(scroll) if self.interval_ms > 0 => scroll.lag(now_ms, newest as f64),
+            _ => 0.0,
+        }
     }
 
     /// Whether the user's hand is on the process table (a reading leaves it
@@ -360,16 +407,24 @@ impl Monitor {
         table::hands_on(&self.table, since)
     }
 
-    /// A reading arrived `now`: the graphs start their slide from here, and
-    /// the time between readings is learned (the slide's pace).
-    #[allow(clippy::cast_precision_loss)] // a few thousand ms
+    /// A reading arrived `now` (the model has it): the time between readings
+    /// is learned, and the graphs' scroll goes on at the pace that keeps it
+    /// with the readings - from where it stands, so no point moves
+    /// (`graph::Scroll::after_reading`).
+    #[allow(clippy::cast_precision_loss)] // a few thousand ms, reading counts
     pub fn note_reading(&mut self, now: std::time::Instant) {
         if let Some(previous) = self.reading_at {
             let observed = now.duration_since(previous).as_secs_f64() * 1000.0;
             self.gap_ms = next_gap(self.gap_ms, observed, self.interval_ms as f64);
         }
         self.reading_at = Some(now);
-        self.slid = 0.0;
+        let now_ms = now.saturating_duration_since(self.clock).as_secs_f64() * 1000.0;
+        self.scroll = Some(graph::Scroll::after_reading(
+            self.scroll,
+            now_ms,
+            self.model.readings as f64,
+            self.gap_ms,
+        ));
         let peak = self
             .model
             .net_in
@@ -466,8 +521,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 
 /// A reading arrived: into the model, then the tick - the live view of the
 /// tab re-renders in place (not the table while the user's hand is on it),
-/// the status labels are rewritten, the graphs start their next slide; the
-/// page is built only for the first reading.
+/// the status labels are rewritten, the graphs' scroll takes the reading's
+/// pace; the page is built only for the first reading.
 pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
     let Some(snapshot) = msg
         .downcast_mut::<Reading>()
@@ -490,14 +545,10 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         }
         s.model.apply(snapshot);
         s.note_reading(std::time::Instant::now());
+        // The table's view stays as the table shows it: the build this
+        // reading asks for (none while the hand is on the table) carries it
+        // over to the new rows (`table::sync`).
         let hands_on = s.hands_on_table();
-        if !hands_on {
-            // The selection follows its process to its new row; while the
-            // hand is on the table, the view stays as the hand left it.
-            let selected = s.model.selected_position();
-            let shown = s.model.shown_count();
-            table::follow_selection(&mut s.table, selected, shown);
-        }
         if first {
             println!("AZMON_READY {}", s.model.process_count());
         }
@@ -512,17 +563,12 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
         }
         let settings = kit::settings_open(&s.kit);
         let plan = ticks::plan(first, s.screen, settings, hands_on);
-        println!(
-            "AZMON_VIEW {} {}",
-            s.table.top,
-            plan.views.contains(&LiveView::Table)
-        );
         ensure_frames(&handle, s, &mut info);
         (plan, ui::status_labels(s))
     };
     if !plan.refresh_dom {
-        // The view's new drawing stands at the start of its slide
-        // (`translateX(0)`): every old point where the slide left it.
+        // The view's new drawing is shifted to where the scroll stands
+        // (`graph::Scroll::lag`): every old point where the last one had it.
         rerender(&mut info, &plan.views);
         if plan.status {
             for (marker, label) in labels {
@@ -537,18 +583,18 @@ pub extern "C" fn on_reading(mut app: RefAny, mut msg: RefAny, mut info: Callbac
     }
 }
 
-/// Slides the strips of the graphs shown (`count` of them): strip `i` by
-/// `px(i)` px to the left.
+/// Shifts the strips of the graphs shown (`count` of them): strip `i` by
+/// `px(i)` px to the right of where it is laid out.
 ///
 /// The strips live in the view's own DOM, and only a rebuild of THAT DOM's
 /// display list publishes a new matrix (the override channel alone marks
 /// the window's display list dirty, which rebuilds DOM 0's only). So every
 /// strip but the last takes the cheap override, and the last one
 /// `set_css_property`, which rebuilds the view's display list once - with
-/// every override of this frame in it. The strip is drawn with a
-/// `translateX(0px)`: it has its reference frame from the start, a slide
-/// moves no box.
-fn slide_strips(info: &mut CallbackInfo, count: usize, px: impl Fn(usize) -> f32) {
+/// every override of this frame in it. The strip is drawn with its
+/// `translateX`: it has its reference frame from the start, a shift moves
+/// no box.
+fn shift_strips(info: &mut CallbackInfo, count: usize, px: impl Fn(usize) -> f32) {
     for i in 0..count {
         let Some(node) = info
             .get_node_id_by_marker(graph::strip_marker(i))
@@ -557,9 +603,9 @@ fn slide_strips(info: &mut CallbackInfo, count: usize, px: impl Fn(usize) -> f32
             continue;
         };
         if i + 1 < count {
-            info.override_css_property(node, graph::slide(px(i)));
+            info.override_css_property(node, graph::shift(px(i)));
         } else {
-            info.set_css_property(node, graph::slide(px(i)));
+            info.set_css_property(node, graph::shift(px(i)));
         }
     }
 }
@@ -579,39 +625,35 @@ pub fn ensure_frames(app: &RefAny, s: &mut Monitor, info: &mut CallbackInfo) {
     );
 }
 
-/// A frame of the graphs' slide: every strip left by the share of the
-/// interval that passed since the reading it shows. Ends itself when no tab
-/// with graphs shows (or the monitor is paused, or the settings cover it).
+/// A frame of the graphs' scroll: every strip of the drawing shown shifted
+/// to where the scroll stands now (its newest reading `lag` steps right of
+/// the edge). The drawing shown is the one of `Monitor::drawn` readings - a
+/// reading's new drawing may not be built yet, and the old one is shifted
+/// as the old one. Ends itself when no tab with graphs shows (or the monitor
+/// is paused, or the settings cover it).
 extern "C" fn on_frame(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let Some((steps, share, keep)) = data.downcast_mut::<Monitor>().map(|mut s| {
+    let Some((steps, lag, keep)) = data.downcast_mut::<Monitor>().map(|mut s| {
         let keep =
             s.screen.has_graphs() && s.interval_ms > 0 && !kit::settings_open(&s.kit);
         if !keep {
             s.animating = false;
         }
-        let elapsed = s
-            .reading_at
-            .map_or(0.0, |t| t.elapsed().as_secs_f64() * 1000.0);
-        let share = if s.gap_ms > 0.0 {
-            (elapsed / s.gap_ms).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        // A slide that already reached a full step waits for the reading.
-        let moved = !(share >= 1.0 && s.slid >= 1.0);
-        s.slid = share;
+        let lag = s.graph_lag(s.clock_ms(), s.drawn);
+        // A scroll that stands (it waits for a late reading) moves nothing.
+        let moved = (lag - s.shifted).abs() > 1e-6;
+        s.shifted = lag;
         let steps = if moved { s.strips.clone() } else { Vec::new() };
-        (steps, share, keep)
+        (steps, lag, keep)
     }) else {
         return TimerCallbackReturn::terminate_unchanged();
     };
     if !keep {
         return TimerCallbackReturn::terminate_unchanged();
     }
-    #[allow(clippy::cast_possible_truncation)] // a share 0..=1
-    let share = share as f32;
-    slide_strips(&mut info.callback_info, steps.len(), |i| {
-        steps.get(i).map_or(0.0, |step| share * step)
+    #[allow(clippy::cast_possible_truncation)] // a few steps
+    let lag = lag as f32;
+    shift_strips(&mut info.callback_info, steps.len(), |i| {
+        steps.get(i).map_or(0.0, |step| lag * step)
     });
     TimerCallbackReturn::continue_unchanged()
 }

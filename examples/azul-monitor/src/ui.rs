@@ -53,6 +53,8 @@ const STATS_H: f32 = 96.0;
 const CORE_GAP: f32 = 4.0;
 /// A line of a dense table (the Users page), px.
 const ROW_PX: f32 = 20.0;
+/// A legend item of a graph ("Received 1.2 MB/s"), px.
+const SWATCH_W: f32 = 180.0;
 /// The write-back tag of the history export.
 const EXPORT_TAG: u64 = 1;
 
@@ -208,10 +210,9 @@ extern "C" fn on_filter(
         };
         let s = &mut *guard;
         s.model.set_filter(&query);
-        let selected = s.model.selected_position();
         let shown = s.model.shown_count();
+        // From the first row; the build carries the selection over.
         s.table.top = 0;
-        table::follow_selection(&mut s.table, selected, shown);
         println!("AZMON_SHOWN {shown}");
         status_labels(s)
     };
@@ -355,14 +356,23 @@ pub fn live_view(app: &RefAny, view: LiveView) -> Dom {
 }
 
 /// A live view's callback: its content at the view's size, in its own
-/// theme scope. The graphs it drew are what the frame timer slides.
+/// theme scope. The graphs it drew are what the frame timer shifts: they are
+/// drawn where the scroll stands now (a reading's new drawing goes on from
+/// where the last one was), and the app remembers which readings and which
+/// shift they were drawn with.
 extern "C" fn render_live(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let Some((app, view)) = data.downcast_ref::<Live>().map(|l| (l.app.clone(), l.view)) else {
         return VirtualViewReturn::default();
     };
     let size = info.bounds.get_logical_size();
     let (w, h) = (size.width.max(1.0), size.height.max(1.0));
-    let mut strips = Strips::default();
+    // Where the scroll stands now (the guard is gone before the page asks
+    // the app for its numbers).
+    let mut monitor = app.clone();
+    let (lag, readings) = monitor.downcast_ref::<Monitor>().map_or((0.0, 0), |s| {
+        (s.graph_lag(s.clock_ms(), s.model.readings), s.model.readings)
+    });
+    let mut strips = Strips::at(lag);
     let content = match view {
         LiveView::Table => process_table(&app, w, h),
         LiveView::Performance => performance(&app, &mut strips, w, h),
@@ -373,6 +383,8 @@ extern "C" fn render_live(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
         let mut handle = app.clone();
         if let Some(mut s) = handle.downcast_mut::<Monitor>() {
             s.strips = strips.steps;
+            s.drawn = readings;
+            s.shifted = strips.lag;
         };
     }
     let dom = Dom::create_div()
@@ -388,15 +400,20 @@ extern "C" fn render_live(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
     VirtualViewReturn::with_dom(dom, rect, rect)
 }
 
-/// The process table at `w` x `h` (the guard on the app is dropped before
-/// the table asks the app for its cells).
+/// The process table at `w` x `h`: its view carried over to the rows of now
+/// first (`table::sync`: the processes in view stay where they were). The
+/// guard on the app is dropped before the table asks the app for its cells.
 fn process_table(app: &RefAny, w: f32, h: f32) -> Dom {
     let mut handle = app.clone();
-    let Some((view, rows)) = handle.downcast_ref::<Monitor>().map(|s| {
-        (
-            s.table.clone(),
-            u32::try_from(s.model.shown_count()).unwrap_or(u32::MAX),
-        )
+    let Some((view, rows)) = handle.downcast_mut::<Monitor>().map(|mut guard| {
+        let s = &mut *guard;
+        let count = s.model.shown_count();
+        let page = table::rows_in_view(&s.table, count, w, h);
+        let anchor = s.sort_anchor.take();
+        table::sync(&mut s.table, &mut s.shown, &s.model, page, anchor);
+        s.table_page = page;
+        table::print_view(s, page);
+        (s.table.clone(), u32::try_from(count).unwrap_or(u32::MAX))
     }) else {
         return Dom::create_div();
     };
@@ -593,11 +610,18 @@ fn performance(app: &RefAny, strips: &mut Strips, w: f32, h: f32) -> Dom {
 }
 
 /// A swatch and its word (a graph's legend).
+///
+/// A box of its own width: the rate in it changes with every reading, and
+/// a legend item as wide as its text moved the next one each time.
 fn swatch(color: &str, text: String) -> Dom {
     Dom::create_div()
-        .with_css("display: flex; flex-direction: row; align-items: center; margin-right: 16px;")
+        .with_css(format!(
+            "display: flex; flex-direction: row; align-items: center; width: {SWATCH_W}px; \
+             flex-shrink: 0; overflow: hidden;"
+        ))
         .with_child(Dom::create_div().with_css(format!(
-            "width: 10px; height: 10px; margin-right: 6px; background-color: {color};"
+            "width: 10px; height: 10px; margin-right: 6px; flex-shrink: 0; background-color: \
+             {color};"
         )))
         .with_child(line(text, "font-size: 12px; white-space: nowrap;"))
 }
