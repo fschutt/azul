@@ -11,9 +11,9 @@ use azul::{
 };
 
 use crate::{
-    app::{command, AppState, Command, ShowRuntime},
+    app::{command, AppState, Command, ShowRuntime, TransitionFrom},
     commands::on_command,
-    model::{Blank, Deck, TransitionKind},
+    model::{Blank, Deck},
     render::{self, css_color, RenderOptions},
 };
 
@@ -56,27 +56,45 @@ pub fn show_key_command(key: VirtualKeyCode, typed: &mut String) -> Option<Comma
     cmd
 }
 
-/// The slide the show is on, fitted into `w` x `h`, its builds played to the
-/// show's step and the playing build at its progress.
-fn shown_slide(st: &AppState, deck: &Deck, rt: &ShowRuntime, index: usize, step: usize, scale: f32, playing: bool) -> Dom {
-    let ids: Vec<u64> = rt
-        .play
-        .as_ref()
-        .filter(|_| playing)
-        .map(|p| p.ids.clone())
-        .unwrap_or_default();
-    let progress = rt.play.as_ref().map_or(1.0, crate::app::Play::progress);
-    let opts = RenderOptions {
+/// The options the show draws a slide with at `scale`: its builds played to
+/// `step`, the build `playing` (its elements, its progress), every box with
+/// its id (the DOM is rebuilt every frame of a play).
+fn show_options<'a>(
+    st: &'a AppState,
+    scale: f32,
+    step: usize,
+    playing: Option<(&'a [u64], f32)>,
+) -> RenderOptions<'a> {
+    RenderOptions {
         scale,
         editing: None,
         text: None,
         prompts: false,
         step: Some(step),
-        playing: if ids.is_empty() { None } else { Some((ids.as_slice(), progress)) },
+        playing,
         media: &st.media,
         hooks: None,
-    };
-    render::slide_dom(deck, &deck.slides[index.min(deck.slides.len() - 1)], &opts)
+        element_ids: true,
+    }
+}
+
+/// The slide the show is on at `scale`, its builds played to `step`: the
+/// playing build at its progress when `playing` (the main window), at its
+/// end otherwise (the presenter: its DOM stays the same while a build plays,
+/// so its rebuilds per frame cost nothing).
+fn shown_slide(
+    st: &AppState,
+    deck: &Deck,
+    rt: &ShowRuntime,
+    index: usize,
+    step: usize,
+    scale: f32,
+    playing: bool,
+) -> Dom {
+    let index = index.min(deck.slides.len() - 1);
+    let play = rt.play.as_ref().filter(|p| playing && p.slide == index && !p.ids.is_empty());
+    let opts = show_options(st, scale, step, play.map(|p| (p.ids.as_slice(), p.progress())));
+    render::slide_dom(deck, &deck.slides[index], &opts)
 }
 
 /// The main window during the show: black around the slide, the slide
@@ -114,33 +132,32 @@ pub fn show_screen(app: &RefAny, st: &AppState, window_w: f32, window_h: f32) ->
     let (sw, sh) = (deck.size.width(), deck.size.height());
     let scale = (window_w / sw).min(window_h / sh).max(0.05);
     let (w, h) = (sw * scale, sh * scale);
-    let current = shown_slide(st, deck, rt, rt.state.slide, rt.state.step, scale, true);
-    let slide = match rt.play.as_ref().and_then(|p| p.transition_from.map(|from| (from, p.progress()))) {
+    let index = rt.state.slide.min(deck.slides.len() - 1);
+    let play = rt.play.as_ref().filter(|p| p.slide == index);
+    if let Some(p) = play {
+        p.count_frame();
+    }
+    // The same nodes in every frame - the stage, the layer of the slide on
+    // screen, every box by its id - so a rebuild per frame only restyles.
+    let layers = match play.and_then(|p| p.transition.map(|from| (from, p.progress()))) {
         Some((from, p)) => {
-            let from_steps = deck.slides.get(from).map_or(0, |s| s.build_steps().len());
-            let old = shown_slide(st, deck, rt, from, from_steps, scale, false);
-            let kind = deck.slides[rt.state.slide].transition.kind;
-            let layer = |left: f32, opacity: f32, clip_w: f32, child: Dom| {
-                Dom::create_div()
-                    .with_css(format!(
-                        "position: absolute; left: {left:.1}px; top: 0px; width: {clip_w:.1}px; height: {h:.1}px; \
-                         overflow: hidden; opacity: {opacity:.3};"
-                    ))
-                    .with_child(child)
+            let from = match from {
+                TransitionFrom::Slide(i) => deck
+                    .slides
+                    .get(i)
+                    .map(|s| (s, s.build_steps().len())),
+                TransitionFrom::Black => None,
             };
-            let (old_layer, new_layer) = match kind {
-                TransitionKind::Push => (layer(-p * w, 1.0, w, old), layer((1.0 - p) * w, 1.0, w, current)),
-                TransitionKind::Wipe => (layer(0.0, 1.0, w, old), layer(0.0, 1.0, (p * w).max(0.0), current)),
-                TransitionKind::Fade | TransitionKind::None => (layer(0.0, 1.0, w, old), layer(0.0, p, w, current)),
-            };
-            Dom::create_div()
-                .with_css(format!("position: relative; width: {w:.1}px; height: {h:.1}px; overflow: hidden;"))
-                .with_child(old_layer)
-                .with_child(new_layer)
+            let to = &deck.slides[index];
+            let opts = show_options(st, scale, rt.state.step, None);
+            render::transition_layers(deck, from, to, to.transition.kind, p, &opts)
         }
-        None => current,
+        None => {
+            let current = shown_slide(st, deck, rt, index, rt.state.step, scale, true);
+            vec![render::stage_layer(crate::ids::LAYER_TO, current, w, h, 0.0, 1.0, w)]
+        }
     };
-    root(slide, "#000000")
+    root(render::stage(w, h, layers).with_id(crate::ids::STAGE), "#000000")
 }
 
 fn control(app: &RefAny, label: &str, icon: &str, cmd: Command) -> Dom {
@@ -169,7 +186,8 @@ pub fn presenter(app: &RefAny, st: &AppState) -> Dom {
     let deck = &ed.deck;
     let current_scale = 640.0 / deck.size.width();
     let next_scale = 360.0 / deck.size.width();
-    let current = shown_slide(st, deck, rt, rt.state.slide, rt.state.step, current_scale, true);
+    // At the end of a playing build: see `shown_slide`.
+    let current = shown_slide(st, deck, rt, rt.state.slide, rt.state.step, current_scale, false);
     let next = match rt.state.upcoming(deck) {
         Some(n) => shown_slide(st, deck, rt, n, 0, next_scale, false),
         None => Dom::create_div()

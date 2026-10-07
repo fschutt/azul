@@ -24,7 +24,7 @@ use azul::{
 };
 
 use crate::{
-    app::{command, AppState, Command, View},
+    app::{command, AppState, Command, Play, TransitionFrom, View},
     commands::{self, on_command},
     editor::Editor,
     model::{Background, Deck, ElementKind, Frame, PlaceholderRole, Slide, TextBody},
@@ -137,8 +137,13 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
         playing: None,
         media: &st.media,
         hooks: Some(app),
+        element_ids: false,
     };
-    let content = render::slide_dom(deck, slide, &opts).with_id(crate::ids::SLIDE);
+    let content = match st.preview.as_ref().filter(|p| p.slide == ed.current) {
+        Some(play) => preview_dom(deck, slide, play, &opts),
+        None => render::slide_dom(deck, slide, &opts),
+    }
+    .with_id(crate::ids::SLIDE);
     let items: Vec<AdornerItem> = slide
         .elements
         .iter()
@@ -177,6 +182,54 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
                 .with_css("box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.45); flex-shrink: 0;")
                 .with_child(adorner.dom()),
         )
+}
+
+/// The canvas while a preview plays (`AppState::preview`): the slide's
+/// transition from the slide before it, or one click of its builds, at the
+/// preview's progress - drawn as the show draws it, with nothing in editing.
+fn preview_dom(deck: &Deck, slide: &Slide, play: &Play, opts: &RenderOptions<'_>) -> Dom {
+    play.count_frame();
+    let p = play.progress();
+    let shown = RenderOptions {
+        editing: None,
+        text: None,
+        prompts: false,
+        hooks: None,
+        element_ids: true,
+        ..*opts
+    };
+    match play.transition {
+        Some(from) => {
+            // The slide before with all its builds played.
+            let from = match from {
+                TransitionFrom::Slide(i) => {
+                    deck.slides.get(i).map(|s| (s, s.build_steps().len()))
+                }
+                TransitionFrom::Black => None,
+            };
+            let to = RenderOptions {
+                step: Some(0),
+                ..shown
+            };
+            let (w, h) = (deck.size.width() * opts.scale, deck.size.height() * opts.scale);
+            let layers = render::transition_layers(deck, from, slide, slide.transition.kind, p, &to);
+            render::stage(w, h, layers)
+        }
+        None => {
+            // The slide as the show has it after this click, the click playing.
+            let step = play
+                .ids
+                .first()
+                .and_then(|id| slide.build_step_of(*id))
+                .map_or(0, |s| s + 1);
+            let build = RenderOptions {
+                step: Some(step),
+                playing: Some((play.ids.as_slice(), p)),
+                ..shown
+            };
+            render::slide_dom(deck, slide, &build)
+        }
+    }
 }
 
 fn frame_of(f: &AdornerFrame) -> Frame {
