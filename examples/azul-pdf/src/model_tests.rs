@@ -399,6 +399,7 @@ fn the_export_switches_name_the_output_the_page_the_width_and_the_file() {
             page: 2,
             width: 1200,
             file: "in.pdf".to_string(),
+            values: Vec::new(),
         }))
     );
     let svg = parse_export(&strings(&["--export-svg", "o.svg", "in.pdf"]));
@@ -410,8 +411,36 @@ fn the_export_switches_name_the_output_the_page_the_width_and_the_file() {
             page: 0,
             width: DEFAULT_EXPORT_WIDTH,
             file: "in.pdf".to_string(),
+            values: Vec::new(),
         }))
     );
+    let filled = parse_export(&strings(&[
+        "--export-filled",
+        "o.pdf",
+        "--set",
+        "name=Ada Lovelace",
+        "--set",
+        "agree=Yes",
+        "in.pdf",
+    ]));
+    assert_eq!(
+        filled,
+        Some(Ok(ExportRequest {
+            format: ExportFormat::Filled,
+            out: "o.pdf".to_string(),
+            page: 0,
+            width: DEFAULT_EXPORT_WIDTH,
+            file: "in.pdf".to_string(),
+            values: vec![
+                ("name".to_string(), "Ada Lovelace".to_string()),
+                ("agree".to_string(), "Yes".to_string()),
+            ],
+        }))
+    );
+    assert!(matches!(
+        parse_export(&strings(&["--export-filled", "o.pdf", "--set", "novalue", "in.pdf"])),
+        Some(Err(_))
+    ));
     assert!(matches!(
         parse_export(&strings(&["--export-png", "o.png"])),
         Some(Err(_))
@@ -438,4 +467,74 @@ fn a_pdf_is_known_by_its_header_or_its_name() {
     assert!(!is_pdf_bytes(b"PK\x03\x04"));
     assert!(is_pdf_path("/a/B.Pdf"));
     assert!(!is_pdf_path("/a/b.txt"));
+}
+
+fn text_field(name: &str, value: &str) -> Field {
+    Field {
+        name: name.to_string(),
+        kind: FieldKind::Text,
+        value: value.to_string(),
+        options: Vec::new(),
+        widgets: vec![FieldWidget {
+            page: 0,
+            rect: (72.0, 72.0, 200.0, 20.0),
+            on_state: String::new(),
+        }],
+        read_only: false,
+        multiline: false,
+        password: false,
+        max_len: 0,
+        font_size: 0.0,
+    }
+}
+
+#[test]
+fn the_form_values_know_what_the_user_changed() {
+    let fields = vec![text_field("name", "Grace"), text_field("city", "")];
+    let mut form = FormValues::new(&fields);
+    assert_eq!(form.get("name"), "Grace");
+    assert!(!form.is_dirty());
+    assert!(!form.set("name", "Grace"), "the same value is no change");
+    assert!(form.set("city", "London"));
+    assert!(form.set("name", "Ada"));
+    assert_eq!(
+        form.changed(),
+        [
+            ("city".to_string(), "London".to_string()),
+            ("name".to_string(), "Ada".to_string())
+        ]
+    );
+    form.set("name", "Grace");
+    assert_eq!(form.changed().len(), 1, "back to the file's value is no change");
+    assert_eq!(form.all().len(), 2);
+    assert_eq!(form.get("unknown"), "");
+}
+
+#[test]
+fn a_field_sizes_its_text_and_knows_its_checked_state() {
+    let field = text_field("name", "");
+    let widget = &field.widgets[0];
+    // Auto size: (20 - 4) * 0.75 = 12 pt, at 2 px per pt.
+    assert!(close(field.font_px(widget, 2.0), 24.0));
+    let fixed = Field {
+        font_size: 9.0,
+        ..field.clone()
+    };
+    assert!(close(fixed.font_px(widget, 1.0), 9.0));
+    let check = FieldWidget {
+        page: 0,
+        rect: (0.0, 0.0, 12.0, 12.0),
+        on_state: "Agreed".to_string(),
+    };
+    assert_eq!(Field::on_value(&check), "Agreed");
+    assert!(Field::is_checked("Agreed", &check));
+    assert!(!Field::is_checked("Off", &check));
+    let plain = FieldWidget {
+        on_state: String::new(),
+        ..check
+    };
+    assert_eq!(Field::on_value(&plain), "Yes");
+    assert!(Field::is_checked("Yes", &plain));
+    assert_eq!(filled_name("Tax form"), "Tax form (filled).pdf");
+    assert_eq!(filled_name(" "), "filled.pdf");
 }

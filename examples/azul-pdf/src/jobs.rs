@@ -15,17 +15,17 @@
 use std::path::Path;
 
 use azul::{
-    error::{ResultParsedSvgSvgParseError, ResultXmlXmlError},
+    error::{ResultParsedSvgSvgParseError, ResultU8VecString, ResultXmlXmlError},
     image::{ImageRef, RawImage},
     option::OptionColorU,
-    pdf::{ParsedPdf, Pdf},
+    pdf::{ParsedPdf, Pdf, PdfFieldValue, PdfFormFieldKind, PdfStamp},
     prelude::*,
     svg::{ParsedSvg, SvgFitTo, SvgParseOptions, SvgRenderOptions},
-    vec::U8VecRef,
+    vec::{PdfFieldValueVec, PdfStampVec, U8VecRef},
     xml::Xml,
 };
 
-use crate::model::{file_title, is_pdf_bytes, PageSize};
+use crate::model::{file_title, is_pdf_bytes, Field, FieldKind, FieldWidget, PageSize};
 
 /// What a render of a page makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +49,8 @@ pub struct Doc {
     pub outline: Vec<(String, usize)>,
     /// What the parser skipped or guessed.
     pub warnings: usize,
+    /// The fields of the PDF's form (none for most PDFs).
+    pub fields: Vec<Field>,
 }
 
 impl Doc {
@@ -79,6 +81,7 @@ impl Doc {
             title
         };
         let warnings = pdf.get_warnings().as_slice().len();
+        let fields = form_fields(&pdf);
         Doc {
             path: path.to_string(),
             title,
@@ -86,6 +89,7 @@ impl Doc {
             sizes,
             outline,
             warnings,
+            fields,
         }
     }
 
@@ -108,6 +112,15 @@ pub enum Job {
     },
     /// Every page's text, for search.
     Texts { generation: u64, pdf: ParsedPdf },
+    /// The PDF with its form filled from `values`, `stamps` drawn on, and
+    /// flattened: what "Export filled PDF" saves as `name`.
+    Fill {
+        generation: u64,
+        pdf: ParsedPdf,
+        values: Vec<(String, String)>,
+        stamps: Vec<PdfStamp>,
+        name: String,
+    },
     /// Build the sample document's bytes.
     Sample,
 }
@@ -142,6 +155,12 @@ pub enum Outcome {
         texts: Vec<String>,
     },
     Sample {
+        result: Result<Vec<u8>, String>,
+    },
+    /// The filled PDF's bytes, to save as `name`.
+    Filled {
+        generation: u64,
+        name: String,
         result: Result<Vec<u8>, String>,
     },
 }
@@ -219,6 +238,23 @@ pub extern "C" fn job_thread(
             let texts = page_texts(&pdf);
             send(&mut sender, Outcome::Texts { generation, texts });
         }
+        Job::Fill {
+            generation,
+            pdf,
+            values,
+            stamps,
+            name,
+        } => {
+            let result = fill_pdf(&pdf, &values, stamps, true);
+            send(
+                &mut sender,
+                Outcome::Filled {
+                    generation,
+                    name,
+                    result,
+                },
+            );
+        }
         Job::Sample => {
             send(
                 &mut sender,
@@ -248,6 +284,71 @@ pub fn open(path: &str) -> Result<Doc, String> {
         ));
     }
     Ok(Doc::from_pdf(path, pdf))
+}
+
+/// The fields of `pdf`'s form, as the model keeps them.
+#[must_use]
+pub fn form_fields(pdf: &ParsedPdf) -> Vec<Field> {
+    pdf.form_fields()
+        .as_slice()
+        .iter()
+        .map(|f| Field {
+            name: f.name.as_str().to_string(),
+            kind: match f.kind {
+                PdfFormFieldKind::Text => FieldKind::Text,
+                PdfFormFieldKind::CheckBox => FieldKind::CheckBox,
+                PdfFormFieldKind::RadioButton => FieldKind::Radio,
+                PdfFormFieldKind::ComboBox | PdfFormFieldKind::ListBox => FieldKind::Choice,
+                PdfFormFieldKind::PushButton | PdfFormFieldKind::Signature => FieldKind::Other,
+            },
+            value: f.value.as_str().to_string(),
+            options: f
+                .options
+                .as_slice()
+                .iter()
+                .map(|o| o.as_str().to_string())
+                .collect(),
+            widgets: f
+                .widgets
+                .as_slice()
+                .iter()
+                .filter(|w| !w.hidden)
+                .map(|w| FieldWidget {
+                    page: w.page,
+                    rect: (w.rect.x, w.rect.y, w.rect.width, w.rect.height),
+                    on_state: w.on_state.as_str().to_string(),
+                })
+                .collect(),
+            read_only: f.read_only,
+            multiline: f.multiline,
+            password: f.password,
+            max_len: f.max_length,
+            font_size: f.font_size_pt,
+        })
+        .collect()
+}
+
+/// `pdf` with its form filled from `values` (field name, value), `stamps`
+/// drawn on, flattened or not: azul's `ParsedPdf::fill_form` (printpdf on
+/// the PDF's own bytes).
+pub fn fill_pdf(
+    pdf: &ParsedPdf,
+    values: &[(String, String)],
+    stamps: Vec<PdfStamp>,
+    flatten: bool,
+) -> Result<Vec<u8>, String> {
+    let values: Vec<PdfFieldValue> = values
+        .iter()
+        .map(|(name, value)| PdfFieldValue::create(name.as_str(), value.as_str()))
+        .collect();
+    match pdf.fill_form(
+        PdfFieldValueVec::from_vec(values),
+        PdfStampVec::from_vec(stamps),
+        flatten,
+    ) {
+        ResultU8VecString::Ok(bytes) => Ok(bytes.as_ref().to_vec()),
+        ResultU8VecString::Err(why) => Err(why.as_str().to_string()),
+    }
 }
 
 /// Page `page` (0-based) as SVG text: azul's PDF -> SVG.

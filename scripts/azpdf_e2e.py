@@ -17,7 +17,12 @@ the recent list in the data tree (PDF9).
     6. the recent list is written to pdf/recent.json and names the file;
     7. the Outline tab says there is no outline; the gear opens azul-appkit's
        settings page, Escape closes it;
-    8. flora / dark: a screenshot (the chrome follows, the pages stay paper).
+    8. flora / dark: a screenshot (the chrome follows, the pages stay paper);
+    9. a PDF with a form (a text field and a check box): an input over each
+       field; typing and a click change the values (`AZPDF_FIELD`), "Export
+       filled PDF" saves a flattened copy (`AZPDF_FILLED`); the
+       `--export-filled` switch writes one whose page draws the values and
+       that has no form left.
 
 Run ONE app at a time, through the capped runner:
 
@@ -30,6 +35,7 @@ writer is the probe's (scripts/pdf_chrome_probe.py).
 
 import json
 import os
+import subprocess
 
 import azlin_e2e as e2e
 from azlin_e2e import Failure
@@ -52,6 +58,85 @@ def fixture(path):
     pages = [(612, 792, page_content(n, n >= 2)) for n in (1, 2, 3)]
     with open(path, "wb") as f:
         f.write(pdf_bytes(pages, "AzPdf E2E"))
+
+
+def form_pdf(path):
+    """A Letter page with a form: a text field `name` (empty, 12 pt) and a
+    check box `agree` (unchecked), labels drawn on the page."""
+    content = ("BT /F1 12 Tf 72 726 Td (Name:) Tj ET\n"
+               "BT /F1 12 Tf 92 652 Td (I agree) Tj ET\n")
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] "
+        "/DA (/Helv 0 Tf 0 g) >> >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R "
+        "/Resources << /Font << /F1 7 0 R >> >> /Annots [4 0 R 5 0 R] >>",
+        "<< /Type /Annot /Subtype /Widget /P 3 0 R /T (name) /FT /Tx "
+        "/DA (/Helv 12 Tf 0 g) /Rect [72 696 300 716] >>",
+        "<< /Type /Annot /Subtype /Widget /P 3 0 R /T (agree) /FT /Btn /V /Off /AS /Off "
+        "/Rect [72 648 86 662] >>",
+        "<< /Length %d >>\nstream\n%sendstream" % (len(content), content),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    data = b"%PDF-1.7\n"
+    offsets = []
+    for i, body in enumerate(objects):
+        offsets.append(len(data))
+        data += ("%d 0 obj\n%s\nendobj\n" % (i + 1, body)).encode("latin-1")
+    xref = len(data)
+    data += ("xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)).encode()
+    for offset in offsets:
+        data += ("%010d 00000 n \n" % offset).encode()
+    data += ("trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n"
+             % (len(objects) + 1, xref)).encode()
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+def form_session(binary, args, logs, out):
+    """A PDF with a form: fill it in, export the filled copy (step 9)."""
+    pdf = os.path.join(logs, "form.pdf")
+    form_pdf(pdf)
+    data_dir = os.path.join(logs, "form-data")
+    os.makedirs(data_dir, exist_ok=True)
+    app = e2e.App("pdf-form", binary, [pdf, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT)],
+                  args.debug_port, logs, args.timeout)
+    try:
+        app.expect_line("AZPDF_FORM", "2", "the form's two fields are read")
+        app.until("page 1's DOM made", lambda: app.printed("AZPDF_RENDERED", r"1 dom"))
+        app.until("an input over the text field",
+                  lambda: app.has_id("__azpdf_field-0-0", every_dom=True))
+        app.click(selector="#__azpdf_field-0-0", every_dom=True)
+        app.must("text_input", text="Ada")
+        app.frame(2)
+        app.until("the typed name", lambda: app.printed("AZPDF_FIELD", r"name=Ada"))
+        app.click(selector="#__azpdf_field-1-0", every_dom=True)
+        app.until("the check box checked", lambda: app.printed("AZPDF_FIELD", r"agree=\S+"))
+        if app.printed("AZPDF_FIELD", r"agree=Off"):
+            raise Failure("a click on the unchecked box unchecked it")
+        app.screenshot(os.path.join(out, "4-form.png"))
+        app.must("mock", set={"save_bytes": {"accept": True}})
+        app.click(selector="#__azpdf_export-filled")
+        app.until("the filled copy saved", lambda: app.printed("AZPDF_FILLED", r"\d+"))
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+
+    # The same fill without a window: the copy's page draws the values, no form left.
+    filled = os.path.join(logs, "filled.pdf")
+    result = subprocess.run([binary, "--export-filled", filled, "--set", "name=Ada Lovelace",
+                             "--set", "agree=Yes", pdf], capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise Failure("--export-filled failed: %s %s" % (result.stdout, result.stderr))
+    with open(filled, "rb") as f:
+        copy = f.read()
+    if b"(Ada Lovelace) Tj" not in copy:
+        raise Failure("the filled copy does not draw the typed name")
+    if b"/AcroForm" in copy:
+        raise Failure("the flattened copy still has a form")
+    app.log("PASS: form fields filled and exported")
 
 
 def body(args, logs, out):
@@ -163,8 +248,9 @@ def body(args, logs, out):
         raise
     finally:
         app.stop()
-    app.log("PASS: open, render, page turns, zoom, search, recent list, outline, settings; screenshots in %s"
-            % out)
+    form_session(binary, args, logs, out)
+    app.log("PASS: open, render, page turns, zoom, search, recent list, outline, settings, form; "
+            "screenshots in %s" % out)
     return True
 
 

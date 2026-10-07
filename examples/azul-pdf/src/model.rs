@@ -1,9 +1,10 @@
 //! AzPdf's model, plain Rust (tested in `model_tests.rs` without a window):
 //! the zoom, the vertical strip of pages, page size labels, the widths pages
 //! are rendered at, the page cache, what to render next, search over the
-//! pages' text, the recent documents and small parsers.
+//! pages' text, the recent documents, the form's fields and values, and small
+//! parsers.
 
-use std::ops::Range;
+use std::{collections::BTreeMap, ops::Range};
 
 use azul_appkit::find::{matches, TextMatch};
 use serde::{Deserialize, Serialize};
@@ -532,6 +533,157 @@ pub fn is_pdf_path(path: &str) -> bool {
     path.to_ascii_lowercase().ends_with(".pdf")
 }
 
+// ==== The form ====
+
+/// What a form field is (azul's `PdfFormFieldKind`, as the model needs it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FieldKind {
+    Text,
+    CheckBox,
+    /// A radio group: one widget per button.
+    Radio,
+    /// A drop-down or a list: one choice of `options`.
+    Choice,
+    /// A push button or a signature field: nothing to type.
+    Other,
+}
+
+/// Where a field is drawn: a page and a rect in points from the page's
+/// top-left corner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldWidget {
+    pub page: usize,
+    /// x, y, width, height.
+    pub rect: (f32, f32, f32, f32),
+    /// A check box's / radio button's "on" state name.
+    pub on_state: String,
+}
+
+/// One field of the PDF's form.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
+    /// The fully qualified name: what its value is saved under.
+    pub name: String,
+    pub kind: FieldKind,
+    /// The value in the file.
+    pub value: String,
+    pub options: Vec<String>,
+    pub widgets: Vec<FieldWidget>,
+    pub read_only: bool,
+    pub multiline: bool,
+    pub password: bool,
+    /// 0 = no limit.
+    pub max_len: u32,
+    /// Points; 0 = fit the field.
+    pub font_size: f32,
+}
+
+impl Field {
+    /// The font size in CSS px for `widget` at `px_per_pt` (the page's
+    /// scale): the form's size, or one that fits the field's height.
+    #[must_use]
+    pub fn font_px(&self, widget: &FieldWidget, px_per_pt: f32) -> f32 {
+        let pt = if self.font_size > 0.0 {
+            self.font_size
+        } else if self.multiline {
+            12.0_f32.min((widget.rect.3 - 4.0).max(4.0))
+        } else {
+            ((widget.rect.3 - 4.0) * 0.75).clamp(4.0, 12.0)
+        };
+        pt * px_per_pt
+    }
+
+    /// The value that checks `widget` (a check box / radio button).
+    #[must_use]
+    pub fn on_value(widget: &FieldWidget) -> String {
+        if widget.on_state.is_empty() {
+            "Yes".to_string()
+        } else {
+            widget.on_state.clone()
+        }
+    }
+
+    /// Whether `value` checks `widget`.
+    #[must_use]
+    pub fn is_checked(value: &str, widget: &FieldWidget) -> bool {
+        !matches!(value, "" | "Off" | "false" | "0") && value == Self::on_value(widget)
+    }
+}
+
+/// The form's values as the user has them, by field name, and the values in
+/// the file.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FormValues {
+    values: BTreeMap<String, String>,
+    original: BTreeMap<String, String>,
+}
+
+impl FormValues {
+    /// The values of `fields` as the file has them.
+    #[must_use]
+    pub fn new(fields: &[Field]) -> FormValues {
+        let original: BTreeMap<String, String> = fields
+            .iter()
+            .map(|f| (f.name.clone(), f.value.clone()))
+            .collect();
+        FormValues {
+            values: original.clone(),
+            original,
+        }
+    }
+
+    /// The value of field `name` (empty for an unknown one).
+    #[must_use]
+    pub fn get(&self, name: &str) -> &str {
+        self.values.get(name).map_or("", String::as_str)
+    }
+
+    /// Sets field `name`'s value; `true` when that changed it.
+    pub fn set(&mut self, name: &str, value: &str) -> bool {
+        if self.get(name) == value {
+            return false;
+        }
+        self.values.insert(name.to_string(), value.to_string());
+        true
+    }
+
+    /// The values that differ from the file's, by name.
+    #[must_use]
+    pub fn changed(&self) -> Vec<(String, String)> {
+        self.values
+            .iter()
+            .filter(|(name, value)| self.original.get(*name) != Some(*value))
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect()
+    }
+
+    /// Every value, by name (what a filled copy is saved with).
+    #[must_use]
+    pub fn all(&self) -> Vec<(String, String)> {
+        self.values
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect()
+    }
+
+    /// Whether the user changed anything.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        !self.changed().is_empty()
+    }
+}
+
+/// The name a filled copy of `title` is offered under.
+#[must_use]
+pub fn filled_name(title: &str) -> String {
+    let title = title.trim();
+    if title.is_empty() {
+        "filled.pdf".to_string()
+    } else {
+        format!("{title} (filled).pdf")
+    }
+}
+
 // ==== The export switches (for the Chrome probe) ====
 
 /// The width `--export-png` draws at without `--width` (Letter at 96 dpi).
@@ -544,6 +696,9 @@ pub enum ExportFormat {
     Png,
     /// The page's SVG (azul's PDF -> SVG).
     Svg,
+    /// The whole PDF with its form filled from the `--set` values and
+    /// flattened (the viewer's "Export filled PDF").
+    Filled,
 }
 
 /// `--export-png OUT | --export-svg OUT [--page N] [--width W] FILE`: one page
@@ -556,6 +711,8 @@ pub struct ExportRequest {
     pub page: usize,
     pub width: u32,
     pub file: String,
+    /// `--set NAME=VALUE`: a form field's value (`--export-filled`).
+    pub values: Vec<(String, String)>,
 }
 
 /// The export the command line asks for: `None` without an `--export-*`
@@ -564,10 +721,11 @@ pub struct ExportRequest {
 pub fn parse_export(args: &[String]) -> Option<Result<ExportRequest, String>> {
     if !args
         .iter()
-        .any(|a| a == "--export-png" || a == "--export-svg")
+        .any(|a| a == "--export-png" || a == "--export-svg" || a == "--export-filled")
     {
         return None;
     }
+    let mut values = Vec::new();
     let mut format = ExportFormat::Png;
     let mut out = None;
     let mut page = 0;
@@ -578,11 +736,11 @@ pub fn parse_export(args: &[String]) -> Option<Result<ExportRequest, String>> {
         let arg = args[i].as_str();
         let value = args.get(i + 1);
         match arg {
-            "--export-png" | "--export-svg" => {
-                format = if arg == "--export-png" {
-                    ExportFormat::Png
-                } else {
-                    ExportFormat::Svg
+            "--export-png" | "--export-svg" | "--export-filled" => {
+                format = match arg {
+                    "--export-png" => ExportFormat::Png,
+                    "--export-svg" => ExportFormat::Svg,
+                    _ => ExportFormat::Filled,
                 };
                 let Some(v) = value else {
                     return Some(Err(format!("{arg} needs an output file")));
@@ -595,6 +753,13 @@ pub fn parse_export(args: &[String]) -> Option<Result<ExportRequest, String>> {
                     return Some(Err("--page needs a page number (1 = the first)".to_string()));
                 };
                 page = n.saturating_sub(1);
+                i += 2;
+            }
+            "--set" => {
+                let Some((name, value)) = value.and_then(|v| v.split_once('=')) else {
+                    return Some(Err("--set needs NAME=VALUE (a form field and its value)".to_string()));
+                };
+                values.push((name.to_string(), value.to_string()));
                 i += 2;
             }
             "--width" => {
@@ -617,10 +782,12 @@ pub fn parse_export(args: &[String]) -> Option<Result<ExportRequest, String>> {
             page,
             width,
             file,
+            values,
         })),
         _ => Some(Err(
             "usage: AzPdf --export-png OUT.png | --export-svg OUT.svg \
-                       [--page N] [--width W] FILE.pdf"
+                       [--page N] [--width W] FILE.pdf | --export-filled OUT.pdf \
+                       [--set NAME=VALUE]... FILE.pdf"
                 .to_string(),
         )),
     }

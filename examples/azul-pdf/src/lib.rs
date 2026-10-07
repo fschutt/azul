@@ -23,7 +23,15 @@
 //! stdout, for scripts (`scripts/azpdf_e2e.py`): `AZPDF_OPENED <pages> <path>`,
 //! `AZPDF_OPEN_ERROR <why>`, `AZPDF_RENDERED <page> dom` (a page's DOM made,
 //! 1-based), `AZPDF_PAGE <n>` when the current page changes,
-//! `AZPDF_ZOOM <percent>`, `AZPDF_HITS <n>`, `AZPDF_RECENT_SAVED`.
+//! `AZPDF_ZOOM <percent>`, `AZPDF_HITS <n>`, `AZPDF_RECENT_SAVED`,
+//! `AZPDF_FORM <fields>` when a document with a form opens, `AZPDF_FIELD
+//! <name>=<value>` when the user changes a field, `AZPDF_FILLED <bytes>` when a
+//! filled copy is saved.
+//!
+//! A PDF with a form shows an input over each field (a text box, a check
+//! box, a drop-down); "Export filled PDF" saves a flattened copy with the
+//! values (`ParsedPdf::fill_form`). Without a window: `AzPdf --export-filled
+//! OUT.pdf [--set NAME=VALUE]... FILE.pdf`.
 
 use std::{
     ops::Range,
@@ -62,8 +70,8 @@ mod model_tests;
 
 use jobs::{Doc, Done, Job, JobInit, Kind, Outcome};
 use model::{
-    plan_renders, render_width, search, ExportFormat, ExportRequest, Hit, PageCache, Recent,
-    RecentDoc, Strip, Zoom,
+    filled_name, plan_renders, render_width, search, ExportFormat, ExportRequest, FormValues,
+    Hit, PageCache, Recent, RecentDoc, Strip, Zoom,
 };
 
 /// What azul-appkit's switches know about AzPdf.
@@ -177,6 +185,8 @@ pub struct AppState {
     pub saving_recent: bool,
     pub last_recent_save: StdInstant,
     pub search: SearchState,
+    /// The form's values as the user has them.
+    pub form: FormValues,
     /// Scroll to this page once the view has laid out (after an open or a
     /// zoom change).
     pub pending_scroll: Option<usize>,
@@ -214,6 +224,7 @@ impl AppState {
             saving_recent: false,
             last_recent_save: StdInstant::now(),
             search: SearchState::default(),
+            form: FormValues::default(),
             pending_scroll: None,
             status: String::new(),
             pump: TimerId::unique(),
@@ -428,6 +439,8 @@ fn export(request: &ExportRequest) -> Result<String, String> {
         ));
     }
     let bytes = match request.format {
+        ExportFormat::Filled => jobs::fill_pdf(&doc.pdf, &request.values, Vec::new(), true)
+            .map_err(|why| format!("the form could not be filled: {why}"))?,
         ExportFormat::Svg => jobs::page_svg(&doc.pdf, request.page)
             .ok_or_else(|| "the page has no SVG".to_string())?
             .into_bytes(),
@@ -537,6 +550,10 @@ fn show(s: &mut AppState, doc: Doc) {
     s.thumbs.clear();
     s.running.clear();
     s.search = SearchState::default();
+    s.form = FormValues::new(&doc.fields);
+    if !doc.fields.is_empty() {
+        println!("AZPDF_FORM {}", doc.fields.len());
+    }
     s.doc = Some(doc);
     s.current_page = last;
     s.shown_page = last;
@@ -731,6 +748,26 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             }
             s.search.texts = Some(texts);
             s.run_search();
+            Update::RefreshDom
+        }
+        Outcome::Filled {
+            generation,
+            name,
+            result,
+        } => {
+            if generation != s.generation {
+                return Update::DoNothing;
+            }
+            match result {
+                Ok(bytes) => {
+                    let len = bytes.len();
+                    if azul::dialog::FileDialog::save_bytes(name.as_str(), "application/pdf", bytes) {
+                        println!("AZPDF_FILLED {len}");
+                        s.status = format!("Saved {name}");
+                    }
+                }
+                Err(why) => s.status = format!("The form could not be filled: {why}"),
+            }
             Update::RefreshDom
         }
         Outcome::Sample { result } => match result {
@@ -1059,6 +1096,28 @@ pub extern "C" fn on_search_close(mut data: RefAny, _info: CallbackInfo) -> Upda
         texts: s.search.texts.take(),
         ..SearchState::default()
     };
+    Update::RefreshDom
+}
+
+/// The toolbar's "Export filled PDF": the document with the form's values,
+/// flattened, made on a Thread and offered in a save dialog.
+pub extern "C" fn on_export_filled(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let handle = data.clone();
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let Some((pdf, title)) = s.doc.as_ref().map(|d| (d.pdf.clone(), d.title.clone())) else {
+        return Update::DoNothing;
+    };
+    s.status = "Filling in the form\u{2026}".to_string();
+    let job = Job::Fill {
+        generation: s.generation,
+        pdf,
+        values: s.form.all(),
+        stamps: Vec::new(),
+        name: filled_name(&title),
+    };
+    spawn(&mut info, &handle, job);
     Update::RefreshDom
 }
 

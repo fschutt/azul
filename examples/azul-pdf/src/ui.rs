@@ -9,17 +9,20 @@
 
 use azul::{
     callbacks::{
-        ButtonOnClickCallbackType, DropDownOnChoiceChangeCallbackType,
-        SegmentedOnChangeCallbackType, TextInputOnVirtualKeyDownCallbackType,
+        ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
+        DropDownOnChoiceChangeCallbackType, SegmentedOnChangeCallbackType,
+        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallbackType,
         ToolbarOnEventCallbackType,
     },
+    css::{Css, CssDeclaration, CssPropertyWithConditions},
     image::ImageRef,
     prelude::*,
     shells::{DocumentShell, ShellEmptyState, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    vec::StringVec,
+    vec::{CssPropertyWithConditionsVec, StringVec},
     widgets::{
-        DropDown, Segmented, StatusBar, StatusBarSegment, Toolbar, ToolbarEvent, ToolbarEventKind,
+        CheckBox, CheckBoxState, DropDown, OnTextInputReturn, Segmented, StatusBar,
+        StatusBarSegment, TextInputState, TextInputValid, Toolbar, ToolbarEvent, ToolbarEventKind,
         ToolbarItem,
     },
 };
@@ -27,7 +30,7 @@ use azul_appkit::ui as kit;
 
 use crate::{
     ids,
-    model::{file_title, size_label, Strip, Zoom, PAGE_GAP, VIEW_PAD},
+    model::{file_title, size_label, Field, FieldKind, FieldWidget, Strip, Zoom, PAGE_GAP, VIEW_PAD},
     AppState, Nav,
 };
 
@@ -245,7 +248,8 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         .dom()
         .with_id(ids::SEARCH_FIELD);
 
-    let items = vec![
+    let has_form = s.doc.as_ref().is_some_and(|d| !d.fields.is_empty());
+    let mut items = vec![
         ToolbarItem::create_button(ids::OPEN, "Open", "folder_open").with_show_label(true),
         ToolbarItem::create_separator(),
         prev,
@@ -261,6 +265,14 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
             .with_never_overflow(true),
         ToolbarItem::create_button(ids::SETTINGS, "Settings", "settings"),
     ];
+    if has_form {
+        // After Open: the document's own command.
+        items.insert(
+            1,
+            ToolbarItem::create_button(ids::EXPORT_FILLED, "Export filled PDF", "download")
+                .with_show_label(true),
+        );
+    }
     Toolbar::create("Document")
         .with_items(items)
         .with_on_event(data.clone(), on_toolbar as ToolbarOnEventCallbackType)
@@ -286,6 +298,8 @@ extern "C" fn on_toolbar(data: RefAny, info: CallbackInfo, event: ToolbarEvent) 
         crate::on_zoom_in(data, info)
     } else if id == ids::SETTINGS.as_str() {
         crate::on_settings_open(data, info)
+    } else if id == ids::EXPORT_FILLED.as_str() {
+        crate::on_export_filled(data, info)
     } else {
         Update::DoNothing
     }
@@ -336,6 +350,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         Some(view) => view.app.clone(),
         None => return VirtualViewReturn::default(),
     };
+    let cb_app = app.clone();
     let Some(mut guard) = app.downcast_mut::<AppState>() else {
         return VirtualViewReturn::default();
     };
@@ -377,7 +392,26 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         let (w, h) = strip.sizes[page];
         let x = ((view_w - w) / 2.0).max(VIEW_PAD);
         let dom = s.pages.get(page, crate::PAGE_DOM);
-        root.add_child(page_frame(page, x, strip.tops[page] - top, w, h, dom));
+        let mut frame = page_frame(page, x, strip.tops[page] - top, w, h, dom);
+        // The form's inputs over the page, at the page's scale.
+        if let Some(doc) = s.doc.as_ref() {
+            let px_per_pt = doc.sizes.get(page).map_or(0.0, |p| w / p.width_pt.max(1.0));
+            for (fi, field) in doc.fields.iter().enumerate() {
+                for (wi, widget) in field.widgets.iter().enumerate() {
+                    if widget.page == page {
+                        frame.add_child(field_input(
+                            (fi, wi),
+                            field,
+                            widget,
+                            s.form.get(&field.name),
+                            px_per_pt,
+                            &cb_app,
+                        ));
+                    }
+                }
+            }
+        }
+        root.add_child(frame);
     }
     VirtualViewReturn::with_dom(
         root,
@@ -415,6 +449,179 @@ fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<Dom>) -> 
         ),
     }
     frame
+}
+
+// ==== The form: an input over each field ====
+
+/// What a field's input hands its callback: the app, the field and widget.
+struct FieldRef {
+    app: RefAny,
+    field: usize,
+    widget: usize,
+}
+
+/// The input of `field`'s `widget` over its page, `px_per_pt` CSS px per
+/// point: a text box, a check box (a radio button is one too) or a drop-down
+/// in a box at the field's place, tinted like a form field; a read-only
+/// field shows its value as text. The box places it: a widget's own style
+/// outranks CSS given to its DOM, so the widget only fills the box.
+fn field_input(
+    (fi, wi): (usize, usize),
+    field: &Field,
+    widget: &FieldWidget,
+    value: &str,
+    px_per_pt: f32,
+    app: &RefAny,
+) -> Dom {
+    let (x, y, w, h) = widget.rect;
+    let place = format!(
+        "position: absolute; left: {}px; top: {}px; width: {}px; height: {}px; \
+         box-sizing: border-box; margin: 0px;",
+        x * px_per_pt,
+        y * px_per_pt,
+        w * px_per_pt,
+        h * px_per_pt
+    );
+    let font = format!("font-size: {}px;", field.font_px(widget, px_per_pt));
+    let id = AzString::from(format!("{}{fi}-{wi}", ids::FIELD_PREFIX));
+    let data = || {
+        RefAny::new(FieldRef {
+            app: app.clone(),
+            field: fi,
+            widget: wi,
+        })
+    };
+    let boxed = |input: Dom| {
+        Dom::create_div()
+            .with_id(id.clone())
+            .with_css(format!("{place} display: flex; background: #dbe6fbcc;").as_str())
+            .with_child(input.with_css("flex-grow: 1; width: 100%; height: 100%; min-height: 0px;"))
+    };
+    if field.read_only {
+        return Dom::create_span_with_text(value)
+            .with_id(id)
+            .with_css(format!("{place} {font} color: #000000; overflow: hidden;").as_str());
+    }
+    let input = match field.kind {
+        FieldKind::Text => {
+            let input = if field.password {
+                TextInput::create_password()
+            } else {
+                TextInput::create()
+            };
+            // On paper in either mode: the field's tint shows through, the
+            // ink is black (the input's own look follows the dark mode).
+            input
+                .with_text(value)
+                .with_accessibility_name(field.name.as_str())
+                .with_container_style(paper_style(&format!(
+                    "position: relative; cursor: text; box-sizing: border-box; \
+                     min-height: 0px; flex-grow: 1; background: transparent; color: #000000; \
+                     padding: 0px 3px; border: none; {font}"
+                )))
+                .with_label_style(paper_style(
+                    "display: block; flex-grow: 0; position: relative; overflow-x: auto; \
+                     overflow-y: hidden; scrollbar-width: none; white-space: pre; color: #000000;",
+                ))
+                .with_on_text_input(data(), on_field_text as TextInputOnTextInputCallbackType)
+                .dom()
+                .with_css(font.as_str())
+        }
+        FieldKind::CheckBox | FieldKind::Radio => {
+            CheckBox::create(Field::is_checked(value, widget))
+                .with_accessibility_name(field.name.as_str())
+                .with_on_toggle(data(), on_field_toggle as CheckBoxOnToggleCallbackType)
+                .dom()
+        }
+        FieldKind::Choice => {
+            let labels: Vec<&str> = field.options.iter().map(String::as_str).collect();
+            let selected = field.options.iter().position(|o| o == value).unwrap_or(0);
+            DropDown::create(strs(&labels))
+                .with_selected(selected)
+                .with_accessibility_name(field.name.as_str())
+                .with_on_choice_change(data(), on_field_choice as DropDownOnChoiceChangeCallbackType)
+                .dom()
+                .with_css(font.as_str())
+        }
+        FieldKind::Other => return Dom::create_div().with_id(id).with_css(place.as_str()),
+    };
+    boxed(input)
+}
+
+/// The declarations of the inline CSS `css` as a widget's part style that
+/// looks the same in either mode: each one again as its own dark twin, so the
+/// theme adds none of its own.
+fn paper_style(css: &str) -> CssPropertyWithConditionsVec {
+    let parsed = Css::parse_inline(css);
+    let mut out = Vec::new();
+    for rule in parsed.rules.as_ref() {
+        for declaration in rule.declarations.as_ref() {
+            if let CssDeclaration::Static(property) = declaration {
+                out.push(CssPropertyWithConditions::simple(property.clone()));
+                out.push(CssPropertyWithConditions::dark_mode(property.clone()));
+            }
+        }
+    }
+    out.into()
+}
+
+/// Sets field `fi`'s value; `widget` picks a check box's / radio button's
+/// on-state. Prints `AZPDF_FIELD <name>=<value>` when that changed it.
+fn set_field(data: &mut RefAny, set: impl FnOnce(&Field, &FieldWidget) -> Option<String>) -> bool {
+    let Some((mut app, fi, wi)) = data
+        .downcast_ref::<FieldRef>()
+        .map(|r| (r.app.clone(), r.field, r.widget))
+    else {
+        return false;
+    };
+    let Some(mut s) = app.downcast_mut::<AppState>() else {
+        return false;
+    };
+    let Some((name, value)) = s.doc.as_ref().and_then(|d| {
+        let field = d.fields.get(fi)?;
+        let value = set(field, field.widgets.get(wi)?)?;
+        Some((field.name.clone(), value))
+    }) else {
+        return false;
+    };
+    let changed = s.form.set(&name, &value);
+    if changed {
+        println!("AZPDF_FIELD {name}={value}");
+    }
+    changed
+}
+
+extern "C" fn on_field_text(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    let text = state.get_text().as_str().to_string();
+    set_field(&mut data, |_, _| Some(text));
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
+}
+
+extern "C" fn on_field_toggle(mut data: RefAny, _info: CallbackInfo, state: CheckBoxState) -> Update {
+    let changed = set_field(&mut data, |field, widget| match (field.kind, state.checked) {
+        (_, true) => Some(Field::on_value(widget)),
+        (FieldKind::CheckBox, false) => Some("Off".to_string()),
+        // A radio button is unchecked by checking another one.
+        _ => None,
+    });
+    if changed {
+        // A radio group's other buttons follow.
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
+extern "C" fn on_field_choice(mut data: RefAny, _info: CallbackInfo, index: usize) -> Update {
+    set_field(&mut data, |field, _| field.options.get(index).cloned());
+    Update::DoNothing
 }
 
 // ==== The navigation pane: thumbnails or the outline ====

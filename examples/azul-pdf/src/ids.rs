@@ -33,6 +33,10 @@ pub const ZOOM: AzString = AzString::from_const_str("__azpdf_zoom");
 pub const ZOOM_IN: AzString = AzString::from_const_str("__azpdf_zoom-in");
 pub const SEARCH_FIELD: AzString = AzString::from_const_str("__azpdf_search");
 pub const SETTINGS: AzString = AzString::from_const_str("__azpdf_settings");
+pub const EXPORT_FILLED: AzString = AzString::from_const_str("__azpdf_export-filled");
+/// A form field's input over a page: the prefix, the field's index, `-`, the
+/// widget's index.
+pub const FIELD_PREFIX: &str = "__azpdf_field-";
 
 /// The navigation pane: its Pages / Outline switch and the outline list.
 pub const NAV_TABS: AzString = AzString::from_const_str("__azpdf_nav-tabs");
