@@ -10357,7 +10357,12 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) {
-        let context = self.dynamic_selector_context(window_state);
+        // The mode the window's context will carry (`dynamic_selector_context`
+        // builds the whole context; only a view that moved needs it).
+        let mode = match self.window_mode_for(window_state.mode) {
+            azul_core::window::DarkLightMode::Dark => azul_css::system::DarkLightMode::Dark,
+            azul_core::window::DarkLightMode::Light => azul_css::system::DarkLightMode::Light,
+        };
         let Some(kept) = self.layout_results.get(&child) else {
             return;
         };
@@ -10366,11 +10371,12 @@ impl LayoutWindow {
         let mode_moved = cache
             .dynamic_context
             .as_deref()
-            .is_none_or(|kept_context| kept_context.mode != context.mode);
+            .is_none_or(|kept_context| kept_context.mode != mode);
         if !host_moved && !mode_moved {
             return;
         }
         let viewport = LogicalRect::new(LogicalPosition::zero(), kept.viewport.size);
+        let context = self.dynamic_selector_context(window_state);
         let Some(kept) = self.layout_results.remove(&child) else {
             return;
         };
