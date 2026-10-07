@@ -35,6 +35,7 @@
 //! `AZMAPS_PLACE <index>` when a place's card opens, `AZMAPS_TRAVEL <mode>
 //! <from> <to>` when the travel panel changes, `AZMAPS_SIDEBAR open|closed`.
 
+pub mod args;
 pub mod ids;
 pub mod model;
 
