@@ -219,15 +219,22 @@ pub fn travel_line(mode: TravelMode, from: Option<(f64, f64)>, to: Option<(f64, 
     format!("AZMAPS_TRAVEL {} {} {}", mode.key(), end(from), end(to))
 }
 
-/// Whether a mark at `p` (view pixels) shows in a `width` x `height` view.
+/// Whether a mark at `p` (view pixels) shows in a `width` x `height` view: a
+/// pin's head reaches 40 px left, right and up of its point and its box 60 px
+/// below it (where the window draws a place, it draws it only then).
 #[must_use]
 pub fn mark_visible(p: (f32, f32), width: f32, height: f32) -> bool {
-    let _ = (p, width, height);
-    true
+    p.0 > -40.0 && p.0 < width + 40.0 && p.1 > -40.0 && p.1 < height + 60.0
 }
 
-/// Whether the window draws anything at a place on the map at the view
-/// `project` stands for.
+/// Whether the window draws anything AT A PLACE on the map - a pin, the
+/// travel line or its ends, where you are - in a `size` view whose projection
+/// is `project` (`(lat, lon)` to view pixels).
+///
+/// The map moves its tiles itself, inside its own view. The window is rebuilt
+/// for a pan only to move what IT draws over the map, so only while there is
+/// something: before and after a step of the pan. Every pointer move of a pan
+/// used to rebuild the whole window.
 #[must_use]
 pub fn overlay_shows(
     project: impl Fn(f64, f64) -> (f32, f32),
@@ -236,19 +243,30 @@ pub fn overlay_shows(
     travel: Option<((f64, f64), (f64, f64))>,
     here: Option<(f64, f64)>,
 ) -> bool {
-    let _ = (project, size, pins, travel, here);
-    true
+    let (w, h) = size;
+    let shows = |(lat, lon): (f64, f64)| mark_visible(project(lat, lon), w, h);
+    if pins.iter().any(|pin| shows(*pin)) || here.is_some_and(shows) {
+        return true;
+    }
+    travel.is_some_and(|(a, b)| {
+        shows(a) || shows(b) || clip_segment(project(a.0, a.1), project(b.0, b.1), w, h).is_some()
+    })
 }
 
-/// How much longer a way is than the crow flies.
+/// How much longer a way by road or path is than the crow flies: ROUTING.md's
+/// first step, the straight-line estimate.
 pub const DETOUR_FACTOR: f64 = 1.3;
 
 impl TravelMode {
-    /// A typical door-to-door speed, km/h.
+    /// A typical door-to-door speed, km/h: the estimate's divisor.
     #[must_use]
     pub const fn speed_kmh(self) -> f64 {
-        let _ = self;
-        1.0
+        match self {
+            Self::Car => 80.0,
+            Self::Walk => 5.0,
+            Self::Bike => 16.0,
+            Self::Transit => 40.0,
+        }
     }
 }
 
@@ -259,25 +277,46 @@ pub struct RouteEstimate {
     pub minutes: f64,
 }
 
-/// The straight-line estimate of a route.
+/// The straight-line estimate of a route (ROUTING.md, step 1): the
+/// great-circle distance times [`DETOUR_FACTOR`], at the mode's speed. What
+/// the route worker answers until the routing tiles and A* exist.
 #[must_use]
 pub fn estimate_route(from: (f64, f64), to: (f64, f64), mode: TravelMode) -> RouteEstimate {
-    let _ = (from, to, mode);
-    todo!()
+    let km = distance_km(from, to) * DETOUR_FACTOR;
+    RouteEstimate {
+        km,
+        minutes: km / mode.speed_kmh() * 60.0,
+    }
 }
 
-/// A travel time the way the panel shows it.
+/// A travel time the way the panel shows it: `~ 25 min`, `~ 5 h 10 min`,
+/// `~ 2 h`; at least a minute.
 #[must_use]
 pub fn duration_text(minutes: f64) -> String {
-    let _ = minutes;
-    todo!()
+    let total = if minutes.is_finite() {
+        (minutes.round() as u64).max(1)
+    } else {
+        1
+    };
+    let (h, m) = (total / 60, total % 60);
+    match (h, m) {
+        (0, m) => format!("~ {m} min"),
+        (h, 0) => format!("~ {h} h"),
+        (h, m) => format!("~ {h} h {m} min"),
+    }
 }
 
-/// `AZMAPS_ROUTE <mode> <km> <minutes> <compute_ms>` for scripts.
+/// `AZMAPS_ROUTE <mode> <km> <minutes> <compute_ms>`: the route the travel
+/// panel took, and how long the worker worked it out, for scripts.
 #[must_use]
 pub fn route_line(mode: TravelMode, route: RouteEstimate, compute_ms: f64) -> String {
-    let _ = (mode, route, compute_ms);
-    todo!()
+    format!(
+        "AZMAPS_ROUTE {} {:.1} {:.0} {:.3}",
+        mode.key(),
+        route.km,
+        route.minutes,
+        compute_ms
+    )
 }
 
 /// The part of the segment `a`-`b` inside the `width` x `height` view

@@ -7,7 +7,9 @@ use azul_appkit::{args::help, AppArgs};
 /// What the command line asked for.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Args {
-    /// `--stats`: the map's counters on stdout.
+    /// `--stats` (else `AZMAPS_STATS=1`): the map's counters on stdout -
+    /// `AZ_MAP_TILES` / `AZ_MAP_RENDER` from the map widget, `AZ_MAP_TILE`
+    /// from its tile worker, `AZMAPS_LAYOUT` for every window rebuild.
     pub stats: bool,
     /// `-h` / `--help`.
     pub help: bool,
@@ -18,10 +20,20 @@ pub struct Args {
 /// The usage text: appkit's, then AzMaps' own switches.
 #[must_use]
 pub fn usage() -> String {
-    help(&crate::SPEC)
+    let mut text = help(&crate::SPEC);
+    text.push_str(
+        "\nAZMAPS:\n    --stats                  Print the map's counters on stdout: AZ_MAP_TILES \
+         (tiles\n                             by state), AZ_MAP_RENDER (each render of the \
+         tiles),\n                             AZ_MAP_TILE (each tile's fetch / decode / draw \
+         ms),\n                             AZMAPS_LAYOUT (each window rebuild). Also \
+         AZMAPS_STATS=1\n",
+    );
+    text
 }
 
-/// Reads `argv` (without the program name); `env_stats` is `AZMAPS_STATS=1`.
+/// Reads `argv` (without the program name); `env_stats` is whether
+/// `AZMAPS_STATS` is set (`1`), the fallback for `--stats`. `--key value` and
+/// `--key=value` both work for appkit's switches.
 ///
 /// # Errors
 /// What is wrong with the command line.
@@ -30,8 +42,29 @@ where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let _ = (argv.into_iter().count(), env_stats);
-    todo!()
+    let argv: Vec<String> = argv.into_iter().map(Into::into).collect();
+    if argv.iter().any(|a| a == "-h" || a == "--help") {
+        return Ok(Args {
+            help: true,
+            ..Args::default()
+        });
+    }
+    let mut stats = env_stats;
+    let mut rest = Vec::with_capacity(argv.len());
+    for arg in argv {
+        if arg == "--stats" {
+            stats = true;
+        } else if arg.starts_with("--stats=") {
+            return Err("--stats takes no value".to_string());
+        } else {
+            rest.push(arg);
+        }
+    }
+    Ok(Args {
+        stats,
+        help: false,
+        kit: AppArgs::parse(&crate::SPEC, rest)?,
+    })
 }
 
 #[cfg(test)]
