@@ -413,7 +413,15 @@ fn drive_tile(s: &DriveState, app: &RefAny, index: usize) -> Dom {
         .with_on_double_click(data, on_place_open as TileOnClickCallbackType)
         .dom()
         .with_class(ids::DRIVE_CLASS)
-        .with_css(format!("width: 260px; margin: 0px 8px 8px 0px; {}", look::TILE_LIFT))
+        .with_css(tile_css(260, s.selected_drive == Some(index)))
+}
+
+/// A Tile's place in a wrapping row: its width, the room around it, the lift of a selected one.
+fn tile_css(width: u32, selected: bool) -> String {
+    format!(
+        "width: {width}px; margin: 0px 8px 8px 0px; {}",
+        if selected { look::TILE_SELECTED } else { "" }
+    )
 }
 
 /// This PC: the drives, local and in the cloud, as tiles in groups.
@@ -466,7 +474,7 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
                 .with_on_click(data.clone(), on_place_click as TileOnClickCallbackType)
                 .with_on_double_click(data, on_place_open as TileOnClickCallbackType)
                 .dom()
-                .with_css(format!("width: 250px; margin: 0px 8px 8px 0px; {}", look::TILE_LIFT))
+                .with_css(tile_css(250, s.selected_pin == Some(i)))
         })
         .collect();
     let pinned = if pins.is_empty() {
@@ -494,7 +502,7 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
                 )))
                 .with_on_double_click(data, on_place_open as TileOnClickCallbackType)
                 .dom()
-                .with_css(format!("width: 250px; margin: 0px 8px 8px 0px; {}", look::TILE_LIFT))
+                .with_css(tile_css(250, false))
         })
         .collect();
     let recent_count = recent.len();
@@ -1130,7 +1138,7 @@ fn tile_cell(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     } else {
         format!("{}, {}", entry.kind(), browse::format_size(entry.size))
     };
-    let mut css = format!("width: 250px; margin: 0px 8px 8px 0px; {}", look::TILE_LIFT);
+    let mut css = tile_css(250, s.selection.contains(&entry.key));
     if actions::is_cut(s, &entry.key) {
         css.push_str(" opacity: 0.5;");
     }

@@ -9,7 +9,7 @@
 //! a selected source is the accent stone (`--az-accent`) under paper ink, with a lip and a cast;
 //! the Details header is the raised face (`--fl-rT` -> `--fl-rB`), its rows alternate field paper
 //! with a quiet wash, a selected item rests on the accent's soft wash (flora's data table and
-//! icon grid), and an icon cell lifts off the paper under the pointer.
+//! icon grid), and a selected icon cell or tile lifts off the paper.
 //!
 //! FLAT (Office 2010): the same structure in Office's silver-blue - a white leaf in a thin silver
 //! rule on the silver page, the source list on Outlook's navigation-pane gradient, Office's
@@ -17,10 +17,20 @@
 //!
 //! Each part carries all four looks in ONE string ([`themed!`]): flat by day, flat at night
 //! (`@media (prefers-color-scheme: dark)`), flora by day and flora at night (`@theme(flora)`).
-//! Under flora a `@theme(flora)` declaration outranks every unthemed one, whatever its state
-//! (`azul_css::css::winning_inline_in`: the lowest theme rank wins, then the last in source
-//! order) - so a flora block restates every state it styles, and a part's states (selected,
-//! focused, a drop over it) are appended AFTER its resting look.
+//! How the engine resolves such a string (`Dom::with_css`: a stylesheet scoped to the node,
+//! `core::prop_cache`): a pseudo-state TIER beats the resting one whatever the rank (`:focus` >
+//! `:drag-over` > `:hover` > at rest); within a tier the lowest theme rank wins (a
+//! `@theme(flora)` declaration over an unthemed one), then the higher specificity, then the
+//! later one. And a `:hover { .. }` block is scoped to the node's whole SUBTREE: it also styles
+//! every hovered element inside it. Hence the rules this module keeps:
+//!
+//! - a part's states (selected, focused, a drop over it) are appended AFTER its resting look;
+//! - a state that paints a background restates it under `:hover` (solid: the block reaches the
+//!   hovered children, where a gradient would restart on each child's box), or the hover wash
+//!   would replace it under the pointer (a selected row, a pill);
+//! - a hover only ever paints OPAQUE backgrounds (a translucent one would darken twice over a
+//!   hovered child) and never a shadow (it would cast one around every hovered child): a cell
+//!   lifts when it is SELECTED, a resting state that stays on the node alone.
 
 /// One part's look: `base` (every theme), then `flat` by day, `flat_dark`, `flora` by day and
 /// `flora_dark` - runs of declarations; state blocks (`:hover { .. }`) may nest in each.
@@ -90,10 +100,10 @@ pub(crate) const TRIANGLE: &str =
 pub(crate) const ROW: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; height: 24px; \
      margin: 0px 6px 1px 6px; padding-right: 4px; border-radius: 5px; cursor: default;",
-    ":hover { background: rgba(255, 255, 255, 0.55); }",
-    ":hover { background: rgba(255, 255, 255, 0.07); }",
-    ":hover { background: rgba(253, 252, 248, 0.70); }",
-    ":hover { background: rgba(255, 255, 255, 0.06); }",
+    ":hover { background: #F2F5F9; }",
+    ":hover { background: #3A3D43; }",
+    ":hover { background: #F6F5F1; }",
+    ":hover { background: #323232; }",
 );
 
 /// The row of the place the window shows: Finder's rounded highlight - Office's two-stop blue
@@ -101,11 +111,13 @@ pub(crate) const ROW: &str = themed!(
 pub(crate) const ROW_SELECTED: &str = themed!(
     "font-weight: 600;",
     "color: #1E1E1E; background: linear-gradient(to bottom, #DDEBFD, #C1DCFC); \
-     box-shadow: inset 0px 0px 0px 1px #84ACDD;",
+     box-shadow: inset 0px 0px 0px 1px #84ACDD; \
+     :hover { background: #CFE3FC; }",
     "color: #FFFFFF; background: linear-gradient(to bottom, #37577F, #2E4A6E); \
-     box-shadow: inset 0px 0px 0px 1px #4A78B0;",
+     box-shadow: inset 0px 0px 0px 1px #4A78B0; :hover { background: #335277; }",
     "color: var(--az-on-accent, #F4F2EA); background: var(--az-accent, #2F4A85); \
-     box-shadow: inset 0px 1px 0px rgba(255, 255, 255, 0.16), 0px 1px 2px rgba(48, 45, 38, 0.30);",
+     box-shadow: inset 0px 1px 0px rgba(255, 255, 255, 0.16), 0px 1px 2px rgba(48, 45, 38, 0.30); \
+     :hover { background: var(--az-accent, #2F4A85); }",
     "box-shadow: inset 0px 1px 0px rgba(255, 255, 255, 0.10), 0px 1px 3px rgba(0, 0, 0, 0.60);",
 );
 
@@ -147,18 +159,18 @@ pub(crate) const TRIANGLE_ROOM: &str = "width: 16px; flex-shrink: 0; margin-righ
 pub(crate) const PILL: &str = themed!(
     "flex-shrink: 0; margin-left: 4px; padding: 0px 6px; border-radius: 8px; font-size: 10px; \
      font-weight: 700; line-height: 15px;",
-    "color: #FFFFFF; background: #8A9BB3;",
-    "background: #56657A;",
-    "color: #FBFAF6; background: #9C9890;",
-    "color: #E7E7E7; background: #4A4A4A;",
+    "color: #FFFFFF; background: #8A9BB3; :hover { background: #8A9BB3; }",
+    "background: #56657A; :hover { background: #56657A; }",
+    "color: #FBFAF6; background: #9C9890; :hover { background: #9C9890; }",
+    "color: #E7E7E7; background: #4A4A4A; :hover { background: #4A4A4A; }",
 );
 
 /// The pill on a selected row: inverted.
 pub(crate) const PILL_SELECTED: &str = themed!(
     "",
-    "color: #2A63B8; background: #FFFFFF;",
-    "color: #2E4A6E; background: #DDEBFD;",
-    "color: var(--az-accent, #2F4A85); background: #F4F2EA;",
+    "color: #2A63B8; background: #FFFFFF; :hover { background: #FFFFFF; }",
+    "color: #2E4A6E; background: #DDEBFD; :hover { background: #DDEBFD; }",
+    "color: var(--az-accent, #2F4A85); background: #F4F2EA; :hover { background: #F4F2EA; }",
     "",
 );
 
@@ -170,10 +182,10 @@ pub(crate) const EJECT: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; justify-content: center; \
      width: 20px; height: 18px; flex-shrink: 0; margin-left: 2px; border-radius: 4px; \
      font-size: 14px; cursor: pointer;",
-    "color: #626A76; :hover { color: #1E1E1E; background: rgba(0, 0, 0, 0.08); }",
-    "color: #9E9E9E; :hover { color: #F2F2F2; background: rgba(255, 255, 255, 0.10); }",
-    "color: #66645C; :hover { color: #262521; background: rgba(48, 45, 38, 0.10); }",
-    "color: #A8A8A8; :hover { color: #E7E7E7; background: rgba(255, 255, 255, 0.08); }",
+    "color: #626A76; :hover { color: #1E1E1E; background: #D5DCE4; }",
+    "color: #9E9E9E; :hover { color: #F2F2F2; background: #4A4D53; }",
+    "color: #66645C; :hover { color: #262521; background: #DDD9D1; }",
+    "color: #A8A8A8; :hover { color: #E7E7E7; background: #3D3D3D; }",
 );
 
 /// The eject button on a selected row: in the row's ink.
@@ -181,8 +193,7 @@ pub(crate) const EJECT_SELECTED: &str = themed!(
     "",
     "",
     "color: #FFFFFF;",
-    "color: var(--az-on-accent, #F4F2EA); :hover { color: #FFFFFF; \
-     background: rgba(255, 255, 255, 0.16); }",
+    "color: var(--az-on-accent, #F4F2EA); :hover { color: #FFFFFF; background: #4A64A0; }",
     "",
 );
 
@@ -232,15 +243,13 @@ pub(crate) const SIDEBAR_FOOT: &str = themed!(
 pub(crate) const SMALL_BUTTON: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; justify-content: center; \
      width: 30px; height: 24px; font-size: 15px; cursor: pointer;",
-    "border-right: 1px solid #D3D9E0; color: #3D5574; :hover { background: rgba(0, 0, 0, 0.06); } \
+    "border-right: 1px solid #D3D9E0; color: #3D5574; :hover { background: #DDE4EC; } \
      :focus { box-shadow: inset 0px 0px 0px 2px #4286F4; }",
-    "border-right: 1px solid #4D4D4D; color: #DADADA; \
-     :hover { background: rgba(255, 255, 255, 0.08); } \
+    "border-right: 1px solid #4D4D4D; color: #DADADA; :hover { background: #474747; } \
      :focus { box-shadow: inset 0px 0px 0px 2px #4683D6; }",
-    "border-right: 1px solid #D8D5CE; color: #56544C; :hover { background: rgba(48, 45, 38, 0.07); } \
+    "border-right: 1px solid #D8D5CE; color: #56544C; :hover { background: #E3E0D9; } \
      :focus { box-shadow: inset 0px 0px 0px 2px #7A93C6; }",
-    "border-right: 1px solid #383838; color: #BEBEBE; \
-     :hover { background: rgba(255, 255, 255, 0.06); }",
+    "border-right: 1px solid #383838; color: #BEBEBE; :hover { background: #3A3A3A; }",
 );
 
 // ==== The content: a leaf on the page ====
@@ -279,6 +288,11 @@ pub(crate) const LEAF: &str = themed!(
      box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), 0px 4px 12px rgba(0, 0, 0, 0.45);",
 );
 
+/// The details pane (azul's DetailsPane) inside its leaf: it fills the leaf. (A widget's own
+/// declarations are its node's inline style, which outranks a `with_css` sheet: only what the
+/// widget leaves unset can be added.)
+pub(crate) const DETAILS_FILL: &str = "flex-grow: 1;";
+
 // ==== The Details list ====
 
 /// The column headers: a raised face in a hairline.
@@ -298,10 +312,10 @@ pub(crate) const DETAILS_HEADER: &str = themed!(
 pub(crate) const COLUMN: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; \
      padding: 0px 0px 0px 8px; cursor: default;",
-    ":hover { background: linear-gradient(to bottom, #F7FCFE, #CEE7F4); }",
-    ":hover { background: linear-gradient(to bottom, #505050, #444444); }",
-    ":hover { background: linear-gradient(to bottom, #FEFDFA, #F1EFE9); }",
-    ":hover { background: linear-gradient(to bottom, #3F3F3F, #333333); }",
+    ":hover { background: #E3F1FB; }",
+    ":hover { background: #4C4C4C; }",
+    ":hover { background: #F7F5F0; }",
+    ":hover { background: #3A3A3A; }",
 );
 
 /// The sorted column's header: tinted, its label in the accent.
@@ -347,10 +361,14 @@ pub(crate) const ITEM: &str = themed!(
 /// as flora's data table and icon grid).
 pub(crate) const ITEM_SELECTED: &str = themed!(
     "",
-    "background: linear-gradient(to bottom, #DDEBFD, #C1DCFC); border: 1px solid #84ACDD;",
-    "background: linear-gradient(to bottom, #37577F, #2E4A6E); border: 1px solid #4A78B0;",
-    "background: var(--az-accent-soft, #E0E4EE); border: 1px solid #C3CCE0;",
-    "background: var(--az-accent, #2F4A85); border: 1px solid #4A65A0; color: #F4F2EA;",
+    "background: linear-gradient(to bottom, #DDEBFD, #C1DCFC); border: 1px solid #84ACDD; \
+     :hover { background: #C6DDFB; }",
+    "background: linear-gradient(to bottom, #37577F, #2E4A6E); border: 1px solid #4A78B0; \
+     :hover { background: #39597F; }",
+    "background: var(--az-accent-soft, #E0E4EE); border: 1px solid #C3CCE0; \
+     :hover { background: var(--az-accent-soft, #E0E4EE); }",
+    "background: var(--az-accent, #2F4A85); border: 1px solid #4A65A0; color: #F4F2EA; \
+     :hover { background: var(--az-accent, #2F4A85); }",
 );
 
 /// The item the keyboard is on: its hairline in the accent.
@@ -362,35 +380,29 @@ pub(crate) const ITEM_FOCUS: &str = themed!(
     "border: 1px solid #7A93C6;",
 );
 
-/// An icon cell (and a tile): rounded; it lifts off the paper under the pointer.
-pub(crate) const CELL: &str = themed!(
-    "border-radius: 6px;",
-    ":hover { box-shadow: 0px 1px 4px rgba(30, 50, 80, 0.20); }",
-    ":hover { box-shadow: 0px 1px 4px rgba(0, 0, 0, 0.55); }",
-    ":hover { background: #FFFFFF; box-shadow: 0px 1px 2px rgba(48, 45, 38, 0.14), \
-     0px 4px 12px rgba(48, 45, 38, 0.14); }",
-    ":hover { background: #2A2A2A; box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), \
-     0px 4px 12px rgba(0, 0, 0, 0.45); }",
-);
+/// An icon cell: rounded (an item's wash under the pointer; it lifts when selected).
+pub(crate) const CELL: &str = "border-radius: 6px;";
 
-/// A selected icon cell (or tile) stays lifted, in the accent's hairline.
+/// A selected icon cell lifts off the paper, in the accent's hairline (flora).
 pub(crate) const CELL_SELECTED: &str = themed!(
     "",
     "box-shadow: 0px 2px 6px rgba(30, 60, 110, 0.25);",
     "box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.60);",
-    "border: 1px solid var(--az-accent, #2F4A85); \
+    "border: 1px solid #2F4A85; \
      box-shadow: 0px 2px 5px rgba(48, 45, 38, 0.16), 0px 8px 20px rgba(48, 45, 38, 0.14);",
     "border: 1px solid #7A93C6; \
      box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.50), 0px 8px 20px rgba(0, 0, 0, 0.45);",
 );
 
-/// A Tile (This PC's drives, Quick access's folders, the Tiles layout) lifts under the pointer.
-pub(crate) const TILE_LIFT: &str = themed!(
-    "border-radius: 6px;",
-    ":hover { box-shadow: 0px 2px 6px rgba(30, 50, 80, 0.20); }",
-    ":hover { box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.55); }",
-    ":hover { box-shadow: 0px 1px 2px rgba(48, 45, 38, 0.14), 0px 6px 16px rgba(48, 45, 38, 0.16); }",
-    ":hover { box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), 0px 6px 16px rgba(0, 0, 0, 0.45); }",
+/// A selected Tile (This PC's drive, a Quick access folder, an item of the Tiles layout) lifts
+/// off the paper, on the tile's own selection wash (azul's Tile: under the pointer it washes as
+/// its look has it).
+pub(crate) const TILE_SELECTED: &str = themed!(
+    "",
+    "box-shadow: 0px 2px 6px rgba(30, 60, 110, 0.25);",
+    "box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.60);",
+    "box-shadow: 0px 1px 2px rgba(48, 45, 38, 0.14), 0px 6px 16px rgba(48, 45, 38, 0.16);",
+    "box-shadow: 0px 1px 2px rgba(0, 0, 0, 0.55), 0px 6px 16px rgba(0, 0, 0, 0.45);",
 );
 
 // ==== The path bar and the status line, at the foot of the leaf ====
@@ -409,11 +421,10 @@ pub(crate) const PATH_BAR: &str = themed!(
 pub(crate) const CRUMB: &str = themed!(
     "display: flex; flex-direction: row; align-items: center; flex-shrink: 1; min-width: 0px; \
      height: 20px; padding: 0px 5px; border-radius: 4px; cursor: pointer;",
-    ":hover { background: rgba(42, 99, 184, 0.10); } \
-     :drag-over { background: #C1DCFC; }",
-    ":hover { background: rgba(255, 255, 255, 0.08); } :drag-over { background: #2E4A6E; }",
-    ":hover { background: rgba(47, 74, 133, 0.08); } :drag-over { background: #E0E4EE; }",
-    ":hover { background: rgba(255, 255, 255, 0.06); } :drag-over { background: #1E3260; }",
+    ":hover { background: #E2EBF6; } :drag-over { background: #C1DCFC; }",
+    ":hover { background: #3A3A3A; } :drag-over { background: #2E4A6E; }",
+    ":hover { background: #E6E8EE; } :drag-over { background: #E0E4EE; }",
+    ":hover { background: #2E2E2E; } :drag-over { background: #1E3260; }",
 );
 
 /// The open place's own step: in full, bold.
@@ -465,7 +476,7 @@ mod tests {
             SIDEBAR, SECTION_HEAD, ROW, ROW_SELECTED, ROW_FOCUS, ROW_DROP, ICON_TINT, PILL,
             PILL_SELECTED, EJECT, EJECT_SELECTED, ACTIVITY, ACTIVITY_HEAD, ACTIVITY_ERROR,
             SIDEBAR_FOOT, SMALL_BUTTON, PAGE, LEAF, DETAILS_HEADER, COLUMN, COLUMN_SORTED,
-            COLUMN_EDGE, STRIPE, ITEM, ITEM_SELECTED, ITEM_FOCUS, CELL, CELL_SELECTED, TILE_LIFT,
+            COLUMN_EDGE, STRIPE, ITEM, ITEM_SELECTED, ITEM_FOCUS, CELL_SELECTED, TILE_SELECTED,
             PATH_BAR, CRUMB, CRUMB_ICON, STATUS_LINE, STATUS_CHIP,
         ];
         for look in themed_looks {

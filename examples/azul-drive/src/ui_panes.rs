@@ -630,5 +630,5 @@ pub(crate) fn details_pane(s: &DriveState) -> Dom {
             }
         }
     };
-    pane.dom().with_id(ids::DETAILS)
+    pane.dom().with_id(ids::DETAILS).with_css(look::DETAILS_FILL)
 }
