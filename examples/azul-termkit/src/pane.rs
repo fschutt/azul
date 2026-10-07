@@ -30,6 +30,13 @@ use crate::{
 /// other tick only ([`renders_now`]).
 pub const FLOOD_TICKS: u32 = 3;
 
+/// `TERM` / `COLORTERM` for the shells this process starts
+/// (alacritty_terminal's `tty::setup_env`). It writes the process's
+/// environment: call it at the start of `main`, before any thread exists.
+pub fn setup_env() {
+    alacritty_terminal::tty::setup_env();
+}
+
 /// Whether the terminal re-renders on the `streak`-th tick in a row with
 /// new output: at once for output that has just arrived (an echo, a
 /// prompt), on every other tick in a flood (`tree`, a build log) - smooth
