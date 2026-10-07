@@ -264,17 +264,18 @@ runs on an azul `Thread` and resumes on the UI thread, so no callback waits on t
 network. A participant that stops announcing drops off after 120 s, a room after
 a day without announcements.
 
-The start screen has a **Meeting server** field, prefilled with the address saved
-last time, else `AZMEET_WORKER`, else the built-in default (`PRODUCTION_WORKER`,
-baked in with `AZMEET_DEFAULT_WORKER=<url>` at build time, else the local mock at
-`http://127.0.0.1:8787`). Pressing Enter or leaving the field makes its address the
+The start screen has a **Meeting server** field, prefilled with `--worker`, else
+the address saved last time, else `AZMEET_WORKER`, else the built-in default
+(`PRODUCTION_WORKER`, baked in with `AZMEET_DEFAULT_WORKER=<url>` at build time,
+else the local mock at `http://127.0.0.1:8787`). Pressing Enter or leaving the field makes its address the
 meeting server for every request from then on, checks it with `GET /health`, and
 saves it (`AzMeet/settings.txt` in the per-user config folder,
 `FilePath::get_config_dir`; written to a temporary file and renamed) once it
 answers. The line under the field says whether it answers. The in-process demo
 opens only when nothing is saved or set and the built-in default does not answer.
-A headless run (`AZ_BACKEND=headless`) neither reads nor writes the saved address,
-so `AZMEET_WORKER` always wins in tests.
+A headless run (`AZ_BACKEND=headless`) without a data root of its own neither
+reads nor writes the saved address, so `--worker` / `AZMEET_WORKER` always win in
+tests.
 
 ### Video
 
@@ -394,7 +395,7 @@ forwarders is azul's `IrohLoadBalancer`.
 
    ```rust
    let mut balancer = IrohLoadBalancer::create();
-   balancer.set_mesh_cap(mesh_cap); // AZMEET_MESH_CAP, default 4 (the design says 8)
+   balancer.set_mesh_cap(mesh_cap); // --mesh-cap, default 4 (the design says 8)
    for (key, report) in reports {
        let mut capacity = IrohPeerCapacity::create(key, report.uplink_kbps);
        capacity.stability = report.stability;
@@ -443,27 +444,41 @@ forwarders is azul's `IrohLoadBalancer`.
 node cf-workers/meet/dev-server.mjs
 
 # two participants (azul)
-AZMEET_WORKER=http://127.0.0.1:8787 AZMEET_NAME=Ada cargo run --release -p AzMeet
-AZMEET_WORKER=http://127.0.0.1:8787 AZMEET_NAME=Ben cargo run --release -p AzMeet
+cargo run --release -p AzMeet -- --worker http://127.0.0.1:8787 --name Ada
+cargo run --release -p AzMeet -- --worker http://127.0.0.1:8787 --name Ben
 ```
 
 Ada clicks **New meeting** and **Copy link**; Ben pastes the link and clicks
-**Join**. Without a reachable meeting server AzMeet opens its in-process demo
-instead: two windows, one per participant, linked by two endpoints.
+**Join**. Each lands in the meeting's waiting room first: the camera preview, the
+microphone and camera switches, the devices, the name, the meeting's code and link,
+and who is in it already. Without a reachable meeting server AzMeet opens its
+in-process demo instead: two windows, one per participant, linked by two endpoints.
 
-| Variable | Meaning |
+Every setting is a switch (`AzMeet --help`). Each also reads its `AZMEET_*`
+environment variable when the switch is not given (`1` for a switch without a
+value), so older scripts keep working; the switch wins.
+
+| Switch (variable) | Meaning |
 |---|---|
-| `AZMEET_WORKER` | The meeting server when none was saved from the start screen, e.g. `http://127.0.0.1:8787` |
-| `AZMEET_NAME` | The name the others see |
-| `AZMEET_AUTOCREATE=1`, `AZMEET_JOIN=<link>` | Start in a meeting without a click; the link is printed as `AZMEET_LINK <link>` |
-| `AZMEET_RELAY` | `off`, `default` or a relay URL (off for a meeting server on this machine) |
-| `AZMEET_TEST_TONE=1` | A 440 Hz tone replaces the microphone, unmuted from the start |
-| `AZMEET_TEST_PATTERN=1` | Moving colour bars replace the camera (on from the start) and the screen; a **Drop a video packet** button drops the next packet |
-| `AZMEET_VIDEO_CODEC=jpeg` | Send JPEG even where H.264 works |
-| `AZMEET_MESH_CAP=<n>` | Rooms of up to n people send everything directly (default 4) |
-| `AZMEET_UPLINK_KBPS=<kbit/s>` | Report this uplink instead of the estimate |
-| `AZMEET_NO_FORWARD=1`, `AZMEET_ON_BATTERY=1` | Never forward for others; report running on battery |
-| `AZMEET_LAYOUT=speaker`, `AZMEET_STAGE=<name>` | Start in speaker view with that participant on the stage |
+| `--worker <url>` (`AZMEET_WORKER`) | The meeting server, e.g. `http://127.0.0.1:8787`; the switch wins over the one saved from the start screen, the variable does not |
+| `--name <name>` (`AZMEET_NAME`) | The name the others see |
+| `--autocreate`, `--join <link>` (`AZMEET_AUTOCREATE=1`, `AZMEET_JOIN`) | Start in a meeting without a click; the link is printed as `AZMEET_LINK <link>` |
+| `--waiting-room` (`AZMEET_WAITING_ROOM=1`) | With those, stop in the waiting room first (`AZMEET_WAITING <link>`) |
+| `--relay <off\|default\|url>` (`AZMEET_RELAY`) | The iroh relays (off for a meeting server on this machine) |
+| `--relay-only` (`AZMEET_RELAY_ONLY=1`) | Never a direct path: no UDP socket, every packet through the relay (`IrohConfig::with_relay_only`); stdout `AZMEET_TRANSPORT relay-only <url>`, `AZMEET_PATH <peer> relayed` |
+| `--test-tone` (`AZMEET_TEST_TONE=1`) | A 440 Hz tone replaces the microphone, unmuted from the start |
+| `--test-pattern` (`AZMEET_TEST_PATTERN=1`) | Moving colour bars replace the camera (on from the start) and the screen; a **Drop a video packet** button drops the next packet |
+| `--no-echo-cancel` (`AZMEET_ECHO_CANCEL=0`) | Send the microphone as it is (with headphones) |
+| `--video-codec jpeg` (`AZMEET_VIDEO_CODEC`) | Send JPEG even where H.264 works |
+| `--mesh-cap <n>` (`AZMEET_MESH_CAP`) | Rooms of up to n people send everything directly (default 4) |
+| `--uplink-kbps <kbit/s>` (`AZMEET_UPLINK_KBPS`) | Report this uplink instead of the estimate |
+| `--no-forward`, `--on-battery` (`AZMEET_NO_FORWARD=1`, `AZMEET_ON_BATTERY=1`) | Never forward for others; report running on battery |
+| `--layout speaker`, `--stage <name>` (`AZMEET_LAYOUT`, `AZMEET_STAGE`) | Start in speaker view with that participant on the stage |
+| `--panel <people\|chat\|statistics\|closed>` (`AZMEET_PANEL`) | What the call's side panel shows at start |
+
+`--screen waiting` opens a new meeting's waiting room (a preview of one when no
+meeting server answers), and with azul-appkit's `--shot <png>` writes it as a
+screenshot: `AzMeet --screen waiting --test-pattern --theme flora --shot waiting.png`.
 
 ### Test it
 
@@ -477,7 +492,7 @@ mute shows on the other side, and that **Leave** takes a participant off the roo
 at once. `--require-h264` fails a run that fell back to JPEG.
 
 `examples/azul-meet/scripts/three-clients.mjs` runs three headless participants
-with `AZMEET_MESH_CAP=2` and pinned uplinks (Ada 1 Mbps, Ben 50, Cleo 10; Cleo in
+with `--mesh-cap 2` and pinned uplinks (Ada 1 Mbps, Ben 50, Cleo 10; Cleo in
 speaker view with Ben on the stage), so the backbone is Ben and Cleo and Ada is
 Ben's leaf. It checks that every window shows the same plan and routes, that
 everyone hears and sees both others at the planned renditions (360p for grid and
@@ -486,6 +501,19 @@ that Ada sends two renditions and Ben passes only the 90p on to Cleo, that a
 keyframe request of Cleo's reaches Ada through Ben, and that the two left are
 back in the full mesh when Cleo leaves. Both scripts share their helpers in
 `meet-e2e.mjs`.
+
+`scripts/azmeet_e2e.py` runs the call twice. First on this machine without a relay:
+Ben waits in the waiting room (it must say "Ada is in this meeting"), switches his
+microphone and camera, opens the settings and joins; both decode each other's
+video, chat both ways, keep the meeting's files and Ada rejoins. Then through a
+local relay with nothing direct: iroh's own relay server in dev mode
+(`iroh-relay --dev`, plain HTTP on 127.0.0.1; `scripts/iroh_relay_dev.py` starts it
+and reads its metrics), both apps with `--relay <its url> --relay-only`, the same
+waiting room, video and chat, and the proof that the relay carried the call: each
+side prints `AZMEET_PATH <other> relayed` and never `direct`, its statistics say
+so, and the relay's own byte counters grew both ways. Build the relay once, outside
+the repository: `cargo install iroh-relay@1.2.0 --locked --features server --root
+~/.cache/azul/iroh-relay`; without it the relay phase is skipped and says so.
 
 A headless test must never open a real device. Under `AZ_BACKEND=headless` only
 `AudioDeviceList::enumerate` is answered by the mock store (see
