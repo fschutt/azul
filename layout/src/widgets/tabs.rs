@@ -73,6 +73,263 @@ pub(crate) static PANEL_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 ];
 
+// ---- The Australis tab: a selected tab's two curved sides ----
+//
+// Firefox 29-56 ("Australis", 2014) cut its selected tab in three: a start
+// curve, the middle and an end curve. Each side is an S that leaves the
+// strip's foot horizontally, climbs, and rolls over into the tab's top edge,
+// so the tab and the rule it stands on read as one piece. A theme that cuts
+// its selected tab that way (flora's tab bar and ribbon) hangs the two curves
+// off the tab's box with [`australis_curves`]: each is a fixed
+// `CURVE_WIDTH` x `height` box with an SVG user space of one unit per px - so
+// the S keeps its shape on a tab of any width - holding the FILL (the face,
+// clipped to the inside of the S: the engine's own path clip) and the STROKE
+// (the S alone, the tab's edge: the engine's own path stroke, `stroke` /
+// `stroke-width` being the border's spellings). The middle is the tab's own
+// box. The curves are children of the tab, so a press on a foot presses the
+// tab and never the strip behind it.
+
+/// How far a selected tab's foot flares out past its box, each side.
+pub(crate) const CURVE_WIDTH: f32 = 18.0;
+
+/// The left curve.
+pub(crate) const CURVE_LEFT_CLASS: &str = "__azul-native-tab-curve-left";
+/// The right curve.
+pub(crate) const CURVE_RIGHT_CLASS: &str = "__azul-native-tab-curve-right";
+/// The face inside a curve.
+pub(crate) const CURVE_FILL_CLASS: &str = "__azul-native-tab-curve-fill";
+/// The S itself, the tab's edge.
+pub(crate) const CURVE_STROKE_CLASS: &str = "__azul-native-tab-curve-stroke";
+
+/// What a theme decides about the curves of its selected tab.
+#[derive(Debug, Clone)]
+pub(crate) struct TabCurveLook {
+    /// The selected tab's height in px (its border box): the S runs from its
+    /// foot to its top.
+    pub(crate) height: f32,
+    /// The edge's gauge in px: the stroke's width, and that of the tab's top
+    /// edge and the strip's rule, which the S joins - its centre line runs
+    /// half a gauge in from the foot and from the top.
+    pub(crate) gauge: f32,
+    /// The face inside the left S.
+    pub(crate) left_fill: CssPropertyWithConditionsVec,
+    /// The face inside the right S.
+    pub(crate) right_fill: CssPropertyWithConditionsVec,
+    /// The S: its `stroke` (a border width and colour).
+    pub(crate) stroke: CssPropertyWithConditionsVec,
+}
+
+/// `u` (0 at the foot's end, 1 at the tab's side) across a curve `w` wide,
+/// in its user space: the left curve rises left to right, the right one is
+/// its mirror.
+fn curve_x(u: f32, w: f32, left: bool) -> f32 {
+    if left {
+        u * w
+    } else {
+        (1.0 - u) * w
+    }
+}
+
+/// The S of one side in its curve's user space (`w` x `h`): a cubic from the
+/// foot to the top, horizontal at both ends, its control points crossed so
+/// the middle climbs steeply - the Azlin design system's cut of the
+/// Australis tab (`M0 30 C12 30 8 0 22 0`: the controls at 0.55 and 0.36 of
+/// the curve's width).
+fn curve_s(w: f32, h: f32, gauge: f32, left: bool) -> SvgCubicCurve {
+    let (foot, top) = (h - gauge / 2.0, gauge / 2.0);
+    let at = |u: f32, y: f32| SvgPoint {
+        x: curve_x(u, w, left),
+        y,
+    };
+    SvgCubicCurve {
+        start: at(0.0, foot),
+        ctrl_1: at(0.55, foot),
+        ctrl_2: at(0.36, top),
+        end: at(1.0, top),
+    }
+}
+
+/// The inside of the S - between it, the tab's side of the box and the
+/// foot - closed. The stroke covers its curved edge.
+fn curve_fill(s: SvgCubicCurve, w: f32, h: f32, left: bool) -> azul_core::svg::SvgPath {
+    use azul_core::svg::{SvgLine, SvgPath, SvgPathElement, SvgPathElementVec};
+    let foot_corner = SvgPoint {
+        x: curve_x(0.0, w, left),
+        y: h,
+    };
+    let side_corner = SvgPoint {
+        x: curve_x(1.0, w, left),
+        y: h,
+    };
+    SvgPath::create(SvgPathElementVec::from_vec(vec![
+        SvgPathElement::Line(SvgLine::new(foot_corner, s.start)),
+        SvgPathElement::CubicCurve(s),
+        SvgPathElement::Line(SvgLine::new(s.end, side_corner)),
+        SvgPathElement::Line(SvgLine::new(side_corner, foot_corner)),
+    ]))
+}
+
+/// One curve: hung off the tab's `left` or right side, standing on its foot,
+/// the fill and the stroke over the whole of it.
+fn curve(look: &TabCurveLook, left: bool) -> Dom {
+    use azul_core::{
+        dom::SvgNodeData,
+        svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathElementVec, SvgPathVec},
+    };
+
+    use crate::widgets::themes::decl;
+
+    let (w, h) = (CURVE_WIDTH, look.height);
+    let s = curve_s(w, h, look.gauge, left);
+    let shape = |path: SvgPath| {
+        SvgNodeData::Path(SvgMultiPolygon::create(SvgPathVec::from_vec(vec![path])))
+    };
+    // Over the whole curve, as the chart places its shapes: the box IS the
+    // user space, whatever border (stroke) it carries.
+    let over = |own: &CssPropertyWithConditionsVec| {
+        let mut v = vec![
+            decl::position(LayoutPosition::Absolute),
+            decl::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+            decl::simple(CssProperty::const_top(LayoutTop::const_px(0))),
+            decl::simple(CssProperty::const_right(LayoutRight::const_px(0))),
+            decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+        ];
+        v.extend(own.as_ref().iter().cloned());
+        CssPropertyWithConditionsVec::from_vec(v)
+    };
+    let fill = Dom::create_div()
+        .with_ids_and_classes(decl::classes(&[CURVE_FILL_CLASS]))
+        .with_css_props(over(if left {
+            &look.left_fill
+        } else {
+            &look.right_fill
+        }))
+        .with_svg_data(shape(curve_fill(s, w, h, left)));
+    let stroke = Dom::create_div()
+        .with_ids_and_classes(decl::classes(&[CURVE_STROKE_CLASS]))
+        .with_css_props(over(&look.stroke))
+        .with_svg_data(shape(SvgPath::create(SvgPathElementVec::from_vec(vec![
+            SvgPathElement::CubicCurve(s),
+        ]))));
+    let side = if left {
+        decl::simple(CssProperty::const_left(LayoutLeft::px(-w)))
+    } else {
+        decl::simple(CssProperty::const_right(LayoutRight::px(-w)))
+    };
+    Dom::create_div()
+        .with_ids_and_classes(decl::classes(&[if left {
+            CURVE_LEFT_CLASS
+        } else {
+            CURVE_RIGHT_CLASS
+        }]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            decl::position(LayoutPosition::Absolute),
+            side,
+            decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+            decl::px_width(w),
+            decl::px_height(h),
+        ]))
+        .with_svg_data(SvgNodeData::ViewBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            width: w,
+            height: h,
+        })
+        .with_children(DomVec::from_vec(vec![fill, stroke]))
+}
+
+/// The two curves of an Australis tab, the left one first: children of the
+/// selected tab, which is `position: relative` so they hang off its box.
+#[must_use]
+pub(crate) fn australis_curves(look: &TabCurveLook) -> [Dom; 2] {
+    [curve(look, true), curve(look, false)]
+}
+
+#[cfg(test)]
+mod australis_tests {
+    use azul_core::{dom::SvgNodeData, svg::SvgPathElement};
+
+    use super::*;
+
+    fn look() -> TabCurveLook {
+        TabCurveLook {
+            height: 28.0,
+            gauge: 2.0,
+            left_fill: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            right_fill: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            stroke: CssPropertyWithConditionsVec::from_const_slice(&[]),
+        }
+    }
+
+    /// The S leaves the strip's rule and reaches the tab's top edge LEVEL -
+    /// both control points share their end's height - so it runs on into
+    /// both without a corner, and its centre line sits half a gauge inside
+    /// the curve's box, where the 2px rule and the 2px top edge are centred.
+    #[test]
+    fn the_s_leaves_the_rule_and_reaches_the_top_edge_level() {
+        let s = curve_s(18.0, 28.0, 2.0, true);
+        assert_eq!((s.start.x, s.start.y), (0.0, 27.0), "the foot, on the rule");
+        assert_eq!((s.end.x, s.end.y), (18.0, 1.0), "the top, on the top edge");
+        assert_eq!(s.ctrl_1.y, s.start.y, "level as it leaves the rule");
+        assert_eq!(s.ctrl_2.y, s.end.y, "level as it meets the top edge");
+    }
+
+    /// The right curve is the left one mirrored: its foot on the right, its
+    /// top against the tab's side on the left.
+    #[test]
+    fn the_right_s_is_the_left_one_mirrored() {
+        let (l, r) = (curve_s(18.0, 28.0, 2.0, true), curve_s(18.0, 28.0, 2.0, false));
+        for (a, b) in [
+            (l.start, r.start),
+            (l.ctrl_1, r.ctrl_1),
+            (l.ctrl_2, r.ctrl_2),
+            (l.end, r.end),
+        ] {
+            assert!((a.x - (18.0 - b.x)).abs() < 1e-4, "{a:?} mirrors {b:?}");
+            assert_eq!(a.y, b.y);
+        }
+    }
+
+    /// Each curve is a box of its own user space hung off the tab's side,
+    /// holding the face (a CLOSED path, the inside of the S) and the edge
+    /// (the S alone, open: a stroke, never a fill).
+    #[test]
+    fn a_curve_holds_the_face_inside_the_s_and_the_s_itself() {
+        let [left, right] = australis_curves(&look());
+        for (curve, class) in [(&left, CURVE_LEFT_CLASS), (&right, CURVE_RIGHT_CLASS)] {
+            assert!(curve
+                .root
+                .get_ids_and_classes()
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class)));
+            assert!(matches!(
+                curve.root.get_svg_data(),
+                Some(SvgNodeData::ViewBox { width, height, .. }) if *width == CURVE_WIDTH && *height == 28.0
+            ));
+            let kids = curve.children.as_ref();
+            assert_eq!(kids.len(), 2, "the fill, then the stroke over it");
+            let Some(SvgNodeData::Path(fill)) = kids[0].root.get_svg_data() else {
+                panic!("the fill is a path");
+            };
+            let ring = &fill.rings.as_ref()[0];
+            let items = ring.items.as_ref();
+            let (first, last) = (items[0], items[items.len() - 1]);
+            let (SvgPathElement::Line(a), SvgPathElement::Line(z)) = (first, last) else {
+                panic!("the fill starts and ends on its straight edges");
+            };
+            assert_eq!(z.end, a.start, "the face is closed");
+            let Some(SvgNodeData::Path(stroke)) = kids[1].root.get_svg_data() else {
+                panic!("the stroke is a path");
+            };
+            assert!(matches!(
+                stroke.rings.as_ref()[0].items.as_ref(),
+                [SvgPathElement::CubicCurve(_)]
+            ));
+        }
+    }
+}
+
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
