@@ -106685,6 +106685,9 @@
                                 "lines": {
                                     "type": "TerminalLineVec"
                                 },
+                                "line_below": {
+                                    "type": "OptionTerminalLine"
+                                },
                                 "selection": {
                                     "type": "OptionTerminalSelection"
                                 },
@@ -106692,6 +106695,12 @@
                                     "type": "u32"
                                 },
                                 "scroll": {
+                                    "type": "u32"
+                                },
+                                "scroll_fraction": {
+                                    "type": "f32"
+                                },
+                                "new_lines": {
                                     "type": "u32"
                                 },
                                 "cursor": {
@@ -107206,6 +107215,9 @@
                                 },
                                 "scroll": {
                                     "type": "u32"
+                                },
+                                "scroll_fraction": {
+                                    "type": "f32"
                                 },
                                 "point": {
                                     "type": "TerminalPoint"
