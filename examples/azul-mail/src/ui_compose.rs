@@ -208,7 +208,7 @@ fn target_of(data: &mut RefAny) -> Option<(RefAny, u64)> {
 /// Draft: of the message open in the reading pane).
 pub(crate) fn open_compose(s: &mut MailApp, info: &mut CallbackInfo, app: RefAny, kind: ComposeKind) {
     let Some(account) = s.current_account().cloned() else {
-        s.notice = String::from("Add an account first (File > Add Account).");
+        s.notice = String::from("Add an account first: File > Info > Add Account.");
         return;
     };
     let original = s.open.as_ref().and_then(|o| o.view.clone());

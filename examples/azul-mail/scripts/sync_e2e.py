@@ -4,7 +4,8 @@
 1. starts imap_server.py over a copy of sample_mail/ (plain TCP, or implicit TLS with --tls);
 2. starts AzMail headless (AZ_BACKEND=headless, AZ_DEBUG=<port>) with an empty AZMAIL_DATA and
    the server's password in AZMAIL_TEST_PASSWORD (a headless run never touches the keyring);
-3. through AzMail's debug server, File > Add Account (the wizard): types the address, Next,
+3. through AzMail's debug server, Add Account (the empty window's message list offers it; the
+   wizard of File > Info): types the address, Next,
    the IMAP host and port, ticks "Unencrypted connection" (without --tls), Next, Next (direct
    delivery), Finish;
 4. waits for AZMAIL_SYNC_DONE and checks the files: account.json without the password, every
@@ -403,7 +404,12 @@ class Run:
         log(f'IMAP server on 127.0.0.1:{self.port}' + (' (TLS)' if self.args.tls else ''))
 
         self.start('azmail', [binary], env)
-        self.until('the Add Account wizard', lambda: self.shows('Add Account'))
+        # No account: the real window, its message list saying so and offering Add Account
+        # (the wizard of File > Info) - no wizard in front of the window.
+        self.until('the empty mail window', lambda: self.shows('No account yet'))
+        self.click('Add Account')
+        self.until('the Add Account wizard', lambda: self.shows('Your account'))
+        time.sleep(0.5)
         self.type_into('#__azmail_acct_email', USER)
         self.click('Next >')
         self.until('the incoming server page', lambda: self.shows('Incoming mail server'))
