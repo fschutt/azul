@@ -5,9 +5,11 @@ edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
-    AzCode - a code editor on the public azul API: the S8 DeveloperShell
-    (activity bar, the explorer tree, document tabs over azul's CodeView,
-    a status bar with Ln / Col), files of a million lines (the CodeView
+    AzCode - a code editor on the public azul API in VSCode's shape: the
+    activity bar, the explorer tree (or "You have not yet opened a folder."
+    with Open Folder and the recent folders), tabs with close buttons over
+    azul's CodeView, the welcome page, quick open (Mod+P), a status bar with
+    Ln / Col; dark by default. Files of a million lines (the CodeView
     builds only the lines in view; the text is a piece table), syntax
     colours from syntect (incremental: an edit re-parses from its line
     until the parse state meets the old one again; a far jump is parsed on
