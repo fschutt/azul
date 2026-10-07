@@ -1,11 +1,12 @@
 //! AzPdf - a PDF viewer on the public azul API (wave 9, PDF9).
 //!
 //! azul parses the PDF once (`ParsedPdf`, printpdf underneath) and hands
-//! each page over as SVG; azul's SVG renderer draws it into a picture on a
-//! Thread (`jobs`). The window is the document shell: the thumbnails and the
-//! outline in the navigation pane, the toolbar and the pages in the document
-//! (a vertical VirtualView: only the pages in view exist), the search hits in
-//! the side pane, the status bar under it. azul-appkit gives the switches
+//! each page over as SVG; a page in the view is that SVG read into a DOM (on
+//! a Thread, `jobs`) - its text real text in the page's own fonts - and a
+//! thumbnail a picture azul's SVG renderer draws. The window is the document
+//! shell: the thumbnails and the outline in the navigation pane, the toolbar
+//! and the pages in the document (a vertical VirtualView: only the pages in
+//! view exist), the search hits in the side pane, the status bar under it. azul-appkit gives the switches
 //! (`AzPdf [FILE.pdf]`, `--theme`, `--mode`, `--size`, `--shot`,
 //! `--sample`, `--data-dir`), the settings page (Mod+,) and About.
 //!
@@ -20,8 +21,8 @@
 //! `scripts/pdf_chrome_probe.py`).
 //!
 //! stdout, for scripts (`scripts/azpdf_e2e.py`): `AZPDF_OPENED <pages> <path>`,
-//! `AZPDF_OPEN_ERROR <why>`, `AZPDF_RENDERED <page> <width>` (a page in the
-//! view, 1-based), `AZPDF_PAGE <n>` when the current page changes,
+//! `AZPDF_OPEN_ERROR <why>`, `AZPDF_RENDERED <page> dom` (a page's DOM made,
+//! 1-based), `AZPDF_PAGE <n>` when the current page changes,
 //! `AZPDF_ZOOM <percent>`, `AZPDF_HITS <n>`, `AZPDF_RECENT_SAVED`.
 
 use std::{
@@ -108,11 +109,13 @@ pub const SAMPLE_FILE: &str = "samples/AzPdf sample.pdf";
 /// How many render threads run at once, and pages per thread.
 const MAX_RENDER_THREADS: usize = 2;
 const RENDER_BATCH: usize = 2;
-/// Rendered pages kept: the view's, and the thumbnails'.
+/// Pages kept: the view's DOMs, and the thumbnails' pictures.
 const PAGE_CACHE: usize = 10;
 const THUMB_CACHE: usize = 160;
 /// The thumbnails' width, CSS px.
 pub const THUMB_W: f32 = 112.0;
+/// The "width" a page DOM is cached and planned at: a DOM has every size.
+pub const PAGE_DOM: u32 = 0;
 /// The pump: plans renders, scrolls, saves the recent list.
 const PUMP_MS: u64 = 120;
 /// The recent list is saved at most this often while pages turn.
@@ -162,7 +165,8 @@ pub struct AppState {
     pub shown_page: usize,
     pub visible: Range<usize>,
     pub thumbs_visible: Range<usize>,
-    pub pages: PageCache<ImageRef>,
+    /// The pages' DOMs, by page (width [`PAGE_DOM`]).
+    pub pages: PageCache<Dom>,
     pub thumbs: PageCache<ImageRef>,
     /// Renders in flight: (kind, page, width).
     pub running: Vec<(Kind, usize, u32)>,
@@ -245,18 +249,6 @@ impl AppState {
         }
     }
 
-    /// The width page `page` is rendered at in the view.
-    #[must_use]
-    pub fn page_render_width(&self, page: usize) -> u32 {
-        let scale = self.scale();
-        let css = self
-            .doc
-            .as_ref()
-            .and_then(|d| d.sizes.get(page))
-            .map_or(0.0, |p| p.css(scale).0);
-        render_width(css, self.dpi)
-    }
-
     /// The width page `page` is rendered at in the thumbnail rail.
     #[must_use]
     pub fn thumb_render_width(&self, page: usize) -> u32 {
@@ -302,8 +294,8 @@ impl AppState {
         let mut out = Vec::new();
         let running = self.running_of(Kind::Page);
         for page in wanted {
-            let width = self.page_render_width(page);
-            let planned = plan_renders(&[page], width, |p| self.pages.has(p, width), &running, 1);
+            let planned =
+                plan_renders(&[page], PAGE_DOM, |p| self.pages.has(p, PAGE_DOM), &running, 1);
             out.extend(planned.into_iter().map(|(p, w)| (Kind::Page, p, w)));
             if out.len() >= RENDER_BATCH {
                 return out;
@@ -688,6 +680,26 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             }
             Update::RefreshDom
         }
+        Outcome::PageDom {
+            generation,
+            page,
+            dom,
+        } => {
+            if generation != s.generation {
+                return Update::DoNothing;
+            }
+            s.running.retain(|r| *r != (Kind::Page, page, PAGE_DOM));
+            let Some(dom) = dom else {
+                return Update::DoNothing;
+            };
+            println!("AZPDF_RENDERED {} dom", page + 1);
+            s.pages.insert(page, PAGE_DOM, dom);
+            if s.visible.contains(&page) {
+                Update::RefreshDom
+            } else {
+                Update::DoNothing
+            }
+        }
         Outcome::Rendered {
             generation,
             kind,
@@ -702,24 +714,11 @@ pub extern "C" fn on_job_done(mut app: RefAny, mut msg: RefAny, mut info: Callba
             let Some(image) = image else {
                 return Update::DoNothing;
             };
-            match kind {
-                Kind::Page => {
-                    println!("AZPDF_RENDERED {} {width}", page + 1);
-                    s.pages.insert(page, width, image);
-                    if s.visible.contains(&page) {
-                        Update::RefreshDom
-                    } else {
-                        Update::DoNothing
-                    }
-                }
-                Kind::Thumb => {
-                    s.thumbs.insert(page, width, image);
-                    if s.thumbs_visible.contains(&page) {
-                        Update::RefreshDom
-                    } else {
-                        Update::DoNothing
-                    }
-                }
+            s.thumbs.insert(page, width, image);
+            if s.thumbs_visible.contains(&page) {
+                Update::RefreshDom
+            } else {
+                Update::DoNothing
             }
         }
         Outcome::RenderDone { .. } => {

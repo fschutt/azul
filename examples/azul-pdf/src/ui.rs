@@ -2,9 +2,10 @@
 //! documents) or the document shell - the navigation pane (Pages / Outline),
 //! the toolbar over the page view, the search hits in the side pane, the
 //! status bar. The page view and the thumbnail rail are VirtualViews: only
-//! the pages in view (and one either side) exist in the DOM, each an image
-//! of the page as azul drew it, or a blank page with its number while it is
-//! being drawn. The pages are paper: white in both modes.
+//! the pages in view (and one either side) exist in the DOM - in the view
+//! each page's own DOM (its SVG read as markup: shapes, and text that is
+//! text), in the rail a picture of it - or a blank page with its number while
+//! it is being made. The pages are paper: white in both modes.
 
 use azul::{
     callbacks::{
@@ -328,9 +329,8 @@ fn slice(strip: &Strip, first: usize, end: usize) -> (f32, f32) {
     (top, bottom.max(top + 1.0))
 }
 
-/// The page view: the pages in view and one either side, centred, each the
-/// picture azul drew (the sharp one, else the nearest one meanwhile), or a
-/// blank page with its number.
+/// The page view: the pages in view and one either side, centred, each its
+/// DOM, or a blank page with its number while it is made.
 extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let mut app = match data.downcast_ref::<ViewData>() {
         Some(view) => view.app.clone(),
@@ -376,12 +376,8 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     for page in first..end {
         let (w, h) = strip.sizes[page];
         let x = ((view_w - w) / 2.0).max(VIEW_PAD);
-        let width = s.page_render_width(page);
-        let image = s
-            .pages
-            .get(page, width)
-            .or_else(|| s.pages.nearest(page, width));
-        root.add_child(page_frame(page, x, strip.tops[page] - top, w, h, image));
+        let dom = s.pages.get(page, crate::PAGE_DOM);
+        root.add_child(page_frame(page, x, strip.tops[page] - top, w, h, dom));
     }
     VirtualViewReturn::with_dom(
         root,
@@ -390,8 +386,9 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     )
 }
 
-/// One page at (`x`, `y`) of the slice, `w` x `h` CSS px.
-fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, image: Option<ImageRef>) -> Dom {
+/// One page at (`x`, `y`) of the slice, `w` x `h` CSS px: its DOM (an
+/// `<svg>`, sized to the frame - its viewBox maps the page onto it).
+fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, dom: Option<Dom>) -> Dom {
     let mut frame = Dom::create_div()
         .with_id(ids::numbered(ids::PAGE_PREFIX, page + 1))
         .with_accessibility_name(format!("Page {}", page + 1).as_str())
@@ -402,9 +399,9 @@ fn page_frame(page: usize, x: f32, y: f32, w: f32, h: f32, image: Option<ImageRe
             )
             .as_str(),
         );
-    match image {
-        Some(image) => frame.add_child(
-            Dom::create_image(image).with_css(format!("width: {w}px; height: {h}px;").as_str()),
+    match dom {
+        Some(dom) => frame.add_child(
+            dom.with_css(format!("display: block; width: {w}px; height: {h}px;").as_str()),
         ),
         None => frame.add_child(
             Dom::create_div()

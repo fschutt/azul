@@ -4,10 +4,12 @@ the recent list in the data tree (PDF9).
 
     1. writes a three-page PDF (Helvetica text, shapes; "needle" on pages 2
        and 3) and starts `AzPdf <file>` headless on a fresh data folder;
-       it opens (`AZPDF_OPENED 3 <path>`) and page 1 is drawn by azul
-       (`AZPDF_RENDERED 1 <width>`); the page view fills the document;
+       it opens (`AZPDF_OPENED 3 <path>`) and page 1's DOM is made
+       (`AZPDF_RENDERED 1 dom`); the page view fills the document;
     2. the page frame and its thumbnail exist (`__azpdf_page-1`,
-       `__azpdf_thumb-1`);
+       `__azpdf_thumb-1`); the page is a DOM: its text is in the page's
+       document, a double click on a word of it selects the word, a triple
+       click the line;
     3. Next goes to page 2 (`AZPDF_PAGE 2`), Page Down to page 3;
     4. Zoom in makes the page wider (`AZPDF_ZOOM <percent>`);
     5. "needle" + Return in the search field: two hits (`AZPDF_HITS 2`)
@@ -64,7 +66,7 @@ def body(args, logs, out):
     try:
         app.until("AzPdf's page view", lambda: app.has_id(PAGES))
         app.expect_line("AZPDF_OPENED", "3 %s" % pdf, "the PDF opens with its three pages")
-        app.until("page 1 drawn by azul", lambda: app.printed("AZPDF_RENDERED", r"1 \d+"))
+        app.until("page 1's DOM made", lambda: app.printed("AZPDF_RENDERED", r"1 dom"))
         app.frame(3)
         view = app.rect(PAGES)
         if not view or view.get("height", 0) < 300 or view.get("y", 0) + view.get("height", 0) > HEIGHT:
@@ -75,6 +77,35 @@ def body(args, logs, out):
             raise Failure("page 1 is not laid out in the view: %s" % page1)
         if not app.has_id("__azpdf_thumb-1", every_dom=True):
             raise Failure("no thumbnail of page 1 in the rail")
+        # The page is its SVG read into a DOM: the text is text, not pixels.
+        app.until("page 1's text in its DOM",
+                  lambda: app.shows("Page 1 of the AzPdf test", every_dom=True))
+        # A double click on "AzPdf" (x 72 pt + 13 characters of 28 pt
+        # Helvetica, the baseline at 700 pt of 792) selects the word.
+        page1 = app.rect("__azpdf_page-1", every_dom=True)
+        x = page1["x"] + page1["width"] * (72.0 + 200.0) / 612.0
+        y = page1["y"] + page1["height"] * (792.0 - 700.0 - 9.0) / 792.0
+        app.must("double_click", x=x, y=y)
+        app.frame(2)
+        state = app.value("get_selection_state") or {}
+        selected = [r for sel in state.get("selections") or [] if sel.get("dom_id") != 0
+                    for r in sel.get("ranges") or []
+                    if r.get("selection_type") != "cursor" and r.get("start") != r.get("end")]
+        if not selected:
+            raise Failure("a double click on the page's text selects no word: %s"
+                          % json.dumps(state)[:400])
+        # A triple click selects the paragraph: the page's whole line.
+        line = "Page 1 of the AzPdf test"
+        for _ in range(3):
+            app.must("click", x=x, y=y)
+        app.frame(2)
+        state = app.value("get_selection_state") or {}
+        spans = [(r.get("start"), r.get("end")) for sel in state.get("selections") or []
+                 if sel.get("dom_id") != 0 for r in sel.get("ranges") or []
+                 if r.get("selection_type") != "cursor"]
+        if not any(sorted(span) == [0, len(line)] for span in spans):
+            raise Failure("a triple click on the page's text does not select its line: %s"
+                          % json.dumps(state)[:400])
         app.screenshot(os.path.join(out, "1-opened.png"))
 
         # Page turns.

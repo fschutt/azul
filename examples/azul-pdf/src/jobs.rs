@@ -1,35 +1,38 @@
 //! The blocking work of AzPdf, each on an azul `Thread`: reading and parsing
-//! a PDF, rendering pages (page -> SVG -> pixels), the pages' text for
-//! search, and the sample document. Every answer comes back to the UI thread
-//! as an [`Outcome`] through the thread's write-back; no callback ever parses
-//! or draws a page.
+//! a PDF, making the pages (page -> SVG -> DOM) and the thumbnails (page ->
+//! SVG -> pixels), the pages' text for search, and the sample document. Every
+//! answer comes back to the UI thread as an [`Outcome`] through the thread's
+//! write-back; no callback ever parses a page.
 //!
-//! The render path is azul's: `ParsedPdf::page_to_svg` (printpdf's page
-//! renderer), then `ParsedSvg::render` (azul's CPU SVG renderer) at the width
-//! the view asks for, on white paper. The `--export-png` switch runs the very
-//! same function ([`render_page_raw`]), so the Chrome probe measures what the
-//! viewer shows.
+//! A page in the view is a DOM ([`page_dom`]): `ParsedPdf::page_to_svg`
+//! (printpdf's page renderer), read as markup into an `<svg>` subtree that
+//! azul lays out like any other - its shapes drawn with clip shapes, its text
+//! real text (selectable) in the fonts the page embeds, at any zoom. A
+//! thumbnail is a picture: the same SVG through `ParsedSvg::render` (azul's
+//! CPU SVG renderer) at the rail's width, on white paper - the function the
+//! `--export-png` switch runs ([`render_page_raw`]).
 
 use std::path::Path;
 
 use azul::{
-    error::ResultParsedSvgSvgParseError,
+    error::{ResultParsedSvgSvgParseError, ResultXmlXmlError},
     image::{ImageRef, RawImage},
     option::OptionColorU,
     pdf::{ParsedPdf, Pdf},
     prelude::*,
     svg::{ParsedSvg, SvgFitTo, SvgParseOptions, SvgRenderOptions},
     vec::U8VecRef,
+    xml::Xml,
 };
 
 use crate::model::{file_title, is_pdf_bytes, PageSize};
 
-/// Which picture of a page a render is.
+/// What a render of a page makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// The page in the page view.
+    /// The page in the page view: its DOM (any size; no width).
     Page,
-    /// The page in the thumbnail rail.
+    /// The page in the thumbnail rail: a picture `width` px wide.
     Thumb,
 }
 
@@ -97,7 +100,7 @@ impl Doc {
 pub enum Job {
     /// Read the PDF at `path` and parse it.
     Open { generation: u64, path: String },
-    /// Render these pages (kind, page, width in px), in order.
+    /// Make these pages (kind, page, width in px - 0 for a page DOM), in order.
     Render {
         generation: u64,
         pdf: ParsedPdf,
@@ -116,7 +119,13 @@ pub enum Outcome {
         path: String,
         result: Result<Doc, String>,
     },
-    /// One page rendered (`None`: it could not be drawn).
+    /// A page's DOM made (`None`: the page has none).
+    PageDom {
+        generation: u64,
+        page: usize,
+        dom: Option<Dom>,
+    },
+    /// A thumbnail drawn (`None`: it could not be drawn).
     Rendered {
         generation: u64,
         kind: Kind,
@@ -186,19 +195,23 @@ pub extern "C" fn job_thread(
             pdf,
             pages,
         } => {
-            // One answer per page, so pages appear as they are drawn.
+            // One answer per page, so pages appear as they are made.
             for (kind, page, width) in pages {
-                let image = render_page(&pdf, page, width);
-                send(
-                    &mut sender,
-                    Outcome::Rendered {
+                let outcome = match kind {
+                    Kind::Page => Outcome::PageDom {
+                        generation,
+                        page,
+                        dom: page_dom(&pdf, page),
+                    },
+                    Kind::Thumb => Outcome::Rendered {
                         generation,
                         kind,
                         page,
                         width,
-                        image,
+                        image: render_page(&pdf, page, width),
                     },
-                );
+                };
+                send(&mut sender, outcome);
             }
             send(&mut sender, Outcome::RenderDone { generation });
         }
@@ -243,6 +256,24 @@ pub fn page_svg(pdf: &ParsedPdf, page: usize) -> Option<String> {
     pdf.page_to_svg(page)
         .into_option()
         .map(|svg| svg.as_str().to_string())
+}
+
+/// Page `page` as a DOM: its SVG (azul's PDF -> SVG) read as markup into an
+/// `<svg>` subtree (`Dom::create_from_parsed_xml_fragment`). Its shapes are
+/// drawn with clip shapes; its text is text in the page's own fonts - the SVG
+/// embeds them, azul loads them with the DOM and gives them back when no page
+/// shows them any more. Sized by its node's CSS: crisp at any zoom. `None` if
+/// the page does not exist.
+#[must_use]
+pub fn page_dom(pdf: &ParsedPdf, page: usize) -> Option<Dom> {
+    let svg = pdf.page_to_svg(page).into_option()?;
+    // XML as written; markup that is not well-formed through the lenient
+    // (HTML) reader, which builds the same tree.
+    let xml = match Xml::from_str(svg.clone()) {
+        ResultXmlXmlError::Ok(xml) => xml,
+        ResultXmlXmlError::Err(_) => Xml::create_from_html(svg),
+    };
+    Some(Dom::create_from_parsed_xml_fragment(xml))
 }
 
 /// Page `page` drawn `width` px wide on white paper: the page's SVG through
