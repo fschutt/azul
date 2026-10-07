@@ -2865,7 +2865,7 @@ mod build_tests {
         let grid = TerminalGridSize::create(40, 5);
         let screen = fixtures::sample_screen(RefAny::new(()), grid);
         let m = Metrics::of(13.0, 17.0, Some(8.0));
-        let bar = scroll_bar(320.0, 85.0, grid.rows, screen.history, screen.scroll);
+        let bar = scroll_bar(320.0, 85.0, grid.rows, screen.history, 0.0);
         build_screen(
             &screen,
             grid,
@@ -2873,6 +2873,55 @@ mod build_tests {
             &TerminalPalette::flat(),
             LogicalSize::new(332.0, 85.0),
             bar.as_ref(),
+            None,
+        )
+    }
+
+    /// The first node of `dom` (itself included, depth first) carrying
+    /// `class`.
+    fn find_class<'a>(dom: &'a Dom, class: &str) -> Option<&'a Dom> {
+        if classes_of(dom).iter().any(|c| c == class) {
+            return Some(dom);
+        }
+        dom.children
+            .as_ref()
+            .iter()
+            .find_map(|c| find_class(c, class))
+    }
+
+    /// The declared properties of `dom`'s own inline style.
+    fn props_of(dom: &Dom) -> Vec<CssProperty> {
+        crate::widgets::themes::theme_blocks::checks::live_properties(dom)
+    }
+
+    /// Three rows four lines up the scrollback, slid up by `fraction` of a
+    /// line, `below` the line under them, `new_lines` come in since.
+    fn slid_dom(fraction: f32, below: Option<&str>, new_lines: u32) -> Dom {
+        let grid = TerminalGridSize::create(40, 3);
+        let mut screen = TerminalScreen::create(TerminalLineVec::from_vec(
+            ["one", "two", "three"]
+                .iter()
+                .map(|l| TerminalLine::plain(AzString::from(*l)))
+                .collect(),
+        ));
+        screen.history = 10;
+        screen.scroll = 4;
+        screen.scroll_fraction = fraction;
+        screen.new_lines = new_lines;
+        screen.line_below = match below {
+            Some(text) => OptionTerminalLine::Some(TerminalLine::plain(AzString::from(text))),
+            None => OptionTerminalLine::None,
+        };
+        let m = Metrics::of(13.0, 17.0, Some(8.0));
+        let follow = follow_button(&screen, 320.0, 51.0, 7.2);
+        build_screen(
+            &screen,
+            grid,
+            &m,
+            &TerminalPalette::flat(),
+            LogicalSize::new(332.0, 51.0),
+            None,
+            follow.as_ref(),
         )
     }
 
@@ -2927,7 +2976,7 @@ mod build_tests {
                     .collect(),
             ));
             let size = LogicalSize::new(332.0, 51.0);
-            build_screen(&screen, grid, &m, &TerminalPalette::flat(), size, None)
+            build_screen(&screen, grid, &m, &TerminalPalette::flat(), size, None, None)
         };
         let (mut a, mut a_texts) = (Vec::new(), Vec::new());
         boxes(
@@ -2949,9 +2998,62 @@ mod build_tests {
     #[test]
     fn the_cursor_and_the_thumb_are_drawn_when_there_is_scrollback() {
         let dom = screen_dom();
-        let all: Vec<Vec<String>> = dom.children.as_ref().iter().map(classes_of).collect();
-        assert!(all.iter().any(|c| c.iter().any(|c| c == CURSOR_CLASS_NAME)));
-        assert!(all.iter().any(|c| c.iter().any(|c| c == THUMB_CLASS_NAME)));
+        assert!(find_class(&dom, CURSOR_CLASS_NAME).is_some());
+        assert!(find_class(&dom, THUMB_CLASS_NAME).is_some());
+    }
+
+    #[test]
+    fn a_view_between_two_lines_slides_its_rows_up_and_shows_the_line_below() {
+        // Half a line past display offset 4 (17 px rows): every row 8.5 px
+        // higher, the line below peeking in at the bottom - one box moves.
+        let dom = slid_dom(0.5, Some("four"), 0);
+        let rows = find_class(&dom, ROWS_CLASS_NAME).expect("the rows");
+        assert!(
+            props_of(rows).contains(&decl::px_top(-8.5).property),
+            "{:?}",
+            props_of(rows)
+        );
+        let mut t = Vec::new();
+        texts(rows, &mut t);
+        assert_eq!(t, ["one", "two", "three", "four"]);
+        // The line below sits right under the last row.
+        let below = rows
+            .children
+            .as_ref()
+            .iter()
+            .find(|c| {
+                let mut t = Vec::new();
+                texts(c, &mut t);
+                t == ["four"]
+            })
+            .expect("the line below");
+        assert!(props_of(below).contains(&decl::px_top(51.0).property));
+        // At rest the rows are where they belong.
+        let rest = slid_dom(0.0, Some("four"), 0);
+        let rows = find_class(&rest, ROWS_CLASS_NAME).expect("the rows");
+        assert!(props_of(rows).contains(&decl::px_top(0.0).property));
+        // No line below given: the rows, and the follow button's arrow (the
+        // view is off the output).
+        let mut t = Vec::new();
+        texts(&slid_dom(0.0, None, 0), &mut t);
+        assert_eq!(t, ["one", "two", "three", "\u{2193}"]);
+    }
+
+    #[test]
+    fn a_scrolled_up_view_draws_its_follow_button_and_a_following_one_none() {
+        assert!(find_class(&screen_dom(), FOLLOW_CLASS_NAME).is_none());
+        let up = slid_dom(0.0, Some("four"), 1_234);
+        let button = find_class(&up, FOLLOW_CLASS_NAME).expect("the follow button");
+        let mut t = Vec::new();
+        texts(button, &mut t);
+        assert_eq!(t, ["1,234 new lines \u{2193}"]);
+        // It stays in the view's corner: the rows slide, it does not.
+        let rows = find_class(&up, ROWS_CLASS_NAME).expect("the rows");
+        assert!(find_class(rows, FOLLOW_CLASS_NAME).is_none());
+        assert_eq!(
+            button.root.get_accessibility_info().map(|a| a.role),
+            Some(AccessibilityRole::PushButton)
+        );
     }
 }
 
@@ -3507,18 +3609,237 @@ mod view_tests {
 
     #[test]
     fn the_scroll_bar_thumb_sits_where_the_view_is() {
-        assert_eq!(scroll_bar(600.0, 400.0, 24, 0, 0), None);
-        let at_bottom = scroll_bar(600.0, 400.0, 24, 76, 0).expect("a bar");
+        assert_eq!(scroll_bar(600.0, 400.0, 24, 0, 0.0), None);
+        let at_bottom = scroll_bar(600.0, 400.0, 24, 76, 0.0).expect("a bar");
         assert_eq!(at_bottom.track, (600.0, 0.0, SCROLLBAR_PX, 400.0));
         assert!((at_bottom.thumb_len - 96.0).abs() < 1e-3);
         assert!((at_bottom.thumb_start + at_bottom.thumb_len - 400.0).abs() < 1e-3);
-        let at_top = scroll_bar(600.0, 400.0, 24, 76, 76).expect("a bar");
+        let at_top = scroll_bar(600.0, 400.0, 24, 76, 76.0).expect("a bar");
         assert!(at_top.thumb_start.abs() < 1e-3);
     }
 
     #[test]
+    fn the_thumb_moves_with_the_view_between_two_lines() {
+        let at = |up: f32| {
+            scroll_bar(600.0, 400.0, 24, 76, up)
+                .expect("a bar")
+                .thumb_start
+        };
+        let (one, half, none) = (at(1.0), at(0.5), at(0.0));
+        assert!(one < half && half < none, "{one} {half} {none}");
+        assert!((half - (one + none) / 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_position_is_whole_lines_rounded_up_and_the_rest_a_slide() {
+        let at = ScrollPos::at;
+        assert_eq!(at(0.0, 100), ScrollPos::OUTPUT);
+        assert_eq!(
+            at(3.0, 100),
+            ScrollPos {
+                lines: 3,
+                fraction: 0.0
+            }
+        );
+        let between = at(2.25, 100);
+        assert_eq!(between.lines, 3);
+        assert!((between.fraction - 0.75).abs() < 1e-6);
+        assert!((between.up() - 2.25).abs() < 1e-6);
+        // A hair off a whole line is the whole line: no slide of float dust.
+        let three = ScrollPos {
+            lines: 3,
+            fraction: 0.0,
+        };
+        assert_eq!(at(3.000_000_1, 100), three);
+        assert_eq!(at(2.999_999_9, 100), three);
+        assert_eq!(at(0.000_1, 100), ScrollPos::OUTPUT);
+        // Within the scrollback: never past the oldest line, never below the
+        // output.
+        assert_eq!(
+            at(150.5, 100),
+            ScrollPos {
+                lines: 100,
+                fraction: 0.0
+            }
+        );
+        assert_eq!(at(-4.0, 100), ScrollPos::OUTPUT);
+        assert_eq!(at(0.5, 0), ScrollPos::OUTPUT);
+        assert_eq!(at(f64::NAN, 100), ScrollPos::OUTPUT);
+        // Any position off the output keeps the display offset at 1 or more:
+        // the engine keeps what is in view while output streams in below.
+        assert_eq!(at(0.2, 100).lines, 1);
+        assert!(!at(0.2, 100).following());
+        assert!(ScrollPos::OUTPUT.following());
+    }
+
+    #[test]
+    fn a_screen_reads_as_its_offset_and_a_sane_slide() {
+        let mut s = screen(24, 100, 4);
+        s.scroll_fraction = 0.5;
+        assert_eq!(
+            ScrollPos::of(&s),
+            ScrollPos {
+                lines: 4,
+                fraction: 0.5
+            }
+        );
+        // A slide at the output, or one that is not a fraction of a line, is
+        // none.
+        for (scroll, fraction) in [(0, 0.5), (4, 1.0), (4, -0.25), (4, f32::NAN)] {
+            s.scroll = scroll;
+            s.scroll_fraction = fraction;
+            assert!(
+                ScrollPos::of(&s).fraction.abs() < f32::EPSILON,
+                "{scroll} {fraction}"
+            );
+        }
+        let slid = ScrollPos {
+            lines: 4,
+            fraction: 0.5,
+        };
+        assert!((slid.slide(17.0) - 8.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_trackpad_scrolls_the_scrollback_by_pixels_not_whole_lines() {
+        let lh = 17.0;
+        let at_output = screen(24, 100, 0);
+        // 5 px up (the offset change is -5: toward the oldest line): the rows
+        // of offset 1, slid up by the 12 px still to go.
+        let up = wheel_scroll_pos(&at_output, -5.0, lh, true).expect("it moves");
+        assert_eq!(up.lines, 1);
+        assert!((up.up() - 5.0 / 17.0).abs() < 1e-5);
+        assert!((up.fraction - 12.0 / 17.0).abs() < 1e-5);
+        // Momentum's small steps move it by what they say.
+        let mut s = screen(24, 100, up.lines);
+        s.scroll_fraction = up.fraction;
+        let more = wheel_scroll_pos(&s, -1.5, lh, true).expect("it moves");
+        assert!((more.up() - 6.5 / 17.0).abs() < 1e-5);
+        // Toward the output and past it: the output, following again.
+        assert_eq!(
+            wheel_scroll_pos(&s, 40.0, lh, true),
+            Some(ScrollPos::OUTPUT)
+        );
+        // Past the oldest line: the oldest line, no slide.
+        assert_eq!(
+            wheel_scroll_pos(&s, -1.0e6, lh, true),
+            Some(ScrollPos {
+                lines: 100,
+                fraction: 0.0
+            })
+        );
+        // Nothing to do: no delta, nonsense, at the output already, no
+        // scrollback.
+        assert_eq!(wheel_scroll_pos(&s, 0.0, lh, true), None);
+        assert_eq!(wheel_scroll_pos(&s, f32::NAN, lh, true), None);
+        assert_eq!(wheel_scroll_pos(&at_output, 20.0, lh, true), None);
+        assert_eq!(wheel_scroll_pos(&screen(24, 0, 0), -20.0, lh, true), None);
+    }
+
+    #[test]
+    fn a_mouse_wheel_notch_still_scrolls_three_whole_lines_and_keeps_a_slide() {
+        let lh = 17.0;
+        let notch = TERMINAL_WHEEL_NOTCH_PX;
+        assert_eq!(
+            wheel_scroll_pos(&screen(24, 100, 0), -notch, lh, false),
+            Some(ScrollPos {
+                lines: 3,
+                fraction: 0.0
+            })
+        );
+        assert_eq!(
+            wheel_scroll_pos(&screen(24, 100, 10), notch, lh, false),
+            Some(ScrollPos {
+                lines: 7,
+                fraction: 0.0
+            })
+        );
+        let mut slid = screen(24, 100, 5);
+        slid.scroll_fraction = 0.25;
+        let to = wheel_scroll_pos(&slid, -notch, lh, false).expect("it moves");
+        assert_eq!(to.lines, 8);
+        assert!((to.fraction - 0.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_scroll_event_carries_the_slide() {
+        let e = TerminalViewEvent::scrolled_to(ScrollPos {
+            lines: 7,
+            fraction: 0.25,
+        });
+        assert_eq!(e.kind, TerminalViewEventKind::Scroll);
+        assert_eq!(e.scroll, 7);
+        assert!((e.scroll_fraction - 0.25).abs() < 1e-6);
+        assert!(TerminalViewEvent::scrolled(3).scroll_fraction.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_point_over_a_slid_view_is_the_cell_drawn_there() {
+        let m = Metrics::of(10.0, 17.0, Some(8.0));
+        let grid = TerminalGridSize::create(80, 24);
+        let slid = ScrollPos {
+            lines: 4,
+            fraction: 0.5,
+        };
+        // Slid up by 8.5 px: row 1 is drawn from 8.5 px to 25.5 px.
+        assert_eq!(
+            cell_under(&m, grid, slid, 1.0, 9.0).0,
+            TerminalPoint::create(1, 0)
+        );
+        assert_eq!(
+            cell_under(&m, grid, slid, 1.0, 8.0).0,
+            TerminalPoint::create(0, 0)
+        );
+        // The sliver of the line below counts as the last row.
+        assert_eq!(
+            cell_under(&m, grid, slid, 1.0, 24.0 * 17.0 - 2.0).0,
+            TerminalPoint::create(23, 0)
+        );
+        // At rest nothing is shifted.
+        assert_eq!(
+            cell_under(&m, grid, ScrollPos::OUTPUT, 1.0, 9.0).0,
+            TerminalPoint::create(0, 0)
+        );
+    }
+
+    #[test]
+    fn the_follow_button_shows_only_off_the_output_and_counts_the_new_lines() {
+        let (w, h, char_w) = (600.0, 400.0, 7.2);
+        assert_eq!(follow_button(&screen(24, 100, 0), w, h, char_w), None);
+        // Off the output, nothing new: a round arrow at the bottom right of
+        // the text area.
+        let up = follow_button(&screen(24, 100, 12), w, h, char_w).expect("a button");
+        let (x, y, bw, bh) = up.rect;
+        assert!((bw - bh).abs() < 1e-3, "round: {bw} x {bh}");
+        assert!(x + bw <= w && y + bh <= h);
+        assert!(x > w / 2.0 && y > h / 2.0);
+        assert_eq!(up.label, "\u{2193}");
+        assert!(up.contains(x + bw / 2.0, y + bh / 2.0));
+        assert!(!up.contains(x - 1.0, y + bh / 2.0));
+        // Output came in below the view: the count, grouped, on a pill with
+        // the same right edge.
+        let mut s = screen(24, 100, 12);
+        s.new_lines = 12_345;
+        let counted = follow_button(&s, w, h, char_w).expect("a button");
+        assert_eq!(counted.label, "12,345 new lines \u{2193}");
+        let (cx, _, cw, ch) = counted.rect;
+        assert!(cw > ch, "a pill holds the count");
+        assert!((cx + cw - (x + bw)).abs() < 1e-3);
+        s.new_lines = 1;
+        assert_eq!(
+            follow_button(&s, w, h, char_w).expect("a button").label,
+            "1 new line \u{2193}"
+        );
+        // A view too small to hold it shows none.
+        assert_eq!(
+            follow_button(&screen(24, 100, 12), 20.0, 20.0, char_w),
+            None
+        );
+    }
+
+    #[test]
     fn dragging_the_thumb_to_the_top_shows_the_oldest_line() {
-        let bar = scroll_bar(600.0, 400.0, 24, 76, 0).expect("a bar");
+        let bar = scroll_bar(600.0, 400.0, 24, 76, 0.0).expect("a bar");
         assert_eq!(scroll_for_thumb(&bar, 0.0, 76), 76);
         assert_eq!(scroll_for_thumb(&bar, -50.0, 76), 76);
         assert_eq!(scroll_for_thumb(&bar, 400.0 - bar.thumb_len, 76), 0);
