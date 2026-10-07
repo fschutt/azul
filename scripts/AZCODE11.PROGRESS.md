@@ -6,7 +6,8 @@ Worktree: .claude/worktrees/agent-a352efd78f2c2b04e (from fix/input-bugs-2026-09
 - "Selecting a folder does nothing" (macOS): tfd 0.1.2 `select_folder_dialog` runs `choose folder`,
   then a SECOND osascript `POSIX path of alias Macintosh HD:Users:...:` - unquoted, an AppleScript
   syntax error (-2740) -> `None` -> FileDialog::open_directory resolves as cancelled -> AzCode's
-  on_folder_picked returned DoNothing. Reproduced with osacompile (no dialog).
+  on_folder_picked returned DoNothing. Reproduced with osacompile (no dialog). AzMusic, AzDrive and
+  the PathInput widget use open_directory too. The E2E never saw it: its mock answers before tfd.
 - Missing dirty dot: the class sat on `Dom::create_icon("circle")`; icon resolution
   (core/src/icon.rs resolve_icons_in_dom_inner, `*dom = replacement`) replaces the whole node, its
   ids and classes are dropped (engine bug, reported, not fixed here). The dot is now a plain div.
@@ -19,8 +20,7 @@ Worktree: .claude/worktrees/agent-a352efd78f2c2b04e (from fix/input-bugs-2026-09
 - bed366a44 azcode: dirty dot is a div
 - d0d8ce720 termkit: pane::setup_env
 - 4fa8aae8c azcode: workbench (args, markers, branch, virtualized explorer + search, terminal panel, palette, menu)
-- (next) E2E workbench run
+- E2E workbench run; menu hash fix; review fixes (search line breaks, tick, roles)
 
 ## NEXT
-- independent compile review of the new code (no cargo); fix what it finds.
-- report.
+- the lead builds and runs: see the report (tests, E2E, screenshots).
