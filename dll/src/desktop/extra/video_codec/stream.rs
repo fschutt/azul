@@ -9,6 +9,15 @@
 //! [`ensure_video_decoder`] registers [`video_decode_worker`]; a `VideoWidget`
 //! picks it up when it mounts.
 //!
+//! Nor is the FILE read up front: the source is a
+//! [`ByteSource`](crate::desktop::extra::byte_source::ByteSource) - a URL
+//! downloaded by range requests a window ahead of the decoder, a file read
+//! where it is - and the track an [`H264Index`](super::demux::H264Index) read
+//! from the container's header, so a video at a URL plays before its download
+//! ends and a movie is never held in memory. An access unit whose bytes have
+//! not arrived waits; the media clock holds meanwhile and, once that lasts,
+//! the app hears `Loading` (buffering).
+//!
 //! The worker runs wherever the MP4 demuxer is compiled (`video-native`): the
 //! decode itself goes through [`VideoDecoder`](super::VideoDecoder), which
 //! picks the platform's engine — Vulkan Video on x86_64 Linux/Windows,
@@ -66,9 +75,9 @@ fn send_status(sender: &mut ThreadSender, status: VideoStatus) -> bool {
 
 /// Background decode worker. `init` is a `RefAny` holding a
 /// [`VideoDecodeInit`](azul_layout::widgets::video::VideoDecodeInit): the
-/// `VideoConfig` whose source is a URL (fetched via an HTTP **range request**,
-/// through the init's `HttpClient` when the widget has one), a file, or raw MP4
-/// bytes.
+/// `VideoConfig` whose source is a URL (read by HTTP **range requests**, a
+/// window ahead of the decoder, through the init's `HttpClient` when the
+/// widget has one), a file (read where it is), or raw MP4 bytes.
 ///
 /// It decodes the clip incrementally on this thread and streams frames to the
 /// widget's `<img>` via `WriteBack` → `video_writeback`, paced by a media clock
@@ -210,45 +219,69 @@ fn wait_for_retry(recv: &mut ThreadReceiver, requested: &mut Requested) -> Optio
     }
 }
 
-/// Fetch, read or take the MP4 bytes and demux them. `Err` is a message for
-/// the user.
+/// A video's source, opened: its bytes - a URL downloaded by range requests a
+/// window ahead of the decoder, a file read where it is, bytes in memory -
+/// and the index of its H.264 track, read from the container's header alone.
 #[cfg(feature = "video-native")]
-fn load_stream(
+struct Stream {
+    bytes: std::sync::Arc<dyn crate::desktop::extra::byte_source::ByteSource>,
+    index: super::demux::H264Index,
+}
+
+/// Opens `source` and indexes its H.264 track - never reading its media data
+/// (a 2 GB movie is not read into memory, a URL plays before its download
+/// ends). Waits for the header's bytes (a download's first answers). `Err` is
+/// a message for the user.
+#[cfg(feature = "video-native")]
+fn open_stream(
     source: &azul_core::video::VideoSource,
     client: &azul_layout::http::OptionHttpClient,
     log: bool,
-) -> Result<super::demux::DemuxedH264, String> {
+) -> Result<Stream, String> {
+    use std::sync::Arc;
+
     use azul_core::video::VideoSource;
+
+    use crate::desktop::extra::byte_source::{
+        ByteSource, FileBytes, HttpSource, MemorySource, SourceReader, Wait,
+    };
 
     if let Err(why) = super::decode_engine() {
         return Err(format!("This build of azul cannot decode H.264 video: {why}."));
     }
-    let bytes: Vec<u8> = match source {
+    let bytes: Arc<dyn ByteSource> = match source {
         VideoSource::Url(u) => {
             if log {
-                eprintln!("[vstream] fetching (Range: bytes=0-) {}", u.as_str());
+                eprintln!("[vstream] streaming (range requests) {}", u.as_str());
             }
-            fetch_ranged(u.as_str(), client)
-                .map_err(|e| format!("Could not download the video: {e}"))?
+            Arc::new(HttpSource::open(u.as_str(), client))
         }
         VideoSource::File(p) => {
             if log {
                 eprintln!("[vstream] reading file {}", p.as_str());
             }
-            std::fs::read(p.as_str())
-                .map_err(|e| format!("Could not read the video file {}: {e}", p.as_str()))?
+            Arc::new(
+                FileBytes::open(p.as_str())
+                    .map_err(|e| format!("Could not read the video file {e}"))?,
+            )
         }
-        VideoSource::Bytes(b) => b.as_ref().to_vec(),
+        VideoSource::Bytes(b) => Arc::new(MemorySource::new(b.as_ref().to_vec())),
     };
+    let unreadable = match source {
+        VideoSource::Url(_) => "Could not download the video",
+        VideoSource::File(_) => "Could not read the video file",
+        VideoSource::Bytes(_) => "Could not read the video",
+    };
+    let len = bytes.wait_len().map_err(|e| format!("{unreadable}: {e}"))?;
     if log {
-        eprintln!("[vstream] got {} bytes", bytes.len());
+        eprintln!("[vstream] {len} bytes");
     }
-    let demuxed = super::demux::demux_mp4_h264(&bytes)
+    let index = super::demux::H264Index::read(SourceReader::new(Arc::clone(&bytes), Wait::Yes), len)
         .map_err(|e| format!("This is not a playable H.264 MP4 video ({e})."))?;
-    if demuxed.chunks.is_empty() {
+    if index.samples.is_empty() {
         return Err(String::from("The video has no frames."));
     }
-    Ok(demuxed)
+    Ok(Stream { bytes, index })
 }
 
 #[cfg(feature = "video-native")]
@@ -292,8 +325,8 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
         if !send_status(&mut sender, VideoStatus::loading()) {
             return; // widget gone
         }
-        let demuxed = match load_stream(&requested.source, &client, log) {
-            Ok(d) => d,
+        let stream = match open_stream(&requested.source, &client, log) {
+            Ok(s) => s,
             Err(message) => {
                 if log {
                     eprintln!("[vstream] {message}");
@@ -307,27 +340,30 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                 }
             }
         };
-        let total = demuxed.chunks.len();
-        let fps = if demuxed.fps > 0.0 { demuxed.fps } else { 30.0 };
+        let samples = &stream.index.samples;
+        let total = samples.len();
+        let fps = if stream.index.fps > 0.0 {
+            stream.index.fps
+        } else {
+            30.0
+        };
         let frame_s = 1.0 / fps;
         // Presentation times in seconds, from the first frame SHOWN (a B-frame
         // stream's first frame is shown a little after 0; its edit list, which
         // the demuxer does not read, is what moves it there).
-        let first_ms = demuxed
-            .chunks
+        let first_ms = samples
             .iter()
-            .map(|c| c.pts_ms)
+            .map(|s| s.pts_ms)
             .fold(f64::INFINITY, f64::min);
-        let chunk_pts: Vec<f32> = demuxed
-            .chunks
+        let chunk_pts: Vec<f32> = samples
             .iter()
-            .map(|c| ((c.pts_ms - first_ms) / 1000.0) as f32)
+            .map(|s| ((s.pts_ms - first_ms) / 1000.0) as f32)
             .collect();
         let mut display_pts = chunk_pts.clone();
         display_pts.sort_by(f32::total_cmp);
         let duration = display_pts.last().map_or(0.0, |last| last + frame_s);
         if log {
-            eprintln!("[vstream] demuxed {total} chunks @ {fps:.1} fps, {duration:.2} s");
+            eprintln!("[vstream] indexed {total} access units @ {fps:.1} fps, {duration:.2} s");
         }
 
         // 2. Open the platform decoder and stream-decode, presenting by the media clock.
@@ -349,9 +385,26 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
             VideoPlayback::new(requested.start_s, requested.paused, requested.looping);
         playback.set_duration(duration);
         playback.set_frame_interval(frame_s);
+        // An app that holds a video it means to play (`autoplay` with
+        // `paused`: a player starting it in step with its sound) gets a lead
+        // decoded past the poster, so its resume plays at once. A poster
+        // (`autoplay: false`) keeps only its frame.
+        if config.autoplay && requested.paused {
+            playback.set_preroll(azul_layout::widgets::video::RESUME_LEAD_S);
+        }
         let mut chunk_idx = 0usize;
         // Frames handed back so far, in the order they came.
         let mut emitted = 0usize;
+        // Pictures the decoder handed back in this session, whatever the start.
+        let mut pictures = 0usize;
+        // A start inside the video (a player resuming where it was left)
+        // decodes from the keyframe at or before it - not every frame from the
+        // first (half an hour into a movie, that was minutes of decoding, and
+        // for a URL the download of everything before it).
+        if requested.start_s > 0.0 {
+            chunk_idx = keyframe_at_or_before(samples, &chunk_pts, requested.start_s, frame_s);
+            emitted = display_pts.partition_point(|p| *p < chunk_pts[chunk_idx]);
+        }
         // The newest presentation time decoded since the last (re)start: the
         // schedule's decode gate reads it (`wants_frame`, `restart_wanted`).
         let mut decoded_until: Option<f32> = None;
@@ -413,7 +466,7 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
             // ahead: decode again from the keyframe at or before the target.
             match playback.restart_wanted(now(), decoded_until) {
                 Some(target) if restart_target.is_none() => {
-                    let k = keyframe_at_or_before(&demuxed.chunks, &chunk_pts, target, frame_s);
+                    let k = keyframe_at_or_before(samples, &chunk_pts, target, frame_s);
                     // What the decoder still holds is the old run's.
                     let mut f = decoder.flush();
                     while let OptionVideoFrame::Some(_) = f {
@@ -438,11 +491,39 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
             // Decode one access unit per pass while the schedule wants one
             // (the poster while held, a lookahead while playing - never the
             // whole clip), draining every frame it yields, and flushing the
-            // reorder buffer after the final chunk.
-            let decoding = chunk_idx < total && playback.wants_frame(now(), decoded_until);
-            if decoding {
-                let _accepted =
-                    decoder.decode(U8Vec::from_vec(demuxed.chunks[chunk_idx].annexb.clone()));
+            // reorder buffer after the final chunk. An access unit whose bytes
+            // have not arrived (a download behind the decoder) waits: the
+            // schedule holds the clock (and says `Loading` once that lasts).
+            let wanted = chunk_idx < total && playback.wants_frame(now(), decoded_until);
+            let unit = if wanted {
+                match stream.index.chunk(
+                    &*stream.bytes,
+                    chunk_idx,
+                    crate::desktop::extra::byte_source::Wait::No,
+                ) {
+                    Ok(unit) => Some(unit),
+                    Err(super::demux::ChunkError::NotYet) => None,
+                    Err(super::demux::ChunkError::Failed(why)) => {
+                        let message = format!("Could not read the video: {why}");
+                        if log {
+                            eprintln!("[vstream] {message}");
+                        }
+                        if !send_status(&mut sender, VideoStatus::failed(AzString::from(message)))
+                        {
+                            return;
+                        }
+                        match wait_for_retry(&mut recv, &mut requested) {
+                            Some(()) => continue 'session,
+                            None => return,
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+            let decoding = unit.is_some();
+            if let Some(unit) = unit {
+                let _accepted = decoder.decode(U8Vec::from_vec(unit.annexb));
                 let mut nth = 0usize;
                 let mut f = decoder.next_frame();
                 while let OptionVideoFrame::Some(frame) = f {
@@ -454,6 +535,7 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                     playback.push_frame(pts, frame);
                     decoded_until = Some(decoded_until.map_or(pts, |d| d.max(pts)));
                     emitted += 1;
+                    pictures += 1;
                     nth += 1;
                     f = decoder.next_frame();
                 }
@@ -465,10 +547,11 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
                         playback.push_frame(pts, frame);
                         decoded_until = Some(decoded_until.map_or(pts, |d| d.max(pts)));
                         emitted += 1;
+                        pictures += 1;
                         f = decoder.next_frame();
                     }
                     playback.finish();
-                    if emitted == 0 {
+                    if pictures == 0 {
                         // The engine opened and took every access unit, and
                         // not one frame came out.
                         let message = format!(
@@ -550,14 +633,14 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
 /// begins: an IDR needs no earlier frame.
 #[cfg(feature = "video-native")]
 fn keyframe_at_or_before(
-    chunks: &[super::demux::H264Chunk],
+    samples: &[super::demux::SampleInfo],
     chunk_pts: &[f32],
     target_s: f32,
     frame_s: f32,
 ) -> usize {
-    (0..chunks.len().min(chunk_pts.len()))
+    (0..samples.len().min(chunk_pts.len()))
         .rev()
-        .find(|&i| chunks[i].is_keyframe && chunk_pts[i] <= target_s + frame_s * 0.5)
+        .find(|&i| samples[i].is_keyframe && chunk_pts[i] <= target_s + frame_s * 0.5)
         .unwrap_or(0)
 }
 
@@ -589,24 +672,6 @@ fn scale_frame_bilinear(
         U8Vec::from_vec(out),
         frame_output_format(src.format),
     )
-}
-
-/// Fetch `url` via an HTTP **range request** (`Range: bytes=0-`). BBB is small so
-/// a single open-ended range fetches the whole clip in one 206 response; the point
-/// is that loading goes through a real range request (progressive byte-range
-/// streaming is a future refinement). `Err` is the transport's own description.
-#[cfg(feature = "video-native")]
-fn fetch_ranged(url: &str, client: &azul_layout::http::OptionHttpClient) -> Result<Vec<u8>, String> {
-    use azul_css::AzString;
-    use azul_layout::http::{HttpRequestConfig, OptionHttpClient, ResultU8VecHttpError};
-    let mut cfg = HttpRequestConfig::new().with_header("Range", "bytes=0-");
-    if let OptionHttpClient::Some(client) = client {
-        cfg = cfg.with_client(client.clone());
-    }
-    match cfg.download_bytes_blocking(AzString::from(url.to_string())) {
-        ResultU8VecHttpError::Ok(b) => Ok(b.as_slice().to_vec()),
-        ResultU8VecHttpError::Err(e) => Err(e.to_string()),
-    }
 }
 
 #[cfg(test)]
