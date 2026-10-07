@@ -3492,23 +3492,27 @@ mod gradient_tests {
 
 // ==== dialog ====
 //
-// Dialog, Modal and Popover in flora's terms (`doc/templates/flora.css`). The
-// panel is a LEAF laid on the page: `--fl-sur` with a `--fl-bd2` hairline, the
-// house's larger radius (`--fl-r2`: nothing is rounder than 5) and the shadow a
-// floating leaf casts (`--fl-shadow-3`, its first layer). The title is ruled off
-// from the content with a `--fl-sep` hairline, the way flora rules a heading.
-// The close glyph is a quiet action, so it is written in brass ink
-// (`.btn-quiet`: `--fl-qt`, darkening to `--fl-qt2` over the quiet wash on
-// hover). A modal dims its window with the drop panel's warm overlay
-// (`.nav-overlay`, rgba(20, 19, 16, 0.45)), the same by day and by night. Every
-// colour pairs with its night value, and the focus ring is the accent by day and
-// lifts to the stone's glow by night (`--focus-color`).
+// Dialog, Modal and Popover in flora's terms (`doc/templates/flora.css`, and
+// the design system's "Vespers approaches" card). The dialog is a LEAF laid
+// on the page - `--fl-sur` in a `--fl-bd5` rule at the house radius, casting
+// the floating leaf's shadow - with a HEADER BAND across its top: the window
+// chrome's metal-free face (`--fl-ct` falling to `--fl-cb`, closed by a dark
+// rule), on which the title is set in flora's capitals in the paper ink and
+// the close glyph sits in the same ink. The band is the title row's own
+// background, reaching past the panel's 14px inset to both edges; a dialog
+// without a title but with a close draws it on the row that stands in for
+// the title, so the close never lands on paper. The body is written in
+// Garamond, inset 14px; the buttons a dialog carries line up at its foot. A modal dims
+// its window with the drop panel's warm overlay (`.nav-overlay`,
+// rgba(20, 19, 16, 0.45)), the same by day and by night. A popover is a
+// small leaf without a band: its title in capitals on the paper, its close
+// a quiet action in brass ink ([`popover_skin`]).
 
 /// `.nav-overlay`: the warm dim behind a modal dialog, in both modes.
 pub const DIALOG_BACKDROP: ColorU = ColorU::new(20, 19, 16, 115);
-/// `--fl-shadow-3`'s first layer by day: rgba(48, 45, 38, 0.18).
-const DIALOG_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 46);
-/// `--fl-shadow-3`'s first layer by night: rgba(0, 0, 0, 0.55).
+/// The leaf's cast shadow by day (`0 8px 22px`): rgba(48, 45, 38, 0.20).
+const DIALOG_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 51);
+/// The same at night: rgba(0, 0, 0, 0.55).
 const DIALOG_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
 /// `--fl-shadow-2`'s first layer by day: rgba(48, 45, 38, 0.16).
 const POPOVER_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
@@ -3518,8 +3522,75 @@ const POPOVER_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
 const DIALOG_QUIET_WASH_LIGHT: ColorU = ColorU::new(180, 135, 44, 20);
 /// The same wash by night, in the night brass: rgba(196, 181, 142, 0.10).
 const DIALOG_QUIET_WASH_DARK: ColorU = ColorU::new(196, 181, 142, 26);
+/// The light wash on the band under the pointer: rgba(255, 252, 240, 0.15).
+const DIALOG_BAND_WASH: ColorU = ColorU::new(255, 252, 240, 38);
+/// The rule that closes the band, by day (the chrome's foot, darker).
+const DIALOG_BAND_RULE_LIGHT: ColorU = ColorU::rgb(0x55, 0x52, 0x4A);
 
-/// Flora's dialog skin (also the modal's; the popover swaps in its panel).
+/// The header band's height, the rule included.
+const DIALOG_BAND_PX: isize = 30;
+
+/// The header band as a background layer over its row: `top` falling to
+/// `bottom` down to its last pixel, that pixel the `rule`, nothing under it.
+#[must_use]
+fn dialog_band(top: ColorU, bottom: ColorU, rule: ColorU) -> StyleBackgroundContent {
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            px_stop(0, top),
+            px_stop(DIALOG_BAND_PX - 1, bottom),
+            px_stop(DIALOG_BAND_PX - 1, rule),
+            px_stop(DIALOG_BAND_PX, rule),
+            px_stop(DIALOG_BAND_PX, ColorU { a: 0, ..rule }),
+        ]),
+    })
+}
+
+/// The band behind a row of a dialog's head (its title, or the row that
+/// stands in for it): the band by day and at night, reaching past the
+/// panel's 14px inset to both edges, its top corners following the panel's.
+#[must_use]
+fn dialog_band_row() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(12);
+    v.extend(decl::margin(0, -14, 12, -14));
+    v.extend(decl::radius_corners(2, 2, 0, 0));
+    v.extend(decl::themed_layers(
+        alloc::vec![dialog_band(LIGHT_CT, LIGHT_CB, DIALOG_BAND_RULE_LIGHT)],
+        alloc::vec![dialog_band(DARK_CT, DARK_CB, DARK_BD5)],
+    ));
+    v
+}
+
+/// A dialog's title in flora's capitals, tracked .1em, 8px over and under
+/// a 14px line: on the band (`on_band`, the paper ink, the band's height
+/// exactly) or on the paper (ruled off, in the quiet ink).
+#[must_use]
+fn dialog_title(on_band: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let mut title = crate::widgets::dialog::DIALOG_TITLE_BASE.to_vec();
+    title.extend(caps((11, 0.1)));
+    title.push(P::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(14),
+    ))));
+    title.push(P::simple(CssProperty::const_text_align(StyleTextAlign::Left)));
+    // The right inset keeps the heading clear of the absolutely-placed close.
+    if on_band {
+        title.extend(dialog_band_row());
+        title.extend(decl::padding(8, 42, 8, 14));
+        title.push(P::simple(decl::ink(LIGHT_ON_ACC)));
+    } else {
+        title.extend(decl::padding(0, 28, 8, 0));
+        title.push(P::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(8))));
+        title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        title.extend(decl::themed_border(decl::Edges::BOTTOM, 1, LIGHT_SEP, DARK_SEP));
+    }
+    title
+}
+
+/// Flora's dialog skin (also the modal's; the popover has [`popover_skin`]).
 #[must_use]
 pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
     use super::decl;
@@ -3528,55 +3599,51 @@ pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
 
     // Every part: the dialog's structure (R5), then flora's skin.
     //
-    // The leaf. Same box as flat's panel (280..520 px wide, 20px inset).
+    // The leaf and its band. Same width as flat's panel (280..520 px).
     let mut panel = d::DIALOG_PANEL_BASE.to_vec();
     panel.extend([
         P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(280))),
         P::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(520))),
         P::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
-        P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        P::simple(CssProperty::const_font_family(SERIF_FAMILY)),
     ]);
-    panel.extend(decl::padding(20, 20, 20, 20));
-    panel.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
-    panel.extend(decl::radius(5));
+    panel.extend(decl::padding(0, 14, 12, 14));
+    panel.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD5, DARK_BD5));
+    panel.extend(decl::radius(3));
     panel.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
-    panel.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    panel.extend(decl::themed_shadow(6, 14, DIALOG_SHADOW_LIGHT, DIALOG_SHADOW_DARK));
+    panel.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+    panel.extend(decl::themed_shadow(8, 22, DIALOG_SHADOW_LIGHT, DIALOG_SHADOW_DARK));
 
-    // The heading, ruled off.
-    let mut title = d::DIALOG_TITLE_BASE.to_vec();
-    title.extend([
-        decl::font_size(17),
-        decl::weight(StyleFontWeight::W600),
-        P::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
-        P::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(12))),
-    ]);
-    // The right inset keeps the heading clear of the absolutely-placed close.
-    title.extend(decl::padding(0, 28, 10, 0));
-    title.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    title.extend(decl::themed_border(decl::Edges::BOTTOM, 1, LIGHT_SEP, DARK_SEP));
+    // Without a title, the row that stands in for it carries the band, so
+    // the close still sits on it.
+    let mut close_row = d::DIALOG_CLOSE_ROW_STYLE.to_vec();
+    close_row.push(P::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        DIALOG_BAND_PX,
+    ))));
+    close_row.extend(dialog_band_row());
 
-    // The quiet close.
+    // The close, on the band, in the paper ink; the light wash under the
+    // pointer, the glow ring on focus (it stands off the band by day and by
+    // night).
     let mut close = d::DIALOG_CLOSE_BASE.to_vec();
     close.extend([
-        P::simple(CssProperty::const_top(LayoutTop::const_px(8))),
-        P::simple(CssProperty::const_right(LayoutRight::const_px(10))),
-        decl::font_size(20),
+        P::simple(CssProperty::const_top(LayoutTop::const_px(3))),
+        P::simple(CssProperty::const_right(LayoutRight::const_px(8))),
+        decl::font_size(18),
     ]);
     close.extend(decl::padding(0, 5, 0, 5));
     close.extend(decl::radius(3));
-    close.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    close.push(P::simple(decl::ink(LIGHT_ON_ACC)));
     close.extend(decl::ring_slot());
-    // States last: a resting dark twin matches in every state.
-    close.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
-    close.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
-    close.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+    // States last.
+    close.push(P::on_hover(decl::fill(DIALOG_BAND_WASH)));
+    close.extend(decl::focus_ring(LIGHT_GLOW, DARK_GLOW));
 
     d::DialogSkin {
         theme: super::UiTheme::Flora,
         panel: CssPropertyWithConditionsVec::from_vec(panel),
-        title: CssPropertyWithConditionsVec::from_vec(title),
-        close_row: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE),
+        title: CssPropertyWithConditionsVec::from_vec(dialog_title(true)),
+        close_row: CssPropertyWithConditionsVec::from_vec(close_row),
         close: CssPropertyWithConditionsVec::from_vec(close),
         content: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CONTENT_STYLE),
         backdrop: d::backdrop_style(DIALOG_BACKDROP),
@@ -3603,6 +3670,39 @@ pub fn popover_panel_style() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// Flora's popover skin: the dialog's parts on a small leaf without the
+/// band - the title in capitals on the paper, ruled off; the close a quiet
+/// action in brass ink (`.btn-quiet`: `--fl-qt`, darkening to `--fl-qt2`
+/// over the quiet wash), ringed in the accent by day and the glow by night.
+#[must_use]
+pub(crate) fn popover_skin() -> crate::widgets::dialog::DialogSkin {
+    use super::decl;
+    use crate::widgets::dialog as d;
+    type P = CssPropertyWithConditions;
+
+    let mut close = d::DIALOG_CLOSE_BASE.to_vec();
+    close.extend([
+        P::simple(CssProperty::const_top(LayoutTop::const_px(6))),
+        P::simple(CssProperty::const_right(LayoutRight::const_px(8))),
+        decl::font_size(18),
+    ]);
+    close.extend(decl::padding(0, 5, 0, 5));
+    close.extend(decl::radius(3));
+    close.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    close.extend(decl::ring_slot());
+    // States last: a resting dark twin matches in every state.
+    close.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+    close.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
+    close.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    let mut skin = dialog_skin();
+    skin.panel = popover_panel_style();
+    skin.title = CssPropertyWithConditionsVec::from_vec(dialog_title(false));
+    skin.close_row = CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE);
+    skin.close = CssPropertyWithConditionsVec::from_vec(close);
+    skin
+}
+
 /// Renders a [`crate::widgets::dialog::Dialog`] in the flora theme.
 #[must_use]
 pub fn dialog(d: crate::widgets::dialog::Dialog) -> Dom {
@@ -3618,9 +3718,7 @@ pub fn modal(m: crate::widgets::modal::Modal) -> Dom {
 /// Renders a [`crate::widgets::popover::Popover`] in the flora theme.
 #[must_use]
 pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
-    let mut skin = dialog_skin();
-    skin.panel = popover_panel_style();
-    p.build(skin)
+    p.build(popover_skin())
 }
 
 // ==== number_input ====
@@ -4358,21 +4456,24 @@ pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
 
 // ==== tooltip ====
 //
-// A flora tip is marginalia set as flora sets code: an INK PANEL on the page
-// (`--fl-code-bg` under `--fl-code-fg`, a `--fl-code-bd` hairline), the house
-// radius and the nearest shadow (`--fl-shadow-1`) - an ink panel in both modes,
-// each with its night value. It keeps the widget's placement and starts hidden,
-// so the enter / leave handlers work unchanged.
+// A flora tip is marginalia on DARK OAK - "never black" (the design system's
+// tooltip: `#3B3327` under `#EFE7D7`, a `--fl-soft1` rule) - at the house
+// radius, casting a small warm shadow (`0 3px 8px rgba(60,48,30,.3)`). The
+// same wood by night, its rule a step darker and its shadow the night's. It
+// keeps the widget's placement and starts hidden, so the enter / leave
+// handlers work unchanged.
 
-/// `--fl-code-bg` by day / by night.
-const TOOLTIP_INK_BG: (ColorU, ColorU) = (ColorU::new(33, 31, 27, 255), ColorU::new(20, 20, 20, 255));
-/// `--fl-code-fg` by day / by night.
-const TOOLTIP_INK_FG: (ColorU, ColorU) =
-    (ColorU::new(228, 225, 214, 255), ColorU::new(226, 226, 226, 255));
-/// `--fl-code-bd` by day / by night.
-const TOOLTIP_INK_BD: (ColorU, ColorU) = (ColorU::new(68, 63, 53, 255), ColorU::new(54, 54, 54, 255));
-/// `--fl-shadow-1` by day (rgba(48, 45, 38, 0.14)) / by night (rgba(0, 0, 0, 0.55)).
-const TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(48, 45, 38, 36), ColorU::new(0, 0, 0, 140));
+/// Dark oak, by day / by night.
+pub(crate) const TOOLTIP_OAK: (ColorU, ColorU) =
+    (ColorU::rgb(0x3B, 0x33, 0x27), ColorU::rgb(0x3B, 0x33, 0x27));
+/// The pale ink on the oak, by day / by night.
+pub(crate) const TOOLTIP_OAK_INK: (ColorU, ColorU) =
+    (ColorU::rgb(0xEF, 0xE7, 0xD7), ColorU::rgb(0xEF, 0xE7, 0xD7));
+/// The oak's rule: `--fl-soft1` by day, the oak's own shade by night.
+pub(crate) const TOOLTIP_OAK_RULE: (ColorU, ColorU) =
+    (ColorU::rgb(0x66, 0x64, 0x5C), ColorU::rgb(0x55, 0x4A, 0x3A));
+/// The oak's shadow: rgba(60, 48, 30, 0.3) by day, rgba(0, 0, 0, 0.55) by night.
+const TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(60, 48, 30, 77), ColorU::new(0, 0, 0, 140));
 
 /// Flora's tooltip skin.
 #[must_use]
@@ -4381,20 +4482,21 @@ pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
     use crate::widgets::tooltip as t;
     // The widget's tip base (`tooltip::TIP_BASE`: placed below the wrapper,
     // on one line, hidden until hovered - the value the leave handler writes
-    // back), then flora's ink panel.
+    // back), then flora's oak.
     let mut tip = t::TIP_BASE.to_vec();
-    tip.push(decl::font_size(12));
-    tip.extend(decl::padding(4, 8, 4, 8));
+    tip.push(decl::font_size(13));
+    tip.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)));
+    tip.extend(decl::padding(4, 9, 4, 9));
     tip.extend(decl::radius(3));
     tip.extend(decl::themed_border(
         decl::Edges::ALL,
         1,
-        TOOLTIP_INK_BD.0,
-        TOOLTIP_INK_BD.1,
+        TOOLTIP_OAK_RULE.0,
+        TOOLTIP_OAK_RULE.1,
     ));
-    tip.extend(decl::themed_fill(TOOLTIP_INK_BG.0, TOOLTIP_INK_BG.1));
-    tip.extend(decl::themed_ink(TOOLTIP_INK_FG.0, TOOLTIP_INK_FG.1));
-    tip.extend(decl::themed_shadow(1, 2, TOOLTIP_SHADOW.0, TOOLTIP_SHADOW.1));
+    tip.extend(decl::themed_fill(TOOLTIP_OAK.0, TOOLTIP_OAK.1));
+    tip.extend(decl::themed_ink(TOOLTIP_OAK_INK.0, TOOLTIP_OAK_INK.1));
+    tip.extend(decl::themed_shadow(3, 8, TOOLTIP_SHADOW.0, TOOLTIP_SHADOW.1));
 
     t::TooltipSkin {
         theme: super::UiTheme::Flora,
@@ -4412,7 +4514,7 @@ pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
 // ==== video ====
 //
 // The picture is the source's own; the widget's only chrome is its "no signal"
-// poster. Flora draws it as the ink panel it sets code and tooltips in
+// poster. Flora draws it as the ink panel it sets code in
 // (`--fl-code-bg` under a `--fl-code-bd` hairline, by day and by night) - a
 // screen reads as ink on the page in both modes.
 
@@ -4422,12 +4524,12 @@ pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
     use super::decl;
 
     let mut v = decl::fill_box().to_vec();
-    v.extend(decl::themed_fill(TOOLTIP_INK_BG.0, TOOLTIP_INK_BG.1));
+    v.extend(decl::themed_fill(CODE_VIEW_BG.0, CODE_VIEW_BG.1));
     v.extend(decl::themed_border(
         decl::Edges::ALL,
         1,
-        TOOLTIP_INK_BD.0,
-        TOOLTIP_INK_BD.1,
+        CODE_VIEW_BD.0,
+        CODE_VIEW_BD.1,
     ));
     CssPropertyWithConditionsVec::from_vec(v)
 }

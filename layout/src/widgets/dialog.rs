@@ -2286,37 +2286,42 @@ mod theme_tests {
         let panel = panel_of(&dom);
         assert_eq!(bg(panel, false), Some(flora::LIGHT_SUR));
         assert_eq!(bg(panel, true), Some(flora::DARK_SUR));
-        assert_eq!(tc::border_top_color(panel, false, None), Some(flora::LIGHT_BD2));
-        assert_eq!(tc::border_top_color(panel, true, None), Some(flora::DARK_BD2));
-        assert_eq!(tc::text_color(panel, false), Some(flora::LIGHT_INK));
-        assert_eq!(tc::text_color(panel, true), Some(flora::DARK_INK));
+        assert_eq!(tc::border_top_color(panel, false, None), Some(flora::LIGHT_BD5));
+        assert_eq!(tc::border_top_color(panel, true, None), Some(flora::DARK_BD5));
+        assert_eq!(tc::text_color(panel, false), Some(flora::LIGHT_INK2));
+        assert_eq!(tc::text_color(panel, true), Some(flora::DARK_INK2));
     }
 
     #[test]
-    fn a_flora_dialog_title_is_ruled_off_from_its_content() {
+    fn a_flora_dialog_title_is_set_in_capitals_on_the_header_band() {
         let dom = titled(Some(UiTheme::Flora)).dom();
         let title = tc::find(&dom, TITLE).expect("a titled dialog has a title row");
-        let rule = |dark: bool| match tc::resolve(
-            title,
-            CssPropertyType::BorderBottomColor,
-            dark,
-            None,
-        ) {
-            Some(CssProperty::BorderBottomColor(v)) => v.get_property().map(|c| c.inner),
-            _ => None,
-        };
-        assert_eq!(rule(false), Some(flora::LIGHT_SEP));
-        assert_eq!(rule(true), Some(flora::DARK_SEP));
-        assert_eq!(tc::text_color(title, false), Some(flora::LIGHT_INK));
-        assert_eq!(tc::text_color(title, true), Some(flora::DARK_INK));
+        for dark in [false, true] {
+            let band = tc::background(title, dark).map(|p| tc::bg_layers(&p));
+            assert!(
+                matches!(
+                    band.as_deref(),
+                    Some([azul_css::props::style::StyleBackgroundContent::LinearGradient(_)])
+                ),
+                "dark {dark}: the band is the title row's own background: {band:?}"
+            );
+            assert_eq!(tc::text_color(title, dark), Some(flora::LIGHT_ON_ACC), "dark {dark}");
+        }
+        assert!(
+            matches!(
+                tc::resolve(title, CssPropertyType::TextTransform, false, None),
+                Some(CssProperty::TextTransform(_))
+            ),
+            "the title is set in capitals"
+        );
     }
 
     #[test]
-    fn a_flora_dialog_close_button_is_written_in_brass_ink() {
+    fn a_flora_dialog_close_button_sits_on_the_band_in_the_paper_ink() {
         let dom = titled(Some(UiTheme::Flora)).dom();
         let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
-        assert_eq!(tc::text_color(close, false), Some(flora::LIGHT_QT));
-        assert_eq!(tc::text_color(close, true), Some(flora::DARK_QT));
+        assert_eq!(tc::text_color(close, false), Some(flora::LIGHT_ON_ACC));
+        assert_eq!(tc::text_color(close, true), Some(flora::LIGHT_ON_ACC));
     }
 
     #[test]
@@ -2335,7 +2340,9 @@ mod theme_tests {
         let dom = titled(Some(UiTheme::Flora)).dom();
         let close = tc::find(&dom, CLOSE).expect("the dialog has a close button");
         let focus = Some(PseudoStateType::Focus);
-        assert_eq!(tc::border_top_color(close, false, focus), Some(flora::LIGHT_ACC));
+        // On the band the ring is the stone's glow by day too: the accent
+        // itself would not stand off the band.
+        assert_eq!(tc::border_top_color(close, false, focus), Some(flora::LIGHT_GLOW));
         assert_eq!(tc::border_top_color(close, true, focus), Some(flora::DARK_GLOW));
     }
 
