@@ -28,7 +28,10 @@ use alacritty_terminal::{
     vte::ansi::{Processor, StdSyncHandler},
 };
 
-use crate::vt::GridSize;
+use crate::{
+    sample::{Stream, STREAM_LINES_PER_TICK},
+    vt::GridSize,
+};
 
 /// A cell's size the PTY is told (`TIOCSWINSZ` carries pixels too).
 const CELL_PX: (u16, u16) = (8, 17);
@@ -108,8 +111,15 @@ impl EventListener for Listener {
 enum Backend {
     /// A shell on a PTY, through its event loop.
     Pty(Notifier),
-    /// A recording: what is typed is echoed into the screen.
-    Replay(Processor<StdSyncHandler>),
+    /// A recording: what is typed is echoed into the screen - the sample
+    /// shell, which runs `seq N` and `yes | head -n N` ([`Stream`]).
+    Replay {
+        parser: Processor<StdSyncHandler>,
+        /// What was typed since the last Return.
+        line: String,
+        /// The command running, writing a few lines a tick ([`Session::pump`]).
+        stream: Option<Stream>,
+    },
 }
 
 /// One shell and its screen.
@@ -188,9 +198,49 @@ impl Session {
         Self {
             term: Arc::new(FairMutex::new(term)),
             signals,
-            backend: Backend::Replay(parser),
+            backend: Backend::Replay {
+                parser,
+                line: String::new(),
+                stream: None,
+            },
             size,
         }
+    }
+
+    /// Whether the sample shell runs a command that is still writing.
+    pub fn streaming(&self) -> bool {
+        matches!(
+            &self.backend,
+            Backend::Replay {
+                stream: Some(_),
+                ..
+            }
+        )
+    }
+
+    /// The next lines of the sample shell's running command, into the
+    /// screen (the flag raised); output that comes in like a program's,
+    /// leaving the view where the user put it. Returns whether there were
+    /// any. A shell on a PTY writes by itself.
+    pub fn pump(&mut self) -> bool {
+        let Backend::Replay { parser, stream, .. } = &mut self.backend else {
+            return false;
+        };
+        let Some(running) = stream.as_mut() else {
+            return false;
+        };
+        let bytes = running.take(STREAM_LINES_PER_TICK);
+        if running.done() {
+            *stream = None;
+        }
+        if bytes.is_empty() {
+            return false;
+        }
+        let mut term = self.term.lock();
+        parser.advance(&mut *term, &bytes);
+        drop(term);
+        self.signals.dirty.store(true, Ordering::Release);
+        true
     }
 
     /// Whether a shell (not a recording) runs here.
@@ -220,17 +270,37 @@ impl Session {
                     term.scroll_display(Scroll::Bottom);
                 }
             }
-            Backend::Replay(parser) => {
+            Backend::Replay {
+                parser,
+                line,
+                stream,
+            } => {
+                // The sample shell's line: Return runs it, Backspace takes a
+                // character back, Ctrl+C stops what runs.
+                let mut command = None;
                 let echo: Vec<u8> = if bytes == b"\r" {
+                    command = Some(std::mem::take(line));
                     b"\r\n".to_vec()
                 } else if bytes == [0x7f] {
+                    line.pop();
                     b"\x08 \x08".to_vec()
+                } else if bytes == [0x03] {
+                    line.clear();
+                    *stream = None;
+                    b"^C\r\n".to_vec()
                 } else {
+                    line.push_str(&String::from_utf8_lossy(&bytes));
                     bytes
                 };
                 let mut term = self.term.lock();
                 term.scroll_display(Scroll::Bottom);
                 parser.advance(&mut *term, &echo);
+                drop(term);
+                if let Some(command) = command {
+                    if stream.is_none() {
+                        *stream = Stream::parse(&command);
+                    }
+                }
                 self.signals.dirty.store(true, Ordering::Release);
             }
         }
@@ -289,6 +359,35 @@ mod tests {
         assert_eq!(text(&s), ["$ ls", "", ""]);
         assert!(s.signals.take_dirty());
         assert!(!s.signals.take_dirty());
+    }
+
+    #[test]
+    fn the_sample_shell_streams_seq_a_few_lines_a_tick() {
+        let mut s = Session::replay(b"$ ", GridSize::new(20, 5), 1000);
+        s.write(b"seq 125".to_vec());
+        // Typed with a slip: the sample shell's line has its backspace.
+        s.write(b"\x7f".to_vec());
+        s.write(b"0".to_vec());
+        assert!(!s.streaming());
+        s.write(b"\r".to_vec());
+        assert!(s.streaming());
+        let _ = s.signals.take_dirty();
+        let mut ticks = 0;
+        while s.pump() {
+            ticks += 1;
+            assert!(s.signals.take_dirty(), "every chunk is drawn");
+        }
+        assert_eq!(ticks, 120usize.div_ceil(crate::sample::STREAM_LINES_PER_TICK));
+        assert!(!s.streaming());
+        let rows = text(&s);
+        assert_eq!(rows[rows.len() - 2], "120");
+        // Typed text echoes again once it is over.
+        s.write(b"ls".to_vec());
+        assert!(text(&s).iter().any(|r| r == "ls"));
+        // A line that is no command streams nothing.
+        s.write(b"\r".to_vec());
+        assert!(!s.streaming());
+        assert!(!s.pump());
     }
 
     #[test]

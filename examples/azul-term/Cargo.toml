@@ -8,9 +8,10 @@ description = """
     AzTerm - a terminal emulator on the public azul API: tabs of shells on
     a PTY (alacritty_terminal: the VT state machine and the PTY - forkpty
     on Unix, ConPTY on Windows), each drawn by azul's TerminalView (a
-    VirtualView host scrolled in whole lines, so a scrollback of 100,000
-    lines costs what a screen does), xterm keys, bracketed paste, pointer
-    reports, the 16 / 256 / true colours of the app theme's palette.
+    VirtualView host that builds only the rows in view and slides them by
+    the pixel, so a scrollback of 100,000 lines costs what a screen does),
+    xterm keys, bracketed paste, pointer reports, the 16 / 256 / true
+    colours of the app theme's palette. The strip of tabs is the title bar.
     Profiles and settings are files in the user's data folder, written
     through azul-storage's Drive from a Thread (azul-appkit's file jobs).
 """

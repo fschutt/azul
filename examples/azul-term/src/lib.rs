@@ -1,19 +1,26 @@
 //! AzTerm: a terminal emulator on the public azul API.
 //!
-//! The window is the old iTerm's: the app-drawn `Titlebar` (the window is
-//! `WindowDecorations::NoTitle`), under it a strip of tabs - one per session:
-//! a close button, its title (what the shell set, else the shell and its
+//! The window is the old iTerm's, without a title row: the window is
+//! `WindowDecorations::NoTitle` and its strip of tabs IS the title bar
+//! (`kit::tabs_in_titlebar`: a grab strip above the tabs, room for macOS's
+//! traffic lights before the first; everything around the tabs moves the
+//! window, a double click zooms it). One tab per session, every one as wide
+//! (180 px, down to 110 px when they are many, then the strip scrolls
+//! sideways - the wheel too - and the active tab is scrolled into it): a
+//! close button, its title (what the shell set, else the shell and its
 //! folder), on macOS its Cmd+number; the active one lit; a "+" for a new one
-//! - and the terminal of the active tab filling the rest. The menu bar has
-//! what is not on the strip (the text size, the settings, About). Inside a
-//! `ShellThemeScope` it follows the app theme (flat / flora) and the OS
-//! mode - the terminal's colours are the theme's palette
-//! (`TerminalPalette::flat` / `::flora_ink`).
+//! beside them, always in reach - and the terminal of the active tab filling
+//! the rest. The menu bar has what is not on the strip (the text size, the
+//! settings, About). Inside a `ShellThemeScope` it follows the app theme
+//! (flat / flora) and the OS mode - the terminal's colours are the theme's
+//! palette (`TerminalPalette::flat` / `::flora_ink`).
 //!
 //! Every tab is a [`session::Session`]: the user's shell on a PTY
 //! (alacritty_terminal's tty + event loop), or with `--sample` a recorded
 //! session replayed into a terminal with no PTY (it echoes what is typed).
-//! A shell that ends closes its tab. The terminal is azul's `TerminalView`:
+//! A shell that ends closes its tab. Closing the LAST tab - Cmd+W, its x,
+//! `exit` in its shell alike - closes the window, as iTerm does: a window
+//! never stands without a tab. The terminal is azul's `TerminalView`:
 //! its data callback answers with [`vt::screen`] for the grid it has room
 //! for (a new grid resizes the engine and the PTY), its events carry the
 //! bytes for the program, the scroll and the selection gestures.
@@ -25,13 +32,27 @@
 //! however much output came, and on every other tick in a flood
 //! ([`renders_now`]).
 //!
+//! SCROLLED UP, THE VIEW STAYS: the view scrolls by pixels (a trackpad's
+//! momentum glides; [`scroll::ViewScroll`] keeps the tab's slide beside the
+//! engine's whole-line display offset). Scrolled up while output streams
+//! in, the view stays where the user put it - the engine raises its offset
+//! with every line, the content in view does not move - and it is drawn a
+//! few times a second only ([`renders_scrolled_up`]), its round follow
+//! button counting the lines that came in below. The button, the wheel back
+//! to the bottom, Shift+End or typing follow the output again.
+//!
 //! On stdout, for scripts (`scripts/azterm_e2e.py`): `AZTERM_READY`,
 //! `AZTERM_TABS <n>`, `AZTERM_ACTIVE <index>`, `AZTERM_HISTORY <index>
 //! <lines>` (a new tab's scrollback), `AZTERM_SCROLL <offset>` (the view
-//! after a scroll), `AZTERM_COPIED <chars>`, `AZTERM_EXITED <index>`.
+//! after a scroll), `AZTERM_FOLLOW <1|0>` (the active view starts / stops
+//! following the output), `AZTERM_STREAM <index>` / `AZTERM_STREAMED
+//! <index>` (the sample shell's `seq N` / `yes | head -n N` started /
+//! ended), `AZTERM_COPIED <chars>`, `AZTERM_EXITED <index>`, `AZTERM_CLOSE`
+//! (the last tab closed: the window closes).
 
 pub mod ids;
 pub mod sample;
+pub mod scroll;
 pub mod session;
 pub mod vt;
 
@@ -51,7 +72,9 @@ use azul::{
         TimerCallbackReturn, Update,
     },
     css::{EventFilter, HoverEventFilter},
-    dom::{ClipboardContent, Dom, DomId, NodeId, VirtualKeyCode},
+    dom::{
+        ClipboardContent, Dom, DomId, DomNodeId, NodeId, ScrollIntoViewOptions, VirtualKeyCode,
+    },
     menu::{Menu, MenuItem, StringMenuItem},
     option::OptionString,
     shells::{ShellEmptyState, ShellThemeAccent, ShellThemeScope},
@@ -60,8 +83,8 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::StyledTextRunVec,
     widgets::{
-        AboutDialog, InfoBar, Modal, ModalState, StandardDialogEvent, TerminalGridSize,
-        TerminalScreen, TerminalSelectionKind, TerminalView, TerminalViewEvent,
+        AboutDialog, InfoBar, Modal, ModalState, StandardDialogEvent, TabsInTitlebar,
+        TerminalGridSize, TerminalScreen, TerminalSelectionKind, TerminalView, TerminalViewEvent,
         TerminalViewEventKind,
     },
     window::WindowEventFilter,
@@ -73,7 +96,7 @@ use azul_appkit::{
     ui as kit,
 };
 
-use crate::{session::Session, vt::GridSize};
+use crate::{scroll::ViewScroll, session::Session, vt::GridSize};
 
 // ==== The app's facts ====
 
@@ -131,14 +154,21 @@ const START_GRID: GridSize = GridSize {
 /// Ticks in a row with new output before the terminal re-renders on every
 /// other tick only ([`renders_now`]).
 pub const FLOOD_TICKS: u32 = 3;
+/// Ticks a tab that was opened or picked is scrolled into the strip on.
+const REVEAL_TICKS: u8 = 2;
+/// Ticks between two frames of a view scrolled up while output comes in
+/// ([`renders_scrolled_up`]).
+pub const SCROLLED_UP_TICKS: u32 = 15;
 
 // ==== The state ====
 
-/// One tab: its session and its title.
+/// One tab: its session, its title, its view beyond the engine's display
+/// offset (the slide, the lines that came in below it).
 pub struct Tab {
     pub session: Session,
     pub title: String,
     pub exited: bool,
+    pub view: ViewScroll,
 }
 
 /// What a window chord does (Cmd+key on macOS, Ctrl+Shift+key elsewhere),
@@ -206,6 +236,16 @@ pub const fn renders_now(streak: u32) -> bool {
     streak <= FLOOD_TICKS || streak % 2 == 0
 }
 
+/// Whether a view scrolled up is drawn again `since_render` ticks after
+/// its last frame while output comes in: what is in view does not change -
+/// the engine keeps it, the view stays where the user put it - only the
+/// count of new lines on its follow button and its thumb do, so four frames
+/// a second, not one for every chunk of a flood.
+#[must_use]
+pub const fn renders_scrolled_up(since_render: u32) -> bool {
+    since_render >= SCROLLED_UP_TICKS
+}
+
 /// A new shell's tab title until the shell sets one: the shell's name and
 /// its folder, the home folder as `~` ("zsh ~", "bash ~/src").
 #[must_use]
@@ -242,6 +282,16 @@ pub struct AppState {
     pub about_open: bool,
     /// Ticks in a row the active terminal had new output on ([`renders_now`]).
     pub streak: u32,
+    /// Ticks the active tab is still to be scrolled into the strip on (a
+    /// tab opened or picked; twice, as the rebuilt strip may be laid out
+    /// after the first).
+    pub reveal_ticks: u8,
+    /// Ticks since the terminal's view was last drawn
+    /// ([`renders_scrolled_up`]).
+    pub since_render: u32,
+    /// Whether the active view follows the output, as last printed
+    /// (`AZTERM_FOLLOW`).
+    pub follow_reported: Option<bool>,
 }
 
 impl AppState {
@@ -256,6 +306,9 @@ impl AppState {
             notice: String::new(),
             about_open: false,
             streak: 0,
+            reveal_ticks: 0,
+            since_render: 0,
+            follow_reported: None,
         }
     }
 
@@ -272,6 +325,7 @@ impl AppState {
                 session: Session::replay(&bytes, START_GRID, SCROLLBACK),
                 title: title.to_string(),
                 exited: false,
+                view: ViewScroll::default(),
             })
         } else {
             let cwd = home_dir();
@@ -284,6 +338,7 @@ impl AppState {
                         cwd.as_deref(),
                     ),
                     exited: false,
+                    view: ViewScroll::default(),
                 }),
                 Err(e) => {
                     self.notice = format!("The shell could not be started: {e}");
@@ -304,17 +359,21 @@ impl AppState {
 
     /// Closes tab `index` (its shell gets SIGHUP); the session that was
     /// active stays active, the one after a closed active tab takes over.
-    pub fn close_tab(&mut self, index: usize) {
-        if index < self.tabs.len() {
-            self.tabs.remove(index);
-            if index < self.active {
-                self.active -= 1;
-            } else if self.active >= self.tabs.len() {
-                self.active = self.tabs.len().saturating_sub(1);
-            }
+    /// Returns whether that was the last tab: the window closes with it, as
+    /// iTerm's does - a window never stands without a tab.
+    pub fn close_tab(&mut self, index: usize) -> bool {
+        if index >= self.tabs.len() {
+            return false;
+        }
+        self.tabs.remove(index);
+        if index < self.active {
+            self.active -= 1;
+        } else if self.active >= self.tabs.len() {
+            self.active = self.tabs.len().saturating_sub(1);
         }
         self.touch_active();
         println!("AZTERM_TABS {}", self.tabs.len());
+        self.tabs.is_empty()
     }
 
     /// Activates tab `index`.
@@ -336,13 +395,14 @@ impl AppState {
         self.select_tab(next);
     }
 
-    /// Does what a window chord or a menu item asks.
-    pub fn apply(&mut self, key: WindowKey) {
+    /// Does what a window chord or a menu item asks; returns whether the
+    /// window closes (the last tab closed).
+    pub fn apply(&mut self, key: WindowKey) -> bool {
         match key {
             WindowKey::NewTab => self.open_tab(),
             WindowKey::CloseTab => {
                 let active = self.active;
-                self.close_tab(active);
+                return self.close_tab(active);
             }
             WindowKey::NextTab => self.cycle_tab(1),
             WindowKey::PreviousTab => self.cycle_tab(-1),
@@ -354,26 +414,90 @@ impl AppState {
             WindowKey::Bigger => self.font_size = (self.font_size + 1.0).min(FONT_RANGE.1),
             WindowKey::Smaller => self.font_size = (self.font_size - 1.0).max(FONT_RANGE.0),
         }
+        false
     }
 
-    /// Scrolls the active tab's view (Cmd + a navigation key); the caller
-    /// re-renders it at once.
+    /// Scrolls the active tab's view (Cmd + a navigation key) by whole
+    /// lines, from where it is; the caller re-renders it at once.
     pub fn scroll_active(&mut self, scroll: Scroll) {
-        if let Some(tab) = self.tabs.get(self.active) {
-            let mut term = tab.session.term.lock();
-            term.scroll_display(scroll);
-            println!("AZTERM_SCROLL {}", term.grid().display_offset());
-            drop(term);
-            // Drawn now, not once more on the tick (the scroll raised the flag).
-            let _ = tab.session.signals.take_dirty();
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let mut term = tab.session.term.lock();
+        tab.view.note(term.grid().display_offset());
+        term.scroll_display(scroll);
+        let now = term.grid().display_offset();
+        drop(term);
+        println!("AZTERM_SCROLL {now}");
+        tab.view.moved_to(now, 0.0);
+        // Drawn now, not once more on the tick (the scroll raised the flag).
+        let _ = tab.session.signals.take_dirty();
+        self.report_follow(now == 0);
+    }
+
+    /// The active tab's view to `lines` lines up, slid up by `fraction` of
+    /// a line: the view's `Scroll`, worked out from the screen it showed
+    /// last. Applied as the move it is from there onto where the view is
+    /// now - output may have come in meanwhile, raising the engine's offset
+    /// under a view that stayed put - or, for 0, to the output, following
+    /// it. Returns the display offset the view is at.
+    pub fn scroll_view(&mut self, lines: u32, fraction: f32) -> usize {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return 0;
+        };
+        let mut term = tab.session.term.lock();
+        let offset = term.grid().display_offset();
+        tab.view.note(offset);
+        let to = f64::from(lines) - f64::from(fraction);
+        let (target, slide) = tab.view.target(to, offset, term.grid().history_size());
+        let delta = i32::try_from(target)
+            .unwrap_or(i32::MAX)
+            .saturating_sub(i32::try_from(offset).unwrap_or(i32::MAX));
+        if delta != 0 {
+            term.scroll_display(Scroll::Delta(delta));
+        }
+        let now = term.grid().display_offset();
+        drop(term);
+        tab.view.moved_to(now, slide);
+        println!("AZTERM_SCROLL {now}");
+        self.report_follow(now == 0);
+        now
+    }
+
+    /// `bytes` typed (pasted, reported) into the active tab: to its program,
+    /// and its view back at the output - typing follows it again.
+    pub fn write_active(&mut self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            return;
+        }
+        let index = self.active;
+        let Some(tab) = self.tabs.get_mut(index) else {
+            return;
+        };
+        let was_streaming = tab.session.streaming();
+        tab.session.write(bytes);
+        tab.view.follow();
+        if !was_streaming && tab.session.streaming() {
+            println!("AZTERM_STREAM {index}");
+        }
+        self.report_follow(true);
+    }
+
+    /// Prints `AZTERM_FOLLOW 1` / `0` when the active view starts or stops
+    /// following the output (for scripts).
+    fn report_follow(&mut self, following: bool) {
+        if self.follow_reported != Some(following) {
+            self.follow_reported = Some(following);
+            println!("AZTERM_FOLLOW {}", u8::from(following));
         }
     }
 
     /// The active tab's screen is drawn on the next tick: a tab that was
     /// switched to shows its own screen, also where the engine kept the
-    /// view of the window it rebuilt.
+    /// view of the window it rebuilt. And the strip scrolls it into view.
     fn touch_active(&mut self) {
         self.streak = 0;
+        self.reveal_ticks = REVEAL_TICKS;
         if let Some(tab) = self.tabs.get(self.active) {
             tab.session.signals.dirty.store(true, Ordering::Release);
         }
@@ -437,36 +561,81 @@ struct TabClick {
     index: usize,
 }
 
-/// The strip: a band a shade under the window, the tabs side by side.
-const TAB_BAR_CSS: &str = "display: flex; flex-direction: row; align-items: stretch; \
-     flex-shrink: 0; height: 28px; background: system:under-page-background; \
-     border-bottom: 1px solid system:separator; font-size: 12px; cursor: default; \
-     user-select: none;";
-/// A tab: an equal share of the strip up to a width - its close button, its
-/// title in the middle, its number.
+/// The row of tabs under the strip's grab strip, px.
+const TAB_ROW_PX: f32 = 28.0;
+/// A tab's width while the strip has room for every tab (iTerm's fixed
+/// width): when it has not, all of them shrink alike down to
+/// [`TAB_MIN_PX`], then the strip scrolls sideways. `TAB_CSS` and
+/// `TAB_ACTIVE_CSS` say it in CSS.
+pub const TAB_PX: f32 = 180.0;
+/// The narrowest a tab gets: its x, a few letters of its title, its number.
+pub const TAB_MIN_PX: f32 = 110.0;
+
+/// A CSS length of `v` px (none for nonsense).
+fn css_px(v: f32) -> f32 {
+    if v.is_finite() {
+        v.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// The strip of tabs as the window's TITLE BAR (the window is `NoTitle`,
+/// `kit::tabs_in_titlebar` - `TabsInTitlebar::platform()`): the grab strip
+/// above the row of tabs and the room for the window controls beside it
+/// (macOS's traffic lights before the first tab) are its padding, and
+/// everything in it that is not a tab or a button - above the tabs, before
+/// and after them - moves the window (`-azul-app-region: drag`; a double
+/// click zooms it).
+fn strip_css(chrome: TabsInTitlebar) -> String {
+    format!(
+        "display: flex; flex-direction: row; align-items: stretch; flex-shrink: 0; \
+         box-sizing: border-box; height: {height}px; padding-top: {top}px; \
+         padding-left: {left}px; padding-right: {right}px; \
+         background: system:under-page-background; border-bottom: 1px solid system:separator; \
+         font-size: 12px; cursor: default; user-select: none; -azul-app-region: drag;",
+        height = css_px(TAB_ROW_PX + chrome.top) + 1.0,
+        top = css_px(chrome.top),
+        left = css_px(chrome.left),
+        right = css_px(chrome.right),
+    )
+}
+
+/// The tabs' scroller: as wide as its tabs while the strip has room, then
+/// what is left of it, scrolled sideways - a wheel over it too (the engine
+/// turns a vertical wheel over a box that only scrolls sideways). No bar:
+/// the active tab is scrolled into it.
+const TAB_SCROLLER_CSS: &str = "display: flex; flex-direction: row; align-items: stretch; \
+     flex-grow: 0; flex-shrink: 1; flex-basis: auto; min-width: 0px; \
+     overflow-x: auto; overflow-y: hidden; scrollbar-width: none;";
+/// A tab: every one as wide ([`TAB_PX`], down to [`TAB_MIN_PX`] when they
+/// are many) - its close button, its title in the middle, its number. A tab
+/// is a tab, not the title bar.
 const TAB_CSS: &str = "display: flex; flex-direction: row; align-items: center; \
-     flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-width: 64px; max-width: 260px; \
-     padding: 0px 6px; border-right: 1px solid system:separator; \
-     color: system:secondary-text; \
+     flex-grow: 0; flex-shrink: 1; width: 180px; min-width: 110px; max-width: 180px; \
+     box-sizing: border-box; padding: 0px 6px; border-right: 1px solid system:separator; \
+     color: system:secondary-text; -azul-app-region: no-drag; \
      :hover { background: rgba(127, 127, 127, 0.14); }";
 /// The active tab: lit, the window's own ground.
 const TAB_ACTIVE_CSS: &str = "display: flex; flex-direction: row; align-items: center; \
-     flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-width: 64px; max-width: 260px; \
-     padding: 0px 6px; border-right: 1px solid system:separator; \
-     color: system:text; background: system:window-background;";
+     flex-grow: 0; flex-shrink: 1; width: 180px; min-width: 110px; max-width: 180px; \
+     box-sizing: border-box; padding: 0px 6px; border-right: 1px solid system:separator; \
+     color: system:text; background: system:window-background; -azul-app-region: no-drag;";
 /// A tab's close button, at its start (the old iTerm's place).
 const TAB_CLOSE_CSS: &str = "width: 16px; height: 16px; flex-shrink: 0; display: flex; \
      align-items: center; justify-content: center; border-radius: 3px; font-size: 13px; \
-     line-height: 16px; color: system:tertiary-text; \
+     line-height: 16px; color: system:tertiary-text; -azul-app-region: no-drag; \
      :hover { background: rgba(127, 127, 127, 0.28); color: system:text; }";
 /// A tab's title.
 const TAB_TITLE_CSS: &str = "flex-grow: 1; min-width: 0px; overflow: hidden; \
      white-space: nowrap; text-overflow: ellipsis; text-align: center; padding: 0px 4px;";
 /// A tab's chord ("⌘2").
 const TAB_NUMBER_CSS: &str = "flex-shrink: 0; color: system:tertiary-text; font-size: 11px;";
-/// The "+" after the tabs.
+/// The "+" after the tabs - beside their scroller, so it stays in reach
+/// however many there are.
 const NEW_TAB_CSS: &str = "width: 28px; flex-shrink: 0; display: flex; align-items: center; \
      justify-content: center; font-size: 16px; color: system:secondary-text; \
+     -azul-app-region: no-drag; \
      :hover { background: rgba(127, 127, 127, 0.14); color: system:text; }";
 /// The box the terminal fills.
 const PANE_CSS: &str = "position: relative; flex-grow: 1; flex-shrink: 1; flex-basis: 0px; \
@@ -512,13 +681,20 @@ fn tab_dom(app: &RefAny, index: usize, tab: &Tab, active: bool) -> Dom {
     dom
 }
 
-/// The strip of tabs, the old iTerm's: one per session, the active one lit,
-/// a "+" for a new one after them.
+/// The strip of tabs, the window's title bar: one tab per session, every
+/// one as wide, the active one lit, in a scroller; a "+" for a new one after
+/// them.
 fn tab_bar(app: &RefAny, st: &AppState) -> Dom {
-    let mut bar = Dom::create_div().with_id(ids::TABS).with_css(TAB_BAR_CSS);
+    let mut tabs = Dom::create_div()
+        .with_id(ids::TABS_SCROLLER)
+        .with_css(TAB_SCROLLER_CSS);
     for (i, tab) in st.tabs.iter().enumerate() {
-        bar.add_child(tab_dom(app, i, tab, i == st.active));
+        tabs.add_child(tab_dom(app, i, tab, i == st.active));
     }
+    let mut bar = Dom::create_div()
+        .with_id(ids::TABS)
+        .with_css(strip_css(kit::tabs_in_titlebar()).as_str())
+        .with_child(tabs);
     bar.add_child(
         Dom::create_div_with_text(AzString::from("+"))
             .with_id(ids::NEW_TAB)
@@ -542,7 +718,9 @@ fn notice_bar(app: &RefAny, st: &AppState) -> Dom {
         .with_id(ids::NOTICE)
 }
 
-/// The terminal of the active tab, in a positioned box it fills.
+/// The terminal of the active tab, in a positioned box it fills. No tab is
+/// open only when the first shell could not start (closing the last tab
+/// closes the window): the notice says why, the empty state offers another.
 fn pane(app: &RefAny, st: &AppState) -> Dom {
     let pane = Dom::create_div().with_id(ids::PANE).with_css(PANE_CSS);
     let Some(tab) = st.tabs.get(st.active) else {
@@ -630,12 +808,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .get(st.active)
         .map_or_else(|| "AzTerm".to_string(), |t| format!("{} - AzTerm", t.title));
     let content = if kit::settings_open(&st.kit) {
+        // The settings page has no strip of tabs: the app-drawn title row.
         column(vec![
             kit::title_row(&title),
             kit::settings_page(&st.kit, Vec::new()),
         ])
     } else {
-        let mut children = vec![kit::title_row(&title), tab_bar(&app, st)];
+        // No title row: the strip of tabs is the title bar.
+        let mut children = vec![tab_bar(&app, st)];
         if !st.notice.is_empty() {
             children.push(notice_bar(&app, st));
         }
@@ -661,12 +841,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 // ==== The terminal's callbacks ====
 
 /// The data callback: the active tab's screen for the grid the view has
-/// room for (a new grid resizes the engine and the PTY).
+/// room for (a new grid resizes the engine and the PTY), with the tab's
+/// slide and the lines that came in below its view; what the view shows
+/// from now on (its scroll events are worked out from it).
 extern "C" fn terminal_screen(mut data: RefAny, size: TerminalGridSize) -> TerminalScreen {
     let Some(mut st) = data.downcast_mut::<AppState>() else {
         return TerminalScreen::empty();
     };
     let alt = st.alt_sends_escape;
+    st.since_render = 0;
     let Some(tab) = st.active_tab_mut() else {
         return TerminalScreen::empty();
     };
@@ -674,8 +857,13 @@ extern "C" fn terminal_screen(mut data: RefAny, size: TerminalGridSize) -> Termi
     let rows = usize::try_from(size.rows).unwrap_or(usize::MAX);
     tab.session.resize(GridSize::new(columns, rows));
     let term = tab.session.term.lock();
-    let screen = vt::screen(&*term, alt);
+    let offset = term.grid().display_offset();
+    let mut screen = vt::screen(&*term, alt);
     drop(term);
+    tab.view.note(offset);
+    screen.scroll_fraction = if offset > 0 { tab.view.fraction } else { 0.0 };
+    screen.new_lines = tab.view.new_lines;
+    tab.view.shown = tab.view.up(offset);
     screen
 }
 
@@ -703,13 +891,27 @@ extern "C" fn on_terminal(
     let Some(mut st) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
+    match event.kind {
+        // Typing follows the output again.
+        TerminalViewEventKind::Input => {
+            st.write_active(event.bytes.as_slice().to_vec());
+            return Update::DoNothing;
+        }
+        // By pixels, from the screen the view showed (see `scroll_view`).
+        TerminalViewEventKind::Scroll => {
+            st.scroll_view(event.scroll, event.scroll_fraction);
+            // The view re-renders itself now: the tick need not draw the
+            // same screen again (the engine's own scroll raised the flag).
+            if let Some(tab) = st.tabs.get(st.active) {
+                let _ = tab.session.signals.take_dirty();
+            }
+            return Update::DoNothing;
+        }
+        _ => {}
+    }
     let Some(tab) = st.active_tab_mut() else {
         return Update::DoNothing;
     };
-    if event.kind == TerminalViewEventKind::Input {
-        tab.session.write(event.bytes.as_slice().to_vec());
-        return Update::DoNothing;
-    }
     let mut term = tab.session.term.lock();
     let side = if event.right_half {
         Side::Right
@@ -717,12 +919,6 @@ extern "C" fn on_terminal(
         Side::Left
     };
     match event.kind {
-        TerminalViewEventKind::Scroll => {
-            let now = i64::try_from(term.grid().display_offset()).unwrap_or(0);
-            let delta = i64::from(event.scroll) - now;
-            term.scroll_display(Scroll::Delta(i32::try_from(delta).unwrap_or(0)));
-            println!("AZTERM_SCROLL {}", term.grid().display_offset());
-        }
         TerminalViewEventKind::SelectStart => {
             let kind = match event.selection_kind {
                 TerminalSelectionKind::Word => SelectionType::Semantic,
@@ -753,12 +949,13 @@ extern "C" fn on_terminal(
             }
             return Update::DoNothing;
         }
-        TerminalViewEventKind::SelectEnd | TerminalViewEventKind::Input => {}
+        TerminalViewEventKind::SelectEnd
+        | TerminalViewEventKind::Input
+        | TerminalViewEventKind::Scroll => {}
     }
     drop(term);
-    // The view re-renders itself after a scroll or a selection, reading the
-    // engine as it is then: the tick need not draw the same screen again
-    // (the engine's own scroll raised the flag).
+    // The view re-renders itself after a selection, reading the engine as
+    // it is then: the tick need not draw the same screen again.
     let _ = tab.session.signals.take_dirty();
     Update::DoNothing
 }
@@ -803,6 +1000,17 @@ fn rerender_terminal(info: &mut CallbackInfo) {
     }
 }
 
+/// Scrolls the strip so tab `index` is in view (the strip scrolls sideways
+/// when the tabs do not fit).
+fn reveal_tab(info: &mut CallbackInfo, index: usize) {
+    let dom = DomId { inner: 0 };
+    let id = format!("{}{index}", ids::TAB.as_str());
+    let node = info.get_node_id_by_id_attribute(dom, AzString::from(id.as_str()));
+    if node.into_raw() != 0 {
+        info.scroll_node_into_view(DomNodeId { dom, node }, ScrollIntoViewOptions::nearest());
+    }
+}
+
 /// Gives the terminal the keys when nothing has them - at the start, after
 /// a click on the strip, after a tab closed: a terminal's window types into
 /// its terminal. (`autofocus` is honoured in popups only.)
@@ -828,6 +1036,13 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
     let mut rebuild = false;
     let mut ended = Vec::new();
     for (i, tab) in st.tabs.iter_mut().enumerate() {
+        // The sample shell's running command writes its next lines.
+        if tab.session.streaming() {
+            tab.session.pump();
+            if !tab.session.streaming() {
+                println!("AZTERM_STREAMED {i}");
+            }
+        }
         let signals = &tab.session.signals;
         // The active tab's flag is taken when its view re-renders (a flood
         // skips ticks); a tab in the back has no view to draw.
@@ -849,25 +1064,58 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
             println!("AZTERM_EXITED {i}");
         }
     }
-    // A shell that ended closes its tab.
+    // A shell that ended closes its tab; the last one closes the window.
+    let mut closes = false;
     for i in ended.into_iter().rev() {
-        st.close_tab(i);
+        closes |= st.close_tab(i);
         rebuild = true;
     }
+    if closes {
+        drop(st);
+        println!("AZTERM_CLOSE");
+        info.callback_info.close_window();
+        return TimerCallbackReturn::terminate_unchanged();
+    }
+    // The view follows the output (offset 0), or it was scrolled up: then
+    // what is in view stays put - the engine raises its offset with every
+    // line that comes in, counted for the follow button - and it is drawn
+    // only now and then, not for every chunk of a flood.
+    let shown = st.active;
+    let following = st.tabs.get_mut(shown).map_or(true, |tab| {
+        let offset = tab.session.term.lock().grid().display_offset();
+        tab.view.note(offset);
+        offset == 0
+    });
+    st.report_follow(following);
     st.streak = if output { st.streak.saturating_add(1) } else { 0 };
-    let render = output && renders_now(st.streak);
+    st.since_render = st.since_render.saturating_add(1);
+    let render = output
+        && if following {
+            renders_now(st.streak)
+        } else {
+            renders_scrolled_up(st.since_render)
+        };
     if render {
         if let Some(tab) = st.tabs.get(st.active) {
             let _ = tab.session.signals.take_dirty();
         }
     }
     let focus = !st.about_open && !kit::settings_open(&st.kit);
+    // A tab opened or picked is scrolled into the strip - in the strip as
+    // it is laid out (not on a tick that rebuilds it).
+    let reveal = (st.reveal_ticks > 0 && !rebuild).then(|| {
+        st.reveal_ticks -= 1;
+        st.active
+    });
     drop(st);
     if render {
         rerender_terminal(&mut info.callback_info);
     }
     if focus {
         focus_terminal(&mut info.callback_info);
+    }
+    if let Some(index) = reveal {
+        reveal_tab(&mut info.callback_info, index);
     }
     if rebuild {
         TimerCallbackReturn::continue_and_refresh_dom()
@@ -876,36 +1124,48 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
     }
 }
 
-/// `key` on the app, the window rebuilt.
-fn apply_key(data: &mut RefAny, key: WindowKey) -> Update {
-    if let Some(mut st) = data.downcast_mut::<AppState>() {
-        st.apply(key);
+/// What a change to the tabs leaves: the window rebuilt - or, the last tab
+/// closed, the window closed (never a window without a tab).
+fn after_tabs(info: &mut CallbackInfo, closes: bool) -> Update {
+    if closes {
+        println!("AZTERM_CLOSE");
+        info.close_window();
+        Update::DoNothing
+    } else {
+        Update::RefreshDom
     }
-    Update::RefreshDom
 }
 
-extern "C" fn on_new_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::NewTab)
+/// `key` on the app, the window rebuilt (or closed with its last tab).
+fn apply_key(data: &mut RefAny, info: &mut CallbackInfo, key: WindowKey) -> Update {
+    let closes = data
+        .downcast_mut::<AppState>()
+        .is_some_and(|mut st| st.apply(key));
+    after_tabs(info, closes)
 }
 
-extern "C" fn on_close_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::CloseTab)
+extern "C" fn on_new_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::NewTab)
 }
 
-extern "C" fn on_next_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::NextTab)
+extern "C" fn on_close_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::CloseTab)
 }
 
-extern "C" fn on_previous_tab(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::PreviousTab)
+extern "C" fn on_next_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::NextTab)
 }
 
-extern "C" fn on_bigger_text(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::Bigger)
+extern "C" fn on_previous_tab(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::PreviousTab)
 }
 
-extern "C" fn on_smaller_text(mut data: RefAny, _info: CallbackInfo) -> Update {
-    apply_key(&mut data, WindowKey::Smaller)
+extern "C" fn on_bigger_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::Bigger)
+}
+
+extern "C" fn on_smaller_text(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    apply_key(&mut data, &mut info, WindowKey::Smaller)
 }
 
 extern "C" fn on_settings(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -951,10 +1211,10 @@ extern "C" fn on_tab_close_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     };
     // The tab under the button must not take the click as well.
     info.stop_propagation();
-    if let Some(mut st) = app.downcast_mut::<AppState>() {
-        st.close_tab(index);
-    }
-    Update::RefreshDom
+    let closes = app
+        .downcast_mut::<AppState>()
+        .is_some_and(|mut st| st.close_tab(index));
+    after_tabs(&mut info, closes)
 }
 
 extern "C" fn on_about(
@@ -1020,11 +1280,13 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     info.prevent_default();
-    apply_key(&mut data, action)
+    apply_key(&mut data, &mut info, action)
 }
 
 #[cfg(test)]
 mod tests {
+    use azul::option::OptionTerminalLine;
+
     use super::*;
 
     fn kit() -> RefAny {
@@ -1177,6 +1439,216 @@ mod tests {
         assert_eq!(screen.lines.as_slice().len(), 30);
         let st = data.downcast_ref::<AppState>().expect("the app");
         assert_eq!(st.tabs[0].session.size(), GridSize::new(100, 30));
+    }
+
+    #[test]
+    fn closing_the_last_tab_closes_the_window_and_no_other_does() {
+        // iTerm's way: a window never stands empty.
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        st.open_tab();
+        assert!(!st.close_tab(1), "another tab is left");
+        assert!(st.close_tab(0), "the last tab closes the window");
+        assert!(st.tabs.is_empty());
+        // Cmd+W on the only tab: the same.
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        assert!(st.apply(WindowKey::CloseTab));
+        // A tab that is not there closes nothing.
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        assert!(!st.close_tab(3));
+        assert_eq!(st.tabs.len(), 1);
+        // Another window chord never closes the window.
+        assert!(!st.apply(WindowKey::NewTab));
+        assert!(!st.apply(WindowKey::NextTab));
+    }
+
+    #[test]
+    fn the_strip_is_the_title_bar_clear_of_the_window_controls() {
+        let css = strip_css(TabsInTitlebar::create(8.0, 78.0, 0.0));
+        assert!(css.contains("-azul-app-region: drag;"), "{css}");
+        assert!(css.contains("padding-top: 8px;"), "{css}");
+        assert!(css.contains("padding-left: 78px;"), "{css}");
+        assert!(css.contains("padding-right: 0px;"), "{css}");
+        // The grab strip is new room above the row of tabs (and its line).
+        assert!(css.contains("height: 37px;"), "{css}");
+        // The tabs and the buttons stay what they are.
+        for part in [TAB_CSS, TAB_ACTIVE_CSS, TAB_CLOSE_CSS, NEW_TAB_CSS] {
+            assert!(part.contains("-azul-app-region: no-drag;"), "{part}");
+        }
+    }
+
+    #[test]
+    fn every_tab_is_as_wide_and_the_strip_scrolls_when_they_do_not_fit() {
+        let width = format!("width: {TAB_PX}px;");
+        let least = format!("min-width: {TAB_MIN_PX}px;");
+        for part in [TAB_CSS, TAB_ACTIVE_CSS] {
+            assert!(part.contains(&width), "{part}");
+            assert!(part.contains(&least), "{part}");
+            assert!(part.contains("flex-grow: 0;"), "{part}");
+            assert!(part.contains("flex-shrink: 1;"), "{part}");
+        }
+        assert!(TAB_MIN_PX < TAB_PX);
+        // The tabs scroll sideways (a wheel over them too: the engine turns
+        // a vertical wheel over a box that only scrolls sideways); the "+"
+        // is outside the scroller, always in reach.
+        assert!(TAB_SCROLLER_CSS.contains("overflow-x: auto;"));
+        assert!(TAB_SCROLLER_CSS.contains("overflow-y: hidden;"));
+        assert!(TAB_SCROLLER_CSS.contains("min-width: 0px;"));
+        assert!(NEW_TAB_CSS.contains("flex-shrink: 0;"));
+    }
+
+    #[test]
+    fn a_new_or_picked_tab_is_scrolled_into_the_strip() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        assert!(st.reveal_ticks > 0);
+        st.reveal_ticks = 0;
+        st.open_tab();
+        assert!(st.reveal_ticks > 0);
+        st.reveal_ticks = 0;
+        st.select_tab(0);
+        assert!(st.reveal_ticks > 0);
+        st.reveal_ticks = 0;
+        st.cycle_tab(1);
+        assert!(st.reveal_ticks > 0);
+    }
+
+    /// The text of every row of `screen`.
+    fn rows_of(screen: &TerminalScreen) -> Vec<String> {
+        screen
+            .lines
+            .as_slice()
+            .iter()
+            .map(|l| {
+                l.runs
+                    .as_slice()
+                    .iter()
+                    .map(|r| r.text.as_str().to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
+    const GRID: TerminalGridSize = TerminalGridSize {
+        columns: 80,
+        rows: 24,
+    };
+
+    /// `f` on the app inside `data`.
+    fn with_app<R>(data: &mut RefAny, f: impl FnOnce(&mut AppState) -> R) -> R {
+        let mut st = data.downcast_mut::<AppState>().expect("the app");
+        f(&mut st)
+    }
+
+    #[test]
+    fn the_data_callback_slides_the_rows_and_gives_the_line_below_off_the_output() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        // The log: thousands of lines of scrollback.
+        st.open_tab();
+        let mut data = RefAny::new(st);
+        let at_output = terminal_screen(data.clone(), GRID);
+        assert_eq!(at_output.scroll, 0);
+        assert!(at_output.scroll_fraction.abs() < f32::EPSILON);
+        assert!(matches!(at_output.line_below, OptionTerminalLine::None));
+        // The view asks for 5 lines up, slid by a quarter of a line.
+        with_app(&mut data, |st| st.scroll_view(5, 0.25));
+        let up = terminal_screen(data.clone(), GRID);
+        assert_eq!(up.scroll, 5);
+        assert!((up.scroll_fraction - 0.25).abs() < 1e-6);
+        assert!(matches!(up.line_below, OptionTerminalLine::Some(_)));
+        // The line below is the first of the five under the rows.
+        let OptionTerminalLine::Some(below) = &up.line_below else {
+            unreachable!()
+        };
+        let five_up = rows_of(&up);
+        with_app(&mut data, |st| st.scroll_view(4, 0.0));
+        let four_up = rows_of(&terminal_screen(data.clone(), GRID));
+        assert_eq!(four_up[..23], five_up[1..]);
+        let below_text: String = below
+            .runs
+            .as_slice()
+            .iter()
+            .map(|r| r.text.as_str().to_string())
+            .collect();
+        assert_eq!(four_up[23], below_text);
+    }
+
+    #[test]
+    fn output_while_scrolled_up_keeps_the_view_still_and_counts_the_new_lines() {
+        let mut st = AppState::new(kit(), true);
+        // The build session: a prompt waiting. `seq 500` streams 500 lines,
+        // a few each tick.
+        st.open_tab();
+        st.write_active(b"seq 500".to_vec());
+        st.write_active(b"\r".to_vec());
+        assert!(st.tabs[0].session.pump());
+        let mut data = RefAny::new(st);
+        let _ = terminal_screen(data.clone(), GRID);
+        with_app(&mut data, |st| st.scroll_view(10, 0.5));
+        let before = terminal_screen(data.clone(), GRID);
+        assert_eq!(before.new_lines, 0);
+        // Output streams in; the scrolled-up view is not drawn meanwhile.
+        for _ in 0..3 {
+            assert!(with_app(&mut data, |st| st.tabs[0].session.pump()));
+        }
+        let tick = u32::try_from(sample::STREAM_LINES_PER_TICK).expect("a few");
+        // What is in view did not move: drawn now, it is the same rows.
+        let still = terminal_screen(data.clone(), GRID);
+        assert_eq!(rows_of(&still), rows_of(&before), "the view stays put");
+        assert!((still.scroll_fraction - 0.5).abs() < 1e-6, "to the pixel");
+        assert_eq!(still.scroll, before.scroll + 3 * tick);
+        assert_eq!(still.new_lines, 3 * tick);
+        // More output, then a wheel step the view worked out from the screen
+        // it showed (`still`): one line up from what is in view - not to
+        // the offset the engine had then, lines away from it now.
+        assert!(with_app(&mut data, |st| st.tabs[0].session.pump()));
+        with_app(&mut data, |st| st.scroll_view(still.scroll + 1, 0.5));
+        let one_more = terminal_screen(data.clone(), GRID);
+        assert_eq!(one_more.scroll, still.scroll + tick + 1);
+        assert_eq!(rows_of(&one_more)[1..], rows_of(&still)[..23]);
+        assert_eq!(one_more.new_lines, 4 * tick, "a scroll is no output");
+        // The follow button (a scroll to the output): following again.
+        with_app(&mut data, |st| st.scroll_view(0, 0.0));
+        let following = terminal_screen(data.clone(), GRID);
+        assert_eq!(following.scroll, 0);
+        assert!(following.scroll_fraction.abs() < f32::EPSILON);
+        assert_eq!(following.new_lines, 0);
+    }
+
+    #[test]
+    fn typing_follows_the_output_again() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        st.open_tab();
+        let mut data = RefAny::new(st);
+        let _ = terminal_screen(data.clone(), GRID);
+        with_app(&mut data, |st| st.scroll_view(40, 0.75));
+        assert_eq!(terminal_screen(data.clone(), GRID).scroll, 40);
+        with_app(&mut data, |st| st.write_active(b"l".to_vec()));
+        let typed = terminal_screen(data.clone(), GRID);
+        assert_eq!(typed.scroll, 0);
+        assert!(typed.scroll_fraction.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_scrolled_up_view_is_drawn_a_few_times_a_second_not_on_every_chunk() {
+        // Following, a flood is drawn every other tick; scrolled up, what is
+        // in view does not change - only the count and the thumb, now and
+        // then.
+        let (mut since, mut drawn) = (0, 0);
+        for _ in 0..60 {
+            since += 1;
+            if renders_scrolled_up(since) {
+                drawn += 1;
+                since = 0;
+            }
+        }
+        assert!((2..=6).contains(&drawn), "{drawn} frames a second");
+        assert!(!renders_scrolled_up(1));
+        assert!(renders_scrolled_up(SCROLLED_UP_TICKS));
     }
 
     #[test]

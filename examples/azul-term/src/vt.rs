@@ -19,7 +19,7 @@ use alacritty_terminal::{
 };
 use azul::{
     css::ColorU,
-    option::OptionTerminalSelection,
+    option::{OptionTerminalLine, OptionTerminalSelection},
     str::String as AzString,
     vec::{TerminalLineVec, TerminalRunVec},
     widgets::{
@@ -61,28 +61,35 @@ impl Dimensions for GridSize {
 }
 
 /// The screen of `term` as the view shows it: the rows at its display
-/// offset, the cursor and the selection in view, the scrollback, the modes
-/// (`alt_sends_escape` is the user's choice, not the program's).
+/// offset and - off the output - the line just below them (it slides in
+/// while the view is between two lines), the cursor and the selection in
+/// view, the scrollback, the modes (`alt_sends_escape` is the user's
+/// choice, not the program's). The slide and the count of new lines are the
+/// tab's, not the engine's: the caller sets them.
 pub fn screen<T>(term: &Term<T>, alt_sends_escape: bool) -> TerminalScreen {
     let grid = term.grid();
     let offset = grid.display_offset();
     let rows = grid.screen_lines();
     let columns = grid.columns();
     let offset_i = i32::try_from(offset).unwrap_or(i32::MAX);
+    let row_line = |r: usize| Line(i32::try_from(r).unwrap_or(i32::MAX) - offset_i);
     let lines: Vec<TerminalLine> = (0..rows)
-        .map(|r| {
-            line_of(
-                grid,
-                Line(i32::try_from(r).unwrap_or(i32::MAX) - offset_i),
-                columns,
-            )
-        })
+        .map(|r| line_of(grid, row_line(r), columns))
         .collect();
+    // Row `rows` of the view: on the screen while the view is up at all.
+    let line_below = if offset > 0 {
+        OptionTerminalLine::Some(line_of(grid, row_line(rows), columns))
+    } else {
+        OptionTerminalLine::None
+    };
     TerminalScreen {
         lines: TerminalLineVec::from_vec(lines),
+        line_below,
         selection: selection_of(term, offset, rows, columns),
         history: u32::try_from(grid.history_size()).unwrap_or(u32::MAX),
         scroll: u32::try_from(offset).unwrap_or(u32::MAX),
+        scroll_fraction: 0.0,
+        new_lines: 0,
         cursor: cursor_of(term, offset, rows),
         modes: modes_of(*term.mode(), alt_sends_escape),
     }
@@ -477,6 +484,27 @@ mod tests {
         assert_eq!(up.scroll, 2);
         // The cursor (on the last screen row) is below the rows in view.
         assert_eq!(up.cursor.shape, TerminalCursorShape::Hidden);
+    }
+
+    #[test]
+    fn off_the_output_the_line_below_the_rows_comes_too() {
+        let mut t = term(4, 3, b"0\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7\r\n8\r\n9");
+        assert!(matches!(screen(&t, true).line_below, OptionTerminalLine::None));
+        t.scroll_display(Scroll::Delta(2));
+        let up = screen(&t, true);
+        assert_eq!(rows(&up), ["5", "6", "7"]);
+        let OptionTerminalLine::Some(below) = &up.line_below else {
+            panic!("no line below the view");
+        };
+        assert_eq!(text_of(below), "8");
+        // The slide and the count are the tab's: none from the engine.
+        assert!(up.scroll_fraction.abs() < f32::EPSILON);
+        assert_eq!(up.new_lines, 0);
+        t.scroll_display(Scroll::Delta(1));
+        let OptionTerminalLine::Some(below) = &screen(&t, true).line_below else {
+            panic!("no line below the view");
+        };
+        assert_eq!(text_of(below), "7");
     }
 
     #[test]

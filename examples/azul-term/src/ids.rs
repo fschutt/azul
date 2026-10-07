@@ -10,8 +10,10 @@ use azul::str::String as AzString;
 pub const TERMINAL: AzString = AzString::from_const_str("__azterm_terminal");
 /// The positioned box the terminal fills.
 pub const PANE: AzString = AzString::from_const_str("__azterm_pane");
-/// The strip of tabs over the terminal.
+/// The strip of tabs over the terminal: the window's title bar.
 pub const TABS: AzString = AzString::from_const_str("__azterm_tabs");
+/// The tabs' sideways scroller inside the strip (the "+" is beside it).
+pub const TABS_SCROLLER: AzString = AzString::from_const_str("__azterm_tabs-scroller");
 /// One tab: `__azterm_tab-<index>`.
 pub const TAB: AzString = AzString::from_const_str("__azterm_tab-");
 /// A tab's close button: `__azterm_tab-close-<index>`.
