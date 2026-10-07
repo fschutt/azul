@@ -580,6 +580,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::BackgroundClip => {
                 CssProperty::BackgroundClip(CssPropertyValue::$content_type)
             }
+            CssPropertyType::FontVariantNumeric => {
+                CssProperty::FontVariantNumeric(CssPropertyValue::$content_type)
+            }
             CssPropertyType::TableLayout => {
                 CssProperty::TableLayout(CssPropertyValue::$content_type)
             }

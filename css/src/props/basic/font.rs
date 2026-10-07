@@ -184,6 +184,176 @@ impl FormatAsRustCode for StyleFontStyle {
     }
 }
 
+// --- Font Variant Numeric ---
+
+/// The `font-variant-numeric` property (CSS Fonts 4 s6.7): which numeric
+/// glyph forms the text asks the font for, as OpenType features. One choice
+/// per group, any combination of groups:
+///
+/// - figures: `lining-nums` (`lnum`) or `oldstyle-nums` (`onum`);
+/// - spacing: `proportional-nums` (`pnum`) or `tabular-nums` (`tnum`: every
+///   digit one advance, so a column of times or prices lines up);
+/// - fractions: `diagonal-fractions` (`frac`) or `stacked-fractions` (`afrc`);
+/// - `ordinal` (`ordn`) and `slashed-zero` (`zero`).
+///
+/// `normal`, the initial value (every field `false`), asks for none of them.
+/// Inherited. A font without a feature shapes the text as if it had not been
+/// asked.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+#[allow(clippy::struct_excessive_bools)] // one flag per CSS keyword, as the grammar has them
+pub struct StyleFontVariantNumeric {
+    pub lining_nums: bool,
+    pub oldstyle_nums: bool,
+    pub proportional_nums: bool,
+    pub tabular_nums: bool,
+    pub diagonal_fractions: bool,
+    pub stacked_fractions: bool,
+    pub ordinal: bool,
+    pub slashed_zero: bool,
+}
+
+impl StyleFontVariantNumeric {
+    /// `normal`: no numeric feature asked for.
+    pub const NORMAL: Self = Self {
+        lining_nums: false,
+        oldstyle_nums: false,
+        proportional_nums: false,
+        tabular_nums: false,
+        diagonal_fractions: false,
+        stacked_fractions: false,
+        ordinal: false,
+        slashed_zero: false,
+    };
+
+    /// Every keyword with its OpenType feature tag and whether `self` asks
+    /// for it, in the grammar's order (the order a value is printed in).
+    #[must_use]
+    pub const fn keywords(&self) -> [(&'static str, [u8; 4], bool); 8] {
+        [
+            ("lining-nums", *b"lnum", self.lining_nums),
+            ("oldstyle-nums", *b"onum", self.oldstyle_nums),
+            ("proportional-nums", *b"pnum", self.proportional_nums),
+            ("tabular-nums", *b"tnum", self.tabular_nums),
+            ("diagonal-fractions", *b"frac", self.diagonal_fractions),
+            ("stacked-fractions", *b"afrc", self.stacked_fractions),
+            ("ordinal", *b"ordn", self.ordinal),
+            ("slashed-zero", *b"zero", self.slashed_zero),
+        ]
+    }
+
+    /// Whether this is `normal` (no feature asked for).
+    #[must_use]
+    pub const fn is_normal(&self) -> bool {
+        !(self.lining_nums
+            || self.oldstyle_nums
+            || self.proportional_nums
+            || self.tabular_nums
+            || self.diagonal_fractions
+            || self.stacked_fractions
+            || self.ordinal
+            || self.slashed_zero)
+    }
+
+    /// The OpenType feature tags the shaper turns on for this value, in the
+    /// grammar's order (empty for `normal`).
+    #[must_use]
+    pub fn opentype_features(&self) -> Vec<[u8; 4]> {
+        self.keywords()
+            .iter()
+            .filter(|(_, _, on)| *on)
+            .map(|(_, tag, _)| *tag)
+            .collect()
+    }
+}
+
+impl PrintAsCssValue for StyleFontVariantNumeric {
+    fn print_as_css_value(&self) -> String {
+        if self.is_normal() {
+            return "normal".to_string();
+        }
+        self.keywords()
+            .iter()
+            .filter(|(_, _, on)| *on)
+            .map(|(keyword, _, _)| *keyword)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleFontVariantNumeric {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("{self:?}")
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-variant-numeric` value: `normal`, or one or more of the
+/// keywords, each group at most once and in any order (`||`). Keywords are
+/// ASCII case-insensitive.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `font-variant-numeric`
+/// value: an unknown word, two values of one group (`lining-nums
+/// oldstyle-nums`), a repeated keyword, `normal` with anything else, or
+/// nothing at all.
+pub fn parse_style_font_variant_numeric(
+    input: &str,
+) -> Result<StyleFontVariantNumeric, InvalidValueErr<'_>> {
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("normal") {
+        return Ok(StyleFontVariantNumeric::NORMAL);
+    }
+    let mut value = StyleFontVariantNumeric::NORMAL;
+    let (mut figure, mut spacing, mut fraction) = (false, false, false);
+    let mut any = false;
+    for word in input.split_ascii_whitespace() {
+        let is = |keyword: &str| word.eq_ignore_ascii_case(keyword);
+        let (group_taken, slot) = if is("lining-nums") {
+            (&mut figure, &mut value.lining_nums)
+        } else if is("oldstyle-nums") {
+            (&mut figure, &mut value.oldstyle_nums)
+        } else if is("proportional-nums") {
+            (&mut spacing, &mut value.proportional_nums)
+        } else if is("tabular-nums") {
+            (&mut spacing, &mut value.tabular_nums)
+        } else if is("diagonal-fractions") {
+            (&mut fraction, &mut value.diagonal_fractions)
+        } else if is("stacked-fractions") {
+            (&mut fraction, &mut value.stacked_fractions)
+        } else if is("ordinal") {
+            if value.ordinal {
+                return Err(InvalidValueErr(input));
+            }
+            value.ordinal = true;
+            any = true;
+            continue;
+        } else if is("slashed-zero") {
+            if value.slashed_zero {
+                return Err(InvalidValueErr(input));
+            }
+            value.slashed_zero = true;
+            any = true;
+            continue;
+        } else {
+            return Err(InvalidValueErr(input));
+        };
+        if *group_taken {
+            return Err(InvalidValueErr(input));
+        }
+        *group_taken = true;
+        *slot = true;
+        any = true;
+    }
+    if any {
+        Ok(value)
+    } else {
+        Err(InvalidValueErr(input))
+    }
+}
+
 // --- Font Size ---
 
 /// Represents a `font-size` attribute

@@ -1857,6 +1857,78 @@ fn layout_safe_area_insets(
     ((top - titlebar_band).max(0.0), left, bottom, right)
 }
 
+/// Where AppKit's close / minimize / zoom buttons go for a window's
+/// `MacWindowOptions::traffic_light_position` (Electron's
+/// `trafficLightPosition`): `position` is the close button's top-left corner,
+/// in points from the window's top-left; minimize and zoom follow at AppKit's
+/// own `pitch` (the minimize button's x minus the close button's).
+///
+/// AppKit lays the buttons out inside the titlebar container
+/// (`NSTitlebarContainerView`, the close button's grandparent), a view with
+/// the bottom-left origin of every non-flipped `NSView`, pinned to the top of
+/// the window's frame view. The container becomes `button.1 + 2 * y` tall -
+/// the buttons sit `y` below its top and `y` above its bottom, so the strip
+/// around them stays titlebar - and every origin is `(x + i * pitch, y)` in
+/// it. A position above or left of the window is its corner.
+///
+/// Returns the container's frame `(x, y, width, height)` in window
+/// coordinates (`window_height` is the window frame's height,
+/// `container_width` the container's own, kept) and the three button
+/// origins in container coordinates. Left-to-right windows only, as azul's
+/// title rows are.
+fn traffic_light_frames(
+    window_height: f64,
+    container_width: f64,
+    position: (f64, f64),
+    button: (f64, f64),
+    pitch: f64,
+) -> ((f64, f64, f64, f64), [(f64, f64); 3]) {
+    let x = position.0.max(0.0);
+    let y = position.1.max(0.0);
+    let height = button.1 + 2.0 * y;
+    let container = (0.0, window_height - height, container_width, height);
+    let origins = [(x, y), (x + pitch, y), (x + 2.0 * pitch, y)];
+    (container, origins)
+}
+
+#[cfg(test)]
+mod traffic_light_tests {
+    use super::traffic_light_frames;
+
+    /// A 600pt-tall window, AppKit's 14x16 buttons 20pt apart, the lights
+    /// asked at (20, 18) - the close button's top-left, from the window's
+    /// top-left. The titlebar container is pinned to the window's top and
+    /// made `16 + 2 * 18` tall, so the buttons sit 18pt below its top and
+    /// above its bottom; their origins are in its bottom-left coordinates.
+    #[test]
+    fn the_traffic_lights_sit_where_the_window_option_puts_them() {
+        let (container, origins) =
+            traffic_light_frames(600.0, 800.0, (20.0, 18.0), (14.0, 16.0), 20.0);
+        assert_eq!(
+            container,
+            (0.0, 548.0, 800.0, 52.0),
+            "the container: pinned to the window's top, 16 + 2 * 18 tall, as wide as it was"
+        );
+        assert_eq!(
+            origins,
+            [(20.0, 18.0), (40.0, 18.0), (60.0, 18.0)],
+            "close at x 20, minimize and zoom at AppKit's own pitch"
+        );
+        let close_top_from_window_top = container.3 - (origins[0].1 + 16.0);
+        assert_eq!(close_top_from_window_top, 18.0, "the close button's top is 18pt down");
+    }
+
+    /// The lights cannot leave the window: a position above or left of its
+    /// corner is the corner.
+    #[test]
+    fn a_traffic_light_position_outside_the_window_is_its_corner() {
+        let (container, origins) =
+            traffic_light_frames(600.0, 800.0, (-5.0, -3.0), (14.0, 16.0), 20.0);
+        assert_eq!(container, (0.0, 584.0, 800.0, 16.0));
+        assert_eq!(origins, [(0.0, 0.0), (20.0, 0.0), (40.0, 0.0)]);
+    }
+}
+
 #[cfg(test)]
 mod safe_area_tests {
     use super::layout_safe_area_insets;
@@ -3233,6 +3305,8 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // Return to normal frame, will be updated by resize check if maximized
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
+                    // AppKit put the traffic lights back in its own place.
+                    macos_window.apply_traffic_light_position();
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window exited fullscreen");
             }
@@ -3315,6 +3389,10 @@ define_class!(
                     if frame != WindowFrame::Fullscreen {
                         // Check maximized state will be done in event loop
                     }
+
+                    // A resize lays the titlebar out again: the traffic
+                    // lights back where the window's options put them.
+                    macos_window.apply_traffic_light_position();
                 }
             }
         }
@@ -3337,6 +3415,9 @@ define_class!(
 
                     // Phase 2: OnFocus callback - sync IME position after focus
                     macos_window.sync_ime_position_to_os();
+
+                    // A key change can lay the titlebar out again.
+                    macos_window.apply_traffic_light_position();
 
                     // Notify accessibility adapter that the view is focused
                     #[cfg(feature = "a11y")]
@@ -6263,6 +6344,9 @@ impl MacOSWindow {
         // Apply initial window state for fields not set during window creation
         // (title, size, frame, decorations, background_material are set above)
         window.apply_initial_window_state();
+        // The traffic lights where the window's options put them (after the
+        // decorations, which decide the titlebar AppKit lays them out in).
+        window.apply_traffic_light_position();
 
         // Show window - drawRect will handle the first frame rendering
         if window.common.current_window_state().flags.is_visible {
@@ -6281,6 +6365,8 @@ impl MacOSWindow {
             } else {
                 window.window.orderFront(None);
             }
+            // Ordering the window in lays its titlebar out: again.
+            window.apply_traffic_light_position();
         } else {
             log_debug!(
                 LogCategory::Window,
@@ -6787,11 +6873,21 @@ impl MacOSWindow {
             }
         }
 
+        // The app moved the traffic lights (`MacWindowOptions`, through
+        // `modify_window_state`).
+        if previous.platform_specific_options.mac_options.traffic_light_position
+            != current.platform_specific_options.mac_options.traffic_light_position
+        {
+            self.apply_traffic_light_position();
+        }
+
         // Window flags changed?
         if previous.flags != current.flags {
             // Check decorations
             if previous.flags.decorations != current.flags.decorations {
                 self.apply_decorations(current.flags.decorations);
+                // Another titlebar: AppKit lays its buttons out anew.
+                self.apply_traffic_light_position();
             }
 
             // Check resizable
@@ -7173,6 +7269,64 @@ impl MacOSWindow {
     /// identifier in the window registry for multi-window support.
     pub fn get_ns_window_ptr(&self) -> *mut objc2::runtime::AnyObject {
         Retained::as_ptr(&self.window) as *mut objc2::runtime::AnyObject
+    }
+
+    /// Put AppKit's close / minimize / zoom buttons where the window's
+    /// `MacWindowOptions::traffic_light_position` asks ([`traffic_light_frames`]):
+    /// a window whose own title row - a tab strip in the titlebar - is taller
+    /// than AppKit's 28pt bar centres them on that row instead of leaving
+    /// them at AppKit's y.
+    ///
+    /// AppKit lays the titlebar out again whenever it sees fit - every
+    /// resize, leaving full screen, a key change - and puts the buttons back
+    /// in its own place, so this runs again then (`windowDidResize:`,
+    /// `windowDidExitFullScreen:`, `windowDidBecomeKey:`), as Electron does.
+    /// Nothing without the option, in full screen (AppKit shows the buttons
+    /// in its menu-bar overlay there), or when the window has no buttons.
+    fn apply_traffic_light_position(&self) {
+        use azul_core::geom::OptionLogicalPosition;
+
+        let state = self.common.current_window_state();
+        let OptionLogicalPosition::Some(position) =
+            state.platform_specific_options.mac_options.traffic_light_position
+        else {
+            return;
+        };
+        if state.flags.frame == WindowFrame::Fullscreen {
+            return;
+        }
+        unsafe {
+            // NSWindowCloseButton = 0, NSWindowMiniaturizeButton = 1,
+            // NSWindowZoomButton = 2 (an NSUInteger enum).
+            let close: Option<Retained<NSView>> =
+                msg_send_id![&*self.window, standardWindowButton: 0usize];
+            let minimize: Option<Retained<NSView>> =
+                msg_send_id![&*self.window, standardWindowButton: 1usize];
+            let zoom: Option<Retained<NSView>> =
+                msg_send_id![&*self.window, standardWindowButton: 2usize];
+            let (Some(close), Some(minimize), Some(zoom)) = (close, minimize, zoom) else {
+                return;
+            };
+            // The titlebar container is the close button's grandparent (the
+            // lookup Electron makes); a view tree AppKit changed in some
+            // release finds none and leaves the buttons alone.
+            let Some(container) = close.superview().and_then(|bar| bar.superview()) else {
+                return;
+            };
+            let close_frame = close.frame();
+            let pitch = minimize.frame().origin.x - close_frame.origin.x;
+            let ((cx, cy, cw, ch), origins) = traffic_light_frames(
+                self.window.frame().size.height,
+                container.frame().size.width,
+                (f64::from(position.x), f64::from(position.y)),
+                (close_frame.size.width, close_frame.size.height),
+                pitch,
+            );
+            container.setFrame(NSRect::new(NSPoint::new(cx, cy), NSSize::new(cw, ch)));
+            for (button, (x, y)) in [&close, &minimize, &zoom].into_iter().zip(origins) {
+                button.setFrameOrigin(NSPoint::new(x, y));
+            }
+        }
     }
 
     /// Apply window decorations changes

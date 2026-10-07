@@ -5365,19 +5365,14 @@ pub enum FontVariantCaps {
     TitlingCaps,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
-pub enum FontVariantNumeric {
-    #[default]
-    Normal,
-    LiningNums,
-    OldstyleNums,
-    ProportionalNums,
-    TabularNums,
-    DiagonalFractions,
-    StackedFractions,
-    Ordinal,
-    SlashedZero,
-}
+/// The text's `font-variant-numeric` (CSS Fonts 4 s6.7) - the CSS value as
+/// it is: one choice per group (figures, spacing, fractions) plus `ordinal`
+/// and `slashed-zero`, ANY combination of them (`tabular-nums lining-nums
+/// slashed-zero`), which a single keyword could not hold. The shaper turns on
+/// [`StyleFontVariantNumeric::opentype_features`] (`lnum`, `tnum`, `zero`, ...).
+///
+/// [`StyleFontVariantNumeric::opentype_features`]: azul_css::props::basic::font::StyleFontVariantNumeric::opentype_features
+pub type FontVariantNumeric = azul_css::props::basic::font::StyleFontVariantNumeric;
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum FontVariantLigatures {

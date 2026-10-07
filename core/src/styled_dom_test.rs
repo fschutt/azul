@@ -2672,3 +2672,161 @@ mod cascade_epoch {
         assert_eq!(text(&sd, 2), bystander0, "a node that reads nothing keeps its value");
     }
 }
+
+/// A DOM HOSTED by a node of another one - a `VirtualView`'s content -
+/// inherits from it (`CssPropertyCache::inherited_from_host`) in every
+/// cascade stage: the compact cache the layout reads, the slow path the
+/// paint-time readers ask, and the walk that hands a parent's values to a
+/// text node.
+#[cfg(test)]
+mod hosted_dom_inheritance_tests {
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::color::ColorU,
+            property::{CssProperty, CssPropertyType},
+            style::{StyleCursor, StyleTextColor, StyleUserSelect},
+        },
+    };
+
+    use super::*;
+    use crate::prop_cache::{CssPropertyOrigin, CssPropertyWithOrigin, InheritedFromHost};
+
+    const HOST_INK: ColorU = ColorU {
+        r: 0x12,
+        g: 0x34,
+        b: 0x56,
+        a: 0xff,
+    };
+
+    /// What a host with `color: ink; user-select: none; cursor: default`
+    /// hands down.
+    fn host(ink: ColorU) -> InheritedFromHost {
+        let mut values: InheritedFromHost = [
+            CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor { inner: ink })),
+            CssProperty::UserSelect(CssPropertyValue::Exact(StyleUserSelect::None)),
+            CssProperty::Cursor(CssPropertyValue::Exact(StyleCursor::Default)),
+        ]
+        .into_iter()
+        .map(|property| {
+            (
+                property.get_type(),
+                CssPropertyWithOrigin {
+                    property,
+                    origin: CssPropertyOrigin::Inherited,
+                },
+            )
+        })
+        .collect();
+        values.sort_by_key(|(prop_type, _)| *prop_type);
+        values
+    }
+
+    /// `<p>` (node 0) holding a text node (node 1), `p_css` on the `<p>`.
+    fn hosted(p_css: &str, inherited: InheritedFromHost) -> StyledDom {
+        let mut p = Dom::create_p_with_text("hosted");
+        if !p_css.is_empty() {
+            p = p.with_css(p_css);
+        }
+        StyledDom::create_from_dom_inheriting(p, None, &[], inherited)
+    }
+
+    /// The colour the text layout reads (the compact cache).
+    fn ink(sd: &StyledDom, node: usize) -> u32 {
+        sd.get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .expect("compact cache")
+            .get_text_color_raw(node)
+    }
+
+    const fn packed(c: ColorU) -> u32 {
+        u32::from_be_bytes([c.r, c.g, c.b, c.a])
+    }
+
+    /// The value the slow path answers (hit testing, selection, paint).
+    fn slow(sd: &StyledDom, node: usize, prop_type: CssPropertyType) -> Option<CssProperty> {
+        let id = NodeId::new(node);
+        let node_data = &sd.node_data.as_container()[id];
+        sd.get_css_property_cache()
+            .get_property(node_data, &id, &StyledNodeState::default(), &prop_type)
+            .cloned()
+    }
+
+    #[test]
+    fn a_hosted_root_takes_its_hosts_colour_over_the_document_default() {
+        let sd = hosted("", host(HOST_INK));
+        assert_eq!(
+            ink(&sd, 0),
+            packed(HOST_INK),
+            "the hosted root takes its host's colour, not the document root's UA colour"
+        );
+        assert_eq!(ink(&sd, 1), packed(HOST_INK), "and hands it to its text");
+        assert_eq!(
+            slow(&sd, 1, CssPropertyType::TextColor),
+            Some(CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+                inner: HOST_INK
+            }))),
+            "the slow path agrees"
+        );
+
+        let alone = hosted("", Vec::new());
+        assert_ne!(
+            ink(&alone, 1),
+            packed(HOST_INK),
+            "harness: a document of its own takes the UA colour"
+        );
+    }
+
+    #[test]
+    fn a_hosted_text_node_takes_its_hosts_user_select_and_cursor() {
+        let sd = hosted("", host(HOST_INK));
+        assert_eq!(
+            slow(&sd, 1, CssPropertyType::UserSelect),
+            Some(CssProperty::UserSelect(CssPropertyValue::Exact(
+                StyleUserSelect::None
+            )))
+        );
+        assert_eq!(
+            slow(&sd, 1, CssPropertyType::Cursor),
+            Some(CssProperty::Cursor(CssPropertyValue::Exact(StyleCursor::Default))),
+            "a text node's UA I-beam yields to its host's cursor, as it yields to a parent's"
+        );
+    }
+
+    #[test]
+    fn a_hosted_doms_own_declaration_beats_what_its_host_hands_down() {
+        let sd = hosted("color: #00aa00;", host(HOST_INK));
+        let green = ColorU {
+            r: 0,
+            g: 0xaa,
+            b: 0,
+            a: 0xff,
+        };
+        assert_eq!(ink(&sd, 0), packed(green));
+        assert_eq!(ink(&sd, 1), packed(green));
+    }
+
+    #[test]
+    fn re_seeding_a_hosted_dom_re_cascades_only_when_the_host_moved() {
+        let mut sd = hosted("", host(HOST_INK));
+        assert!(
+            !sd.set_inherited_from_host(host(HOST_INK)),
+            "the values it already inherits: nothing re-runs"
+        );
+        let moved = ColorU {
+            r: 0x65,
+            g: 0x43,
+            b: 0x21,
+            a: 0xff,
+        };
+        assert!(sd.set_inherited_from_host(host(moved)));
+        assert_eq!(ink(&sd, 1), packed(moved), "the text follows the host's new colour");
+        assert_eq!(
+            slow(&sd, 1, CssPropertyType::TextColor),
+            Some(CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor {
+                inner: moved
+            })))
+        );
+    }
+}

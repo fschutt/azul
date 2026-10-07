@@ -7073,7 +7073,17 @@ pub trait PlatformWindow {
                 position,
                 anchor,
             } => {
-                let pos = position.unwrap_or(LogicalPosition::new(0.0, 0.0));
+                let cursor = self
+                    .get_current_window_state()
+                    .mouse_state
+                    .cursor_position
+                    .get_position();
+                let pos = crate::desktop::menu::resolve_open_menu_position(
+                    *position,
+                    menu.position,
+                    cursor,
+                    *anchor,
+                );
                 self.show_menu_from_callback(menu, pos, *anchor);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }

@@ -961,3 +961,5 @@ mod a_flora_spin_recolours_only_the_accent;
 
 #[path = "a_node_that_comes_in_is_drawn_from_its_first_keyframe.rs"]
 mod a_node_that_comes_in_is_drawn_from_its_first_keyframe;
+#[path = "a_virtual_views_content_inherits_from_its_host.rs"]
+mod a_virtual_views_content_inherits_from_its_host;

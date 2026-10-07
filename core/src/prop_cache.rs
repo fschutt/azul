@@ -45,6 +45,13 @@ pub struct CssPropertyWithOrigin {
     pub origin: CssPropertyOrigin,
 }
 
+/// What the root of a HOSTED DOM - a `VirtualView`'s content - inherits from
+/// the node that hosts it: the host's value of every inheritable property it
+/// has one for, sorted by type ([`CssPropertyCache::inherited_from_host`],
+/// built by [`CssPropertyCache::inherited_values_for_hosted_dom`]). Empty for
+/// a document of its own.
+pub type InheritedFromHost = Vec<(CssPropertyType, CssPropertyWithOrigin)>;
+
 use azul_css::{
     css::{Css, CssPath},
     dynamic_selector::{
@@ -108,7 +115,7 @@ use azul_css::{
             StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
             StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipValue,
-            WidowsValue,
+            StyleFontVariantNumericValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -1143,6 +1150,29 @@ pub struct CssPropertyCache {
     /// EMPTY when no node declares a zoom other than 1 - every lookup is
     /// then 1.0 without an index. Cleared with the font sizes.
     pub resolved_zooms: crate::sync::OnceLock<Vec<f32>>,
+
+    /// What the ROOT of this DOM inherits from OUTSIDE it: the computed
+    /// inheritable values of the node that hosts the DOM - a `VirtualView`'s
+    /// host ([`Self::inherited_values_for_hosted_dom`]), sorted by type, each
+    /// `CssPropertyOrigin::Inherited`. EMPTY for a document of its own (the
+    /// layout callback's DOM, a popup, a measured DOM with no host).
+    ///
+    /// A view is a virtualized part of the SAME document, not an iframe: its
+    /// root inherits from its host as any element inherits from its parent
+    /// (CSS Cascade 4 s7). Every cascade stage reads it where it reads a
+    /// parent: the inheritance walk of [`Self::restyle`] (the root's
+    /// `cascaded_props`, so a text node's UA I-beam yields to a host's
+    /// `cursor` as to a parent's), [`Self::compute_inherited_values`] (the
+    /// root's parent values) and the compact builder (the root's parent
+    /// slots). The document-wide UA defaults of the root
+    /// (`ua_css::get_ua_root_property_themed`, the text colour) stand in
+    /// for what a document root inherits from nothing, so they yield to a
+    /// type the host supplies (`takes_root_ua_default`). The DOM's
+    /// own declarations beat all of it, as they beat what any element
+    /// inherits. Set before the first cascade
+    /// (`StyledDom::create_from_dom_inheriting`) or re-seeded with a restyle
+    /// (`StyledDom::set_inherited_from_host`) when the host's values move.
+    pub inherited_from_host: Vec<(CssPropertyType, CssPropertyWithOrigin)>,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -1984,6 +2014,34 @@ impl CssPropertyCache {
             self.variables_depend_on_context = false;
         }
 
+        // What the ROOT inherits from OUTSIDE this DOM (`inherited_from_host`:
+        // a VirtualView's host) enters the walk where a parent's values would,
+        // as Normal-state entries of the root's `cascaded_props` - below the
+        // root's own declarations and its UA defaults (pushed after them, by
+        // `apply_ua_css`), handed on below like anything the root inherited.
+        // A text node's UA I-beam then yields to a host's `cursor` exactly as
+        // it yields to a parent's. `font-size` and a font-relative length go
+        // through `computed_values` and the compact cache instead, as they do
+        // from any parent (`is_resolved_parent_inherited`,
+        // `inherits_its_computed_length`).
+        if node_count > 0 && !self.inherited_from_host.is_empty() {
+            let from_host: Vec<StatefulCssProperty> = self
+                .inherited_from_host
+                .iter()
+                .filter(|(prop_type, value)| {
+                    !is_resolved_parent_inherited(*prop_type)
+                        && !inherits_its_computed_length(&value.property)
+                })
+                .map(|(prop_type, value)| StatefulCssProperty {
+                    state: PseudoStateType::Normal,
+                    prop_type: *prop_type,
+                    property: clone_inheritable_property(&value.property),
+                    ua_origin: false,
+                })
+                .collect();
+            self.cascaded_props.build_mut(0).extend(from_host);
+        }
+
         // Inheritance: Inherit all values of the parent to the children, but
         // only if the property is inheritable and isn't yet set
         for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes {
@@ -2712,6 +2770,7 @@ impl CssPropertyCache {
             variables_depend_on_context: false,
             resolved_font_sizes_px: crate::sync::OnceLock::new(),
             resolved_zooms: crate::sync::OnceLock::new(),
+            inherited_from_host: Vec::new(),
         }
     }
 
@@ -3283,7 +3342,11 @@ impl CssPropertyCache {
         // (`prune_compact_normal_props`).
         crate::ua_css::get_ua_default(
             node_data,
-            node_id.index() == 0,
+            takes_root_ua_default(
+                node_id.index(),
+                *css_property_type,
+                &self.inherited_from_host,
+            ),
             *css_property_type,
             self.dynamic_context.as_deref(),
         )
@@ -4188,6 +4251,12 @@ impl CssPropertyCache {
         as_background_clip
     );
     impl_get_prop!(
+        get_font_variant_numeric,
+        StyleFontVariantNumericValue,
+        FontVariantNumeric,
+        as_font_variant_numeric
+    );
+    impl_get_prop!(
         get_transform,
         StyleTransformVecValue,
         Transform,
@@ -5082,14 +5151,17 @@ impl CssPropertyCache {
         // computed value. The document root additionally carries the
         // document-wide defaults (the inherited text colour) — themed, and
         // IN the cascade from here on, so `computed_values` inherits it down
-        // to every text node and no paint-time reader has to guess it.
+        // to every text node and no paint-time reader has to guess it. A
+        // HOSTED root (`inherited_from_host`) inherits its host's value
+        // instead, for every type the host supplies.
         for (node_index, node) in node_data.iter().enumerate() {
-            let is_root = node_index == 0;
             let present = &prop_set[node_index];
             for prop_type in crate::ua_css::UA_PROPERTY_TYPES {
                 if prop_type_bit_test(present, *prop_type) {
                     continue;
                 }
+                let is_root =
+                    takes_root_ua_default(node_index, *prop_type, &self.inherited_from_host);
                 let Some(ua_prop) =
                     crate::ua_css::get_ua_default(node, is_root, *prop_type, ctx)
                 else {
@@ -5344,8 +5416,17 @@ impl CssPropertyCache {
                 // Materialised from the transposed store (a handful of bucket
                 // probes) instead of DEEP-CLONING the parent's vec of 136-byte
                 // enums once per node, which is what the per-node shape forced.
+                // A HOSTED root's parent values are its host's
+                // (`inherited_from_host`): it inherits them, and an `em` of its
+                // own resolves against the host's font size.
                 let parent_computed: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
-                    parent_id.map(|pid| self.computed_values.values_for(pid.index()));
+                    match parent_id {
+                        Some(pid) => Some(self.computed_values.values_for(pid.index())),
+                        None if !self.inherited_from_host.is_empty() => {
+                            Some(self.inherited_from_host.clone())
+                        }
+                        None => None,
+                    };
 
                 let mut ctx = InheritanceContext {
                     node_id,
@@ -5777,5 +5858,137 @@ pub(crate) fn condition_holds(
     match ctx {
         Some(ctx) => condition.matches(ctx),
         None => no_context_theme.is_some_and(|t| condition.matches_without_context(t.as_str())),
+    }
+}
+
+/// Whether the host a DOM is hosted at hands the DOM's root a value of
+/// `prop_type` ([`CssPropertyCache::inherited_from_host`], sorted by type).
+#[inline]
+pub(crate) fn host_supplies(
+    inherited_from_host: &[(CssPropertyType, CssPropertyWithOrigin)],
+    prop_type: CssPropertyType,
+) -> bool {
+    !inherited_from_host.is_empty()
+        && inherited_from_host
+            .binary_search_by_key(&prop_type, |(t, _)| *t)
+            .is_ok()
+}
+
+/// Does node `node_index` take the DOCUMENT ROOT's UA default for
+/// `prop_type` (`ua_css::get_ua_root_property_themed`, the `is_root` of
+/// `ua_css::get_ua_default`)? The root - node 0 - does, unless its DOM is
+/// hosted and the host supplies that type: the document-wide default stands
+/// in for what a document's root inherits from nothing, and a hosted root
+/// inherits its host's value instead. The ONE rule the UA pass, the compact
+/// builder and the slow path's fallback share.
+#[inline]
+pub(crate) fn takes_root_ua_default(
+    node_index: usize,
+    prop_type: CssPropertyType,
+    inherited_from_host: &[(CssPropertyType, CssPropertyWithOrigin)],
+) -> bool {
+    node_index == 0 && !host_supplies(inherited_from_host, prop_type)
+}
+
+impl CssPropertyCache {
+    /// What a DOM HOSTED at `node_id` - the content of a `VirtualView` - inherits
+    /// from it: the node's resting value of every inheritable property it has
+    /// one for, as a child inherits it (the computed value: CSS Cascade 4 s7),
+    /// ready for [`Self::inherited_from_host`].
+    ///
+    /// Read off `computed_values` - what the node's own children inherit:
+    /// its declarations (author rules, inline ones, runtime overrides), its
+    /// UA defaults and what it inherited itself, a `line-height` in `em` / `%`
+    /// already a length and a relative `font-weight` a number. The `*` rules
+    /// it matches are the one tier that store leaves out (the slow path and
+    /// the compact builder apply them on their own), so those types are
+    /// asked of the slow path. `font_size_px` is the node's computed font
+    /// size, resolved by the caller with the layout's own resolution. A type
+    /// the host has no value for is left out: the hosted root falls back to
+    /// the initial value then, as the host did.
+    ///
+    /// The host's RESTING style (its `:hover` or `:focus` do not reach into
+    /// the view: a restyle of the whole hosted DOM per pointer move is not
+    /// what a view is for). Cheap - a handful of bucket probes - because it
+    /// runs for every view on every layout pass (a kept view compares it
+    /// with what its DOM inherits).
+    #[must_use]
+    pub fn inherited_values_for_hosted_dom(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        font_size_px: f32,
+    ) -> InheritedFromHost {
+        use azul_css::{css::CssPropertyValue, props::basic::pixel::PixelValue};
+
+        fn upsert(values: &mut InheritedFromHost, prop_type: CssPropertyType, property: CssProperty) {
+            let entry = CssPropertyWithOrigin {
+                property,
+                origin: CssPropertyOrigin::Inherited,
+            };
+            match values.binary_search_by_key(&prop_type, |(t, _)| *t) {
+                Ok(idx) => values[idx].1 = entry,
+                Err(idx) => values.insert(idx, (prop_type, entry)),
+            }
+        }
+
+        // Sorted by type, inheritable only (`store_if_changed`).
+        let mut values: InheritedFromHost = self
+            .computed_values
+            .values_for(node_id.index())
+            .into_iter()
+            .map(|(prop_type, value)| {
+                (
+                    prop_type,
+                    CssPropertyWithOrigin {
+                        property: value.property,
+                        origin: CssPropertyOrigin::Inherited,
+                    },
+                )
+            })
+            .collect();
+
+        // `*` matches elements only (as in the compact builder).
+        if !node_data.is_text_node() {
+            let resting = StyledNodeState::default();
+            let mut global_types: Vec<CssPropertyType> = self
+                .global_css_props
+                .iter()
+                .map(CssProperty::get_type)
+                .filter(|t| t.is_inheritable() && *t != CssPropertyType::FontSize)
+                .collect();
+            global_types.sort();
+            global_types.dedup();
+            for prop_type in global_types {
+                let Some(value) = self.get_property(node_data, node_id, &resting, &prop_type)
+                else {
+                    continue;
+                };
+                let property = match value {
+                    CssProperty::LineHeight(CssPropertyValue::Exact(lh))
+                        if lh.is_font_relative_length() =>
+                    {
+                        CssProperty::LineHeight(CssPropertyValue::Exact(lh.computed(font_size_px)))
+                    }
+                    // `bolder` / `lighter` from a `*` rule computes against
+                    // the host's parent, which only the cascade knows: the
+                    // weight `computed_values` holds stays.
+                    CssProperty::FontWeight(CssPropertyValue::Exact(w)) if w.is_relative() => {
+                        continue;
+                    }
+                    other => clone_inheritable_property(other),
+                };
+                upsert(&mut values, prop_type, property);
+            }
+        }
+
+        upsert(
+            &mut values,
+            CssPropertyType::FontSize,
+            CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+                inner: PixelValue::px(font_size_px),
+            })),
+        );
+        values
     }
 }
