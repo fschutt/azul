@@ -770,21 +770,21 @@ impl ResolvedContent<'_> {
 
     fn dom_image(&self, node_id: NodeId) -> Option<ImageRef> {
         let node_data = self.styled_dom.node_data.as_container();
-        match node_data.get(node_id)?.get_node_type() {
-            NodeType::Image(image_ref) => {
-                let image = image_ref.as_ref();
-                // `<img src>` from markup is a placeholder carrying its src:
-                // the picture is the one the app cached under that src (the
-                // ids `background-image: url(..)` resolves against), if any.
-                let cached = image.source_tag().and_then(|src| {
-                    self.image_cache?
-                        .get_css_image_id(&azul_css::AzString::from(src))
-                        .cloned()
-                });
-                Some(cached.unwrap_or_else(|| image.clone()))
-            }
-            _ => None,
-        }
+        let image = match node_data.get(node_id)?.get_node_type() {
+            NodeType::Image(image_ref) => image_ref.as_ref(),
+            NodeType::SvgImage(image) => image,
+            _ => return None,
+        };
+        // `<img src>` / `<image href>` from markup is a placeholder carrying
+        // its source: the picture is the one the app cached under that source
+        // (the ids `background-image: url(..)` resolves against), else the
+        // one a `data:` URI embeds.
+        let cached = image.source_tag().and_then(|src| {
+            self.image_cache
+                .and_then(|cache| cache.get_css_image_id(&azul_css::AzString::from(src)).cloned())
+                .or_else(|| embedded_image(src))
+        });
+        Some(cached.unwrap_or_else(|| image.clone()))
     }
 
     /// The children of `node_id` AS THE USER SHOULD SEE THEM: the immutable
@@ -1001,6 +1001,17 @@ impl ResolvedContent<'_> {
         }
         texts
     }
+}
+
+/// The picture a `data:` URI source embeds (decoded once per URI).
+#[cfg(feature = "image_decoding")]
+fn embedded_image(src: &str) -> Option<ImageRef> {
+    crate::image::decode::data_uri_image(src)
+}
+
+#[cfg(not(feature = "image_decoding"))]
+fn embedded_image(_src: &str) -> Option<ImageRef> {
+    None
 }
 
 /// One journaled content mutation.

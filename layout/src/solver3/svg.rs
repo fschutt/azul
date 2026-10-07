@@ -254,3 +254,69 @@ pub fn scale_constraints(constraints: &mut UnifiedConstraints, s: f32) {
     constraints.ch_width *= s;
     constraints.text_indent *= s;
 }
+
+/// Where the SVG `<image>` `node` draws: its `x` / `y` / `width` / `height`
+/// (user units) through its transforms and its `<svg>`'s viewBox onto `area`
+/// (the `<svg>`'s padding box, where the node's box is), the picture of
+/// `image_size` fitted in as SVG's default `preserveAspectRatio` does
+/// (`xMidYMid meet`: as large as fits, centred). The bounds of the mapped
+/// rectangle, should a transform rotate it. `None` outside an `<svg>` or for
+/// an empty one.
+#[must_use]
+pub fn image_rect(
+    styled_dom: &StyledDom,
+    node: NodeId,
+    area: azul_core::geom::LogicalRect,
+    image_size: (f32, f32),
+) -> Option<azul_core::geom::LogicalRect> {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    let svg = svg_ancestor(styled_dom, node)?;
+    let view_box = view_box_of(styled_dom, svg)?;
+    let node_data = styled_dom.node_data.as_container();
+    let number = |name: &str| {
+        node_data
+            .get(node)
+            .and_then(|n| n.get_attribute(name))
+            .and_then(|v| first_number(v.as_str()))
+            .unwrap_or(0.0)
+    };
+    let (x, y, w, h) = (number("x"), number("y"), number("width"), number("height"));
+    if !(w > 0.0 && h > 0.0) {
+        return None;
+    }
+    let mapping = user_transform(styled_dom, node).then(&SvgAffine::view_box_mapping(
+        view_box,
+        area.size.width,
+        area.size.height,
+    ));
+    let corners = [(x, y), (x + w, y), (x, y + h), (x + w, y + h)].map(|(cx, cy)| mapping.apply(cx, cy));
+    let (min_x, max_x) = corners
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(lo, hi), (cx, _)| (lo.min(*cx), hi.max(*cx)));
+    let (min_y, max_y) = corners
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(lo, hi), (_, cy)| (lo.min(*cy), hi.max(*cy)));
+    #[allow(clippy::cast_possible_truncation)] // window-logical px
+    let (bx, by, bw, bh) = (
+        min_x as f32,
+        min_y as f32,
+        (max_x - min_x) as f32,
+        (max_y - min_y) as f32,
+    );
+    // `meet`: the picture's own proportions, as large as the box allows.
+    let (iw, ih) = image_size;
+    let (dw, dh) = if iw > 0.0 && ih > 0.0 {
+        let scale = (bw / iw).min(bh / ih);
+        (iw * scale, ih * scale)
+    } else {
+        (bw, bh)
+    };
+    Some(LogicalRect::new(
+        LogicalPosition::new(
+            area.origin.x + bx + (bw - dw) / 2.0,
+            area.origin.y + by + (bh - dh) / 2.0,
+        ),
+        LogicalSize::new(dw, dh),
+    ))
+}

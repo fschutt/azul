@@ -106,6 +106,57 @@ pub mod decode {
         crate::request::complete(data, on_result, ImageDecodeResult { result })
     }
 
+    /// The picture of a `data:` URI (`data:image/png;base64,...`, the form
+    /// an `<img src>` or an SVG `<image href>` embeds one in): decoded ONCE
+    /// per distinct URI - a page DOM rebuilt as it scrolls back into view
+    /// shows the same `ImageRef` again - and remembered for the last
+    /// [`DATA_URI_MEMO`] URIs. `None` for another URI or a picture that does
+    /// not decode.
+    #[must_use]
+    pub fn data_uri_image(uri: &str) -> Option<azul_core::resources::ImageRef> {
+        use std::{
+            collections::VecDeque,
+            hash::{Hash, Hasher},
+            sync::Mutex,
+        };
+
+        use base64::Engine as _;
+
+        static MEMO: Mutex<VecDeque<(u64, azul_core::resources::ImageRef)>> =
+            Mutex::new(VecDeque::new());
+
+        let payload = uri.strip_prefix("data:")?;
+        let (header, data) = payload.split_once(',')?;
+        if !header.split(';').any(|part| part.trim().eq_ignore_ascii_case("base64")) {
+            return None;
+        }
+        let key = {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            uri.hash(&mut h);
+            h.finish()
+        };
+        let mut memo = MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, image)) = memo.iter().find(|(k, _)| *k == key) {
+            return Some(image.clone());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data.trim().as_bytes())
+            .ok()?;
+        let ResultRawImageDecodeImageError::Ok(raw) = decode_raw_image_from_any_bytes(&bytes)
+        else {
+            return None;
+        };
+        let image = azul_core::resources::ImageRef::new_rawimage(raw)?;
+        if memo.len() >= DATA_URI_MEMO {
+            memo.pop_front();
+        }
+        memo.push_back((key, image.clone()));
+        Some(image)
+    }
+
+    /// How many decoded `data:` URI pictures [`data_uri_image`] remembers.
+    pub const DATA_URI_MEMO: usize = 64;
+
     /// Decodes image bytes in any supported format into a [`RawImage`].
     ///
     /// The image format is guessed from the byte contents. Returns the decoded

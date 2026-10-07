@@ -7669,8 +7669,26 @@ where
             // <img> tag. Content resolves overlay→DOM: a runtime-swapped image or
             // produced callback frame (overlay) wins over the immutable DOM's ImageRef.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            if matches!(node_data.get_node_type(), NodeType::Image(_)) {
+            let svg_image = matches!(node_data.get_node_type(), NodeType::SvgImage(_));
+            if svg_image || matches!(node_data.get_node_type(), NodeType::Image(_)) {
                 if let Some(image_ref) = self.ctx.resolved_content().image_for_paint(dom_id) {
+                    // An SVG `<image>` draws where its attributes put it in
+                    // its `<svg>` (`solver3::svg::image_rect`); its box is the
+                    // `<svg>`'s viewport.
+                    let paint_rect = if svg_image {
+                        let size = image_ref.get_size();
+                        match super::svg::image_rect(
+                            self.ctx.styled_dom,
+                            dom_id,
+                            paint_rect,
+                            (size.width, size.height),
+                        ) {
+                            Some(rect) => rect,
+                            None => return Ok(()),
+                        }
+                    } else {
+                        paint_rect
+                    };
                     debug_info!(
                         self.ctx,
                         "Painting image for node {} at {:?}",

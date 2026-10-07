@@ -320,6 +320,8 @@ mod an_svg_without_a_viewbox;
 mod svg_transforms_place_their_shapes;
 #[path = "svg_text_is_laid_out_through_its_svg.rs"]
 mod svg_text_is_laid_out_through_its_svg;
+#[path = "an_svg_image_is_drawn_where_its_attributes_put_it.rs"]
+mod an_svg_image_is_drawn_where_its_attributes_put_it;
 #[path = "a_mask_clip_on_a_half_pixel.rs"]
 mod a_mask_clip_on_a_half_pixel;
 #[path = "a_padded_table_cell_stays_in_its_row.rs"]
