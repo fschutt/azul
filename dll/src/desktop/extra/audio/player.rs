@@ -494,6 +494,8 @@ impl Drop for AudioPlayer {
 enum SourceSpec {
     Path(String),
     Bytes(Vec<u8>, String),
+    /// A file at an HTTP(S) URL, read by range requests.
+    Url(String),
 }
 
 impl SourceSpec {
@@ -503,6 +505,7 @@ impl SourceSpec {
             SourceSpec::Bytes(bytes, extension) => {
                 super::decode::FileSource::open_bytes(bytes, &extension)
             }
+            SourceSpec::Url(url) => super::decode::FileSource::open_url(&url),
         }
     }
 }
@@ -841,7 +844,8 @@ impl AudioPlayer {
     /// up as `AudioPlayerState::failed_track` with the reason in `error_message`. Returns the
     /// track's id; 0 when closed.
     pub fn preload_url(&self, url: azul_css::AzString, position_s: f64) -> u64 {
-        self.preload_file(url, position_s)
+        let url = url.as_str().to_string();
+        self.send_track(|id| Command::Preload(id, SourceSpec::Url(url), position_s))
     }
 
     /// Plays the audio file at `path` after the queued ones, gaplessly. Returns its id.
