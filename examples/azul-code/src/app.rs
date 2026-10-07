@@ -1,9 +1,13 @@
 //! The app's state and the glue between an open file and azul's CodeView:
 //! the data callback (a line's text and colours from the piece table and
 //! the highlighter), the edits applied, undo / redo, find / replace, go to
-//! line.
+//! line; the palette, the search over the folder.
 
-use std::path::PathBuf;
+use std::{
+    collections::BTreeSet,
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use azul::{
     callbacks::RefAny,
@@ -16,6 +20,8 @@ use crate::{
     buffer::{Edit, LineEnding, Pos, TextBuffer},
     highlight::{syntax_for, Highlighter, TokenKind},
     search::{self, Found},
+    storage::FileHits,
+    terminal::Panel,
     workspace::{doc_ident, file_name, quick_matches, Root, TabDoc, Tabs, Workspace, QUICK_MAX},
 };
 
@@ -101,12 +107,22 @@ impl Doc {
         Some(f(&mut guard))
     }
 
-    /// The line count and the dirty flag read again from the text.
+    /// The line count and the dirty flag read again from the text (stdout
+    /// `AZCODE_DIRTY <key> 1|0` when the flag turns).
     pub fn refresh(&mut self) {
         if let Some((count, dirty)) = self.with_text(|t| (t.buffer.line_count(), t.buffer.is_dirty())) {
             self.line_count = u32::try_from(count).unwrap_or(u32::MAX);
+            if dirty != self.dirty {
+                println!("AZCODE_DIRTY {} {}", self.key, u8::from(dirty));
+            }
             self.dirty = dirty;
         }
+    }
+
+    /// Selects `found` and brings it in sight.
+    pub fn select(&mut self, found: Found) {
+        self.view.select(position(found.start_pos()), position(found.end_pos()));
+        self.view.reveal_line(position(found.start_pos()).line);
     }
 
     /// The CodeView's edits applied as one undo step; the highlighter
@@ -298,6 +314,95 @@ pub enum IndexState {
     Done,
 }
 
+/// What the palette over the window lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteKind {
+    /// Quick open (Mod+P): the folder's files by name.
+    Files,
+    /// The command palette (Mod+Shift+P, or `>` typed into quick open):
+    /// every command of the window.
+    Commands,
+}
+
+/// The palette over the window and what was typed into it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Palette {
+    pub kind: PaletteKind,
+    pub query: String,
+}
+
+/// A row of the search results: a file, or one of its matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultRow {
+    /// File `file` of [`FolderSearch::results`].
+    File(usize),
+    /// Match `hit` of file `file`.
+    Hit(usize, usize),
+}
+
+/// The side bar's search over the folder's files (VSCode's Search view; the
+/// find bar, Mod+F, searches the file in front).
+#[derive(Debug, Clone, Default)]
+pub struct FolderSearch {
+    pub query: String,
+    pub how: TextMatch,
+    /// The files with matches, in the order the walk found them.
+    pub results: Vec<FileHits>,
+    /// The files read by the last search.
+    pub searched: usize,
+    /// The last search saw every file and stopped at no cap.
+    pub complete: bool,
+    /// A search runs on a Thread.
+    pub running: bool,
+    /// The search the app asked for last (an older reply is dropped).
+    pub generation: u64,
+    /// Raised to stop the search that runs.
+    pub cancel: Option<Arc<AtomicBool>>,
+    /// Files whose matches are folded away in the list.
+    pub folded: BTreeSet<String>,
+}
+
+impl FolderSearch {
+    /// Every match of every file.
+    #[must_use]
+    pub fn hit_count(&self) -> usize {
+        self.results.iter().map(|f| f.hits.len()).sum()
+    }
+
+    /// The list's rows: each file, then its matches (unless it is folded).
+    #[must_use]
+    pub fn rows(&self) -> Vec<ResultRow> {
+        let mut rows = Vec::with_capacity(self.results.len() + self.hit_count());
+        for (f, file) in self.results.iter().enumerate() {
+            rows.push(ResultRow::File(f));
+            if !self.folded.contains(&file.key) {
+                rows.extend((0..file.hits.len()).map(|h| ResultRow::Hit(f, h)));
+            }
+        }
+        rows
+    }
+
+    /// "12 results in 3 files" (VSCode's line over the list).
+    #[must_use]
+    pub fn summary(&self) -> String {
+        let hits = self.hit_count();
+        let files = self.results.len();
+        if self.query.is_empty() {
+            return String::new();
+        }
+        if self.running && hits == 0 {
+            return "Searching...".to_string();
+        }
+        if hits == 0 {
+            return "No results found.".to_string();
+        }
+        let results = if hits == 1 { "1 result".to_string() } else { format!("{hits} results") };
+        let in_files = if files == 1 { "1 file".to_string() } else { format!("{files} files") };
+        let more = if self.complete { "" } else { " (the first ones)" };
+        format!("{results} in {in_files}{more}")
+    }
+}
+
 /// Everything the window shows.
 pub struct AppState {
     pub kit: RefAny,
@@ -309,9 +414,15 @@ pub struct AppState {
     /// A file named on the command line, opened when the window exists.
     pub file_to_open: Option<PathBuf>,
     pub workspace: Option<Workspace>,
+    /// The git branch of the workspace's folder (the status bar's).
+    pub branch: Option<String>,
     pub tabs: Tabs<Doc>,
     pub side: Side,
     pub find: FindState,
+    /// The side bar's search over the folder.
+    pub search: FolderSearch,
+    /// A match to select in a file once it has opened ([`Doc::ident`]).
+    pub reveal: Option<(String, Found)>,
     /// The go-to-line bar is open, with what was typed.
     pub goto: Option<String>,
     pub notice: String,
@@ -329,11 +440,18 @@ pub struct AppState {
     pub side_ratio: f32,
     /// The folders opened last, newest first (kept in the settings).
     pub recent: Vec<String>,
-    /// Quick open (Mod+P) is showing, with what was typed.
-    pub quick: Option<String>,
+    /// Quick open (Mod+P) or the command palette (Mod+Shift+P) is showing.
+    pub palette: Option<Palette>,
+    /// Mod+K was pressed: the second key of a chord is awaited (Mod+K
+    /// Mod+O opens a folder).
+    pub chord: bool,
     /// The workspace's files (keys) for quick open.
     pub index: Vec<String>,
     pub index_state: IndexState,
+    /// The terminal panel under the editor.
+    pub panel: Panel,
+    /// `--shell`: what the terminal panel runs (`None`: the user's shell).
+    pub shell: Option<(String, Vec<String>)>,
     next_id: u64,
 }
 
@@ -347,9 +465,12 @@ impl AppState {
             workspace_to_open: None,
             file_to_open: None,
             workspace: None,
+            branch: None,
             tabs: Tabs::default(),
             side: Side::Explorer,
             find: FindState::default(),
+            search: FolderSearch::default(),
+            reveal: None,
             goto: None,
             notice: String::new(),
             asking_close: false,
@@ -360,9 +481,12 @@ impl AppState {
             side_visible: true,
             side_ratio: 0.22,
             recent: Vec::new(),
-            quick: None,
+            palette: None,
+            chord: false,
             index: Vec::new(),
             index_state: IndexState::None,
+            panel: Panel::default(),
+            shell: None,
             next_id: 1,
         }
     }
@@ -389,8 +513,25 @@ impl AppState {
     /// [`Self::index`], best first).
     #[must_use]
     pub fn quick_files(&self) -> Vec<usize> {
-        let query = self.quick.as_deref().unwrap_or("");
+        let query = self
+            .palette
+            .as_ref()
+            .filter(|p| p.kind == PaletteKind::Files)
+            .map_or("", |p| p.query.as_str());
         quick_matches(&self.index, query, QUICK_MAX)
+    }
+
+    /// The folder on disk the workspace is (the sample's folder in the data
+    /// tree): where a new terminal starts.
+    #[must_use]
+    pub fn workspace_folder(&self) -> Option<PathBuf> {
+        let root = &self.workspace.as_ref()?.root;
+        let prefix = root.prefix.trim_end_matches('/');
+        Some(if prefix.is_empty() {
+            root.drive_root.clone()
+        } else {
+            root.drive_root.join(prefix)
+        })
     }
 
     /// Some open file has unsaved changes.
@@ -429,8 +570,7 @@ impl AppState {
         };
         self.find.current = Some(index);
         if let Some(doc) = self.tabs.active_mut() {
-            doc.view.select(position(found.start_pos()), position(found.end_pos()));
-            doc.view.reveal_line(position(found.start_pos()).line);
+            doc.select(found);
         }
     }
 
@@ -504,5 +644,59 @@ impl AppState {
         doc.view.set_cursor(position(at));
         doc.view.reveal_line(position(at).line);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::search::Hit;
+
+    fn hit(line: usize) -> Hit {
+        Hit {
+            line,
+            start: 0,
+            end: 6,
+            preview: "picked".to_string(),
+            preview_start: 0,
+            preview_end: 6,
+        }
+    }
+
+    #[test]
+    fn the_search_results_list_each_file_then_its_matches_unless_folded() {
+        let mut s = FolderSearch {
+            query: "picked".to_string(),
+            complete: true,
+            ..FolderSearch::default()
+        };
+        assert_eq!(s.summary(), "No results found.");
+        s.results = vec![
+            FileHits {
+                key: "Cargo.toml".to_string(),
+                hits: vec![hit(1)],
+            },
+            FileHits {
+                key: "src/main.rs".to_string(),
+                hits: vec![hit(0), hit(4)],
+            },
+        ];
+        assert_eq!(
+            s.rows(),
+            vec![
+                ResultRow::File(0),
+                ResultRow::Hit(0, 0),
+                ResultRow::File(1),
+                ResultRow::Hit(1, 0),
+                ResultRow::Hit(1, 1)
+            ]
+        );
+        assert_eq!(s.summary(), "3 results in 2 files");
+        s.folded.insert("src/main.rs".to_string());
+        assert_eq!(s.rows().len(), 3, "a folded file shows no matches");
+        s.complete = false;
+        assert_eq!(s.summary(), "3 results in 2 files (the first ones)");
+        s.query.clear();
+        assert_eq!(s.summary(), "", "no query, no summary");
     }
 }

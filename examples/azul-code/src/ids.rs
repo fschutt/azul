@@ -73,8 +73,41 @@ pub const OPEN_SAMPLE: AzString = AzString::from_const_str("__azcode_open-sample
 pub const QUICK_OPEN: AzString = AzString::from_const_str("__azcode_quick-open");
 /// The status bar's "Ln, Col" segment marker.
 pub const STATUS_CARET: AzString = AzString::from_const_str("__azcode_status-caret");
+/// The status bar's branch segment marker.
+pub const STATUS_BRANCH: AzString = AzString::from_const_str("__azcode_status-branch");
 /// The line with the last problem or notice.
 pub const NOTICE: AzString = AzString::from_const_str("__azcode_notice");
+/// The explorer's header: the workspace's name.
+pub const EXPLORER_FOLDER: AzString = AzString::from_const_str("__azcode_explorer-folder");
+/// The explorer's "Collapse Folders" button.
+pub const COLLAPSE: AzString = AzString::from_const_str("__azcode_collapse");
+/// The class of every row of the explorer.
+pub const TREE_ROW_CLASS: AzString = AzString::from_const_str("__azcode_tree-row");
+/// The class of the explorer's selected row.
+pub const TREE_SELECTED_CLASS: AzString = AzString::from_const_str("__azcode_tree-selected");
+/// The search panel's match-case toggle.
+pub const SEARCH_MATCH_CASE: AzString = AzString::from_const_str("__azcode_search-match-case");
+/// The search panel's whole-word toggle.
+pub const SEARCH_WHOLE_WORD: AzString = AzString::from_const_str("__azcode_search-whole-word");
+/// The search panel's list of results (a virtualized list).
+pub const SEARCH_RESULTS: AzString = AzString::from_const_str("__azcode_search-results");
+/// The line over the results ("12 results in 3 files").
+pub const SEARCH_SUMMARY: AzString = AzString::from_const_str("__azcode_search-summary");
+/// The class of a result row (a file or a match).
+pub const RESULT_CLASS: AzString = AzString::from_const_str("__azcode_result");
+/// The terminal panel under the editor.
+pub const PANEL: AzString = AzString::from_const_str("__azcode_panel");
+/// The terminal of the shell in front (azul's TerminalView).
+pub const TERMINAL: AzString = AzString::from_const_str("__azcode_terminal");
+/// The panel's "New Terminal".
+pub const TERMINAL_NEW: AzString = AzString::from_const_str("__azcode_terminal-new");
+/// The panel's "Kill Terminal".
+pub const TERMINAL_KILL: AzString = AzString::from_const_str("__azcode_terminal-kill");
+/// The panel's "Close Panel".
+pub const PANEL_CLOSE: AzString = AzString::from_const_str("__azcode_panel-close");
+/// The command palette (Mod+Shift+P): the host of the palette over the
+/// window's commands.
+pub const COMMAND_PALETTE: AzString = AzString::from_const_str("__azcode_command-palette");
 
 /// Tab `i` (0 = the first).
 #[must_use]
@@ -98,4 +131,46 @@ pub fn recent(i: usize) -> AzString {
 #[must_use]
 pub fn welcome_recent(i: usize) -> AzString {
     AzString::from(format!("__azcode_welcome-recent-{i}"))
+}
+
+/// The explorer's row of workspace key `key` (`src/` a folder, `src/main.rs`
+/// a file): `__azcode_tree-` and the key, every character but a letter, a
+/// digit, `_` and `-` as `-` (`__azcode_tree-src-main-rs`), so a test can
+/// name it in a selector.
+#[must_use]
+pub fn tree_row(key: &str) -> AzString {
+    AzString::from(tree_row_name(key))
+}
+
+/// [`tree_row`] as a plain string.
+#[must_use]
+pub fn tree_row_name(key: &str) -> String {
+    let safe: String = key
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '-' })
+        .collect();
+    format!("__azcode_tree-{safe}")
+}
+
+/// Shell `i` (0 = the first) in the terminal panel's header.
+#[must_use]
+pub fn terminal_tab(i: usize) -> AzString {
+    AzString::from(format!("__azcode_terminal-tab-{i}"))
+}
+
+/// Result row `i` of the search panel's list.
+#[must_use]
+pub fn result_row(i: usize) -> AzString {
+    AzString::from(format!("__azcode_result-{i}"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_tree_rows_id_is_its_key_spelled_for_a_selector() {
+        assert_eq!(super::tree_row_name("src/"), "__azcode_tree-src-");
+        assert_eq!(super::tree_row_name("src/main.rs"), "__azcode_tree-src-main-rs");
+        assert_eq!(super::tree_row_name("Cargo.toml"), "__azcode_tree-Cargo-toml");
+        assert_eq!(super::tree_row_name("a b/ü.rs"), "__azcode_tree-a-b---rs");
+    }
 }

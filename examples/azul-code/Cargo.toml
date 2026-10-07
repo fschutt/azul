@@ -6,12 +6,16 @@ authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = """
     AzCode - a code editor on the public azul API in VSCode's shape: the
-    activity bar, the explorer tree (or "You have not yet opened a folder."
-    with Open Folder and the recent folders), tabs with close buttons over
-    azul's CodeView, the welcome page, quick open (Mod+P), a status bar with
-    Ln / Col; dark by default. Files of a million lines (the CodeView
-    builds only the lines in view; the text is a piece table), syntax
-    colours from syntect (incremental: an edit re-parses from its line
+    menu bar, the activity bar, the explorer (a virtualized tree, or "You
+    have not yet opened a folder." with Open Folder and the recent folders),
+    the search over the folder (virtualized results), tabs with close
+    buttons and the dot of unsaved changes over azul's CodeView, the
+    terminal panel (the user's shell on a PTY in azul's TerminalView,
+    through azul-termkit - AzTerm's session), the welcome page, quick open
+    (Mod+P), the command palette (Mod+Shift+P), a status bar with the git
+    branch and Ln / Col; dark by default. Files of a million lines (the
+    CodeView builds only the lines in view; the text is a piece table),
+    syntax colours from syntect (incremental: an edit re-parses from its line
     until the parse state meets the old one again; a far jump is parsed on
     an azul Thread), find / replace (azul-appkit's matcher), go to line,
     "Save changes?" (CloseGuard). A workspace is a folder read and written
@@ -26,6 +30,8 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
 # The workspace folder and the sample tree are read and written through the Drive (LocalDrive).
 azul-storage = { path = "../azul-storage" }
+# The terminal panel: a shell on a PTY and its screen, the TerminalView glue (AzTerm's, shared).
+azul-termkit = { path = "../azul-termkit" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Syntax colours: TextMate grammars, a line-oriented parse state (incremental by line), pure Rust

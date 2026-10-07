@@ -81,6 +81,108 @@ pub fn replace_all(buffer: &TextBuffer, needle: &str, replacement: &str, how: Te
         .collect()
 }
 
+/// The longest preview of a matched line (characters).
+pub const PREVIEW_CHARS: usize = 160;
+
+/// One match of a search over the folder's files: bytes `start..end` of
+/// line `line` of the file, and the line as the results list shows it
+/// ([`preview_of`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hit {
+    pub line: usize,
+    pub start: usize,
+    pub end: usize,
+    pub preview: String,
+    /// The match in `preview` (bytes).
+    pub preview_start: usize,
+    pub preview_end: usize,
+}
+
+impl Hit {
+    /// The match as the find bar's kind of match (a selection in the file).
+    #[must_use]
+    pub fn found(&self) -> Found {
+        Found {
+            line: self.line,
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
+
+/// Line `line` as the results list shows a match at bytes `start..end` of
+/// it: the indentation left out, a long line cut to a window around the
+/// match (`…` where it was cut); the match's place in the preview.
+#[must_use]
+pub fn preview_of(line: &str, start: usize, end: usize) -> (String, usize, usize) {
+    let indent = line.len() - line.trim_start().len();
+    let start = start.max(indent).min(line.len());
+    let end = end.max(start).min(line.len());
+    let lead_chars = line[indent..start].chars().count();
+    // At most 30 characters before the match.
+    let from = if lead_chars > 30 {
+        line[indent..start]
+            .char_indices()
+            .nth(lead_chars - 30)
+            .map_or(start, |(i, _)| indent + i)
+    } else {
+        indent
+    };
+    let prefix = if from > indent { "\u{2026}" } else { "" };
+    let mut preview = String::from(prefix);
+    let match_start = preview.len() + (start - from);
+    let match_end = match_start + (end - start);
+    let rest: String = line[from..].chars().take(PREVIEW_CHARS).collect();
+    let cut = rest.len() < line.len() - from;
+    preview.push_str(&rest);
+    // A match longer than the window ends where the window does (a char
+    // boundary: never inside the ellipsis).
+    let match_end = match_end.min(preview.len());
+    if cut {
+        preview.push('\u{2026}');
+    }
+    (preview, match_start.min(match_end), match_end)
+}
+
+/// Every match of `needle` in `text` (a whole file; LF, CRLF or CR line
+/// breaks), top to bottom, at most `max`. A file without the needle is
+/// passed over in one scan before any line is split.
+#[must_use]
+pub fn find_in_text(text: &str, needle: &str, how: TextMatch, max: usize) -> Vec<Hit> {
+    let mut out = Vec::new();
+    if needle.is_empty() || needle.contains('\n') || max == 0 {
+        return out;
+    }
+    // The buffer a file opens in leaves the BOM out: so do the offsets here.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let holds = if how.match_case {
+        text.contains(needle)
+    } else {
+        text.to_lowercase().contains(&needle.to_lowercase())
+    };
+    if !holds {
+        return out;
+    }
+    for (line, raw) in text.split('\n').enumerate() {
+        let content = raw.strip_suffix('\r').unwrap_or(raw);
+        for (start, end) in matches(content, needle, how) {
+            let (preview, preview_start, preview_end) = preview_of(content, start, end);
+            out.push(Hit {
+                line,
+                start,
+                end,
+                preview,
+                preview_start,
+                preview_end,
+            });
+            if out.len() >= max {
+                return out;
+            }
+        }
+    }
+    out
+}
+
 /// "120" (line 120) or "120:5" (line 120, column 5) as a position in a text
 /// of `line_count` lines (1-based input, past the end: the last line).
 #[must_use]
@@ -147,6 +249,34 @@ mod tests {
         assert_eq!(b.text(), "lease and lease\nno lease");
         b.undo();
         assert_eq!(b.text(), "rent and Rent\nno rent", "one undo step");
+    }
+
+    #[test]
+    fn a_search_of_a_files_text_finds_every_line_with_its_preview() {
+        let text = "fn main() {\r\n    let picked = 7;\r\n    picked + 1\r\n}\r\n";
+        let hits = find_in_text(text, "picked", TextMatch::default(), 100);
+        assert_eq!(hits.len(), 2);
+        assert_eq!((hits[0].line, hits[0].start, hits[0].end), (1, 8, 14));
+        assert_eq!(hits[0].preview, "let picked = 7;", "the indentation and the CR left out");
+        assert_eq!(&hits[0].preview[hits[0].preview_start..hits[0].preview_end], "picked");
+        assert_eq!(hits[1].found(), Found { line: 2, start: 4, end: 10 });
+        assert!(find_in_text(text, "PICKED", TextMatch { match_case: true, ..TextMatch::default() }, 100).is_empty());
+        assert_eq!(find_in_text(text, "PICKED", TextMatch::default(), 100).len(), 2, "any case");
+        assert_eq!(find_in_text(text, "picked", TextMatch::default(), 1).len(), 1, "at most max");
+        assert!(find_in_text(text, "absent", TextMatch::default(), 100).is_empty());
+        assert!(find_in_text(text, "", TextMatch::default(), 100).is_empty());
+    }
+
+    #[test]
+    fn a_long_lines_preview_is_a_window_around_the_match() {
+        let line = format!("{}needle{}", "a".repeat(100), "b".repeat(400));
+        let (preview, s, e) = preview_of(&line, 100, 106);
+        assert!(preview.starts_with('\u{2026}') && preview.ends_with('\u{2026}'));
+        assert_eq!(&preview[s..e], "needle");
+        assert!(preview.chars().count() <= PREVIEW_CHARS + 2);
+        let (short, s, e) = preview_of("  x = needle;", 6, 12);
+        assert_eq!((short.as_str(), &"  x = needle;"[6..12]), ("x = needle;", "needle"));
+        assert_eq!(&short[s..e], "needle");
     }
 
     #[test]

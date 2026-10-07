@@ -56,6 +56,7 @@ dependencies = [
  "azul-appkit",
  "azul-dll",
  "azul-storage",
+ "azul-termkit",
  "serde",
  "serde_json",
  "syntect",

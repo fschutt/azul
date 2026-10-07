@@ -1,46 +1,71 @@
 //! AzCode: a code editor on the public azul API, in VSCode's shape.
 //!
 //! The window is azul's `OfficeShell` with the S8 developer shell's panes
-//! (the app-drawn `Titlebar` under `WindowDecorations::NoTitle`; the
-//! activity bar, the side bar - the explorer or the search panel - the
-//! editor with its tabs over azul's `CodeView`, the status bar, quick open)
-//! inside a `ShellThemeScope`, behind a `CloseGuard` that asks "Save
-//! changes?". Without a folder the explorer says "You have not yet opened a
-//! folder." (Open Folder, the recent folders) and the editor shows the
-//! welcome page (Open Folder..., Open File..., the keyboard shortcuts). It
-//! is dark by default, as VSCode is, and follows the app theme (flat /
+//! (the app-drawn `Titlebar` under `WindowDecorations::NoTitle`, VSCode's
+//! menu bar; the activity bar, the side bar - the explorer or the search
+//! over the folder - the editor with its tabs over azul's `CodeView`, the
+//! terminal panel under it, the status bar, quick open and the command
+//! palette) inside a `ShellThemeScope`, behind a `CloseGuard` that asks
+//! "Save changes?". Without a folder the explorer says "You have not yet
+//! opened a folder." (Open Folder, the recent folders) and the editor shows
+//! the welcome page (Open Folder..., Open File..., the keyboard shortcuts).
+//! It is dark by default, as VSCode is, and follows the app theme (flat /
 //! flora) and the mode the user picks.
+//!
+//! Everything long is virtualized: the explorer and the search results are
+//! `VirtualView`s that build the rows in view, the CodeView builds the lines
+//! in view, the terminal's scrollback is read a screen at a time.
 //!
 //! - [`buffer`]: the text of an open file, a piece table (plain Rust).
 //! - [`highlight`]: syntect, incremental by line, checkpoints, a background
 //!   walk for far jumps (plain Rust).
-//! - [`search`]: find / replace (azul-appkit's matcher), go to line.
+//! - [`search`]: find / replace (azul-appkit's matcher), go to line, the
+//!   matches of a file for the search over the folder.
 //! - [`workspace`]: the explorer's tree, the tabs, the recent folders,
-//!   quick open's ranking (plain Rust).
+//!   quick open's ranking; [`git`]: the branch (plain Rust).
 //! - [`storage`]: the workspace's files through azul-storage's Drive on
-//!   azul Threads; [`sample`]: the sample workspace (`--sample`).
-//! - [`app`], [`commands`], [`ui`]: the state, the commands, the window.
+//!   azul Threads (list, read, write, index, search); [`sample`]: the sample
+//!   workspace (`--sample`).
+//! - [`app`], [`commands`], [`actions`]: the state, what the user asks, the
+//!   commands the menu, the palette and the keys run.
+//! - [`ui`], [`explorer`], [`find_in_files`], [`terminal`], [`palette`],
+//!   [`menu`]: the window.
 //!
 //! A workspace is a folder named on the command line (`AzCode ~/project`,
-//! read and written in place through a drive without the data tree's
-//! manifest), picked with Open Folder (Mod+O) or from the recent folders,
-//! or the sample in the data tree (`code/sample/`). A file named on the
-//! command line or picked with Open File... opens on its own (its folder is
-//! its drive) when it is not in the workspace.
+//! `--folder ~/project`; read and written in place through a drive without
+//! the data tree's manifest), picked with Open Folder (Mod+K Mod+O, Mod+O,
+//! File > Open Folder...) or from the recent folders, or the sample in the
+//! data tree (`code/sample/`). A file named on the command line or picked
+//! with Open File... opens on its own (its folder is its drive) when it is
+//! not in the workspace.
 //!
 //! On stdout, for scripts (`scripts/azcode_e2e.py`): `AZCODE_READY`,
-//! `AZCODE_FOLDER <dir>`, `AZCODE_FILE <path>`, `AZCODE_LISTED <folder>
-//! <n>`, `AZCODE_OPENED <key> <lines>`, `AZCODE_SAVED <key>`,
-//! `AZCODE_INDEXED <n>`, `AZCODE_FOUND <n>`, `AZCODE_REPLACED <n>`.
+//! `AZCODE_FOLDER <dir>` (the folder dialog's answer) /
+//! `AZCODE_FOLDER_CANCELLED`, `AZCODE_WORKSPACE <dir>` (a workspace opened,
+//! however), `AZCODE_LISTED <folder> <n>`, `AZCODE_BRANCH <name>`,
+//! `AZCODE_FILE <path>`, `AZCODE_OPENED <key> <lines>`, `AZCODE_DIRTY <key>
+//! 1|0`, `AZCODE_SAVED <key>`, `AZCODE_INDEXED <n>`, `AZCODE_SEARCHED
+//! <matches> <files>`, `AZCODE_FOUND <n>`, `AZCODE_REPLACED <n>`,
+//! `AZCODE_COMMAND <name>`, `AZCODE_PANEL open|closed`,
+//! `AZCODE_TERMINAL_READY <n> <dir>`, `AZCODE_TERMINAL_OUTPUT <n>`,
+//! `AZCODE_TERMINAL_EXITED <n>`.
 
+pub mod actions;
 pub mod app;
+pub mod args;
 pub mod buffer;
 pub mod commands;
+pub mod explorer;
+pub mod find_in_files;
+pub mod git;
 pub mod highlight;
 pub mod ids;
+pub mod menu;
+pub mod palette;
 pub mod sample;
 pub mod search;
 pub mod storage;
+pub mod terminal;
 pub mod ui;
 pub mod workspace;
 
@@ -80,18 +105,25 @@ pub const SPEC: AppSpec = AppSpec {
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzCode",
     version: env!("CARGO_PKG_VERSION"),
-    summary: "A code editor: the explorer, tabs, syntax colours, find and replace, go to line, files of a \
-              million lines. Your folders are edited in place; the sample lives in your data folder.",
+    summary: "A code editor: the explorer, tabs, syntax colours, find and replace, search in the folder, \
+              a terminal, go to line, files of a million lines. Your folders are edited in place; the \
+              sample lives in your data folder.",
     license: "MIT",
     app_folder: sample::APP_FOLDER,
 };
 
-pub const SHORTCUTS: [Shortcut; 17] = [
-    Shortcut::new("File", "Mod+O", "Open a folder"),
+pub const SHORTCUTS: [Shortcut; 24] = [
+    Shortcut::new("File", "Mod+K Mod+O / Mod+O", "Open a folder"),
+    Shortcut::new("File", "Mod+K F", "Close the folder"),
     Shortcut::new("File", "Mod+P", "Quick open a file of the folder"),
     Shortcut::new("File", "Mod+S", "Save every changed file"),
     Shortcut::new("File", "Mod+W", "Close the tab"),
+    Shortcut::new("Window", "Mod+Shift+P", "The command palette"),
     Shortcut::new("Window", "Mod+B", "Show / hide the side bar"),
+    Shortcut::new("Window", "Mod+Shift+E", "The explorer"),
+    Shortcut::new("Window", "Ctrl+` / Mod+J", "Show / hide the terminal"),
+    Shortcut::new("Window", "Ctrl+Shift+`", "A new terminal"),
+    Shortcut::new("Find", "Mod+Shift+F", "Search the folder's files"),
     Shortcut::new("Find", "Mod+F", "Find in the file"),
     Shortcut::new("Find", "Mod+H", "Replace in the file"),
     Shortcut::new("Find", "F3 / Shift+F3", "Next / previous match"),
@@ -103,40 +135,46 @@ pub const SHORTCUTS: [Shortcut; 17] = [
     Shortcut::new("Editing", "Mod+X / Mod+C / Mod+V", "Cut / copy / paste (a whole line without a selection)"),
     Shortcut::new("Moving", "Mod+Home / Mod+End", "To the start / end of the file"),
     Shortcut::new("Moving", "Alt+arrows (macOS) / Ctrl+arrows", "By words"),
-    Shortcut::new("Window", "Escape", "Close the find bar, the go-to bar"),
+    Shortcut::new("Explorer", "Up / Down / Left / Right / Enter", "Move in the tree, close / open a folder, open a file"),
+    Shortcut::new("Window", "Escape", "Close the palette, the find bar, the go-to bar"),
 ];
 
 // ==== Start ====
 
 pub fn start() {
-    let args = match AppArgs::from_env(&SPEC) {
+    let args = match args::Args::from_env() {
         Ok(a) => a,
         Err(message) => {
             println!("{message}");
             std::process::exit(if message.contains("USAGE") { 0 } else { 2 });
         }
     };
-    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.clone());
-    dark_by_default(&kit_ref, &args);
+    // TERM / COLORTERM for the terminal panel's shells (before any thread exists).
+    azul_termkit::pane::setup_env();
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
+    dark_by_default(&kit_ref, &args.kit);
     let data_root = {
         let mut k = kit_ref.clone();
         let root = k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone());
         root.unwrap_or_default()
     };
-    let mut st = AppState::new(kit_ref.clone(), data_root, args.sample);
+    let mut st = AppState::new(kit_ref.clone(), data_root, args.kit.sample);
     st.recent = recent_of(&kit_ref);
-    if let Some(named) = args.files.first() {
+    st.shell = args.shell.clone();
+    // `--folder`, else a bare folder or file.
+    let named = args.folder.clone().or_else(|| args.kit.files.first().cloned());
+    if let Some(named) = named {
         // Absolute: `AzCode .` names the folder by its name, not ".".
-        let path = std::path::absolute(named).unwrap_or_else(|_| named.clone());
+        let path = std::path::absolute(&named).unwrap_or(named);
         if path.is_dir() {
             st.workspace_to_open = Some(commands::folder_root(&path));
-        } else if path.is_file() {
+        } else if path.is_file() && args.folder.is_none() {
             st.file_to_open = Some(path);
         } else {
-            st.notice = format!("{} is neither a folder nor a file.", path.display());
+            st.notice = format!("{} is not a folder AzCode can open.", path.display());
         }
     }
-    if args.screen.as_deref() == Some("settings") {
+    if args.kit.screen.as_deref() == Some("settings") {
         kit::open_settings(&kit_ref, None);
     }
     let config = kit::app_config(&kit_ref);
@@ -210,6 +248,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     ShellThemeScope::create(ui::column(vec![guarded]))
         .with_accent(ShellThemeAccent::Blue)
         .body()
+        .with_menu_bar(menu::menu_bar(&app, st))
         .with_callback(EventFilter::Window(WindowEventFilter::VirtualKeyDown), app, on_key)
 }
 
@@ -258,8 +297,9 @@ extern "C" fn on_close_guard(mut data: RefAny, mut info: CallbackInfo, event: Cl
     Update::RefreshDom
 }
 
-/// The window's keys: the kit's first (settings, F1), then AzCode's. The
-/// editing keys are the CodeView's.
+/// The window's keys: the kit's first (settings, F1), then AzCode's (the
+/// commands, Mod+K chords). The editing keys are the CodeView's, the
+/// terminal's keys the TerminalView's.
 extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(kit_ref) = data.downcast_ref::<AppState>().map(|s| s.kit.clone()) else {
         return Update::DoNothing;
@@ -274,12 +314,11 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let modifiers = info.get_key_modifiers();
-    let (primary, shift) = (modifiers.primary_down(), modifiers.shift);
     let handle = data.clone();
     let Some(mut guard) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    if commands::handle_key(&mut guard, &mut info, &handle, key, primary, shift) {
+    if commands::handle_key(&mut guard, &mut info, &handle, key, modifiers) {
         info.prevent_default();
         return Update::RefreshDom;
     }
@@ -295,7 +334,9 @@ mod tests {
     #[test]
     fn the_shortcut_list_names_every_key_the_window_takes() {
         let window_keys = [
-            "Mod+O", "Mod+P", "Mod+B", "Mod+S", "Mod+W", "Mod+F", "Mod+H", "Mod+G", "F3", "Escape",
+            "Mod+K Mod+O", "Mod+O", "Mod+K F", "Mod+P", "Mod+Shift+P", "Mod+B", "Mod+Shift+E", "Mod+S",
+            "Mod+W", "Mod+F", "Mod+Shift+F", "Mod+H", "Mod+G", "F3", "Escape", "Ctrl+`", "Mod+J",
+            "Ctrl+Shift+`",
         ];
         for key in window_keys {
             assert!(
@@ -303,6 +344,21 @@ mod tests {
                     .iter()
                     .any(|s| s.keys.split(" / ").any(|k| k == key)),
                 "the F1 list does not name {key}"
+            );
+        }
+    }
+
+    /// Every command with keys names keys the F1 list shows too.
+    #[test]
+    fn every_command_with_keys_is_in_the_shortcut_list() {
+        for action in crate::actions::Action::ALL {
+            let keys = action.keys();
+            if keys.is_empty() || keys == "Mod+," || keys == "F1" || keys == "Mod+Z" || keys == "Mod+Shift+Z" {
+                continue;
+            }
+            assert!(
+                SHORTCUTS.iter().any(|s| s.keys.split(" / ").any(|k| k == keys)),
+                "{action:?}: {keys} is not in the F1 list"
             );
         }
     }
