@@ -5627,9 +5627,10 @@ fn flat_sheet() -> Vec<CssPropertyWithConditions> {
 // apart, the sender in the ink and bold when unread, the subject, the
 // preview and the date in the secondary inks, the glyphs in the tile's
 // steel blue; a row washes to the row-hover blue under the pointer, the
-// selected one takes the selection blue, focus is an inset ring; a group
-// header is a band of the strip colour. At night the desktop's surfaces and
-// inks and the tree's dark selection.
+// selected one takes the selection face (light blue, top to foot), focus is
+// an inset ring; a group header ("Today", "Older") is its name in semibold
+// on the paper over a faint rule. At night the theme's surfaces and inks and
+// the night-blue selection.
 
 /// Flat's summary-list look.
 #[must_use]
@@ -5652,12 +5653,14 @@ pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLo
     row.extend(decl::hover_fill(LIGHT_ROW_HOVER, DARK_ROW_HOVER));
     row.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
 
+    // A group header is Outlook 2010's: its name in semibold ink on the list's
+    // paper, a faint rule under it (no band).
     let mut group = vec![decl::font_size(12), decl::semibold()];
-    group.extend(decl::padding(3, 8, 3, 8));
-    group.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+    group.extend(decl::padding(8, 8, 3, 8));
+    group.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
     group.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
     group.extend(decl::border_bottom(1));
-    group.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+    group.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
 
     let mut icon = vec![decl::font_size(18)];
     icon.extend(decl::margin(0, 8, 0, 0));
@@ -5682,7 +5685,8 @@ pub(crate) fn summary_list_look() -> crate::widgets::summary_list::SummaryListLo
         rows: Vec::new(),
         row,
         row_unread: Vec::new(),
-        row_selected: decl::themed_fill(TILE_SELECTED_LIGHT, TILE_SELECTED_DARK).to_vec(),
+        // Outlook 2010's selected message: the light blue face.
+        row_selected: selection_face_both().to_vec(),
         group,
         icon,
         from: Vec::new(),
