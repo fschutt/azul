@@ -1192,3 +1192,58 @@ mod drop_tests {
         assert_eq!((events[0].group, events[0].index), (1, 2));
     }
 }
+
+/// Outlook 2010's pane (`trees_only`): the trees under no group headers.
+#[cfg(test)]
+mod trees_only_tests {
+    use azul_core::dom::NodeType;
+
+    use super::*;
+    use crate::widgets::{
+        shells::fixtures::navigation_pane,
+        themes::{theme_checks as tc, UiTheme},
+    };
+
+    fn texts(node: &Dom) -> Vec<String> {
+        let mut out = Vec::new();
+        if let NodeType::Text(t) = node.root.get_node_type() {
+            if !t.as_str().is_empty() {
+                out.push(t.as_str().to_string());
+            }
+        }
+        for c in node.children.as_ref() {
+            out.extend(texts(c));
+        }
+        out
+    }
+
+    #[test]
+    fn a_trees_only_pane_heads_every_tree_with_its_root_and_no_group_header() {
+        let dom = navigation_pane()
+            .with_trees_only(true)
+            .with_theme(UiTheme::Flat)
+            .dom();
+        let groups = tc::find(&dom, GROUPS_CLASS).expect("the groups column");
+        assert!(
+            tc::find(groups, "__azul-native-accordion").is_none(),
+            "no accordion: the trees are the groups"
+        );
+        let trees = groups.children.as_ref();
+        assert_eq!(trees.len(), 2, "one tree per group");
+        for tree in trees {
+            assert!(tc::has_class(tree, "__azul-native-tree-view"));
+        }
+        // The account's address once - its tree's root row - not again over
+        // it as a group header.
+        let all = texts(groups);
+        assert_eq!(
+            all.iter().filter(|t| t.as_str() == "me@example.org").count(),
+            1,
+            "{all:?}"
+        );
+        // The default keeps the headers.
+        let headed = navigation_pane().with_theme(UiTheme::Flat).dom();
+        let groups = tc::find(&headed, GROUPS_CLASS).expect("the groups column");
+        assert!(tc::find(groups, "__azul-native-accordion").is_some());
+    }
+}
