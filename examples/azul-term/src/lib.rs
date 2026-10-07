@@ -110,7 +110,8 @@ pub const SHORTCUTS: [Shortcut; 9] = [
     Shortcut::new("Terminal", "Cmd+V / Ctrl+Shift+V", "Paste"),
     Shortcut::new(
         "Terminal",
-        "The wheel, Shift+Page Up / Page Down / Home / End",
+        "The wheel, Shift+Page Up / Page Down / Home / End; on macOS Cmd+Up / Down / Page Up / \
+         Page Down / Home / End",
         "Scroll the scrollback",
     ),
     Shortcut::new("Terminal", "Mod+= / Mod+-", "Larger / smaller text"),
@@ -174,6 +175,22 @@ pub fn window_key(key: VirtualKeyCode) -> Option<WindowKey> {
         K::Key9 => WindowKey::Tab(9),
         K::Equals | K::Plus => WindowKey::Bigger,
         K::Minus => WindowKey::Smaller,
+        _ => return None,
+    })
+}
+
+/// What Cmd + a navigation key does to the scrollback on macOS, the old
+/// iTerm's way: a line, a page, the oldest line, the output.
+#[must_use]
+pub fn scroll_key(key: VirtualKeyCode) -> Option<Scroll> {
+    use VirtualKeyCode as K;
+    Some(match key {
+        K::Up => Scroll::Delta(1),
+        K::Down => Scroll::Delta(-1),
+        K::PageUp => Scroll::PageUp,
+        K::PageDown => Scroll::PageDown,
+        K::Home => Scroll::Top,
+        K::End => Scroll::Bottom,
         _ => return None,
     })
 }
@@ -336,6 +353,19 @@ impl AppState {
             }
             WindowKey::Bigger => self.font_size = (self.font_size + 1.0).min(FONT_RANGE.1),
             WindowKey::Smaller => self.font_size = (self.font_size - 1.0).max(FONT_RANGE.0),
+        }
+    }
+
+    /// Scrolls the active tab's view (Cmd + a navigation key); the caller
+    /// re-renders it at once.
+    pub fn scroll_active(&mut self, scroll: Scroll) {
+        if let Some(tab) = self.tabs.get(self.active) {
+            let mut term = tab.session.term.lock();
+            term.scroll_display(scroll);
+            println!("AZTERM_SCROLL {}", term.grid().display_offset());
+            drop(term);
+            // Drawn now, not once more on the tick (the scroll raised the flag).
+            let _ = tab.session.signals.take_dirty();
         }
     }
 
@@ -966,12 +996,26 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let m = info.get_key_modifiers();
-    let chord = if cfg!(target_os = "macos") {
+    let mac = cfg!(target_os = "macos");
+    let chord = if mac {
         m.meta && !m.ctrl && !m.alt
     } else {
         m.ctrl && m.shift && !m.alt && !m.meta
     };
-    let Some(action) = window_key(key).filter(|_| chord) else {
+    if !chord {
+        return Update::DoNothing;
+    }
+    // macOS: Cmd + a navigation key scrolls the scrollback - the view alone
+    // re-renders, the window stays.
+    if let Some(scroll) = scroll_key(key).filter(|_| mac) {
+        if let Some(mut st) = data.downcast_mut::<AppState>() {
+            st.scroll_active(scroll);
+        }
+        info.prevent_default();
+        rerender_terminal(&mut info);
+        return Update::DoNothing;
+    }
+    let Some(action) = window_key(key) else {
         return Update::DoNothing;
     };
     info.prevent_default();
@@ -1057,6 +1101,36 @@ mod tests {
             st.apply(WindowKey::Smaller);
         }
         assert!((st.font_size - FONT_RANGE.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn cmd_and_a_navigation_key_scroll_the_active_tabs_scrollback() {
+        use VirtualKeyCode as K;
+        assert!(matches!(scroll_key(K::Up), Some(Scroll::Delta(1))));
+        assert!(matches!(scroll_key(K::Down), Some(Scroll::Delta(-1))));
+        assert!(matches!(scroll_key(K::PageUp), Some(Scroll::PageUp)));
+        assert!(matches!(scroll_key(K::PageDown), Some(Scroll::PageDown)));
+        assert!(matches!(scroll_key(K::Home), Some(Scroll::Top)));
+        assert!(matches!(scroll_key(K::End), Some(Scroll::Bottom)));
+        assert!(scroll_key(K::T).is_none());
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        // The log: thousands of lines of scrollback.
+        st.open_tab();
+        let offset = |st: &AppState| {
+            st.tabs[st.active]
+                .session
+                .term
+                .lock()
+                .grid()
+                .display_offset()
+        };
+        st.scroll_active(Scroll::PageUp);
+        assert_eq!(offset(&st), START_GRID.lines);
+        st.scroll_active(Scroll::Delta(1));
+        assert_eq!(offset(&st), START_GRID.lines + 1);
+        st.scroll_active(Scroll::Bottom);
+        assert_eq!(offset(&st), 0);
     }
 
     #[test]
