@@ -7784,14 +7784,12 @@
                             "Clone",
                             "PartialEq",
                             "PartialOrd",
-                            "Eq",
-                            "Ord",
-                            "Hash"
+                            "Eq"
                         ],
                         "struct_fields": [
                             {
-                                "_reserved": {
-                                    "type": "u8"
+                                "traffic_light_position": {
+                                    "type": "OptionLogicalPosition"
                                 }
                             }
                         ],
@@ -38782,6 +38780,9 @@
                                 },
                                 "BackgroundClip": {
                                     "type": "StyleBackgroundClipValue"
+                                },
+                                "FontVariantNumeric": {
+                                    "type": "StyleFontVariantNumericValue"
                                 }
                             }
                         ],
@@ -40643,6 +40644,14 @@
                                     }
                                 ],
                                 "fn_body": "azul_css::props::property::CssProperty::const_background_clip(input)"
+                            },
+                            "font_variant_numeric": {
+                                "fn_args": [
+                                    {
+                                        "input": "StyleFontVariantNumeric"
+                                    }
+                                ],
+                                "fn_body": "azul_css::props::property::CssProperty::font_variant_numeric(input)"
                             }
                         },
                         "functions": {
@@ -51105,7 +51114,8 @@
                                 "ListStylePosition": {},
                                 "StringSet": {},
                                 "Zoom": {},
-                                "BackgroundClip": {}
+                                "BackgroundClip": {},
+                                "FontVariantNumeric": {}
                             }
                         ],
                         "repr": "C"
@@ -59279,6 +59289,59 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "StyleFontVariantNumeric": {
+                        "external": "azul_css::props::basic::font::StyleFontVariantNumeric",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "lining_nums": {
+                                    "type": "bool"
+                                },
+                                "oldstyle_nums": {
+                                    "type": "bool"
+                                },
+                                "proportional_nums": {
+                                    "type": "bool"
+                                },
+                                "tabular_nums": {
+                                    "type": "bool"
+                                },
+                                "diagonal_fractions": {
+                                    "type": "bool"
+                                },
+                                "stacked_fractions": {
+                                    "type": "bool"
+                                },
+                                "ordinal": {
+                                    "type": "bool"
+                                },
+                                "slashed_zero": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariantNumericValue": {
+                        "external": "azul_css::props::property::StyleFontVariantNumericValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantNumeric"
+                            ]
+                        }
                     }
                 }
             },
@@ -109355,6 +109418,35 @@
                                 ],
                                 "fn_args": [],
                                 "fn_body": "azul_layout::widgets::titlebar::TabsInTitlebar::platform()"
+                            }
+                        },
+                        "functions": {
+                            "traffic_light_position": {
+                                "doc": [
+                                    "Where macOS's traffic lights go to sit on this strip's tab row, for",
+                                    "the window's `MacWindowOptions::traffic_light_position` (the close",
+                                    "button's top-left, from the window's top-left): centred on the row",
+                                    "vertically - the row is `row_height` tall, [`Self::top`] below the",
+                                    "window's top - and in the [`Self::left`] space before the first tab",
+                                    "horizontally. AppKit leaves them at its own y (the middle of a 28pt",
+                                    "bar), above the middle of any taller tab row.",
+                                    "",
+                                    "The geometry is AppKit's (macOS 11 - 15): 14 x 16pt button frames,",
+                                    "20pt apart. Only macOS draws traffic lights; elsewhere the position",
+                                    "is unused."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "row_height": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalPosition"
+                                },
+                                "fn_body": "object.traffic_light_position(row_height)"
                             }
                         },
                         "repr": "C"
