@@ -1,6 +1,7 @@
 //! The command line: the switches every Azlin app understands (azul-appkit's `--screen`,
 //! `--size`, `--theme <flat|flora>`, `--mode <system|light|dark>`, `--shot`, `--sample`,
-//! `--data-dir`) with AzMeet's screens (`lobby | call | settings`), plus its own `--name <name>`;
+//! `--data-dir`) with AzMeet's screens (`lobby | waiting | call | settings`), plus its own
+//! `--name <name>`;
 //! `-h` / `--help`. A script (or a screenshot run) opens AzMeet where it wants, in the look it
 //! wants. Pure: no azul types (appkit's plain modules only), unit-tested here.
 
@@ -9,9 +10,12 @@ use azul_appkit::{args::help, AppArgs, AppSpec};
 /// Which screen opens first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Screen {
-    /// The lobby: the camera preview, the devices, the name, new meeting / join.
+    /// The start screen: new meeting, join with a link, the meeting server.
     #[default]
     Lobby,
+    /// A new meeting's waiting room: the camera preview, the switches, the devices, the name,
+    /// the link, "Start meeting".
+    Waiting,
     /// The call view (the in-process demo opens it on its own).
     Call,
     /// The settings.
@@ -23,7 +27,7 @@ pub const SPEC: AppSpec = AppSpec {
     name: "AzMeet",
     binary: "AzMeet",
     summary: "video meetings over azul.iroh",
-    screens: &["lobby", "call", "settings"],
+    screens: &["lobby", "waiting", "call", "settings"],
     files_help: "",
 };
 
@@ -85,6 +89,7 @@ where
     }
     let kit = AppArgs::parse(&SPEC, rest)?;
     let screen = match kit.screen.as_deref() {
+        Some("waiting") => Screen::Waiting,
         Some("call") => Screen::Call,
         Some("settings") => Screen::Settings,
         _ => Screen::Lobby,
@@ -134,6 +139,7 @@ mod tests {
         assert_eq!(args.name.as_deref(), Some("Ada"));
         assert_eq!(args.kit.data_dir, Some(PathBuf::from("/tmp/azlin")));
         assert_eq!(parse(["--screen=call"]).map(|a| a.screen), Ok(Screen::Call));
+        assert_eq!(parse(["--screen", "waiting"]).map(|a| a.screen), Ok(Screen::Waiting));
         assert_eq!(parse(["--mode", "system"]).map(|a| a.kit.mode), Ok(Some(ModePref::System)));
         assert_eq!(parse(["--name", "Ben"]).map(|a| a.name), Ok(Some(String::from("Ben"))));
         assert_eq!(parse(["-h"]).map(|a| a.help), Ok(true));
