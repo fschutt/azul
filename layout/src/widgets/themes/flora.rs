@@ -3490,6 +3490,67 @@ mod gradient_tests {
 //
 //
 
+// ==== scrollbars ====
+//
+// "The scrollbar thumb is undyed wool on a parchment track. It widens
+// nowhere, glows never" (the design system's scrollbar card): the wool is
+// flora.css's `--fl-sbA` falling to `--fl-sbB` and the track `--fl-track`.
+// azul draws a scrollbar part in one colour (`getters::get_scrollbar_style`
+// reduces a part to its colour), so the wool is the middle of its two stops.
+// The platform keeps its own widths and overlay behaviour; only the colours
+// are flora's. Its hover darkening needs the engine's thumb hover colour,
+// which nothing reads yet.
+
+/// The wool by day (between `--fl-sbA` #D4D1C9 and `--fl-sbB` #ADAAA1) and
+/// at night (between #3F3F3F and #333333).
+pub(crate) const SCROLLBAR_WOOL: (ColorU, ColorU) =
+    (ColorU::rgb(0xC0, 0xBD, 0xB5), ColorU::rgb(0x39, 0x39, 0x39));
+
+/// The parchment track: `--fl-track` by day and at night.
+pub(crate) const SCROLLBAR_PARCHMENT: (ColorU, ColorU) = (LIGHT_TRACK, DARK_TRACK);
+
+/// The sheet that gives every scroll box under it flora's scrollbars, inert
+/// in every other theme: `@theme(flora) { * { scrollbar-color: wool
+/// parchment } }`, its night twin under the dark mode. `scrollbar-color` is a
+/// scroll box's own property (azul does not inherit it), hence `*`; an app's
+/// own `scrollbar-color` on a box still wins (author order).
+#[must_use]
+pub(crate) fn scrollbar_sheet() -> azul_css::css::Css {
+    use azul_css::{
+        css::{rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
+        dynamic_selector::{DynamicSelector, ModeCondition, ThemeCondition},
+    };
+    let flora = || {
+        DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora")))
+    };
+    let rule = |thumb: ColorU, track: ColorU, conditions: Vec<DynamicSelector>| CssRuleBlock {
+        path: CssPath {
+            selectors: alloc::vec![CssPathSelector::Global].into(),
+        },
+        declarations: alloc::vec![CssDeclaration::Static(CssProperty::ScrollbarColor(
+            StyleScrollbarColorValue::Exact(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb,
+                track,
+            })),
+        ))]
+        .into(),
+        conditions: conditions.into(),
+        priority: rule_priority::AUTHOR,
+    };
+    Css {
+        rules: alloc::vec![
+            rule(SCROLLBAR_WOOL.0, SCROLLBAR_PARCHMENT.0, alloc::vec![flora()]),
+            rule(
+                SCROLLBAR_WOOL.1,
+                SCROLLBAR_PARCHMENT.1,
+                alloc::vec![flora(), DynamicSelector::Mode(ModeCondition::Dark)]
+            ),
+        ]
+        .into(),
+        ..Css::default()
+    }
+}
+
 // ==== dialog ====
 //
 // Dialog, Modal and Popover in flora's terms (`doc/templates/flora.css`, and
