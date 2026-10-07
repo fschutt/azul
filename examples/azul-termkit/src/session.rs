@@ -142,11 +142,27 @@ fn new_term(size: GridSize, scrollback: usize, signals: &Arc<Signals>) -> Term<L
 }
 
 impl Session {
-    /// The user's shell (or `program` with `args`) in `cwd` on a new PTY.
+    /// The user's shell (or `program` with `args`) in `cwd` on a new PTY,
+    /// `TERM_PROGRAM=AzTerm`.
     ///
     /// # Errors
     /// The PTY could not be opened or the shell not started.
     pub fn spawn(
+        program: Option<(String, Vec<String>)>,
+        cwd: Option<PathBuf>,
+        size: GridSize,
+        scrollback: usize,
+    ) -> io::Result<Self> {
+        Self::spawn_for("AzTerm", program, cwd, size, scrollback)
+    }
+
+    /// [`Self::spawn`] for the app `term_program` names (`TERM_PROGRAM`:
+    /// what a shell's integration reads - AzCode's panel says `AzCode`).
+    ///
+    /// # Errors
+    /// The PTY could not be opened or the shell not started.
+    pub fn spawn_for(
+        term_program: &str,
         program: Option<(String, Vec<String>)>,
         cwd: Option<PathBuf>,
         size: GridSize,
@@ -159,7 +175,7 @@ impl Session {
         options.working_directory = cwd;
         options
             .env
-            .insert("TERM_PROGRAM".to_string(), "AzTerm".to_string());
+            .insert("TERM_PROGRAM".to_string(), term_program.to_string());
         let pty = tty::new(&options, window_size(size), 0)?;
         let event_loop =
             EventLoop::new(term.clone(), Listener(signals.clone()), pty, false, false)?;

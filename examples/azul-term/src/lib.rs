@@ -32,8 +32,8 @@
 
 pub mod ids;
 pub mod sample;
-pub mod session;
-pub mod vt;
+// The shell on a PTY and its screen: shared with AzCode's terminal panel.
+pub use azul_termkit::{session, vt};
 
 use std::{path::Path, sync::atomic::Ordering};
 
