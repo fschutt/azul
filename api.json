@@ -63894,6 +63894,9 @@
                                 "on_tab_click": {
                                     "type": "OptionRibbonOnTabClick"
                                 },
+                                "tabs_in_titlebar": {
+                                    "type": "OptionTabsInTitlebar"
+                                },
                                 "style": {
                                     "type": "RibbonStyle"
                                 },
@@ -64168,6 +64171,43 @@
                                     "type": "Ribbon"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "set_tabs_in_titlebar": {
+                                "doc": [
+                                    "Makes the tab strip the window's title bar (Firefox's tabs in the",
+                                    "titlebar): the strip runs up to the window's top edge and holds its",
+                                    "tabs `chrome`'s offsets in from it, clear of the window controls, and",
+                                    "everything around the tabs moves the window - a double click",
+                                    "maximizes it (zooms it on macOS). The tabs and the application button",
+                                    "stay controls. For a `WindowDecorations::NoTitle` window that shows no",
+                                    "title row above the ribbon."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "chrome": "TabsInTitlebar"
+                                    }
+                                ],
+                                "fn_body": "object.set_tabs_in_titlebar(chrome)"
+                            },
+                            "with_tabs_in_titlebar": {
+                                "doc": [
+                                    "[`Self::set_tabs_in_titlebar`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "chrome": "TabsInTitlebar"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Ribbon"
+                                },
+                                "fn_body": "object.with_tabs_in_titlebar(chrome)"
                             }
                         },
                         "repr": "C"
@@ -72898,6 +72938,9 @@
                                 },
                                 "visible": {
                                     "type": "usize"
+                                },
+                                "columns": {
+                                    "type": "usize"
                                 }
                             }
                         ],
@@ -73000,6 +73043,38 @@
                                     "type": "RibbonGallery"
                                 },
                                 "fn_body": "object.with_visible(visible)"
+                            },
+                            "set_columns": {
+                                "doc": [
+                                    "Lays the gallery out as a list of commands in `columns` columns",
+                                    "(0: the classic strip); see [`Self::columns`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "columns": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_columns(columns)"
+                            },
+                            "with_columns": {
+                                "doc": [
+                                    "Builder method: [`Self::set_columns`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "columns": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonGallery"
+                                },
+                                "fn_body": "object.with_columns(columns)"
                             }
                         },
                         "repr": "C"
@@ -73446,6 +73521,9 @@
                                 },
                                 "alt": {
                                     "type": "String"
+                                },
+                                "on_arrow_click": {
+                                    "type": "OptionButtonOnClick"
                                 }
                             }
                         ],
@@ -73614,6 +73692,60 @@
                                     "type": "RibbonButton"
                                 },
                                 "fn_body": "object.with_alt(alt)"
+                            },
+                            "is_split": {
+                                "doc": [
+                                    "Whether this button is drawn as two parts (a split button with its",
+                                    "own arrow callback)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_split()"
+                            },
+                            "set_on_arrow_click": {
+                                "doc": [
+                                    "Makes this a split button: `on_arrow_click` runs when its ▾ part is",
+                                    "clicked (see [`Self::on_arrow_click`]); the arrow becomes",
+                                    "[`RibbonArrow::Split`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_arrow_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_arrow_click(data, on_arrow_click)"
+                            },
+                            "with_on_arrow_click": {
+                                "doc": [
+                                    "Builder method: [`Self::set_on_arrow_click`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_arrow_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonButton"
+                                },
+                                "fn_body": "object.with_on_arrow_click(data, on_arrow_click)"
                             }
                         },
                         "repr": "C"
@@ -73817,6 +73949,14 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::from_theme_handed(theme, handedness)"
+                            },
+                            "office_2010": {
+                                "doc": [
+                                    "The Office 2010 look (see [`RibbonTheme::office_2010`]) - the default,",
+                                    "and the flat theme's ribbon."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonStyle::office_2010()"
                             }
                         },
                         "functions": {
@@ -74116,6 +74256,19 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::ribbon::RibbonTheme::from_system(style)"
+                            },
+                            "office_2010": {
+                                "doc": [
+                                    "The Office 2010 palette (Silver), the flat theme's ribbon and the",
+                                    "default: white paper fading to silver in the band, Outlook's orange",
+                                    "File tab, grey captions, the warm yellow hover in a gold rim, the",
+                                    "orange pressed face, the deeper yellow of a toggled-on command. A",
+                                    "palette that keeps these hover and pressed colours is painted with",
+                                    "Office 2010's two-stop faces (the band's fade, the yellow / orange",
+                                    "gradients); any other is painted in its plain colours."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::ribbon::RibbonTheme::office_2010()"
                             }
                         },
                         "repr": "C"
@@ -75541,6 +75694,14 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::statusbar::StatusBarStyle::from_theme(theme)"
+                            },
+                            "office_2010": {
+                                "doc": [
+                                    "The Office 2010 look (the silver bar, see",
+                                    "[`StatusBarTheme::office_2010`]) - the default, the flat theme's bar."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarStyle::office_2010()"
                             }
                         },
                         "functions": {
@@ -75621,6 +75782,17 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::statusbar::StatusBarTheme::from_system(style)"
+                            },
+                            "office_2010": {
+                                "doc": [
+                                    "The Office 2010 palette (Silver), the flat theme's bar and the",
+                                    "default: a silver strip under a hairline, dark text, the yellow",
+                                    "hover, the orange press, the toggled-on yellow for the active view.",
+                                    "This palette's bar is page-neutral chrome: it goes dark with the",
+                                    "window, its states are Office 2010's faces (`is_office_2010`)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarTheme::office_2010()"
                             }
                         },
                         "repr": "C"
@@ -75846,6 +76018,14 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::backstage::BackstageStyle::from_theme(theme)"
+                            },
+                            "office_2010": {
+                                "doc": [
+                                    "The Office 2010 look (see [`BackstageTheme::office_2010`]) - the",
+                                    "default, the flat theme's File page."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::backstage::BackstageStyle::office_2010()"
                             }
                         },
                         "functions": {
@@ -76336,6 +76516,16 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::widgets::backstage::BackstageTheme::from_system(style)"
+                            },
+                            "office_2010": {
+                                "doc": [
+                                    "The Office 2010 palette, the flat theme's File page and the default:",
+                                    "a silver-blue navigation column in dark text beside white paper, the",
+                                    "yellow hover, the orange selection. Page-neutral (`is_office_2010`):",
+                                    "it goes dark with the window."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::backstage::BackstageTheme::office_2010()"
                             }
                         },
                         "repr": "C"
@@ -109095,6 +109285,79 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "TabsInTitlebar": {
+                        "external": "azul_layout::widgets::titlebar::TabsInTitlebar",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "top": {
+                                    "type": "f32"
+                                },
+                                "left": {
+                                    "type": "f32"
+                                },
+                                "right": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A tab strip `top` px below the window's top edge, `left` px in from",
+                                    "its left edge and `right` px from its right edge."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "top": "f32"
+                                    },
+                                    {
+                                        "left": "f32"
+                                    },
+                                    {
+                                        "right": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::titlebar::TabsInTitlebar::create(top, left, right)"
+                            },
+                            "from_system_style": {
+                                "doc": [
+                                    "The platform's offsets from a live [`SystemStyle`]: the controls' own",
+                                    "width and side ([`TitlebarMetrics`]), the titlebar's horizontal",
+                                    "padding beside them and the safe area (a camera housing) on both",
+                                    "sides."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "system_style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::titlebar::TabsInTitlebar::from_system_style(&system_style)"
+                            },
+                            "platform": {
+                                "doc": [
+                                    "This platform's offsets, with no `SystemStyle` to ask (compile-time",
+                                    "defaults, as [`Titlebar::new`]): an 8px grab strip above the tabs,",
+                                    "and the window controls' width on the side where they sit over the",
+                                    "strip - the traffic lights' 78px before the first tab on macOS, the",
+                                    "software controls after the last one on Linux; nothing on Windows,",
+                                    "whose caption stays above the window's content."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::titlebar::TabsInTitlebar::platform()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -178961,6 +179224,25 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionTabsInTitlebar": {
+                        "external": "azul_layout::widgets::titlebar::OptionTabsInTitlebar",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TabsInTitlebar"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -200020,6 +200302,9 @@
                                 },
                                 "collapsed": {
                                     "type": "bool"
+                                },
+                                "trees_only": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -200376,6 +200661,38 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "set_trees_only": {
+                                "doc": [
+                                    "Every group is its tree, headed by the tree's root (see",
+                                    "[`Self::trees_only`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "trees_only": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_trees_only(trees_only)"
+                            },
+                            "with_trees_only": {
+                                "doc": [
+                                    "[`Self::set_trees_only`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "trees_only": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ShellNavigationPane"
+                                },
+                                "fn_body": "object.with_trees_only(trees_only)"
                             }
                         },
                         "repr": "C"
