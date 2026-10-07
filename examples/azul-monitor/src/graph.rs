@@ -209,6 +209,56 @@ pub fn next_top(current: f64, peak: f64, floor: f64) -> f64 {
     }
 }
 
+// ==== The scroll (where the graphs stand between readings) ====
+
+/// How many readings right of the graphs' right edge the newest reading
+/// stands when it arrives.
+pub const LAG: f64 = 1.25;
+
+/// How far (in readings) the scroll may be off where it should stand when a
+/// reading arrives before it starts over there.
+pub const CATCH_UP: f64 = 1.5;
+
+/// The graphs' scroll: which reading stands at their right edge - a reading
+/// number with a fraction - moving on at a steady pace.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Scroll {
+    /// The reading at the right edge at `at_ms`.
+    pub position: f64,
+    /// Readings per ms.
+    pub rate: f64,
+    /// When the scroll stood at `position`, ms on the app's clock.
+    pub at_ms: f64,
+}
+
+impl Scroll {
+    /// The scroll after reading `newest` arrived at `now_ms` (`previous`:
+    /// the scroll so far, `None` before the first), readings `gap_ms` apart.
+    #[must_use]
+    pub fn after_reading(_previous: Option<Self>, now_ms: f64, newest: f64, gap_ms: f64) -> Self {
+        Self {
+            position: newest,
+            rate: if gap_ms > 0.0 { 1.0 / gap_ms } else { 0.0 },
+            at_ms: now_ms,
+        }
+    }
+
+    /// The reading at the right edge at `now_ms`, `newest` being the newest
+    /// reading drawn.
+    #[must_use]
+    pub fn position_at(&self, now_ms: f64, newest: f64) -> f64 {
+        (self.position + (now_ms - self.at_ms).max(0.0) * self.rate).min(newest + 1.0)
+    }
+
+    /// How many readings right of the right edge the newest reading drawn,
+    /// `newest`, stands at `now_ms`: a drawing's strip is shifted right by
+    /// this many steps.
+    #[must_use]
+    pub fn lag(&self, now_ms: f64, newest: f64) -> f64 {
+        newest - self.position_at(now_ms, newest)
+    }
+}
+
 /// How many of a meter's `bars` are lit for `share` (0..=1) of the range.
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
@@ -458,6 +508,94 @@ mod tests {
         assert_eq!(next_top(50_000.0, 20_000.0, 1024.0), 50_000.0);
         assert_eq!(next_top(50_000.0, 10_000.0, 1024.0), 20_000.0);
         assert_eq!(next_top(0.0, 0.0, 1024.0), 2000.0, "the first reading");
+    }
+
+    // ---- a new reading scrolls the graph on, it does not jolt it ----
+
+    /// The scroll after readings 1..=`n`, exactly a second apart (reading `k`
+    /// at `k` s).
+    fn steady(n: u32) -> Scroll {
+        let mut scroll = None;
+        for k in 1..=n {
+            scroll = Some(Scroll::after_reading(
+                scroll,
+                f64::from(k) * 1000.0,
+                f64::from(k),
+                1000.0,
+            ));
+        }
+        scroll.expect("one reading at least")
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)] // a few steps
+    fn a_reading_moves_no_point_of_the_graph() {
+        let w = 560.0_f32;
+        let st = step(w, SLOTS);
+        // The 11th reading arrives early, 960 ms after the 10th.
+        let tenth = steady(10);
+        let at = 10_960.0;
+        let eleventh = Scroll::after_reading(Some(tenth), at, 11.0, 1000.0);
+        // Reading 10: the newest slot of the 10th drawing, one slot left in
+        // the 11th - each drawing at its strip's shift.
+        let before = slot_x(SLOTS - 1, SLOTS, w, st) + tenth.lag(at, 10.0) as f32 * st;
+        let after = slot_x(SLOTS - 2, SLOTS, w, st) + eleventh.lag(at, 11.0) as f32 * st;
+        assert!(
+            (before - after).abs() < 0.01,
+            "reading 10 jumped from {before} px to {after} px when the 11th arrived"
+        );
+    }
+
+    #[test]
+    fn the_newest_reading_comes_in_from_the_right_edge_at_a_steady_pace() {
+        let tenth = steady(10);
+        let arrived = 10_000.0;
+        // When it arrives, the newest reading - and the line to it - stands
+        // right of the box: nothing pops up at the edge.
+        let first = tenth.lag(arrived, 10.0);
+        assert!(first >= 1.0, "the newest reading stands {first} readings right of the edge");
+        // It comes in at a steady pace: equal times, equal ways.
+        let (a, b) = (tenth.lag(arrived + 400.0, 10.0), tenth.lag(arrived + 800.0, 10.0));
+        assert!(first > a && a > b);
+        assert!(((first - a) - (a - b)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_late_reading_stops_the_scroll_with_the_newest_reading_at_the_edge() {
+        let tenth = steady(10);
+        // The 11th reading is late: the scroll waits with the 10th at the
+        // box's right edge - it never runs past it into an empty strip.
+        assert!(tenth.lag(12_500.0, 10.0).abs() < 1e-9);
+        assert!(tenth.lag(60_000.0, 10.0).abs() < 1e-9);
+        // When the 11th arrives the scroll goes on from there.
+        let eleventh = Scroll::after_reading(Some(tenth), 12_500.0, 11.0, 1000.0);
+        assert!((eleventh.position - 10.0).abs() < 1e-9);
+        assert!(eleventh.rate > 0.0);
+    }
+
+    #[test]
+    fn an_early_reading_speeds_the_scroll_up_instead_of_jumping() {
+        let tenth = steady(10);
+        // 200 ms early: the scroll goes on from where it stands, a little
+        // faster, and stands where it should when the next one is due.
+        let eleventh = Scroll::after_reading(Some(tenth), 10_800.0, 11.0, 1000.0);
+        assert!((eleventh.position - tenth.position_at(10_800.0, 10.0)).abs() < 1e-9);
+        assert!(eleventh.rate > 1.0 / 1000.0);
+        assert!((eleventh.position_at(11_800.0, 11.0) - (12.0 - LAG)).abs() < 1e-6);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)] // a few steps
+    fn the_strip_covers_the_box_wherever_the_scroll_stands() {
+        let w = 560.0_f32;
+        let st = step(w, SLOTS);
+        for lag in [0.0, LAG, LAG + CATCH_UP] {
+            let shift = lag as f32 * st;
+            let oldest = slot_x(0, SLOTS, w, st) + shift;
+            let newest = slot_x(SLOTS - 1, SLOTS, w, st) + shift;
+            assert!(oldest <= 0.0, "lag {lag}: the oldest reading drawn stands at {oldest} px");
+            assert!(newest >= w - 0.001, "lag {lag}: the newest stands at {newest} px");
+        }
     }
 
     #[test]
