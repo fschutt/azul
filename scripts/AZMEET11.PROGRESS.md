@@ -27,8 +27,11 @@ started from fix/input-bugs-2026-09-19 @ 86c0e821e. No cargo (the lead builds).
   (mirrored), `--screen waiting` = a real waiting room or an offline preview (never the demo),
   appkit `--shot` / `--size` wired (AzMeet ignored both before).
 
+- 96022eb0e E2E reads "Transport: relay-only <url>" in the statistics; 83ca3013e the guide
+  (realtime-media.md) lists the switches, the waiting room and the relay E2E.
+
 ## IN PROGRESS
-- final report.
+- (none: handed to the lead)
 
 ## NEXT
 - (lead) autofix IrohConfig.relay_only + with_relay_only, build, run the suites and the E2E.
