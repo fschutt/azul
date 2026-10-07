@@ -3180,3 +3180,137 @@ mod a_toggled_widget_keeps_its_identity {
         assert_eq!(old_of(4), Some(4), "B's knob is still B's knob");
     }
 }
+
+/// Twins (equal subtrees without a key or an id) are matched by PLACE, not
+/// by content in document order: a sheet's empty cells, a map's pending
+/// tiles, a page's repeated words.
+#[cfg(test)]
+mod twins_by_place {
+    use super::*;
+
+    fn hitem(
+        parent: Option<usize>,
+        prev: Option<usize>,
+        next: Option<usize>,
+        last_child: Option<usize>,
+    ) -> NodeHierarchyItem {
+        NodeHierarchyItem {
+            parent: parent.map_or(0, |p| p + 1),
+            previous_sibling: prev.map_or(0, |p| p + 1),
+            next_sibling: next.map_or(0, |p| p + 1),
+            last_child: last_child.map_or(0, |p| p + 1),
+        }
+    }
+
+    fn cell(classes: &[&str]) -> NodeData {
+        NodeData::create_div().with_ids_and_classes(
+            classes
+                .iter()
+                .map(|c| IdOrClass::Class((*c).into()))
+                .collect::<Vec<_>>()
+                .into(),
+        )
+    }
+
+    /// row(0) > [cell 1, cell 2, cell 3, cell 4]
+    fn row() -> Vec<NodeHierarchyItem> {
+        vec![
+            hitem(None, None, None, Some(4)),
+            hitem(Some(0), None, Some(2), None),
+            hitem(Some(0), Some(1), Some(3), None),
+            hitem(Some(0), Some(2), Some(4), None),
+            hitem(Some(0), Some(3), None, None),
+        ]
+    }
+
+    #[test]
+    fn selecting_a_cell_keeps_every_other_twin_at_its_place() {
+        // Four empty cells; the second becomes selected (a class more - a
+        // different subtree). The content pass used to pair the remaining
+        // twins in document order: new cell 3 took old cell 2, new cell 4
+        // old cell 3 - every cell after the selection "moved" one place, and
+        // slid there (AzSheets' range selection animated the cells under it).
+        let old = vec![
+            NodeData::create_div(),
+            cell(&["cell"]),
+            cell(&["cell"]),
+            cell(&["cell"]),
+            cell(&["cell"]),
+        ];
+        let new = vec![
+            NodeData::create_div(),
+            cell(&["cell"]),
+            cell(&["cell", "selected"]),
+            cell(&["cell"]),
+            cell(&["cell"]),
+        ];
+        let h = row();
+        let diff = reconcile_dom(
+            &old,
+            &new,
+            &h,
+            &h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        let old_of = |new_idx: usize| {
+            diff.node_moves
+                .iter()
+                .find(|m| m.new_node_id == NodeId::new(new_idx))
+                .map(|m| m.old_node_id.index())
+        };
+        assert_eq!(old_of(1), Some(1), "the first cell is the first cell");
+        assert_eq!(old_of(3), Some(3), "the third cell stays the third, not the second");
+        assert_eq!(old_of(4), Some(4), "the fourth cell stays the fourth, not the third");
+        // Classes are part of a keyless node's identity (dom.rs
+        // `calculate_structural_hash`): the selected cell may be a new node -
+        // but never one of its neighbours.
+        assert!(
+            !matches!(old_of(2), Some(1 | 3 | 4)),
+            "the selected cell took a neighbour's node: {:?}",
+            old_of(2)
+        );
+    }
+
+    #[test]
+    fn a_unique_subtree_still_follows_its_content_to_another_place() {
+        // What the content pass is for: a DISTINCT subtree that moved (a
+        // paragraph re-paginated, a row sorted) keeps its identity there.
+        let old = vec![
+            NodeData::create_div(),
+            cell(&["a"]),
+            cell(&["b"]),
+            cell(&["c"]),
+            cell(&["d"]),
+        ];
+        let new = vec![
+            NodeData::create_div(),
+            cell(&["d"]),
+            cell(&["a"]),
+            cell(&["b"]),
+            cell(&["c"]),
+        ];
+        let h = row();
+        let diff = reconcile_dom(
+            &old,
+            &new,
+            &h,
+            &h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        let old_of = |new_idx: usize| {
+            diff.node_moves
+                .iter()
+                .find(|m| m.new_node_id == NodeId::new(new_idx))
+                .map(|m| m.old_node_id.index())
+        };
+        assert_eq!(old_of(1), Some(4), "d moved to the front");
+        assert_eq!(old_of(2), Some(1), "a moved one place down");
+        assert_eq!(old_of(4), Some(3), "c moved one place down");
+    }
+}

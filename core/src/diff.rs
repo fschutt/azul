@@ -789,8 +789,8 @@ pub fn reconcile_dom(
 
     // Pass A2: exact subtree identity. An explicit `.with_key()` that missed
     // A1 stays unmatched (Mount) — a key is an intentional identity marker.
-    // Identical twins (equal subtrees) consume in document order, which is
-    // the same positional tie-break they got before.
+    // Identical twins (equal subtrees in one container) are left to B1's
+    // positional key: matched by place, not by document order.
     //
     // Cross-parent moves are ALLOWED between anonymous parents (that is the
     // point: re-pagination shifts a paragraph's whole subtree under a
@@ -834,11 +834,33 @@ pub fn reconcile_dom(
         };
     let old_containers = container_identities(old_node_data, old_hierarchy);
     let new_containers = container_identities(new_node_data, new_hierarchy);
+    // TWINS - equal subtrees in one container: a sheet's empty cells, a
+    // map's pending tiles, a page's repeated words - are matched by PLACE
+    // (B1's positional key), not here: pairing them in document order made
+    // every twin after a changed one take its neighbour's old node, so
+    // selecting one cell "moved" every cell after it one place (and their
+    // state went with them). The content pass is for a DISTINCT subtree that
+    // moved, which is unique on both sides.
+    let twin_counts = |hashes: &[u64], containers: &[Option<u64>]| {
+        let mut counts: alloc::collections::BTreeMap<(u64, Option<u64>), usize> =
+            alloc::collections::BTreeMap::new();
+        for (idx, h) in hashes.iter().enumerate() {
+            let container = containers.get(idx).copied().flatten();
+            *counts.entry((*h, container)).or_default() += 1;
+        }
+        counts
+    };
+    let old_twins = twin_counts(&old_subtree_hashes, &old_containers);
+    let new_twins = twin_counts(&new_subtree_hashes, &new_containers);
     for new_idx in 0..n_new {
         if matched[new_idx].is_some() || new_node_data[new_idx].get_key().is_some() {
             continue;
         }
         let new_container = new_containers.get(new_idx).copied().flatten();
+        let identity = (new_subtree_hashes[new_idx], new_container);
+        if old_twins.get(&identity) != Some(&1) || new_twins.get(&identity) != Some(&1) {
+            continue;
+        }
         if let Some(queue) = old_by_subtree.get_mut(&new_subtree_hashes[new_idx]) {
             if let Some(pos) = queue.iter().position(|&old_id| {
                 !old_nodes_consumed[old_id.index()]
