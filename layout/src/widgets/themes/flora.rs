@@ -5249,15 +5249,17 @@ fn chrome_leaf(v: &mut Vec<CssPropertyWithConditions>) {
 // ==== ribbon ====
 //
 // A flora ribbon is flora's toolbar strip (`--fl-strip`, closed along its foot
-// by a `--fl-bd` rule) over a leaf (`--fl-sur`) that holds the groups, each
-// ruled off from the next by a `--fl-sep` hairline and captioned in soft ink
-// (`--fl-soft1`). Its tabs are flora's nav tabs (`.nav-links a`): soft ink on
-// the strip, square-shouldered at the foot, lifting to the hover face and the
+// by the 2px rule of metal) over a leaf (`--fl-sur`) that holds the groups,
+// each ruled off from the next by a `--fl-sep` hairline and captioned in soft
+// ink (`--fl-soft1`). Its tab row is Firefox's (Australis) in flora's metal
+// ("the Australis tab" below): the unselected tabs are flora's nav tabs
+// (`.nav-links a`), soft ink on the strip lifting to the hover face and the
 // house ink under the pointer; the selected tab is the sunken accent stone
-// (`.nav-links a.active`: `--fl-gem-sunken` under the sunken rig, set in its
-// `--fl-deep` edge) written in `--fl-on-acc` - its own colour by day and by
-// night. The application button is the raised accent stone of a primary
-// command (`.btn-primary`: the accent under the depth rig and its streak).
+// (`.nav-links a.active`: `--fl-gem-sunken` under the sunken rig) in a
+// surround of the rule's metal that climbs its S-curved sides, written in
+// `--fl-on-acc` - its own colour by day and by night. The application button
+// is the raised accent stone of a primary command (`.btn-primary`: the
+// accent under the depth rig and its streak), cut the same way.
 // Every command is a toolbar key: bare paper at rest, the hover face in a
 // hairline under the pointer, the pressed face while held, ringed on focus; a
 // toggled one stays pushed in, in a `--fl-bd3` hairline. The gallery is a well
@@ -5285,49 +5287,26 @@ pub(crate) fn ribbon_style(
         v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
         v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
     });
+    // The tab row is the one part flora RE-MEASURES: Firefox's tab row cut
+    // in flora's metal (`australis`, see "the Australis tab"). Its parts
+    // still start from the flat part's structure and geometry, so both looks
+    // declare the same structure; the selected tab and the application
+    // button get their curves in `Ribbon::build_chrome`.
     let e = s.resolved_tab_bar_style();
-    chrome_part(&mut s.tab_bar_style, &e, |v| {
-        v.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
-    });
+    chrome_part(&mut s.tab_bar_style, &e, australis::strip);
     let e = s.resolved_app_button_style();
-    chrome_part(&mut s.app_button_style, &e, |v| {
-        v.extend(decl::radius_corners(3, 3, 0, 0));
-        v.push(P::simple(decl::layers(stone_face(LIGHT_ACC, STONE_STREAK))));
-        v.push(P::simple(decl::ink(LIGHT_ON_ACC)));
-        // A stone is its own colour in both modes, so its states repeat for
-        // the night: every state rule keeps its twin.
-        let lit = stone_face(LIGHT_ACC, STONE_STREAK_HOVER);
-        v.extend(decl::hover_layers(lit.clone(), lit));
-        let held = sunken_stone_face(LIGHT_DEEP);
-        v.extend(decl::active_layers(held.clone(), held));
-    });
+    chrome_part(&mut s.app_button_style, &e, australis::app_button);
     let e = s.resolved_tab_style();
-    chrome_part(&mut s.tab_style, &e, |v| {
-        v.extend(decl::radius_corners(4, 4, 0, 0));
-        v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
-        v.push(P::simple(decl::fill(ColorU::TRANSPARENT)));
-        // The strip's rule runs across an unselected tab's foot.
-        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
-        v.extend(decl::hover_layers(
-            vec![HOVER_FACE_LIGHT],
-            vec![HOVER_FACE_DARK],
-        ));
-        v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
-        v.extend(decl::active_layers(
-            vec![PRESSED_FACE_LIGHT],
-            vec![PRESSED_FACE_DARK],
-        ));
-    });
+    chrome_part(&mut s.tab_style, &e, |v| australis::tab(v, true));
     let e = s.resolved_tab_active_style();
-    chrome_part(&mut s.tab_active_style, &e, |v| {
-        v.extend(decl::radius_corners(4, 4, 0, 0));
-        v.push(P::simple(decl::layers(selected_stone())));
-        v.push(P::simple(decl::ink(LIGHT_ON_ACC)));
-        v.extend(decl::border_colors(LIGHT_DEEP).map(P::simple));
-    });
+    chrome_part(&mut s.tab_active_style, &e, |v| australis::selected(v, true));
+    // The rule is the strip's own (an inset line under every tab): the
+    // filler draws no foot of its own.
     let e = s.resolved_tab_filler_style();
     chrome_part(&mut s.tab_filler_style, &e, |v| {
-        v.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
+        v.push(P::simple(CssProperty::const_border_bottom_width(
+            LayoutBorderBottomWidth::const_px(0),
+        )));
     });
     let e = s.resolved_content_style();
     chrome_part(&mut s.content_style, &e, |v| {
@@ -5759,24 +5738,18 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 //
 // A flora tab bar is flora's navigation strip (`.navbar`, `.nav-links a`):
 // raised CHROME (`--fl-rT` over `--fl-rB` - chrome is a smooth face, no
-// grain) closed along its foot by a 2px rule of metal. The unselected tabs
-// sit BEHIND the rule - it runs across their feet - written in `--fl-soft1`,
-// with 4px shoulders and an invisible 1px edge on their other three sides;
-// under the pointer they lift to the hover face, the edge turns `--fl-bd` and
-// the label darkens to `--fl-ink`; pressed, they sink to the pressed face in
-// a `--fl-bd3` edge. The SELECTED tab is the sunken accent stone
-// (`selected_stone`) in `--fl-on-acc`, cut from the rule's metal on three
-// sides at the rule's gauge, with 6px shoulders and no foot: it sits above
-// the rule and breaks it, which is what "selected" means in a tab bar. Its
-// label sits on the same line as the others' (4px + the 2px rule below an
-// unselected label, 6px below the selected one). flora.css's corner assembly
-// (flare, cove and run-out - radial masks around the selected tab's foot) is
-// not drawn; its metal is `--fl-metal-turn`, the value the ribbon has where
-// that corner would be. The tabs start 8px in and the rule runs on to the end
-// of the strip. The tab widths and the strip's height follow the label, as
-// flora's navigation does, not the flat bar's fixed 21 / 23px. Every tab
-// rings on focus with an inset ring: the accent by day, the glow by night and
-// on the stone.
+// grain) closed along its foot by a 2px rule of metal, its tabs the Australis
+// tab row ("the Australis tab" below) the ribbon's tab row is too. The
+// unselected tabs stand ON the rule, written in `--fl-soft1`; under the
+// pointer they lift to the hover face and the label darkens to `--fl-ink`;
+// pressed, they sink to the pressed face. The SELECTED tab is the sunken
+// accent stone stood upright, in `--fl-on-acc`, set in the rule's metal that
+// climbs its S-curved sides and runs along its top: it stands over the rule
+// and breaks it, which is what "selected" means in a tab bar. Every label is
+// the UI hand's capitals, on one line whichever tab is selected. The tabs
+// start a curve's width in and the rule runs on to the end of the strip.
+// Every tab rings on focus with an inset ring: the accent by day, the glow by
+// night and on the stone.
 //
 // The panel the selected tab opens onto is a LEAF (`--fl-sur`) in a `--fl-bd`
 // hairline on three sides with the house radius at its foot, open at the top
@@ -5788,111 +5761,333 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 /// day and by night (flora.css does not redefine it for the dark theme).
 pub const TAB_METAL: ColorU = ColorU::rgb(0xC6, 0xB2, 0x79);
 
-/// Flora's tab-bar look.
+// -- the Australis tab ---------------------------------------------------
+//
+// Flora's tab row is Firefox's (Australis, 2014-2017) cut in flora's metal.
+// The strip is `--fl-strip` with air above the tabs, closed along its foot by
+// the 2px rule of metal (`--fl-metal`, here an inset line, so it runs under
+// every tab and the selected one can cover it). The selected tab is the
+// sunken accent stone stood upright - `--fl-gem-sunken` from the deep at its
+// top to the accent at its foot, under the sunken rig - in a surround cut
+// from the same metal: the rule leaves the strip's foot, climbs the tab's
+// left side as Firefox's S-curve (`tabs::australis_curves`, the engine's own
+// path fill and stroke), runs along its top and comes down the right S into
+// the rule again, so rule and surround are one ribbon of metal with the
+// stone set in it, open at the foot onto the page below. Under the pointer
+// the light moves across the stone (`.nav-links a.active:hover::before`):
+// the streak brightens over `--fl-dur-slow`. The unselected tabs sit ABOVE
+// the rule on the strip's own paper, soft ink, lifting to the hover face and
+// the house ink under the pointer in flora.css's 0.2s. Every label is set in
+// the UI hand's capitals (`--font-caps`, EB Garamond), tracked out.
+
+/// A flora tab row's selected tab, in px (its border box, foot to top edge).
+pub const TAB_HEIGHT: isize = 28;
+/// `--fl-metal`: the gauge of the strip's rule and of the selected tab's
+/// surround, in px.
+pub const TAB_GAUGE: isize = 2;
+/// The air above the tabs in a flora tab row, in px.
+pub const TAB_AIR: isize = 4;
+/// A tab's padding beside its label: the selected tab's curves hang into
+/// it, so it is the curve's width - a foot never reaches a neighbour's label.
+pub const TAB_SIDE: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
+/// flora.css's tab transition (`color 0.2s ease, background 0.2s ease`).
+const TAB_FADE_MS: u32 = 200;
+/// `--fl-dur-slow`: light moving across a stone.
+const STONE_FADE_MS: u32 = 1200;
+
+const FONT_CAPS_FAMILIES: &[StyleFontFamily] = &[
+    StyleFontFamily::System(AzString::from_const_str("EB Garamond")),
+    StyleFontFamily::System(AzString::from_const_str("Georgia")),
+    StyleFontFamily::System(AzString::from_const_str("Times New Roman")),
+    StyleFontFamily::System(AzString::from_const_str("serif")),
+];
+/// `--font-caps`: `'EB Garamond', Georgia, 'Times New Roman', serif` - the UI
+/// hand flora sets its tabs and headings in.
+pub(crate) const FONT_CAPS: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(FONT_CAPS_FAMILIES);
+
+/// A tab's label in flora: the UI hand's capitals, tracked out - flora.css's
+/// `.nav-links a` (17px all-small-caps at 700, 0.07em) set as true capitals of
+/// the same height.
+fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
+    use super::decl;
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)));
+    v.push(decl::font_size(12));
+    v.push(decl::semibold());
+    v.push(decl::letter_spacing_em(0.08));
+    v.push(CssPropertyWithConditions::simple(CssProperty::TextTransform(
+        StyleTextTransformValue::Exact(StyleTextTransform::Uppercase),
+    )));
+}
+
+/// A tab's box in a flora tab row: `TAB_SIDE` beside the label and no
+/// margins but the unselected tab's foot. The SELECTED tab is the full
+/// `TAB_HEIGHT` and stands on the strip's foot, over the rule, with the
+/// metal's gauge along its top and none elsewhere (`position: relative`
+/// carries its curves, `z-index` keeps a neighbour's hover face off them).
+/// An unselected tab is one gauge shorter and stands on the rule; its label
+/// sits on the selected one's line (a gauge of padding over it, where the
+/// selected tab has its edge, and a gauge under the selected label). The
+/// label's line is the content box's height, so it is centred in either box
+/// model; `border_box` says which one the tab's base declares (the ribbon's
+/// tabs size their border box, the tab bar's their content).
+fn australis_tab_box(v: &mut Vec<CssPropertyWithConditions>, selected: bool, border_box: bool) {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let g = TAB_GAUGE;
+    let line = TAB_HEIGHT - 2 * g;
+    let (border_height, foot, pad_top, pad_bottom, top_edge) = if selected {
+        (TAB_HEIGHT, 0, 0, g, g)
+    } else {
+        (TAB_HEIGHT - g, g, g, 0, 0)
+    };
+    let height = if border_box { border_height } else { line };
+    v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(height))));
+    v.push(P::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(line),
+    ))));
+    v.extend(decl::margin(0, 0, foot, 0));
+    v.extend(decl::padding(pad_top, TAB_SIDE, pad_bottom, TAB_SIDE));
+    v.extend([
+        P::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(top_edge))),
+        P::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(0))),
+        P::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))),
+        P::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(0))),
+    ]);
+    if selected {
+        v.push(P::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        })));
+        v.push(decl::position(LayoutPosition::Relative));
+        v.push(P::simple(CssProperty::const_z_index(LayoutZIndex::Integer(1))));
+    }
+}
+
+/// The strip's rule: `--fl-metal` along its foot, inside it - an inset line,
+/// so it costs no height and every tab can stand on it or over it.
+fn tab_rule() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(super::decl::shadow(-TAB_GAUGE, 0, 0, TAB_METAL, true))
+}
+
+const TAB_FACE_STOPS: &[NormalizedLinearColorStop] = &[stop(0, LIGHT_DEEP), stop(96, LIGHT_ACC)];
+
+/// The selected tab's stone: `--fl-gem-sunken` (`linear-gradient(175deg,
+/// var(--fl-deep) 0%, var(--fl-acc) 96%)`) stood upright. The tab is three
+/// boxes of three widths - the left curve, the middle, the right curve - and
+/// only a vertical gradient is the same value at the same height in all of
+/// them.
+pub const TAB_FACE: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(180),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(TAB_FACE_STOPS),
+    });
+
+/// The left curve's share of the sunken rig's left-edge shadow: the darkest
+/// value `SUNKEN_RIG_LEFT` starts the middle on, held across the whole curve,
+/// so the face has no seam where the curve meets the middle.
+const TAB_LEFT_SHADE: StyleBackgroundContent =
+    StyleBackgroundContent::Color(ColorU::new(8, 6, 2, 77));
+
+/// [`TAB_LEFT_SHADE`] for a RAISED stone: the darkest value
+/// `STONE_RIG_LEFT` starts its face on.
+const STONE_LEFT_SHADE: StyleBackgroundContent =
+    StyleBackgroundContent::Color(ColorU::new(12, 10, 4, 56));
+
+/// The selected tab's face (its middle): the upright stone under the sunken
+/// rig, with the light's `streak` raked across it.
+#[must_use]
+pub fn australis_face(streak: StyleBackgroundContent) -> Vec<StyleBackgroundContent> {
+    vec![
+        TAB_FACE,
+        SUNKEN_RIG_TOP,
+        SUNKEN_RIG_LEFT,
+        SUNKEN_RIG_BOTTOM,
+        streak,
+    ]
+}
+
+/// The face inside one of a cut stone's curves: the stone and its rig's
+/// vertical layers (the same at every height as the middle's), the left
+/// curve in the shadow of the left wall; the streak stays on the middle. The
+/// selected tab is the sunken stone ([`australis_face`]); the application
+/// button is `raised` ([`stone_face`] in the accent).
+fn australis_curve_face(raised: bool, left: bool) -> Vec<StyleBackgroundContent> {
+    let mut v = if raised {
+        vec![StyleBackgroundContent::Color(LIGHT_ACC), STONE_RIG_TOP]
+    } else {
+        vec![TAB_FACE, SUNKEN_RIG_TOP, SUNKEN_RIG_BOTTOM]
+    };
+    if left {
+        v.push(if raised { STONE_LEFT_SHADE } else { TAB_LEFT_SHADE });
+    }
+    v
+}
+
+/// The curves of a stone flora cuts as an Australis tab - the selected tab,
+/// or the `raised` application button: the stone inside each S, and the S
+/// cut from the rule's metal at its gauge. A stone and metal are their own
+/// colours in both modes.
+#[must_use]
+pub(crate) fn tab_curves(raised: bool) -> crate::widgets::tabs::TabCurveLook {
+    use super::decl;
+    let part = CssPropertyWithConditionsVec::from_vec;
+    let fill = |left: bool| {
+        part(vec![CssPropertyWithConditions::simple(decl::layers(
+            australis_curve_face(raised, left),
+        ))])
+    };
+    let mut stroke = decl::border(TAB_GAUGE).to_vec();
+    stroke.extend(decl::border_colors(TAB_METAL).map(CssPropertyWithConditions::simple));
+    crate::widgets::tabs::TabCurveLook {
+        height: TAB_HEIGHT as f32,
+        gauge: TAB_GAUGE as f32,
+        left_fill: fill(true),
+        right_fill: fill(false),
+        stroke: part(stroke),
+    }
+}
+
+/// The parts of a flora tab row - the strip, an unselected tab, the selected
+/// tab - each on `established` (the part's structure and the geometry it
+/// was laid out with, whose own paint is dropped; see `chrome_part`) with
+/// the Australis metrics and paint laid on it. Shared by the ribbon's tab row
+/// and the tab bar.
+pub(crate) mod australis {
+    use super::*;
+
+    /// The strip: air above the tabs and room before the first one for its
+    /// curve, the strip's paper, the rule.
+    pub(crate) fn strip(v: &mut Vec<CssPropertyWithConditions>) {
+        use super::super::decl;
+        v.extend(decl::padding(TAB_AIR, 0, 0, TAB_SIDE));
+        v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+            LayoutHeight::const_px(TAB_AIR + TAB_HEIGHT),
+        )));
+        v.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+        v.push(tab_rule());
+    }
+
+    /// An unselected tab: bare at rest on the strip, soft ink, the hover face
+    /// and the house ink under the pointer, the pressed face while held, in
+    /// flora.css's fade.
+    pub(crate) fn tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
+        use super::super::decl;
+        australis_tab_box(v, false, border_box);
+        tab_caps(v);
+        v.extend(decl::radius_corners(4, 4, 0, 0));
+        v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        v.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+        // States last: a resting dark twin matches in every state.
+        v.extend(decl::hover_layers(
+            vec![HOVER_FACE_LIGHT],
+            vec![HOVER_FACE_DARK],
+        ));
+        v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
+        v.extend(decl::active_layers(
+            vec![PRESSED_FACE_LIGHT],
+            vec![PRESSED_FACE_DARK],
+        ));
+        v.extend(decl::state_fade(&["background", "color"], TAB_FADE_MS));
+    }
+
+    /// The selected tab: the upright stone in `--fl-on-acc`, the metal along
+    /// its top (its sides are its curves, `tab_curves`), the light moving
+    /// across it under the pointer. Its own colour in both modes.
+    pub(crate) fn selected(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
+        use super::super::decl;
+        australis_tab_box(v, true, border_box);
+        tab_caps(v);
+        v.extend(decl::radius(0));
+        v.push(CssPropertyWithConditions::simple(decl::layers(australis_face(
+            STONE_STREAK,
+        ))));
+        v.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
+        v.push(CssPropertyWithConditions::simple(
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: TAB_METAL }),
+        ));
+        let lit = australis_face(STONE_STREAK_HOVER);
+        v.extend(decl::hover_layers(lit.clone(), lit));
+        v.extend(decl::state_fade(&["background"], STONE_FADE_MS));
+    }
+
+    /// The application button: the RAISED accent stone of a primary command
+    /// (`.btn-primary`, its depth rig and streak) cut as the selected tab is
+    /// - the Azlin design system's gem in its gold setting - written in
+    /// `--fl-on-acc`. The streak brightens under the pointer, slowly; held,
+    /// the stone sinks to its pressed face at once.
+    pub(crate) fn app_button(v: &mut Vec<CssPropertyWithConditions>) {
+        use super::super::decl;
+        australis_tab_box(v, true, true);
+        tab_caps(v);
+        v.extend(decl::radius(0));
+        v.push(CssPropertyWithConditions::simple(decl::layers(stone_face(
+            LIGHT_ACC,
+            STONE_STREAK,
+        ))));
+        v.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
+        v.push(CssPropertyWithConditions::simple(
+            CssProperty::const_border_top_color(StyleBorderTopColor { inner: TAB_METAL }),
+        ));
+        // A stone is its own colour in both modes, so its states repeat for
+        // the night: every state rule keeps its twin.
+        let lit = stone_face(LIGHT_ACC, STONE_STREAK_HOVER);
+        v.extend(decl::hover_layers(lit.clone(), lit));
+        let held = sunken_stone_face(LIGHT_DEEP);
+        v.extend(decl::active_layers(held.clone(), held));
+        v.extend(decl::state_fade(&["background"], STONE_FADE_MS));
+    }
+}
+
+/// Flora's tab-bar look: the Australis tab row ("the Australis tab") on the
+/// navigation strip's raised chrome. The selected tab's curves are hung on
+/// it by `TabHeader::dom` (`tab_curves`).
 #[must_use]
 pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     use super::decl;
     type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
-    // The strip's rule: 2px of metal along a foot.
-    let rule = || decl::themed_border(decl::Edges::BOTTOM, 2, TAB_METAL, TAB_METAL);
-    let three_sides = decl::Edges {
-        top: true,
-        right: true,
-        bottom: false,
-        left: true,
-    };
 
     // Every part is the widget's base (`tabs::HEADER_BASE`, `AFTER_BASE`,
     // `TAB_BASE`: its structure), then flora's skin.
     let mut header = crate::widgets::tabs::HEADER_BASE.to_vec();
     header.extend([
-        // Flora's own layout: the tabs stand ON the strip's rule. Flat's
+        // Flora's own layout: the tabs stand on the strip's foot. Flat's
         // native tabs hang from the top of the bar (its default).
         P::simple(CssProperty::const_align_items(LayoutAlignItems::End)),
         P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         decl::font_size(13),
-        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
+        P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(TAB_AIR))),
     ]);
     header.extend(decl::themed_layers(
         vec![RAISED_FACE_LIGHT],
         vec![RAISED_FACE_DARK],
     ));
+    header.push(tab_rule());
 
-    // The tabs start 8px in: a fixed spacer (flat's grows).
-    let mut before = vec![
-        P::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
+    // The tabs start a curve's width in, where the first tab's foot lands
+    // when it is selected: a fixed spacer (flat's grows).
+    let before = vec![
+        P::simple(CssProperty::const_width(LayoutWidth::const_px(TAB_SIDE))),
         P::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
-    before.extend(rule());
-    let mut after = crate::widgets::tabs::AFTER_BASE.to_vec();
-    after.extend(rule());
+    let after = crate::widgets::tabs::AFTER_BASE.to_vec();
 
-    // A tab's box: the widget's tab base (the pointer among it), then the
-    // centred label and the gap to the next tab.
-    let tab_box = |top: isize, bottom: isize| {
+    // A tab: the widget's tab base (its content box sized, the pointer
+    // among it), the centred label, then the Australis tab, ringed on focus
+    // with an inset ring - the accent by day, the glow by night and on the
+    // stone.
+    let tab_box = || {
         let mut v = crate::widgets::tabs::TAB_BASE.to_vec();
-        v.extend([
-            P::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-            P::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(2))),
-        ]);
-        v.extend(decl::padding(top, 12, bottom, 12));
+        v.push(P::simple(CssProperty::const_text_align(StyleTextAlign::Center)));
         v
     };
-
-    // An unselected tab, behind the rule.
-    let mut tab = tab_box(3, 4);
-    tab.extend(decl::themed_border(
-        three_sides,
-        1,
-        ColorU::TRANSPARENT,
-        ColorU::TRANSPARENT,
-    ));
-    tab.extend(rule());
-    tab.extend(decl::radius_corners(4, 4, 0, 0));
-    tab.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
-    // States last: a resting dark twin matches in every state. The edge
-    // states colour the three edges the tab owns - never the foot, which is
-    // the strip's rule.
-    let edges = |light: ColorU, dark: ColorU| {
-        [
-            (
-                CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
-                CssProperty::const_border_top_color(StyleBorderTopColor { inner: dark }),
-            ),
-            (
-                CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
-                CssProperty::const_border_right_color(StyleBorderRightColor { inner: dark }),
-            ),
-            (
-                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
-                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: dark }),
-            ),
-        ]
-    };
-    tab.extend(decl::hover_layers(
-        vec![HOVER_FACE_LIGHT],
-        vec![HOVER_FACE_DARK],
-    ));
-    tab.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
-    for (light, dark) in edges(LIGHT_BD, DARK_BD) {
-        tab.extend(P::themed_on_hover(light, dark));
-    }
-    tab.extend(decl::active_layers(
-        vec![PRESSED_FACE_LIGHT],
-        vec![PRESSED_FACE_DARK],
-    ));
-    for (light, dark) in edges(LIGHT_BD3, DARK_BD3) {
-        tab.extend(P::themed_on_active(light, dark));
-    }
+    let mut tab = tab_box();
+    australis::tab(&mut tab, false);
     tab.extend(decl::focus_halo_inset_stacked(LIGHT_ACC, DARK_GLOW));
 
-    // The selected tab: the stone in the rule's metal, open at its foot.
-    let mut active = tab_box(3, 6);
-    active.extend(decl::themed_border(three_sides, 2, TAB_METAL, TAB_METAL));
-    active.extend(decl::radius_corners(6, 6, 0, 0));
-    active.push(P::simple(decl::layers(selected_stone())));
-    active.push(P::simple(decl::ink(LIGHT_ON_ACC)));
+    let mut active = tab_box();
+    australis::selected(&mut active, false);
     active.extend(decl::focus_halo_inset_stacked(LIGHT_GLOW, DARK_GLOW));
 
     // No seams: a tab next to the selected one is a tab like any other.

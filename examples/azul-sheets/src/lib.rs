@@ -1545,6 +1545,8 @@ fn ribbon(s: &AppState, app: &RefAny) -> Dom {
         )
         .with_active_tab(s.ribbon_tab)
         .with_on_tab_click(app.clone(), on_ribbon_tab as RibbonOnTabClickCallbackType)
+        // No title row over the ribbon: its tabs are the title bar.
+        .with_tabs_in_titlebar(kit::tabs_in_titlebar())
         .dom_desktop()
 }
 
@@ -2117,9 +2119,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         if let Some(d) = &s.format {
             document.add_child(format_dialog::dialog(d, &app));
         }
+        // No title row: the ribbon's tabs are the title bar.
         DocumentShell::create(document)
             .office_shell()
-            .with_title_row(title_row(s))
             .with_ribbon(ribbon(s, &app))
             .with_status_bar(status_bar(s, &app))
     };

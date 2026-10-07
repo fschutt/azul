@@ -44,8 +44,10 @@ const TAB_FACE_DARK: CssPropertyWithConditions = CssPropertyWithConditions::dark
 // theme, so an unpinned bar declares it once, outside every `@theme` block.
 // What the themes lay out differently by design stays in their skins: the
 // header's `align-items` (flora sets its tabs ON the strip's rule, `end`;
-// flat's native tabs hang from the top of the bar) and the spacer before the
-// first tab (flat's grows, `flex-grow: 1`; flora's is a fixed 8px, `0`).
+// flat's native tabs hang from the top of the bar), the spacer before the
+// first tab (flat's grows, `flex-grow: 1`; flora's is a fixed curve's width,
+// `0`) and flora's selected tab, `position: relative` for the curves it hangs
+// off its sides (the Australis tab, below).
 
 /// The bar: a flex row of spacer, tabs, spacer. Without `display: flex` the
 /// row's `flex-direction` does nothing and the tabs stack vertically.
@@ -72,6 +74,263 @@ pub(crate) static TAB_BASE: &[CssPropertyWithConditions] = &[
 pub(crate) static PANEL_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 ];
+
+// ---- The Australis tab: a selected tab's two curved sides ----
+//
+// Firefox 29-56 ("Australis", 2014) cut its selected tab in three: a start
+// curve, the middle and an end curve. Each side is an S that leaves the
+// strip's foot horizontally, climbs, and rolls over into the tab's top edge,
+// so the tab and the rule it stands on read as one piece. A theme that cuts
+// its selected tab that way (flora's tab bar and ribbon) hangs the two curves
+// off the tab's box with [`australis_curves`]: each is a fixed
+// `CURVE_WIDTH` x `height` box with an SVG user space of one unit per px - so
+// the S keeps its shape on a tab of any width - holding the FILL (the face,
+// clipped to the inside of the S: the engine's own path clip) and the STROKE
+// (the S alone, the tab's edge: the engine's own path stroke, `stroke` /
+// `stroke-width` being the border's spellings). The middle is the tab's own
+// box. The curves are children of the tab, so a press on a foot presses the
+// tab and never the strip behind it.
+
+/// How far a selected tab's foot flares out past its box, each side.
+pub(crate) const CURVE_WIDTH: f32 = 18.0;
+
+/// The left curve.
+pub(crate) const CURVE_LEFT_CLASS: &str = "__azul-native-tab-curve-left";
+/// The right curve.
+pub(crate) const CURVE_RIGHT_CLASS: &str = "__azul-native-tab-curve-right";
+/// The face inside a curve.
+pub(crate) const CURVE_FILL_CLASS: &str = "__azul-native-tab-curve-fill";
+/// The S itself, the tab's edge.
+pub(crate) const CURVE_STROKE_CLASS: &str = "__azul-native-tab-curve-stroke";
+
+/// What a theme decides about the curves of its selected tab.
+#[derive(Debug, Clone)]
+pub(crate) struct TabCurveLook {
+    /// The selected tab's height in px (its border box): the S runs from its
+    /// foot to its top.
+    pub(crate) height: f32,
+    /// The edge's gauge in px: the stroke's width, and that of the tab's top
+    /// edge and the strip's rule, which the S joins - its centre line runs
+    /// half a gauge in from the foot and from the top.
+    pub(crate) gauge: f32,
+    /// The face inside the left S.
+    pub(crate) left_fill: CssPropertyWithConditionsVec,
+    /// The face inside the right S.
+    pub(crate) right_fill: CssPropertyWithConditionsVec,
+    /// The S: its `stroke` (a border width and colour).
+    pub(crate) stroke: CssPropertyWithConditionsVec,
+}
+
+/// `u` (0 at the foot's end, 1 at the tab's side) across a curve `w` wide,
+/// in its user space: the left curve rises left to right, the right one is
+/// its mirror.
+fn curve_x(u: f32, w: f32, left: bool) -> f32 {
+    if left {
+        u * w
+    } else {
+        (1.0 - u) * w
+    }
+}
+
+/// The S of one side in its curve's user space (`w` x `h`): a cubic from the
+/// foot to the top, horizontal at both ends, its control points crossed so
+/// the middle climbs steeply - the Azlin design system's cut of the
+/// Australis tab (`M0 30 C12 30 8 0 22 0`: the controls at 0.55 and 0.36 of
+/// the curve's width).
+fn curve_s(w: f32, h: f32, gauge: f32, left: bool) -> SvgCubicCurve {
+    let (foot, top) = (h - gauge / 2.0, gauge / 2.0);
+    let at = |u: f32, y: f32| SvgPoint {
+        x: curve_x(u, w, left),
+        y,
+    };
+    SvgCubicCurve {
+        start: at(0.0, foot),
+        ctrl_1: at(0.55, foot),
+        ctrl_2: at(0.36, top),
+        end: at(1.0, top),
+    }
+}
+
+/// The inside of the S - between it, the tab's side of the box and the
+/// foot - closed. The stroke covers its curved edge.
+fn curve_fill(s: SvgCubicCurve, w: f32, h: f32, left: bool) -> azul_core::svg::SvgPath {
+    use azul_core::svg::{SvgLine, SvgPath, SvgPathElement, SvgPathElementVec};
+    let foot_corner = SvgPoint {
+        x: curve_x(0.0, w, left),
+        y: h,
+    };
+    let side_corner = SvgPoint {
+        x: curve_x(1.0, w, left),
+        y: h,
+    };
+    SvgPath::create(SvgPathElementVec::from_vec(vec![
+        SvgPathElement::Line(SvgLine::new(foot_corner, s.start)),
+        SvgPathElement::CubicCurve(s),
+        SvgPathElement::Line(SvgLine::new(s.end, side_corner)),
+        SvgPathElement::Line(SvgLine::new(side_corner, foot_corner)),
+    ]))
+}
+
+/// One curve: hung off the tab's `left` or right side, standing on its foot,
+/// the fill and the stroke over the whole of it.
+fn curve(look: &TabCurveLook, left: bool) -> Dom {
+    use azul_core::{
+        dom::SvgNodeData,
+        svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathElementVec, SvgPathVec},
+    };
+
+    use crate::widgets::themes::decl;
+
+    let (w, h) = (CURVE_WIDTH, look.height);
+    let s = curve_s(w, h, look.gauge, left);
+    let shape = |path: SvgPath| {
+        SvgNodeData::Path(SvgMultiPolygon::create(SvgPathVec::from_vec(vec![path])))
+    };
+    // Over the whole curve, as the chart places its shapes: the box IS the
+    // user space, whatever border (stroke) it carries.
+    let over = |own: &CssPropertyWithConditionsVec| {
+        let mut v = vec![
+            decl::position(LayoutPosition::Absolute),
+            decl::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+            decl::simple(CssProperty::const_top(LayoutTop::const_px(0))),
+            decl::simple(CssProperty::const_right(LayoutRight::const_px(0))),
+            decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+        ];
+        v.extend(own.as_ref().iter().cloned());
+        CssPropertyWithConditionsVec::from_vec(v)
+    };
+    let fill = Dom::create_div()
+        .with_ids_and_classes(decl::classes(&[CURVE_FILL_CLASS]))
+        .with_css_props(over(if left {
+            &look.left_fill
+        } else {
+            &look.right_fill
+        }))
+        .with_svg_data(shape(curve_fill(s, w, h, left)));
+    let stroke = Dom::create_div()
+        .with_ids_and_classes(decl::classes(&[CURVE_STROKE_CLASS]))
+        .with_css_props(over(&look.stroke))
+        .with_svg_data(shape(SvgPath::create(SvgPathElementVec::from_vec(vec![
+            SvgPathElement::CubicCurve(s),
+        ]))));
+    let side = if left {
+        decl::simple(CssProperty::const_left(LayoutLeft::px(-w)))
+    } else {
+        decl::simple(CssProperty::const_right(LayoutRight::px(-w)))
+    };
+    Dom::create_div()
+        .with_ids_and_classes(decl::classes(&[if left {
+            CURVE_LEFT_CLASS
+        } else {
+            CURVE_RIGHT_CLASS
+        }]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            decl::position(LayoutPosition::Absolute),
+            side,
+            decl::simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(0))),
+            decl::px_width(w),
+            decl::px_height(h),
+        ]))
+        .with_svg_data(SvgNodeData::ViewBox {
+            min_x: 0.0,
+            min_y: 0.0,
+            width: w,
+            height: h,
+        })
+        .with_children(DomVec::from_vec(vec![fill, stroke]))
+}
+
+/// The two curves of an Australis tab, the left one first: children of the
+/// selected tab, which is `position: relative` so they hang off its box.
+#[must_use]
+pub(crate) fn australis_curves(look: &TabCurveLook) -> [Dom; 2] {
+    [curve(look, true), curve(look, false)]
+}
+
+#[cfg(test)]
+mod australis_tests {
+    use azul_core::{dom::SvgNodeData, svg::SvgPathElement};
+
+    use super::*;
+
+    fn look() -> TabCurveLook {
+        TabCurveLook {
+            height: 28.0,
+            gauge: 2.0,
+            left_fill: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            right_fill: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            stroke: CssPropertyWithConditionsVec::from_const_slice(&[]),
+        }
+    }
+
+    /// The S leaves the strip's rule and reaches the tab's top edge LEVEL -
+    /// both control points share their end's height - so it runs on into
+    /// both without a corner, and its centre line sits half a gauge inside
+    /// the curve's box, where the 2px rule and the 2px top edge are centred.
+    #[test]
+    fn the_s_leaves_the_rule_and_reaches_the_top_edge_level() {
+        let s = curve_s(18.0, 28.0, 2.0, true);
+        assert_eq!((s.start.x, s.start.y), (0.0, 27.0), "the foot, on the rule");
+        assert_eq!((s.end.x, s.end.y), (18.0, 1.0), "the top, on the top edge");
+        assert_eq!(s.ctrl_1.y, s.start.y, "level as it leaves the rule");
+        assert_eq!(s.ctrl_2.y, s.end.y, "level as it meets the top edge");
+    }
+
+    /// The right curve is the left one mirrored: its foot on the right, its
+    /// top against the tab's side on the left.
+    #[test]
+    fn the_right_s_is_the_left_one_mirrored() {
+        let (l, r) = (curve_s(18.0, 28.0, 2.0, true), curve_s(18.0, 28.0, 2.0, false));
+        for (a, b) in [
+            (l.start, r.start),
+            (l.ctrl_1, r.ctrl_1),
+            (l.ctrl_2, r.ctrl_2),
+            (l.end, r.end),
+        ] {
+            assert!((a.x - (18.0 - b.x)).abs() < 1e-4, "{a:?} mirrors {b:?}");
+            assert_eq!(a.y, b.y);
+        }
+    }
+
+    /// Each curve is a box of its own user space hung off the tab's side,
+    /// holding the face (a CLOSED path, the inside of the S) and the edge
+    /// (the S alone, open: a stroke, never a fill).
+    #[test]
+    fn a_curve_holds_the_face_inside_the_s_and_the_s_itself() {
+        let [left, right] = australis_curves(&look());
+        for (curve, class) in [(&left, CURVE_LEFT_CLASS), (&right, CURVE_RIGHT_CLASS)] {
+            assert!(curve
+                .root
+                .get_ids_and_classes()
+                .as_ref()
+                .iter()
+                .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class)));
+            assert!(matches!(
+                curve.root.get_svg_data(),
+                Some(SvgNodeData::ViewBox { width, height, .. }) if *width == CURVE_WIDTH && *height == 28.0
+            ));
+            let kids = curve.children.as_ref();
+            assert_eq!(kids.len(), 2, "the fill, then the stroke over it");
+            let Some(SvgNodeData::Path(fill)) = kids[0].root.get_svg_data() else {
+                panic!("the fill is a path");
+            };
+            let ring = &fill.rings.as_ref()[0];
+            let items = ring.items.as_ref();
+            let (first, last) = (items[0], items[items.len() - 1]);
+            let (SvgPathElement::Line(a), SvgPathElement::Line(z)) = (first, last) else {
+                panic!("the fill starts and ends on its straight edges");
+            };
+            assert_eq!(z.end, a.start, "the face is closed");
+            let Some(SvgNodeData::Path(stroke)) = kids[1].root.get_svg_data() else {
+                panic!("the stroke is a path");
+            };
+            assert!(matches!(
+                stroke.rings.as_ref()[0].items.as_ref(),
+                [SvgPathElement::CubicCurve(_)]
+            ));
+        }
+    }
+}
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
@@ -1191,6 +1450,16 @@ impl TabHeader {
         // their classes, datasets, click and arrow keys are the same in every
         // theme.
         let look = TabHeaderLook::of(self.theme);
+        // Flora cuts its selected tab as Firefox's (`australis_curves`): the
+        // curves are nodes, so they are in the tree when it is built for
+        // flora - the pinned look, or the app theme the DOM is built for (a
+        // theme switch rebuilds the DOM, as for every widget whose looks
+        // build different trees).
+        let curves = {
+            use crate::widgets::themes::{flora, UiTheme};
+            let theme = self.theme.into_option().unwrap_or_else(UiTheme::current);
+            (theme == UiTheme::Flora).then(|| flora::tab_curves(false))
+        };
         let on_click_is_some = self.on_click.is_some();
         // WAI-ARIA APG: an interactive tab list is ONE Tab stop - the active
         // tab, or the first when the index is out of range. The arrow keys
@@ -1305,6 +1574,14 @@ impl TabHeader {
                         tab_dom = tab_dom.with_tab_index(crate::widgets::roving::item_tab_index(
                             tab_idx, tab_stop,
                         ));
+                    }
+                    // The selected tab's curves, after its label text.
+                    if tab_is_active {
+                        if let Some(curves) = curves.as_ref() {
+                            for curve in australis_curves(curves) {
+                                tab_dom.add_child(curve);
+                            }
+                        }
                     }
                     tab_items.push(tab_dom);
                 }
@@ -3489,12 +3766,13 @@ mod autotest_generated {
 }
 
 /// The tab bar's two looks (W5b). Flat is the Windows-native control. Flora
-/// is flora's navigation strip: raised chrome closed along its foot by a 2px
-/// metal rule; the unselected tabs sit behind the rule in soft ink, lift to
-/// the hover face under the pointer and sink when pressed; the selected tab
-/// is the sunken accent stone in a metal surround that breaks the rule and
-/// opens onto its panel - a leaf in a hairline, open at the top. The tabs,
-/// their classes, datasets, click and arrow keys are the widget's in both.
+/// is flora's navigation strip cut as Firefox's tab row (Australis): raised
+/// chrome closed along its foot by a 2px metal rule; the unselected tabs
+/// stand on the rule in soft ink, lift to the hover face under the pointer
+/// and sink when pressed; the selected tab is the sunken accent stone in a
+/// metal surround that climbs its S-curved sides, breaks the rule and opens
+/// onto its panel - a leaf in a hairline, open at the top. The tabs, their
+/// classes, datasets, click and arrow keys are the widget's in both.
 #[cfg(test)]
 mod theme_tests {
     use azul_core::dom::Dom;
@@ -3604,25 +3882,33 @@ mod theme_tests {
                 flora::RAISED_FACE_LIGHT
             };
             assert_eq!(layers(&dom, dark, None), vec![chrome], "dark={dark}: the strip");
-            // The rule runs under both spacers and every unselected tab.
-            for i in [0usize, 1, 3, 4, 5] {
-                let node = child(&dom, i);
-                assert_eq!(
-                    width(node, CssPropertyType::BorderBottomWidth, dark),
-                    Some(2.0),
-                    "dark={dark}: child {i} carries the rule's gauge"
-                );
-                assert_eq!(
-                    colour(node, CssPropertyType::BorderBottomColor, dark, None),
-                    Some(flora::TAB_METAL),
-                    "dark={dark}: child {i} carries the metal"
-                );
-            }
+            // The rule is the strip's own, an inset line along its foot: it
+            // runs under both spacers and every unselected tab, and the
+            // selected tab stands over it.
+            assert_eq!(
+                tc::resolve(&dom, CssPropertyType::BoxShadowBottom, dark, None),
+                Some(crate::widgets::themes::decl::shadow(
+                    -2,
+                    0,
+                    0,
+                    flora::TAB_METAL,
+                    true
+                )),
+                "dark={dark}: the strip's foot is the metal rule"
+            );
             for i in [1usize, 3, 4] {
+                let tab = child(&dom, i);
                 assert_eq!(
-                    tc::text_color(child(&dom, i), dark),
+                    tc::text_color(tab, dark),
                     Some(if dark { flora::DARK_SOFT1 } else { flora::LIGHT_SOFT1 }),
                     "dark={dark}: unselected tab {i} is written in soft ink"
+                );
+                assert_eq!(
+                    tc::resolve(tab, CssPropertyType::MarginBottom, dark, None),
+                    Some(azul_css::props::property::CssProperty::const_margin_bottom(
+                        LayoutMarginBottom::const_px(2)
+                    )),
+                    "dark={dark}: unselected tab {i} stands on the rule, which stays in sight"
                 );
             }
         }
@@ -3635,24 +3921,44 @@ mod theme_tests {
         for dark in [false, true] {
             assert_eq!(
                 layers(active, dark, None),
-                flora::selected_stone(),
-                "dark={dark}: the sunken stone, its own colour in both modes"
+                flora::australis_face(flora::STONE_STREAK),
+                "dark={dark}: the sunken stone stood upright, its own colour in both modes"
             );
             assert_eq!(tc::text_color(active, dark), Some(flora::LIGHT_ON_ACC));
-            for (w, c) in [
-                (CssPropertyType::BorderTopWidth, CssPropertyType::BorderTopColor),
-                (CssPropertyType::BorderLeftWidth, CssPropertyType::BorderLeftColor),
-                (CssPropertyType::BorderRightWidth, CssPropertyType::BorderRightColor),
-            ] {
-                assert_eq!(width(active, w, dark), Some(2.0), "dark={dark}: {w:?}");
-                assert_eq!(colour(active, c, dark, None), Some(flora::TAB_METAL), "{c:?}");
-            }
+            assert_eq!(width(active, CssPropertyType::BorderTopWidth, dark), Some(2.0));
             assert_eq!(
-                width(active, CssPropertyType::BorderBottomWidth, dark),
-                None,
-                "dark={dark}: the selected tab breaks the rule - no foot of its own"
+                colour(active, CssPropertyType::BorderTopColor, dark, None),
+                Some(flora::TAB_METAL),
+                "dark={dark}: the metal along its top"
+            );
+            for w in [
+                CssPropertyType::BorderLeftWidth,
+                CssPropertyType::BorderRightWidth,
+                CssPropertyType::BorderBottomWidth,
+            ] {
+                assert_eq!(
+                    width(active, w, dark).unwrap_or(0.0),
+                    0.0,
+                    "dark={dark}: {w:?} - its sides are its curves, and it has no foot: it \
+                     breaks the rule"
+                );
+            }
+        }
+        // Its sides: the two curves, after its label, each the S in the metal.
+        let kids = active.children.as_ref();
+        assert_eq!(kids.len(), 3, "the label, then the two curves");
+        for (i, class) in [(1usize, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
+            assert!(tc::has_class(&kids[i], class));
+            let stroke = tc::find(&kids[i], CURVE_STROKE_CLASS).expect("the S");
+            assert_eq!(
+                colour(stroke, CssPropertyType::BorderTopColor, false, None),
+                Some(flora::TAB_METAL)
             );
         }
+        assert!(
+            tc::find(&bar(UiTheme::Flat), CURVE_LEFT_CLASS).is_none(),
+            "flat's native tabs are boxes"
+        );
     }
 
     #[test]
@@ -3677,9 +3983,11 @@ mod theme_tests {
                     "dark={dark}: tab {i}'s label darkens to the ink under the pointer"
                 );
                 assert_eq!(
-                    colour(tab, CssPropertyType::BorderBottomColor, dark, hover),
-                    Some(flora::TAB_METAL),
-                    "dark={dark}: a hovered tab keeps the rule at its foot"
+                    tc::resolve(tab, CssPropertyType::MarginBottom, dark, hover),
+                    Some(azul_css::props::property::CssProperty::const_margin_bottom(
+                        LayoutMarginBottom::const_px(2)
+                    )),
+                    "dark={dark}: a hovered tab still stands on the rule, which stays in sight"
                 );
             }
             // The arrow keys move focus to ANY tab, so every tab rings.
@@ -3733,9 +4041,27 @@ mod theme_tests {
         tc::assert_theme_invariants("flora tab panel", &padded);
     }
 
+    /// `dom` without the selected tab's curves, at any depth.
+    fn without_curves(dom: &Dom) -> Dom {
+        let mut d = dom.clone();
+        d.children = DomVec::from_vec(
+            dom.children
+                .as_ref()
+                .iter()
+                .filter(|c| {
+                    !tc::has_class(c, CURVE_LEFT_CLASS) && !tc::has_class(c, CURVE_RIGHT_CLASS)
+                })
+                .map(without_curves)
+                .collect(),
+        );
+        d
+    }
+
+    /// The tabs are the widget's in both looks; flora's selected tab only
+    /// adds its two curves.
     #[test]
     fn both_looks_build_the_same_tabs_datasets_and_accessibility_tree() {
-        let (flat, flora) = (bar(UiTheme::Flat), bar(UiTheme::Flora));
+        let (flat, flora) = (bar(UiTheme::Flat), without_curves(&bar(UiTheme::Flora)));
         let (a, b) = (tc::nodes(&flat), tc::nodes(&flora));
         assert_eq!(a.len(), b.len(), "the same tree of nodes");
         assert_eq!(tc::a11y_outline(&flat), tc::a11y_outline(&flora));
@@ -3805,7 +4131,12 @@ mod structure_tests {
             (
                 "__azul-native-tabs-before-tabs",
                 CssPropertyType::FlexGrow,
-                "flat's leading spacer grows (1); flora's tabs start a fixed 8px in (0)",
+                "flat's leading spacer grows (1); flora's tabs start a fixed curve's width in (0)",
+            ),
+            (
+                "__azul-native-tabs-tab-active",
+                CssPropertyType::Position,
+                "flora hangs the Australis curves off its selected tab",
             ),
         ];
         for t in BOTH {
