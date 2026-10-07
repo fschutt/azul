@@ -1001,6 +1001,59 @@ pub(crate) const BUTTON_FACE: &[&str] = &[
 /// How long a button's face takes to follow the pointer.
 pub(crate) const BUTTON_FADE_MS: u32 = 120;
 
+// ==== shadow slots, by name (FLORA11) ====
+
+/// The four box-shadow slots a node keeps (`-azul-box-shadow-left/right/top/
+/// bottom`), named by what a stone puts in them. The display list paints a
+/// node's DISTINCT shadows in slot order - left, right, top, bottom - the
+/// outset ones under the background and the inset ones over it, so a later
+/// slot lies ON an earlier one: flora's double focus ring is the accent ring
+/// in `Left` under the gap ring in `Bottom` (`getters::get_box_shadows`,
+/// `display_list::paint_box_decorations`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShadowSlot {
+    /// Painted first: a focus ring's outer band, a metal rim.
+    Left,
+    /// A raised face's lower shade (`inset 0 -2px 3px`).
+    Right,
+    /// A raised face's lit lip, a well's near-lip shadow (insets).
+    Top,
+    /// Painted last: the cast shadow, a hover glow, a focus ring's gap.
+    Bottom,
+}
+
+/// `<slot>: 0 <offset_y>px <blur>px <spread>px <color> [inset]`.
+#[must_use]
+pub(crate) fn shadow_in(
+    slot: ShadowSlot,
+    offset_y: isize,
+    blur: isize,
+    spread: isize,
+    color: ColorU,
+    inset: bool,
+) -> CssProperty {
+    let s = box_shadow(offset_y, blur, spread, color, inset);
+    match slot {
+        ShadowSlot::Left => CssProperty::box_shadow_left(s),
+        ShadowSlot::Right => CssProperty::box_shadow_right(s),
+        ShadowSlot::Top => CssProperty::box_shadow_top(s),
+        ShadowSlot::Bottom => CssProperty::box_shadow_bottom(s),
+    }
+}
+
+/// `<slot>: none` - a state that takes a resting shadow away (a pressed
+/// face has no lip and casts nothing).
+#[must_use]
+pub(crate) const fn no_shadow_in(slot: ShadowSlot) -> CssProperty {
+    use azul_css::css::CssPropertyValue;
+    match slot {
+        ShadowSlot::Left => CssProperty::BoxShadowLeft(CssPropertyValue::None),
+        ShadowSlot::Right => CssProperty::BoxShadowRight(CssPropertyValue::None),
+        ShadowSlot::Top => CssProperty::BoxShadowTop(CssPropertyValue::None),
+        ShadowSlot::Bottom => CssProperty::BoxShadowBottom(CssPropertyValue::None),
+    }
+}
+
 // ==== class lists ====
 
 /// One class list: `names`, in order (the widgets that build a node's

@@ -785,6 +785,670 @@ pub const ORB_GLOSS: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(ORB_GLOSS_STOPS),
     });
 
+// ==== the house rig: motion, depth, rings, capitals, metal, gems (FLORA11) ====
+//
+// What flora.css and the Azlin design system (the "Interface Specimen", its
+// widget set) build every control from, in one place, so the widgets below
+// read as decisions. Where the two disagree flora.css wins (its neutral
+// ground and ink; the specimen's parchment is not used).
+//
+// * MOTION - "one easing curve and three durations": `--fl-ease`, and
+//   `--fl-dur-slow` (light travelling across a stone), `--fl-dur` (a state
+//   change), `--fl-dur-fast` (a press, "the one fast movement").
+// * DEPTH - a raised face has a lit lip (`inset 0 1px 0`), a shaded foot
+//   (`inset 0 -2px 3px`) and casts `--fl-shadow-1`; pressed, it loses all
+//   three to a well (`inset 0 1px 3px`). azul keeps four shadow slots per
+//   node (`decl::ShadowSlot`): the lip in Top, the foot in Right, the cast
+//   shadow in Bottom, Left free for a ring or a rim.
+// * FOCUS - the keyboard ring is `outline: 2px solid var(--focus-color);
+//   outline-offset: 2px` (a field's: offset 1px, its border in the accent).
+//   azul draws no outline, so the ring is two spread shadows: the accent band
+//   in Left UNDER the gap in Bottom - the leaf the control stands on - which
+//   stands in for the cast shadow while the ring shows ([`double_ring`]).
+// * CAPITALS - "every label set in capitals uses Garamond" (`--font-caps`,
+//   `font-variant: all-small-caps`, tracked out). The bundled EB Garamond
+//   (`text3::ui_fonts`) has no small capitals and azul's CSS no
+//   `font-variant`, so a label is set in uppercase a size step down, bold,
+//   tracked: the specimen's 13.5px small capitals are 11px capitals here
+//   ([`caps`]).
+// * METAL - brass lives on borders only. The leaf (`--fl-leaf-a/b`: two
+//   radial passes clipped to the border box) runs ALONG the edge, which takes
+//   a per-layer `background-clip` azul does not have; a leafed edge is cut
+//   as four brass tones instead, lit along the top and left where the light
+//   enters, falling to the turn colour and its shade on the right and bottom
+//   ([`leaf_edge`]). On hover "the metal edge comes up": a 1px gold rim and
+//   a gold bloom (`0 0 0 1px rgba(214,197,140,.55)`, `0 0 14px
+//   rgba(214,197,140,.32)`, [`metal_comes_up`]).
+// * STONES - the accent stone is `--fl-gem` (a radial cut lit at 30% 12%:
+//   glow, stone, deep) under the rig flora.css lays on every stone (the bloom
+//   off the upper-left corner, the shadow each lit edge casts, the far corner
+//   falling away, the specular streak); pressed, it sinks to
+//   `--fl-gem-sunken` under the sunken rig ([`raised_stone`],
+//   [`sunken_stone`]). Every semantic stone (leaf, clay, amber, slate) is cut
+//   the same way from its own colours, and the accent's is the theme's: a
+//   spin (`flora:green`, ...) recuts it (`themes::spin`).
+
+use super::decl::{no_shadow_in, shadow_in, ShadowSlot};
+
+/// `--fl-dur-slow`: light travelling across a stone.
+pub const FL_DUR_SLOW_MS: u32 = 1200;
+/// `--fl-dur`: a state change.
+pub const FL_DUR_MS: u32 = 420;
+/// `--fl-dur-fast`: a press.
+pub const FL_DUR_FAST_MS: u32 = 140;
+
+/// `--fl-ease`: `cubic-bezier(0.25, 0.46, 0.45, 0.94)`, in permille.
+pub const FL_EASE: azul_css::props::basic::animation::AnimationTiming =
+    azul_css::props::basic::animation::AnimationTiming::CubicBezier(
+        azul_css::props::basic::animation::AnimationTimingBezier {
+            x1: 250,
+            y1: 460,
+            x2: 450,
+            y2: 940,
+        },
+    );
+
+/// What a flora control's face is made of - what its fade tweens: the fill,
+/// the four border colours, the ink and the four shadow slots (a shadow
+/// switches half way; a face whose layers pair up tweens colour by colour).
+pub(crate) const FLORA_FACE: &[&str] = &[
+    "background",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "color",
+    "-azul-box-shadow-left",
+    "-azul-box-shadow-right",
+    "-azul-box-shadow-top",
+    "-azul-box-shadow-bottom",
+];
+
+/// The fade a flora control declares - `decl::state_fade` on flora's curve:
+/// `props` follow the pointer over `ms` on `--fl-ease`, and a press takes
+/// `--fl-dur-fast` ("a face that was lit on top flips to lit on the bottom
+/// in --fl-dur-fast, then eases back out over --fl-dur when released").
+#[must_use]
+pub(crate) fn flora_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithConditions; 2] {
+    use azul_css::props::{
+        basic::{
+            animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec},
+            time::CssDuration,
+        },
+        property::StyleAnimationVecValue,
+    };
+    let list = |duration: u32| {
+        CssProperty::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
+            props
+                .iter()
+                .map(|name| StyleAnimation {
+                    name: AzString::from_const_str(*name),
+                    duration: CssDuration::from_millis(duration),
+                    delay: CssDuration::from_millis(0),
+                    iterations: AnimationIterationCount::Count(1),
+                    timing: FL_EASE,
+                    clip: true,
+                })
+                .collect(),
+        )))
+    };
+    [
+        CssPropertyWithConditions::simple(list(ms)),
+        CssPropertyWithConditions::on_active(list(FL_DUR_FAST_MS)),
+    ]
+}
+
+/// White at `a`: a lit lip.
+const fn white(a: u8) -> ColorU {
+    ColorU::new(255, 255, 255, a)
+}
+
+/// One shadow in `slot` with its night twin right after it.
+fn themed_shadow_in(
+    slot: ShadowSlot,
+    (offset_y, blur, spread): (isize, isize, isize),
+    light: ColorU,
+    dark: ColorU,
+    inset: bool,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(
+        shadow_in(slot, offset_y, blur, spread, light, inset),
+        shadow_in(slot, offset_y, blur, spread, dark, inset),
+    )
+}
+
+/// `--fl-lip` and `--fl-shadow-1`: a raised paper face's lit lip
+/// (`inset 0 1px 0`), shaded foot (`inset 0 -2px 3px`) and cast shadow
+/// (`0 1px 2px`), by day and at night.
+#[must_use]
+pub(crate) fn raised_depth() -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::with_capacity(6);
+    v.extend(themed_shadow_in(ShadowSlot::Top, (1, 0, 0), white(179), white(23), true));
+    v.extend(themed_shadow_in(
+        ShadowSlot::Right,
+        (-2, 3, 0),
+        ColorU::new(48, 45, 38, 26),
+        ColorU::new(0, 0, 0, 102),
+        true,
+    ));
+    v.extend(themed_shadow_in(
+        ShadowSlot::Bottom,
+        (1, 2, 0),
+        ColorU::new(48, 45, 38, 36),
+        ColorU::new(0, 0, 0, 140),
+        false,
+    ));
+    v
+}
+
+/// A raised face pressed: the lip and the foot give way to a well
+/// (`inset 0 1px 3px rgba(48,45,38,.18)`) and nothing is cast.
+#[must_use]
+pub(crate) fn pressed_depth() -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::with_capacity(4);
+    v.extend(CssPropertyWithConditions::themed_on_active(
+        shadow_in(ShadowSlot::Top, 1, 3, 0, ColorU::new(48, 45, 38, 46), true),
+        shadow_in(ShadowSlot::Top, 1, 3, 0, ColorU::new(0, 0, 0, 115), true),
+    ));
+    v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Right)));
+    v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Bottom)));
+    v
+}
+
+/// The keyboard ring: a 2px accent band `gap` px off the border - `--fl-acc`
+/// by day, `--fl-glow` at night (flora.css's night `--focus-color`: the stone
+/// itself stands 1.8:1 off the night leaf) - over a gap in the leaf's own
+/// colour. 2 for a command (`outline-offset: 2px`), 1 for a field.
+#[must_use]
+pub(crate) fn double_ring(gap: isize) -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::with_capacity(4);
+    v.extend(CssPropertyWithConditions::themed_on_focus(
+        shadow_in(ShadowSlot::Left, 0, 0, gap + 2, LIGHT_ACC, false),
+        shadow_in(ShadowSlot::Left, 0, 0, gap + 2, DARK_GLOW, false),
+    ));
+    v.extend(CssPropertyWithConditions::themed_on_focus(
+        shadow_in(ShadowSlot::Bottom, 0, 0, gap, LIGHT_SUR, false),
+        shadow_in(ShadowSlot::Bottom, 0, 0, gap, DARK_SUR, false),
+    ));
+    v
+}
+
+/// `0 0 0 1px rgba(214, 197, 140, 0.55)`: the gold rim.
+const GOLD_RIM: ColorU = ColorU::new(214, 197, 140, 140);
+/// `0 0 14px rgba(214, 197, 140, 0.32)`: the gold bloom.
+const GOLD_BLOOM: ColorU = ColorU::new(214, 197, 140, 82);
+
+/// "The metal edge comes up as the face turns toward the light": on hover a
+/// stone or a leafed command takes the gold rim (Left) and the gold bloom
+/// (Bottom, in place of its cast shadow). The same by night - brass is the
+/// one thing in the dark room still catching the light.
+#[must_use]
+pub(crate) fn metal_comes_up() -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        CssPropertyWithConditions::on_hover(shadow_in(ShadowSlot::Left, 0, 0, 1, GOLD_RIM, false)),
+        CssPropertyWithConditions::on_hover(shadow_in(
+            ShadowSlot::Bottom,
+            0,
+            14,
+            0,
+            GOLD_BLOOM,
+            false
+        )),
+    ]
+}
+
+/// A leafed edge by day: top, right, bottom, left - lit along the top and
+/// left (`--fl-rolled`'s `#E4DCB8` falling to the turn colour), the turn
+/// colour's shade on the right and the dark brass of `--fl-leaf-b` along the
+/// bottom.
+const LEAF_EDGE_LIGHT: [ColorU; 4] = [
+    ColorU::rgb(0xD3, 0xC3, 0x8E),
+    ColorU::rgb(0x8B, 0x80, 0x58),
+    ColorU::rgb(0x7A, 0x70, 0x52),
+    ColorU::rgb(0xB9, 0xA8, 0x74),
+];
+
+/// The leafed edge at night: "the brass warms up" (`--color-gold` #C4B58E).
+const LEAF_EDGE_DARK: [ColorU; 4] = [
+    ColorU::rgb(0xD6, 0xC6, 0x90),
+    ColorU::rgb(0x9A, 0x8B, 0x5F),
+    ColorU::rgb(0x8B, 0x7D, 0x55),
+    ColorU::rgb(0xC4, 0xB5, 0x8E),
+];
+
+/// A border cut from the leaf (see the section note), each edge with its
+/// night twin. Pair it with a 1px border.
+#[must_use]
+pub(crate) fn leaf_edge() -> Vec<CssPropertyWithConditions> {
+    let [t, r, b, l] = LEAF_EDGE_LIGHT;
+    let [dt, dr, db, dl] = LEAF_EDGE_DARK;
+    let mut v = Vec::with_capacity(8);
+    v.extend(super::decl::themed_border_top_color(t, dt));
+    v.extend(super::decl::themed_border_right_color(r, dr));
+    v.extend(super::decl::themed_border_bottom_color(b, db));
+    v.extend(super::decl::themed_border_left_color(l, dl));
+    v
+}
+
+const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
+const GEORGIA_STR: AzString = AzString::from_const_str("Georgia");
+const SERIF_STR: AzString = AzString::from_const_str("serif");
+const CAPS_FAMILIES: &[StyleFontFamily] = &[
+    StyleFontFamily::System(EB_GARAMOND_STR),
+    StyleFontFamily::System(GEORGIA_STR),
+    StyleFontFamily::System(SERIF_STR),
+];
+
+/// `--font-caps`: `'EB Garamond', Georgia, serif` - the bundled face first
+/// (`text3::ui_fonts`), so it holds on every machine.
+pub(crate) const CAPS_FAMILY: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(CAPS_FAMILIES);
+
+/// A command's capitals: the specimen's 13.5px bold small capitals tracked
+/// .06em, as 11px capitals.
+pub(crate) const CAPS_COMMAND: (isize, f32) = (11, 0.07);
+/// A group or section title (`.fl-label`, the specimen's `h3`): .12em.
+pub(crate) const CAPS_TITLE: (isize, f32) = (11, 0.12);
+/// A field's label over it (the specimen's 11.5px small capitals): .1em.
+pub(crate) const CAPS_LABEL: (isize, f32) = (10, 0.1);
+
+/// A label in flora's capitals, `(px, em)` one of the `CAPS_*` sizes: EB
+/// Garamond, bold, uppercase, tracked out.
+#[must_use]
+pub(crate) fn caps((px, em): (isize, f32)) -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(CAPS_FAMILY)),
+        super::decl::font_size(px),
+        super::decl::bold(),
+        CssPropertyWithConditions::simple(CssProperty::TextTransform(
+            StyleTextTransform::Uppercase.into(),
+        )),
+        super::decl::letter_spacing_em(em),
+    ]
+}
+
+/// `style` with flora's capitals in place of its own face and size.
+#[must_use]
+pub(crate) fn in_caps(
+    style: &[CssPropertyWithConditions],
+    size: (isize, f32),
+) -> Vec<CssPropertyWithConditions> {
+    let mut v: Vec<CssPropertyWithConditions> = style
+        .iter()
+        .filter(|p| {
+            !matches!(
+                p.property.get_type(),
+                CssPropertyType::FontFamily | CssPropertyType::FontSize
+            )
+        })
+        .cloned()
+        .collect();
+    v.extend(caps(size));
+    v
+}
+
+// -- the stone's rig: the two radial passes the transcription above lacked --
+
+const STONE_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(255, 253, 238, 82)),
+    stop(45, ColorU::new(255, 253, 238, 0)),
+];
+
+/// `.btn-primary::after`, first layer: the bloom just off the upper-left
+/// corner, `radial-gradient(ellipse 58% 150% at 2% -20%, rgba(255,253,238,
+/// .32) 0%, transparent 68%)`. azul's radial sizes are keywords, so the
+/// ellipse is the farthest side's, faded by 45% - about the CSS's reach.
+pub const STONE_BLOOM: StyleBackgroundContent =
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestSide,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(2)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(-20)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_BLOOM_STOPS),
+    });
+
+const STONE_FAR_CORNER_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(12, 10, 4, 102)),
+    stop(45, ColorU::new(12, 10, 4, 0)),
+];
+
+/// `.btn-primary::after`, last layer: the far corner falling away,
+/// `radial-gradient(ellipse 72% 155% at 106% 126%, rgba(12,10,4,.40) 0%,
+/// transparent 66%)`, sized as [`STONE_BLOOM`].
+pub const STONE_FAR_CORNER: StyleBackgroundContent =
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestSide,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(106)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(126)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_FAR_CORNER_STOPS),
+    });
+
+const SUNKEN_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(255, 253, 238, 66)),
+    stop(42, ColorU::new(255, 253, 238, 0)),
+];
+
+/// The sunken rig's bloom: `radial-gradient(ellipse 62% 170% at 4% -26%,
+/// rgba(255,253,238,.26) 0%, transparent 62%)` - the light falling INTO the
+/// well.
+pub const SUNKEN_BLOOM: StyleBackgroundContent =
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestSide,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(4)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(-26)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(SUNKEN_BLOOM_STOPS),
+    });
+
+/// `--fl-gem` cut from `stone`: `radial-gradient(ellipse 130% 100% at 30%
+/// 12%, glow 0%, stone 48%, deep 100%)` - lit where the light enters, the
+/// ellipse the farthest corner's (azul's radial sizes are keywords).
+#[must_use]
+pub fn gem(stone: FloraStone) -> StyleBackgroundContent {
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestCorner,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(30)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(12)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            stop(0, stone.glow),
+            stop(48, stone.stone),
+            stop(100, stone.deep),
+        ]),
+    })
+}
+
+/// `--fl-gem-sunken` cut from `stone`: `linear-gradient(175deg, deep 0%,
+/// stone 96%)` - a stone pressed into its well.
+#[must_use]
+pub fn gem_sunken(stone: FloraStone) -> StyleBackgroundContent {
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(175),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            stop(0, stone.deep),
+            stop(96, stone.stone),
+        ]),
+    })
+}
+
+/// A raised stone: the gem, then the rig over it - the bloom, the shadow of
+/// the lit top and left edges, the far corner, and the specular streak
+/// (brighter and wider on `hover`, as the face turns toward the light). The
+/// same layers at rest and hovered, so the fade tweens stop by stop.
+#[must_use]
+pub fn raised_stone(stone: FloraStone, hover: bool) -> Vec<StyleBackgroundContent> {
+    alloc::vec![
+        gem(stone),
+        STONE_BLOOM,
+        STONE_RIG_TOP,
+        STONE_RIG_LEFT,
+        STONE_FAR_CORNER,
+        if hover {
+            STONE_STREAK_HOVER
+        } else {
+            STONE_STREAK
+        },
+    ]
+}
+
+/// A stone pressed into its well: the sunken gem under the sunken rig, lit
+/// from below the near edge.
+#[must_use]
+pub fn sunken_stone(stone: FloraStone) -> Vec<StyleBackgroundContent> {
+    alloc::vec![
+        gem_sunken(stone),
+        SUNKEN_BLOOM,
+        SUNKEN_RIG_TOP,
+        SUNKEN_RIG_LEFT,
+        SUNKEN_RIG_BOTTOM,
+    ]
+}
+
+/// A stone's raised depth: `inset 0 1px 0 rgba(255,255,255,.3)`, `inset 0
+/// -2px 4px rgba(0,0,0,.3)` and `--fl-shadow-1` - the stone is its own
+/// colour by night too, only the cast shadow deepens.
+fn stone_depth() -> Vec<CssPropertyWithConditions> {
+    let mut v = alloc::vec![
+        CssPropertyWithConditions::simple(shadow_in(ShadowSlot::Top, 1, 0, 0, white(77), true)),
+        CssPropertyWithConditions::simple(shadow_in(
+            ShadowSlot::Right,
+            -2,
+            4,
+            0,
+            ColorU::new(0, 0, 0, 77),
+            true
+        )),
+    ];
+    v.extend(themed_shadow_in(
+        ShadowSlot::Bottom,
+        (1, 2, 0),
+        ColorU::new(48, 45, 38, 36),
+        ColorU::new(0, 0, 0, 140),
+        false,
+    ));
+    v
+}
+
+/// `text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3)`: the paper ink cut into a
+/// stone.
+fn stone_text_shadow() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::TextShadow(
+        azul_css::css::CssPropertyValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(1),
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(1),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Outset,
+            color: ColorU::new(0, 0, 0, 77),
+        })),
+    ))
+}
+
+/// What a button IS in flora's vocabulary - its meaning, never a colour
+/// (flora.css's BUTTONS block and the specimen's row): the accent is the
+/// theme's (a spin's), not the button's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FloraButtonKind {
+    /// `.btn-secondary`: raised paper, the everyday command (`Default`,
+    /// `Secondary`).
+    Standard,
+    /// A stone: `.btn-primary` cut from the accent (`Primary` - one per view,
+    /// the thing to do next), or a semantic stone cut the same way (`Success`
+    /// leaf, `Danger` clay, `Warning` amber, `Info` slate).
+    Stone(FloraStone),
+    /// `.btn-hero-primary`: paper in a metal edge, rare (`Illuminated`).
+    Illuminated,
+    /// `.btn-quiet`: brass ink with a rule under it - "a note, not a
+    /// control" (`Link`).
+    Quiet,
+}
+
+impl FloraButtonKind {
+    /// The kind a button type means.
+    #[must_use]
+    pub(crate) const fn of(t: crate::widgets::button::ButtonType) -> Self {
+        use crate::widgets::button::ButtonType;
+        match t {
+            ButtonType::Default | ButtonType::Secondary => Self::Standard,
+            ButtonType::Primary => Self::Stone(STONE_ACCENT),
+            ButtonType::Success => Self::Stone(STONE_LEAF),
+            ButtonType::Danger => Self::Stone(STONE_CLAY),
+            ButtonType::Warning => Self::Stone(STONE_AMBER),
+            ButtonType::Info => Self::Stone(STONE_SLATE),
+            ButtonType::Illuminated => Self::Illuminated,
+            ButtonType::Link => Self::Quiet,
+        }
+    }
+}
+
+/// A flora command's resting face, light value then night twin, property by
+/// property: the face, the edge, the ink and the depth. `boxed`: whether a
+/// quiet command has a label (an icon-only one is bare glyph - the media
+/// controls' transport keys).
+#[must_use]
+fn flora_button_face(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(24);
+    match kind {
+        FloraButtonKind::Standard => {
+            v.extend(decl::themed_layers(
+                alloc::vec![RAISED_FACE_LIGHT],
+                alloc::vec![RAISED_FACE_DARK],
+            ));
+            v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+            v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+            v.extend(raised_depth());
+        }
+        FloraButtonKind::Stone(stone) => {
+            v.push(CssPropertyWithConditions::simple(layers(raised_stone(stone, false))));
+            v.extend(decl::border_colors(stone.deep).map(CssPropertyWithConditions::simple));
+            v.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
+            v.push(stone_text_shadow());
+            v.extend(stone_depth());
+        }
+        FloraButtonKind::Illuminated => {
+            v.extend(decl::themed_layers(
+                alloc::vec![RAISED_FACE_LIGHT],
+                alloc::vec![RAISED_FACE_DARK],
+            ));
+            v.extend(leaf_edge());
+            v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+            v.extend(raised_depth());
+        }
+        FloraButtonKind::Quiet => {
+            v.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+            v.push(CssPropertyWithConditions::simple(CssProperty::TextDecoration(
+                StyleTextDecoration::Underline.into(),
+            )));
+            if boxed {
+                // `.btn-quiet`: the faintest paper (`--fl-rT` falling to
+                // `--fl-fld2`) in a separator's hairline, a lit lip, no foot.
+                v.extend(decl::border(1));
+                v.extend(decl::themed_layers(
+                    alloc::vec![decl::face(LIGHT_RT, LIGHT_FLD2)],
+                    alloc::vec![decl::face(DARK_RT, DARK_FLD2)],
+                ));
+                v.extend(decl::themed_border_color(LIGHT_SEP, DARK_SEP));
+                v.extend(themed_shadow_in(ShadowSlot::Top, (1, 0, 0), white(140), white(18), true));
+            }
+        }
+    }
+    v
+}
+
+/// A flora command's hover and pressed states (not its focus ring: that is
+/// [`double_ring`], pushed after these so it wins the shared slots).
+#[must_use]
+fn flora_button_states(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(20);
+    match kind {
+        FloraButtonKind::Standard => {
+            v.extend(decl::hover_layers(
+                alloc::vec![HOVER_FACE_LIGHT],
+                alloc::vec![HOVER_FACE_DARK],
+            ));
+            v.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+            v.extend(decl::active_layers(
+                alloc::vec![PRESSED_FACE_LIGHT],
+                alloc::vec![PRESSED_FACE_DARK],
+            ));
+            v.extend(pressed_depth());
+        }
+        FloraButtonKind::Stone(stone) => {
+            v.push(CssPropertyWithConditions::on_hover(layers(raised_stone(stone, true))));
+            v.extend(metal_comes_up());
+            v.push(CssPropertyWithConditions::on_active(layers(sunken_stone(stone))));
+            // The well a pressed stone sits in: `inset 0 2px 5px
+            // rgba(0,0,0,.45)`, nothing cast, no rim.
+            v.push(CssPropertyWithConditions::on_active(shadow_in(
+                ShadowSlot::Top,
+                2,
+                5,
+                0,
+                ColorU::new(0, 0, 0, 115),
+                true,
+            )));
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Right)));
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Bottom)));
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Left)));
+        }
+        FloraButtonKind::Illuminated => {
+            v.extend(decl::hover_layers(
+                alloc::vec![HOVER_FACE_LIGHT],
+                alloc::vec![HOVER_FACE_DARK],
+            ));
+            v.extend(metal_comes_up());
+            v.extend(decl::active_layers(
+                alloc::vec![PRESSED_FACE_LIGHT],
+                alloc::vec![PRESSED_FACE_DARK],
+            ));
+            v.extend(pressed_depth());
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Left)));
+        }
+        FloraButtonKind::Quiet => {
+            v.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+            if boxed {
+                v.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
+            }
+        }
+    }
+    v
+}
+
+/// The face a disabled flora command shows (`.btn[disabled]`): the disabled
+/// paper (`--fl-disBg`), its ink (`--fl-disTx`) and the lightest edge
+/// (`--fl-bd4`), flat - no lip, no cast shadow, no stone, no rim. A quiet
+/// command only fades its ink.
+#[must_use]
+fn flora_disabled_face(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(16);
+    if kind == FloraButtonKind::Quiet && !boxed {
+        v.extend(decl::themed_ink(LIGHT_DISTX, DARK_DISTX));
+        return v;
+    }
+    v.extend(decl::themed_fill(LIGHT_DISBG, DARK_DISBG));
+    v.extend(decl::themed_ink(LIGHT_DISTX, DARK_DISTX));
+    v.extend(decl::themed_border_color(LIGHT_BD4, DARK_BD4));
+    for slot in [ShadowSlot::Right, ShadowSlot::Top, ShadowSlot::Bottom] {
+        v.push(CssPropertyWithConditions::simple(no_shadow_in(slot)));
+    }
+    v.push(CssPropertyWithConditions::simple(CssProperty::TextShadow(
+        azul_css::css::CssPropertyValue::None,
+    )));
+    v
+}
+
+/// The flora command (flora.css's BUTTONS, the specimen's button row): one of
+/// four kinds - raised paper, a stone, paper in a metal edge, a quiet note
+/// ([`FloraButtonKind`]) - in five states: rest, hover (the face lifts; on a
+/// stone the metal comes up), pressed (sunken, at once), focus (the double
+/// ring) and disabled (the disabled paper). Its label is set in flora's
+/// capitals. Every state change fades on `--fl-ease`: `--fl-dur` for paper,
+/// `--fl-dur-slow` for light moving across a stone.
 #[must_use]
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
@@ -803,6 +1467,7 @@ pub fn button(btn: Button) -> Dom {
     };
 
     let btn_type = btn.button_type;
+    let kind = FloraButtonKind::of(btn_type);
     // The states `Button::with_disabled` / `with_toggled` asked for.
     let toggled_on = btn.toggled == azul_css::OptionBool::Some(true);
     let disabled = btn.is_disabled();
@@ -818,6 +1483,9 @@ pub fn button(btn: Button) -> Dom {
     let has_icon = !btn.icon.as_str().is_empty() || btn.icon_dom.is_some();
     let has_image = btn.image.is_some();
     let has_trailing_icon = !btn.trailing_icon.as_str().is_empty();
+    // A command with words takes flora's box and capitals; an icon-only one
+    // (a transport key, a toolbar glyph) keeps the widget's own metrics.
+    let has_label = !btn.label.as_str().is_empty();
 
     // Resolved before `btn`'s fields are moved into the tree below.
     let btn_container_style = btn.resolved_container_style();
@@ -828,7 +1496,16 @@ pub fn button(btn: Button) -> Dom {
     // resolution is last-match) and paint the theme's greys over the ribbon's
     // blue. So the theme adds to its OWN default only.
     let btn_owns_style = btn.container_style.as_ref().is_none();
-    let btn_label_style = btn.resolved_label_style();
+    // The same for the label: the widget's default face and size give way to
+    // flora's capitals; a caller's label style is taken as it is.
+    let btn_label_style = if btn.label_style.as_ref().is_none() {
+        CssPropertyWithConditionsVec::from_vec(in_caps(
+            btn.resolved_label_style().as_slice(),
+            CAPS_COMMAND,
+        ))
+    } else {
+        btn.resolved_label_style()
+    };
     let btn_image_style = btn.resolved_image_style();
     let btn_icon_style = btn.resolved_icon_style();
     let btn_trailing_icon_style = btn.resolved_trailing_icon_style();
@@ -880,94 +1557,48 @@ pub fn button(btn: Button) -> Dom {
         a11y.accessibility_name = Some(AzString::from(a11y_name)).into();
     }
 
-    // Add dark mode colors to container style
     let mut container_style: Vec<CssPropertyWithConditions> =
         btn_container_style.as_slice().to_vec();
 
     if btn_owns_style {
-        // The resting face, in flora.css's terms. The standard command is raised
-        // paper (`.btn-secondary`: `linear-gradient(var(--fl-rT), var(--fl-rB))`),
-        // with its dark twin. A coloured command is a stone: its own colour in
-        // both modes, under the depth rig and the streak the CSS lays on its
-        // accent stone. The Link button has no surface and keeps what it had, the
-        // dark surface included. It is part of the BASE: after the widget's flat
-        // fill, which it wins over, and before the states, which win over it.
-        {
-            use crate::widgets::button::ButtonType;
-            match btn_type {
-                ButtonType::Default => {
-                    container_style.push(CssPropertyWithConditions::simple(layers(vec![
-                        RAISED_FACE_LIGHT,
-                    ])));
-                    container_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
-                        RAISED_FACE_DARK,
-                    ])));
-                }
-                ButtonType::Link => {
-                    container_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
-                        StyleBackgroundContent::Color(DARK_SUR),
-                    ])));
-                }
-                _ => {
-                    let (bg, _, _) = crate::widgets::button::get_button_colors(btn_type);
-                    container_style.push(CssPropertyWithConditions::simple(layers(stone_face(
-                        bg,
-                        STONE_STREAK,
-                    ))));
-                }
-            }
+        // The house radius (`--fl-r`), and for a command with words the
+        // specimen's box: 4px over and under the capitals, 12px either side.
+        container_style.extend(super::decl::radius(3));
+        if has_label {
+            container_style.extend(super::decl::padding(4, 12, 4, 12));
         }
-
-        // Dark ink and dark borders belong to the NEUTRAL surface (raised
-        // paper); a coloured stone keeps its own text and edge colours in
-        // both modes, and the link has no face to border. Same rule as the
-        // resting face above, from the one place it lives:
-        // `ButtonType::surface`.
-        if btn_type.surface() == crate::widgets::button::ButtonSurface::Neutral {
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
-            ));
-        }
-
-        // Here we could wrap the button in decorative DOM nodes for the skeumorphic flora look.
-        // For now, we apply basic properties to test the theming engine.
-
-        // A toggled-on button rests on its pressed face - a resting face with
-        // its dark twin, so before the states like the faces above.
-        if toggled_on {
+        // The resting face - after the widget's flat fill, which it wins
+        // over, and before the states, which win over it. Each light value
+        // with its night twin right after it.
+        container_style.extend(flora_button_face(kind, has_label));
+        // A toggled-on command rests on its pressed face.
+        if toggled_on && !disabled {
             container_style.extend(button_toggled_face(btn_type));
         }
-
-        // The interactive states go LAST. Inline declarations resolve last-match
-        // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
-        // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
-        // would shadow it — no ring, no hover face, in dark mode.
-        container_style.extend(button_states(btn_type));
-        // The face follows the pointer in a short fade and darkens the
-        // instant it is pressed (`decl::state_fade`). A link only underlines.
-        if btn_type != crate::widgets::button::ButtonType::Link {
-            container_style.extend(super::decl::state_fade(
-                super::decl::BUTTON_FACE,
-                super::decl::BUTTON_FADE_MS,
-            ));
+        if disabled {
+            // The disabled paper, and no hover or pressed paint at all.
+            container_style.extend(flora_disabled_face(kind, has_label));
+        } else {
+            // The interactive states go LAST. Inline declarations resolve
+            // last-match wins and a `dark_mode(..)` rule matches in every
+            // pseudo-state, so a dark resting value pushed after a
+            // `dark_on_hover` twin would shadow it.
+            container_style.extend(flora_button_states(kind, has_label));
+            // Light moves across a stone slowly; paper changes state at the
+            // house pace. A press is quick either way (`flora_fade`).
+            let ms = if matches!(kind, FloraButtonKind::Stone(_)) {
+                FL_DUR_SLOW_MS
+            } else {
+                FL_DUR_MS
+            };
+            container_style.extend(flora_fade(FLORA_FACE, ms));
         }
-    }
-
-    // A disabled button has no hover / pressed paint and is dimmed - whoever
-    // owns the style (a ribbon button hands in its own).
-    if disabled {
+        // The keyboard ring, last: it wins the Left and Bottom slots over a
+        // hovered rim and a pressed well. A disabled command keeps its stop.
+        container_style.extend(double_ring(2));
+    } else if disabled {
+        // A caller's style (a ribbon button's): no hover / pressed paint,
+        // dimmed - the shared rule.
         container_style = crate::widgets::button::disabled_style(&container_style);
     }
 
@@ -2393,112 +3024,17 @@ pub const FIELD_BORDER_STATES: [CssPropertyWithConditions; 16] = [
     FOCUS_BORDER_RIGHT_DARK,
 ];
 
-/// Every state a button of one semantic type takes: hover fill, pressed fill and
-/// focus ring, each with its dark twin.
-///
-/// The coloured types' values come from [`crate::widgets::button::get_button_colors`],
-/// so there is still one source of truth for them; the neutral type's faces and
-/// every DARK half are chosen here, because this is the only place the palette
-/// is in scope.
-///
-/// The rule differs by type on purpose:
-///
-/// * `Default` is the neutral paper button, so its surface belongs to the PAGE: it hovers and
-///   presses to the theme's faces — [`HOVER_FACE_LIGHT`] / [`HOVER_FACE_DARK`] and
-///   [`PRESSED_FACE_LIGHT`] / [`PRESSED_FACE_DARK`], the gradients flora.css draws for
-///   `.btn-secondary:hover` and `:active`.
-/// * Every other type carries its own semantic colour — a Primary button is blue whichever mode the
-///   app is in — so the same hover and pressed colours apply in dark mode. A neutral grey hover on
-///   a blue button would be wrong, and inventing a second blue would be a design decision this
-///   refactor has no business making. That colour is the base layer; over it goes the depth rig
-///   flora.css lays on its accent stone (`.btn-primary::after` and `::before`), sunken while
-///   pressed.
-/// * `Link` has no surface at all: it underlines instead, in both modes.
+/// Every state a flora command of one type takes - hover, pressed and the
+/// keyboard ring - exactly as [`button`] appends them after its resting
+/// face ([`FloraButtonKind`]: raised paper lifts and sinks, a stone brightens
+/// with the metal coming up and sinks into its well, a quiet note darkens its
+/// ink). For a labelled command; an icon-only quiet one has no wash.
 #[must_use]
 pub fn button_states(
     button_type: crate::widgets::button::ButtonType,
 ) -> Vec<CssPropertyWithConditions> {
-    use crate::widgets::button::ButtonType;
-
-    if button_type == ButtonType::Link {
-        let mut out = alloc::vec![
-            CssPropertyWithConditions::on_hover(CssProperty::TextDecoration(
-                StyleTextDecoration::Underline.into(),
-            )),
-            CssPropertyWithConditions::dark_on_hover(CssProperty::TextDecoration(
-                StyleTextDecoration::Underline.into(),
-            )),
-        ];
-        // A link is a keyboard stop too: it shows focus as a halo, which
-        // takes no room, so nothing moves when it is focused.
-        out.extend(super::decl::focus_halo(LIGHT_ACC, DARK_GLOW));
-        return out;
-    }
-
-    let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
-    let neutral = button_type.surface() == crate::widgets::button::ButtonSurface::Neutral;
-    // The neutral button is paper: it hovers and presses to the theme's faces,
-    // each with its dark twin. A coloured button is a stone: the same colour in
-    // both modes (see above), under the rig flora.css lays on a stone.
-    let (hover, dark_hover, active, dark_active) = if neutral {
-        (
-            vec![HOVER_FACE_LIGHT],
-            vec![HOVER_FACE_DARK],
-            vec![PRESSED_FACE_LIGHT],
-            vec![PRESSED_FACE_DARK],
-        )
-    } else {
-        (
-            stone_face(bg_hover, STONE_STREAK_HOVER),
-            stone_face(bg_hover, STONE_STREAK_HOVER),
-            sunken_stone_face(bg_active),
-            sunken_stone_face(bg_active),
-        )
-    };
-
-    let mut out = alloc::vec![
-        CssPropertyWithConditions::on_hover(layers(hover)),
-        CssPropertyWithConditions::dark_on_hover(layers(dark_hover)),
-        CssPropertyWithConditions::on_active(layers(active)),
-        CssPropertyWithConditions::dark_on_active(layers(dark_active)),
-    ];
-
-    // The neutral button is the only one with a visible resting border, so it is
-    // the only one whose border reacts to hover.
-    if neutral {
-        let light = ColorU::rgb(173, 181, 189);
-        for (l, d) in [
-            (
-                CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
-                CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
-            ),
-            (
-                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: light }),
-                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: DARK_BD }),
-            ),
-            (
-                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
-                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: DARK_BD }),
-            ),
-            (
-                CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
-                CssProperty::const_border_right_color(StyleBorderRightColor { inner: DARK_BD }),
-            ),
-        ] {
-            out.push(CssPropertyWithConditions::on_hover(l));
-            out.push(CssPropertyWithConditions::dark_on_hover(d));
-        }
-    }
-
-    // The focus ring is the accent in both modes, and the consts already pair it.
-    out.push(FOCUS_BORDER_TOP);
-    out.push(FOCUS_BORDER_BOTTOM);
-    out.push(FOCUS_BORDER_LEFT);
-    out.push(FOCUS_BORDER_RIGHT);
-    out.push(FOCUS_BORDER_TOP_DARK);
-    out.push(FOCUS_BORDER_BOTTOM_DARK);
-    out.push(FOCUS_BORDER_LEFT_DARK);
-    out.push(FOCUS_BORDER_RIGHT_DARK);
+    let mut out = flora_button_states(FloraButtonKind::of(button_type), true);
+    out.extend(double_ring(2));
     out
 }
 
@@ -2551,7 +3087,7 @@ mod gradient_tests {
 
     use super::*;
     use crate::widgets::{
-        button::{get_button_colors, Button, ButtonType},
+        button::{Button, ButtonType},
         slider::Slider,
         themes::{OptionUiTheme, UiTheme},
     };
@@ -2728,22 +3264,22 @@ mod gradient_tests {
     }
 
     #[test]
-    fn a_coloured_button_keeps_its_own_colour_as_the_base_layer_under_the_rig() {
-        let (bg, bg_hover, bg_active) = get_button_colors(ButtonType::Primary);
-
+    fn a_primary_button_is_the_accent_gem_and_sinks_into_its_well_when_pressed() {
         let dom = button(Button::with_type(
             AzString::from_const_str("Go"),
             ButtonType::Primary,
         ));
         assert_eq!(
             resting_background(&dom),
-            Some(vec![
-                StyleBackgroundContent::Color(bg),
-                STONE_RIG_TOP,
-                STONE_RIG_LEFT,
-                STONE_STREAK,
-            ]),
-            "the stone's colour paints first; the rig and streak go over it"
+            Some(raised_stone(STONE_ACCENT, false)),
+            "the accent stone, its rig over it, in the theme's accent - never the button's own colour"
+        );
+        assert!(
+            matches!(
+                resting_background(&dom).as_deref(),
+                Some([StyleBackgroundContent::RadialGradient(_), ..])
+            ),
+            "--fl-gem is a radial cut lit at the upper left"
         );
         assert_eq!(
             dark_resting_background(&dom),
@@ -2752,52 +3288,62 @@ mod gradient_tests {
         );
 
         let dom = flora_button("Go", ButtonType::Primary).dom();
-        let hovered = vec![
-            StyleBackgroundContent::Color(bg_hover),
-            STONE_RIG_TOP,
-            STONE_RIG_LEFT,
-            STONE_STREAK_HOVER,
-        ];
         assert_eq!(
             state_background(&dom, PseudoStateType::Hover, false),
-            Some(hovered.clone())
+            Some(raised_stone(STONE_ACCENT, true)),
+            "hovered, the same layers with the brighter streak - so the fade tweens"
         );
-        assert_eq!(
-            state_background(&dom, PseudoStateType::Hover, true),
-            Some(hovered)
-        );
-        let pressed = vec![
-            StyleBackgroundContent::Color(bg_active),
-            SUNKEN_RIG_TOP,
-            SUNKEN_RIG_LEFT,
-            SUNKEN_RIG_BOTTOM,
-        ];
         assert_eq!(
             state_background(&dom, PseudoStateType::Active, false),
-            Some(pressed.clone())
-        );
-        assert_eq!(
-            state_background(&dom, PseudoStateType::Active, true),
-            Some(pressed)
+            Some(sunken_stone(STONE_ACCENT))
         );
     }
 
     #[test]
-    fn the_link_button_has_no_surface_and_grows_no_face() {
+    fn the_semantic_types_are_stones_of_their_own_and_illuminated_is_paper_in_metal() {
+        for (ty, stone) in [
+            (ButtonType::Success, STONE_LEAF),
+            (ButtonType::Danger, STONE_CLAY),
+            (ButtonType::Warning, STONE_AMBER),
+            (ButtonType::Info, STONE_SLATE),
+        ] {
+            let dom = button(Button::with_type(AzString::from_const_str("Go"), ty));
+            assert_eq!(resting_background(&dom), Some(raised_stone(stone, false)), "{ty:?}");
+        }
+        let dom = button(Button::with_type(
+            AzString::from_const_str("Illuminate"),
+            ButtonType::Illuminated,
+        ));
+        assert_eq!(resting_background(&dom), Some(vec![RAISED_FACE_LIGHT]));
+        let top = dom
+            .root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::BorderTopColor(c) => c.get_property().map(|c| c.inner),
+                _ => None,
+            })
+            .last();
+        assert_eq!(top, Some(LEAF_EDGE_LIGHT[0]), "the gold stays in the border");
+    }
+
+    #[test]
+    fn the_quiet_button_is_brass_ink_on_the_faintest_paper_and_takes_no_stone() {
         let dom = button(Button::with_type(
             AzString::from_const_str("more"),
             ButtonType::Link,
         ));
         assert_eq!(
             resting_background(&dom),
-            Some(vec![StyleBackgroundContent::Color(ColorU::TRANSPARENT)]),
-            "the widget's transparent fill is untouched"
+            Some(vec![super::super::decl::face(LIGHT_RT, LIGHT_FLD2)]),
+            ".btn-quiet: --fl-rT falling to --fl-fld2"
         );
         let dom = flora_button("more", ButtonType::Link).dom();
         assert_eq!(
-            state_background(&dom, PseudoStateType::Hover, false),
+            state_background(&dom, PseudoStateType::Active, false),
             None,
-            "a link underlines on hover; it does not take a face"
+            "a quiet note does not press in"
         );
     }
 
@@ -7804,28 +8350,54 @@ pub(crate) fn tree_view_badge_look() -> crate::widgets::tree_view::TreeViewBadge
 
 /// The face a toggled-on button rests on (`Button::with_toggled(true)`):
 /// the face its `:active` state shows, at rest, in both modes - paper
-/// pushed in for the standard command, the sunken stone for a coloured
-/// one, a link underlined.
+/// pushed in for the standard and the illuminated command, a stone sunk into
+/// its well, a quiet note in its darker ink.
 #[must_use]
 pub fn button_toggled_face(
     button_type: crate::widgets::button::ButtonType,
 ) -> Vec<CssPropertyWithConditions> {
-    use crate::widgets::button::{ButtonSurface, ButtonType};
-
-    if button_type == ButtonType::Link {
-        return CssPropertyWithConditions::themed(
-            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
-            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
-        )
-        .to_vec();
+    use super::decl;
+    match FloraButtonKind::of(button_type) {
+        FloraButtonKind::Quiet => {
+            let mut v = CssPropertyWithConditions::themed(
+                CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+                CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+            )
+            .to_vec();
+            v.extend(decl::themed_ink(LIGHT_QT2, DARK_QT2));
+            v
+        }
+        FloraButtonKind::Stone(stone) => alloc::vec![
+            CssPropertyWithConditions::simple(layers(sunken_stone(stone))),
+            CssPropertyWithConditions::simple(shadow_in(
+                ShadowSlot::Top,
+                2,
+                5,
+                0,
+                ColorU::new(0, 0, 0, 115),
+                true,
+            )),
+            CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Right)),
+            CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Bottom)),
+        ],
+        FloraButtonKind::Standard | FloraButtonKind::Illuminated => {
+            let mut v = decl::themed_layers(
+                alloc::vec![PRESSED_FACE_LIGHT],
+                alloc::vec![PRESSED_FACE_DARK],
+            )
+            .to_vec();
+            v.extend(themed_shadow_in(
+                ShadowSlot::Top,
+                (1, 3, 0),
+                ColorU::new(48, 45, 38, 46),
+                ColorU::new(0, 0, 0, 115),
+                true,
+            ));
+            v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Right)));
+            v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Bottom)));
+            v
+        }
     }
-    let (light, dark) = if button_type.surface() == ButtonSurface::Neutral {
-        (vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK])
-    } else {
-        let (_, _, active) = crate::widgets::button::get_button_colors(button_type);
-        (sunken_stone_face(active), sunken_stone_face(active))
-    };
-    CssPropertyWithConditions::themed(layers(light), layers(dark)).to_vec()
 }
 
 // ==== rich_text_editor ====
