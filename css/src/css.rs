@@ -2120,11 +2120,15 @@ impl CssPath {
     /// the mount root alone: the UA body margin survived on every child and
     /// each reftest page rendered shifted by 8px against the browser.
     pub fn push_front_scope_for(&mut self, start: usize, end: usize, node_only_bare_global: bool) {
-        let is_bare_global = self.selectors.as_ref().len() == 1
-            && matches!(
-                self.selectors.as_ref().first(),
-                Some(CssPathSelector::Global)
-            );
+        // The wrapper `*`, alone or with pseudo-classes only: `with_css`'s
+        // nested `:hover { .. }` block is `*:hover` - the OWNER's hover, as
+        // inline as the declarations around it. Scoped to the subtree it
+        // matched every hovered child too.
+        let selectors = self.selectors.as_ref();
+        let is_bare_global = matches!(selectors.first(), Some(CssPathSelector::Global))
+            && selectors[1..]
+                .iter()
+                .all(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
         let range = if is_bare_global && node_only_bare_global {
             CssScopeRange { start, end: start }
         } else {
@@ -4014,6 +4018,38 @@ mod autotest_generated {
                 CssPathSelector::Global,
             ][..],
             "inline style must not leak past the owner node (#47)"
+        );
+    }
+
+    #[test]
+    fn push_front_scope_scopes_an_inline_state_block_to_the_node_only() {
+        // `Dom::with_css("background: a; :hover { background: b }")`: the
+        // nested block is `*:hover` - the OWNER's hover, inline semantics like
+        // the bare `*` around it. Scoped to the whole subtree it matched every
+        // hovered CHILD as well, so hovering a toolbar tool's label gave the
+        // label the tool's hover face (AzDrive, AzNews).
+        for pseudo in [CssPathPseudoSelector::Hover, CssPathPseudoSelector::Active] {
+            let mut p = CssPath::new(vec![
+                CssPathSelector::Global,
+                CssPathSelector::PseudoSelector(pseudo.clone()),
+            ]);
+            p.push_front_scope_for(5, 9, true);
+            assert_eq!(
+                p.selectors.as_ref()[0],
+                CssPathSelector::Root(CssScopeRange { start: 5, end: 5 }),
+                "an inline `*:{pseudo:?}` block is the owner's state, not its subtree's"
+            );
+        }
+        // An AUTHOR stylesheet's `*:hover` (a component sheet) is a real rule
+        // over the subtree.
+        let mut p = CssPath::new(vec![
+            CssPathSelector::Global,
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
+        ]);
+        p.push_front_scope_for(5, 9, false);
+        assert_eq!(
+            p.selectors.as_ref()[0],
+            CssPathSelector::Root(CssScopeRange { start: 5, end: 9 })
         );
     }
 

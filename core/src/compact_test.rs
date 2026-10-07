@@ -132,7 +132,9 @@ mod autotest_generated {
         fn ua(&mut self, node_type: &NodeType) {
             apply_ua_css_to_compact(
                 &crate::dom::NodeData::create_node(node_type.clone()),
-                false,
+                // Not the document root, and no VirtualView host to inherit from.
+                1,
+                &[],
                 None,
                 &mut self.tier1,
                 &mut self.dims,
