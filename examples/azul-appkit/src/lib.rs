@@ -9,6 +9,9 @@
 //! - [`data`]: the per-user data layout - one folder per app under the data
 //!   root, keyed as the user's S3 bucket will be.
 //! - [`settings`]: `<app>/settings.json` (app theme, mode, the app's values).
+//! - [`azlin_config`]: `~/.azlin/config.json`, the one config every Azlin app
+//!   shares (`currentTheme`, `mode`): read at the start, written when the look
+//!   changes, so a theme chosen in one app is every app's.
 //! - [`shortcuts`]: the keyboard-shortcut table, `Mod` = Cmd / Ctrl.
 //! - [`about`]: the About facts.
 //! - [`files`]: file jobs (put / get / get-all / delete) on an azul-storage drive.
@@ -42,6 +45,7 @@
 
 pub mod about;
 pub mod args;
+pub mod azlin_config;
 pub mod css;
 pub mod csv;
 pub mod data;
@@ -66,6 +70,7 @@ pub mod ui;
 
 pub use about::AboutInfo;
 pub use args::{AppArgs, AppSpec, ModePref, Theme};
+pub use azlin_config::AzlinConfig;
 pub use files::{FileJob, FileOutcome};
 pub use history::UndoHistory;
 pub use settings::AppSettings;

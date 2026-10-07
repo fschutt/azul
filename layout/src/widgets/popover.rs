@@ -289,17 +289,15 @@ pub(crate) fn build_panel_style() -> CssPropertyWithConditionsVec {
 }
 
 /// The skin an UNPINNED popover is built with, so it follows the app theme:
-/// each theme's dialog skin with that theme's popover panel swapped in (what
-/// `themes::flat::popover` / `themes::flora::popover` do), merged part by
-/// part under `structure` (`dialog::follow_skins`).
+/// flat's dialog skin with its popover panel swapped in, and flora's popover
+/// skin (what `themes::flat::popover` / `themes::flora::popover` build
+/// with), merged part by part under `structure` (`dialog::follow_skins`).
 #[must_use]
 fn follow_popover_skin(structure: UiTheme) -> DialogSkin {
     use crate::widgets::themes::{flat, flora};
     let mut flat_skin = flat::dialog_skin();
     flat_skin.panel = flat::popover_panel_style();
-    let mut flora_skin = flora::dialog_skin();
-    flora_skin.panel = flora::popover_panel_style();
-    follow_skins(structure, flat_skin, flora_skin)
+    follow_skins(structure, flat_skin, flora::popover_skin())
 }
 
 impl Popover {

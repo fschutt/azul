@@ -484,8 +484,8 @@ pub const DARK_ON_ACC: ColorU = ColorU {
 // comma list, whose first layer is on top.
 //
 // Not transcribed, and why:
-// * `--fl-grain` / `--fl-fibre`: `repeating-linear-gradient` with PIXEL stops (`0 1px, transparent
-//   1px 3px`); a stop here is a percentage.
+// * `--fl-fibre`: the one-direction raster (`--fl-grain`, both directions, is the flora ground -
+//   `linen_ground`, now that a stop can sit at a length).
 // * `--fl-rolled-tab`: a `calc()` stop.
 // * The `mask-image` gradients (not backgrounds) and the `.docs-card::after` sheen (a keyframe
 //   animation).
@@ -544,11 +544,6 @@ pub const RAISED_FACE_DARK: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(RAISED_FACE_DARK_STOPS),
     });
 
-/// [`RAISED_FACE_LIGHT`] as a one-layer background, for `const` style slices.
-const RAISED_FACE_LIGHT_LAYER: &[StyleBackgroundContent] = &[RAISED_FACE_LIGHT];
-
-/// [`RAISED_FACE_DARK`] as a one-layer background, for `const` style slices.
-const RAISED_FACE_DARK_LAYER: &[StyleBackgroundContent] = &[RAISED_FACE_DARK];
 
 // -- the hovered face -------------------------------------------------------
 
@@ -785,6 +780,670 @@ pub const ORB_GLOSS: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(ORB_GLOSS_STOPS),
     });
 
+// ==== the house rig: motion, depth, rings, capitals, metal, gems (FLORA11) ====
+//
+// What flora.css and the Azlin design system (the "Interface Specimen", its
+// widget set) build every control from, in one place, so the widgets below
+// read as decisions. Where the two disagree flora.css wins (its neutral
+// ground and ink; the specimen's parchment is not used).
+//
+// * MOTION - "one easing curve and three durations": `--fl-ease`, and
+//   `--fl-dur-slow` (light travelling across a stone), `--fl-dur` (a state
+//   change), `--fl-dur-fast` (a press, "the one fast movement").
+// * DEPTH - a raised face has a lit lip (`inset 0 1px 0`), a shaded foot
+//   (`inset 0 -2px 3px`) and casts `--fl-shadow-1`; pressed, it loses all
+//   three to a well (`inset 0 1px 3px`). azul keeps four shadow slots per
+//   node (`decl::ShadowSlot`): the lip in Top, the foot in Right, the cast
+//   shadow in Bottom, Left free for a ring or a rim.
+// * FOCUS - the keyboard ring is `outline: 2px solid var(--focus-color);
+//   outline-offset: 2px` (a field's: offset 1px, its border in the accent).
+//   azul draws no outline, so the ring is two spread shadows: the accent band
+//   in Left UNDER the gap in Bottom - the leaf the control stands on - which
+//   stands in for the cast shadow while the ring shows ([`double_ring`]).
+// * CAPITALS - "every label set in capitals uses Garamond" (`--font-caps`,
+//   `font-variant: all-small-caps`, tracked out). The bundled EB Garamond
+//   (`text3::ui_fonts`) has no small capitals and azul's CSS no
+//   `font-variant`, so a label is set in uppercase a size step down, bold,
+//   tracked: the specimen's 13.5px small capitals are 11px capitals here
+//   ([`caps`]).
+// * METAL - brass lives on borders only. The leaf (`--fl-leaf-a/b`: two
+//   radial passes clipped to the border box) runs ALONG the edge, which takes
+//   a per-layer `background-clip` azul does not have; a leafed edge is cut
+//   as four brass tones instead, lit along the top and left where the light
+//   enters, falling to the turn colour and its shade on the right and bottom
+//   ([`leaf_edge`]). On hover "the metal edge comes up": a 1px gold rim and
+//   a gold bloom (`0 0 0 1px rgba(214,197,140,.55)`, `0 0 14px
+//   rgba(214,197,140,.32)`, [`metal_comes_up`]).
+// * STONES - the accent stone is `--fl-gem` (a radial cut lit at 30% 12%:
+//   glow, stone, deep) under the rig flora.css lays on every stone (the bloom
+//   off the upper-left corner, the shadow each lit edge casts, the far corner
+//   falling away, the specular streak); pressed, it sinks to
+//   `--fl-gem-sunken` under the sunken rig ([`raised_stone`],
+//   [`sunken_stone`]). Every semantic stone (leaf, clay, amber, slate) is cut
+//   the same way from its own colours, and the accent's is the theme's: a
+//   spin (`flora:green`, ...) recuts it (`themes::spin`).
+
+use super::decl::{no_shadow_in, shadow_in, ShadowSlot};
+
+/// `--fl-dur-slow`: light travelling across a stone.
+pub const FL_DUR_SLOW_MS: u32 = 1200;
+/// `--fl-dur`: a state change.
+pub const FL_DUR_MS: u32 = 420;
+/// `--fl-dur-fast`: a press.
+pub const FL_DUR_FAST_MS: u32 = 140;
+
+/// `--fl-ease`: `cubic-bezier(0.25, 0.46, 0.45, 0.94)`, in permille.
+pub const FL_EASE: azul_css::props::basic::animation::AnimationTiming =
+    azul_css::props::basic::animation::AnimationTiming::CubicBezier(
+        azul_css::props::basic::animation::AnimationTimingBezier {
+            x1: 250,
+            y1: 460,
+            x2: 450,
+            y2: 940,
+        },
+    );
+
+/// What a flora control's face is made of - what its fade tweens: the fill,
+/// the four border colours, the ink and the four shadow slots (a shadow
+/// switches half way; a face whose layers pair up tweens colour by colour).
+pub(crate) const FLORA_FACE: &[&str] = &[
+    "background",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "color",
+    "-azul-box-shadow-left",
+    "-azul-box-shadow-right",
+    "-azul-box-shadow-top",
+    "-azul-box-shadow-bottom",
+];
+
+/// The fade a flora control declares - `decl::state_fade` on flora's curve:
+/// `props` follow the pointer over `ms` on `--fl-ease`, and a press takes
+/// `--fl-dur-fast` ("a face that was lit on top flips to lit on the bottom
+/// in --fl-dur-fast, then eases back out over --fl-dur when released").
+#[must_use]
+pub(crate) fn flora_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithConditions; 2] {
+    use azul_css::props::{
+        basic::{
+            animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec},
+            time::CssDuration,
+        },
+        property::StyleAnimationVecValue,
+    };
+    let list = |duration: u32| {
+        CssProperty::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
+            props
+                .iter()
+                .map(|name| StyleAnimation {
+                    name: AzString::from_const_str(*name),
+                    duration: CssDuration::from_millis(duration),
+                    delay: CssDuration::from_millis(0),
+                    iterations: AnimationIterationCount::Count(1),
+                    timing: FL_EASE,
+                    clip: true,
+                })
+                .collect(),
+        )))
+    };
+    [
+        CssPropertyWithConditions::simple(list(ms)),
+        CssPropertyWithConditions::on_active(list(FL_DUR_FAST_MS)),
+    ]
+}
+
+/// White at `a`: a lit lip.
+const fn white(a: u8) -> ColorU {
+    ColorU::new(255, 255, 255, a)
+}
+
+/// One shadow in `slot` with its night twin right after it.
+fn themed_shadow_in(
+    slot: ShadowSlot,
+    (offset_y, blur, spread): (isize, isize, isize),
+    light: ColorU,
+    dark: ColorU,
+    inset: bool,
+) -> [CssPropertyWithConditions; 2] {
+    CssPropertyWithConditions::themed(
+        shadow_in(slot, offset_y, blur, spread, light, inset),
+        shadow_in(slot, offset_y, blur, spread, dark, inset),
+    )
+}
+
+/// `--fl-lip` and `--fl-shadow-1`: a raised paper face's lit lip
+/// (`inset 0 1px 0`), shaded foot (`inset 0 -2px 3px`) and cast shadow
+/// (`0 1px 2px`), by day and at night.
+#[must_use]
+pub(crate) fn raised_depth() -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::with_capacity(6);
+    v.extend(themed_shadow_in(ShadowSlot::Top, (1, 0, 0), white(179), white(23), true));
+    v.extend(themed_shadow_in(
+        ShadowSlot::Right,
+        (-2, 3, 0),
+        ColorU::new(48, 45, 38, 26),
+        ColorU::new(0, 0, 0, 102),
+        true,
+    ));
+    v.extend(themed_shadow_in(
+        ShadowSlot::Bottom,
+        (1, 2, 0),
+        ColorU::new(48, 45, 38, 36),
+        ColorU::new(0, 0, 0, 140),
+        false,
+    ));
+    v
+}
+
+/// A raised face pressed: the lip and the foot give way to a well
+/// (`inset 0 1px 3px rgba(48,45,38,.18)`) and nothing is cast.
+#[must_use]
+pub(crate) fn pressed_depth() -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::with_capacity(4);
+    v.extend(CssPropertyWithConditions::themed_on_active(
+        shadow_in(ShadowSlot::Top, 1, 3, 0, ColorU::new(48, 45, 38, 46), true),
+        shadow_in(ShadowSlot::Top, 1, 3, 0, ColorU::new(0, 0, 0, 115), true),
+    ));
+    v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Right)));
+    v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Bottom)));
+    v
+}
+
+/// The keyboard ring: a 2px accent band `gap` px off the border - `--fl-acc`
+/// by day, `--fl-glow` at night (flora.css's night `--focus-color`: the stone
+/// itself stands 1.8:1 off the night leaf) - over a gap in the leaf's own
+/// colour. 2 for a command (`outline-offset: 2px`), 1 for a field.
+#[must_use]
+pub(crate) fn double_ring(gap: isize) -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::with_capacity(4);
+    v.extend(CssPropertyWithConditions::themed_on_focus(
+        shadow_in(ShadowSlot::Left, 0, 0, gap + 2, LIGHT_ACC, false),
+        shadow_in(ShadowSlot::Left, 0, 0, gap + 2, DARK_GLOW, false),
+    ));
+    v.extend(CssPropertyWithConditions::themed_on_focus(
+        shadow_in(ShadowSlot::Bottom, 0, 0, gap, LIGHT_SUR, false),
+        shadow_in(ShadowSlot::Bottom, 0, 0, gap, DARK_SUR, false),
+    ));
+    v
+}
+
+/// `0 0 0 1px rgba(214, 197, 140, 0.55)`: the gold rim.
+const GOLD_RIM: ColorU = ColorU::new(214, 197, 140, 140);
+/// `0 0 14px rgba(214, 197, 140, 0.32)`: the gold bloom.
+const GOLD_BLOOM: ColorU = ColorU::new(214, 197, 140, 82);
+
+/// "The metal edge comes up as the face turns toward the light": on hover a
+/// stone or a leafed command takes the gold rim (Left) and the gold bloom
+/// (Bottom, in place of its cast shadow). The same by night - brass is the
+/// one thing in the dark room still catching the light.
+#[must_use]
+pub(crate) fn metal_comes_up() -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        CssPropertyWithConditions::on_hover(shadow_in(ShadowSlot::Left, 0, 0, 1, GOLD_RIM, false)),
+        CssPropertyWithConditions::on_hover(shadow_in(
+            ShadowSlot::Bottom,
+            0,
+            14,
+            0,
+            GOLD_BLOOM,
+            false
+        )),
+    ]
+}
+
+/// A leafed edge by day: top, right, bottom, left - lit along the top and
+/// left (`--fl-rolled`'s `#E4DCB8` falling to the turn colour), the turn
+/// colour's shade on the right and the dark brass of `--fl-leaf-b` along the
+/// bottom.
+const LEAF_EDGE_LIGHT: [ColorU; 4] = [
+    ColorU::rgb(0xD3, 0xC3, 0x8E),
+    ColorU::rgb(0x8B, 0x80, 0x58),
+    ColorU::rgb(0x7A, 0x70, 0x52),
+    ColorU::rgb(0xB9, 0xA8, 0x74),
+];
+
+/// The leafed edge at night: "the brass warms up" (`--color-gold` #C4B58E).
+const LEAF_EDGE_DARK: [ColorU; 4] = [
+    ColorU::rgb(0xD6, 0xC6, 0x90),
+    ColorU::rgb(0x9A, 0x8B, 0x5F),
+    ColorU::rgb(0x8B, 0x7D, 0x55),
+    ColorU::rgb(0xC4, 0xB5, 0x8E),
+];
+
+/// A border cut from the leaf (see the section note), each edge with its
+/// night twin. Pair it with a 1px border.
+#[must_use]
+pub(crate) fn leaf_edge() -> Vec<CssPropertyWithConditions> {
+    let [t, r, b, l] = LEAF_EDGE_LIGHT;
+    let [dt, dr, db, dl] = LEAF_EDGE_DARK;
+    let mut v = Vec::with_capacity(8);
+    v.extend(super::decl::themed_border_top_color(t, dt));
+    v.extend(super::decl::themed_border_right_color(r, dr));
+    v.extend(super::decl::themed_border_bottom_color(b, db));
+    v.extend(super::decl::themed_border_left_color(l, dl));
+    v
+}
+
+const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
+const GEORGIA_STR: AzString = AzString::from_const_str("Georgia");
+const SERIF_STR: AzString = AzString::from_const_str("serif");
+const CAPS_FAMILIES: &[StyleFontFamily] = &[
+    StyleFontFamily::System(EB_GARAMOND_STR),
+    StyleFontFamily::System(GEORGIA_STR),
+    StyleFontFamily::System(SERIF_STR),
+];
+
+/// `--font-caps`: `'EB Garamond', Georgia, serif` - the bundled face first
+/// (`text3::ui_fonts`), so it holds on every machine.
+pub(crate) const FONT_CAPS: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(CAPS_FAMILIES);
+
+/// A command's capitals: the specimen's 13.5px bold small capitals tracked
+/// .06em, as 11px capitals.
+pub(crate) const CAPS_COMMAND: (isize, f32) = (11, 0.07);
+/// A group or section title (`.fl-label`, the specimen's `h3`): .12em.
+pub(crate) const CAPS_TITLE: (isize, f32) = (11, 0.12);
+/// A field's label over it (the specimen's 11.5px small capitals): .1em.
+pub(crate) const CAPS_LABEL: (isize, f32) = (10, 0.1);
+
+/// A label in flora's capitals, `(px, em)` one of the `CAPS_*` sizes: EB
+/// Garamond, bold, uppercase, tracked out.
+#[must_use]
+pub(crate) fn caps((px, em): (isize, f32)) -> Vec<CssPropertyWithConditions> {
+    alloc::vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
+        super::decl::font_size(px),
+        super::decl::bold(),
+        CssPropertyWithConditions::simple(CssProperty::TextTransform(
+            StyleTextTransform::Uppercase.into(),
+        )),
+        super::decl::letter_spacing_em(em),
+    ]
+}
+
+/// `style` with flora's capitals in place of its own face and size.
+#[must_use]
+pub(crate) fn in_caps(
+    style: &[CssPropertyWithConditions],
+    size: (isize, f32),
+) -> Vec<CssPropertyWithConditions> {
+    let mut v: Vec<CssPropertyWithConditions> = style
+        .iter()
+        .filter(|p| {
+            !matches!(
+                p.property.get_type(),
+                CssPropertyType::FontFamily | CssPropertyType::FontSize
+            )
+        })
+        .cloned()
+        .collect();
+    v.extend(caps(size));
+    v
+}
+
+// -- the stone's rig: the two radial passes the transcription above lacked --
+
+const STONE_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(255, 253, 238, 82)),
+    stop(45, ColorU::new(255, 253, 238, 0)),
+];
+
+/// `.btn-primary::after`, first layer: the bloom just off the upper-left
+/// corner, `radial-gradient(ellipse 58% 150% at 2% -20%, rgba(255,253,238,
+/// .32) 0%, transparent 68%)`. azul's radial sizes are keywords, so the
+/// ellipse is the farthest side's, faded by 45% - about the CSS's reach.
+pub const STONE_BLOOM: StyleBackgroundContent =
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestSide,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(2)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(-20)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_BLOOM_STOPS),
+    });
+
+const STONE_FAR_CORNER_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(12, 10, 4, 102)),
+    stop(45, ColorU::new(12, 10, 4, 0)),
+];
+
+/// `.btn-primary::after`, last layer: the far corner falling away,
+/// `radial-gradient(ellipse 72% 155% at 106% 126%, rgba(12,10,4,.40) 0%,
+/// transparent 66%)`, sized as [`STONE_BLOOM`].
+pub const STONE_FAR_CORNER: StyleBackgroundContent =
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestSide,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(106)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(126)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(STONE_FAR_CORNER_STOPS),
+    });
+
+const SUNKEN_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, ColorU::new(255, 253, 238, 66)),
+    stop(42, ColorU::new(255, 253, 238, 0)),
+];
+
+/// The sunken rig's bloom: `radial-gradient(ellipse 62% 170% at 4% -26%,
+/// rgba(255,253,238,.26) 0%, transparent 62%)` - the light falling INTO the
+/// well.
+pub const SUNKEN_BLOOM: StyleBackgroundContent =
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestSide,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(4)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(-26)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(SUNKEN_BLOOM_STOPS),
+    });
+
+/// `--fl-gem` cut from `stone`: `radial-gradient(ellipse 130% 100% at 30%
+/// 12%, glow 0%, stone 48%, deep 100%)` - lit where the light enters, the
+/// ellipse the farthest corner's (azul's radial sizes are keywords).
+#[must_use]
+pub fn gem(stone: FloraStone) -> StyleBackgroundContent {
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Ellipse,
+        size: RadialGradientSize::FarthestCorner,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(30)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(12)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            stop(0, stone.glow),
+            stop(48, stone.stone),
+            stop(100, stone.deep),
+        ]),
+    })
+}
+
+/// `--fl-gem-sunken` cut from `stone`: `linear-gradient(175deg, deep 0%,
+/// stone 96%)` - a stone pressed into its well.
+#[must_use]
+pub fn gem_sunken(stone: FloraStone) -> StyleBackgroundContent {
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(175),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            stop(0, stone.deep),
+            stop(96, stone.stone),
+        ]),
+    })
+}
+
+/// A raised stone: the gem, then the rig over it - the bloom, the shadow of
+/// the lit top and left edges, the far corner, and the specular streak
+/// (brighter and wider on `hover`, as the face turns toward the light). The
+/// same layers at rest and hovered, so the fade tweens stop by stop.
+#[must_use]
+pub fn raised_stone(stone: FloraStone, hover: bool) -> Vec<StyleBackgroundContent> {
+    alloc::vec![
+        gem(stone),
+        STONE_BLOOM,
+        STONE_RIG_TOP,
+        STONE_RIG_LEFT,
+        STONE_FAR_CORNER,
+        if hover {
+            STONE_STREAK_HOVER
+        } else {
+            STONE_STREAK
+        },
+    ]
+}
+
+/// A stone pressed into its well: the sunken gem under the sunken rig, lit
+/// from below the near edge.
+#[must_use]
+pub fn sunken_stone(stone: FloraStone) -> Vec<StyleBackgroundContent> {
+    alloc::vec![
+        gem_sunken(stone),
+        SUNKEN_BLOOM,
+        SUNKEN_RIG_TOP,
+        SUNKEN_RIG_LEFT,
+        SUNKEN_RIG_BOTTOM,
+    ]
+}
+
+/// A stone's raised depth: `inset 0 1px 0 rgba(255,255,255,.3)`, `inset 0
+/// -2px 4px rgba(0,0,0,.3)` and `--fl-shadow-1` - the stone is its own
+/// colour by night too, only the cast shadow deepens.
+fn stone_depth() -> Vec<CssPropertyWithConditions> {
+    let mut v = alloc::vec![
+        CssPropertyWithConditions::simple(shadow_in(ShadowSlot::Top, 1, 0, 0, white(77), true)),
+        CssPropertyWithConditions::simple(shadow_in(
+            ShadowSlot::Right,
+            -2,
+            4,
+            0,
+            ColorU::new(0, 0, 0, 77),
+            true
+        )),
+    ];
+    v.extend(themed_shadow_in(
+        ShadowSlot::Bottom,
+        (1, 2, 0),
+        ColorU::new(48, 45, 38, 36),
+        ColorU::new(0, 0, 0, 140),
+        false,
+    ));
+    v
+}
+
+/// `text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3)`: the paper ink cut into a
+/// stone.
+fn stone_text_shadow() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::TextShadow(
+        azul_css::css::CssPropertyValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::const_px(1),
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(1),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::const_px(0),
+            },
+            clip_mode: BoxShadowClipMode::Outset,
+            color: ColorU::new(0, 0, 0, 77),
+        })),
+    ))
+}
+
+/// What a button IS in flora's vocabulary - its meaning, never a colour
+/// (flora.css's BUTTONS block and the specimen's row): the accent is the
+/// theme's (a spin's), not the button's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FloraButtonKind {
+    /// `.btn-secondary`: raised paper, the everyday command (`Default`,
+    /// `Secondary`).
+    Standard,
+    /// A stone: `.btn-primary` cut from the accent (`Primary` - one per view,
+    /// the thing to do next), or a semantic stone cut the same way (`Success`
+    /// leaf, `Danger` clay, `Warning` amber, `Info` slate).
+    Stone(FloraStone),
+    /// `.btn-hero-primary`: paper in a metal edge, rare (`Illuminated`).
+    Illuminated,
+    /// `.btn-quiet`: brass ink with a rule under it - "a note, not a
+    /// control" (`Link`).
+    Quiet,
+}
+
+impl FloraButtonKind {
+    /// The kind a button type means.
+    #[must_use]
+    pub(crate) const fn of(t: crate::widgets::button::ButtonType) -> Self {
+        use crate::widgets::button::ButtonType;
+        match t {
+            ButtonType::Default | ButtonType::Secondary => Self::Standard,
+            ButtonType::Primary => Self::Stone(STONE_ACCENT),
+            ButtonType::Success => Self::Stone(STONE_LEAF),
+            ButtonType::Danger => Self::Stone(STONE_CLAY),
+            ButtonType::Warning => Self::Stone(STONE_AMBER),
+            ButtonType::Info => Self::Stone(STONE_SLATE),
+            ButtonType::Illuminated => Self::Illuminated,
+            ButtonType::Link => Self::Quiet,
+        }
+    }
+}
+
+/// A flora command's resting face, light value then night twin, property by
+/// property: the face, the edge, the ink and the depth. `boxed`: whether a
+/// quiet command has a label (an icon-only one is bare glyph - the media
+/// controls' transport keys).
+#[must_use]
+fn flora_button_face(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(24);
+    match kind {
+        FloraButtonKind::Standard => {
+            v.extend(decl::themed_layers(
+                alloc::vec![RAISED_FACE_LIGHT],
+                alloc::vec![RAISED_FACE_DARK],
+            ));
+            v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+            v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+            v.extend(raised_depth());
+        }
+        FloraButtonKind::Stone(stone) => {
+            v.push(CssPropertyWithConditions::simple(layers(raised_stone(stone, false))));
+            v.extend(decl::border_colors(stone.deep).map(CssPropertyWithConditions::simple));
+            v.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
+            v.push(stone_text_shadow());
+            v.extend(stone_depth());
+        }
+        FloraButtonKind::Illuminated => {
+            v.extend(decl::themed_layers(
+                alloc::vec![RAISED_FACE_LIGHT],
+                alloc::vec![RAISED_FACE_DARK],
+            ));
+            v.extend(leaf_edge());
+            v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+            v.extend(raised_depth());
+        }
+        FloraButtonKind::Quiet => {
+            v.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+            v.push(CssPropertyWithConditions::simple(CssProperty::TextDecoration(
+                StyleTextDecoration::Underline.into(),
+            )));
+            if boxed {
+                // `.btn-quiet`: the faintest paper (`--fl-rT` falling to
+                // `--fl-fld2`) in a separator's hairline, a lit lip, no foot.
+                v.extend(decl::border(1));
+                v.extend(decl::themed_layers(
+                    alloc::vec![decl::face(LIGHT_RT, LIGHT_FLD2)],
+                    alloc::vec![decl::face(DARK_RT, DARK_FLD2)],
+                ));
+                v.extend(decl::themed_border_color(LIGHT_SEP, DARK_SEP));
+                v.extend(themed_shadow_in(ShadowSlot::Top, (1, 0, 0), white(140), white(18), true));
+            }
+        }
+    }
+    v
+}
+
+/// A flora command's hover and pressed states (not its focus ring: that is
+/// [`double_ring`], pushed after these so it wins the shared slots).
+#[must_use]
+fn flora_button_states(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(20);
+    match kind {
+        FloraButtonKind::Standard => {
+            v.extend(decl::hover_layers(
+                alloc::vec![HOVER_FACE_LIGHT],
+                alloc::vec![HOVER_FACE_DARK],
+            ));
+            v.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+            v.extend(decl::active_layers(
+                alloc::vec![PRESSED_FACE_LIGHT],
+                alloc::vec![PRESSED_FACE_DARK],
+            ));
+            v.extend(pressed_depth());
+        }
+        FloraButtonKind::Stone(stone) => {
+            v.push(CssPropertyWithConditions::on_hover(layers(raised_stone(stone, true))));
+            v.extend(metal_comes_up());
+            v.push(CssPropertyWithConditions::on_active(layers(sunken_stone(stone))));
+            // The well a pressed stone sits in: `inset 0 2px 5px
+            // rgba(0,0,0,.45)`, nothing cast, no rim.
+            v.push(CssPropertyWithConditions::on_active(shadow_in(
+                ShadowSlot::Top,
+                2,
+                5,
+                0,
+                ColorU::new(0, 0, 0, 115),
+                true,
+            )));
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Right)));
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Bottom)));
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Left)));
+        }
+        FloraButtonKind::Illuminated => {
+            v.extend(decl::hover_layers(
+                alloc::vec![HOVER_FACE_LIGHT],
+                alloc::vec![HOVER_FACE_DARK],
+            ));
+            v.extend(metal_comes_up());
+            v.extend(decl::active_layers(
+                alloc::vec![PRESSED_FACE_LIGHT],
+                alloc::vec![PRESSED_FACE_DARK],
+            ));
+            v.extend(pressed_depth());
+            v.push(CssPropertyWithConditions::on_active(no_shadow_in(ShadowSlot::Left)));
+        }
+        FloraButtonKind::Quiet => {
+            v.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+            if boxed {
+                v.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
+            }
+        }
+    }
+    v
+}
+
+/// The face a disabled flora command shows (`.btn[disabled]`): the disabled
+/// paper (`--fl-disBg`), its ink (`--fl-disTx`) and the lightest edge
+/// (`--fl-bd4`), flat - no lip, no cast shadow, no stone, no rim. A quiet
+/// command only fades its ink.
+#[must_use]
+fn flora_disabled_face(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(16);
+    if kind == FloraButtonKind::Quiet && !boxed {
+        v.extend(decl::themed_ink(LIGHT_DISTX, DARK_DISTX));
+        return v;
+    }
+    v.extend(decl::themed_fill(LIGHT_DISBG, DARK_DISBG));
+    v.extend(decl::themed_ink(LIGHT_DISTX, DARK_DISTX));
+    v.extend(decl::themed_border_color(LIGHT_BD4, DARK_BD4));
+    for slot in [ShadowSlot::Right, ShadowSlot::Top, ShadowSlot::Bottom] {
+        v.push(CssPropertyWithConditions::simple(no_shadow_in(slot)));
+    }
+    v.push(CssPropertyWithConditions::simple(CssProperty::TextShadow(
+        azul_css::css::CssPropertyValue::None,
+    )));
+    v
+}
+
+/// The flora command (flora.css's BUTTONS, the specimen's button row): one of
+/// four kinds - raised paper, a stone, paper in a metal edge, a quiet note
+/// ([`FloraButtonKind`]) - in five states: rest, hover (the face lifts; on a
+/// stone the metal comes up), pressed (sunken, at once), focus (the double
+/// ring) and disabled (the disabled paper). Its label is set in flora's
+/// capitals. Every state change fades on `--fl-ease`: `--fl-dur` for paper,
+/// `--fl-dur-slow` for light moving across a stone.
 #[must_use]
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
@@ -803,6 +1462,7 @@ pub fn button(btn: Button) -> Dom {
     };
 
     let btn_type = btn.button_type;
+    let kind = FloraButtonKind::of(btn_type);
     // The states `Button::with_disabled` / `with_toggled` asked for.
     let toggled_on = btn.toggled == azul_css::OptionBool::Some(true);
     let disabled = btn.is_disabled();
@@ -818,6 +1478,9 @@ pub fn button(btn: Button) -> Dom {
     let has_icon = !btn.icon.as_str().is_empty() || btn.icon_dom.is_some();
     let has_image = btn.image.is_some();
     let has_trailing_icon = !btn.trailing_icon.as_str().is_empty();
+    // A command with words takes flora's box and capitals; an icon-only one
+    // (a transport key, a toolbar glyph) keeps the widget's own metrics.
+    let has_label = !btn.label.as_str().is_empty();
 
     // Resolved before `btn`'s fields are moved into the tree below.
     let btn_container_style = btn.resolved_container_style();
@@ -828,7 +1491,16 @@ pub fn button(btn: Button) -> Dom {
     // resolution is last-match) and paint the theme's greys over the ribbon's
     // blue. So the theme adds to its OWN default only.
     let btn_owns_style = btn.container_style.as_ref().is_none();
-    let btn_label_style = btn.resolved_label_style();
+    // The same for the label: the widget's default face and size give way to
+    // flora's capitals; a caller's label style is taken as it is.
+    let btn_label_style = if btn.label_style.as_ref().is_none() {
+        CssPropertyWithConditionsVec::from_vec(in_caps(
+            btn.resolved_label_style().as_slice(),
+            CAPS_COMMAND,
+        ))
+    } else {
+        btn.resolved_label_style()
+    };
     let btn_image_style = btn.resolved_image_style();
     let btn_icon_style = btn.resolved_icon_style();
     let btn_trailing_icon_style = btn.resolved_trailing_icon_style();
@@ -880,94 +1552,48 @@ pub fn button(btn: Button) -> Dom {
         a11y.accessibility_name = Some(AzString::from(a11y_name)).into();
     }
 
-    // Add dark mode colors to container style
     let mut container_style: Vec<CssPropertyWithConditions> =
         btn_container_style.as_slice().to_vec();
 
     if btn_owns_style {
-        // The resting face, in flora.css's terms. The standard command is raised
-        // paper (`.btn-secondary`: `linear-gradient(var(--fl-rT), var(--fl-rB))`),
-        // with its dark twin. A coloured command is a stone: its own colour in
-        // both modes, under the depth rig and the streak the CSS lays on its
-        // accent stone. The Link button has no surface and keeps what it had, the
-        // dark surface included. It is part of the BASE: after the widget's flat
-        // fill, which it wins over, and before the states, which win over it.
-        {
-            use crate::widgets::button::ButtonType;
-            match btn_type {
-                ButtonType::Default => {
-                    container_style.push(CssPropertyWithConditions::simple(layers(vec![
-                        RAISED_FACE_LIGHT,
-                    ])));
-                    container_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
-                        RAISED_FACE_DARK,
-                    ])));
-                }
-                ButtonType::Link => {
-                    container_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
-                        StyleBackgroundContent::Color(DARK_SUR),
-                    ])));
-                }
-                _ => {
-                    let (bg, _, _) = crate::widgets::button::get_button_colors(btn_type);
-                    container_style.push(CssPropertyWithConditions::simple(layers(stone_face(
-                        bg,
-                        STONE_STREAK,
-                    ))));
-                }
-            }
+        // The house radius (`--fl-r`), and for a command with words the
+        // specimen's box: 4px over and under the capitals, 12px either side.
+        container_style.extend(super::decl::radius(3));
+        if has_label {
+            container_style.extend(super::decl::padding(4, 12, 4, 12));
         }
-
-        // Dark ink and dark borders belong to the NEUTRAL surface (raised
-        // paper); a coloured stone keeps its own text and edge colours in
-        // both modes, and the link has no face to border. Same rule as the
-        // resting face above, from the one place it lives:
-        // `ButtonType::surface`.
-        if btn_type.surface() == crate::widgets::button::ButtonSurface::Neutral {
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
-            ));
-            container_style.push(CssPropertyWithConditions::dark_mode(
-                CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
-            ));
-        }
-
-        // Here we could wrap the button in decorative DOM nodes for the skeumorphic flora look.
-        // For now, we apply basic properties to test the theming engine.
-
-        // A toggled-on button rests on its pressed face - a resting face with
-        // its dark twin, so before the states like the faces above.
-        if toggled_on {
+        // The resting face - after the widget's flat fill, which it wins
+        // over, and before the states, which win over it. Each light value
+        // with its night twin right after it.
+        container_style.extend(flora_button_face(kind, has_label));
+        // A toggled-on command rests on its pressed face.
+        if toggled_on && !disabled {
             container_style.extend(button_toggled_face(btn_type));
         }
-
-        // The interactive states go LAST. Inline declarations resolve last-match
-        // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
-        // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
-        // would shadow it — no ring, no hover face, in dark mode.
-        container_style.extend(button_states(btn_type));
-        // The face follows the pointer in a short fade and darkens the
-        // instant it is pressed (`decl::state_fade`). A link only underlines.
-        if btn_type != crate::widgets::button::ButtonType::Link {
-            container_style.extend(super::decl::state_fade(
-                super::decl::BUTTON_FACE,
-                super::decl::BUTTON_FADE_MS,
-            ));
+        if disabled {
+            // The disabled paper, and no hover or pressed paint at all.
+            container_style.extend(flora_disabled_face(kind, has_label));
+        } else {
+            // The interactive states go LAST. Inline declarations resolve
+            // last-match wins and a `dark_mode(..)` rule matches in every
+            // pseudo-state, so a dark resting value pushed after a
+            // `dark_on_hover` twin would shadow it.
+            container_style.extend(flora_button_states(kind, has_label));
+            // Light moves across a stone slowly; paper changes state at the
+            // house pace. A press is quick either way (`flora_fade`).
+            let ms = if matches!(kind, FloraButtonKind::Stone(_)) {
+                FL_DUR_SLOW_MS
+            } else {
+                FL_DUR_MS
+            };
+            container_style.extend(flora_fade(FLORA_FACE, ms));
         }
-    }
-
-    // A disabled button has no hover / pressed paint and is dimmed - whoever
-    // owns the style (a ribbon button hands in its own).
-    if disabled {
+        // The keyboard ring, last: it wins the Left and Bottom slots over a
+        // hovered rim and a pressed well. A disabled command keeps its stop.
+        container_style.extend(double_ring(2));
+    } else if disabled {
+        // A caller's style (a ribbon button's): no hover / pressed paint,
+        // dimmed - the shared rule.
         container_style = crate::widgets::button::disabled_style(&container_style);
     }
 
@@ -979,10 +1605,179 @@ pub fn button(btn: Button) -> Dom {
         .with_accessibility_info(a11y)
 }
 
+// ==== fields and marks (FLORA11) ====
+//
+// The design system's INPUT: field paper (`--fl-fld`) in a `--fl-bd2`
+// hairline at the house radius, sunk by `--fl-well`, written in Garamond. The
+// rule darkens to `--fl-bd3` under the pointer. Focused, the edge takes the
+// accent, the paper lifts (`--fl-hT`) and the double ring stands one pixel
+// off it (`outline: 2px solid var(--acc); outline-offset: 1px`). A check
+// box, a radio well and a drop-down's closed field are cut from the same
+// paper; a mark set into one (a tick, a dot, a filled track) is the accent
+// stone.
+
+/// `--fl-well`: `inset 0 1px 2px rgba(48,45,38,.10)`, at night
+/// `rgba(0,0,0,.45)`, in the lip's slot (Top).
+#[must_use]
+pub(crate) fn well() -> [CssPropertyWithConditions; 2] {
+    themed_shadow_in(
+        ShadowSlot::Top,
+        (1, 2, 0),
+        ColorU::new(48, 45, 38, 26),
+        ColorU::new(0, 0, 0, 115),
+        true,
+    )
+}
+
+/// `--font-serif`: running text in flora is Garamond too - the same stack as
+/// the capitals, set upright.
+pub(crate) const SERIF_FAMILY: StyleFontFamilyVec = FONT_CAPS;
+
+/// A flora field at rest: a solid 1px `--fl-bd2` rule at the house radius
+/// around field paper, sunk by the well, in the house ink - each light value
+/// with its night twin.
+#[must_use]
+pub(crate) fn field_skin() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(28);
+    v.extend(decl::border(1));
+    v.extend(decl::radius(3));
+    v.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    v.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    v.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    v.extend(well());
+    v
+}
+
+/// A flora field's states: the rule darkening under the pointer; focused,
+/// the accent edge, the lifted paper and the double ring a pixel off it.
+/// Push after [`field_skin`] (and after any dark resting value).
+#[must_use]
+pub(crate) fn field_states() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(20);
+    v.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+    v.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+    v.extend(CssPropertyWithConditions::themed_on_focus(
+        decl::fill(LIGHT_HT),
+        decl::fill(DARK_FLD2),
+    ));
+    v.extend(double_ring(1));
+    v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
+    v
+}
+
+/// The checked mark of a flora check box: the stone itself - the accent
+/// falling to its deep tone (`linear-gradient(acc, deep)`), edged in the deep
+/// tone - laid over the whole box, edge included, so the click that only shows
+/// or hides it (`check_box::input`, by opacity) turns the empty paper box into
+/// the filled one. Its tick is [`check_tick`].
+#[must_use]
+fn check_mark_skin() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(24);
+    v.push(decl::position(LayoutPosition::Absolute));
+    v.push(decl::px_top(-1.0));
+    v.push(decl::px_left(-1.0));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_box_sizing(
+        LayoutBoxSizing::BorderBox,
+    )));
+    v.push(decl::px_width(15.0));
+    v.push(decl::px_height(15.0));
+    v.push(decl::display_flex());
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_align_items(
+        LayoutAlignItems::Center,
+    )));
+    v.extend(decl::border(1));
+    v.extend(decl::radius(3));
+    v.extend(decl::border_colors(LIGHT_DEEP).map(CssPropertyWithConditions::simple));
+    v.push(CssPropertyWithConditions::simple(layers(alloc::vec![super::decl::face(
+        LIGHT_ACC, LIGHT_DEEP
+    )])));
+    v
+}
+
+const CHECK_TICK_ROTATION: &[StyleTransform] =
+    &[StyleTransform::Rotate(AngleValue::const_deg(45))];
+
+/// The tick in a checked box: two strokes of the paper ink (`--fl-on-acc`), an
+/// L turned 45 degrees - drawn, so it needs no glyph from the font.
+#[must_use]
+fn check_tick() -> Dom {
+    use super::decl;
+    let mut v = Vec::with_capacity(10);
+    v.push(decl::px_width(4.0));
+    v.push(decl::px_height(8.0));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_margin_top(
+        LayoutMarginTop::const_px(-2),
+    )));
+    v.extend(decl::border_right(2));
+    v.extend(decl::border_bottom(2));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: LIGHT_ON_ACC,
+        },
+    )));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: LIGHT_ON_ACC,
+        },
+    )));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_transform(
+        StyleTransformVec::from_const_slice(CHECK_TICK_ROTATION),
+    )));
+    Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(v))
+}
+
+/// The knob of a flora switch and the thumb of a flora slider: a bead of
+/// paper, `radial-gradient(circle at 35% 30%, #FDFAF1, #CFC4AD)`.
+#[must_use]
+fn paper_bead() -> StyleBackgroundContent {
+    StyleBackgroundContent::RadialGradient(RadialGradient {
+        shape: Shape::Circle,
+        size: RadialGradientSize::FarthestCorner,
+        position: StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(35)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(30)),
+        },
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            stop(0, ColorU::rgb(0xFD, 0xFA, 0xF1)),
+            stop(100, ColorU::rgb(0xCF, 0xC4, 0xAD)),
+        ]),
+    })
+}
+
+/// A flora switch's track face, on (the stone: the accent falling to its
+/// deep tone, in the theme's - a spin's - accent) or off (the trough,
+/// `--fl-track` falling to `--fl-fld2`, by day or at night). Read by the
+/// switch's click handler, which writes the face it toggles to.
+#[must_use]
+pub(crate) fn switch_track_face(checked: bool, dark: bool) -> StyleBackgroundContentVec {
+    let face = if checked {
+        let ramp = super::spin::FloraSpin::current().ramp();
+        super::decl::face(ramp.acc, ramp.deep)
+    } else if dark {
+        super::decl::face(DARK_TRACK, DARK_FLD2)
+    } else {
+        super::decl::face(LIGHT_TRACK, LIGHT_FLD2)
+    };
+    StyleBackgroundContentVec::from_vec(alloc::vec![face])
+}
+
 use crate::widgets::check_box::CheckBox;
 
+/// The flora check box (the design system's selection card): a 15px box of
+/// field paper in a `--fl-bd2` rule at the house radius, sunk by the well;
+/// checked, the stone fills it, edged in the deep tone, a paper-ink tick cut
+/// into it. The rule darkens under the pointer; focused, the double ring.
+/// A caller's container or mark style is taken as it is.
 #[must_use]
 pub fn check_box(cb: CheckBox) -> Dom {
+    use super::decl;
     let cb_name = cb.accessibility_name.clone();
     crate::widgets::warn_widget_needs_a_name("check_box", cb_name.is_some());
 
@@ -993,24 +1788,59 @@ pub fn check_box(cb: CheckBox) -> Dom {
         dom::{EventFilter, HoverEventFilter},
     };
 
+    let owns_container = cb.container_style.as_ref().is_none();
+    let owns_mark = cb.content_style.as_ref().is_none();
+
     let mut container_style: Vec<CssPropertyWithConditions> =
         cb.resolved_container_style().as_slice().to_vec();
-    container_style.push(CssPropertyWithConditions::dark_mode(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
+    if owns_container {
+        container_style.push(decl::position(LayoutPosition::Relative));
+        container_style.push(decl::px_width(13.0));
+        container_style.push(decl::px_height(13.0));
+        container_style.extend(decl::padding(0, 0, 0, 0));
+        container_style.extend(decl::border(1));
+        container_style.extend(decl::radius(3));
+        container_style.extend(decl::themed_layers(
+            vec![decl::face(LIGHT_FLD, LIGHT_FLD2)],
+            vec![decl::face(DARK_FLD, DARK_FLD2)],
+        ));
+        container_style.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+        container_style.extend(well());
+        // States last.
+        container_style.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+        container_style.extend(double_ring(2));
+    } else {
+        container_style.push(CssPropertyWithConditions::dark_mode(
+            CssProperty::BackgroundContent(
+                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
+                    DARK_SUR,
+                )])
                 .into(),
-        ),
-    ));
-    let is_checked = cb.check_box_state.inner.checked;
+            ),
+        ));
+    }
     let mut content_style: Vec<CssPropertyWithConditions> =
         cb.resolved_content_style().as_slice().to_vec();
-    if checked_now {
+    if owns_mark {
+        // The widget's default (its size, its opacity - what the click
+        // toggles), then the stone over it.
+        content_style.extend(check_mark_skin());
+    } else if checked_now {
         content_style.push(CssPropertyWithConditions::dark_mode(
             CssProperty::BackgroundContent(
                 StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_INK)])
                     .into(),
             ),
         ));
+    }
+
+    let mut mark = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from(
+            crate::widgets::check_box::CHECKBOX_CONTENT_CLASS,
+        ))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(content_style));
+    if owns_mark {
+        mark = mark.with_child(check_tick());
     }
 
     Dom::create_div()
@@ -1040,14 +1870,7 @@ pub fn check_box(cb: CheckBox) -> Dom {
             }),
             ..Default::default()
         })
-        .with_children(
-            vec![Dom::create_div()
-                .with_ids_and_classes(IdOrClassVec::from(
-                    crate::widgets::check_box::CHECKBOX_CONTENT_CLASS,
-                ))
-                .with_css_props(CssPropertyWithConditionsVec::from_vec(content_style))]
-            .into(),
-        )
+        .with_children(vec![mark].into())
 }
 
 use crate::widgets::text_input::{
@@ -1096,44 +1919,56 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     // of the resolver is that flat and flora cannot drift on this answer.
     let resolved_container_style = ti.resolved_container_style();
     let resolved_label_style = ti.resolved_label_style();
+    let owns_container = ti.container_style.as_ref().is_none();
+    let owns_label = ti.label_style.as_ref().is_none();
 
     let state_ref = RefAny::new(ti.text_input_state);
 
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
-                .into(),
-        ),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
-    ));
-
-    // The interactive states the widget no longer declares. Appended LAST —
-    // after the base style and after the theme's own dark resting colours —
-    // because the last matching inline declaration wins: a `dark_theme` border
-    // pushed after these would beat the dark hover/focus ring. One array so
-    // half of them cannot ship.
-    container_style.extend_from_slice(&FIELD_BORDER_STATES);
-
     let mut label_style: Vec<CssPropertyWithConditions> = resolved_label_style.as_slice().to_vec();
-    super::decl::push_dark_twin(&mut label_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-    ));
+    if owns_container {
+        // The design system's field (see `field_skin`), the states last.
+        container_style.extend(field_skin());
+        container_style.extend(field_states());
+    } else {
+        // A caller's field (a PDF form's, on paper): only the night twins it
+        // left open, and the shared ring.
+        for twin in [
+            CssProperty::BackgroundContent(
+                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
+                    .into(),
+            ),
+            CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
+            CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
+            CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
+            CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
+            CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
+        ] {
+            super::decl::push_dark_twin(
+                &mut container_style,
+                CssPropertyWithConditions::dark_mode(twin),
+            );
+        }
+        // Appended LAST: the last matching inline declaration wins, so a
+        // `dark_mode` border pushed after these would beat the dark ring.
+        container_style.extend_from_slice(&FIELD_BORDER_STATES);
+    }
+    if owns_label {
+        // The value is written in Garamond, in the house ink.
+        label_style.retain(|p| p.property.get_type() != CssPropertyType::FontFamily);
+        label_style.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
+            SERIF_FAMILY,
+        )));
+        label_style.extend(super::decl::themed_ink(LIGHT_INK, DARK_INK));
+    } else {
+        super::decl::push_dark_twin(
+            &mut label_style,
+            CssPropertyWithConditions::dark_mode(CssProperty::TextColor(
+                StyleTextColor { inner: DARK_INK }.into(),
+            )),
+        );
+    }
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(TEXT_INPUT_CONTAINER_CLASS.into())].into())
@@ -1234,14 +2069,24 @@ pub fn label(l: crate::widgets::label::Label) -> Dom {
         .with_css_props(CssPropertyWithConditionsVec::from_vec(label_style))
 }
 
+/// The flora switch (the design system's toggle): a pill-shaped trough of
+/// field paper (`--fl-track` falling to `--fl-fld2`) in a `--fl-bd2` hairline,
+/// sunk by the well; on, the trough fills with the stone (the accent falling
+/// to its deep tone). The knob is a bead of paper in a `--fl-bd5` hairline,
+/// casting a small shadow. The widget's geometry (and its slide) is kept: the
+/// hairlines are inset shadows, so nothing moves. Focused, the double ring.
+/// A caller's track or knob style is taken as it is.
 #[must_use]
 pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
+    use super::decl;
     let is_checked = s.switch_state.inner.checked;
     // Resolved up front: the knob's Dom is built after `s.switch_state` has
     // been moved into the callback's RefAny, and the resolver needs the whole
     // widget.
     let resolved_track_style = s.resolved_track_style();
     let resolved_knob_style = s.resolved_knob_style();
+    let owns_track = s.track_style.as_ref().is_none();
+    let owns_knob = s.knob_style.as_ref().is_none();
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{Dom, EventFilter, HoverEventFilter, IdOrClassVec, TabIndex},
@@ -1250,13 +2095,56 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
     let sw_name = s.accessibility_name.clone();
     crate::widgets::warn_widget_needs_a_name("switch", sw_name.is_some());
 
-    let switch_checked = s.switch_state.inner.checked;
+    let mut track_style = resolved_track_style.as_slice().to_vec();
+    if owns_track {
+        track_style.extend(CssPropertyWithConditions::themed(
+            CssProperty::const_background_content(switch_track_face(is_checked, false)),
+            CssProperty::const_background_content(switch_track_face(is_checked, true)),
+        ));
+        // The trough's hairline, drawn inside the box so the knob's travel
+        // stays the widget's, and the well.
+        track_style.extend(themed_shadow_in(
+            ShadowSlot::Left,
+            (0, 0, 1),
+            if is_checked { LIGHT_DEEP } else { LIGHT_BD2 },
+            if is_checked { LIGHT_DEEP } else { DARK_BD2 },
+            true,
+        ));
+        track_style.extend(themed_shadow_in(
+            ShadowSlot::Top,
+            (1, 2, 0),
+            ColorU::new(48, 45, 38, 31),
+            ColorU::new(0, 0, 0, 115),
+            true,
+        ));
+        track_style.extend(double_ring(2));
+    }
+    let mut knob_style = resolved_knob_style.as_slice().to_vec();
+    if owns_knob {
+        knob_style.push(CssPropertyWithConditions::simple(layers(alloc::vec![paper_bead()])));
+        knob_style.push(CssPropertyWithConditions::simple(shadow_in(
+            ShadowSlot::Left,
+            0,
+            0,
+            1,
+            LIGHT_BD5,
+            true,
+        )));
+        knob_style.push(CssPropertyWithConditions::simple(shadow_in(
+            ShadowSlot::Bottom,
+            1,
+            2,
+            0,
+            ColorU::new(48, 45, 38, 77),
+            false,
+        )));
+    }
 
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from(
             crate::widgets::switch::SWITCH_TRACK_CLASS,
         ))
-        .with_css_props(resolved_track_style.as_slice().to_vec().into())
+        .with_css_props(track_style.into())
         .with_callbacks(
             alloc::vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::Click),
@@ -1273,7 +2161,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
             role: AccessibilityRole::CheckButton,
             accessibility_name: sw_name,
             states: azul_core::a11y::AccessibilityStateVec::from_vec(alloc::vec![
-                if switch_checked {
+                if is_checked {
                     azul_core::a11y::AccessibilityState::CheckedTrue
                 } else {
                     azul_core::a11y::AccessibilityState::CheckedFalse
@@ -1286,7 +2174,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
                 .with_ids_and_classes(IdOrClassVec::from(
                     crate::widgets::switch::SWITCH_KNOB_CLASS
                 ))
-                .with_css_props(resolved_knob_style.as_slice().to_vec().into())]
+                .with_css_props(knob_style.into())]
             .into(),
         )
 }
@@ -1312,425 +2200,161 @@ pub fn progressbar(bar: crate::widgets::progressbar::ProgressBar) -> Dom {
 /// against the WINDOW, fixed 2026-08-29, pinned by
 /// `a_virtual_view_child_lays_out_against_the_view_bounds_not_the_window`),
 /// but the bounds mode stays PIXEL-based for what percentages cannot
-/// express: the container is sized to `bounds - 2px borders` so its 1px
-/// border ring lands INSIDE the box - with the normal-flow sizing (content
-/// height + borders) the ring overflowed the VV node and was clipped away
-/// at the right and bottom ("oddly cut off", user report 2026-08-29) - and
-/// the fill is an exact device-pixel split of the known content width.
+/// express: the track is sized to the bounds minus its 1px border ring so the
+/// ring lands INSIDE the box - with the normal-flow sizing (content height +
+/// borders) the ring overflowed the VV node and was clipped away at the right
+/// and bottom ("oddly cut off", user report 2026-08-29) - and the fill is an
+/// exact device-pixel split of the known content width.
+///
+/// Flora's bar (the design system's progress): a thin SUNKEN trough - a 5px
+/// band of `--fl-track` in a `--fl-bd5` rule, its near lip shadowing it -
+/// centred in the widget's box, filled with the stone sunk into it
+/// (`linear-gradient(175deg, deep, acc 92%)`) and led by a 3px gold edge: the
+/// gold only as the leading edge. A bar the caller painted
+/// (`with_bar_background`, `with_container_background`) keeps its paint.
 #[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn progressbar_render_bar_impl(
     bar: crate::widgets::progressbar::ProgressBar,
     bounds_px: Option<(f32, f32)>,
 ) -> Dom {
-    {
-        use azul_core::dom::DomVec;
+    use azul_core::dom::DomVec;
+    use super::decl;
 
-        let this = bar;
-        let percent_done = this.progressbar_state.percent_done.clamp(0.0, 100.0);
-        // Sizes resolved per context (see fn docs). The bounds branch
-        // subtracts the container's 1px border ring so children + borders
-        // exactly fill the VV box.
-        let (bar_width, remaining_width) = match bounds_px {
-            Some((w, _)) => {
-                let inner = (w - 2.0).max(0.0);
-                let filled = inner * percent_done / 100.0;
-                (PixelValue::px(filled), PixelValue::px(inner - filled))
-            }
-            None => (
-                PixelValue::percent(percent_done),
-                PixelValue::percent(100.0 - percent_done),
-            ),
-        };
-        let container_height = match bounds_px {
-            Some((_, h)) => PixelValue::px((h - 2.0).max(0.0)),
-            None => this.height,
-        };
-
-        // .__azul-native-progress-bar-container: the widget's base (its
-        // structure, the same in every theme), then flora's skin.
-        let mut container_props = crate::widgets::progressbar::BAR_CONTAINER_BASE.to_vec();
-        container_props.extend(vec![
-            CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-                LayoutHeight::Px(container_height),
-            ))),
-            CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-                StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                    offset_x: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    offset_y: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    color: ColorU {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 9,
-                    },
-                    blur_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(15),
-                    },
-                    spread_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(2),
-                    },
-                    clip_mode: BoxShadowClipMode::Inset,
-                })),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
-                StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                    offset_x: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    offset_y: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    color: ColorU {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 9,
-                    },
-                    blur_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(15),
-                    },
-                    spread_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(2),
-                    },
-                    clip_mode: BoxShadowClipMode::Inset,
-                })),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
-                StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                    offset_x: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    offset_y: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    color: ColorU {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 9,
-                    },
-                    blur_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(15),
-                    },
-                    spread_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(2),
-                    },
-                    clip_mode: BoxShadowClipMode::Inset,
-                })),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
-                StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                    offset_x: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    offset_y: PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    color: ColorU {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 9,
-                    },
-                    blur_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(15),
-                    },
-                    spread_radius: PixelValueNoPercent {
-                        inner: PixelValue::const_px(2),
-                    },
-                    clip_mode: BoxShadowClipMode::Inset,
-                })),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
-                StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
-                    inner: PixelValue::const_px(3),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
-                StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
-                    inner: PixelValue::const_px(3),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
-                StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
-                    inner: PixelValue::const_px(3),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
-                StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
-                    inner: PixelValue::const_px(3),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-                LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-                    inner: PixelValue::const_px(1),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-                LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-                    inner: PixelValue::const_px(1),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-                LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-                    inner: PixelValue::const_px(1),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-                LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-                    inner: PixelValue::const_px(1),
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-                StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-                    inner: BorderStyle::Solid,
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-                StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-                    inner: BorderStyle::Solid,
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-                StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-                    inner: BorderStyle::Solid,
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-                StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-                    inner: BorderStyle::Solid,
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-                StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-                StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-                StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-                StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                    inner: ColorU {
-                        r: 178,
-                        g: 178,
-                        b: 178,
-                        a: 255,
-                    },
-                }),
-            )),
-            CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
-            )),
-        ]);
-        if let Some((w, _)) = bounds_px {
-            container_props.push(CssPropertyWithConditions::simple(CssProperty::Width(
-                LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px((w - 2.0).max(0.0)))),
-            )));
+    let this = bar;
+    let defaults = crate::widgets::progressbar::ProgressBar::create(0.0);
+    let own_bar = this.bar_background == defaults.bar_background;
+    let own_container = this.container_background == defaults.container_background;
+    let percent_done = this.progressbar_state.percent_done.clamp(0.0, 100.0);
+    // The trough: 5px between its rules, centred in the box the widget gives.
+    let (track_outer, margin_top) = match bounds_px {
+        Some((_, h)) => {
+            let outer = h.clamp(2.0, 7.0);
+            (outer, ((h - outer) / 2.0).floor().max(0.0))
         }
+        None => (7.0, 0.0),
+    };
+    let inner_w = bounds_px.map(|(w, _)| (w - 2.0).max(0.0));
+    let (bar_width, remaining_width, filled_px) = match inner_w {
+        Some(inner) => {
+            let filled = inner * percent_done / 100.0;
+            (PixelValue::px(filled), PixelValue::px(inner - filled), filled)
+        }
+        None => (
+            PixelValue::percent(percent_done),
+            PixelValue::percent(100.0 - percent_done),
+            f32::INFINITY,
+        ),
+    };
 
-        Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(container_props))
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_10874511710181900075: &[IdOrClass] = &[Class(
-                    AzString::from_const_str("__azul-native-progress-bar-container"),
-                )];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10874511710181900075)
-            })
-            // For a progress bar the VALUE is the content: two coloured divs
-            // say nothing to a screen reader, "75%" says everything. Published
-            // on every build so it tracks the bar; a callback that moves the
-            // bar live without a rebuild keeps it current with
-            // `CallbackInfo::set_accessibility_value` on this node.
-            .with_accessibility_info(AccessibilityInfo {
-                role: AccessibilityRole::ProgressBar,
-                // What the bar measures - only the caller knows; see
-                // `ProgressBar::with_accessibility_name`.
-                accessibility_name: this.accessibility_name.clone(),
-                accessibility_value: Some(AzString::from(alloc::format!(
-                    "{:.0}%",
-                    // NaN clamps to NaN and would read "NaN%"; an unknown
-                    // value announces as empty, like the bar it draws.
-                    if percent_done.is_finite() { percent_done } else { 0.0 }
-                )))
-                .into(),
-                ..Default::default()
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-                        // .__azul-native-progress-bar-bar
-                        // Use percentage width instead of flex-grow hack
-                        CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(bar_width)),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
-                            StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                                offset_x: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                offset_y: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(0),
-                                },
-                                color: ColorU {
-                                    r: 0,
-                                    g: 51,
-                                    b: 0,
-                                    a: 51,
-                                },
-                                blur_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(15),
-                                },
-                                spread_radius: PixelValueNoPercent {
-                                    inner: PixelValue::const_px(12),
-                                },
-                                clip_mode: BoxShadowClipMode::Inset,
-                            })),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
-                            StyleBorderBottomRightRadiusValue::Exact(
-                                StyleBorderBottomRightRadius {
-                                    inner: PixelValue::const_px(1),
-                                },
-                            ),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
-                            StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
-                            StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
-                            StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
-                                inner: PixelValue::const_px(1),
-                            }),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                            StyleBackgroundContentVecValue::Exact(this.bar_background),
-                        )),
-                    ]))
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_16512648314570682783: &[IdOrClass] = &[Class(
-                            AzString::from_const_str("__azul-native-progress-bar-bar"),
-                        )];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16512648314570682783)
-                    }),
-                Dom::create_div()
-                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-                        // .__azul-native-progress-bar-remaining
-                        // Use percentage width for the remaining space
-                        CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(remaining_width)),
-                        )),
-                    ]))
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2492405364126620395: &[IdOrClass] = &[Class(
-                            AzString::from_const_str("__azul-native-progress-bar-remaining"),
-                        )];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2492405364126620395)
-                    }),
-            ]))
+    // .__azul-native-progress-bar-container: the widget's base (its
+    // structure, the same in every theme), then flora's trough.
+    let mut container_props = crate::widgets::progressbar::BAR_CONTAINER_BASE.to_vec();
+    container_props.push(CssPropertyWithConditions::simple(CssProperty::Height(
+        LayoutHeightValue::Exact(LayoutHeight::Px(PixelValue::px((track_outer - 2.0).max(0.0)))),
+    )));
+    container_props.push(CssPropertyWithConditions::simple(CssProperty::const_margin_top(
+        LayoutMarginTop {
+            inner: PixelValue::px(margin_top),
+        },
+    )));
+    if let Some(inner) = inner_w {
+        container_props.push(CssPropertyWithConditions::simple(CssProperty::Width(
+            LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(inner))),
+        )));
     }
+    container_props.extend(decl::border(1));
+    container_props.extend(decl::radius(2));
+    container_props.extend(decl::themed_border_color(LIGHT_BD5, DARK_BD5));
+    if own_container {
+        container_props.extend(decl::themed_fill(LIGHT_TRACK, DARK_TRACK));
+    } else {
+        container_props.push(CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+            StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
+        )));
+    }
+    // The near lip's shadow falling into the trough.
+    container_props.extend(themed_shadow_in(
+        ShadowSlot::Top,
+        (1, 2, 0),
+        ColorU::new(48, 45, 38, 89),
+        ColorU::new(0, 0, 0, 140),
+        true,
+    ));
+
+    // .__azul-native-progress-bar-bar: the stone sunk into the trough, the
+    // gold at its leading edge (once there is room for it).
+    let mut bar_props = alloc::vec![CssPropertyWithConditions::simple(CssProperty::Width(
+        LayoutWidthValue::Exact(LayoutWidth::Px(bar_width)),
+    ))];
+    if own_bar {
+        bar_props.push(CssPropertyWithConditions::simple(layers(alloc::vec![
+            StyleBackgroundContent::LinearGradient(LinearGradient {
+                direction: deg(175),
+                extend_mode: ExtendMode::Clamp,
+                stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+                    stop(0, LIGHT_DEEP),
+                    stop(92, LIGHT_ACC),
+                ]),
+            })
+        ])));
+        if filled_px >= 4.0 {
+            bar_props.push(leading_edge());
+        }
+    } else {
+        bar_props.push(CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+            StyleBackgroundContentVecValue::Exact(this.bar_background.clone()),
+        )));
+    }
+
+    Dom::create_div()
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(container_props))
+        .with_ids_and_classes({
+            const CONTAINER_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(
+                "__azul-native-progress-bar-container",
+            ))];
+            IdOrClassVec::from_const_slice(CONTAINER_CLASSES)
+        })
+        // For a progress bar the VALUE is the content: two coloured divs
+        // say nothing to a screen reader, "75%" says everything. Published
+        // on every build so it tracks the bar; a callback that moves the
+        // bar live without a rebuild keeps it current with
+        // `CallbackInfo::set_accessibility_value` on this node.
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::ProgressBar,
+            // What the bar measures - only the caller knows; see
+            // `ProgressBar::with_accessibility_name`.
+            accessibility_name: this.accessibility_name.clone(),
+            accessibility_value: Some(AzString::from(alloc::format!(
+                "{:.0}%",
+                // NaN clamps to NaN and would read "NaN%"; an unknown
+                // value announces as empty, like the bar it draws.
+                if percent_done.is_finite() { percent_done } else { 0.0 }
+            )))
+            .into(),
+            ..Default::default()
+        })
+        .with_children(DomVec::from_vec(vec![
+            Dom::create_div()
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(bar_props))
+                .with_ids_and_classes({
+                    const BAR_CLASSES: &[IdOrClass] =
+                        &[Class(AzString::from_const_str("__azul-native-progress-bar-bar"))];
+                    IdOrClassVec::from_const_slice(BAR_CLASSES)
+                }),
+            Dom::create_div()
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                    CssPropertyWithConditions::simple(CssProperty::Width(
+                        LayoutWidthValue::Exact(LayoutWidth::Px(remaining_width)),
+                    )),
+                ]))
+                .with_ids_and_classes({
+                    const REMAINING_CLASSES: &[IdOrClass] = &[Class(AzString::from_const_str(
+                        "__azul-native-progress-bar-remaining",
+                    ))];
+                    IdOrClassVec::from_const_slice(REMAINING_CLASSES)
+                }),
+        ]))
 }
 
 #[must_use]
@@ -1761,6 +2385,134 @@ pub extern "C" fn progressbar_render_virtual_view(
         rect,
         rect,
     )
+}
+
+/// The slider's sunken track, as one layer over the 20px widget box: clear
+/// above and below, a 1px `edge` on top, the `trough` (6px band, 8px-12px), a
+/// 1px `foot` under it - hard stops, one gradient.
+#[must_use]
+fn slider_band(edge: ColorU, trough: ColorU, foot: ColorU) -> StyleBackgroundContent {
+    let clear = ColorU::TRANSPARENT;
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            stop(0, clear),
+            stop(35, clear),
+            stop(35, edge),
+            stop(40, edge),
+            stop(40, trough),
+            stop(60, trough),
+            stop(60, foot),
+            stop(65, foot),
+            stop(65, clear),
+            stop(100, clear),
+        ]),
+    })
+}
+
+/// The gold that leads a filled track (the design system's leading edge,
+/// `linear-gradient(#fedb37, #9f7928)`, here the leaf's own gold).
+const LEADING_GOLD: ColorU = ColorU::rgb(0xD2, 0xB0, 0x52);
+
+/// `inset -3px 0 0 <gold>`: a 3px gold band along a fill's right edge.
+fn leading_edge() -> CssPropertyWithConditions {
+    CssPropertyWithConditions::simple(CssProperty::box_shadow_right(StyleBoxShadow {
+        offset_x: PixelValueNoPercent {
+            inner: PixelValue::const_px(-3),
+        },
+        offset_y: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        blur_radius: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        spread_radius: PixelValueNoPercent {
+            inner: PixelValue::const_px(0),
+        },
+        clip_mode: BoxShadowClipMode::Inset,
+        color: LEADING_GOLD,
+    }))
+}
+
+/// The filled part of a flora slider: the stone sunk into the trough
+/// (`linear-gradient(175deg, deep 0%, acc 92%)`), its gold leading edge at the
+/// thumb's centre, reaching left past the track's start (the track clips it)
+/// - so it follows the thumb wherever the drag puts it.
+#[must_use]
+fn slider_fill() -> Dom {
+    use super::decl;
+    let mut v = Vec::with_capacity(8);
+    v.push(decl::position(LayoutPosition::Absolute));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_right(LayoutRight::const_px(
+        8,
+    ))));
+    v.push(decl::px_top(6.0));
+    v.push(decl::px_width(400.0));
+    v.push(decl::px_height(4.0));
+    v.push(CssPropertyWithConditions::simple(layers(alloc::vec![
+        StyleBackgroundContent::LinearGradient(LinearGradient {
+            direction: deg(175),
+            extend_mode: ExtendMode::Clamp,
+            stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+                stop(0, LIGHT_DEEP),
+                stop(92, LIGHT_ACC),
+            ]),
+        })
+    ])));
+    v.push(leading_edge());
+    Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(v))
+}
+
+const DIAMOND_ROTATION: &[StyleTransform] = &[StyleTransform::Rotate(AngleValue::const_deg(45))];
+
+/// The flora slider's thumb: a diamond of paper - a 14px square turned 45
+/// degrees, `linear-gradient(135deg, #FDFAF1, #D8CDB6)` in a `--fl-soft2`
+/// hairline, lit along its top edge and casting a small shadow.
+#[must_use]
+fn slider_diamond() -> Dom {
+    use super::decl;
+    let mut v = Vec::with_capacity(20);
+    v.push(decl::position(LayoutPosition::Absolute));
+    v.push(decl::px_top(1.0));
+    v.push(decl::px_left(1.0));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_box_sizing(
+        LayoutBoxSizing::BorderBox,
+    )));
+    v.push(decl::px_width(14.0));
+    v.push(decl::px_height(14.0));
+    v.extend(decl::border(1));
+    v.extend(decl::themed_border_color(LIGHT_SOFT2, DARK_SOFT2));
+    v.push(CssPropertyWithConditions::simple(layers(alloc::vec![
+        StyleBackgroundContent::LinearGradient(LinearGradient {
+            direction: deg(135),
+            extend_mode: ExtendMode::Clamp,
+            stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+                stop(0, ColorU::rgb(0xFD, 0xFA, 0xF1)),
+                stop(100, ColorU::rgb(0xD8, 0xCD, 0xB6)),
+            ]),
+        })
+    ])));
+    v.push(CssPropertyWithConditions::simple(shadow_in(
+        ShadowSlot::Top,
+        1,
+        0,
+        0,
+        white(153),
+        true,
+    )));
+    v.push(CssPropertyWithConditions::simple(shadow_in(
+        ShadowSlot::Bottom,
+        1,
+        3,
+        0,
+        ColorU::new(48, 45, 38, 89),
+        false,
+    )));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_transform(
+        StyleTransformVec::from_const_slice(DIAMOND_ROTATION),
+    )));
+    Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(v))
 }
 
 pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
@@ -1829,41 +2581,38 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     let mut track_style = resolved_track_style.as_slice().to_vec();
     let mut thumb_style = resolved_thumb_style.as_slice().to_vec();
 
-    // Flora specific. The rail stays a flat track: flora.css's `--fl-track` is
-    // a flat token, and the rail has no border to hold a paler well against the
-    // page. The thumb is the one domed control here, and the CSS caps its dome
-    // with `.fl-orb-gloss`: laid OVER whatever colour the widget resolved for
-    // the thumb — read back rather than restated, so it cannot drift from
-    // slider.rs — and over the theme's accent in dark mode.
-    // Only on the widget's own parts: a style the caller set is the caller's
-    // (the status bar's zoom slider draws its own rail and thumb).
+    // Flora (the design system's slider): a thin sunken track - a 6px band of
+    // `--fl-track` between a `--fl-bd5` top edge and a `--fl-bd4` bottom one,
+    // drawn as the widget box's background so the box stays the whole hit
+    // area - filled left of the thumb with the stone, a gold leading edge at
+    // its end, under a DIAMOND of paper (a square turned 45 degrees). The
+    // fill hangs off the thumb (which the drag moves by its margin) and is
+    // clipped by the track box. Only on the widget's own parts: a style the
+    // caller set is the caller's (the status bar's zoom slider draws its own
+    // rail and thumb).
+    let mut thumb_children = Vec::new();
     if !track_is_callers {
-        track_style.push(CssPropertyWithConditions::dark_mode(
-            CssProperty::BackgroundContent(
-                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(
-                    DARK_TRACK,
-                )])
-                .into(),
-            ),
+        track_style.push(super::decl::px_height(20.0));
+        track_style.extend(super::decl::radius(2));
+        track_style.push(CssPropertyWithConditions::simple(CssProperty::const_overflow_x(
+            LayoutOverflow::Hidden,
+        )));
+        track_style.push(CssPropertyWithConditions::simple(CssProperty::const_overflow_y(
+            LayoutOverflow::Hidden,
+        )));
+        track_style.extend(CssPropertyWithConditions::themed(
+            layers(alloc::vec![slider_band(LIGHT_BD5, LIGHT_TRACK, LIGHT_BD4)]),
+            layers(alloc::vec![slider_band(DARK_BD5, DARK_TRACK, DARK_BD4)]),
         ));
+        track_style.extend(double_ring(2));
     }
     if !thumb_is_callers {
-        let mut thumb_layers: Vec<StyleBackgroundContent> = thumb_style
-            .iter()
-            .rev()
-            .find_map(|p| match &p.property {
-                CssProperty::BackgroundContent(b) if p.apply_if.as_ref().is_empty() => {
-                    b.get_property().map(|b| b.as_ref().to_vec())
-                }
-                _ => None,
-            })
-            .unwrap_or_default();
-        thumb_layers.push(ORB_GLOSS);
-        thumb_style.push(CssPropertyWithConditions::simple(layers(thumb_layers)));
-        thumb_style.push(CssPropertyWithConditions::dark_mode(layers(vec![
-            StyleBackgroundContent::Color(DARK_ACC),
-            ORB_GLOSS,
-        ])));
+        thumb_style.push(super::decl::position(LayoutPosition::Relative));
+        thumb_style.push(CssPropertyWithConditions::simple(super::decl::fill(
+            ColorU::TRANSPARENT,
+        )));
+        thumb_children.push(slider_fill());
+        thumb_children.push(slider_diamond());
     }
 
     Dom::create_div()
@@ -1888,7 +2637,8 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
                 .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
                     AzString::from_const_str("__azul-native-slider-thumb"),
                 )]))
-                .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_style))]
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_style))
+                .with_children(thumb_children.into())]
             .into(),
         )
 }
@@ -1925,47 +2675,54 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 
     let state_ref = RefAny::new(ta.text_area_state);
 
+    let owns_container = ta.container_style.as_ref().is_none();
     let mut container_style: Vec<CssPropertyWithConditions> =
         resolved_container_style.as_slice().to_vec();
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BackgroundContent(
-            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
-                .into(),
-        ),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
-    ));
-    super::decl::push_dark_twin(&mut container_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
-    ));
-
     let mut label_style: Vec<CssPropertyWithConditions> = match &ta.label_style {
         azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(s) => {
             s.as_slice().to_vec()
         }
         azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::None => {
-            crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec()
+            let mut v = crate::widgets::text_area::TEXT_AREA_LABEL_PROPS.to_vec();
+            // The text is written in Garamond, in the house ink.
+            v.retain(|p| p.property.get_type() != CssPropertyType::FontFamily);
+            v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
+                SERIF_FAMILY,
+            )));
+            v.extend(super::decl::themed_ink(LIGHT_INK, DARK_INK));
+            v
         }
     };
-    super::decl::push_dark_twin(&mut label_style, CssPropertyWithConditions::dark_mode(
-        CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
-    ));
-
-    // The interactive states go LAST. Inline declarations resolve last-match
-    // wins and a `dark_theme(..)` rule matches in every pseudo-state, so any
-    // dark resting colour pushed after a `dark_on_hover` / `dark_on_focus` twin
-    // would shadow it — no ring, no hover face, in dark mode.
-    container_style.extend_from_slice(&FIELD_BORDER_STATES);
+    if owns_container {
+        // The design system's field (see `field_skin`), the states last.
+        container_style.extend(field_skin());
+        container_style.extend(field_states());
+    } else {
+        for twin in [
+            CssProperty::BackgroundContent(
+                StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
+                    .into(),
+            ),
+            CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
+            CssProperty::BorderTopColor(StyleBorderTopColor { inner: DARK_BD }.into()),
+            CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: DARK_BD }.into()),
+            CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: DARK_BD }.into()),
+            CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
+        ] {
+            super::decl::push_dark_twin(
+                &mut container_style,
+                CssPropertyWithConditions::dark_mode(twin),
+            );
+        }
+        super::decl::push_dark_twin(
+            &mut label_style,
+            CssPropertyWithConditions::dark_mode(CssProperty::TextColor(
+                StyleTextColor { inner: DARK_INK }.into(),
+            )),
+        );
+        // The interactive states go LAST (last match wins).
+        container_style.extend_from_slice(&FIELD_BORDER_STATES);
+    }
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class("__azul-native-text-area-container".into())].into())
@@ -2031,99 +2788,24 @@ const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
-/// Flora's trigger skin, after `drop_down::DROPDOWN_WRAPPER_BASE` (R5).
-const FLORA_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
-        LayoutPaddingLeft::const_px(6),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(6),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-        4,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
-        LayoutBorderTopWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
-        LayoutBorderBottomWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
-        LayoutBorderLeftWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
-        LayoutBorderRightWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-        inner: BorderStyle::Solid,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
-        StyleBorderBottomStyle {
-            inner: BorderStyle::Solid,
-        },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
-        inner: BorderStyle::Solid,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
-        StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
-        StyleBorderTopLeftRadius::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(
-        StyleBorderTopRightRadius::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
-        StyleBorderBottomLeftRadius::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
-        StyleBorderBottomRightRadius::const_px(4),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(RAISED_FACE_LIGHT_LAYER),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: LIGHT_INK,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: LIGHT_BD,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: LIGHT_BD },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: LIGHT_BD,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: LIGHT_BD },
-    )),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
-        StyleBackgroundContentVec::from_const_slice(RAISED_FACE_DARK_LAYER),
-    )),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_INK,
-    })),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_border_top_color(
-        StyleBorderTopColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_border_left_color(
-        StyleBorderLeftColor { inner: DARK_BD },
-    )),
-    CssPropertyWithConditions::dark_mode(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: DARK_BD },
-    )),
-];
+/// Flora's closed drop-down, after `drop_down::DROPDOWN_WRAPPER_BASE` (R5):
+/// the design system's field - field paper in a `--fl-bd2` rule at the house
+/// radius, sunk by the well - holding the choice in Garamond, with the field
+/// states (the rule darkening under the pointer, the accent edge and the
+/// double ring when focused). The list it opens is the menu
+/// (`drop_down::on_dropdown_click`).
+#[must_use]
+pub(crate) fn flora_dropdown_wrapper_style() -> Vec<CssPropertyWithConditions> {
+    let mut v = Vec::with_capacity(48);
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_font_size(
+        StyleFontSize::const_px(14),
+    )));
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)));
+    v.extend(super::decl::padding(3, 6, 3, 8));
+    v.extend(field_skin());
+    v.extend(field_states());
+    v
+}
 
 /// Flora's label skin, after `drop_down::DROPDOWN_LABEL_BASE` (R5).
 const FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
@@ -2138,14 +2820,15 @@ const FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     })),
 ];
 
-/// Flora's arrow skin, after `drop_down::DROPDOWN_ARROW_BASE` (R5).
+/// Flora's arrow skin, after `drop_down::DROPDOWN_ARROW_BASE` (R5): the small
+/// drop mark in the quiet ink (`--fl-soft2`).
 const FLORA_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(18))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: LIGHT_INK,
+        inner: LIGHT_SOFT2,
     })),
     CssPropertyWithConditions::dark_mode(CssProperty::const_text_color(StyleTextColor {
-        inner: DARK_INK,
+        inner: DARK_SOFT2,
     })),
 ];
 
@@ -2185,7 +2868,7 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
 
     Dom::create_div()
         .with_css_props(CssPropertyWithConditionsVec::from_vec(
-            [DROPDOWN_WRAPPER_BASE, FLORA_DROPDOWN_WRAPPER_STYLE].concat(),
+            [DROPDOWN_WRAPPER_BASE, flora_dropdown_wrapper_style().as_slice()].concat(),
         ))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
@@ -2393,112 +3076,17 @@ pub const FIELD_BORDER_STATES: [CssPropertyWithConditions; 16] = [
     FOCUS_BORDER_RIGHT_DARK,
 ];
 
-/// Every state a button of one semantic type takes: hover fill, pressed fill and
-/// focus ring, each with its dark twin.
-///
-/// The coloured types' values come from [`crate::widgets::button::get_button_colors`],
-/// so there is still one source of truth for them; the neutral type's faces and
-/// every DARK half are chosen here, because this is the only place the palette
-/// is in scope.
-///
-/// The rule differs by type on purpose:
-///
-/// * `Default` is the neutral paper button, so its surface belongs to the PAGE: it hovers and
-///   presses to the theme's faces — [`HOVER_FACE_LIGHT`] / [`HOVER_FACE_DARK`] and
-///   [`PRESSED_FACE_LIGHT`] / [`PRESSED_FACE_DARK`], the gradients flora.css draws for
-///   `.btn-secondary:hover` and `:active`.
-/// * Every other type carries its own semantic colour — a Primary button is blue whichever mode the
-///   app is in — so the same hover and pressed colours apply in dark mode. A neutral grey hover on
-///   a blue button would be wrong, and inventing a second blue would be a design decision this
-///   refactor has no business making. That colour is the base layer; over it goes the depth rig
-///   flora.css lays on its accent stone (`.btn-primary::after` and `::before`), sunken while
-///   pressed.
-/// * `Link` has no surface at all: it underlines instead, in both modes.
+/// Every state a flora command of one type takes - hover, pressed and the
+/// keyboard ring - exactly as [`button`] appends them after its resting
+/// face ([`FloraButtonKind`]: raised paper lifts and sinks, a stone brightens
+/// with the metal coming up and sinks into its well, a quiet note darkens its
+/// ink). For a labelled command; an icon-only quiet one has no wash.
 #[must_use]
 pub fn button_states(
     button_type: crate::widgets::button::ButtonType,
 ) -> Vec<CssPropertyWithConditions> {
-    use crate::widgets::button::ButtonType;
-
-    if button_type == ButtonType::Link {
-        let mut out = alloc::vec![
-            CssPropertyWithConditions::on_hover(CssProperty::TextDecoration(
-                StyleTextDecoration::Underline.into(),
-            )),
-            CssPropertyWithConditions::dark_on_hover(CssProperty::TextDecoration(
-                StyleTextDecoration::Underline.into(),
-            )),
-        ];
-        // A link is a keyboard stop too: it shows focus as a halo, which
-        // takes no room, so nothing moves when it is focused.
-        out.extend(super::decl::focus_halo(LIGHT_ACC, DARK_GLOW));
-        return out;
-    }
-
-    let (_, bg_hover, bg_active) = crate::widgets::button::get_button_colors(button_type);
-    let neutral = button_type.surface() == crate::widgets::button::ButtonSurface::Neutral;
-    // The neutral button is paper: it hovers and presses to the theme's faces,
-    // each with its dark twin. A coloured button is a stone: the same colour in
-    // both modes (see above), under the rig flora.css lays on a stone.
-    let (hover, dark_hover, active, dark_active) = if neutral {
-        (
-            vec![HOVER_FACE_LIGHT],
-            vec![HOVER_FACE_DARK],
-            vec![PRESSED_FACE_LIGHT],
-            vec![PRESSED_FACE_DARK],
-        )
-    } else {
-        (
-            stone_face(bg_hover, STONE_STREAK_HOVER),
-            stone_face(bg_hover, STONE_STREAK_HOVER),
-            sunken_stone_face(bg_active),
-            sunken_stone_face(bg_active),
-        )
-    };
-
-    let mut out = alloc::vec![
-        CssPropertyWithConditions::on_hover(layers(hover)),
-        CssPropertyWithConditions::dark_on_hover(layers(dark_hover)),
-        CssPropertyWithConditions::on_active(layers(active)),
-        CssPropertyWithConditions::dark_on_active(layers(dark_active)),
-    ];
-
-    // The neutral button is the only one with a visible resting border, so it is
-    // the only one whose border reacts to hover.
-    if neutral {
-        let light = ColorU::rgb(173, 181, 189);
-        for (l, d) in [
-            (
-                CssProperty::const_border_top_color(StyleBorderTopColor { inner: light }),
-                CssProperty::const_border_top_color(StyleBorderTopColor { inner: DARK_BD }),
-            ),
-            (
-                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: light }),
-                CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: DARK_BD }),
-            ),
-            (
-                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light }),
-                CssProperty::const_border_left_color(StyleBorderLeftColor { inner: DARK_BD }),
-            ),
-            (
-                CssProperty::const_border_right_color(StyleBorderRightColor { inner: light }),
-                CssProperty::const_border_right_color(StyleBorderRightColor { inner: DARK_BD }),
-            ),
-        ] {
-            out.push(CssPropertyWithConditions::on_hover(l));
-            out.push(CssPropertyWithConditions::dark_on_hover(d));
-        }
-    }
-
-    // The focus ring is the accent in both modes, and the consts already pair it.
-    out.push(FOCUS_BORDER_TOP);
-    out.push(FOCUS_BORDER_BOTTOM);
-    out.push(FOCUS_BORDER_LEFT);
-    out.push(FOCUS_BORDER_RIGHT);
-    out.push(FOCUS_BORDER_TOP_DARK);
-    out.push(FOCUS_BORDER_BOTTOM_DARK);
-    out.push(FOCUS_BORDER_LEFT_DARK);
-    out.push(FOCUS_BORDER_RIGHT_DARK);
+    let mut out = flora_button_states(FloraButtonKind::of(button_type), true);
+    out.extend(double_ring(2));
     out
 }
 
@@ -2551,7 +3139,7 @@ mod gradient_tests {
 
     use super::*;
     use crate::widgets::{
-        button::{get_button_colors, Button, ButtonType},
+        button::{Button, ButtonType},
         slider::Slider,
         themes::{OptionUiTheme, UiTheme},
     };
@@ -2728,22 +3316,22 @@ mod gradient_tests {
     }
 
     #[test]
-    fn a_coloured_button_keeps_its_own_colour_as_the_base_layer_under_the_rig() {
-        let (bg, bg_hover, bg_active) = get_button_colors(ButtonType::Primary);
-
+    fn a_primary_button_is_the_accent_gem_and_sinks_into_its_well_when_pressed() {
         let dom = button(Button::with_type(
             AzString::from_const_str("Go"),
             ButtonType::Primary,
         ));
         assert_eq!(
             resting_background(&dom),
-            Some(vec![
-                StyleBackgroundContent::Color(bg),
-                STONE_RIG_TOP,
-                STONE_RIG_LEFT,
-                STONE_STREAK,
-            ]),
-            "the stone's colour paints first; the rig and streak go over it"
+            Some(raised_stone(STONE_ACCENT, false)),
+            "the accent stone, its rig over it, in the theme's accent - never the button's own colour"
+        );
+        assert!(
+            matches!(
+                resting_background(&dom).as_deref(),
+                Some([StyleBackgroundContent::RadialGradient(_), ..])
+            ),
+            "--fl-gem is a radial cut lit at the upper left"
         );
         assert_eq!(
             dark_resting_background(&dom),
@@ -2752,59 +3340,70 @@ mod gradient_tests {
         );
 
         let dom = flora_button("Go", ButtonType::Primary).dom();
-        let hovered = vec![
-            StyleBackgroundContent::Color(bg_hover),
-            STONE_RIG_TOP,
-            STONE_RIG_LEFT,
-            STONE_STREAK_HOVER,
-        ];
         assert_eq!(
             state_background(&dom, PseudoStateType::Hover, false),
-            Some(hovered.clone())
+            Some(raised_stone(STONE_ACCENT, true)),
+            "hovered, the same layers with the brighter streak - so the fade tweens"
         );
-        assert_eq!(
-            state_background(&dom, PseudoStateType::Hover, true),
-            Some(hovered)
-        );
-        let pressed = vec![
-            StyleBackgroundContent::Color(bg_active),
-            SUNKEN_RIG_TOP,
-            SUNKEN_RIG_LEFT,
-            SUNKEN_RIG_BOTTOM,
-        ];
         assert_eq!(
             state_background(&dom, PseudoStateType::Active, false),
-            Some(pressed.clone())
-        );
-        assert_eq!(
-            state_background(&dom, PseudoStateType::Active, true),
-            Some(pressed)
+            Some(sunken_stone(STONE_ACCENT))
         );
     }
 
     #[test]
-    fn the_link_button_has_no_surface_and_grows_no_face() {
+    fn the_semantic_types_are_stones_of_their_own_and_illuminated_is_paper_in_metal() {
+        for (ty, stone) in [
+            (ButtonType::Success, STONE_LEAF),
+            (ButtonType::Danger, STONE_CLAY),
+            (ButtonType::Warning, STONE_AMBER),
+            (ButtonType::Info, STONE_SLATE),
+        ] {
+            let dom = button(Button::with_type(AzString::from_const_str("Go"), ty));
+            assert_eq!(resting_background(&dom), Some(raised_stone(stone, false)), "{ty:?}");
+        }
+        let dom = button(Button::with_type(
+            AzString::from_const_str("Illuminate"),
+            ButtonType::Illuminated,
+        ));
+        assert_eq!(resting_background(&dom), Some(vec![RAISED_FACE_LIGHT]));
+        let top = dom
+            .root
+            .style
+            .iter_inline_properties()
+            .filter(|(_, c)| c.as_ref().is_empty())
+            .filter_map(|(p, _)| match p {
+                CssProperty::BorderTopColor(c) => c.get_property().map(|c| c.inner),
+                _ => None,
+            })
+            .last();
+        assert_eq!(top, Some(LEAF_EDGE_LIGHT[0]), "the gold stays in the border");
+    }
+
+    #[test]
+    fn the_quiet_button_is_brass_ink_on_the_faintest_paper_and_takes_no_stone() {
         let dom = button(Button::with_type(
             AzString::from_const_str("more"),
             ButtonType::Link,
         ));
         assert_eq!(
             resting_background(&dom),
-            Some(vec![StyleBackgroundContent::Color(ColorU::TRANSPARENT)]),
-            "the widget's transparent fill is untouched"
+            Some(vec![super::super::decl::face(LIGHT_RT, LIGHT_FLD2)]),
+            ".btn-quiet: --fl-rT falling to --fl-fld2"
         );
         let dom = flora_button("more", ButtonType::Link).dom();
         assert_eq!(
-            state_background(&dom, PseudoStateType::Hover, false),
+            state_background(&dom, PseudoStateType::Active, false),
             None,
-            "a link underlines on hover; it does not take a face"
+            "a quiet note does not press in"
         );
     }
 
     #[test]
-    fn the_dropdown_wrapper_rests_on_the_raised_paper_face_in_both_modes() {
-        let backgrounds: Vec<(bool, Vec<StyleBackgroundContent>)> = FLORA_DROPDOWN_WRAPPER_STYLE
+    fn the_closed_dropdown_is_field_paper_in_both_modes() {
+        let backgrounds: Vec<(bool, Vec<StyleBackgroundContent>)> = flora_dropdown_wrapper_style()
             .iter()
+            .filter(|p| p.pseudo_state_conditions().is_empty())
             .filter_map(|p| match &p.property {
                 CssProperty::BackgroundContent(b) => Some((
                     matches!(
@@ -2819,30 +3418,32 @@ mod gradient_tests {
         assert_eq!(
             backgrounds,
             vec![
-                (false, vec![RAISED_FACE_LIGHT]),
-                (true, vec![RAISED_FACE_DARK]),
+                (false, vec![StyleBackgroundContent::Color(LIGHT_FLD)]),
+                (true, vec![StyleBackgroundContent::Color(DARK_FLD)]),
             ]
         );
     }
 
     #[test]
-    fn the_slider_thumb_wears_the_orb_gloss_over_its_own_colour() {
+    fn the_slider_thumb_is_a_paper_diamond_leading_the_filled_track() {
         let dom = slider(Slider::create(50.0, 0.0, 100.0));
         let thumb = &dom.children.as_ref()[0];
-
-        let light = resting_background(thumb).expect("the thumb declares a background");
-        assert!(
-            matches!(light.first(), Some(StyleBackgroundContent::Color(_))),
-            "the widget's own thumb colour is the base layer, read back rather than restated: \
-             {light:?}"
-        );
-        assert_eq!(light.last(), Some(&ORB_GLOSS), "the gloss is the top layer");
-        assert_eq!(light.len(), 2);
-
         assert_eq!(
-            dark_resting_background(thumb),
-            Some(vec![StyleBackgroundContent::Color(DARK_ACC), ORB_GLOSS]),
-            "dark mode: the same cap over the theme's accent"
+            resting_background(thumb),
+            Some(vec![StyleBackgroundContent::Color(ColorU::TRANSPARENT)]),
+            "the thumb box only carries the fill and the diamond"
+        );
+        let parts = thumb.children.as_ref();
+        assert_eq!(parts.len(), 2, "the fill, then the diamond over it");
+        let turned = parts[1].root.style.iter_inline_properties().any(|(p, _)| {
+            matches!(p, CssProperty::Transform(t)
+                if t.get_property().is_some_and(|t| t.as_ref() == DIAMOND_ROTATION))
+        });
+        assert!(turned, "the diamond is a square turned 45 degrees");
+        let fill = resting_background(&parts[0]).expect("the fill is painted");
+        assert!(
+            stops_of(&fill[0]).iter().any(|(_, c)| *c == LIGHT_ACC),
+            "the fill is the accent stone: {fill:?}"
         );
     }
 }
@@ -2889,25 +3490,90 @@ mod gradient_tests {
 //
 //
 
+// ==== scrollbars ====
+//
+// "The scrollbar thumb is undyed wool on a parchment track. It widens
+// nowhere, glows never" (the design system's scrollbar card): the wool is
+// flora.css's `--fl-sbA` falling to `--fl-sbB` and the track `--fl-track`.
+// azul draws a scrollbar part in one colour (`getters::get_scrollbar_style`
+// reduces a part to its colour), so the wool is the middle of its two stops.
+// The platform keeps its own widths and overlay behaviour; only the colours
+// are flora's. Its hover darkening needs the engine's thumb hover colour,
+// which nothing reads yet.
+
+/// The wool by day (between `--fl-sbA` #D4D1C9 and `--fl-sbB` #ADAAA1) and
+/// at night (between #3F3F3F and #333333).
+pub(crate) const SCROLLBAR_WOOL: (ColorU, ColorU) =
+    (ColorU::rgb(0xC0, 0xBD, 0xB5), ColorU::rgb(0x39, 0x39, 0x39));
+
+/// The parchment track: `--fl-track` by day and at night.
+pub(crate) const SCROLLBAR_PARCHMENT: (ColorU, ColorU) = (LIGHT_TRACK, DARK_TRACK);
+
+/// The sheet that gives every scroll box under it flora's scrollbars, inert
+/// in every other theme: `@theme(flora) { * { scrollbar-color: wool
+/// parchment } }`, its night twin under the dark mode. `scrollbar-color` is a
+/// scroll box's own property (azul does not inherit it), hence `*`; an app's
+/// own `scrollbar-color` on a box still wins (author order).
+#[must_use]
+pub(crate) fn scrollbar_sheet() -> azul_css::css::Css {
+    use azul_css::{
+        css::{rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
+        dynamic_selector::{DynamicSelector, ModeCondition, ThemeCondition},
+    };
+    let flora = || {
+        DynamicSelector::Theme(ThemeCondition::Custom(AzString::from_const_str("flora")))
+    };
+    let rule = |thumb: ColorU, track: ColorU, conditions: Vec<DynamicSelector>| CssRuleBlock {
+        path: CssPath {
+            selectors: alloc::vec![CssPathSelector::Global].into(),
+        },
+        declarations: alloc::vec![CssDeclaration::Static(CssProperty::ScrollbarColor(
+            StyleScrollbarColorValue::Exact(StyleScrollbarColor::Custom(ScrollbarColorCustom {
+                thumb,
+                track,
+            })),
+        ))]
+        .into(),
+        conditions: conditions.into(),
+        priority: rule_priority::AUTHOR,
+    };
+    Css {
+        rules: alloc::vec![
+            rule(SCROLLBAR_WOOL.0, SCROLLBAR_PARCHMENT.0, alloc::vec![flora()]),
+            rule(
+                SCROLLBAR_WOOL.1,
+                SCROLLBAR_PARCHMENT.1,
+                alloc::vec![flora(), DynamicSelector::Mode(ModeCondition::Dark)]
+            ),
+        ]
+        .into(),
+        ..Css::default()
+    }
+}
+
 // ==== dialog ====
 //
-// Dialog, Modal and Popover in flora's terms (`doc/templates/flora.css`). The
-// panel is a LEAF laid on the page: `--fl-sur` with a `--fl-bd2` hairline, the
-// house's larger radius (`--fl-r2`: nothing is rounder than 5) and the shadow a
-// floating leaf casts (`--fl-shadow-3`, its first layer). The title is ruled off
-// from the content with a `--fl-sep` hairline, the way flora rules a heading.
-// The close glyph is a quiet action, so it is written in brass ink
-// (`.btn-quiet`: `--fl-qt`, darkening to `--fl-qt2` over the quiet wash on
-// hover). A modal dims its window with the drop panel's warm overlay
-// (`.nav-overlay`, rgba(20, 19, 16, 0.45)), the same by day and by night. Every
-// colour pairs with its night value, and the focus ring is the accent by day and
-// lifts to the stone's glow by night (`--focus-color`).
+// Dialog, Modal and Popover in flora's terms (`doc/templates/flora.css`, and
+// the design system's "Vespers approaches" card). The dialog is a LEAF laid
+// on the page - `--fl-sur` in a `--fl-bd5` rule at the house radius, casting
+// the floating leaf's shadow - with a HEADER BAND across its top: the window
+// chrome's metal-free face (`--fl-ct` falling to `--fl-cb`, closed by a dark
+// rule), on which the title is set in flora's capitals in the paper ink and
+// the close glyph sits in the same ink. The band is the title row's own
+// background, reaching past the panel's 14px inset to both edges; a dialog
+// without a title but with a close draws it on the row that stands in for
+// the title, so the close never lands on paper. The body is written in
+// Garamond, inset 14px; the buttons a dialog carries line up at its foot. A modal dims
+// its window with the drop panel's warm overlay (`.nav-overlay`,
+// rgba(20, 19, 16, 0.45)), the same by day and by night. A popover is a
+// small leaf without a band: its title in capitals on the paper, its close
+// a quiet action in brass ink ([`popover_skin`]).
 
 /// `.nav-overlay`: the warm dim behind a modal dialog, in both modes.
 pub const DIALOG_BACKDROP: ColorU = ColorU::new(20, 19, 16, 115);
-/// `--fl-shadow-3`'s first layer by day: rgba(48, 45, 38, 0.18).
-const DIALOG_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 46);
-/// `--fl-shadow-3`'s first layer by night: rgba(0, 0, 0, 0.55).
+/// The leaf's cast shadow by day (`0 8px 22px`): rgba(48, 45, 38, 0.20).
+const DIALOG_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 51);
+/// The same at night: rgba(0, 0, 0, 0.55).
 const DIALOG_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
 /// `--fl-shadow-2`'s first layer by day: rgba(48, 45, 38, 0.16).
 const POPOVER_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
@@ -2917,8 +3583,75 @@ const POPOVER_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
 const DIALOG_QUIET_WASH_LIGHT: ColorU = ColorU::new(180, 135, 44, 20);
 /// The same wash by night, in the night brass: rgba(196, 181, 142, 0.10).
 const DIALOG_QUIET_WASH_DARK: ColorU = ColorU::new(196, 181, 142, 26);
+/// The light wash on the band under the pointer: rgba(255, 252, 240, 0.15).
+const DIALOG_BAND_WASH: ColorU = ColorU::new(255, 252, 240, 38);
+/// The rule that closes the band, by day (the chrome's foot, darker).
+const DIALOG_BAND_RULE_LIGHT: ColorU = ColorU::rgb(0x55, 0x52, 0x4A);
 
-/// Flora's dialog skin (also the modal's; the popover swaps in its panel).
+/// The header band's height, the rule included.
+const DIALOG_BAND_PX: isize = 30;
+
+/// The header band as a background layer over its row: `top` falling to
+/// `bottom` down to its last pixel, that pixel the `rule`, nothing under it.
+#[must_use]
+fn dialog_band(top: ColorU, bottom: ColorU, rule: ColorU) -> StyleBackgroundContent {
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: TO_BOTTOM,
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            px_stop(0, top),
+            px_stop(DIALOG_BAND_PX - 1, bottom),
+            px_stop(DIALOG_BAND_PX - 1, rule),
+            px_stop(DIALOG_BAND_PX, rule),
+            px_stop(DIALOG_BAND_PX, ColorU { a: 0, ..rule }),
+        ]),
+    })
+}
+
+/// The band behind a row of a dialog's head (its title, or the row that
+/// stands in for it): the band by day and at night, reaching past the
+/// panel's 14px inset to both edges, its top corners following the panel's.
+#[must_use]
+fn dialog_band_row() -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::with_capacity(12);
+    v.extend(decl::margin(0, -14, 12, -14));
+    v.extend(decl::radius_corners(2, 2, 0, 0));
+    v.extend(decl::themed_layers(
+        alloc::vec![dialog_band(LIGHT_CT, LIGHT_CB, DIALOG_BAND_RULE_LIGHT)],
+        alloc::vec![dialog_band(DARK_CT, DARK_CB, DARK_BD5)],
+    ));
+    v
+}
+
+/// A dialog's title in flora's capitals, tracked .1em, 8px over and under
+/// a 14px line: on the band (`on_band`, the paper ink, the band's height
+/// exactly) or on the paper (ruled off, in the quiet ink).
+#[must_use]
+fn dialog_title(on_band: bool) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    type P = CssPropertyWithConditions;
+    let mut title = crate::widgets::dialog::DIALOG_TITLE_BASE.to_vec();
+    title.extend(caps((11, 0.1)));
+    title.push(P::simple(CssProperty::const_line_height(StyleLineHeight::Length(
+        PixelValue::const_px(14),
+    ))));
+    title.push(P::simple(CssProperty::const_text_align(StyleTextAlign::Left)));
+    // The right inset keeps the heading clear of the absolutely-placed close.
+    if on_band {
+        title.extend(dialog_band_row());
+        title.extend(decl::padding(8, 42, 8, 14));
+        title.push(P::simple(decl::ink(LIGHT_ON_ACC)));
+    } else {
+        title.extend(decl::padding(0, 28, 8, 0));
+        title.push(P::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(8))));
+        title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+        title.extend(decl::themed_border(decl::Edges::BOTTOM, 1, LIGHT_SEP, DARK_SEP));
+    }
+    title
+}
+
+/// Flora's dialog skin (also the modal's; the popover has [`popover_skin`]).
 #[must_use]
 pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
     use super::decl;
@@ -2927,55 +3660,51 @@ pub(crate) fn dialog_skin() -> crate::widgets::dialog::DialogSkin {
 
     // Every part: the dialog's structure (R5), then flora's skin.
     //
-    // The leaf. Same box as flat's panel (280..520 px wide, 20px inset).
+    // The leaf and its band. Same width as flat's panel (280..520 px).
     let mut panel = d::DIALOG_PANEL_BASE.to_vec();
     panel.extend([
         P::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(280))),
         P::simple(CssProperty::const_max_width(LayoutMaxWidth::const_px(520))),
         P::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
-        P::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        P::simple(CssProperty::const_font_family(SERIF_FAMILY)),
     ]);
-    panel.extend(decl::padding(20, 20, 20, 20));
-    panel.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD2, DARK_BD2));
-    panel.extend(decl::radius(5));
+    panel.extend(decl::padding(0, 14, 12, 14));
+    panel.extend(decl::themed_border(decl::Edges::ALL, 1, LIGHT_BD5, DARK_BD5));
+    panel.extend(decl::radius(3));
     panel.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
-    panel.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    panel.extend(decl::themed_shadow(6, 14, DIALOG_SHADOW_LIGHT, DIALOG_SHADOW_DARK));
+    panel.extend(decl::themed_ink(LIGHT_INK2, DARK_INK2));
+    panel.extend(decl::themed_shadow(8, 22, DIALOG_SHADOW_LIGHT, DIALOG_SHADOW_DARK));
 
-    // The heading, ruled off.
-    let mut title = d::DIALOG_TITLE_BASE.to_vec();
-    title.extend([
-        decl::font_size(17),
-        decl::weight(StyleFontWeight::W600),
-        P::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
-        P::simple(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(12))),
-    ]);
-    // The right inset keeps the heading clear of the absolutely-placed close.
-    title.extend(decl::padding(0, 28, 10, 0));
-    title.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    title.extend(decl::themed_border(decl::Edges::BOTTOM, 1, LIGHT_SEP, DARK_SEP));
+    // Without a title, the row that stands in for it carries the band, so
+    // the close still sits on it.
+    let mut close_row = d::DIALOG_CLOSE_ROW_STYLE.to_vec();
+    close_row.push(P::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        DIALOG_BAND_PX,
+    ))));
+    close_row.extend(dialog_band_row());
 
-    // The quiet close.
+    // The close, on the band, in the paper ink; the light wash under the
+    // pointer, the glow ring on focus (it stands off the band by day and by
+    // night).
     let mut close = d::DIALOG_CLOSE_BASE.to_vec();
     close.extend([
-        P::simple(CssProperty::const_top(LayoutTop::const_px(8))),
-        P::simple(CssProperty::const_right(LayoutRight::const_px(10))),
-        decl::font_size(20),
+        P::simple(CssProperty::const_top(LayoutTop::const_px(3))),
+        P::simple(CssProperty::const_right(LayoutRight::const_px(8))),
+        decl::font_size(18),
     ]);
     close.extend(decl::padding(0, 5, 0, 5));
     close.extend(decl::radius(3));
-    close.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    close.push(P::simple(decl::ink(LIGHT_ON_ACC)));
     close.extend(decl::ring_slot());
-    // States last: a resting dark twin matches in every state.
-    close.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
-    close.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
-    close.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+    // States last.
+    close.push(P::on_hover(decl::fill(DIALOG_BAND_WASH)));
+    close.extend(decl::focus_ring(LIGHT_GLOW, DARK_GLOW));
 
     d::DialogSkin {
         theme: super::UiTheme::Flora,
         panel: CssPropertyWithConditionsVec::from_vec(panel),
-        title: CssPropertyWithConditionsVec::from_vec(title),
-        close_row: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE),
+        title: CssPropertyWithConditionsVec::from_vec(dialog_title(true)),
+        close_row: CssPropertyWithConditionsVec::from_vec(close_row),
         close: CssPropertyWithConditionsVec::from_vec(close),
         content: CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CONTENT_STYLE),
         backdrop: d::backdrop_style(DIALOG_BACKDROP),
@@ -3002,6 +3731,39 @@ pub fn popover_panel_style() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// Flora's popover skin: the dialog's parts on a small leaf without the
+/// band - the title in capitals on the paper, ruled off; the close a quiet
+/// action in brass ink (`.btn-quiet`: `--fl-qt`, darkening to `--fl-qt2`
+/// over the quiet wash), ringed in the accent by day and the glow by night.
+#[must_use]
+pub(crate) fn popover_skin() -> crate::widgets::dialog::DialogSkin {
+    use super::decl;
+    use crate::widgets::dialog as d;
+    type P = CssPropertyWithConditions;
+
+    let mut close = d::DIALOG_CLOSE_BASE.to_vec();
+    close.extend([
+        P::simple(CssProperty::const_top(LayoutTop::const_px(6))),
+        P::simple(CssProperty::const_right(LayoutRight::const_px(8))),
+        decl::font_size(18),
+    ]);
+    close.extend(decl::padding(0, 5, 0, 5));
+    close.extend(decl::radius(3));
+    close.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+    close.extend(decl::ring_slot());
+    // States last: a resting dark twin matches in every state.
+    close.extend(decl::hover_ink(LIGHT_QT2, DARK_QT2));
+    close.extend(decl::hover_fill(DIALOG_QUIET_WASH_LIGHT, DIALOG_QUIET_WASH_DARK));
+    close.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
+
+    let mut skin = dialog_skin();
+    skin.panel = popover_panel_style();
+    skin.title = CssPropertyWithConditionsVec::from_vec(dialog_title(false));
+    skin.close_row = CssPropertyWithConditionsVec::from_const_slice(d::DIALOG_CLOSE_ROW_STYLE);
+    skin.close = CssPropertyWithConditionsVec::from_vec(close);
+    skin
+}
+
 /// Renders a [`crate::widgets::dialog::Dialog`] in the flora theme.
 #[must_use]
 pub fn dialog(d: crate::widgets::dialog::Dialog) -> Dom {
@@ -3017,9 +3779,7 @@ pub fn modal(m: crate::widgets::modal::Modal) -> Dom {
 /// Renders a [`crate::widgets::popover::Popover`] in the flora theme.
 #[must_use]
 pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
-    let mut skin = dialog_skin();
-    skin.panel = popover_panel_style();
-    p.build(skin)
+    p.build(popover_skin())
 }
 
 // ==== number_input ====
@@ -3261,10 +4021,27 @@ pub(crate) fn radio_group_skin(horizontal: bool) -> crate::widgets::radio_group:
         v.extend([
             P::simple(CssProperty::const_width(LayoutWidth::const_px(r::DOT_SIZE))),
             P::simple(CssProperty::const_height(LayoutHeight::const_px(r::DOT_SIZE))),
-            P::simple(decl::layers(vec![
-                StyleBackgroundContent::Color(LIGHT_ACC),
-                ORB_GLOSS,
-            ])),
+            // The design system's radio dot: the stone lit at 35% 30%,
+            // `radial-gradient(circle at 35% 30%, acc, deep)`.
+            P::simple(decl::layers(vec![StyleBackgroundContent::RadialGradient(
+                RadialGradient {
+                    shape: Shape::Circle,
+                    size: RadialGradientSize::FarthestCorner,
+                    position: StyleBackgroundPosition {
+                        horizontal: BackgroundPositionHorizontal::Exact(
+                            PixelValue::const_percent(35),
+                        ),
+                        vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(
+                            30,
+                        )),
+                    },
+                    extend_mode: ExtendMode::Clamp,
+                    stops: NormalizedLinearColorStopVec::from_vec(vec![
+                        stop(0, LIGHT_ACC),
+                        stop(100, LIGHT_DEEP),
+                    ]),
+                },
+            )])),
         ]);
         v.extend(decl::radius(r::DOT_RADIUS));
         v.push(P::simple(CssProperty::const_opacity(StyleOpacity::const_new(
@@ -3757,21 +4534,24 @@ pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
 
 // ==== tooltip ====
 //
-// A flora tip is marginalia set as flora sets code: an INK PANEL on the page
-// (`--fl-code-bg` under `--fl-code-fg`, a `--fl-code-bd` hairline), the house
-// radius and the nearest shadow (`--fl-shadow-1`) - an ink panel in both modes,
-// each with its night value. It keeps the widget's placement and starts hidden,
-// so the enter / leave handlers work unchanged.
+// A flora tip is marginalia on DARK OAK - "never black" (the design system's
+// tooltip: `#3B3327` under `#EFE7D7`, a `--fl-soft1` rule) - at the house
+// radius, casting a small warm shadow (`0 3px 8px rgba(60,48,30,.3)`). The
+// same wood by night, its rule a step darker and its shadow the night's. It
+// keeps the widget's placement and starts hidden, so the enter / leave
+// handlers work unchanged.
 
-/// `--fl-code-bg` by day / by night.
-const TOOLTIP_INK_BG: (ColorU, ColorU) = (ColorU::new(33, 31, 27, 255), ColorU::new(20, 20, 20, 255));
-/// `--fl-code-fg` by day / by night.
-const TOOLTIP_INK_FG: (ColorU, ColorU) =
-    (ColorU::new(228, 225, 214, 255), ColorU::new(226, 226, 226, 255));
-/// `--fl-code-bd` by day / by night.
-const TOOLTIP_INK_BD: (ColorU, ColorU) = (ColorU::new(68, 63, 53, 255), ColorU::new(54, 54, 54, 255));
-/// `--fl-shadow-1` by day (rgba(48, 45, 38, 0.14)) / by night (rgba(0, 0, 0, 0.55)).
-const TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(48, 45, 38, 36), ColorU::new(0, 0, 0, 140));
+/// Dark oak, by day / by night.
+pub(crate) const TOOLTIP_OAK: (ColorU, ColorU) =
+    (ColorU::rgb(0x3B, 0x33, 0x27), ColorU::rgb(0x3B, 0x33, 0x27));
+/// The pale ink on the oak, by day / by night.
+pub(crate) const TOOLTIP_OAK_INK: (ColorU, ColorU) =
+    (ColorU::rgb(0xEF, 0xE7, 0xD7), ColorU::rgb(0xEF, 0xE7, 0xD7));
+/// The oak's rule: `--fl-soft1` by day, the oak's own shade by night.
+pub(crate) const TOOLTIP_OAK_RULE: (ColorU, ColorU) =
+    (ColorU::rgb(0x66, 0x64, 0x5C), ColorU::rgb(0x55, 0x4A, 0x3A));
+/// The oak's shadow: rgba(60, 48, 30, 0.3) by day, rgba(0, 0, 0, 0.55) by night.
+const TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(60, 48, 30, 77), ColorU::new(0, 0, 0, 140));
 
 /// Flora's tooltip skin.
 #[must_use]
@@ -3780,20 +4560,21 @@ pub(crate) fn tooltip_skin() -> crate::widgets::tooltip::TooltipSkin {
     use crate::widgets::tooltip as t;
     // The widget's tip base (`tooltip::TIP_BASE`: placed below the wrapper,
     // on one line, hidden until hovered - the value the leave handler writes
-    // back), then flora's ink panel.
+    // back), then flora's oak.
     let mut tip = t::TIP_BASE.to_vec();
-    tip.push(decl::font_size(12));
-    tip.extend(decl::padding(4, 8, 4, 8));
+    tip.push(decl::font_size(13));
+    tip.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)));
+    tip.extend(decl::padding(4, 9, 4, 9));
     tip.extend(decl::radius(3));
     tip.extend(decl::themed_border(
         decl::Edges::ALL,
         1,
-        TOOLTIP_INK_BD.0,
-        TOOLTIP_INK_BD.1,
+        TOOLTIP_OAK_RULE.0,
+        TOOLTIP_OAK_RULE.1,
     ));
-    tip.extend(decl::themed_fill(TOOLTIP_INK_BG.0, TOOLTIP_INK_BG.1));
-    tip.extend(decl::themed_ink(TOOLTIP_INK_FG.0, TOOLTIP_INK_FG.1));
-    tip.extend(decl::themed_shadow(1, 2, TOOLTIP_SHADOW.0, TOOLTIP_SHADOW.1));
+    tip.extend(decl::themed_fill(TOOLTIP_OAK.0, TOOLTIP_OAK.1));
+    tip.extend(decl::themed_ink(TOOLTIP_OAK_INK.0, TOOLTIP_OAK_INK.1));
+    tip.extend(decl::themed_shadow(3, 8, TOOLTIP_SHADOW.0, TOOLTIP_SHADOW.1));
 
     t::TooltipSkin {
         theme: super::UiTheme::Flora,
@@ -3811,7 +4592,7 @@ pub fn tooltip(t: crate::widgets::tooltip::Tooltip) -> Dom {
 // ==== video ====
 //
 // The picture is the source's own; the widget's only chrome is its "no signal"
-// poster. Flora draws it as the ink panel it sets code and tooltips in
+// poster. Flora draws it as the ink panel it sets code in
 // (`--fl-code-bg` under a `--fl-code-bd` hairline, by day and by night) - a
 // screen reads as ink on the page in both modes.
 
@@ -3821,12 +4602,12 @@ pub(crate) fn video_poster_style() -> CssPropertyWithConditionsVec {
     use super::decl;
 
     let mut v = decl::fill_box().to_vec();
-    v.extend(decl::themed_fill(TOOLTIP_INK_BG.0, TOOLTIP_INK_BG.1));
+    v.extend(decl::themed_fill(CODE_VIEW_BG.0, CODE_VIEW_BG.1));
     v.extend(decl::themed_border(
         decl::Edges::ALL,
         1,
-        TOOLTIP_INK_BD.0,
-        TOOLTIP_INK_BD.1,
+        CODE_VIEW_BD.0,
+        CODE_VIEW_BD.1,
     ));
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -4614,10 +5395,10 @@ pub(crate) fn frame_look() -> crate::widgets::frame::FrameLook {
     let mut content = FRAME_CONTENT_STYLE.to_vec();
     content.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
 
-    // `.fl-label`: font-weight 700, letter-spacing 0.12em, --fl-soft1.
+    // `.fl-label`: the capitals in Garamond (`--font-caps`), bold, tracked
+    // 0.12em, in --fl-soft1 - the specimen's section title.
     let mut title = FRAME_TITLE_STYLE.to_vec();
-    title.push(decl::bold());
-    title.push(decl::letter_spacing_em(0.12));
+    title.extend(caps(CAPS_TITLE));
     title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
 
     FrameLook {
@@ -4702,7 +5483,7 @@ pub fn accordion(a: crate::widgets::accordion::Accordion) -> Dom {
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             14,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(SERIF_FAMILY)),
     ];
     container.extend(decl::border(1));
     container.extend(decl::themed_border_color(LIGHT_BD, DARK_BD));
@@ -6761,14 +7542,67 @@ pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
 // glow at night. ONE look for every shell (`ShellLook`), paint and metrics
 // only: the structure is the shells' own (`shells::*_BASE`).
 
-/// A font declaration pair: the chrome size and the system family.
+/// A font declaration pair: the chrome size and flora's hand - Garamond
+/// (`--font-serif` / `--font-caps`, the bundled EB Garamond first), the face
+/// every flora surface writes in; what a shell's content inherits.
 fn shell_font(px: isize) -> [CssPropertyWithConditions; 2] {
     [
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
             px,
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(FONT_CAPS)),
     ]
+}
+
+/// A stop at `px` along the gradient line (a length stop, for a raster).
+const fn px_stop(px: isize, color: ColorU) -> NormalizedLinearColorStop {
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorOrSystem::color(color),
+        offset_px: FloatValue::const_new(px),
+    }
+}
+
+/// One hairline raster of `--fl-grain`: `repeating-linear-gradient(<angle>,
+/// <ink> 0 1px, transparent 1px 3px)` - a 1px line every 3px. Its clear
+/// half is the ink at no alpha, so no renderer fringes the hard stop.
+#[must_use]
+fn grain_raster(angle: isize, ink: ColorU) -> StyleBackgroundContent {
+    let clear = ColorU { a: 0, ..ink };
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(angle),
+        extend_mode: ExtendMode::Repeat,
+        stops: NormalizedLinearColorStopVec::from_vec(alloc::vec![
+            px_stop(0, ink),
+            px_stop(1, ink),
+            px_stop(1, clear),
+            px_stop(3, clear),
+        ]),
+    })
+}
+
+/// The flora GROUND: the page (`--fl-pg`) and the linen it rests on -
+/// flora.css's `--fl-grain`, "two hairline rasters the whole ground rests
+/// on": `rgba(90,86,74,.030)` across and `.022` down by day,
+/// `rgba(0,0,0,.20)` / `.14` at night. Two repeating gradients, each one
+/// display item with a native repeat (no tiles), painted over the page
+/// colour: what `body` wears on the website, here the shells' and the theme
+/// scope's root.
+#[must_use]
+pub(crate) fn linen_ground(dark: bool) -> Vec<StyleBackgroundContent> {
+    if dark {
+        alloc::vec![
+            StyleBackgroundContent::Color(DARK_PG),
+            grain_raster(0, ColorU::new(0, 0, 0, 51)),
+            grain_raster(90, ColorU::new(0, 0, 0, 36)),
+        ]
+    } else {
+        alloc::vec![
+            StyleBackgroundContent::Color(LIGHT_PG),
+            grain_raster(0, ColorU::new(90, 86, 74, 8)),
+            grain_raster(90, ColorU::new(90, 86, 74, 6)),
+        ]
+    }
 }
 
 /// `border-right: 1px solid` without a colour.
@@ -6864,7 +7698,7 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
     // ---- OfficeShell ----
     let mut shell_root = shell_font(13).to_vec();
     shell_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    shell_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    shell_root.extend(decl::themed_layers(linen_ground(false), linen_ground(true)));
 
     let mut shell_rail = strip();
     shell_rail.extend(hairline_right());
@@ -6991,7 +7825,7 @@ pub(crate) fn shell_look() -> crate::widgets::shells::ShellLook {
     // ---- ShellThemeScope ----
     let mut scope_root = shell_font(13).to_vec();
     scope_root.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
-    scope_root.extend(decl::themed_fill(LIGHT_PG, DARK_PG));
+    scope_root.extend(decl::themed_layers(linen_ground(false), linen_ground(true)));
 
     // ---- the bars ----
     let mut toolbar_row = decl::padding(4, 8, 4, 8).to_vec();
@@ -7999,28 +8833,54 @@ pub(crate) fn tree_view_badge_look() -> crate::widgets::tree_view::TreeViewBadge
 
 /// The face a toggled-on button rests on (`Button::with_toggled(true)`):
 /// the face its `:active` state shows, at rest, in both modes - paper
-/// pushed in for the standard command, the sunken stone for a coloured
-/// one, a link underlined.
+/// pushed in for the standard and the illuminated command, a stone sunk into
+/// its well, a quiet note in its darker ink.
 #[must_use]
 pub fn button_toggled_face(
     button_type: crate::widgets::button::ButtonType,
 ) -> Vec<CssPropertyWithConditions> {
-    use crate::widgets::button::{ButtonSurface, ButtonType};
-
-    if button_type == ButtonType::Link {
-        return CssPropertyWithConditions::themed(
-            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
-            CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
-        )
-        .to_vec();
+    use super::decl;
+    match FloraButtonKind::of(button_type) {
+        FloraButtonKind::Quiet => {
+            let mut v = CssPropertyWithConditions::themed(
+                CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+                CssProperty::TextDecoration(StyleTextDecoration::Underline.into()),
+            )
+            .to_vec();
+            v.extend(decl::themed_ink(LIGHT_QT2, DARK_QT2));
+            v
+        }
+        FloraButtonKind::Stone(stone) => alloc::vec![
+            CssPropertyWithConditions::simple(layers(sunken_stone(stone))),
+            CssPropertyWithConditions::simple(shadow_in(
+                ShadowSlot::Top,
+                2,
+                5,
+                0,
+                ColorU::new(0, 0, 0, 115),
+                true,
+            )),
+            CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Right)),
+            CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Bottom)),
+        ],
+        FloraButtonKind::Standard | FloraButtonKind::Illuminated => {
+            let mut v = decl::themed_layers(
+                alloc::vec![PRESSED_FACE_LIGHT],
+                alloc::vec![PRESSED_FACE_DARK],
+            )
+            .to_vec();
+            v.extend(themed_shadow_in(
+                ShadowSlot::Top,
+                (1, 3, 0),
+                ColorU::new(48, 45, 38, 46),
+                ColorU::new(0, 0, 0, 115),
+                true,
+            ));
+            v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Right)));
+            v.push(CssPropertyWithConditions::simple(no_shadow_in(ShadowSlot::Bottom)));
+            v
+        }
     }
-    let (light, dark) = if button_type.surface() == ButtonSurface::Neutral {
-        (vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK])
-    } else {
-        let (_, _, active) = crate::widgets::button::get_button_colors(button_type);
-        (sunken_stone_face(active), sunken_stone_face(active))
-    };
-    CssPropertyWithConditions::themed(layers(light), layers(dark)).to_vec()
 }
 
 // ==== rich_text_editor ====

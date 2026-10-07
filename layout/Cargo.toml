@@ -262,6 +262,9 @@ text_layout = [
     "dep:tinyvec",
     "dep:unicode-segmentation",
     "dep:unicode-bidi",
+    # `text3::ui_fonts` unpacks the bundled EB Garamond (already in the graph
+    # through allsorts, which decodes WOFF2 with it).
+    "dep:brotli-decompressor",
     # `form` is the only consumer of regex-lite, and it is gated on this
     # feature. text_layout implies std, which regex-lite requires.
     "dep:regex-lite"

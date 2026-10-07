@@ -53,8 +53,16 @@ pub enum ButtonType {
     /// Informational button - teal/cyan with BLACK text (white on #0dcaf0 reads
     /// at 1.96:1, which is why Bootstrap and azul's `Badge` put dark text on it)
     Info,
-    /// Link-style button - appears as a hyperlink, no background
+    /// Link-style button - appears as a hyperlink, no background. Flora
+    /// draws it as its QUIET command (`.btn-quiet`): brass ink, underlined,
+    /// on the faintest paper - a note in the margin, not a control.
     Link,
+    /// The rare, emphasised command: paper set in a metal edge. Flora draws
+    /// it as `.btn-hero-primary` - the raised paper face inside a gold leaf
+    /// border, whose metal comes up on hover - and keeps it for the one
+    /// thing a view celebrates (Illuminate, Publish); flat as the standard
+    /// button in a brass edge. Appended last: the variants' C values stay.
+    Illuminated,
 }
 
 /// What a button type's face IS, which decides what a theme may do to it
@@ -79,7 +87,7 @@ impl ButtonType {
     #[must_use]
     pub const fn surface(self) -> ButtonSurface {
         match self {
-            Self::Default => ButtonSurface::Neutral,
+            Self::Default | Self::Illuminated => ButtonSurface::Neutral,
             Self::Link => ButtonSurface::NoSurface,
             Self::Primary
             | Self::Secondary
@@ -102,6 +110,7 @@ impl ButtonType {
             Self::Warning => "__azul-btn-warning",
             Self::Info => "__azul-btn-info",
             Self::Link => "__azul-btn-link",
+            Self::Illuminated => "__azul-btn-illuminated",
         }
     }
 }
@@ -254,13 +263,20 @@ pub(crate) const fn get_button_colors(button_type: ButtonType) -> (ColorU, Color
             ColorU::TRANSPARENT,
             ColorU::TRANSPARENT,
         ),
+        // Paper, a shade warmer than the Default's grey: the field inside
+        // the metal edge.
+        ButtonType::Illuminated => (
+            ColorU::rgb(251, 248, 238),
+            ColorU::rgb(244, 239, 223),
+            ColorU::rgb(234, 226, 204),
+        ),
     }
 }
 
 /// Get the text color for a button type
 const fn get_button_text_color(button_type: ButtonType) -> ColorU {
     match button_type {
-        ButtonType::Default => ColorU::rgb(33, 37, 41), // Dark text
+        ButtonType::Default | ButtonType::Illuminated => ColorU::rgb(33, 37, 41), // Dark text
         ButtonType::Warning => ColorU::BLACK,           // Black text on yellow
         ButtonType::Info => ColorU::BLACK,              // Black text on cyan (white: 1.96:1)
         ButtonType::Link => ColorU::bootstrap_link(),   // Blue link color
@@ -376,11 +392,13 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
             ])),
         ));
 
-        // Border (subtle for Default, transparent for others to maintain size)
-        let border_color = if button_type == ButtonType::Default {
-            ColorU::rgb(206, 212, 218)
-        } else {
-            bg_normal
+        // Border (subtle for Default, the brass edge for Illuminated -
+        // flora.css's `--fl-metal-turn` - and the face colour for the others,
+        // to keep their size)
+        let border_color = match button_type {
+            ButtonType::Default => ColorU::rgb(206, 212, 218),
+            ButtonType::Illuminated => ColorU::rgb(198, 178, 121),
+            _ => bg_normal,
         };
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1)),
@@ -993,7 +1011,7 @@ mod autotest_generated {
 
     /// Every variant of `ButtonType` - the complete input domain of `class_name`,
     /// `get_button_colors`, `get_button_text_color` and `build_button_container_style`.
-    const ALL_TYPES: [ButtonType; 8] = [
+    const ALL_TYPES: [ButtonType; 9] = [
         ButtonType::Default,
         ButtonType::Primary,
         ButtonType::Secondary,
@@ -1002,6 +1020,7 @@ mod autotest_generated {
         ButtonType::Warning,
         ButtonType::Info,
         ButtonType::Link,
+        ButtonType::Illuminated,
     ];
 
     const WHITE: ColorU = ColorU {
@@ -1179,6 +1198,7 @@ mod autotest_generated {
             (ButtonType::Warning, "__azul-btn-warning"),
             (ButtonType::Info, "__azul-btn-info"),
             (ButtonType::Link, "__azul-btn-link"),
+            (ButtonType::Illuminated, "__azul-btn-illuminated"),
         ];
         for (ty, class) in expected {
             assert_eq!(ty.class_name(), class, "{ty:?}: wrong CSS class");
@@ -1303,6 +1323,12 @@ mod autotest_generated {
                 ColorU::rgb(61, 213, 243),
             ),
             (ButtonType::Link, TRANSPARENT, TRANSPARENT, TRANSPARENT),
+            (
+                ButtonType::Illuminated,
+                ColorU::rgb(251, 248, 238),
+                ColorU::rgb(244, 239, 223),
+                ColorU::rgb(234, 226, 204),
+            ),
         ];
         for (ty, normal, hover, active) in expected {
             assert_eq!(
@@ -1398,6 +1424,7 @@ mod autotest_generated {
             (ButtonType::Warning, BLACK), // doc: "Warning button - yellow with BLACK text"
             (ButtonType::Info, BLACK),    // doc: "... with BLACK text" (white reads 1.96:1)
             (ButtonType::Link, ColorU::rgb(13, 110, 253)),
+            (ButtonType::Illuminated, DARK),
         ];
         for (ty, text) in expected {
             assert_eq!(get_button_text_color(ty), text, "{ty:?}: wrong text colour");
@@ -1407,7 +1434,11 @@ mod autotest_generated {
         for ty in ALL_TYPES {
             let is_special = matches!(
                 ty,
-                ButtonType::Default | ButtonType::Warning | ButtonType::Info | ButtonType::Link
+                ButtonType::Default
+                    | ButtonType::Warning
+                    | ButtonType::Info
+                    | ButtonType::Link
+                    | ButtonType::Illuminated
             );
             assert_eq!(
                 get_button_text_color(ty) != WHITE,

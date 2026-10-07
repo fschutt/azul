@@ -251,7 +251,10 @@ pub(crate) fn shadow_color_and_reach(p: &CssProperty) -> Option<(ColorU, bool)> 
 }
 
 /// The focus-ring colour of `node` in the light or dark theme: the top
-/// border's colour under `:focus`, or the focus shadow's.
+/// border's colour under `:focus`, or the focus shadow's. A double ring
+/// (flora's: the accent band two pixels off the border, over a gap in the
+/// leaf's colour) is two focus shadows; its colour is the band's, the one
+/// that reaches furthest (the first such, on a tie).
 pub(crate) fn focus_ring_color(node: &Dom, dark: bool) -> Option<ColorU> {
     use CssPropertyType as T;
     let focus = Some(PseudoStateType::Focus);
@@ -260,12 +263,34 @@ pub(crate) fn focus_ring_color(node: &Dom, dark: bool) -> Option<ColorU> {
     }
     [T::BoxShadowTop, T::BoxShadowRight, T::BoxShadowBottom, T::BoxShadowLeft]
         .iter()
-        .find_map(|ty| {
+        .filter_map(|ty| {
             let f = resolve(node, *ty, dark, focus)?;
-            (Some(&f) != resolve(node, *ty, dark, None).as_ref())
-                .then(|| shadow_color_and_reach(&f).map(|(c, _)| c))
-                .flatten()
+            if Some(&f) == resolve(node, *ty, dark, None).as_ref() {
+                return None;
+            }
+            let (color, _) = shadow_color_and_reach(&f)?;
+            Some((shadow_extent(&f), color))
         })
+        .fold(None, |best: Option<(f32, ColorU)>, (extent, color)| match best {
+            Some(b) if b.0 >= extent => Some(b),
+            _ => Some((extent, color)),
+        })
+        .map(|(_, color)| color)
+}
+
+/// How far a box-shadow declaration reaches past the box: its spread plus
+/// its blur (0 for anything else).
+fn shadow_extent(p: &CssProperty) -> f32 {
+    match p {
+        CssProperty::BoxShadowTop(v)
+        | CssProperty::BoxShadowRight(v)
+        | CssProperty::BoxShadowBottom(v)
+        | CssProperty::BoxShadowLeft(v) => v.get_property().map_or(0.0, |s| {
+            let s = s.as_ref();
+            s.spread_radius.inner.number.get() + s.blur_radius.inner.number.get()
+        }),
+        _ => 0.0,
+    }
 }
 
 /// Every node of `dom` a user can Tab to. A roving group's other items

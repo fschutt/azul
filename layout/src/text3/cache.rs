@@ -1732,13 +1732,33 @@ impl<T: ParsedFontTrait> FontManager<T> {
     }
 
     /// Register the built-in mock test fonts (see
-    /// [`crate::text3::mock_fonts`]). Called from every constructor: the
-    /// mock families are only reachable if a stylesheet names them, and
+    /// [`crate::text3::mock_fonts`]), then the bundled UI fonts
+    /// ([`Self::register_builtin_ui_fonts`]). Called from every constructor:
+    /// the mock families are only reachable if a stylesheet names them, and
     /// having them always present means tests exercise the *same* font
     /// path as production instead of a test-only bypass.
     pub fn register_builtin_mock_fonts(&mut self) {
         for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
             self.register_named_font(family, bytes, crate::text3::mock_fonts::mock_font_ranges());
+        }
+        self.register_builtin_ui_fonts();
+    }
+
+    /// Register the UI fonts azul bundles for its widget themes (see
+    /// [`crate::text3::ui_fonts`]: flora's EB Garamond), in the FALLBACK tier
+    /// so an installed copy of the family wins. Static faces, so every
+    /// constructor after the first takes the idempotent reuse path.
+    pub fn register_builtin_ui_fonts(&mut self) {
+        for (family, bytes) in crate::text3::ui_fonts::bundled_ui_fonts() {
+            if bytes.is_empty() {
+                continue;
+            }
+            self.register_named_font_in_tier(
+                family,
+                bytes,
+                crate::text3::ui_fonts::eb_garamond_ranges(),
+                MemoryFontTier::Fallback,
+            );
         }
     }
 

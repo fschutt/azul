@@ -3367,6 +3367,8 @@ fn kit_data_root(kit_ref: &RefAny) -> PathBuf {
 /// the switches; the window is the kit's (`NoTitle`, `--size`, a minimum).
 pub fn start(args: Args) {
     let kit_ref = kit::create_kit(args::SPEC, ABOUT, &SHORTCUTS, &[], args.kit.clone());
+    // AzSheets is always set in flora's green, whatever the other apps show.
+    kit::pin_theme(&kit_ref, azul_appkit::Theme::FloraGreen);
     let mut state = AppState::new(kit_data_root(&kit_ref));
     state.kit = Some(kit_ref.clone());
     match worker::spawn_engine(make_engine) {

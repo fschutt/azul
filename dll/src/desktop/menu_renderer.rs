@@ -369,6 +369,13 @@ fn create_string_menu_item_dom(
         classes.push(IdOrClass::Class("menu-item-has-submenu".into()));
     }
 
+    // The chosen item (a ticked checkbox: a drop-down's current choice)
+    // carries it on the ROW, so a theme can wash the whole row, not only the
+    // tick's gutter.
+    if matches!(item.icon.as_option(), Some(MenuItemIcon::Checkbox(true))) {
+        classes.push(IdOrClass::Class("menu-item-checked".into()));
+    }
+
     // Add unique ID for this menu item
     classes.push(IdOrClass::Id(format!("menu-item-{}", idx).into()));
 
@@ -879,6 +886,39 @@ impl MenuMetrics {
     }
 }
 
+/// The menu in the app theme `flora` (the design system's menu card, on
+/// flora.css's tokens): a paper popup (`--fl-fld` in a `--fl-bd2` rule at the
+/// house radius, a soft warm shadow), rows in Garamond in the house ink; the
+/// row under the pointer and the chosen one washed in the accent's soft tint
+/// with the deep tone's ink (at night: the stone with the paper ink, flora's
+/// selection), the shortcut right-aligned in the quiet ink, the separator a
+/// `--fl-sep2` hairline, a disabled row in `--fl-disTx`. Inside `@theme(flora)`
+/// the rules outrank the system's above them (a theme block ranks before
+/// selector specificity) and are inert in every other theme; a flora spin
+/// recolours the accent like every flora paint.
+const FLORA_MENU_CSS: &str = "
+@theme(flora) {
+  .menu-container { background: #FBFAF6; border-color: #B4B1A9; border-radius: 3px; box-shadow: 0 5px 14px rgba(48, 45, 38, 0.17); }
+  .menu-item { color: #262521; font-family: 'EB Garamond', Georgia, serif; font-size: 14px; }
+  .menu-item:hover { background: #E0E4EE; color: #1E3260; }
+  .menu-item-checked { background: #E0E4EE; color: #1E3260; font-weight: 600; }
+  .menu-item-disabled, .menu-item-greyed { color: #A3A099; }
+  .menu-item-disabled:hover, .menu-item-greyed:hover { background: transparent; color: #A3A099; }
+  .menu-item-shortcut { color: #827F76; opacity: 1; font-size: 12.5px; }
+  .menu-separator { background: #E0DDD7; }
+  @media (prefers-color-scheme: dark) {
+    .menu-container { background: #1D1D1D; border-color: #4A4A4A; box-shadow: 0 5px 14px rgba(0, 0, 0, 0.5); }
+    .menu-item { color: #E7E7E7; }
+    .menu-item:hover { background: #2F4A85; color: #F4F2EA; }
+    .menu-item-checked { background: #2F4A85; color: #F4F2EA; }
+    .menu-item-disabled, .menu-item-greyed { color: #666666; }
+    .menu-item-disabled:hover, .menu-item-greyed:hover { background: transparent; color: #666666; }
+    .menu-item-shortcut { color: #8C8C8C; }
+    .menu-separator { background: #2E2E2E; }
+  }
+}
+";
+
 /// Extension trait to add menu stylesheet creation to SystemStyle
 ///
 /// Generates a `Css` containing CSS classes for the menu system:
@@ -1069,6 +1109,8 @@ impl SystemStyleMenuExt for SystemStyle {
              {}px;\n}}\n",
             m.border_width, separator_color.r, separator_color.g, separator_color.b, pad_v, pad_h
         ));
+
+        css.push_str(FLORA_MENU_CSS);
 
         // Parse CSS and extract first stylesheet
         let (mut parsed_css, errors) = new_from_str(&css);

@@ -2,6 +2,9 @@ use azul_css::impl_option;
 
 pub mod flat;
 pub mod flora;
+/// Flora's spins (`flora:green`, `flora:red`, ...): the accent ramp swapped
+/// in a built DOM, the rest of flora as it is.
+pub mod spin;
 pub mod system_palette;
 /// Declaration builders the theme modules and widgets share (fills, inks,
 /// borders, focus rings, shadows - each light value paired with its dark

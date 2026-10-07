@@ -1678,17 +1678,18 @@ mod theme_tests {
     }
 
     #[test]
-    fn a_flora_tip_is_an_ink_panel_by_day_and_by_night() {
+    fn a_flora_tip_is_dark_oak_never_black_by_day_and_by_night() {
+        use crate::widgets::themes::flora::{TOOLTIP_OAK, TOOLTIP_OAK_INK, TOOLTIP_OAK_RULE};
         let dom = tooltip(Some(UiTheme::Flora));
         assert!(tc::has_class(&dom, FLORA));
         let t = tip(&dom);
-        // `--fl-code-bg` / `--fl-code-fg` / `--fl-code-bd`, day and night.
-        assert_eq!(bg(t, false), Some(ColorU::rgb(33, 31, 27)));
-        assert_eq!(bg(t, true), Some(ColorU::rgb(20, 20, 20)));
-        assert_eq!(tc::text_color(t, false), Some(ColorU::rgb(228, 225, 214)));
-        assert_eq!(tc::text_color(t, true), Some(ColorU::rgb(226, 226, 226)));
-        assert_eq!(tc::border_top_color(t, false, None), Some(ColorU::rgb(68, 63, 53)));
-        assert_eq!(tc::border_top_color(t, true, None), Some(ColorU::rgb(54, 54, 54)));
+        assert_eq!(bg(t, false), Some(TOOLTIP_OAK.0));
+        assert_eq!(bg(t, true), Some(TOOLTIP_OAK.1));
+        assert_ne!(TOOLTIP_OAK.0, ColorU::rgb(0, 0, 0), "never black");
+        assert_eq!(tc::text_color(t, false), Some(TOOLTIP_OAK_INK.0));
+        assert_eq!(tc::text_color(t, true), Some(TOOLTIP_OAK_INK.1));
+        assert_eq!(tc::border_top_color(t, false, None), Some(TOOLTIP_OAK_RULE.0));
+        assert_eq!(tc::border_top_color(t, true, None), Some(TOOLTIP_OAK_RULE.1));
         tc::assert_theme_invariants("tooltip Flora", &dom);
     }
 
@@ -1722,7 +1723,8 @@ mod theme_tests {
             .resolved_tip_style()
             .as_ref()
             .iter()
-            .any(|p| tc::bg_color(&p.property) == Some(ColorU::rgb(33, 31, 27))));
+            .any(|p| tc::bg_color(&p.property)
+                == Some(crate::widgets::themes::flora::TOOLTIP_OAK.0)));
     }
 
     #[test]

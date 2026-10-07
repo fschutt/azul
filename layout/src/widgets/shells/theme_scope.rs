@@ -315,6 +315,9 @@ pub(crate) fn build(scope: ShellThemeScope, look: &ShellLook) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(classes))
         .with_css_props(part(FILL_COLUMN_BASE, &look.scope_root))
+        // Flora's wool-on-parchment scrollbars for every scroll box in the
+        // app, inert in every other theme; then the accent (the last sheet).
+        .with_component_css(crate::widgets::themes::flora::scrollbar_sheet())
         .with_component_css(accent_sheet(accent))
         .with_child(content)
 }
