@@ -33,12 +33,31 @@
 //! <zoom>` on every viewport change, `AZMAPS_PINS <n>` when the pins change,
 //! `AZMAPS_PINS_LOADED <n>` / `AZMAPS_PINS_SAVED <n>` / `AZMAPS_PINS_ERROR`,
 //! `AZMAPS_PLACE <index>` when a place's card opens, `AZMAPS_TRAVEL <mode>
-//! <from> <to>` when the travel panel changes, `AZMAPS_SIDEBAR open|closed`.
+//! <from> <to>` when the travel panel changes, `AZMAPS_ROUTE <mode> <km>
+//! <minutes> <compute_ms>` when its route comes back from the route worker,
+//! `AZMAPS_SIDEBAR open|closed`. With `--stats` (`args.rs`): `AZMAPS_LAYOUT
+//! <n>` for every window rebuild, and the map widget's `AZ_MAP_TILES` /
+//! `AZ_MAP_RENDER` / `AZ_MAP_TILE` counters.
+//!
+//! Nothing here blocks the UI thread: the tiles are fetched, decoded AND drawn
+//! on the map's workers, the pins file and settings.json go through
+//! azul-appkit's file thread, a route is worked out on the route worker
+//! (`route.rs`). A pan does not rebuild the window unless something AzMaps
+//! draws at a place (a pin, the travel line, where you are) is on the map.
 
+pub mod args;
 pub mod ids;
 pub mod model;
+pub mod route;
 
-use std::path::PathBuf;
+use std::{
+    cell::Cell,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use azul::{
     callbacks::{
@@ -50,7 +69,8 @@ use azul::{
     sensor::SensorKind,
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
-    task::TerminateTimer,
+    task::{TerminateTimer, Thread, ThreadId},
+    time::{Duration, SystemTimeDiff},
     widgets::{
         Button, ButtonType, MapLatLon, MapTileLayer, MapViewport, MapWidget, OnTextInputReturn,
         Popover, PopoverState, TextInputState, TextInputValid,
@@ -58,16 +78,20 @@ use azul::{
 };
 use azul_appkit::{
     about::AboutInfo,
-    args::{AppArgs, AppSpec},
+    args::AppSpec,
     files::{FileJob, FileOutcome},
     shortcuts::Shortcut,
     ui as kit,
 };
 
-use crate::model::{
-    cardinal, clip_segment, distance_km, distance_text, pan_tiles, parse_place, parse_view,
-    pins_from_json, pins_to_json, place_text, travel_line, view_line, view_value, TravelMode,
-    HOME, MAX_ZOOM, MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
+use crate::{
+    model::{
+        cardinal, clip_segment, distance_km, distance_text, duration_text, mark_visible,
+        overlay_shows, pan_tiles, parse_place, parse_view, pins_from_json, pins_to_json,
+        place_text, route_line, travel_line, view_line, view_value, TravelMode, HOME, MAX_ZOOM,
+        MIN_ZOOM, PINS_FILE, SIDEBAR_KEY, VIEW_KEY,
+    },
+    route::{RouteReply, RouteRequest},
 };
 
 /// What azul-appkit's switches know about AzMaps.
@@ -103,9 +127,18 @@ pub const SHORTCUTS: [Shortcut; 6] = [
 const TAG_LOAD: u64 = 1;
 const TAG_SAVE: u64 = 2;
 
+/// How often the sensor / location / keep-the-viewport timer runs. It had no
+/// interval: it ran on every frame, and every magnetometer reading rebuilt the
+/// window.
+const TICK_MS: u64 = 100;
+
 /// Timer ticks without a viewport change before the viewport is kept (a
-/// drag or a held key is one write, not one per frame).
-const VIEW_SAVE_IDLE_TICKS: u32 = 30;
+/// drag or a held key is one write, not one per frame): half a second.
+const VIEW_SAVE_IDLE_TICKS: u32 = 5;
+
+/// `--stats`: count the window rebuilds on stdout (`AZMAPS_LAYOUT <n>`).
+static STATS: AtomicBool = AtomicBool::new(false);
+static LAYOUTS: AtomicU64 = AtomicU64::new(0);
 
 /// A tap on the map this soon after the user closed a place's card is the
 /// click that closed it, not a new pin.
@@ -242,6 +275,17 @@ struct MapState {
     save_pending: bool,
     /// What went wrong with the pins file, shown as a toast.
     notice: String,
+    /// The window's size as the last build saw it - the map fills the window,
+    /// so this is the map's: where a place is on screen between builds.
+    size: Cell<(f32, f32)>,
+    /// The travel panel's route, as the route worker answered the newest
+    /// request (`route.rs`).
+    route: Option<RouteReply>,
+    /// What the newest route request asked: the ends and the mode.
+    route_asked: Option<((f64, f64), (f64, f64), TravelMode)>,
+    /// The newest route request's number, shared with the route workers: an
+    /// older one gives up, its reply is dropped.
+    route_latest: Arc<AtomicU64>,
 }
 
 impl MapState {
@@ -316,6 +360,100 @@ impl MapState {
         let (from, to) = self.travel_ends();
         println!("{}", travel_line(self.travel.mode, from, to));
     }
+
+    /// Whether the window draws anything at a place on the map at `viewport`
+    /// (`model::overlay_shows`): a pin, the travel line, where you are.
+    fn overlay_shows(&self, viewport: MapViewport) -> bool {
+        let size = self.size.get();
+        let travel = match self.travel_ends() {
+            (Some(a), Some(b)) => Some((a, b)),
+            _ => None,
+        };
+        let here = if self.locating { self.last_fix } else { None };
+        overlay_shows(
+            |lat, lon| place_px(viewport, size, lat, lon),
+            size,
+            &self.pins,
+            travel,
+            here,
+        )
+    }
+
+    /// The route request for the travel panel as it is now - `None` when it
+    /// asks for the route already asked for, or an end is not a place. A new
+    /// request supersedes the one in flight (`route.rs`).
+    fn route_request(&mut self) -> Option<RouteRequest> {
+        let (Some(from), Some(to)) = self.travel_ends() else {
+            if self.route_asked.take().is_some() {
+                // Supersede what is still in flight: no answer for ends that
+                // are gone.
+                self.route_latest.fetch_add(1, Ordering::AcqRel);
+            }
+            self.route = None;
+            return None;
+        };
+        let asked = (from, to, self.travel.mode);
+        if self.route_asked == Some(asked) {
+            return None;
+        }
+        self.route_asked = Some(asked);
+        self.route = None;
+        let id = self.route_latest.fetch_add(1, Ordering::AcqRel) + 1;
+        Some(RouteRequest {
+            id,
+            from,
+            to,
+            mode: self.travel.mode,
+            latest: self.route_latest.clone(),
+            on_done: on_route_done,
+        })
+    }
+}
+
+/// Where `(lat, lon)` is in a `size` window showing the map at `viewport`
+/// (the map fills the window).
+fn place_px(viewport: MapViewport, size: (f32, f32), lat: f64, lon: f64) -> (f32, f32) {
+    let p = MapWidget::px_at_latlon(
+        viewport,
+        MapLatLon {
+            lat_deg: lat,
+            lon_deg: lon,
+        },
+        LogicalSize::create(size.0, size.1),
+    );
+    (p.x, p.y)
+}
+
+/// The travel panel may have changed: its route is asked of a route worker
+/// (`MapState::route_request`), never worked out here, on the UI thread.
+fn ask_route(app: &RefAny, info: &mut CallbackInfo) {
+    let mut state = app.clone();
+    let request = state
+        .downcast_mut::<MapState>()
+        .and_then(|mut s| s.route_request());
+    if let Some(request) = request {
+        info.add_thread(
+            ThreadId::unique(),
+            Thread::create(RefAny::new(request), app.clone(), route::route_worker),
+        );
+    }
+}
+
+/// A route came back from the route worker: shown when it answers the newest
+/// request, dropped when the panel has asked for another since.
+extern "C" fn on_route_done(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = msg.downcast_ref::<RouteReply>().map(|r| *r) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<MapState>() else {
+        return Update::DoNothing;
+    };
+    if s.route_latest.load(Ordering::Acquire) != reply.id {
+        return Update::DoNothing;
+    }
+    println!("{}", route_line(reply.mode, reply.route, reply.compute_ms));
+    s.route = Some(reply);
+    Update::RefreshDom
 }
 
 // ==== Layout ====
@@ -457,11 +595,21 @@ fn travel_panel(s: &MapState, app: &RefAny) -> Dom {
         );
     }
     if let (Some(a), Some(b)) = s.travel_ends() {
+        // The distance as the crow flies at once; the route worker's time
+        // once it answers for these ends.
+        let mut text = distance_text(distance_km(a, b));
+        if let Some(reply) = s
+            .route
+            .filter(|r| r.from == a && r.to == b && r.mode == s.travel.mode)
+        {
+            text.push_str(" \u{b7} ");
+            text.push_str(&duration_text(reply.route.minutes));
+        }
         modes.add_child(
             Dom::create_div()
                 .with_css(DISTANCE)
                 .with_id(ids::TRAVEL_DISTANCE)
-                .with_child(Dom::create_span_with_text(distance_text(distance_km(a, b)))),
+                .with_child(Dom::create_span_with_text(text)),
         );
     }
 
@@ -650,20 +798,11 @@ fn map_area(s: &MapState, app: &RefAny, size: (f32, f32)) -> Dom {
         .with_child(map);
 
     // The map fills the window, so the window's size is the map's: where a
-    // place is on screen.
+    // place is on screen. (The same rules decide whether a pan has to
+    // rebuild the window: `MapState::overlay_shows`.)
     let (w, h) = size;
-    let at = |lat: f64, lon: f64| {
-        let p = MapWidget::px_at_latlon(
-            s.viewport,
-            MapLatLon {
-                lat_deg: lat,
-                lon_deg: lon,
-            },
-            LogicalSize::create(w, h),
-        );
-        (p.x, p.y)
-    };
-    let visible = |(x, y): (f32, f32)| x > -40.0 && x < w + 40.0 && y > -40.0 && y < h + 60.0;
+    let at = |lat: f64, lon: f64| place_px(s.viewport, size, lat, lon);
+    let visible = |p: (f32, f32)| mark_visible(p, w, h);
 
     // The travel preview, until there is routing: start to destination as
     // the crow flies.
@@ -789,10 +928,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // tiles' style follows it).
     let _mode = info.get_mode();
     let size = (info.get_window_width(), info.get_window_height());
+    if STATS.load(Ordering::Relaxed) {
+        println!("AZMAPS_LAYOUT {}", LAYOUTS.fetch_add(1, Ordering::Relaxed) + 1);
+    }
     let app = data.clone();
     let Some(s) = data.downcast_ref::<MapState>() else {
         return Dom::create_body();
     };
+    s.size.set(size);
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
         Dom::create_div()
@@ -904,11 +1047,23 @@ extern "C" fn on_files_done(mut app: RefAny, mut msg: RefAny, mut info: Callback
     update
 }
 
+/// The map was panned / zoomed / turned by the user. It moves its tiles
+/// itself (its own view re-renders in place), so the window is rebuilt only
+/// to move what IT draws at a place - while there is something on the map,
+/// before or after this step. Every pointer move of a pan used to rebuild the
+/// whole window.
 extern "C" fn on_viewport_changed(mut data: RefAny, _info: CallbackInfo, vp: MapViewport) -> Update {
-    with_map(&mut data, |s| {
-        s.viewport = vp;
-        s.moved();
-    })
+    let Some(mut s) = data.downcast_mut::<MapState>() else {
+        return Update::DoNothing;
+    };
+    let rebuild = s.overlay_shows(s.viewport) || s.overlay_shows(vp);
+    s.viewport = vp;
+    s.moved();
+    if rebuild {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
 }
 
 /// A tap on the map drops a pin - unless it is the click that just closed a
@@ -976,19 +1131,21 @@ extern "C" fn on_place_toggle(
 }
 
 /// Directions to a place: it becomes the destination, the sidebar shows the
-/// travel panel, the card closes.
-extern "C" fn on_place_directions(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// travel panel, the card closes; the route is asked of the route worker.
+extern "C" fn on_place_directions(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, index)) = pin_of(&mut data) else {
         return Update::DoNothing;
     };
-    with_map(&mut app, |s| {
+    let update = with_map(&mut app, |s| {
         if let Some((lat, lon)) = s.pins.get(index).copied() {
             s.travel.to = place_text(lat, lon);
             s.sidebar_open = true;
             s.selected = None;
             s.announce_travel();
         }
-    })
+    });
+    ask_route(&app, &mut info);
+    update
 }
 
 /// A place removed from the recents (and the map).
@@ -1034,10 +1191,11 @@ extern "C" fn on_toggle_sidebar(mut data: RefAny, mut info: CallbackInfo) -> Upd
     update
 }
 
-/// A travel field typed in.
+/// A travel field typed in: once both ends are places, the route is asked of
+/// the route worker (the newest request wins; an older one gives up).
 extern "C" fn on_travel_text(
     mut data: RefAny,
-    _info: CallbackInfo,
+    mut info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
     let keep = OnTextInputReturn {
@@ -1056,14 +1214,15 @@ extern "C" fn on_travel_text(
         }
         s.announce_travel();
     });
+    ask_route(&app, &mut info);
     OnTextInputReturn {
         update,
         valid: TextInputValid::Yes,
     }
 }
 
-extern "C" fn on_travel_swap(mut data: RefAny, _info: CallbackInfo) -> Update {
-    with_map(&mut data, |s| {
+extern "C" fn on_travel_swap(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let update = with_map(&mut data, |s| {
         // An empty start is "where you are": swapped, it is written out.
         if s.travel.from.trim().is_empty() {
             if let Some((lat, lon)) = s.last_fix {
@@ -1072,18 +1231,22 @@ extern "C" fn on_travel_swap(mut data: RefAny, _info: CallbackInfo) -> Update {
         }
         std::mem::swap(&mut s.travel.from, &mut s.travel.to);
         s.announce_travel();
-    })
+    });
+    ask_route(&data, &mut info);
+    update
 }
 
-extern "C" fn on_travel_mode(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_travel_mode(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut app, mode)) = data.downcast_ref::<ModeRef>().map(|m| (m.app.clone(), m.mode))
     else {
         return Update::DoNothing;
     };
-    with_map(&mut app, |s| {
+    let update = with_map(&mut app, |s| {
         s.travel.mode = mode;
         s.announce_travel();
-    })
+    });
+    ask_route(&app, &mut info);
+    update
 }
 
 extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -1094,18 +1257,21 @@ extern "C" fn on_zoom_out(mut data: RefAny, _info: CallbackInfo) -> Update {
     with_map(&mut data, |s| s.zoom_by(-1.0))
 }
 
-extern "C" fn on_locate(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" fn on_locate(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let fix = info
         .get_location_fix()
         .into_option()
         .map(|f| (f.latitude_deg, f.longitude_deg));
-    with_map(&mut data, |s| {
+    let update = with_map(&mut data, |s| {
         s.toggle_locate();
         s.last_fix = fix;
         if let (true, Some((lat, lon))) = (s.locating, fix) {
             s.centre_on(lat, lon);
         }
-    })
+    });
+    // An empty start is where you are: a new fix is a new route.
+    ask_route(&data, &mut info);
+    update
 }
 
 /// The kit's handle, out of the app's state.
@@ -1177,19 +1343,27 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_map(&mut data, step)
 }
 
-/// The sensors and the location every tick; the viewport is kept in
-/// settings.json once it has rested `VIEW_SAVE_IDLE_TICKS` ticks.
+/// The sensors and the location every [`TICK_MS`]; the viewport is kept in
+/// settings.json once it has rested `VIEW_SAVE_IDLE_TICKS` ticks. The window
+/// is rebuilt only for what shows: the compass when the heading turned by a
+/// degree, a new location fix.
 extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
-    const LOCATE_TIMEOUT_TICKS: u32 = 200;
+    // About 3.4 s without a fix: the location is unavailable.
+    const LOCATE_TIMEOUT_TICKS: u32 = 34;
     let mag = info
         .callback_info
         .get_sensor_reading(SensorKind::Magnetometer)
         .into_option();
     let fix = info.callback_info.get_location_fix().into_option();
     let mut changed = false;
+    let mut moved_fix = false;
     let mut keep_view = None;
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         if let Some(r) = mag {
+            // The compass shows whole degrees: a reading that moves the
+            // needle by less is no reason to rebuild the window (every
+            // reading used to be).
+            let shown = s.heading().map(|h| h.round() as i32);
             if s.has_mag {
                 s.mag_x = s.mag_x * 0.8 + r.x * 0.2;
                 s.mag_y = s.mag_y * 0.8 + r.y * 0.2;
@@ -1198,7 +1372,7 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
                 s.mag_y = r.y;
                 s.has_mag = true;
             }
-            changed = true;
+            changed |= s.heading().map(|h| h.round() as i32) != shown;
         }
         if s.locating {
             match fix {
@@ -1208,6 +1382,7 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
                         s.last_fix = Some(here);
                         s.centre_on(here.0, here.1);
                         changed = true;
+                        moved_fix = true;
                     }
                     s.locate_ticks = 0;
                 }
@@ -1235,6 +1410,10 @@ extern "C" fn tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallba
     if let Some((kit_ref, value)) = keep_view {
         kit::set_value(&kit_ref, &mut info.callback_info, VIEW_KEY, &value);
     }
+    if moved_fix {
+        // An empty start is where you are: it moved, so did the route.
+        ask_route(&data, &mut info.callback_info);
+    }
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
         should_update: if changed {
@@ -1257,7 +1436,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     kit::on_window_created(&kit_ref, &mut info);
     info.add_timer(
         TimerId::unique(),
-        Timer::create(app.clone(), tick, info.get_system_time_fn()),
+        Timer::create(app.clone(), tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS))),
     );
     kit::spawn_file_jobs(&mut info, &root, vec![FileJob::Get { key }], app, TAG_LOAD, on_files_done);
     Update::DoNothing
@@ -1266,14 +1446,26 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 // ==== Entry ====
 
 pub fn start() {
-    let args = match AppArgs::from_env(&SPEC) {
+    let stats_env =
+        std::env::var("AZMAPS_STATS").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0");
+    let args = match args::parse(std::env::args().skip(1), stats_env) {
+        Ok(a) if a.help => {
+            println!("{}", args::usage());
+            std::process::exit(0);
+        }
         Ok(a) => a,
         Err(why) => {
             eprintln!("{why}");
             std::process::exit(2);
         }
     };
-    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    if args.stats {
+        STATS.store(true, Ordering::Relaxed);
+        // The map widget's own switch: its counters and its tile worker's.
+        // Set before the app starts a single thread.
+        std::env::set_var("AZ_MAP_STATS", "1");
+    }
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args.kit);
     let (data_root, pins_key, kept, sidebar_open) = {
         let mut k = kit_ref.clone();
         let read = match k.downcast_ref::<kit::Kit>() {
@@ -1319,6 +1511,10 @@ pub fn start() {
         saving: false,
         save_pending: false,
         notice: String::new(),
+        size: Cell::new((0.0, 0.0)),
+        route: None,
+        route_asked: None,
+        route_latest: Arc::new(AtomicU64::new(0)),
     };
     let app = App::create(RefAny::new(state), kit::app_config(&kit_ref));
     let window =

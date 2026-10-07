@@ -219,6 +219,106 @@ pub fn travel_line(mode: TravelMode, from: Option<(f64, f64)>, to: Option<(f64, 
     format!("AZMAPS_TRAVEL {} {} {}", mode.key(), end(from), end(to))
 }
 
+/// Whether a mark at `p` (view pixels) shows in a `width` x `height` view: a
+/// pin's head reaches 40 px left, right and up of its point and its box 60 px
+/// below it (where the window draws a place, it draws it only then).
+#[must_use]
+pub fn mark_visible(p: (f32, f32), width: f32, height: f32) -> bool {
+    p.0 > -40.0 && p.0 < width + 40.0 && p.1 > -40.0 && p.1 < height + 60.0
+}
+
+/// Whether the window draws anything AT A PLACE on the map - a pin, the
+/// travel line or its ends, where you are - in a `size` view whose projection
+/// is `project` (`(lat, lon)` to view pixels).
+///
+/// The map moves its tiles itself, inside its own view. The window is rebuilt
+/// for a pan only to move what IT draws over the map, so only while there is
+/// something: before and after a step of the pan. Every pointer move of a pan
+/// used to rebuild the whole window.
+#[must_use]
+pub fn overlay_shows(
+    project: impl Fn(f64, f64) -> (f32, f32),
+    size: (f32, f32),
+    pins: &[(f64, f64)],
+    travel: Option<((f64, f64), (f64, f64))>,
+    here: Option<(f64, f64)>,
+) -> bool {
+    let (w, h) = size;
+    let shows = |(lat, lon): (f64, f64)| mark_visible(project(lat, lon), w, h);
+    if pins.iter().any(|pin| shows(*pin)) || here.is_some_and(shows) {
+        return true;
+    }
+    travel.is_some_and(|(a, b)| {
+        shows(a) || shows(b) || clip_segment(project(a.0, a.1), project(b.0, b.1), w, h).is_some()
+    })
+}
+
+/// How much longer a way by road or path is than the crow flies: ROUTING.md's
+/// first step, the straight-line estimate.
+pub const DETOUR_FACTOR: f64 = 1.3;
+
+impl TravelMode {
+    /// A typical door-to-door speed, km/h: the estimate's divisor.
+    #[must_use]
+    pub const fn speed_kmh(self) -> f64 {
+        match self {
+            Self::Car => 80.0,
+            Self::Walk => 5.0,
+            Self::Bike => 16.0,
+            Self::Transit => 40.0,
+        }
+    }
+}
+
+/// A route's estimate: how long the way is and how long it takes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RouteEstimate {
+    pub km: f64,
+    pub minutes: f64,
+}
+
+/// The straight-line estimate of a route (ROUTING.md, step 1): the
+/// great-circle distance times [`DETOUR_FACTOR`], at the mode's speed. What
+/// the route worker answers until the routing tiles and A* exist.
+#[must_use]
+pub fn estimate_route(from: (f64, f64), to: (f64, f64), mode: TravelMode) -> RouteEstimate {
+    let km = distance_km(from, to) * DETOUR_FACTOR;
+    RouteEstimate {
+        km,
+        minutes: km / mode.speed_kmh() * 60.0,
+    }
+}
+
+/// A travel time the way the panel shows it: `~ 25 min`, `~ 5 h 10 min`,
+/// `~ 2 h`; at least a minute.
+#[must_use]
+pub fn duration_text(minutes: f64) -> String {
+    let total = if minutes.is_finite() {
+        (minutes.round() as u64).max(1)
+    } else {
+        1
+    };
+    let (h, m) = (total / 60, total % 60);
+    match (h, m) {
+        (0, m) => format!("~ {m} min"),
+        (h, 0) => format!("~ {h} h"),
+        (h, m) => format!("~ {h} h {m} min"),
+    }
+}
+
+/// `AZMAPS_ROUTE <mode> <km> <minutes> <compute_ms>`: the route the travel
+/// panel took, and how long the worker worked it out, for scripts.
+#[must_use]
+pub fn route_line(mode: TravelMode, route: RouteEstimate, compute_ms: f64) -> String {
+    format!(
+        "AZMAPS_ROUTE {} {:.1} {:.0} {:.3}",
+        mode.key(),
+        route.km,
+        route.minutes,
+        compute_ms
+    )
+}
+
 /// The part of the segment `a`-`b` inside the `width` x `height` view
 /// (Liang-Barsky), `None` when it misses the view: a line to a place a
 /// continent away is drawn as long as the window, not a million pixels.
@@ -309,6 +409,60 @@ mod tests {
         // Missing the view, or not a number: nothing.
         assert_eq!(clip_segment((-50.0, -50.0), (-10.0, 200.0), 100.0, 100.0), None);
         assert_eq!(clip_segment((f32::NAN, 0.0), (10.0, 10.0), 100.0, 100.0), None);
+    }
+
+    #[test]
+    fn a_pan_moves_the_window_only_while_something_of_ours_is_on_the_map() {
+        // The map moves its tiles itself; the window is rebuilt for a pan only
+        // to move what IT draws at a place. A flat stand-in for the
+        // projection: 10 px per degree, (0, 0) in the middle of 800 x 600.
+        let project = |lat: f64, lon: f64| (400.0 + lon as f32 * 10.0, 300.0 - lat as f32 * 10.0);
+        let size = (800.0, 600.0);
+        assert!(!overlay_shows(project, size, &[], None, None), "an empty map moves itself");
+        assert!(overlay_shows(project, size, &[(0.0, 0.0)], None, None), "a pin in view");
+        assert!(
+            !overlay_shows(project, size, &[(80.0, 170.0)], None, None),
+            "a pin far outside the view does not count"
+        );
+        assert!(
+            overlay_shows(project, size, &[], Some(((0.0, -100.0), (0.0, 100.0))), None),
+            "the travel line crossing the view counts, both ends outside"
+        );
+        assert!(!overlay_shows(project, size, &[], Some(((80.0, 170.0), (85.0, 175.0))), None));
+        assert!(overlay_shows(project, size, &[], None, Some((1.0, 1.0))), "where you are");
+        assert!(
+            mark_visible((-30.0, 10.0), 800.0, 600.0) && !mark_visible((-50.0, 10.0), 800.0, 600.0),
+            "a pin's head reaches 40 px past its point"
+        );
+        assert!(mark_visible((10.0, 650.0), 800.0, 600.0), "and 60 px below it");
+    }
+
+    #[test]
+    fn a_route_is_first_estimated_from_the_crow_flies_distance_at_the_modes_speed() {
+        let vienna = (48.2082, 16.3738);
+        let munich = (48.1372, 11.5756);
+        let crow = distance_km(vienna, munich);
+        let car = estimate_route(vienna, munich, TravelMode::Car);
+        assert!((car.km - crow * DETOUR_FACTOR).abs() < 1e-9, "{car:?}");
+        assert!((car.minutes - car.km / TravelMode::Car.speed_kmh() * 60.0).abs() < 1e-9);
+        let walk = estimate_route(vienna, munich, TravelMode::Walk);
+        assert!(walk.minutes > car.minutes * 10.0, "walking takes far longer: {walk:?} {car:?}");
+        assert_eq!(estimate_route(vienna, vienna, TravelMode::Bike).minutes, 0.0);
+        assert_eq!(duration_text(0.4), "~ 1 min");
+        assert_eq!(duration_text(25.2), "~ 25 min");
+        assert_eq!(duration_text(310.0), "~ 5 h 10 min");
+        assert_eq!(duration_text(120.0), "~ 2 h");
+        assert_eq!(
+            route_line(
+                TravelMode::Walk,
+                RouteEstimate {
+                    km: 12.345,
+                    minutes: 148.14
+                },
+                0.0123
+            ),
+            "AZMAPS_ROUTE walk 12.3 148 0.012"
+        );
     }
 
     #[test]

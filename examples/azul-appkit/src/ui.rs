@@ -28,7 +28,13 @@
 //!   the settings page's About section (its rows are
 //!   [`crate::about::about_rows`]); Escape closes it first.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+};
 
 use azul::{
     callbacks::{
@@ -410,17 +416,60 @@ struct FileThreadInit {
     jobs: Option<Vec<FileJob>>,
     tag: u64,
     on_done: WriteBackCallbackType,
+    /// The look to write into the shared config first (`save_settings`).
+    shared: Option<SharedConfigWrite>,
 }
 
-/// Runs on the worker thread: the jobs on the data root's drive, then the
-/// outcomes to the UI thread.
+/// The look `save_settings` writes into the shared config every Azlin app
+/// starts from (`crate::azlin_config`) - on the file thread, before its jobs.
+/// It was written on the UI thread: a read of `~/.azlin/config.json` (and a
+/// write when the look changed) in every callback that saved the settings,
+/// AzMaps' kept viewport after every pan among them.
+struct SharedConfigWrite {
+    path: PathBuf,
+    theme: Option<Theme>,
+    mode: ModePref,
+    binary: &'static str,
+    /// Minted on the UI thread ([`SHARED_CONFIG_WRITES`]): of two saves that
+    /// race on their threads, the newer look is the one that stays.
+    seq: u64,
+}
+
+/// The numbers of the shared-config writes, in the order the UI thread asked
+/// for them...
+static SHARED_CONFIG_WRITES: AtomicU64 = AtomicU64::new(0);
+/// ...and the newest one written, held while writing (one writer at a time).
+static SHARED_CONFIG_WRITTEN: Mutex<u64> = Mutex::new(0);
+
+impl SharedConfigWrite {
+    /// Writes the look, unless a newer one was written already.
+    fn apply(self) {
+        let mut written = SHARED_CONFIG_WRITTEN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.seq <= *written {
+            return;
+        }
+        if let Err(e) = AzlinConfig::update(&self.path, self.theme, self.mode) {
+            eprintln!("[{}] {}: {e}", self.binary, self.path.display());
+        }
+        *written = self.seq;
+    }
+}
+
+/// Runs on the worker thread: the shared config's look (when saving the
+/// settings), the jobs on the data root's drive, then the outcomes to the UI
+/// thread.
 extern "C" fn file_thread(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((root, data_tree, jobs, tag, on_done)) = init.downcast_mut::<FileThreadInit>().and_then(|mut i| {
+    let Some((root, data_tree, jobs, tag, on_done, shared)) = init.downcast_mut::<FileThreadInit>().and_then(|mut i| {
         let jobs = i.jobs.take()?;
-        Some((i.root.clone(), i.data_tree, jobs, i.tag, i.on_done))
+        Some((i.root.clone(), i.data_tree, jobs, i.tag, i.on_done, i.shared.take()))
     }) else {
         return;
     };
+    if let Some(shared) = shared {
+        shared.apply();
+    }
     let drive = if data_tree {
         LocalDrive::new(root)
     } else {
@@ -446,7 +495,7 @@ pub fn spawn_file_jobs(
     if jobs.is_empty() {
         return;
     }
-    spawn_jobs_at(info, root, true, jobs, reply_to, tag, on_done);
+    spawn_jobs_at(info, root, true, jobs, reply_to, tag, on_done, None);
 }
 
 /// Reads `path` - a file the user picked OUTSIDE the data tree (a file to
@@ -464,12 +513,14 @@ pub fn spawn_outside_read(
     let Some((folder, job)) = crate::files::outside_read(path) else {
         return false;
     };
-    spawn_jobs_at(info, &folder, false, vec![job], reply_to, tag, on_done);
+    spawn_jobs_at(info, &folder, false, vec![job], reply_to, tag, on_done, None);
     true
 }
 
 /// The one file thread: `jobs` on the drive at `root` (`data_tree`: the
-/// data root's drive with its manifest; else a folder outside it).
+/// data root's drive with its manifest; else a folder outside it), after the
+/// `shared` config's look when there is one.
+#[allow(clippy::too_many_arguments)]
 fn spawn_jobs_at(
     info: &mut CallbackInfo,
     root: &Path,
@@ -478,6 +529,7 @@ fn spawn_jobs_at(
     reply_to: RefAny,
     tag: u64,
     on_done: WriteBackCallbackType,
+    shared: Option<SharedConfigWrite>,
 ) {
     info.add_thread(
         ThreadId::unique(),
@@ -488,6 +540,7 @@ fn spawn_jobs_at(
                 jobs: Some(jobs),
                 tag,
                 on_done,
+                shared,
             }),
             reply_to,
             file_thread,
@@ -495,29 +548,28 @@ fn spawn_jobs_at(
     );
 }
 
-/// Saves the kit's settings file (on a Thread), and the look into the
-/// shared config every Azlin app starts from (`crate::azlin_config`: the
-/// theme unless the app pins its own, the mode always; written only when it
-/// changed, a few bytes, at once).
+/// Saves the kit's settings file and the look into the shared config every
+/// Azlin app starts from (`crate::azlin_config`: the theme unless the app
+/// pins its own, the mode always; written only when it changed, a few
+/// bytes) - both on the file thread, never on the UI thread.
 pub fn save_settings(kit_ref: &RefAny, info: &mut CallbackInfo) {
     let mut kit = kit_ref.clone();
     let Some((root, key, json, shared)) = kit.downcast_ref::<Kit>().map(|k| {
-        let shared = k.config_path.clone().map(|path| {
-            let theme = k.pinned_theme.is_none().then_some(k.settings.theme);
-            (path, theme, k.settings.mode, k.spec.binary)
+        let shared = k.config_path.clone().map(|path| SharedConfigWrite {
+            path,
+            theme: k.pinned_theme.is_none().then_some(k.settings.theme),
+            mode: k.settings.mode,
+            binary: k.spec.binary,
+            seq: SHARED_CONFIG_WRITES.fetch_add(1, Ordering::Relaxed) + 1,
         });
         (k.data_root.clone(), k.settings_key(), k.settings.to_json(), shared)
     }) else {
         return;
     };
-    if let Some((path, theme, mode, binary)) = shared {
-        if let Err(e) = AzlinConfig::update(&path, theme, mode) {
-            eprintln!("[{binary}] {}: {e}", path.display());
-        }
-    }
-    spawn_file_jobs(
+    spawn_jobs_at(
         info,
         &root,
+        true,
         vec![FileJob::Put {
             key,
             bytes: json.into_bytes(),
@@ -525,6 +577,7 @@ pub fn save_settings(kit_ref: &RefAny, info: &mut CallbackInfo) {
         kit_ref.clone(),
         SETTINGS_TAG,
         on_settings_saved,
+        shared,
     );
 }
 
