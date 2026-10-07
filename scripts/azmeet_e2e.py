@@ -576,6 +576,8 @@ def relay_phase(args, binary, worker, logs, out, capped, skip, procs):
         until("%s's statistics saying %s: relayed" % (app.tag, other),
               lambda app=app, other=other: any(t.startswith("%s: relayed" % other) for t in app.texts()),
               deadline, procs)
+        if "Transport: %s" % expected not in app.texts():
+            raise Failure("%s's statistics do not say %r" % (app.tag, "Transport: %s" % expected))
         log("%s reaches %s through the relay (%s)" % (app.tag, other, "; ".join(app.printed("AZMEET_PATH"))))
 
     chat(ada, ben, "Ada", RELAYED_MESSAGE, True, deadline, procs)

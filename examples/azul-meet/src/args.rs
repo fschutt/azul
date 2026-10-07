@@ -302,9 +302,9 @@ pub fn usage() -> String {
 fn option_line(left: &str, description: &str) -> String {
     const COLUMN: usize = 24;
     if left.len() <= COLUMN {
-        format!("    {left:<COLUMN$} {description}\n")
+        format!("    {left:<width$} {description}\n", width = COLUMN)
     } else {
-        format!("    {left}\n    {:<COLUMN$} {description}\n", "")
+        format!("    {left}\n    {:<width$} {description}\n", "", width = COLUMN)
     }
 }
 
