@@ -2422,8 +2422,8 @@ mod wheel_ownership {
                 "data_table".to_string(),
                 // So does the icon grid.
                 "icon_grid".to_string(),
-                // The terminal view scrolls its scrollback by whole lines
-                // (or reports the wheel to the program in it).
+                // The terminal view scrolls its scrollback (by pixels, or
+                // reports the wheel to the program in it).
                 "terminal_view".to_string(),
                 // The code view scrolls by whole lines.
                 "code_view".to_string(),

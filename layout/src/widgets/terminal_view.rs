@@ -14,28 +14,44 @@
 //! `alacritty_terminal` grid). A grid size that differs from the engine's is
 //! the app's cue to resize the engine and the PTY (`TIOCSWINSZ`).
 //!
-//! VIRTUALISED IN WHOLE LINES: the view is a `VirtualView` host (like the map
-//! widget: an outer node with the handlers, a `VirtualView` inside it that
-//! renders the rows), so it knows its own size and the app can re-render it
-//! alone when output arrives - `CallbackInfo::trigger_virtual_view_rerender`
-//! on the first child of the node carrying the view's id (not
-//! `trigger_all_virtual_view_rerender`: a title bar's maximize glyph, an icon
-//! view, a live status bar label are views too) - without rebuilding the
-//! window, at most once a frame however much output came. Scrolling is the
-//! scroll-window pattern of the cell grid and the data table, in whole
-//! lines: the position is the
-//! engine's DISPLAY OFFSET - lines scrolled up from the bottom, 0 = following
-//! the output - so a scrollback of 100,000 or 10,000,000 lines costs the same
-//! and no `f32` has to address it in pixels. Only the rows in view are built.
+//! VIRTUALISED, SCROLLED BY PIXELS: the view is a `VirtualView` host (like
+//! the map widget: an outer node with the handlers, a `VirtualView` inside it
+//! that renders the rows), so it knows its own size and the app can
+//! re-render it alone when output arrives -
+//! `CallbackInfo::trigger_virtual_view_rerender` on the first child of the
+//! node carrying the view's id (not `trigger_all_virtual_view_rerender`: a
+//! title bar's maximize glyph, an icon view, a live status bar label are
+//! views too) - without rebuilding the window, at most once a frame however
+//! much output came. Scrolling is the scroll-window pattern of the cell grid
+//! and the data table: the position is the engine's DISPLAY OFFSET - whole
+//! lines scrolled up from the bottom, 0 = following the output - so a
+//! scrollback of 100,000 or 10,000,000 lines costs the same and no `f32` has
+//! to address it in pixels; only the rows in view are built. Between two
+//! lines the rows of the offset are SLID UP by a fraction of a line
+//! ([`TerminalScreen::scroll_fraction`]) and the line below them
+//! ([`TerminalScreen::line_below`]) peeks in, so a trackpad and its momentum
+//! glide by the pixel; rows come and go at the edges as the slide passes a
+//! whole line. The offset is the position rounded UP: any position off the
+//! output keeps it at 1 or more, where an engine like alacritty keeps the
+//! content in view while output streams in below - the view stays still.
+//!
+//! FOLLOWING THE OUTPUT: at offset 0 the view follows the output. Off it, a
+//! round follow button sits in the view's bottom-right corner, with the
+//! count of lines that came in below ([`TerminalScreen::new_lines`], counted
+//! by the app) once there are some; a press on it scrolls back to the output
+//! (a `Scroll` to 0), as Shift+End and typing do.
 //!
 //! THE APP OWNS THE STATE: the scroll position and the selection are the
-//! engine's; every action is a [`TerminalViewEvent`]: `Input` carries the
-//! bytes for the program (keys, typed text, a paste, a mouse report, a focus
-//! report - already encoded for the modes the program asked for), `Scroll`
-//! the display offset to show, `SelectStart` / `SelectExtend` / `SelectEnd`
-//! the cell a selection gesture is at, `Copy` asks for the selection's text
-//! on the clipboard. After a `Scroll` or a selection event the view re-renders
-//! itself; after `Input` the app writes the bytes to the PTY.
+//! engine's (the slide is the app's, beside it); every action is a
+//! [`TerminalViewEvent`]: `Input` carries the bytes for the program (keys,
+//! typed text, a paste, a mouse report, a focus report - already encoded for
+//! the modes the program asked for), `Scroll` the display offset and the
+//! slide to show (worked out from the screen the view showed last: an app
+//! whose engine moved since moves by the difference, and 0 is the output),
+//! `SelectStart` / `SelectExtend` / `SelectEnd` the cell a selection gesture
+//! is at, `Copy` asks for the selection's text on the clipboard. After a
+//! `Scroll` or a selection event the view re-renders itself; after `Input`
+//! the app writes the bytes to the PTY.
 //!
 //! KEYBOARD (the view is ONE Tab stop, and keeps its keys): xterm encodings -
 //! the arrows, Home / End (`CSI` or `SS3` in application cursor mode, `CSI 1;m`
@@ -52,9 +68,9 @@
 //! block), a drag extends it; when the program asked for mouse reports
 //! (`CSI ?1000h` / `1002` / `1003`, encodings `1005` / `1006`) the pointer is
 //! the program's instead, Shift+drag still selects. The wheel scrolls the
-//! scrollback (3 lines a notch), or is reported, or - on the alternate screen
-//! with alternate scroll on - becomes arrow keys. The scroll bar on the right
-//! drags.
+//! scrollback (a trackpad by its pixels, a mouse wheel 3 lines a notch), or
+//! is reported, or - on the alternate screen with alternate scroll on -
+//! becomes arrow keys. The scroll bar on the right drags.
 //!
 //! COLOURS: [`TerminalPalette`] - the 16 ANSI colours, the default ink and
 //! ground, the cursor and the selection, each by day and at night
@@ -1077,13 +1093,27 @@ impl TerminalGridSize {
 pub struct TerminalScreen {
     /// The rows in view, top to bottom (as many as the grid has rows).
     pub lines: TerminalLineVec,
+    /// The line just below the rows in view (none at the output): while the
+    /// view is slid up by part of a line (`scroll_fraction`) its top peeks
+    /// in under the last row.
+    pub line_below: OptionTerminalLine,
     /// The selection, clipped to the rows in view.
     pub selection: OptionTerminalSelection,
     /// The lines of scrollback above the screen.
     pub history: u32,
-    /// How far the view is scrolled up into them (0 = at the bottom,
-    /// following the output; at most `history`).
+    /// How far the view is scrolled up into them, in whole lines - the
+    /// display offset whose rows `lines` are (0 = at the bottom, following
+    /// the output; at most `history`).
     pub scroll: u32,
+    /// How far those rows are slid up, a fraction of a line in `[0, 1)`:
+    /// the view scrolls by pixels, so it is `scroll - scroll_fraction`
+    /// lines up from the output in all (0 at the output, and for an app
+    /// that keeps whole lines).
+    pub scroll_fraction: f32,
+    /// The lines of output that came in below the view since it left the
+    /// output (0 while it follows, or for an app that does not count): the
+    /// view's follow button shows them.
+    pub new_lines: u32,
     /// The cursor, in view.
     pub cursor: TerminalCursor,
     /// The modes the program set.
@@ -1096,9 +1126,12 @@ impl TerminalScreen {
     pub fn create(lines: TerminalLineVec) -> Self {
         Self {
             lines,
+            line_below: OptionTerminalLine::None,
             selection: OptionTerminalSelection::None,
             history: 0,
             scroll: 0,
+            scroll_fraction: 0.0,
+            new_lines: 0,
             cursor: TerminalCursor::hidden(),
             modes: TerminalModes::create(),
         }
@@ -1206,7 +1239,12 @@ pub enum TerminalViewEventKind {
     /// PTY (and scroll to the bottom).
     #[default]
     Input,
-    /// Show the scrollback at display offset [`TerminalViewEvent::scroll`].
+    /// Show the scrollback at display offset [`TerminalViewEvent::scroll`],
+    /// slid up by [`TerminalViewEvent::scroll_fraction`] of a line. The view
+    /// works it out from the screen it showed last: an engine whose offset
+    /// moved since (output that came in while the view was scrolled up -
+    /// the engine keeps what is in view) moves by the difference instead.
+    /// Display offset 0 with no slide is the output: follow it.
     Scroll,
     /// A selection starts at [`TerminalViewEvent::point`]
     /// ([`TerminalViewEvent::selection_kind`] says what it selects).
@@ -1230,6 +1268,9 @@ pub struct TerminalViewEvent {
     pub bytes: U8Vec,
     /// The display offset to show (`Scroll`), the current one otherwise.
     pub scroll: u32,
+    /// How far its rows are slid up, a fraction of a line in `[0, 1)`
+    /// (`Scroll`: the view scrolls by pixels), the current slide otherwise.
+    pub scroll_fraction: f32,
     /// The cell (`Select*`), in view.
     pub point: TerminalPoint,
     /// What happened.
@@ -1248,6 +1289,7 @@ impl TerminalViewEvent {
         Self {
             bytes: U8Vec::from_vec(Vec::new()),
             scroll: 0,
+            scroll_fraction: 0.0,
             point: TerminalPoint::create(0, 0),
             kind,
             selection_kind: TerminalSelectionKind::Simple,
@@ -1268,6 +1310,14 @@ impl TerminalViewEvent {
     pub fn scrolled(scroll: u32) -> Self {
         let mut e = Self::create(TerminalViewEventKind::Scroll);
         e.scroll = scroll;
+        e
+    }
+
+    /// A `Scroll` event to `pos`: its display offset and its slide.
+    #[must_use]
+    pub(crate) fn scrolled_to(pos: ScrollPos) -> Self {
+        let mut e = Self::scrolled(pos.lines);
+        e.scroll_fraction = pos.fraction;
         e
     }
 }
@@ -1587,28 +1637,238 @@ pub(crate) fn scroll_after(scroll: u32, history: u32, lines: i64) -> u32 {
         .clamp(0, i64::from(history)) as u32
 }
 
+/// How close to a whole line a position snaps to it (a fraction of a line):
+/// no slide of float dust after a wheel turned back and forth.
+const SNAP_LINES: f64 = 1e-3;
+
+/// Where the view is in the scrollback: the rows of display offset `lines`,
+/// slid up by `fraction` of a line - `lines - fraction` lines up from the
+/// output in all.
+///
+/// The display offset is the position ROUNDED UP: a view half a line off the
+/// output shows the rows of offset 1 slid up by half a line, the line below
+/// them (the output's last) peeking in. So any position off the output keeps
+/// the engine's offset at 1 or more, and an engine that keeps the content in
+/// view while output streams in below (alacritty raises a non-zero offset
+/// with every line) keeps this view still, to the pixel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ScrollPos {
+    /// The display offset whose rows are drawn.
+    pub lines: u32,
+    /// How far they are slid up, a fraction of a line in `[0, 1)`.
+    pub fraction: f32,
+}
+
+impl ScrollPos {
+    /// At the output, following it.
+    pub(crate) const OUTPUT: Self = Self {
+        lines: 0,
+        fraction: 0.0,
+    };
+
+    /// The position `screen` shows: its display offset and its slide (a
+    /// slide at the output, or one that is not a fraction of a line, is
+    /// none).
+    pub(crate) fn of(screen: &TerminalScreen) -> Self {
+        let f = screen.scroll_fraction;
+        let fraction = if screen.scroll > 0 && f.is_finite() && f > 0.0 && f < 1.0 {
+            f
+        } else {
+            0.0
+        };
+        Self {
+            lines: screen.scroll,
+            fraction,
+        }
+    }
+
+    /// The position `up` lines up from the output, kept within the
+    /// `history`: the display offset rounded up to a whole line, the rest
+    /// the slide. Within [`SNAP_LINES`] of a whole line, the whole line.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=history
+    pub(crate) fn at(up: f64, history: u32) -> Self {
+        if !up.is_finite() {
+            return Self::OUTPUT;
+        }
+        let up = up.clamp(0.0, f64::from(history));
+        let mut lines = up.ceil();
+        let mut fraction = lines - up;
+        if fraction < SNAP_LINES {
+            fraction = 0.0;
+        } else if fraction > 1.0 - SNAP_LINES {
+            lines -= 1.0;
+            fraction = 0.0;
+        }
+        Self {
+            lines: lines as u32,
+            fraction: fraction as f32,
+        }
+    }
+
+    /// Lines up from the output, in all.
+    pub(crate) fn up(self) -> f64 {
+        f64::from(self.lines) - f64::from(self.fraction)
+    }
+
+    /// At the output: following it.
+    pub(crate) const fn following(self) -> bool {
+        self.lines == 0
+    }
+
+    /// How far the rows are slid up, px, at rows `line_height` px tall.
+    pub(crate) fn slide(self, line_height: f32) -> f32 {
+        self.fraction * line_height
+    }
+}
+
+/// Where the wheel takes the scrollback BY PIXELS: `by_y` px of offset
+/// change (+ toward the output, the user's direction preference applied -
+/// `CallbackInfo::get_wheel_scroll_by`) on a view of `line_height` px rows.
+/// A trackpad (`precise`) moves the view by its pixels - its momentum glides
+/// - a mouse wheel's notch ([`TERMINAL_WHEEL_NOTCH_PX`]) by
+/// [`TERMINAL_WHEEL_LINES`] lines, a slide kept. `None` when it does not
+/// move.
+pub(crate) fn wheel_scroll_pos(
+    screen: &TerminalScreen,
+    by_y: f32,
+    line_height: f32,
+    precise: bool,
+) -> Option<ScrollPos> {
+    if !by_y.is_finite() || by_y == 0.0 || !line_height.is_finite() || line_height <= 0.0 {
+        return None;
+    }
+    let lines = if precise {
+        f64::from(by_y) / f64::from(line_height)
+    } else {
+        f64::from(by_y) / f64::from(TERMINAL_WHEEL_NOTCH_PX) * f64::from(TERMINAL_WHEEL_LINES)
+    };
+    let from = ScrollPos::of(screen);
+    let to = ScrollPos::at(from.up() - lines, screen.history);
+    (to != from).then_some(to)
+}
+
+/// The cell under `(x, y)` px from the text area's top-left on a view at
+/// `pos`: its rows are slid up, so the point is over the row drawn there (a
+/// point over the line below counts as the last row's).
+pub(crate) fn cell_under(
+    m: &Metrics,
+    grid: TerminalGridSize,
+    pos: ScrollPos,
+    x: f32,
+    y: f32,
+) -> (TerminalPoint, bool) {
+    m.cell_at(grid, x, y + pos.slide(m.line_height))
+}
+
 /// The scroll bar of a view `height` px tall at `x`: the thumb shows
-/// `rows` of `history + rows` lines, scrolled up by `scroll`. `None` without
-/// scrollback (nothing to scroll).
+/// `rows` of `history + rows` lines, `up` lines up from the output (a
+/// fraction between two lines moves it too). `None` without scrollback
+/// (nothing to scroll).
 pub(crate) fn scroll_bar(
     x: f32,
     height: f32,
     rows: u32,
     history: u32,
-    scroll: u32,
+    up: f32,
 ) -> Option<crate::widgets::data_table::ScrollBar> {
     if history == 0 || !height.is_finite() || height <= 0.0 {
         return None;
     }
     #[allow(clippy::cast_precision_loss)] // line counts far below 2^24 per px
-    let (page, total) = (rows as f32, history as f32 + rows as f32);
-    let top = history - scroll.min(history);
-    let (thumb_start, thumb_len) =
-        crate::widgets::data_table::thumb(height, page, total, top, history);
+    let (page, total, oldest) = (rows as f32, history as f32 + rows as f32, history as f32);
+    let (_, thumb_len) = crate::widgets::data_table::thumb(height, page, total, 0, history);
+    let up = if up.is_finite() {
+        up.clamp(0.0, oldest)
+    } else {
+        0.0
+    };
+    // 0 with the oldest line at the top of the view, 1 at the output.
+    let along = (oldest - up) / oldest;
     Some(crate::widgets::data_table::ScrollBar {
         track: (x, 0.0, SCROLLBAR_PX, height),
-        thumb_start,
+        thumb_start: (height - thumb_len) * along,
         thumb_len,
+    })
+}
+
+// ---- the follow button (pure) ----
+
+/// The follow button's height (and a round one's width), px.
+pub(crate) const FOLLOW_SIZE_PX: f32 = 30.0;
+/// Its gap to the text area's right and bottom edges, px.
+const FOLLOW_MARGIN_PX: f32 = 12.0;
+/// A pill's padding left and right of its label, px.
+const FOLLOW_PAD_PX: f32 = 12.0;
+/// A pill's label size, px (a round button's arrow is larger).
+pub(crate) const FOLLOW_FONT_PX: f32 = 12.0;
+/// The round button's arrow size, px.
+const FOLLOW_ARROW_FONT_PX: f32 = 15.0;
+/// The arrow the button shows: down, to the output.
+const FOLLOW_ARROW: &str = "\u{2193}";
+
+/// The follow button: where it sits in the view (x, y, width, height px) and
+/// what it says.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FollowButton {
+    /// x, y, width, height.
+    pub rect: (f32, f32, f32, f32),
+    /// The arrow, after the count of new lines once output came in below.
+    pub label: String,
+}
+
+impl FollowButton {
+    /// Whether `(x, y)` lies on it.
+    pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
+        let (bx, by, w, h) = self.rect;
+        x >= bx && x < bx + w && y >= by && y < by + h
+    }
+
+    /// Whether it is the round one (the arrow alone).
+    fn is_round(&self) -> bool {
+        self.label == FOLLOW_ARROW
+    }
+}
+
+/// The follow button of a view whose text area is `text_width` x `height`
+/// px: none while the view follows the output; off the output a round arrow
+/// at the text area's bottom right, a pill counting the new lines below the
+/// view once output came in ("12,345 new lines"). `char_width`: the
+/// label's advance at [`FOLLOW_FONT_PX`] (the view's face is monospace).
+/// None where the view is too small to hold it.
+#[allow(clippy::cast_precision_loss)] // a label's few characters
+pub(crate) fn follow_button(
+    screen: &TerminalScreen,
+    text_width: f32,
+    height: f32,
+    char_width: f32,
+) -> Option<FollowButton> {
+    if ScrollPos::of(screen).following() {
+        return None;
+    }
+    let label = match screen.new_lines {
+        0 => String::from(FOLLOW_ARROW),
+        1 => alloc::format!("1 new line {FOLLOW_ARROW}"),
+        n => alloc::format!(
+            "{} new lines {FOLLOW_ARROW}",
+            crate::widgets::data_table::grouped(n)
+        ),
+    };
+    let char_width = if char_width.is_finite() && char_width > 0.0 {
+        char_width
+    } else {
+        FOLLOW_FONT_PX * CELL_WIDTH_EM
+    };
+    let width = if label == FOLLOW_ARROW {
+        FOLLOW_SIZE_PX
+    } else {
+        // A little slack: the face's advance was measured at another size.
+        2.0 * FOLLOW_PAD_PX + label.chars().count() as f32 * char_width + 4.0
+    };
+    let x = text_width - FOLLOW_MARGIN_PX - width;
+    let y = height - FOLLOW_MARGIN_PX - FOLLOW_SIZE_PX;
+    (x.is_finite() && y.is_finite() && x >= 0.0 && y >= 0.0).then(|| FollowButton {
+        rect: (x, y, width, FOLLOW_SIZE_PX),
+        label,
     })
 }
 
@@ -1826,7 +2086,8 @@ use azul_css::{
         layout::LayoutPosition,
         property::CssProperty,
         style::{
-            StyleCursor, StyleLineHeight, StyleTextDecoration, StyleUserSelect, StyleWhiteSpace,
+            StyleCursor, StyleLineHeight, StyleTextAlign, StyleTextDecoration, StyleUserSelect,
+            StyleWhiteSpace,
         },
     },
     system::SystemFontType,
@@ -1838,6 +2099,10 @@ use crate::widgets::{cell_grid::cursor_in, data_table::ScrollBar, themes::decl};
 pub(crate) const TERMINAL_CLASS_NAME: &str = "__azul-terminal-view";
 /// The rendered screen inside the `VirtualView`.
 pub(crate) const SCREEN_CLASS_NAME: &str = "__azul-terminal-view-screen";
+/// The rows, the selection and the cursor: one box the slide moves.
+pub(crate) const ROWS_CLASS_NAME: &str = "__azul-terminal-view-rows";
+/// The follow button (off the output: back to it).
+pub(crate) const FOLLOW_CLASS_NAME: &str = "__azul-terminal-view-follow";
 /// The cursor.
 pub(crate) const CURSOR_CLASS_NAME: &str = "__azul-terminal-view-cursor";
 /// The scroll bar's thumb.
@@ -1882,6 +2147,8 @@ pub(crate) struct TerminalShared {
     pub screen: TerminalScreen,
     /// The scroll bar, as last rendered.
     pub bar: Option<ScrollBar>,
+    /// The follow button, as last rendered (none while following).
+    pub follow: Option<FollowButton>,
     /// The pointer's gesture.
     pub drag: Drag,
     /// The key just handled sent its own bytes: drop the text it types.
@@ -1902,6 +2169,7 @@ impl TerminalShared {
             grid: TerminalGridSize::create(0, 0),
             screen: TerminalScreen::empty(),
             bar: None,
+            follow: None,
             drag: Drag::None,
             swallow_text: false,
             wheel_travel: 0.0,
@@ -1992,17 +2260,134 @@ fn at(x: f32, y: f32) -> Vec<CssPropertyWithConditions> {
     ]
 }
 
+/// The boxes of one row, `line`, its top at `y` px in a grid `columns`
+/// wide of `m`'s cells: one box per run that draws something (its ground,
+/// its ink and attributes, its text).
+#[allow(clippy::cast_precision_loss)] // cell counts far below 2^24
+fn push_runs(
+    kids: &mut Vec<Dom>,
+    line: &TerminalLine,
+    y: f32,
+    columns_in_grid: u32,
+    m: &Metrics,
+    palette: &TerminalPalette,
+) {
+    let (cw, lh) = (m.cell_width, m.line_height);
+    let mut column = 0u32;
+    for run in line.runs.as_slice() {
+        if column >= columns_in_grid {
+            break;
+        }
+        let columns = run.columns.min(columns_in_grid - column);
+        let colors = palette.colors_of(&run.style);
+        let blank = run.text.as_str().trim_end_matches(' ').is_empty();
+        let decorated = run.style.underline || run.style.strikethrough;
+        if !blank || colors.paints_ground || decorated {
+            let x = column as f32 * cw;
+            let mut props = if colors.paints_ground {
+                place(x, y, columns as f32 * cw, lh)
+            } else {
+                at(x, y)
+            };
+            // The default ink is the screen's own (inherited): most runs
+            // carry no colour of their own, one or two fewer properties to
+            // cascade a run, every frame.
+            if colors.ink != palette.foreground {
+                push_ink(&mut props, colors.ink);
+            }
+            if colors.paints_ground {
+                push_fill(&mut props, colors.ground);
+            }
+            if run.style.bold {
+                props.push(decl::bold());
+            }
+            if run.style.italic {
+                props.push(decl::simple(CssProperty::font_style(
+                    StyleFontStyle::Italic,
+                )));
+            }
+            if run.style.underline {
+                props.push(decl::simple(CssProperty::text_decoration(
+                    StyleTextDecoration::Underline,
+                )));
+            } else if run.style.strikethrough {
+                props.push(decl::simple(CssProperty::text_decoration(
+                    StyleTextDecoration::LineThrough,
+                )));
+            }
+            // Blanks keep their text when a line is drawn through them (an
+            // underlined gap); otherwise they are only their ground.
+            kids.push(if blank && !decorated {
+                Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(props))
+            } else {
+                boxed_text(props, run.text.clone())
+            });
+        }
+        column = column.saturating_add(run.columns);
+    }
+}
+
+/// The follow button's box: the palette's cursor colour (flat's accent
+/// blue by day, white at night; flora's paper ink on its ink ground) with
+/// the label in the ground colour, round ends, a soft shadow.
+#[allow(clippy::cast_possible_truncation)] // half a 30 px height
+fn follow_node(button: &FollowButton, palette: &TerminalPalette) -> Dom {
+    let (x, y, w, h) = button.rect;
+    let mut props = place(x, y, w, h);
+    push_fill(&mut props, palette.cursor);
+    push_ink(&mut props, palette.background);
+    props.extend(decl::hover_fill(
+        palette.foreground.light,
+        palette.foreground.dark,
+    ));
+    props.extend(decl::radius((h / 2.0).round() as isize));
+    let font = if button.is_round() {
+        FOLLOW_ARROW_FONT_PX
+    } else {
+        FOLLOW_FONT_PX
+    };
+    props.push(decl::simple(CssProperty::const_font_size(StyleFontSize::px(
+        font,
+    ))));
+    props.push(decl::simple(CssProperty::line_height(StyleLineHeight::Length(
+        PixelValue::px(h),
+    ))));
+    props.push(decl::simple(CssProperty::text_align(StyleTextAlign::Center)));
+    props.push(decl::simple(CssProperty::cursor(StyleCursor::Pointer)));
+    props.push(decl::simple(decl::shadow(
+        1,
+        4,
+        0,
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0x47,
+        },
+        false,
+    )));
+    boxed_text(props, AzString::from(button.label.as_str()))
+        .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![IdOrClass::Class(
+            AzString::from_const_str(FOLLOW_CLASS_NAME)
+        )]))
+        .with_accessibility_info(AccessibilityInfo::named(
+            "Follow the output",
+            AccessibilityRole::PushButton,
+        ))
+}
+
 /// The rows of `screen` in a grid of `grid` cells of `m`, drawn in
-/// `palette` on a `size` px screen: one box per run (its ground, its ink
-/// and attributes, its text), the selection's washes over them, the
-/// cursor, the scroll bar's thumb.
+/// `palette` on a `size` px screen: one box per run, the selection's washes
+/// over them, the cursor - all in one box slid up by the screen's slide,
+/// the line below the rows under them - and, at rest over that, the scroll
+/// bar's thumb and the `follow` button.
 ///
 /// FRAME TO FRAME THE SAME BOXES: a run's box says where it starts (its
 /// cell) and how it is drawn - not how long its text is (only a painted
 /// ground is sized, in cells) - so two frames of plain output (`tree`, a
-/// log) are the same boxes with other texts. That is all a re-render can
-/// tell the engine; a text-only update of the rows needs nothing more from
-/// the view.
+/// log) are the same boxes with other texts, and a slide between two lines
+/// moves ONE box (the rows'). That is all a re-render can tell the engine;
+/// a text-only update of the rows needs nothing more from the view.
 #[allow(clippy::cast_precision_loss)] // cell counts far below 2^24
 pub(crate) fn build_screen(
     screen: &TerminalScreen,
@@ -2011,64 +2396,25 @@ pub(crate) fn build_screen(
     palette: &TerminalPalette,
     size: LogicalSize,
     bar: Option<&ScrollBar>,
+    follow: Option<&FollowButton>,
 ) -> Dom {
     let (cw, lh) = (m.cell_width, m.line_height);
     let rows = usize::try_from(grid.rows).unwrap_or(usize::MAX);
-    let mut kids: Vec<Dom> = Vec::new();
+    let mut cells: Vec<Dom> = Vec::new();
     for (row, line) in screen.lines.as_slice().iter().take(rows).enumerate() {
-        let y = row as f32 * lh;
-        let mut column = 0u32;
-        for run in line.runs.as_slice() {
-            if column >= grid.columns {
-                break;
-            }
-            let columns = run.columns.min(grid.columns - column);
-            let colors = palette.colors_of(&run.style);
-            let blank = run.text.as_str().trim_end_matches(' ').is_empty();
-            let decorated = run.style.underline || run.style.strikethrough;
-            if !blank || colors.paints_ground || decorated {
-                let x = column as f32 * cw;
-                let mut props = if colors.paints_ground {
-                    place(x, y, columns as f32 * cw, lh)
-                } else {
-                    at(x, y)
-                };
-                // The default ink is the screen's own (inherited): most runs
-                // carry no colour of their own, one or two fewer properties
-                // to cascade a run, every frame.
-                if colors.ink != palette.foreground {
-                    push_ink(&mut props, colors.ink);
-                }
-                if colors.paints_ground {
-                    push_fill(&mut props, colors.ground);
-                }
-                if run.style.bold {
-                    props.push(decl::bold());
-                }
-                if run.style.italic {
-                    props.push(decl::simple(CssProperty::font_style(
-                        StyleFontStyle::Italic,
-                    )));
-                }
-                if run.style.underline {
-                    props.push(decl::simple(CssProperty::text_decoration(
-                        StyleTextDecoration::Underline,
-                    )));
-                } else if run.style.strikethrough {
-                    props.push(decl::simple(CssProperty::text_decoration(
-                        StyleTextDecoration::LineThrough,
-                    )));
-                }
-                // Blanks keep their text when a line is drawn through them
-                // (an underlined gap); otherwise they are only their ground.
-                kids.push(if blank && !decorated {
-                    Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(props))
-                } else {
-                    boxed_text(props, run.text.clone())
-                });
-            }
-            column = column.saturating_add(run.columns);
-        }
+        push_runs(&mut cells, line, row as f32 * lh, grid.columns, m, palette);
+    }
+    // The line below the rows: drawn whenever the app gives one (off the
+    // output), so a slide changes the rows' box and nothing else.
+    if let Some(below) = screen.line_below.as_ref() {
+        push_runs(
+            &mut cells,
+            below,
+            grid.rows as f32 * lh,
+            grid.columns,
+            m,
+            palette,
+        );
     }
     if let Some(selection) = screen.selection.into_option() {
         let shown = u32::try_from(screen.lines.len().min(rows)).unwrap_or(u32::MAX);
@@ -2081,15 +2427,27 @@ pub(crate) fn build_screen(
                     lh,
                 );
                 push_fill(&mut props, palette.selection);
-                kids.push(
+                cells.push(
                     Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(props)),
                 );
             }
         }
     }
     if let Some(cursor) = cursor_node(screen, grid, m, palette) {
-        kids.push(cursor);
+        cells.push(cursor);
     }
+    let slide = ScrollPos::of(screen).slide(lh);
+    let mut kids: Vec<Dom> = alloc::vec![Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(alloc::vec![IdOrClass::Class(
+            AzString::from_const_str(ROWS_CLASS_NAME)
+        )]))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(place(
+            0.0,
+            -slide,
+            grid.columns as f32 * cw,
+            (grid.rows as f32 + 1.0) * lh,
+        )))
+        .with_children(cells.into())];
     if let Some(bar) = bar {
         let (x, y, w, _) = bar.track;
         let mut props = place(
@@ -2120,6 +2478,9 @@ pub(crate) fn build_screen(
                 )]))
                 .with_css_props(CssPropertyWithConditionsVec::from_vec(props)),
         );
+    }
+    if let Some(button) = follow {
+        kids.push(follow_node(button, palette));
     }
     let mut root = alloc::vec![
         decl::position(LayoutPosition::Relative),
@@ -2244,26 +2605,34 @@ extern "C" fn render_terminal(
     );
     // The app's callback runs with no borrow of the view's data held.
     let screen = screen_of(&source, grid);
-    let bar = scroll_bar(
-        text_width,
-        size.height,
-        grid.rows,
-        screen.history,
-        screen.scroll,
+    #[allow(clippy::cast_possible_truncation)] // a line count, as a thumb position
+    let up = ScrollPos::of(&screen).up() as f32;
+    let bar = scroll_bar(text_width, size.height, grid.rows, screen.history, up);
+    // The label's advance: the face's, scaled to the label's size.
+    let label_advance = metrics.cell_width * FOLLOW_FONT_PX / metrics.font_size;
+    let follow = follow_button(&screen, text_width, size.height, label_advance);
+    let dom = build_screen(
+        &screen,
+        grid,
+        &metrics,
+        &palette,
+        size,
+        bar.as_ref(),
+        follow.as_ref(),
     );
-    let dom = build_screen(&screen, grid, &metrics, &palette, size, bar.as_ref());
     if let Some(mut s) = data.downcast_mut::<TerminalShared>() {
         s.measured = advance.map(|w| (metrics.font_size, w));
         s.metrics = metrics;
         s.grid = grid;
         s.bar = bar;
+        s.follow = follow;
         s.screen = screen;
     }
     VirtualViewReturn::with_dom(dom, rect, rect)
 }
 
 /// A rebuilt view keeps what the old one learnt: the measured face, the
-/// last screen, a gesture in progress.
+/// last screen (its scroll bar and follow button), a gesture in progress.
 extern "C" fn merge_terminal(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     let carried = old_data.downcast_ref::<TerminalShared>().map(|o| {
         (
@@ -2272,11 +2641,12 @@ extern "C" fn merge_terminal(mut new_data: RefAny, mut old_data: RefAny) -> RefA
             o.grid,
             o.screen.clone(),
             o.bar,
+            o.follow.clone(),
             o.drag,
             o.swallow_text,
         )
     });
-    if let Some((measured, metrics, grid, screen, bar, drag, swallow_text)) = carried {
+    if let Some((measured, metrics, grid, screen, bar, follow, drag, swallow_text)) = carried {
         if let Some(mut n) = new_data.downcast_mut::<TerminalShared>() {
             if (n.metrics.font_size - metrics.font_size).abs() < f32::EPSILON {
                 n.measured = measured;
@@ -2285,6 +2655,7 @@ extern "C" fn merge_terminal(mut new_data: RefAny, mut old_data: RefAny) -> RefA
             n.grid = grid;
             n.screen = screen;
             n.bar = bar;
+            n.follow = follow;
             n.drag = drag;
             n.swallow_text = swallow_text;
         }
@@ -2386,11 +2757,26 @@ fn terminal_callbacks(shared: &RefAny) -> Vec<CoreCallbackData> {
 struct Snap {
     on_event: OptionTerminalViewOnEvent,
     screen: TerminalScreen,
+    /// Where the screen is: its display offset and its slide.
+    pos: ScrollPos,
     grid: TerminalGridSize,
     metrics: Metrics,
     bar: Option<ScrollBar>,
+    follow: Option<FollowButton>,
     drag: Drag,
     wheel_travel: f32,
+}
+
+impl Snap {
+    /// The cell drawn under `(x, y)` px (the slide applied).
+    fn cell(&self, x: f32, y: f32) -> (TerminalPoint, bool) {
+        cell_under(&self.metrics, self.grid, self.pos, x, y)
+    }
+
+    /// Whether `(x, y)` px is on the follow button.
+    fn on_follow(&self, x: f32, y: f32) -> bool {
+        self.follow.as_ref().is_some_and(|b| b.contains(x, y))
+    }
 }
 
 fn snap(data: &mut RefAny) -> Option<Snap> {
@@ -2398,9 +2784,11 @@ fn snap(data: &mut RefAny) -> Option<Snap> {
     Some(Snap {
         on_event: s.view.on_event.clone(),
         screen: s.screen.clone(),
+        pos: ScrollPos::of(&s.screen),
         grid: s.grid,
         metrics: s.metrics,
         bar: s.bar,
+        follow: s.follow.clone(),
         drag: s.drag,
         wheel_travel: s.wheel_travel,
     })
@@ -2425,11 +2813,12 @@ fn set_swallow(data: &mut RefAny, swallow: bool) -> bool {
     }
 }
 
-/// Hands `event` to the app (its `scroll` the current display offset
-/// unless it is a `Scroll`).
+/// Hands `event` to the app (its `scroll` and `scroll_fraction` where the
+/// view is unless it is a `Scroll`).
 fn fire(s: &Snap, info: CallbackInfo, mut event: TerminalViewEvent) -> Update {
     if event.kind != TerminalViewEventKind::Scroll {
-        event.scroll = s.screen.scroll;
+        event.scroll = s.pos.lines;
+        event.scroll_fraction = s.pos.fraction;
     }
     match s.on_event.as_ref() {
         Some(TerminalViewOnEvent { refany, callback }) => {
@@ -2453,6 +2842,23 @@ fn fire_and_render(s: &Snap, mut info: CallbackInfo, event: TerminalViewEvent) -
     let update = fire(s, info, event);
     rerender_view(&mut info);
     update
+}
+
+/// A `Scroll` to `to` - nothing when the view is there already (a slide
+/// counts: a whole-line target from between two lines still moves it).
+fn scroll_to(s: &Snap, info: CallbackInfo, to: ScrollPos) -> Update {
+    if to == s.pos {
+        return Update::DoNothing;
+    }
+    fire_and_render(s, info, TerminalViewEvent::scrolled_to(to))
+}
+
+/// A whole-line position (a key's, the thumb's).
+const fn whole(lines: u32) -> ScrollPos {
+    ScrollPos {
+        lines,
+        fraction: 0.0,
+    }
 }
 
 /// Re-renders THIS view's `VirtualView` - the first child of the node the
@@ -2516,10 +2922,7 @@ extern "C" fn on_terminal_key(mut data: RefAny, mut info: CallbackInfo) -> Updat
         KeyAction::Scroll(to) => {
             info.prevent_default();
             info.stop_propagation();
-            if to == s.screen.scroll {
-                return Update::DoNothing;
-            }
-            fire_and_render(&s, info, TerminalViewEvent::scrolled(to))
+            scroll_to(&s, info, whole(to))
         }
         KeyAction::Bytes(bytes) => {
             info.prevent_default();
@@ -2588,9 +2991,10 @@ extern "C" fn on_terminal_blur(mut data: RefAny, info: CallbackInfo) -> Update {
     send(&s, info, s.screen.modes.encode_focus(false))
 }
 
-/// A press: on the scroll bar it grabs the thumb (on the track it jumps
-/// there); for a program that hears the pointer it is reported (Shift
-/// selects anyway); otherwise a selection starts (Alt: a block).
+/// A press: on the follow button it goes back to the output (and follows
+/// it); on the scroll bar it grabs the thumb (on the track it jumps there);
+/// for a program that hears the pointer it is reported (Shift selects
+/// anyway); otherwise a selection starts (Alt: a block).
 extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(s) = snap(&mut data) else {
         return Update::DoNothing;
@@ -2598,6 +3002,11 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
     let Some((x, y)) = cursor_in(&info) else {
         return Update::DoNothing;
     };
+    if s.on_follow(x, y) {
+        set_drag(&mut data, Drag::None);
+        info.prevent_default();
+        return scroll_to(&s, info, ScrollPos::OUTPUT);
+    }
     let modifiers = info.get_key_modifiers();
     if let Some(bar) = s.bar.filter(|b| b.contains(x, y)) {
         let thumb_top = bar.track.1 + bar.thumb_start;
@@ -2609,12 +3018,9 @@ extern "C" fn on_terminal_mouse_down(mut data: RefAny, mut info: CallbackInfo) -
         set_drag(&mut data, Drag::Thumb { grab });
         info.prevent_default();
         let to = scroll_for_thumb(&bar, y - grab - bar.track.1, s.screen.history);
-        if to == s.screen.scroll {
-            return Update::DoNothing;
-        }
-        return fire_and_render(&s, info, TerminalViewEvent::scrolled(to));
+        return scroll_to(&s, info, whole(to));
     }
-    let (point, right_half) = s.metrics.cell_at(s.grid, x, y);
+    let (point, right_half) = s.cell(x, y);
     if s.screen.modes.mouse != TerminalMouseMode::Off && !modifiers.shift {
         set_drag(
             &mut data,
@@ -2670,13 +3076,10 @@ extern "C" fn on_terminal_mouse_move(mut data: RefAny, info: CallbackInfo) -> Up
                 return Update::DoNothing;
             };
             let to = scroll_for_thumb(&bar, y - grab - bar.track.1, s.screen.history);
-            if to == s.screen.scroll {
-                return Update::DoNothing;
-            }
-            fire_and_render(&s, info, TerminalViewEvent::scrolled(to))
+            scroll_to(&s, info, whole(to))
         }
         Drag::Select { last, .. } => {
-            let (point, right_half) = s.metrics.cell_at(s.grid, x, y);
+            let (point, right_half) = s.cell(x, y);
             if point == last {
                 return Update::DoNothing;
             }
@@ -2694,7 +3097,7 @@ extern "C" fn on_terminal_mouse_move(mut data: RefAny, info: CallbackInfo) -> Up
             )
         }
         Drag::Report { button, last } => {
-            let (point, _) = s.metrics.cell_at(s.grid, x, y);
+            let (point, _) = s.cell(x, y);
             if point == last {
                 return Update::DoNothing;
             }
@@ -2733,7 +3136,7 @@ extern "C" fn on_terminal_mouse_up(mut data: RefAny, info: CallbackInfo) -> Upda
             fire_and_render(&s, info, select_event(kind, last, false))
         }
         Drag::Report { button, last } => {
-            let point = cursor_in(&info).map_or(last, |(x, y)| s.metrics.cell_at(s.grid, x, y).0);
+            let point = cursor_in(&info).map_or(last, |(x, y)| s.cell(x, y).0);
             let modifiers = info.get_key_modifiers();
             let bytes =
                 s.screen
@@ -2755,31 +3158,46 @@ extern "C" fn on_terminal_double_click(mut data: RefAny, info: CallbackInfo) -> 
     let Some((x, y)) = cursor_in(&info) else {
         return Update::DoNothing;
     };
+    // The follow button's second click is no word.
+    if s.on_follow(x, y) {
+        return Update::DoNothing;
+    }
     // The selection is whole: the release that follows must not clear it.
     set_drag(&mut data, Drag::None);
-    let (point, right_half) = s.metrics.cell_at(s.grid, x, y);
+    let (point, right_half) = s.cell(x, y);
     let mut e = select_event(TerminalViewEventKind::SelectStart, point, right_half);
     e.selection_kind = TerminalSelectionKind::Word;
     fire_and_render(&s, info, e)
 }
 
-/// The wheel: whole lines (a notch is three), scrolling the scrollback,
-/// reported, or arrow keys on the alternate screen ([`wheel_delta_action`]).
-/// The view is the scroll surface: the box around it does not scroll.
+/// The wheel: the scrollback BY PIXELS - a trackpad's pixels as they come,
+/// its momentum gliding, a mouse wheel's notch three lines
+/// ([`wheel_scroll_pos`]); or, for a program that hears the pointer or on
+/// the alternate screen, whole notches reported or turned into arrow keys
+/// ([`wheel_delta_action`]). The view is the scroll surface: the box around
+/// it does not scroll.
 extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(s) = snap(&mut data) else {
         return Update::DoNothing;
     };
     // The offset change the wheel asks for, the user's direction preference
-    // applied; `wheel_delta_action` takes it as a wheel delta (+y = up).
+    // applied (+y = toward the output).
     let Some(by) = info.get_wheel_scroll_by() else {
         return Update::DoNothing;
     };
     info.prevent_default();
     info.stop_propagation();
-    let point = cursor_in(&info).map_or(TerminalPoint::create(0, 0), |(x, y)| {
-        s.metrics.cell_at(s.grid, x, y).0
-    });
+    let modes = s.screen.modes;
+    if modes.mouse == TerminalMouseMode::Off && !modes.alternate_screen {
+        set_wheel_travel(&mut data, 0.0);
+        let precise = info.get_pointer_source() == azul_core::events::PointerSource::Touchpad;
+        return match wheel_scroll_pos(&s.screen, by.y, s.metrics.line_height, precise) {
+            Some(to) => scroll_to(&s, info, to),
+            None => Update::DoNothing,
+        };
+    }
+    let point = cursor_in(&info).map_or(TerminalPoint::create(0, 0), |(x, y)| s.cell(x, y).0);
+    // `wheel_delta_action` takes a wheel delta (+y = up).
     let mut travel = s.wheel_travel;
     let action = wheel_delta_action(
         &s.screen,
@@ -2790,9 +3208,7 @@ extern "C" fn on_terminal_wheel(mut data: RefAny, mut info: CallbackInfo) -> Upd
     );
     set_wheel_travel(&mut data, travel);
     match action {
-        KeyAction::Scroll(to) if to != s.screen.scroll => {
-            fire_and_render(&s, info, TerminalViewEvent::scrolled(to))
-        }
+        KeyAction::Scroll(to) => scroll_to(&s, info, whole(to)),
         KeyAction::Bytes(bytes) => send(&s, info, U8Vec::from_vec(bytes)),
         _ => Update::DoNothing,
     }
