@@ -244,6 +244,7 @@ mod tests {
                 url: format!("https://{id}.example.org/feed"),
                 site: format!("https://{id}.example.org/"),
                 folder: folder.into(),
+                paused: false,
             });
             lib.feeds[i].items = vec![Item {
                 id: format!("{id}-a"),

@@ -88,6 +88,17 @@ pub const FOLDERS: [(&str, &[(&str, &str)]); 6] = [
     ),
 ];
 
+/// The topics of each folder's feeds (in [`FOLDERS`]' order): every article carries one of its
+/// folder's four, as a forum's post carries its subforum - what the source list groups by.
+pub const TOPICS: [[&str; 4]; 6] = [
+    ["Releases", "Security", "Tutorials", "Opinion"],
+    ["Research", "Field notes", "Data", "Interviews"],
+    ["Council", "Events", "Transit", "Weather"],
+    ["Recipes", "Techniques", "Seasonal", "Reviews"],
+    ["Books", "Film", "Exhibitions", "Essays"],
+    ["Episodes", "Show notes", "Guests", "Announcements"],
+];
+
 /// The feed whose last refresh failed with an HTTP 404 (its index in the sample).
 pub const BROKEN_404: usize = 20;
 /// The feed whose last answer could not be read.
@@ -102,7 +113,7 @@ pub const PICTURES: usize = 30;
 pub fn sample_library(now: i64) -> Library {
     let mut lib = Library::default();
     let mut index = 0usize;
-    for (folder, feeds) in FOLDERS {
+    for (topics, (folder, feeds)) in TOPICS.iter().zip(FOLDERS) {
         for (title, host) in feeds {
             let i = index;
             index += 1;
@@ -121,6 +132,7 @@ pub fn sample_library(now: i64) -> Library {
                     url: format!("https://{host}/feed.xml"),
                     site: site.clone(),
                     folder: folder.to_string(),
+                    paused: false,
                 },
                 meta: FeedMeta {
                     title: (*title).to_string(),
@@ -131,7 +143,7 @@ pub fn sample_library(now: i64) -> Library {
                     status: 200,
                     ..FeedMeta::default()
                 },
-                items: items(i, host, now),
+                items: items(i, host, topics, now),
                 state: ReadState::default(),
             });
         }
@@ -200,8 +212,9 @@ const AUTHORS: [&str; 8] = [
     "Karl Braun",
 ];
 
-/// Feed `i`'s articles: 12 to 31 of them, spread over the 60 days before `now`, newest first.
-fn items(i: usize, host: &str, now: i64) -> Vec<Item> {
+/// Feed `i`'s articles: 12 to 31 of them, spread over the 60 days before `now`, newest first,
+/// each in one of `topics`.
+fn items(i: usize, host: &str, topics: &[&str; 4], now: i64) -> Vec<Item> {
     let count = 12 + (i * 7) % 20;
     (0..count)
         .map(|j| {
@@ -231,7 +244,7 @@ fn items(i: usize, host: &str, now: i64) -> Vec<Item> {
                 base: link.clone(),
                 link,
                 image,
-                categories: vec![subject.to_string()],
+                categories: vec![topics[(i + j) % topics.len()].to_string()],
                 seen: date,
                 ..Item::default()
             }
@@ -297,6 +310,24 @@ mod tests {
         assert_eq!(lib.folders().len(), 6);
         let articles: usize = lib.feeds.iter().map(|f| f.items.len()).sum();
         assert!((850..=950).contains(&articles), "{articles} articles");
+    }
+
+    #[test]
+    fn every_sample_feed_has_its_folders_four_topics() {
+        let lib = sample_library(NOW);
+        for (i, feed) in lib.feeds.iter().enumerate() {
+            let topics = lib.topics(i);
+            assert_eq!(topics.len(), 4, "{}", feed.sub.title);
+            let folder = FOLDERS
+                .iter()
+                .position(|(name, _)| *name == feed.sub.folder)
+                .expect("a sample folder");
+            assert!(
+                topics.iter().all(|t| TOPICS[folder].contains(&t.name.as_str())),
+                "{}",
+                feed.sub.title
+            );
+        }
     }
 
     #[test]

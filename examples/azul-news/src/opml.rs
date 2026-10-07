@@ -3,8 +3,9 @@
 //! AzNews keeps its subscription list AS an OPML 2.0 file (`news/subscriptions.opml` in the data
 //! tree): the user's list is a file any other reader opens, export is a copy of it. A feed is an
 //! `<outline>` with an `xmlUrl`; an outline without one is a folder. AzNews writes its own id of
-//! the feed (the folder `news/feeds/<id>/` with its articles and marks) as `azId`, an attribute
-//! other readers ignore.
+//! the feed (the folder `news/feeds/<id>/` with its articles and marks) as `azId`, and a feed the
+//! user stopped following (kept, not refreshed) as `azPaused="true"` - attributes other readers
+//! ignore.
 //!
 //! Reading is lenient ([`crate::xmltree`]): OPML files are often hand-edited (a bare `&` in a
 //! title, no `<head>`, `xmlurl` in lower case, a title only in `title`). Folders nested deeper
@@ -27,6 +28,9 @@ pub struct Subscription {
     pub site: String,
     /// The folder (`""`: none; nested folders: `Tech / Rust`).
     pub folder: String,
+    /// The user stopped following it: kept with its articles, not refreshed, not in "All
+    /// articles" (`azPaused="true"`).
+    pub paused: bool,
 }
 
 /// The separator of a nested folder's path.
@@ -87,6 +91,7 @@ fn outlines(parent: &Element, path: &mut Vec<String>, out: &mut Vec<Subscription
                 title: if name.is_empty() { url.clone() } else { name },
                 site: attr("htmlUrl"),
                 folder: path.join(FOLDER_SEPARATOR),
+                paused: attr("azPaused").eq_ignore_ascii_case("true"),
                 url,
             });
         }
@@ -112,6 +117,9 @@ fn feed_outline(s: &Subscription, indent: &str) -> String {
     }
     if !s.id.is_empty() {
         line.push_str(&format!(" azId=\"{}\"", attribute(&s.id)));
+    }
+    if s.paused {
+        line.push_str(" azPaused=\"true\"");
     }
     line.push_str("/>\n");
     line
@@ -163,6 +171,7 @@ mod tests {
             url: url.to_string(),
             site: format!("{url}/site"),
             folder: folder.to_string(),
+            paused: false,
         }
     }
 
@@ -195,6 +204,21 @@ mod tests {
             "{text}"
         );
         assert_eq!(parse(text.as_bytes()).expect("its own file"), subs);
+    }
+
+    #[test]
+    fn a_feed_not_followed_stays_so_through_the_file() {
+        let mut quiet = sub("id-2", "Quiet", "https://quiet.example.org/feed", "Tech");
+        quiet.paused = true;
+        let subs = vec![
+            sub("id-1", "Loud", "https://loud.example.org/feed", "Tech"),
+            quiet,
+        ];
+        let text = write(&subs, "AzNews subscriptions");
+        assert_eq!(text.matches("azPaused=\"true\"").count(), 1, "{text}");
+        let back = parse(text.as_bytes()).expect("its own file");
+        assert_eq!(back, subs);
+        assert!(!back[0].paused && back[1].paused);
     }
 
     #[test]

@@ -1,11 +1,13 @@
 //! The subscriptions, their articles and their marks - what the window shows, as plain data.
 //!
-//! - the views of the navigation pane ([`View`]): all articles, unread, starred, read later, a
-//!   folder, one feed, the feeds that failed;
+//! - the views of the source list ([`View`]): all articles, unread, starred, read later, a
+//!   folder, one feed, one topic of a feed (its own categories: a forum's subforum, a blog's
+//!   category - [`Library::topics`]), the feeds that failed;
 //! - the list: the view's articles newest first, filtered by the search box (every word, in any
 //!   case, diacritics folded: azul-pim's one search), in Outlook's date groups (azul-pim's
-//!   [`DateGroup`]);
-//! - the unread counts the navigation pane shows;
+//!   [`DateGroup`]), or in the order of the table's column the user clicked ([`Sort`]);
+//! - the unread counts the source list shows; a feed the user stopped following
+//!   ([`Subscription::paused`]) is kept but left out of "All articles", "Unread" and their counts;
 //! - a refresh merged in ([`Library::merge`]): an article keeps the time AzNews first saw it; an
 //!   article the feed dropped stays while it is inside the "keep" window, and always when it is
 //!   starred or kept for later; at most [`MAX_ITEMS`] per feed; the read marks of articles gone
@@ -15,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use azul_pim::{
     dates::{date_group, DateGroup},
-    search::Query,
+    search::{fold, Query},
 };
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,8 @@ pub const META_VERSION: u64 = 1;
 pub const MAX_ITEMS: usize = 500;
 /// Seconds in a day.
 pub const DAY: i64 = 86_400;
+/// The most topics of one feed the source list shows (the most common ones).
+pub const MAX_TOPICS: usize = 12;
 
 /// What AzNews knows about a feed besides its articles: `news/feeds/<id>/feed.json`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,8 +116,106 @@ pub enum View {
     Folder(String),
     /// One feed, by its id.
     Feed(String),
+    /// The articles of one feed that carry one of its topics: (feed id, topic).
+    Topic(String, String),
     /// The feeds whose last refresh failed.
     Broken,
+}
+
+/// One topic of a feed - an RSS `<category>`, an Atom `<category term>`, a JSON Feed tag: a
+/// forum's subforum, a blog's category - and how many of the feed's articles carry it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Topic {
+    pub name: String,
+    pub articles: usize,
+    pub unread: usize,
+}
+
+/// What the article table is sorted by (a click on a column's header).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortKey {
+    #[default]
+    Date,
+    Title,
+    /// The feed's name.
+    Source,
+    /// Read or unread.
+    Unread,
+    Starred,
+}
+
+impl SortKey {
+    pub const ALL: [SortKey; 5] = [
+        SortKey::Date,
+        SortKey::Title,
+        SortKey::Source,
+        SortKey::Unread,
+        SortKey::Starred,
+    ];
+
+    /// Its name in the settings.
+    #[must_use]
+    pub fn key(self) -> &'static str {
+        match self {
+            SortKey::Date => "date",
+            SortKey::Title => "title",
+            SortKey::Source => "source",
+            SortKey::Unread => "unread",
+            SortKey::Starred => "starred",
+        }
+    }
+
+    /// The key a settings value names (the date for anything else).
+    #[must_use]
+    pub fn parse(key: Option<&str>) -> SortKey {
+        SortKey::ALL
+            .into_iter()
+            .find(|k| Some(k.key()) == key)
+            .unwrap_or_default()
+    }
+
+    /// The way a first click on its column sorts: newest, unread and starred first; titles and
+    /// sources A to Z.
+    #[must_use]
+    pub fn first_descending(self) -> bool {
+        matches!(self, SortKey::Date | SortKey::Unread | SortKey::Starred)
+    }
+}
+
+/// The table's order: a column and its direction (`descending`: newest, Z, unread, starred
+/// first).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sort {
+    pub key: SortKey,
+    pub descending: bool,
+}
+
+impl Default for Sort {
+    fn default() -> Self {
+        Sort {
+            key: SortKey::Date,
+            descending: true,
+        }
+    }
+}
+
+impl Sort {
+    /// The order after a click on `key`'s header: the same column turns round, another one
+    /// starts the way it reads best ([`SortKey::first_descending`]).
+    #[must_use]
+    pub fn clicked(self, key: SortKey) -> Sort {
+        if self.key == key {
+            Sort {
+                key,
+                descending: !self.descending,
+            }
+        } else {
+            Sort {
+                key,
+                descending: key.first_descending(),
+            }
+        }
+    }
 }
 
 /// An article: its feed's index and its index in that feed.
@@ -155,9 +257,68 @@ impl Library {
         })
     }
 
+    /// The unread articles of every feed that is followed ("All articles").
     #[must_use]
     pub fn unread_total(&self) -> usize {
-        (0..self.feeds.len()).map(|f| self.unread(f)).sum()
+        self.followed().into_iter().map(|f| self.unread(f)).sum()
+    }
+
+    /// The feeds that are followed: refreshed, in "All articles" (in the list's order).
+    #[must_use]
+    pub fn followed(&self) -> Vec<usize> {
+        (0..self.feeds.len())
+            .filter(|&f| !self.feeds[f].sub.paused)
+            .collect()
+    }
+
+    /// Follows a feed again or stops following it; whether that changed anything.
+    pub fn set_paused(&mut self, feed: usize, paused: bool) -> bool {
+        match self.feeds.get_mut(feed) {
+            Some(f) if f.sub.paused != paused => {
+                f.sub.paused = paused;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A feed's topics: the categories its articles carry, the most common first (the same
+    /// count A to Z), at most [`MAX_TOPICS`]; none when no article carries one.
+    #[must_use]
+    pub fn topics(&self, feed: usize) -> Vec<Topic> {
+        let Some(f) = self.feeds.get(feed) else {
+            return Vec::new();
+        };
+        let mut counts: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+        for item in &f.items {
+            let unread = !f.state.is_read(&item.id);
+            let mut seen: BTreeSet<&str> = BTreeSet::new();
+            for name in item.categories.iter().map(|c| c.trim()) {
+                if name.is_empty() || !seen.insert(name) {
+                    continue;
+                }
+                let count = counts.entry(name.to_string()).or_insert((0, 0));
+                count.0 += 1;
+                if unread {
+                    count.1 += 1;
+                }
+            }
+        }
+        let mut out: Vec<Topic> = counts
+            .into_iter()
+            .map(|(name, (articles, unread))| Topic {
+                name,
+                articles,
+                unread,
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.articles
+                .cmp(&a.articles)
+                .then_with(|| fold(&a.name).cmp(&fold(&b.name)))
+        });
+        out.truncate(MAX_TOPICS);
+        out
     }
 
     #[must_use]
@@ -200,16 +361,59 @@ impl Library {
     /// Whether the article is in the view.
     fn in_view(&self, view: &View, r: ArticleRef) -> bool {
         let f = &self.feeds[r.feed];
-        let id = f.items[r.item].id.as_str();
+        let item = &f.items[r.item];
+        let id = item.id.as_str();
         match view {
-            View::All => true,
-            View::Unread => !f.state.is_read(id),
+            View::All => !f.sub.paused,
+            View::Unread => !f.sub.paused && !f.state.is_read(id),
             View::Starred => f.state.is_starred(id),
             View::Later => f.state.is_later(id),
             View::Folder(folder) => f.sub.folder == *folder,
             View::Feed(feed) => f.sub.id == *feed,
+            View::Topic(feed, topic) => {
+                f.sub.id == *feed && item.categories.iter().any(|c| c.trim() == topic.as_str())
+            }
             View::Broken => !f.meta.error.is_empty(),
         }
+    }
+
+    /// `refs` in the order `sort` asks for; within the same value newest first, then in the
+    /// list's own order.
+    pub fn sort(&self, refs: &mut Vec<ArticleRef>, sort: Sort) {
+        let mut keyed: Vec<((i64, String), i64, ArticleRef)> = refs
+            .iter()
+            .map(|&r| {
+                let date = self.article(r).map_or(0, Item::date);
+                let value = match sort.key {
+                    SortKey::Date => (date, String::new()),
+                    SortKey::Title => (
+                        0,
+                        self.article(r)
+                            .map_or_else(String::new, |i| fold(i.title.trim())),
+                    ),
+                    SortKey::Source => (
+                        0,
+                        self.feeds
+                            .get(r.feed)
+                            .map_or_else(String::new, |f| fold(f.name())),
+                    ),
+                    SortKey::Unread => (i64::from(!self.is_read(r)), String::new()),
+                    SortKey::Starred => (i64::from(self.is_starred(r)), String::new()),
+                };
+                (value, date, r)
+            })
+            .collect();
+        keyed.sort_by(|a, b| {
+            let primary = if sort.descending {
+                b.0.cmp(&a.0)
+            } else {
+                a.0.cmp(&b.0)
+            };
+            primary
+                .then_with(|| b.1.cmp(&a.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
+        *refs = keyed.into_iter().map(|(_, _, r)| r).collect();
     }
 
     /// The view's articles that match `query`, newest first.
@@ -464,6 +668,7 @@ mod tests {
                 url: format!("https://{id}.example.org/feed"),
                 site: String::new(),
                 folder: folder.to_string(),
+                paused: false,
             },
             meta: FeedMeta::default(),
             items,
@@ -686,6 +891,160 @@ mod tests {
         assert_eq!(lib.next(&list, Some(r(0, 1)), true), None, "the end");
         assert_eq!(lib.next(&list, Some(r(1, 0)), false), Some(r(0, 0)));
         assert_eq!(lib.next(&list, None, false), Some(r(0, 1)));
+    }
+
+    #[test]
+    fn a_feeds_topics_are_its_categories_most_common_first_with_their_unread_counts() {
+        let mut lib = library();
+        // Example Weekly: a1 "Essays" and "RSS" (twice, once with blanks), a2 "Essays".
+        lib.feeds[0].items[0].categories = vec![
+            "Essays".to_string(),
+            "RSS".to_string(),
+            " RSS ".to_string(),
+            String::new(),
+        ];
+        lib.feeds[0].items[1].categories = vec!["Essays".to_string()];
+        lib.set_read(r(0, 1), true);
+        assert_eq!(
+            lib.topics(0),
+            vec![
+                Topic {
+                    name: "Essays".to_string(),
+                    articles: 2,
+                    unread: 1,
+                },
+                Topic {
+                    name: "RSS".to_string(),
+                    articles: 1,
+                    unread: 1,
+                },
+            ],
+            "an article counts once per topic; a blank is no topic"
+        );
+        assert_eq!(lib.topics(1), Vec::<Topic>::new(), "no categories: no topics");
+        assert_eq!(lib.topics(99), Vec::<Topic>::new());
+        assert_eq!(
+            lib.list(&View::Topic("a".into(), "RSS".into()), ""),
+            vec![r(0, 0)]
+        );
+        assert_eq!(
+            lib.list(&View::Topic("a".into(), "Essays".into()), ""),
+            vec![r(0, 0), r(0, 1)]
+        );
+        assert_eq!(
+            lib.list(&View::Topic("b".into(), "Essays".into()), ""),
+            Vec::<ArticleRef>::new(),
+            "another feed's topic of the same name is not this one"
+        );
+    }
+
+    #[test]
+    fn a_feed_shows_at_most_its_most_common_topics() {
+        let mut lib = library();
+        lib.feeds[1].items = (0..20)
+            .map(|n| {
+                let mut i = item(&format!("t{n}"), "x", NOW - n * 60);
+                // "z" on every article, "k<n>" on one each.
+                i.categories = vec!["z".to_string(), format!("k{n:02}")];
+                i
+            })
+            .collect();
+        let topics = lib.topics(1);
+        assert_eq!(topics.len(), MAX_TOPICS);
+        assert_eq!(topics[0].name, "z");
+        assert_eq!(topics[0].articles, 20);
+        assert_eq!(topics[1].name, "k00", "the same count A to Z");
+    }
+
+    #[test]
+    fn a_feed_not_followed_is_kept_but_left_out_of_all_and_unread() {
+        let mut lib = library();
+        assert!(lib.set_paused(2, true));
+        assert!(!lib.set_paused(2, true), "no change");
+        assert_eq!(lib.followed(), vec![0, 1]);
+        assert_eq!(lib.list(&View::All, ""), vec![r(0, 0), r(1, 0), r(0, 1)]);
+        assert_eq!(
+            lib.list(&View::Unread, ""),
+            vec![r(0, 0), r(1, 0), r(0, 1)]
+        );
+        assert_eq!(lib.unread_total(), 3);
+        assert_eq!(
+            lib.list(&View::Feed("c".into()), ""),
+            vec![r(2, 0)],
+            "its own view still shows it"
+        );
+        assert!(lib.set_paused(2, false));
+        assert_eq!(lib.unread_total(), 4);
+    }
+
+    #[test]
+    fn the_table_sorts_by_the_column_clicked() {
+        let mut lib = library();
+        let list = lib.list(&View::All, "");
+        let sorted = |lib: &Library, sort: Sort| {
+            let mut refs = list.clone();
+            lib.sort(&mut refs, sort);
+            refs
+        };
+        assert_eq!(
+            sorted(&lib, Sort::default()),
+            list,
+            "newest first is the list's own order"
+        );
+        let oldest = Sort {
+            key: SortKey::Date,
+            descending: false,
+        };
+        assert_eq!(
+            sorted(&lib, oldest),
+            vec![r(0, 1), r(2, 0), r(1, 0), r(0, 0)]
+        );
+        let titles = Sort::default().clicked(SortKey::Title);
+        assert_eq!(
+            titles,
+            Sort {
+                key: SortKey::Title,
+                descending: false,
+            }
+        );
+        // New bakery ..., Older essay, Rust 2026 ..., The quiet return ...
+        assert_eq!(
+            sorted(&lib, titles),
+            vec![r(2, 0), r(0, 1), r(1, 0), r(0, 0)]
+        );
+        assert_eq!(
+            sorted(&lib, titles.clicked(SortKey::Title)),
+            vec![r(0, 0), r(1, 0), r(0, 1), r(2, 0)],
+            "a second click turns it round"
+        );
+        // Bakery News, Example Weekly (newest first inside), Rust Blog.
+        assert_eq!(
+            sorted(&lib, Sort::default().clicked(SortKey::Source)),
+            vec![r(2, 0), r(0, 0), r(0, 1), r(1, 0)]
+        );
+        lib.set_read(r(0, 0), true);
+        lib.set_read(r(2, 0), true);
+        let unread = Sort::default().clicked(SortKey::Unread);
+        assert!(unread.descending, "unread first");
+        assert_eq!(
+            sorted(&lib, unread),
+            vec![r(1, 0), r(0, 1), r(0, 0), r(2, 0)]
+        );
+        lib.toggle_star(r(0, 1));
+        assert_eq!(
+            sorted(&lib, Sort::default().clicked(SortKey::Starred))[0],
+            r(0, 1),
+            "starred first"
+        );
+    }
+
+    #[test]
+    fn the_sort_key_round_trips_through_its_name() {
+        for key in SortKey::ALL {
+            assert_eq!(SortKey::parse(Some(key.key())), key);
+        }
+        assert_eq!(SortKey::parse(Some("banana")), SortKey::Date);
+        assert_eq!(SortKey::parse(None), SortKey::Date);
     }
 
     #[test]
