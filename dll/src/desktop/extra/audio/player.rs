@@ -833,6 +833,17 @@ impl AudioPlayer {
         self.send_track(|id| Command::Preload(id, SourceSpec::Path(path), position_s))
     }
 
+    /// [`preload_file`](Self::preload_file) for a file at an HTTP(S) URL - the sound of a video
+    /// streamed from a server: read by range requests a window ahead of the decoder (never
+    /// downloaded whole first), through the same download as the URL's picture when a
+    /// `<video>` plays it in this process. Ready, like a file, when
+    /// `AudioPlayerState::buffered_s` is above zero for this id; a URL that does not open shows
+    /// up as `AudioPlayerState::failed_track` with the reason in `error_message`. Returns the
+    /// track's id; 0 when closed.
+    pub fn preload_url(&self, url: azul_css::AzString, position_s: f64) -> u64 {
+        self.preload_file(url, position_s)
+    }
+
     /// Plays the audio file at `path` after the queued ones, gaplessly. Returns its id.
     pub fn queue_file(&self, path: azul_css::AzString) -> u64 {
         let path = path.as_str().to_string();
@@ -1024,6 +1035,42 @@ mod handle_tests {
         let s = wait(&player, Duration::from_secs(2), |s| s.position_s > 1.05);
         assert!(s.playing && s.position_s > 1.05, "{s:?}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// The sound of a video at a URL: preloaded by range requests from a server
+    /// (never downloaded whole first), ready and silent until play, then heard
+    /// from where it was preloaded - like a file.
+    #[cfg(feature = "http")]
+    #[test]
+    fn a_url_preloads_its_sound_by_range_requests_and_plays_it_like_a_file() {
+        use crate::desktop::extra::byte_source::test_server;
+
+        let wav: Vec<u8> = tone(3.0).as_ref().to_vec();
+        let (port, hits) = test_server::serve(wav, true);
+        let player = AudioPlayer::create_with(synthetic);
+        let url = format!("http://127.0.0.1:{port}/tone.wav");
+        let id = player.preload_url(AzString::from(url), 1.0);
+        assert!(id > 0);
+        let ready = wait(&player, Duration::from_secs(5), |s| {
+            s.track == id && s.buffered_s > 0.0
+        });
+        assert!(
+            ready.track == id && ready.buffered_s > 0.0,
+            "ready: {ready:?} ({:?})",
+            player.error_message()
+        );
+        assert!(!ready.playing, "held: {ready:?}");
+        assert!(
+            (ready.position_s - 1.0).abs() < 0.01,
+            "held where it was preloaded: {ready:?}"
+        );
+        assert!(
+            hits.load(std::sync::atomic::Ordering::SeqCst) >= 1,
+            "read from the server"
+        );
+        player.play();
+        let s = wait(&player, Duration::from_secs(3), |s| s.position_s > 1.05);
+        assert!(s.playing && s.position_s > 1.05, "{s:?}");
     }
 
     #[test]
