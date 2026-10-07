@@ -214,10 +214,16 @@ pub fn create_kit(
     let home = FilePath::get_home_dir()
         .into_option()
         .map(|dir| PathBuf::from(dir.inner.as_str()));
-    let config_path = azlin_config::config_path(
-        std::env::var(azlin_config::CONFIG_VAR).ok().as_deref(),
-        home.as_deref(),
-    );
+    // A `--shot` run is a regression fixture: it renders the app's own
+    // defaults, never the look this user chose for their apps.
+    let config_path = if args.shot.is_some() {
+        None
+    } else {
+        azlin_config::config_path(
+            std::env::var(azlin_config::CONFIG_VAR).ok().as_deref(),
+            home.as_deref(),
+        )
+    };
     let mut settings = settings;
     if let Some(path) = config_path.as_deref() {
         let (shared, problem) = AzlinConfig::load(path);

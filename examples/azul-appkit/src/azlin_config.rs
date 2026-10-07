@@ -20,10 +20,11 @@
 //!
 //! Every app reads it once, at its start (`ui::create_kit`, over its own
 //! `settings.json`), and writes it whenever its theme or mode changes
-//! (`ui::save_settings`). `AZLIN_CONFIG` names another file (a test's, a
-//! screenshot run's); `AZLIN_CONFIG=off` (or empty) means no shared config at
-//! all. `AZ_THEME` still outranks it for a run: azul resolves the environment
-//! over the app's choice.
+//! (`ui::save_settings`). `AZLIN_CONFIG` names another file (a test's);
+//! `AZLIN_CONFIG=off` (or empty) means no shared config at all, and a
+//! `--shot` run (a screenshot regression fixture) never reads one. `AZ_THEME`
+//! still outranks it for a run: azul resolves the environment over the app's
+//! choice.
 //!
 //! Reading is forgiving like `settings.json`'s: a missing file is no
 //! opinion, an unknown theme or mode is ignored (with a line saying so), a
