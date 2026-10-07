@@ -515,6 +515,8 @@ struct MeetState {
     /// The settings screen is open, at this category (`ui::SETTINGS_CATEGORIES`).
     settings_open: bool,
     settings_category: usize,
+    /// The settings as the screen found them when it opened: what its Cancel puts back.
+    settings_found: Option<SettingsFound>,
     /// The devices picked in the settings: an index into "System default" + the microphones /
     /// speakers, and into `CAMERAS` (the camera's facing).
     mic_choice: usize,
@@ -620,6 +622,7 @@ impl MeetState {
             chat_draft: String::new(),
             settings_open: false,
             settings_category: 0,
+            settings_found: None,
             mic_choice: 0,
             speaker_choice: 0,
             camera_choice: 0,
@@ -1057,6 +1060,7 @@ const ACTIONS: ui::Actions = ui::Actions {
     panel: on_panel,
     settings: on_settings_open,
     settings_back: on_settings_back,
+    settings_cancel: on_settings_cancel,
     settings_category: on_settings_category,
     copy_link: on_copy_link,
     drop_packet: on_drop_video_packet,
@@ -5013,21 +5017,97 @@ extern "C" fn on_name_text(
     }
 }
 
+/// The settings as the screen found them when it opened: what its Cancel puts back.
+#[derive(Clone, Debug)]
+struct SettingsFound {
+    mic: usize,
+    speaker: usize,
+    camera: usize,
+    quality: usize,
+    theme: usize,
+    mode: usize,
+    /// `meet/settings.json` as it was.
+    settings: azul_appkit::AppSettings,
+}
+
+impl SettingsFound {
+    fn of(s: &MeetState) -> SettingsFound {
+        SettingsFound {
+            mic: s.mic_choice,
+            speaker: s.speaker_choice,
+            camera: s.camera_choice,
+            quality: s.quality,
+            theme: s.theme_index,
+            mode: s.mode_index,
+            settings: s.settings.clone(),
+        }
+    }
+}
+
+/// Opens the settings screen; what it shows now is what its Cancel puts back.
+fn open_settings(s: &mut MeetState) {
+    if !s.settings_open || s.settings_found.is_none() {
+        s.settings_found = Some(SettingsFound::of(s));
+    }
+    s.settings_open = true;
+}
+
+/// The settings' Cancel (and Escape): the devices, the video quality, the theme and the mode
+/// as the screen found them - shown and saved again where they changed - and the screen closes.
+fn cancel_settings(s: &mut MeetState, info: &mut CallbackInfo) {
+    s.settings_open = false;
+    let Some(found) = s.settings_found.take() else {
+        return;
+    };
+    s.mic_choice = found.mic;
+    s.speaker_choice = found.speaker;
+    s.camera_choice = found.camera;
+    if s.theme_index != found.theme {
+        let theme = azul_appkit::Theme::ALL[found.theme.min(azul_appkit::Theme::ALL.len() - 1)];
+        info.set_theme(AzString::from(theme.name()));
+        s.theme_index = found.theme;
+    }
+    if s.mode_index != found.mode {
+        info.set_mode(mode_option(found.mode));
+        s.mode_index = found.mode;
+    }
+    let quality_changed = s.quality != found.quality;
+    s.quality = found.quality;
+    if s.settings != found.settings {
+        s.settings = found.settings;
+        s.unsaved.settings = true;
+        flush_files(s, info);
+    }
+    if quality_changed {
+        network_changed(s, false);
+    }
+}
+
 extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
-        s.settings_open = true;
+        open_settings(&mut s);
     }
     Update::RefreshDom
 }
 
-/// The About's OK (or its close box): closes the settings.
+/// The About's OK (or its close box): the settings' OK.
 extern "C" fn on_about_event(data: RefAny, info: CallbackInfo, _event: StandardDialogEvent) -> Update {
     on_settings_back(data, info)
 }
 
+/// The settings' OK: the changes stay (each took effect and was saved as it was made).
 extern "C" fn on_settings_back(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut s) = data.downcast_mut::<MeetState>() {
         s.settings_open = false;
+        s.settings_found = None;
+    }
+    Update::RefreshDom
+}
+
+/// The settings' Cancel: what the screen found comes back.
+extern "C" fn on_settings_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        cancel_settings(&mut s, &mut info);
     }
     Update::RefreshDom
 }
@@ -5124,8 +5204,8 @@ fn mode_option(index: usize) -> OptionDarkLightMode {
 }
 
 /// The keyboard shortcuts (`keys::SHORTCUTS`, the rule in `keys::command_for`): Ctrl / Cmd + D
-/// the microphone, Ctrl / Cmd + E the camera, Escape closes the settings.
-extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
+/// the microphone, Ctrl / Cmd + E the camera, Escape cancels the settings.
+extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let key = match info
         .get_current_keyboard_state()
         .current_virtual_keycode
@@ -5146,7 +5226,7 @@ extern "C" fn on_key(mut data: RefAny, info: CallbackInfo) -> Update {
             if !s.settings_open {
                 return Update::DoNothing;
             }
-            s.settings_open = false;
+            cancel_settings(&mut s, &mut info);
             Update::RefreshDom
         }
         _ => Update::DoNothing,
@@ -5284,6 +5364,10 @@ fn apply_launch_args(s: &mut MeetState) {
     s.mode_index = mode.index();
     s.settings = saved_settings().clone();
     s.quality = store::Prefs::read(&s.settings).quality;
+    if s.settings_open {
+        // `--screen settings`: Cancel puts back what the screen first showed.
+        s.settings_found = Some(SettingsFound::of(s));
+    }
 }
 
 pub fn start() {

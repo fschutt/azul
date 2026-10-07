@@ -10,8 +10,10 @@
 //!   people, the chat or the statistics; the devices slot the invite link and the level meter;
 //!   the controls bar: microphone, camera, share, view, people, chat, statistics, settings,
 //!   leave.
-//! - **Settings** on `ShellSettingsLayout`: devices, video quality, appearance (theme, light /
-//!   dark), network, about.
+//! - **Settings** in the shape of every Azlin app's settings page (azul-appkit's `look`:
+//!   Outlook 2010's Options dialog): the categories on the left - devices, video quality,
+//!   General (theme, light / dark), the shortcuts, About - the chosen one's header line over its
+//!   banded sections on the right, OK and Cancel under both.
 //!
 //! The window is `NoTitle`; the shell's header is azul's `Titlebar`. Colours are the system's
 //! (`system:text`, `system:window-background`, ...) and the widgets' own, so the window follows
@@ -33,7 +35,7 @@ use azul::{
     option::OptionString,
     prelude::*,
     screen::ScreenCaptureConfig,
-    shells::{CallShell, ShellSettingsLayout, ShellSettingsSection, ShellThemeAccent, ShellThemeScope},
+    shells::{CallShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::{DomVec, StringVec, U8VecRef},
     widgets::{
@@ -42,6 +44,7 @@ use azul::{
     },
 };
 
+use azul_appkit::look::{self, CategoryItem};
 use azul_pim::initials::initials;
 
 use crate::{ids, tiles::TileKind};
@@ -194,7 +197,10 @@ pub(crate) struct Actions {
     pub leave: ButtonOnClickCallbackType,
     pub panel: SegmentedOnChangeCallbackType,
     pub settings: ButtonOnClickCallbackType,
+    /// The settings' OK: the changes stay, the screen closes.
     pub settings_back: ButtonOnClickCallbackType,
+    /// The settings' Cancel (and Escape): what the screen found comes back, the screen closes.
+    pub settings_cancel: ButtonOnClickCallbackType,
     pub settings_category: ShellSettingsLayoutOnCategoryCallbackType,
     pub copy_link: ButtonOnClickCallbackType,
     pub drop_packet: ButtonOnClickCallbackType,
@@ -877,9 +883,10 @@ fn device_pickers(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
 
 // ==== The settings ====
 
-/// The settings' categories, in order.
+/// The settings' categories, in order: AzMeet's own, then General, Shortcuts and About as on
+/// every Azlin app's settings page.
 pub(crate) const SETTINGS_CATEGORIES: [&str; 5] =
-    ["Devices", "Video", "Appearance", "Keyboard", "About"];
+    ["Devices", "Video", "General", "Shortcuts", "About"];
 
 /// The video quality choices, in `Quality` order.
 pub(crate) const QUALITY_LABELS: [&str; 3] = [
@@ -888,107 +895,189 @@ pub(crate) const QUALITY_LABELS: [&str; 3] = [
     "Low (up to 180p)",
 ];
 
-/// The settings on the shell's settings layout: the active category's section, and Back.
+/// A category of the settings' list: the app and its index, and the app's pick callback.
+struct CategoryPick {
+    app: RefAny,
+    index: usize,
+    pick: ShellSettingsLayoutOnCategoryCallbackType,
+}
+
+/// A category of the settings' list clicked (or Enter / Space on it): the app's pick.
+extern "C" fn on_category_pick(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some((app, index, pick)) = data
+        .downcast_ref::<CategoryPick>()
+        .map(|c| (c.app.clone(), c.index, c.pick))
+    else {
+        return Update::DoNothing;
+    };
+    pick(app, info, index)
+}
+
+/// The settings, in the shape of every Azlin app's settings page (azul-appkit's look, Outlook
+/// 2010's Options dialog): the categories on the left, the chosen one's header line over its
+/// sections, OK (the changes stay) and Cancel (what the screen found comes back) under both.
 fn settings(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
     let s = &view.settings;
     let category = s.category.min(SETTINGS_CATEGORIES.len() - 1);
-    let section = match category {
-        0 => ShellSettingsSection::create(
-            AzString::from("Devices"),
-            device_pickers(s, data, actions),
+    let (icon, line, sections) = match category {
+        0 => (
+            "mic",
+            "The microphone, the speaker and the camera AzMeet uses.",
+            vec![look::section("Devices", device_rows(s, data, actions))],
         ),
-        1 => ShellSettingsSection::create(
-            AzString::from("Video"),
-            labelled(
-                "Video I receive",
-                choice(
-                    &QUALITY_LABELS.map(String::from),
-                    s.quality,
-                    "Video quality",
-                    data,
-                    actions.quality,
+        1 => (
+            "videocam",
+            "Video options for working with AzMeet.",
+            vec![look::section(
+                "Video",
+                look::row(
+                    "Video I receive",
+                    choice(
+                        &QUALITY_LABELS.map(String::from),
+                        s.quality,
+                        "Video quality",
+                        data,
+                        actions.quality,
+                    ),
                 ),
-            ),
+            )],
         ),
-        2 => ShellSettingsSection::create(
-            AzString::from("Appearance"),
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: column;")
-                .with_child(labelled(
-                    "Theme",
-                    Segmented::create(strings(&[String::from("Flat"), String::from("Flora")]))
-                        .with_selected_index(s.theme)
-                        .with_on_change(data.clone(), actions.theme)
+        2 => (
+            "settings",
+            "General options for working with AzMeet.",
+            vec![look::section(
+                "Appearance",
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column;")
+                    .with_child(look::row(
+                        "Theme",
+                        Segmented::create(strings(&[String::from("Flat"), String::from("Flora")]))
+                            .with_selected_index(s.theme)
+                            .with_on_change(data.clone(), actions.theme)
+                            .dom(),
+                    ))
+                    .with_child(look::row(
+                        "Mode",
+                        Segmented::create(strings(&[
+                            String::from("System"),
+                            String::from("Light"),
+                            String::from("Dark"),
+                        ]))
+                        .with_selected_index(s.mode)
+                        .with_on_change(data.clone(), actions.mode)
                         .dom(),
-                ))
-                .with_child(labelled(
-                    "Light or dark",
-                    Segmented::create(strings(&[
-                        String::from("System"),
-                        String::from("Light"),
-                        String::from("Dark"),
-                    ]))
-                    .with_selected_index(s.mode)
-                    .with_on_change(data.clone(), actions.mode)
-                    .dom(),
-                )),
+                    )),
+            )],
         ),
-        3 => ShellSettingsSection::create(AzString::from("Keyboard"), keyboard()),
-        _ => ShellSettingsSection::create(
-            AzString::from("About"),
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: column;")
-                .with_child(about(data, actions))
-                .with_child(text(&format!("You appear as {}", s.name), SECONDARY))
-                .with_child(text(&format!("Meeting server: {}", s.server), SECONDARY))
-                .with_child(text(&s.codec, SECONDARY))
-                .with_child(text(&format!("Files: {}", s.data_folder), SECONDARY)),
+        3 => ("keyboard", "The keyboard shortcuts of AzMeet.", keyboard()),
+        _ => (
+            "info",
+            "The version, the licence and the data folder of AzMeet.",
+            vec![look::section(
+                "About AzMeet",
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column;")
+                    .with_child(look::row("You appear as", text(&s.name, "font-size: 13px;")))
+                    .with_child(look::row("Meeting server", text(&s.server, "font-size: 13px;")))
+                    .with_child(look::row("Video", text(&s.codec, "font-size: 13px;")))
+                    .with_child(look::row("Files", text(&s.data_folder, "font-size: 13px;")))
+                    .with_child(about(data, actions)),
+            )],
         ),
     };
-    let layout = ShellSettingsLayout::create(StringVec::from_vec(
-        SETTINGS_CATEGORIES.iter().map(|c| AzString::from(*c)).collect(),
-    ))
-    .with_active_category(category)
-    .with_on_category(data.clone(), actions.settings_category)
-    .with_section(section)
-    .dom();
+    let mut pane = vec![look::header_line(
+        ids::SETTINGS_HEADER.as_str(),
+        icon,
+        line,
+    )];
+    pane.extend(sections);
+    let items: Vec<CategoryItem<'_>> = SETTINGS_CATEGORIES
+        .iter()
+        .enumerate()
+        .map(|(index, &name)| CategoryItem {
+            name,
+            id: format!("{}{index}", ids::SETTINGS_CATEGORY_PREFIX),
+            // The groups: AzMeet's categories, General / Shortcuts, About.
+            rule_before: index == 2 || index == 4,
+        })
+        .collect();
+    let list = look::category_list(
+        ids::SETTINGS_CATEGORIES.as_str(),
+        &items,
+        category,
+        &|index| {
+            RefAny::new(CategoryPick {
+                app: data.clone(),
+                index,
+                pick: actions.settings_category,
+            })
+        },
+        on_category_pick,
+    );
+    let buttons = look::dialog_buttons(
+        ids::SETTINGS_BUTTONS.as_str(),
+        None,
+        vec![
+            look::dialog_button("OK", true, ids::SETTINGS_OK.as_str(), data, actions.settings_back),
+            look::dialog_button(
+                "Cancel",
+                false,
+                ids::SETTINGS_CANCEL.as_str(),
+                data,
+                actions.settings_cancel,
+            ),
+        ],
+    );
     Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(header(view))
-        .with_child(
-            Dom::create_div().with_css("padding: 8px;").with_child(
-                Button::create("Back")
-                    .with_on_click(data.clone(), actions.settings_back)
-                    .dom()
-                    .with_id(ids::SETTINGS_BACK),
-            ),
-        )
-        .with_child(layout)
+        .with_child(look::dialog(
+            ids::SETTINGS_PAGE.as_str(),
+            list,
+            look::options_pane(ids::SETTINGS_PANE.as_str(), pane),
+            buttons,
+        ))
 }
 
-/// The keyboard shortcuts, by group: the table the key handler is checked against
-/// (`keys::SHORTCUTS`), "Mod" written as this platform's key.
-fn keyboard() -> Dom {
+/// The settings' devices: the microphone, speaker and camera pickers as rows.
+fn device_rows(s: &SettingsView, data: &RefAny, actions: &Actions) -> Dom {
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(look::row(
+            "Microphone",
+            choice(&s.mics, s.mic_choice, "Microphone", data, actions.mic_choice),
+        ))
+        .with_child(look::row(
+            "Speaker",
+            choice(&s.speakers, s.speaker_choice, "Speaker", data, actions.speaker_choice),
+        ))
+        .with_child(look::row(
+            "Camera",
+            choice(&s.cameras, s.camera_choice, "Camera", data, actions.camera_choice),
+        ))
+}
+
+/// The keyboard shortcuts, one section per group, a row per shortcut: the table the key
+/// handler is checked against (`keys::SHORTCUTS`), "Mod" written as this platform's key.
+fn keyboard() -> Vec<Dom> {
     let mac = cfg!(any(target_os = "macos", target_os = "ios"));
-    let mut list = Dom::create_div().with_css("display: flex; flex-direction: column;");
-    for (group, shortcuts) in azul_appkit::shortcuts::groups(&crate::keys::SHORTCUTS) {
-        list = list.with_child(text(group, SECTION_TITLE));
-        for s in shortcuts {
-            list = list.with_child(text(
-                &format!(
-                    "{}  {}",
-                    azul_appkit::shortcuts::display_keys(s.keys, mac),
-                    s.action
-                ),
-                "font-size: 13px; padding: 2px 0px;",
-            ));
-        }
-    }
-    list
+    azul_appkit::shortcuts::groups(&crate::keys::SHORTCUTS)
+        .into_iter()
+        .map(|(group, shortcuts)| {
+            let mut rows = Dom::create_div().with_css("display: flex; flex-direction: column;");
+            for s in shortcuts {
+                rows = rows.with_child(look::row(
+                    &azul_appkit::shortcuts::display_keys(s.keys, mac),
+                    text(s.action, "font-size: 13px;"),
+                ));
+            }
+            look::section(group, rows)
+        })
+        .collect()
 }
 
-/// The About: azul's standard AboutDialog with AzMeet's facts (`crate::ABOUT`); OK closes the
-/// settings.
+/// The About: azul's standard AboutDialog with AzMeet's facts (`crate::ABOUT`); its OK is the
+/// settings' OK.
 fn about(data: &RefAny, actions: &Actions) -> Dom {
     let facts = crate::ABOUT;
     AboutDialog::create(facts.name, facts.version)

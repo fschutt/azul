@@ -36,7 +36,18 @@ pub const JOIN: AzString = AzString::from_const_str("__azmeet_join");
 
 // ==== The settings ====
 
-pub const SETTINGS_BACK: AzString = AzString::from_const_str("__azmeet_settings_back");
+/// The settings page (the dialog's root), its parts and its buttons.
+pub const SETTINGS_PAGE: AzString = AzString::from_const_str("__azmeet_settings_page");
+pub const SETTINGS_HEADER: AzString = AzString::from_const_str("__azmeet_settings_header");
+pub const SETTINGS_CATEGORIES: AzString = AzString::from_const_str("__azmeet_settings_categories");
+pub const SETTINGS_PANE: AzString = AzString::from_const_str("__azmeet_settings_pane");
+pub const SETTINGS_BUTTONS: AzString = AzString::from_const_str("__azmeet_settings_buttons");
+/// OK: the changes stay (it was "Back").
+pub const SETTINGS_OK: AzString = AzString::from_const_str("__azmeet_settings_ok");
+/// Cancel: what the settings found when they opened comes back.
+pub const SETTINGS_CANCEL: AzString = AzString::from_const_str("__azmeet_settings_cancel");
+/// A category of the settings' list is this and its index: `__azmeet_settings_category_2`.
+pub const SETTINGS_CATEGORY_PREFIX: &str = "__azmeet_settings_category_";
 /// The settings' About: azul's AboutDialog.
 pub const ABOUT: AzString = AzString::from_const_str("__azmeet_about");
 

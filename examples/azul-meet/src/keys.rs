@@ -28,7 +28,7 @@ pub enum Key {
 pub const SHORTCUTS: [Shortcut; 3] = [
     Shortcut::new("Call", "Mod+D", "Mute or unmute the microphone"),
     Shortcut::new("Call", "Mod+E", "Start or stop the camera"),
-    Shortcut::new("Window", "Escape", "Close the settings"),
+    Shortcut::new("Window", "Escape", "Cancel the settings (close them, the changes undone)"),
 ];
 
 /// What `key` does; `primary`: the platform's shortcut modifier is held

@@ -22,8 +22,9 @@ azul = { path = "../../dll", package = "azul-dll", default-features = false, fea
 azul-pim = { path = "../azul-pim" }
 # The Azlin skeleton WITHOUT its `azul` feature (that one links libazul dynamically, which the
 # android / ios builds below must not): the switches, the data root, the settings file, the file
-# jobs. And the drive they run on.
-azul-appkit = { path = "../azul-appkit" }
+# jobs. And the drive they run on. Its `look` feature (no link mode: the azul dependency here
+# names it) gives the settings screen the look of every Azlin app's settings page.
+azul-appkit = { path = "../azul-appkit", features = ["look"] }
 azul-storage = { path = "../azul-storage" }
 # chat.jsonl and meeting.json (already in the tree through azul-appkit).
 serde = { version = "1", features = ["derive"] }
