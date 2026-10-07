@@ -357,12 +357,22 @@ pub fn open_view(app: &RefAny, info: &mut CallbackInfo, view: usize) -> Update {
 pub fn move_focus(s: &mut Player, step: Step) -> bool {
     let place = s.place().clone();
     match place.screen {
-        Screen::Start => match step {
-            Step::Up => s.strip.up(),
-            Step::Down => s.strip.down(),
-            Step::Left => s.strip.left(),
-            Step::Right => s.strip.right(),
-        },
+        Screen::Start => {
+            let moved = match step {
+                Step::Up => s.strip.up(),
+                Step::Down => s.strip.down(),
+                Step::Left => s.strip.left(),
+                Step::Right => s.strip.right(),
+            };
+            if moved {
+                println!(
+                    "AZPLAYER_FOCUS {} / {}",
+                    s.strip.category().name,
+                    s.strip.entry().label
+                );
+            }
+            moved
+        }
         Screen::Section(_) | Screen::Group { .. } | Screen::Search => {
             let tiles = s.page_tiles(&place);
             let grid = s.grid(&tiles);
@@ -388,6 +398,9 @@ pub fn move_focus(s: &mut Player, step: Step) -> bool {
                     f.view = view;
                     f.index = 0;
                     f.first_col = 0;
+                    if let Screen::Section(section) = place.screen {
+                        println!("AZPLAYER_VIEW {}", section.views()[view].label(section));
+                    }
                 }
                 f.on_views = on_views;
                 return true;
@@ -398,6 +411,7 @@ pub fn move_focus(s: &mut Player, step: Step) -> bool {
                     let f = &mut s.place_mut().focus;
                     f.index = index;
                     f.first_col = first_col;
+                    println!("AZPLAYER_FOCUS tile {index} column {first_col}");
                     true
                 }
                 None if step == Step::Up && views > 0 => {
