@@ -32,14 +32,27 @@
 //! however much output came, and on every other tick in a flood
 //! ([`renders_now`]).
 //!
+//! SCROLLED UP, THE VIEW STAYS: the view scrolls by pixels (a trackpad's
+//! momentum glides; [`scroll::ViewScroll`] keeps the tab's slide beside the
+//! engine's whole-line display offset). Scrolled up while output streams
+//! in, the view stays where the user put it - the engine raises its offset
+//! with every line, the content in view does not move - and it is drawn a
+//! few times a second only ([`renders_scrolled_up`]), its round follow
+//! button counting the lines that came in below. The button, the wheel back
+//! to the bottom, Shift+End or typing follow the output again.
+//!
 //! On stdout, for scripts (`scripts/azterm_e2e.py`): `AZTERM_READY`,
 //! `AZTERM_TABS <n>`, `AZTERM_ACTIVE <index>`, `AZTERM_HISTORY <index>
 //! <lines>` (a new tab's scrollback), `AZTERM_SCROLL <offset>` (the view
-//! after a scroll), `AZTERM_COPIED <chars>`, `AZTERM_EXITED <index>`,
-//! `AZTERM_CLOSE` (the last tab closed: the window closes).
+//! after a scroll), `AZTERM_FOLLOW <1|0>` (the active view starts / stops
+//! following the output), `AZTERM_STREAM <index>` / `AZTERM_STREAMED
+//! <index>` (the sample shell's `seq N` / `yes | head -n N` started /
+//! ended), `AZTERM_COPIED <chars>`, `AZTERM_EXITED <index>`, `AZTERM_CLOSE`
+//! (the last tab closed: the window closes).
 
 pub mod ids;
 pub mod sample;
+pub mod scroll;
 pub mod session;
 pub mod vt;
 
@@ -83,7 +96,7 @@ use azul_appkit::{
     ui as kit,
 };
 
-use crate::{session::Session, vt::GridSize};
+use crate::{scroll::ViewScroll, session::Session, vt::GridSize};
 
 // ==== The app's facts ====
 
@@ -143,14 +156,19 @@ const START_GRID: GridSize = GridSize {
 pub const FLOOD_TICKS: u32 = 3;
 /// Ticks a tab that was opened or picked is scrolled into the strip on.
 const REVEAL_TICKS: u8 = 2;
+/// Ticks between two frames of a view scrolled up while output comes in
+/// ([`renders_scrolled_up`]).
+pub const SCROLLED_UP_TICKS: u32 = 15;
 
 // ==== The state ====
 
-/// One tab: its session and its title.
+/// One tab: its session, its title, its view beyond the engine's display
+/// offset (the slide, the lines that came in below it).
 pub struct Tab {
     pub session: Session,
     pub title: String,
     pub exited: bool,
+    pub view: ViewScroll,
 }
 
 /// What a window chord does (Cmd+key on macOS, Ctrl+Shift+key elsewhere),
@@ -218,6 +236,16 @@ pub const fn renders_now(streak: u32) -> bool {
     streak <= FLOOD_TICKS || streak % 2 == 0
 }
 
+/// Whether a view scrolled up is drawn again `since_render` ticks after
+/// its last frame while output comes in: what is in view does not change -
+/// the engine keeps it, the view stays where the user put it - only the
+/// count of new lines on its follow button and its thumb do, so four frames
+/// a second, not one for every chunk of a flood.
+#[must_use]
+pub const fn renders_scrolled_up(since_render: u32) -> bool {
+    since_render >= SCROLLED_UP_TICKS
+}
+
 /// A new shell's tab title until the shell sets one: the shell's name and
 /// its folder, the home folder as `~` ("zsh ~", "bash ~/src").
 #[must_use]
@@ -258,6 +286,12 @@ pub struct AppState {
     /// tab opened or picked; twice, as the rebuilt strip may be laid out
     /// after the first).
     pub reveal_ticks: u8,
+    /// Ticks since the terminal's view was last drawn
+    /// ([`renders_scrolled_up`]).
+    pub since_render: u32,
+    /// Whether the active view follows the output, as last printed
+    /// (`AZTERM_FOLLOW`).
+    pub follow_reported: Option<bool>,
 }
 
 impl AppState {
@@ -273,6 +307,8 @@ impl AppState {
             about_open: false,
             streak: 0,
             reveal_ticks: 0,
+            since_render: 0,
+            follow_reported: None,
         }
     }
 
@@ -289,6 +325,7 @@ impl AppState {
                 session: Session::replay(&bytes, START_GRID, SCROLLBACK),
                 title: title.to_string(),
                 exited: false,
+                view: ViewScroll::default(),
             })
         } else {
             let cwd = home_dir();
@@ -301,6 +338,7 @@ impl AppState {
                         cwd.as_deref(),
                     ),
                     exited: false,
+                    view: ViewScroll::default(),
                 }),
                 Err(e) => {
                     self.notice = format!("The shell could not be started: {e}");
@@ -379,16 +417,78 @@ impl AppState {
         false
     }
 
-    /// Scrolls the active tab's view (Cmd + a navigation key); the caller
-    /// re-renders it at once.
+    /// Scrolls the active tab's view (Cmd + a navigation key) by whole
+    /// lines, from where it is; the caller re-renders it at once.
     pub fn scroll_active(&mut self, scroll: Scroll) {
-        if let Some(tab) = self.tabs.get(self.active) {
-            let mut term = tab.session.term.lock();
-            term.scroll_display(scroll);
-            println!("AZTERM_SCROLL {}", term.grid().display_offset());
-            drop(term);
-            // Drawn now, not once more on the tick (the scroll raised the flag).
-            let _ = tab.session.signals.take_dirty();
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
+        let mut term = tab.session.term.lock();
+        tab.view.note(term.grid().display_offset());
+        term.scroll_display(scroll);
+        let now = term.grid().display_offset();
+        drop(term);
+        println!("AZTERM_SCROLL {now}");
+        tab.view.moved_to(now, 0.0);
+        // Drawn now, not once more on the tick (the scroll raised the flag).
+        let _ = tab.session.signals.take_dirty();
+        self.report_follow(now == 0);
+    }
+
+    /// The active tab's view to `lines` lines up, slid up by `fraction` of
+    /// a line: the view's `Scroll`, worked out from the screen it showed
+    /// last. Applied as the move it is from there onto where the view is
+    /// now - output may have come in meanwhile, raising the engine's offset
+    /// under a view that stayed put - or, for 0, to the output, following
+    /// it. Returns the display offset the view is at.
+    pub fn scroll_view(&mut self, lines: u32, fraction: f32) -> usize {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return 0;
+        };
+        let mut term = tab.session.term.lock();
+        let offset = term.grid().display_offset();
+        tab.view.note(offset);
+        let to = f64::from(lines) - f64::from(fraction);
+        let (target, slide) = tab.view.target(to, offset, term.grid().history_size());
+        let delta = i32::try_from(target)
+            .unwrap_or(i32::MAX)
+            .saturating_sub(i32::try_from(offset).unwrap_or(i32::MAX));
+        if delta != 0 {
+            term.scroll_display(Scroll::Delta(delta));
+        }
+        let now = term.grid().display_offset();
+        drop(term);
+        tab.view.moved_to(now, slide);
+        println!("AZTERM_SCROLL {now}");
+        self.report_follow(now == 0);
+        now
+    }
+
+    /// `bytes` typed (pasted, reported) into the active tab: to its program,
+    /// and its view back at the output - typing follows it again.
+    pub fn write_active(&mut self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            return;
+        }
+        let index = self.active;
+        let Some(tab) = self.tabs.get_mut(index) else {
+            return;
+        };
+        let was_streaming = tab.session.streaming();
+        tab.session.write(bytes);
+        tab.view.follow();
+        if !was_streaming && tab.session.streaming() {
+            println!("AZTERM_STREAM {index}");
+        }
+        self.report_follow(true);
+    }
+
+    /// Prints `AZTERM_FOLLOW 1` / `0` when the active view starts or stops
+    /// following the output (for scripts).
+    fn report_follow(&mut self, following: bool) {
+        if self.follow_reported != Some(following) {
+            self.follow_reported = Some(following);
+            println!("AZTERM_FOLLOW {}", u8::from(following));
         }
     }
 
@@ -741,12 +841,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 // ==== The terminal's callbacks ====
 
 /// The data callback: the active tab's screen for the grid the view has
-/// room for (a new grid resizes the engine and the PTY).
+/// room for (a new grid resizes the engine and the PTY), with the tab's
+/// slide and the lines that came in below its view; what the view shows
+/// from now on (its scroll events are worked out from it).
 extern "C" fn terminal_screen(mut data: RefAny, size: TerminalGridSize) -> TerminalScreen {
     let Some(mut st) = data.downcast_mut::<AppState>() else {
         return TerminalScreen::empty();
     };
     let alt = st.alt_sends_escape;
+    st.since_render = 0;
     let Some(tab) = st.active_tab_mut() else {
         return TerminalScreen::empty();
     };
@@ -754,8 +857,13 @@ extern "C" fn terminal_screen(mut data: RefAny, size: TerminalGridSize) -> Termi
     let rows = usize::try_from(size.rows).unwrap_or(usize::MAX);
     tab.session.resize(GridSize::new(columns, rows));
     let term = tab.session.term.lock();
-    let screen = vt::screen(&*term, alt);
+    let offset = term.grid().display_offset();
+    let mut screen = vt::screen(&*term, alt);
     drop(term);
+    tab.view.note(offset);
+    screen.scroll_fraction = if offset > 0 { tab.view.fraction } else { 0.0 };
+    screen.new_lines = tab.view.new_lines;
+    tab.view.shown = tab.view.up(offset);
     screen
 }
 
@@ -783,13 +891,27 @@ extern "C" fn on_terminal(
     let Some(mut st) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
+    match event.kind {
+        // Typing follows the output again.
+        TerminalViewEventKind::Input => {
+            st.write_active(event.bytes.as_slice().to_vec());
+            return Update::DoNothing;
+        }
+        // By pixels, from the screen the view showed (see `scroll_view`).
+        TerminalViewEventKind::Scroll => {
+            st.scroll_view(event.scroll, event.scroll_fraction);
+            // The view re-renders itself now: the tick need not draw the
+            // same screen again (the engine's own scroll raised the flag).
+            if let Some(tab) = st.tabs.get(st.active) {
+                let _ = tab.session.signals.take_dirty();
+            }
+            return Update::DoNothing;
+        }
+        _ => {}
+    }
     let Some(tab) = st.active_tab_mut() else {
         return Update::DoNothing;
     };
-    if event.kind == TerminalViewEventKind::Input {
-        tab.session.write(event.bytes.as_slice().to_vec());
-        return Update::DoNothing;
-    }
     let mut term = tab.session.term.lock();
     let side = if event.right_half {
         Side::Right
@@ -797,12 +919,6 @@ extern "C" fn on_terminal(
         Side::Left
     };
     match event.kind {
-        TerminalViewEventKind::Scroll => {
-            let now = i64::try_from(term.grid().display_offset()).unwrap_or(0);
-            let delta = i64::from(event.scroll) - now;
-            term.scroll_display(Scroll::Delta(i32::try_from(delta).unwrap_or(0)));
-            println!("AZTERM_SCROLL {}", term.grid().display_offset());
-        }
         TerminalViewEventKind::SelectStart => {
             let kind = match event.selection_kind {
                 TerminalSelectionKind::Word => SelectionType::Semantic,
@@ -833,12 +949,13 @@ extern "C" fn on_terminal(
             }
             return Update::DoNothing;
         }
-        TerminalViewEventKind::SelectEnd | TerminalViewEventKind::Input => {}
+        TerminalViewEventKind::SelectEnd
+        | TerminalViewEventKind::Input
+        | TerminalViewEventKind::Scroll => {}
     }
     drop(term);
-    // The view re-renders itself after a scroll or a selection, reading the
-    // engine as it is then: the tick need not draw the same screen again
-    // (the engine's own scroll raised the flag).
+    // The view re-renders itself after a selection, reading the engine as
+    // it is then: the tick need not draw the same screen again.
     let _ = tab.session.signals.take_dirty();
     Update::DoNothing
 }
@@ -919,6 +1036,13 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
     let mut rebuild = false;
     let mut ended = Vec::new();
     for (i, tab) in st.tabs.iter_mut().enumerate() {
+        // The sample shell's running command writes its next lines.
+        if tab.session.streaming() {
+            tab.session.pump();
+            if !tab.session.streaming() {
+                println!("AZTERM_STREAMED {i}");
+            }
+        }
         let signals = &tab.session.signals;
         // The active tab's flag is taken when its view re-renders (a flood
         // skips ticks); a tab in the back has no view to draw.
@@ -952,8 +1076,25 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
         info.callback_info.close_window();
         return TimerCallbackReturn::terminate_unchanged();
     }
+    // The view follows the output (offset 0), or it was scrolled up: then
+    // what is in view stays put - the engine raises its offset with every
+    // line that comes in, counted for the follow button - and it is drawn
+    // only now and then, not for every chunk of a flood.
+    let shown = st.active;
+    let following = st.tabs.get_mut(shown).map_or(true, |tab| {
+        let offset = tab.session.term.lock().grid().display_offset();
+        tab.view.note(offset);
+        offset == 0
+    });
+    st.report_follow(following);
     st.streak = if output { st.streak.saturating_add(1) } else { 0 };
-    let render = output && renders_now(st.streak);
+    st.since_render = st.since_render.saturating_add(1);
+    let render = output
+        && if following {
+            renders_now(st.streak)
+        } else {
+            renders_scrolled_up(st.since_render)
+        };
     if render {
         if let Some(tab) = st.tabs.get(st.active) {
             let _ = tab.session.signals.take_dirty();
