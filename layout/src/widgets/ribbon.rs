@@ -910,6 +910,10 @@ fn push_button_chassis(v: &mut Vec<Cond>, t: &RibbonTheme) {
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
     v.push(cond_bg(TRANSPARENT));
     push_box_border(v, TRANSPARENT);
+    // Office 2010's lit buttons are softly rounded (2 px); 2013's are square.
+    if t.has_office_2010_faces() {
+        v.extend(super::themes::decl::radius(2));
+    }
     push_chrome_hover_fill(v, t);
     push_chrome_hover_border(v, t);
     // Pressed: page-neutral chrome, so the dark twin is the theme's pressed
