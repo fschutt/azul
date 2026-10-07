@@ -1,14 +1,19 @@
 //! AzTerm: a terminal emulator on the public azul API.
 //!
-//! The window is the old iTerm's: the app-drawn `Titlebar` (the window is
-//! `WindowDecorations::NoTitle`), under it a strip of tabs - one per session:
-//! a close button, its title (what the shell set, else the shell and its
+//! The window is the old iTerm's, without a title row: the window is
+//! `WindowDecorations::NoTitle` and its strip of tabs IS the title bar
+//! (`kit::tabs_in_titlebar`: a grab strip above the tabs, room for macOS's
+//! traffic lights before the first; everything around the tabs moves the
+//! window, a double click zooms it). One tab per session, every one as wide
+//! (180 px, down to 110 px when they are many, then the strip scrolls
+//! sideways - the wheel too - and the active tab is scrolled into it): a
+//! close button, its title (what the shell set, else the shell and its
 //! folder), on macOS its Cmd+number; the active one lit; a "+" for a new one
-//! - and the terminal of the active tab filling the rest. The menu bar has
-//! what is not on the strip (the text size, the settings, About). Inside a
-//! `ShellThemeScope` it follows the app theme (flat / flora) and the OS
-//! mode - the terminal's colours are the theme's palette
-//! (`TerminalPalette::flat` / `::flora_ink`).
+//! beside them, always in reach - and the terminal of the active tab filling
+//! the rest. The menu bar has what is not on the strip (the text size, the
+//! settings, About). Inside a `ShellThemeScope` it follows the app theme
+//! (flat / flora) and the OS mode - the terminal's colours are the theme's
+//! palette (`TerminalPalette::flat` / `::flora_ink`).
 //!
 //! Every tab is a [`session::Session`]: the user's shell on a PTY
 //! (alacritty_terminal's tty + event loop), or with `--sample` a recorded
@@ -54,7 +59,9 @@ use azul::{
         TimerCallbackReturn, Update,
     },
     css::{EventFilter, HoverEventFilter},
-    dom::{ClipboardContent, Dom, DomId, NodeId, VirtualKeyCode},
+    dom::{
+        ClipboardContent, Dom, DomId, DomNodeId, NodeId, ScrollIntoViewOptions, VirtualKeyCode,
+    },
     menu::{Menu, MenuItem, StringMenuItem},
     option::OptionString,
     shells::{ShellEmptyState, ShellThemeAccent, ShellThemeScope},
@@ -63,8 +70,8 @@ use azul::{
     time::{Duration, SystemTimeDiff},
     vec::StyledTextRunVec,
     widgets::{
-        AboutDialog, InfoBar, Modal, ModalState, StandardDialogEvent, TerminalGridSize,
-        TerminalScreen, TerminalSelectionKind, TerminalView, TerminalViewEvent,
+        AboutDialog, InfoBar, Modal, ModalState, StandardDialogEvent, TabsInTitlebar,
+        TerminalGridSize, TerminalScreen, TerminalSelectionKind, TerminalView, TerminalViewEvent,
         TerminalViewEventKind,
     },
     window::WindowEventFilter,
@@ -134,6 +141,8 @@ const START_GRID: GridSize = GridSize {
 /// Ticks in a row with new output before the terminal re-renders on every
 /// other tick only ([`renders_now`]).
 pub const FLOOD_TICKS: u32 = 3;
+/// Ticks a tab that was opened or picked is scrolled into the strip on.
+const REVEAL_TICKS: u8 = 2;
 
 // ==== The state ====
 
@@ -245,6 +254,10 @@ pub struct AppState {
     pub about_open: bool,
     /// Ticks in a row the active terminal had new output on ([`renders_now`]).
     pub streak: u32,
+    /// Ticks the active tab is still to be scrolled into the strip on (a
+    /// tab opened or picked; twice, as the rebuilt strip may be laid out
+    /// after the first).
+    pub reveal_ticks: u8,
 }
 
 impl AppState {
@@ -259,6 +272,7 @@ impl AppState {
             notice: String::new(),
             about_open: false,
             streak: 0,
+            reveal_ticks: 0,
         }
     }
 
@@ -380,9 +394,10 @@ impl AppState {
 
     /// The active tab's screen is drawn on the next tick: a tab that was
     /// switched to shows its own screen, also where the engine kept the
-    /// view of the window it rebuilt.
+    /// view of the window it rebuilt. And the strip scrolls it into view.
     fn touch_active(&mut self) {
         self.streak = 0;
+        self.reveal_ticks = REVEAL_TICKS;
         if let Some(tab) = self.tabs.get(self.active) {
             tab.session.signals.dirty.store(true, Ordering::Release);
         }
@@ -446,36 +461,81 @@ struct TabClick {
     index: usize,
 }
 
-/// The strip: a band a shade under the window, the tabs side by side.
-const TAB_BAR_CSS: &str = "display: flex; flex-direction: row; align-items: stretch; \
-     flex-shrink: 0; height: 28px; background: system:under-page-background; \
-     border-bottom: 1px solid system:separator; font-size: 12px; cursor: default; \
-     user-select: none;";
-/// A tab: an equal share of the strip up to a width - its close button, its
-/// title in the middle, its number.
+/// The row of tabs under the strip's grab strip, px.
+const TAB_ROW_PX: f32 = 28.0;
+/// A tab's width while the strip has room for every tab (iTerm's fixed
+/// width): when it has not, all of them shrink alike down to
+/// [`TAB_MIN_PX`], then the strip scrolls sideways. `TAB_CSS` and
+/// `TAB_ACTIVE_CSS` say it in CSS.
+pub const TAB_PX: f32 = 180.0;
+/// The narrowest a tab gets: its x, a few letters of its title, its number.
+pub const TAB_MIN_PX: f32 = 110.0;
+
+/// A CSS length of `v` px (none for nonsense).
+fn css_px(v: f32) -> f32 {
+    if v.is_finite() {
+        v.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// The strip of tabs as the window's TITLE BAR (the window is `NoTitle`,
+/// `kit::tabs_in_titlebar` - `TabsInTitlebar::platform()`): the grab strip
+/// above the row of tabs and the room for the window controls beside it
+/// (macOS's traffic lights before the first tab) are its padding, and
+/// everything in it that is not a tab or a button - above the tabs, before
+/// and after them - moves the window (`-azul-app-region: drag`; a double
+/// click zooms it).
+fn strip_css(chrome: TabsInTitlebar) -> String {
+    format!(
+        "display: flex; flex-direction: row; align-items: stretch; flex-shrink: 0; \
+         box-sizing: border-box; height: {height}px; padding-top: {top}px; \
+         padding-left: {left}px; padding-right: {right}px; \
+         background: system:under-page-background; border-bottom: 1px solid system:separator; \
+         font-size: 12px; cursor: default; user-select: none; -azul-app-region: drag;",
+        height = css_px(TAB_ROW_PX + chrome.top) + 1.0,
+        top = css_px(chrome.top),
+        left = css_px(chrome.left),
+        right = css_px(chrome.right),
+    )
+}
+
+/// The tabs' scroller: as wide as its tabs while the strip has room, then
+/// what is left of it, scrolled sideways - a wheel over it too (the engine
+/// turns a vertical wheel over a box that only scrolls sideways). No bar:
+/// the active tab is scrolled into it.
+const TAB_SCROLLER_CSS: &str = "display: flex; flex-direction: row; align-items: stretch; \
+     flex-grow: 0; flex-shrink: 1; flex-basis: auto; min-width: 0px; \
+     overflow-x: auto; overflow-y: hidden; scrollbar-width: none;";
+/// A tab: every one as wide ([`TAB_PX`], down to [`TAB_MIN_PX`] when they
+/// are many) - its close button, its title in the middle, its number. A tab
+/// is a tab, not the title bar.
 const TAB_CSS: &str = "display: flex; flex-direction: row; align-items: center; \
-     flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-width: 64px; max-width: 260px; \
-     padding: 0px 6px; border-right: 1px solid system:separator; \
-     color: system:secondary-text; \
+     flex-grow: 0; flex-shrink: 1; width: 180px; min-width: 110px; max-width: 180px; \
+     box-sizing: border-box; padding: 0px 6px; border-right: 1px solid system:separator; \
+     color: system:secondary-text; -azul-app-region: no-drag; \
      :hover { background: rgba(127, 127, 127, 0.14); }";
 /// The active tab: lit, the window's own ground.
 const TAB_ACTIVE_CSS: &str = "display: flex; flex-direction: row; align-items: center; \
-     flex-grow: 1; flex-shrink: 1; flex-basis: 0px; min-width: 64px; max-width: 260px; \
-     padding: 0px 6px; border-right: 1px solid system:separator; \
-     color: system:text; background: system:window-background;";
+     flex-grow: 0; flex-shrink: 1; width: 180px; min-width: 110px; max-width: 180px; \
+     box-sizing: border-box; padding: 0px 6px; border-right: 1px solid system:separator; \
+     color: system:text; background: system:window-background; -azul-app-region: no-drag;";
 /// A tab's close button, at its start (the old iTerm's place).
 const TAB_CLOSE_CSS: &str = "width: 16px; height: 16px; flex-shrink: 0; display: flex; \
      align-items: center; justify-content: center; border-radius: 3px; font-size: 13px; \
-     line-height: 16px; color: system:tertiary-text; \
+     line-height: 16px; color: system:tertiary-text; -azul-app-region: no-drag; \
      :hover { background: rgba(127, 127, 127, 0.28); color: system:text; }";
 /// A tab's title.
 const TAB_TITLE_CSS: &str = "flex-grow: 1; min-width: 0px; overflow: hidden; \
      white-space: nowrap; text-overflow: ellipsis; text-align: center; padding: 0px 4px;";
 /// A tab's chord ("⌘2").
 const TAB_NUMBER_CSS: &str = "flex-shrink: 0; color: system:tertiary-text; font-size: 11px;";
-/// The "+" after the tabs.
+/// The "+" after the tabs - beside their scroller, so it stays in reach
+/// however many there are.
 const NEW_TAB_CSS: &str = "width: 28px; flex-shrink: 0; display: flex; align-items: center; \
      justify-content: center; font-size: 16px; color: system:secondary-text; \
+     -azul-app-region: no-drag; \
      :hover { background: rgba(127, 127, 127, 0.14); color: system:text; }";
 /// The box the terminal fills.
 const PANE_CSS: &str = "position: relative; flex-grow: 1; flex-shrink: 1; flex-basis: 0px; \
@@ -521,13 +581,20 @@ fn tab_dom(app: &RefAny, index: usize, tab: &Tab, active: bool) -> Dom {
     dom
 }
 
-/// The strip of tabs, the old iTerm's: one per session, the active one lit,
-/// a "+" for a new one after them.
+/// The strip of tabs, the window's title bar: one tab per session, every
+/// one as wide, the active one lit, in a scroller; a "+" for a new one after
+/// them.
 fn tab_bar(app: &RefAny, st: &AppState) -> Dom {
-    let mut bar = Dom::create_div().with_id(ids::TABS).with_css(TAB_BAR_CSS);
+    let mut tabs = Dom::create_div()
+        .with_id(ids::TABS_SCROLLER)
+        .with_css(TAB_SCROLLER_CSS);
     for (i, tab) in st.tabs.iter().enumerate() {
-        bar.add_child(tab_dom(app, i, tab, i == st.active));
+        tabs.add_child(tab_dom(app, i, tab, i == st.active));
     }
+    let mut bar = Dom::create_div()
+        .with_id(ids::TABS)
+        .with_css(strip_css(kit::tabs_in_titlebar()).as_str())
+        .with_child(tabs);
     bar.add_child(
         Dom::create_div_with_text(AzString::from("+"))
             .with_id(ids::NEW_TAB)
@@ -641,12 +708,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .get(st.active)
         .map_or_else(|| "AzTerm".to_string(), |t| format!("{} - AzTerm", t.title));
     let content = if kit::settings_open(&st.kit) {
+        // The settings page has no strip of tabs: the app-drawn title row.
         column(vec![
             kit::title_row(&title),
             kit::settings_page(&st.kit, Vec::new()),
         ])
     } else {
-        let mut children = vec![kit::title_row(&title), tab_bar(&app, st)];
+        // No title row: the strip of tabs is the title bar.
+        let mut children = vec![tab_bar(&app, st)];
         if !st.notice.is_empty() {
             children.push(notice_bar(&app, st));
         }
@@ -814,6 +883,17 @@ fn rerender_terminal(info: &mut CallbackInfo) {
     }
 }
 
+/// Scrolls the strip so tab `index` is in view (the strip scrolls sideways
+/// when the tabs do not fit).
+fn reveal_tab(info: &mut CallbackInfo, index: usize) {
+    let dom = DomId { inner: 0 };
+    let id = format!("{}{index}", ids::TAB.as_str());
+    let node = info.get_node_id_by_id_attribute(dom, AzString::from(id.as_str()));
+    if node.into_raw() != 0 {
+        info.scroll_node_into_view(DomNodeId { dom, node }, ScrollIntoViewOptions::nearest());
+    }
+}
+
 /// Gives the terminal the keys when nothing has them - at the start, after
 /// a click on the strip, after a tab closed: a terminal's window types into
 /// its terminal. (`autofocus` is honoured in popups only.)
@@ -880,12 +960,21 @@ extern "C" fn output_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> Time
         }
     }
     let focus = !st.about_open && !kit::settings_open(&st.kit);
+    // A tab opened or picked is scrolled into the strip - in the strip as
+    // it is laid out (not on a tick that rebuilds it).
+    let reveal = (st.reveal_ticks > 0 && !rebuild).then(|| {
+        st.reveal_ticks -= 1;
+        st.active
+    });
     drop(st);
     if render {
         rerender_terminal(&mut info.callback_info);
     }
     if focus {
         focus_terminal(&mut info.callback_info);
+    }
+    if let Some(index) = reveal {
+        reveal_tab(&mut info.callback_info, index);
     }
     if rebuild {
         TimerCallbackReturn::continue_and_refresh_dom()
