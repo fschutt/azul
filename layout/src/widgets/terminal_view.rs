@@ -4178,6 +4178,41 @@ mod view_tests {
     }
 
     #[test]
+    fn an_app_that_keeps_whole_lines_still_scrolls_both_ways_by_small_steps() {
+        // An app that drops the slide shows whole lines only: the view must
+        // keep the travel within a line itself, or a trackpad's small steps
+        // toward the output round back up to the same line - stuck.
+        let lh = 17.0;
+        let shows = |to: ScrollPos| screen(24, 100, to.lines);
+        let step = |s: &mut TerminalScreen, asked: &mut Option<f64>, by: f32| {
+            let base = wheel_base(s, *asked);
+            if let Some(to) = wheel_scroll_from(s, base, by, lh, true) {
+                *asked = Some(to.up());
+                *s = shows(to);
+            }
+        };
+        let (mut s, mut asked) = (screen(24, 100, 3), None);
+        // Ten steps of 4 px toward the output: 40 px, 2.35 lines.
+        for _ in 0..10 {
+            step(&mut s, &mut asked, 4.0);
+        }
+        assert_eq!(s.scroll, 1);
+        // And ten back up: where it started.
+        for _ in 0..10 {
+            step(&mut s, &mut asked, -4.0);
+        }
+        assert_eq!(s.scroll, 3);
+        // An app that keeps the slide: the screen is where the view asked.
+        let mut slid = screen(24, 100, 3);
+        slid.scroll_fraction = 0.5;
+        assert!((wheel_base(&slid, Some(2.5)) - 2.5).abs() < 1e-9);
+        // A screen elsewhere (output came in, a tab switched, the app
+        // scrolled): the screen it is.
+        assert!((wheel_base(&screen(24, 100, 40), Some(2.5)) - 40.0).abs() < 1e-9);
+        assert!((wheel_base(&slid, None) - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
     fn a_scroll_event_carries_the_slide() {
         let e = TerminalViewEvent::scrolled_to(ScrollPos {
             lines: 7,
