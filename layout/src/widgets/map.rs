@@ -13,9 +13,11 @@
 //!     1. Computes which tile XYZs are visible from the current viewport + viewport size.
 //!     2. For each visible tile not yet in the cache, marks it `Pending` and (eventually) enqueues
 //!        an HTTP fetch.
-//!     3. Returns a `Dom` whose children are one `<div>` per visible tile, GPU-translated into
-//!        screen space via `transform: translate(x, y) scale(z)`. Each tile div's inner content is
-//!        the cached SVG DOM, or an empty placeholder while the fetch is in flight.
+//!     3. Returns a `Dom` whose children are one `<div>` per visible tile (keyed by its tile),
+//!        positioned in screen space, then the decluttered labels. Each tile div holds the
+//!        tile's DRAWING - the image and labels the fetch worker made of it
+//!        (`draw_tile_svg`, off the UI thread) - or a placeholder while the fetch is in
+//!        flight. The render parses nothing and rasterises nothing.
 //! - **MVT + MapCSS → SVG → DOM.** The decode pipeline (MVT protobuf bytes + a MapCSS stylesheet →
 //!   an `<svg>` tree → the framework's existing svg-to-dom path) lands in a follow-up tick. This
 //!   tick provides the widget shell + the dataset / merge-callback / virtual- view wiring; tiles
@@ -638,10 +640,14 @@ impl MapWidget {
     pub fn dom(self) -> Dom {
         use azul_core::dom::{ComponentEventFilter, EventFilter, HoverEventFilter};
 
+        // The view's marker: how a tile arrival or a pan finds THIS map's
+        // VirtualView to re-render (and no other view in the window).
+        let view_marker = super::capture_common::next_capture_marker("map-view");
         let mut cache = MapTileCache::new(self.layer.clone(), self.viewport);
         cache.on_mount = self.on_mount;
         cache.on_viewport_changed = self.on_viewport_changed;
         cache.on_pin_tap = self.on_pin_tap;
+        cache.view_marker = view_marker.clone();
         let dataset = RefAny::new(cache);
         let virtual_view_data = dataset.clone();
 
@@ -738,7 +744,8 @@ impl MapWidget {
                 // height:100% here resolves against it (441px), giving the
                 // VirtualView a finite box. (Absolute-against-absolute collapses to
                 // 0 in the solver; percentage-against-a-definite-parent does not.)
-                .with_css("width: 100%; height: 100%; overflow: hidden;"),
+                .with_css("width: 100%; height: 100%; overflow: hidden;")
+                .with_marker(azul_css::OptionString::Some(view_marker)),
             );
 
         // A caller-supplied container style replaces the default fill above
@@ -985,10 +992,12 @@ impl MapTileCache {
         }
     }
 
-    /// Insert / replace `tile`'s entry at the current look.
+    /// Insert / replace `tile`'s entry at the current look (a drawing filed
+    /// for the old entry goes with it).
     pub fn insert_tile(&mut self, tile: MapTileId, entry: TileEntry) {
         let k = self.key_at_current_look(tile);
         self.tiles.insert(k, entry);
+        self.drawn.remove(&k);
     }
 
     /// `tile`'s entry at the current look, if the cache holds one.
@@ -997,17 +1006,58 @@ impl MapTileCache {
         self.tiles.get(&self.key_at_current_look(tile))
     }
 
-    /// Worker-thread → main-thread write path. Set the decoded SVG for
-    /// a tile AT THE LOOK IT WAS STYLED FOR (called from
-    /// `map_tile_writeback`). Stamps `Ready`.
+    /// Worker-thread → main-thread write path for a fetcher that hands back
+    /// only the SVG: set the decoded SVG for a tile AT THE LOOK IT WAS STYLED
+    /// FOR. Stamps `Ready`; the render draws it once ([`Self::drawing_for`]).
+    /// The built-in worker draws the tile itself ([`Self::mark_tile_drawn`]).
     pub fn mark_tile_ready(&mut self, key: TileStyleKey, svg: AzString) {
         self.tiles.insert(key, TileEntry::Ready { svg });
+        self.drawn.remove(&key);
     }
 
     /// Mark a tile's fetch as failed so the grid doesn't re-spawn it
     /// every frame.
     pub fn mark_tile_failed(&mut self, key: TileStyleKey, error: AzString) {
         self.tiles.insert(key, TileEntry::Failed { error });
+        self.drawn.remove(&key);
+    }
+
+    /// The drawing to show for `tile`, preferring `want`: an exact hit, else
+    /// another look's drawing of the same tile - the stand-in while a look
+    /// change redraws it, as [`Self::best_available_svg`] is for SVGs.
+    #[must_use]
+    pub fn best_drawn(&self, tile: MapTileId, want: MapLook) -> Option<(MapLook, &DrawnTile)> {
+        if let Some(drawn) = self.drawn.get(&TileStyleKey { tile, look: want }) {
+            return Some((want, drawn));
+        }
+        looks_of(&self.drawn, tile)
+            .next()
+            .map(|(k, drawn)| (k.look, drawn))
+    }
+
+    /// The drawing the render places for `tile`, preferring `want`
+    /// ([`Self::best_drawn`]). A `Ready` entry without a drawing - its
+    /// fetcher handed back only the SVG ([`Self::mark_tile_ready`]) - is
+    /// drawn here, on the calling (UI) thread, but ONCE: the drawing is kept
+    /// like any other. The built-in worker never leaves one undrawn.
+    pub fn drawing_for(&mut self, tile: MapTileId, want: MapLook) -> Option<DrawnTile> {
+        if let Some((_, drawn)) = self.best_drawn(tile, want) {
+            return Some(drawn.clone());
+        }
+        let exact = TileStyleKey { tile, look: want };
+        let key = if matches!(self.tiles.get(&exact), Some(TileEntry::Ready { .. })) {
+            exact
+        } else {
+            looks_of(&self.tiles, tile)
+                .find(|(_, entry)| matches!(entry, TileEntry::Ready { .. }))
+                .map(|(k, _)| *k)?
+        };
+        let drawn = match self.tiles.get(&key) {
+            Some(TileEntry::Ready { svg }) => draw_tile_svg(svg.as_str()),
+            _ => return None,
+        };
+        self.drawn.insert(key, drawn.clone());
+        Some(drawn)
     }
 
     /// The best SVG the cache can show for `tile` right now, preferring
@@ -1046,20 +1096,23 @@ impl MapTileCache {
     /// space), and the farthest are dropped first. IN-FLIGHT tiles
     /// (`Pending`/`Fetching`) are never evicted (their worker would write into a
     /// gone entry), and on-screen tiles score near-zero so they survive.
+    ///
+    /// The drawings (1 MB images) are bounded tighter, see
+    /// [`MAX_DRAWN_TILES`].
     pub fn prune_distant_tiles(&mut self) {
+        self.prune_styled_tiles();
+        self.prune_drawn_tiles();
+    }
+
+    /// [`Self::prune_distant_tiles`] for the styled entries and their bytes.
+    fn prune_styled_tiles(&mut self) {
         const MAX_CACHED_TILES: usize = 192;
         if self.tiles.len() <= MAX_CACHED_TILES {
             return;
         }
 
-        // Higher score = farther from what the user sees = evict sooner.
-        //
-        // An entry for a look we are NOT showing is the first thing to go: it is
-        // a stand-in for a flip that has already happened, not what the user is
-        // looking at. Without this penalty the budget below is a budget on
-        // (tile, look) PAIRS, so while two looks are live the number of distinct
-        // tiles the cache can hold would silently halve.
-        const OTHER_LOOK_PENALTY: f64 = 1.0e9;
+        // Higher score = farther from what the user sees = evict sooner (see
+        // OTHER_LOOK_PENALTY).
         let active = self.active_look;
         let score = |k: &TileStyleKey| {
             tile_viewport_score(&self.viewport, &self.layer, k.tile)
@@ -1114,6 +1167,48 @@ impl MapTileCache {
         }
     }
 
+    /// [`Self::prune_distant_tiles`] for the drawings: at most
+    /// [`MAX_DRAWN_TILES`], the farthest (another look's first) dropped,
+    /// never one of the tiles the view wants at the look it shows.
+    ///
+    /// A drawing takes its `Ready` entry with it: the entry keeps no SVG to
+    /// draw again from ([`Self::mark_tile_drawn`]). Should the view want the
+    /// tile again, the render queues it and the spawn pass redraws it on the
+    /// worker - from its cached bytes, without a download.
+    fn prune_drawn_tiles(&mut self) {
+        // A drawing whose entry is gone or no longer `Ready` belongs to
+        // nothing (the styled prune above, or an entry replaced since).
+        let tiles = &self.tiles;
+        self.drawn
+            .retain(|k, _| matches!(tiles.get(k), Some(TileEntry::Ready { .. })));
+        if self.drawn.len() <= MAX_DRAWN_TILES {
+            return;
+        }
+        let active = self.active_look;
+        let wanted = self.wanted;
+        let (viewport, layer) = (&self.viewport, &self.layer);
+        let mut evictable: Vec<(f64, TileStyleKey)> = self
+            .drawn
+            .keys()
+            .filter(|k| !(k.look == active && wanted.is_some_and(|w| w.contains(k.tile))))
+            .map(|k| {
+                let penalty = if k.look == active {
+                    0.0
+                } else {
+                    OTHER_LOOK_PENALTY
+                };
+                (tile_viewport_score(viewport, layer, k.tile) + penalty, *k)
+            })
+            .collect();
+        // Farthest first.
+        evictable.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
+        let excess = self.drawn.len() - MAX_DRAWN_TILES;
+        for (_, k) in evictable.into_iter().take(excess) {
+            self.drawn.remove(&k);
+            self.tiles.remove(&k);
+        }
+    }
+
     /// Every `Pending` tile, NEAREST TO THE VIEWPORT CENTRE FIRST — the
     /// order fetches are spawned in (`spawn_pending_tile_fetches` takes the
     /// head of this list each sweep).
@@ -1141,6 +1236,38 @@ impl MapTileCache {
         });
         pending.into_iter().map(|(_, k)| k).collect()
     }
+}
+
+/// What an entry for a look the map is NOT showing adds to its distance in
+/// the eviction order: it goes first. It is a stand-in for a light / dark
+/// flip that has already happened, not what the user looks at. Without it
+/// a cache budget would be a budget on (tile, look) PAIRS, so while two
+/// looks are live the number of distinct tiles it holds would silently
+/// halve.
+const OTHER_LOOK_PENALTY: f64 = 1.0e9;
+
+/// The look whose keys sort first among a tile's (`TileStyleKey` orders a
+/// tile's looks by discriminant): where [`looks_of`] starts.
+const FIRST_LOOK: MapLook = MapLook::Positron;
+const _: () = assert!(
+    FIRST_LOOK as u8 == 0,
+    "FIRST_LOOK must be MapLook's first variant"
+);
+
+/// Every entry of `map` for `tile`, at any look. A tile's keys are adjacent
+/// in a map ordered by [`TileStyleKey`] (tile first), so this is a range,
+/// not a scan of the whole cache.
+fn looks_of<'a, V>(
+    map: &'a BTreeMap<TileStyleKey, V>,
+    tile: MapTileId,
+) -> impl Iterator<Item = (&'a TileStyleKey, &'a V)> + 'a {
+    map.range(
+        TileStyleKey {
+            tile,
+            look: FIRST_LOOK,
+        }..,
+    )
+    .take_while(move |(k, _)| k.tile == tile)
 }
 
 /// How far a tile is from what the viewport shows (lower = nearer).
@@ -1178,10 +1305,10 @@ pub enum TileEntry {
     /// A worker thread is fetching / decoding this tile right now.
     /// Distinct from `Pending` so the spawn pass doesn't double-fire.
     Fetching,
-    /// Tile decoded into an SVG document. Held as the raw SVG
-    /// string for now; the `VirtualView` callback will feed it
-    /// through the framework's svg-to-dom pipeline on the next
-    /// re-render.
+    /// Tile decoded and styled. The built-in worker DRAWS it as well: the
+    /// drawing is in `MapTileCache::drawn` under the same key and `svg` is
+    /// empty. A fetcher that hands back only the SVG leaves it here; the
+    /// render draws it once ([`MapTileCache::drawing_for`]).
     Ready { svg: AzString },
     /// Fetch failed. Held so the framework doesn't immediately
     /// re-try the same URL - caller can choose to clear failed
@@ -1285,6 +1412,9 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
             // worker are NOT: those were installed on mount and belong to the
             // widget instance, which is exactly what surviving the rebuild means.
             old_g.on_mount = new_g.on_mount.clone();
+            // The reconciled VirtualView node carries the NEW build's marker,
+            // so the surviving cache must look its view up by that one.
+            old_g.view_marker = new_g.view_marker.clone();
         }
     }
     old_data
@@ -1512,14 +1642,17 @@ fn mount_map(data: &mut RefAny, info: &CallbackInfo) {
 /// the cheap in-place re-render instead, so the new viewport's tiles compute
 /// without a DOM rebuild (see `map_tile_writeback` for why that path avoids
 /// `RefreshDom`). Doing both on a `RefreshDom` would render the view twice.
+/// The in-place re-render is THIS map's view (`view_marker`, the cache's),
+/// not every view in the window.
 fn finish_viewport_change(
     hook: &OptionMapViewportChanged,
     info: &mut CallbackInfo,
     viewport: MapViewport,
+    view_marker: AzString,
 ) -> Update {
     let user = invoke_viewport_changed(hook, info, viewport);
     if user == Update::DoNothing {
-        info.trigger_all_virtual_view_rerender();
+        rerender_marked_view(Some(view_marker), info);
     }
     user
 }
@@ -1529,7 +1662,7 @@ fn finish_viewport_change(
 /// so the anchor lives in `MapTileCache::drag_anchor`.
 extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
-    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+    if map_debug() {
         eprintln!("[map] pointer_down fired");
     }
     let pos = match info.get_cursor_relative_to_node().into_option() {
@@ -1557,7 +1690,7 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
-    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+    if map_debug() {
         let dragging = data
             .downcast_ref::<MapTileCache>()
             .is_some_and(|c| c.drag_anchor.is_some());
@@ -1590,8 +1723,9 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         cache.drag_anchor = None;
         let hook = cache.on_viewport_changed.clone();
         let vp = cache.viewport;
+        let marker = cache.view_marker.clone();
         drop(cache);
-        return finish_viewport_change(&hook, &mut info, vp);
+        return finish_viewport_change(&hook, &mut info, vp, marker);
     }
 
     let pos = match info.get_cursor_relative_to_node().into_option() {
@@ -1618,8 +1752,9 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         cache_guard.tilt_anchor = Some(pos);
         let hook = cache_guard.on_viewport_changed.clone();
         let vp = cache_guard.viewport;
+        let marker = cache_guard.view_marker.clone();
         drop(cache_guard);
-        return finish_viewport_change(&hook, &mut info, vp);
+        return finish_viewport_change(&hook, &mut info, vp, marker);
     }
     let Some(anchor) = cache_guard.drag_anchor else {
         return Update::DoNothing; // no active drag
@@ -1644,8 +1779,9 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
 
     let hook = cache_guard.on_viewport_changed.clone();
     let vp = cache_guard.viewport;
+    let marker = cache_guard.view_marker.clone();
     drop(cache_guard);
-    finish_viewport_change(&hook, &mut info, vp)
+    finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
 /// A right-button drag moves the camera: horizontal pixels turn the
@@ -1700,8 +1836,9 @@ extern "C" fn map_on_rotate_gesture(mut data: RefAny, mut info: CallbackInfo) ->
     cache_guard.viewport.bearing_deg = normalize_bearing(cache_guard.viewport.bearing_deg + delta);
     let hook = cache_guard.on_viewport_changed.clone();
     let vp = cache_guard.viewport;
+    let marker = cache_guard.view_marker.clone();
     drop(cache_guard);
-    finish_viewport_change(&hook, &mut info, vp)
+    finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
@@ -1750,7 +1887,7 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
     // worker writebacks will trigger further re-renders themselves. A hook
     // that asked for a rebuild gets the re-render from the full path instead.
     if user == Update::DoNothing {
-        info.trigger_all_virtual_view_rerender();
+        rerender_map_view(&mut data, &mut info);
     }
     user
 }
@@ -1771,7 +1908,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         })
     };
     #[cfg(feature = "std")]
-    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+    if map_debug() {
         eprintln!("[map] scroll fired dy={dy}");
     }
     if dy == 0.0 {
@@ -1791,7 +1928,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     let bounds = info
         .get_hit_node_rect()
         .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
-    let (vp, hook) = {
+    let (vp, hook, marker) = {
         let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
             return Update::DoNothing;
         };
@@ -1806,10 +1943,14 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let layer = cache.layer.clone();
         let look = cache.current_look();
         cache.want_tiles(map_wanted_tiles(&vp, bounds, &layer), look);
-        (vp, cache.on_viewport_changed.clone())
+        (
+            vp,
+            cache.on_viewport_changed.clone(),
+            cache.view_marker.clone(),
+        )
     };
     spawn_pending_tile_fetches(&mut data, &mut info);
-    finish_viewport_change(&hook, &mut info, vp)
+    finish_viewport_change(&hook, &mut info, vp, marker)
 }
 
 /// Wheel pixels per zoom level: one mouse notch (3 lines × 20 px on every
@@ -2123,8 +2264,10 @@ fn xml_unescape(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The most labels one frame shows.
-const MAX_LABELS_PER_FRAME: usize = 300;
+/// The most labels one frame shows. Each is a text node the view lays out
+/// and shapes on every render; 300 cost more than the tiles under them, and
+/// a decluttered map window rarely holds more than this many readable names.
+const MAX_LABELS_PER_FRAME: usize = 160;
 
 /// A label is not repeated closer than this to itself (one road name per
 /// tile reads as a repeat every 256 px otherwise).
@@ -2141,36 +2284,66 @@ fn label_box(label: &TileLabel) -> (f32, f32) {
     (chars * label.size * 0.62 + 6.0, label.size * 1.35)
 }
 
-/// The labels the frame shows, as DOM: most important first, none on top
-/// of another, none repeated within [`LABEL_REPEAT_PX`], none outside the
-/// view (with `margin` px to spare for a turned or tilted camera).
-/// `candidates` are `(x, y, label)` in the grid's pixel space.
-#[allow(clippy::cast_precision_loss)] // label counts and character counts are small
-fn map_label_doms(
-    mut candidates: Vec<(f32, f32, TileLabel)>,
+/// The labels the frame shows, as DOM: [`declutter_labels`]'s choice, each
+/// built by [`label_dom`]. `candidates` are `(x, y, label)` in the grid's
+/// pixel space.
+#[cfg(test)]
+fn map_label_doms<L: core::borrow::Borrow<TileLabel>>(
+    candidates: Vec<(f32, f32, L)>,
     width: f32,
     height: f32,
     viewport: &MapViewport,
     margin: f32,
 ) -> Vec<Dom> {
-    candidates.sort_by_key(|(_, _, l)| l.priority);
-    // Point labels stay upright under the camera's bearing: the grid turns
-    // by it, each label turns back.
-    let counter_rotate = -normalize_bearing(viewport.bearing_deg);
+    declutter_labels(&candidates, width, height, viewport, margin)
+        .into_iter()
+        .map(|index| {
+            let (x, y, label) = &candidates[index];
+            label_dom(*x, *y, label_of(label), viewport)
+        })
+        .collect()
+}
+
+/// A candidate's label, held or borrowed.
+fn label_of<L: core::borrow::Borrow<TileLabel>>(label: &L) -> &TileLabel {
+    <L as core::borrow::Borrow<TileLabel>>::borrow(label)
+}
+
+/// Which labels the frame shows - indexes into `candidates`, most important
+/// first: none on top of another, none repeated within [`LABEL_REPEAT_PX`],
+/// none outside the view (with `margin` px to spare for a turned or tilted
+/// camera), at most [`MAX_LABELS_PER_FRAME`]. `candidates` are `(x, y,
+/// label)` in the grid's pixel space.
+#[allow(clippy::cast_precision_loss)] // label counts and character counts are small
+fn declutter_labels<L: core::borrow::Borrow<TileLabel>>(
+    candidates: &[(f32, f32, L)],
+    width: f32,
+    height: f32,
+    viewport: &MapViewport,
+    margin: f32,
+) -> Vec<usize> {
+    // Most important first; stable, so equal priorities keep their order.
+    let mut order: Vec<usize> = (0..candidates.len()).collect();
+    order.sort_by_key(|&index| label_of(&candidates[index].2).priority);
     let mut taken: Vec<(f32, f32, f32, f32)> = Vec::new();
-    let mut shown: Vec<(String, f32, f32)> = Vec::new();
+    let mut shown: Vec<(&str, f32, f32)> = Vec::new();
     let mut out = Vec::new();
-    for (x, y, label) in candidates {
+    for index in order {
         if out.len() >= MAX_LABELS_PER_FRAME {
             break;
         }
+        let (x, y, label) = (
+            candidates[index].0,
+            candidates[index].1,
+            label_of(&candidates[index].2),
+        );
         if !x.is_finite() || !y.is_finite() {
             continue;
         }
         if label.kind == "housenumber" && viewport.zoom < HOUSENUMBER_MIN_ZOOM {
             continue;
         }
-        let (w, h) = label_box(&label);
+        let (w, h) = label_box(label);
         let (sin, cos) = label.angle.to_radians().sin_cos();
         let (bw, bh) = (
             w * cos.abs() + h * sin.abs(),
@@ -2193,57 +2366,85 @@ fn map_label_doms(
             continue;
         }
         taken.push(r);
-        shown.push((label.text.clone(), x, y));
-        let turn = if label.angle.abs() > 0.01 {
-            label.angle
-        } else {
-            counter_rotate
-        };
-        let transform = if turn.abs() > 0.01 {
-            format!(" transform: rotate({turn:.2}deg);")
-        } else {
-            String::new()
-        };
-        let style = format!(
-            "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: {:.1}px; \
-             margin: 0px; font-size: {:.1}px; line-height: {:.1}px; color: {}; text-align: \
-             center; white-space: nowrap; text-shadow: 0px 0px 2px {};{}{}",
-            x - w * 0.5,
-            y - h * 0.5,
-            w,
-            h,
-            label.size,
-            h,
-            label.fill,
-            label.halo,
-            if label.italic { " font-style: italic;" } else { "" },
-            transform,
-        );
-        out.push(
-            crate::widgets::widget_p_with_text(AzString::from(label.text))
-                .with_css(style.as_str())
-                // Part of the one "Map" graphic, like the tiles under it.
-                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                    role: azul_core::a11y::AccessibilityRole::Nothing,
-                    ..Default::default()
-                }),
-        );
+        shown.push((label.text.as_str(), x, y));
+        out.push(index);
     }
     out
 }
 
+/// One label's node: its text centred on `(x, y)` (grid pixels), in its
+/// ink with its halo, turned along its road - or upright under the camera's
+/// bearing (the grid turns by it, each point label turns back).
+fn label_dom(x: f32, y: f32, label: &TileLabel, viewport: &MapViewport) -> Dom {
+    let (w, h) = label_box(label);
+    let turn = if label.angle.abs() > 0.01 {
+        label.angle
+    } else {
+        -normalize_bearing(viewport.bearing_deg)
+    };
+    let transform = if turn.abs() > 0.01 {
+        format!(" transform: rotate({turn:.2}deg);")
+    } else {
+        String::new()
+    };
+    let style = format!(
+        "position: absolute; left: {:.1}px; top: {:.1}px; width: {:.1}px; height: {:.1}px; \
+         margin: 0px; font-size: {:.1}px; line-height: {:.1}px; color: {}; text-align: \
+         center; white-space: nowrap; text-shadow: 0px 0px 2px {};{}{}",
+        x - w * 0.5,
+        y - h * 0.5,
+        w,
+        h,
+        label.size,
+        h,
+        label.fill,
+        label.halo,
+        if label.italic { " font-style: italic;" } else { "" },
+        transform,
+    );
+    crate::widgets::widget_p_with_text(AzString::from(label.text.as_str()))
+        .with_css(style.as_str())
+        // Part of the one "Map" graphic, like the tiles under it.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Nothing,
+            ..Default::default()
+        })
+}
+
 // ────────── Drawn tiles — made on the worker, placed by the render ─────────
 
-/// The most labels one tile hands the render, its most important first.
+/// The size a tile's geometry is rasterised at: TWICE its 256 px logical
+/// size. The image is laid out at 100% of the tile, so on a 2x display the
+/// tile covers 512 device pixels - rasterising at 256 and letting the blit
+/// stretch it made every map visibly soft. 2x is pixel-exact there, and on a
+/// 1x display the blit AREA-AVERAGES on the way down, so the extra samples
+/// come back as antialiasing rather than waste.
+#[cfg_attr(not(all(feature = "xml", feature = "cpurender")), allow(dead_code))]
+const TILE_RASTER_PX: u32 = 512;
+
+/// The most labels one tile hands the render, its most important first. The
+/// decoder emits up to 160 per tile (a street-level tile carries hundreds of
+/// POIs and house numbers), and every one was a candidate the render sorted
+/// and collision-tested on every frame - for a view that shows a few dozen
+/// per tile at most.
 pub const MAX_LABELS_PER_TILE: usize = 48;
 
-/// The most drawn tiles the cache keeps (each holds a 512 x 512 RGBA image,
-/// 1 MB).
+/// The most drawn tiles the cache keeps: each holds a [`TILE_RASTER_PX`]
+/// square RGBA image, 1 MB. A view needs 20 to 30 (the visible tiles and
+/// their padding), a zoom keeps the previous level's as a stand-in. The
+/// tiles' bytes stay cached (`tile_bytes`), so an evicted drawing that is
+/// needed again is redrawn on the worker, without a download.
 pub const MAX_DRAWN_TILES: usize = 64;
 
 /// A tile as the render draws it: its geometry rasterised ONCE and its
 /// labels parsed ONCE, both on the worker thread that decoded it
-/// ([`draw_tile_svg`]). The render only places it.
+/// ([`draw_tile_svg`]). The render only places it: one image node and the
+/// labels - no SVG parsing, no rasterising.
+///
+/// The render used to do both for every visible tile on EVERY render, on the
+/// UI thread: each pan frame parsed and rasterised ~20 tile SVGs at 512 x
+/// 512 (the 584 ms frame when the first tiles arrived), and every frame's
+/// fresh image was a new texture to upload.
 ///
 /// Cheap to clone: the image is shared (the same `ImageRef` id, so the
 /// renderer keeps its texture), the labels sit behind an `Arc`.
@@ -2260,15 +2461,73 @@ pub struct DrawnTile {
     pub labels: Arc<Vec<TileLabel>>,
 }
 
-/// Draws a decoded tile's SVG (the decoder's `features_to_svg` output).
+/// Whether this build draws a tile's geometry through the DOM's SVG path
+/// (no CPU rasteriser) instead of as an image.
+const TILE_GEOMETRY_THROUGH_DOM: bool = cfg!(all(feature = "xml", not(feature = "cpurender")));
+
+/// Draws a decoded tile's SVG (the decoder's `features_to_svg` output): cuts
+/// the labels out ([`split_tile_svg`]), keeps the [`MAX_LABELS_PER_TILE`]
+/// most important, rasterises the geometry.
+///
+/// The tile worker (`azul_dll`'s `tile_fetch_worker`) calls this after the
+/// decode, so it runs on the worker thread. The render calls it only for a
+/// tile whose fetcher handed back nothing but the SVG - once, and the result
+/// is kept like any other drawing.
 #[must_use]
 pub fn draw_tile_svg(svg: &str) -> DrawnTile {
-    let _ = svg;
+    let (geometry, mut labels) = split_tile_svg(svg);
+    // Stable: labels of equal priority keep the decoder's order.
+    labels.sort_by_key(|l| l.priority);
+    labels.truncate(MAX_LABELS_PER_TILE);
+    let image = rasterize_tile_geometry(&geometry);
+    let geometry_svg = if TILE_GEOMETRY_THROUGH_DOM {
+        AzString::from(geometry.into_owned())
+    } else {
+        // An unreadable tile keeps nothing a render would try again.
+        AzString::from_const_str("")
+    };
     DrawnTile {
-        image: None,
-        geometry_svg: AzString::from_const_str(""),
-        labels: Arc::new(Vec::new()),
+        image,
+        geometry_svg,
+        labels: Arc::new(labels),
     }
+}
+
+/// The tile's geometry as an image, with the framework's SVG rasteriser (the
+/// one that renders the tiger), which honours the `fill` / `stroke` the
+/// decoder writes. (The DOM's SVG path only makes clip masks out of paths,
+/// so it cannot paint the features' colours - the tiles rendered grey.)
+#[cfg(all(feature = "xml", feature = "cpurender"))]
+fn rasterize_tile_geometry(svg: &str) -> Option<ImageRef> {
+    crate::cpurender::render_svg_to_imageref(svg.as_bytes(), TILE_RASTER_PX, TILE_RASTER_PX).ok()
+}
+
+#[cfg(not(all(feature = "xml", feature = "cpurender")))]
+fn rasterize_tile_geometry(_svg: &str) -> Option<ImageRef> {
+    None
+}
+
+/// What the render puts in a tile's box for its drawing: the image, else the
+/// geometry through the DOM (a build without the rasteriser), else the
+/// tile's "nothing to draw" mark.
+fn drawn_tile_dom(drawn: &DrawnTile, z: u8, x: i32, y: i32) -> Dom {
+    if let Some(image) = &drawn.image {
+        return Dom::create_image(image.clone())
+            .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;")
+            // One piece of the map graphic, which the tile grid names:
+            // decorative, so a screen reader does not read out every tile.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Nothing,
+                ..Default::default()
+            });
+    }
+    if !drawn.geometry_svg.as_str().is_empty() {
+        if let Some(dom) = svg_string_to_dom(drawn.geometry_svg.as_str()) {
+            return dom;
+        }
+    }
+    crate::widgets::widget_p_with_text(alloc::format!("✓? z{z}/{x}/{y}"))
+        .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;")
 }
 
 /// Parse a standalone `<svg>…</svg>` string into a `Dom` subtree via
@@ -2287,18 +2546,10 @@ pub fn draw_tile_svg(svg: &str) -> DrawnTile {
 #[cfg(all(feature = "xml", feature = "cpurender"))]
 #[must_use]
 pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
-    // Rasterise at TWICE the tile's logical size. The image node below is laid
-    // out at 100% of a 256px tile, so on a 2x display the tile occupies 512
-    // device pixels — rasterising at 256 and letting the blit stretch it made
-    // every map visibly soft. 2x is pixel-exact there, and on a 1x display the
-    // blit AREA-AVERAGES on the way down, so the extra samples come back as
-    // antialiasing rather than waste. (The honest fix is to rasterise at the
-    // window's real DPI, but this function is on the tile-decode path and has
-    // no window to ask; 2x covers every display azul currently ships on.)
-    const TILE_RASTER_PX: u32 = 512;
-    let img =
-        crate::cpurender::render_svg_to_imageref(svg.as_bytes(), TILE_RASTER_PX, TILE_RASTER_PX)
-            .ok()?;
+    // At TILE_RASTER_PX, twice the tile's logical size (see there). The tile
+    // grid no longer comes here: its tiles are drawn on the worker
+    // (`draw_tile_svg`) and only placed by the render.
+    let img = rasterize_tile_geometry(svg)?;
     Some(
         Dom::create_image(img)
             .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;")
@@ -2344,7 +2595,7 @@ fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
 /// `Fetching` state shows immediately.
 extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
-    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+    if map_debug() {
         eprintln!("[map] after_mount fired");
     }
     mount_map(&mut data, &info);
@@ -2369,7 +2620,7 @@ extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
     // to a cache nobody renders. The dataset is shared via the construction-time
     // RefAny::clone(), so re-invoking in place lets the workers' writes land in
     // the same cache the VirtualView reads.
-    info.trigger_all_virtual_view_rerender();
+    rerender_map_view(&mut data, &mut info);
     Update::DoNothing
 }
 
@@ -2405,7 +2656,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             // tile stays Pending forever and the map shows placeholders — the
             // exact symptom of "panning works, tiles never paint".
             #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            if map_debug() {
                 std::eprintln!("[map] spawn_pending: ABORT — dataset is not a MapTileCache");
             }
             return;
@@ -2415,7 +2666,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             // the callback was lost when the cache RefAny was rebuilt (the
             // merge callback is what preserves it across relayout).
             #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            if map_debug() {
                 std::eprintln!(
                     "[map] spawn_pending: ABORT — no fetch_callback on the cache ({} tiles held)",
                     cache.tiles.len()
@@ -2427,7 +2678,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         let look = cache.current_look();
         let look_changed = cache.set_active_look(look);
         #[cfg(feature = "std")]
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if map_debug() {
             std::eprintln!(
                 "[map] spawn_pending: system theme={:?} scheme={:?} look={:?} \
                  look_changed={look_changed} ready={} pending={}",
@@ -2518,14 +2769,14 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     let (cb, pool) = {
         let Some(cache) = data.downcast_ref::<MapTileCache>() else {
             #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            if map_debug() {
                 std::eprintln!("[map] spawn_pending: ABORT — dataset vanished before spawn");
             }
             return;
         };
         let Some(cb) = cache.fetch_callback.as_ref() else {
             #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            if map_debug() {
                 std::eprintln!("[map] spawn_pending: ABORT — fetch_callback gone at spawn");
             }
             return;
@@ -2538,7 +2789,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     // Distinguish "nothing to do" from "never got here" — a quiet log and an
     // aborted one look identical otherwise.
     #[cfg(feature = "std")]
-    if spawn_count == 0 && std::env::var("AZ_MAP_DEBUG").is_ok() {
+    if spawn_count == 0 && map_debug() {
         std::eprintln!("[map] spawn_pending: 0 tiles were Pending (nothing to spawn)");
     }
     for init in to_spawn {
@@ -2553,7 +2804,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         info.add_thread(ThreadId::unique(), thread);
     }
     #[cfg(feature = "std")]
-    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+    if map_debug() {
         eprintln!("[map] spawn_pending: {spawn_count} thread(s) spawned");
     }
 }
@@ -2613,8 +2864,10 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 /// `cache_dataset` is the
 /// `writeback_data` handed to `Thread::create` (the same
 /// `MapTileCache` the widget reads); `incoming` is the `TileReadyMsg`
-/// the worker sent. Stamps the tile `Ready` (or `Failed`) and asks for
-/// a relayout so the `VirtualView` renders the new content.
+/// the worker sent. Files the tile's drawing (or its SVG, or the failure)
+/// and re-renders THIS map's `VirtualView` in place - one tile's arrival is
+/// one re-render of the map's own view, never a DOM rebuild, and the
+/// arrivals of one frame share it (the re-render queue is per view).
 pub extern "C" fn map_tile_writeback(
     mut cache_dataset: RefAny,
     mut incoming: RefAny,
@@ -2622,19 +2875,22 @@ pub extern "C" fn map_tile_writeback(
 ) -> Update {
     // The worker sent something that is not a TileReadyMsg: the tile arrived
     // and is dropped on the floor here.
-    let Some(m) = incoming.downcast_ref::<TileReadyMsg>() else {
+    let Some(mut m) = incoming.downcast_mut::<TileReadyMsg>() else {
         #[cfg(feature = "std")]
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if map_debug() {
             std::eprintln!("[map] writeback: DROPPED — payload is not a TileReadyMsg");
         }
         return Update::DoNothing;
     };
+    // TAKE the payload: the message is this writeback's alone. Cloning it
+    // copied the tile's MVT bytes and SVG on the UI thread for nothing.
+    let drawn = m.drawn.take();
     let msg = (
         m.tile,
-        m.svg.clone(),
+        core::mem::replace(&mut m.svg, AzString::from_const_str("")),
         m.error.clone(),
         m.look,
-        m.bytes.clone(),
+        core::mem::replace(&mut m.bytes, azul_css::U8Vec::from_vec(Vec::new())),
     );
     drop(m);
     {
@@ -2643,7 +2899,7 @@ pub extern "C" fn map_tile_writeback(
             // MapTileCache — typically a rebuild replaced it. The fetch
             // succeeded and the pixels are still discarded.
             #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            if map_debug() {
                 std::eprintln!(
                     "[map] writeback: DROPPED tile=({},{},{}) — target dataset is not a \
                      MapTileCache",
@@ -2673,10 +2929,13 @@ pub extern "C" fn map_tile_writeback(
         };
         let ok = msg.2.as_str().is_empty();
         let svg_len = msg.1.as_str().len();
-        if ok {
-            cache.mark_tile_ready(key, msg.1);
-        } else {
-            cache.mark_tile_failed(key, msg.2.clone());
+        let was_drawn = drawn.is_some();
+        match (ok, drawn) {
+            // The built-in worker: drawn on its thread, the render places it.
+            (true, Some(drawn)) => cache.mark_tile_drawn(key, drawn),
+            // A fetcher that hands back only the SVG: the render draws it once.
+            (true, None) => cache.mark_tile_ready(key, msg.1),
+            (false, _) => cache.mark_tile_failed(key, msg.2.clone()),
         }
 
         // Logged AFTER the decision, reporting the decision. The old line
@@ -2685,31 +2944,102 @@ pub extern "C" fn map_tile_writeback(
         // away and re-fetched logged as a success. A log line that lies is
         // worse than no log line.
         #[cfg(feature = "std")]
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if map_debug() {
             eprintln!(
-                "[map] writeback tile=({},{},{}) theme={:?} stored={} svg_len={} bytes_cached={} \
-                 err={:?}",
+                "[map] writeback tile=({},{},{}) theme={:?} stored={} drawn={} svg_len={} \
+                 bytes_cached={} err={:?}",
                 msg.0.z,
                 msg.0.x,
                 msg.0.y,
                 msg.3,
                 if ok { "Ready" } else { "Failed" },
+                was_drawn,
                 svg_len,
                 fetched_bytes,
                 msg.2.as_str()
             );
         }
+        if map_stats_enabled() {
+            print_tile_stats(&cache);
+        }
     } // drop the cache borrow before touching `info`
 
-    // Re-render the VirtualView(s) IN PLACE so the pure content callback re-reads
-    // the shared cache we just mutated. NOT `RefreshDom`: a DOM rebuild would
-    // allocate a fresh `MapTileCache` and orphan THIS worker's clone of it (the
-    // VirtualView's `refany`, the node dataset and the worker's writeback handle
-    // are all clones of one `RefAny` — same underlying data — only while the DOM
-    // is not rebuilt). Re-invoking in place keeps that share intact, so this tile
-    // and every later one reach the rendered view.
-    info.trigger_all_virtual_view_rerender();
+    // Re-render the map's VirtualView IN PLACE so the pure content callback
+    // re-reads the shared cache we just mutated. NOT `RefreshDom`: a DOM rebuild
+    // would allocate a fresh `MapTileCache` and orphan THIS worker's clone of it
+    // (the VirtualView's `refany`, the node dataset and the worker's writeback
+    // handle are all clones of one `RefAny` — same underlying data — only while
+    // the DOM is not rebuilt). Re-invoking in place keeps that share intact, so
+    // this tile and every later one reach the rendered view.
+    rerender_map_view(&mut cache_dataset, &mut info);
     Update::DoNothing
+}
+
+/// Re-render THIS map's `VirtualView` - the node carrying the cache's
+/// `view_marker` - and nothing else in the window: a tile that arrives or a
+/// pan used to re-render every view (an icon swap view, a terminal, a video
+/// next to the map). Every view only while the marker is not found (the map
+/// is not laid out yet).
+fn rerender_map_view(data: &mut RefAny, info: &mut CallbackInfo) {
+    let marker = data
+        .downcast_ref::<MapTileCache>()
+        .map(|cache| cache.view_marker.clone());
+    rerender_marked_view(marker, info);
+}
+
+/// [`rerender_map_view`] for a marker already read out of the cache (the
+/// handlers that hold its borrow until they fire the user's hook).
+fn rerender_marked_view(marker: Option<AzString>, info: &mut CallbackInfo) {
+    let view = marker
+        .filter(|m| !m.as_str().is_empty())
+        .and_then(|m| info.get_node_id_by_marker(m))
+        .and_then(|node| node.node.into_crate_internal().map(|id| (node.dom, id)));
+    match view {
+        Some((dom, node)) => info.trigger_virtual_view_rerender(dom, node),
+        None => info.trigger_all_virtual_view_rerender(),
+    }
+}
+
+/// Whether the map's debug log is on (`AZ_MAP_DEBUG`), read once: the hot
+/// paths (every render, every pointer move) asked the environment each time.
+fn map_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_MAP_DEBUG").is_some())
+}
+
+/// Whether the map prints its counters on stdout - `AZ_MAP_STATS=1` (AzMaps
+/// sets it for its `--stats` switch). Read once.
+///
+/// - `AZ_MAP_TILES <ready> <pending> <fetching> <failed> <drawn>` after every
+///   tile that arrives: the cache's entries by state, and the drawings held;
+/// - `AZ_MAP_RENDER <micros> <tiles> <labels>` after every render of the tile
+///   grid (the `VirtualView` callback, UI thread): how long it took and the
+///   nodes it made;
+/// - the worker's `AZ_MAP_TILE <z>/<x>/<y> <fetch_ms> <decode_ms> <draw_ms>
+///   <bytes>` per tile (`azul_dll`'s `tile_fetch_worker`).
+#[must_use]
+pub fn map_stats_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("AZ_MAP_STATS").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0")
+    })
+}
+
+/// The `AZ_MAP_TILES` line (see [`map_stats_enabled`]).
+fn print_tile_stats(cache: &MapTileCache) {
+    let (mut ready, mut pending, mut fetching, mut failed) = (0usize, 0usize, 0usize, 0usize);
+    for entry in cache.tiles.values() {
+        match entry {
+            TileEntry::Ready { .. } => ready += 1,
+            TileEntry::Pending => pending += 1,
+            TileEntry::Fetching => fetching += 1,
+            TileEntry::Failed { .. } => failed += 1,
+        }
+    }
+    println!(
+        "AZ_MAP_TILES {ready} {pending} {fetching} {failed} {}",
+        cache.drawn.len()
+    );
 }
 
 /// Inclusive `(x_min, x_max, y_min, y_max)` tile range for a `width_px x
@@ -2928,10 +3258,13 @@ fn map_viewport_description(viewport: &MapViewport) -> String {
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
 extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    // What one tile's box shows: its drawing (shared with the cache, cheap
+    // to clone), or the glyph of its state.
     enum TileDisplay {
         Glyph(&'static str),
-        Svg(AzString),
+        Drawn(DrawnTile),
     }
+    let started = map_stats_enabled().then(std::time::Instant::now);
     let mut data = data;
     let bounds = info.get_bounds();
     let bounds_logical = bounds.get_logical_size();
@@ -2943,7 +3276,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // positions tiles at NaN/∞ (off-screen → blank) and can allocate unboundedly, so
     // render nothing until the layout settles to a finite box.
     if !width_px.is_finite() || !height_px.is_finite() || width_px <= 0.0 || height_px <= 0.0 {
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if map_debug() {
             eprintln!("[map] non-finite bounds {width_px}x{height_px} — skipping render");
         }
         return VirtualViewReturn {
@@ -3023,7 +3356,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // when the framework finds this node with real bounds — so seeing this line at
     // all confirms invocation, and the values reveal a zero / infinite / off-screen
     // grid (the usual causes of a blank map).
-    if std::env::var("AZ_MAP_DEBUG").is_ok() {
+    if map_debug() {
         eprintln!(
             "[map] render bounds={:.0}x{:.0} z={} centre_tile=({:.2},{:.2}) tiles x{}..{} y{}..{} \
              = {}",
@@ -3042,51 +3375,49 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
 
     // Queue any missing tiles as `Pending` and record this range as what the
     // view needs; the next spawn pass starts the fetches and forgets queued
-    // tiles outside it.
-    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
-        cache.want_tiles(
-            WantedTiles {
-                z: z_int,
-                x_min,
-                x_max,
-                y_min,
-                y_max,
-            },
-            look,
-        );
-    }
-
-    // Snapshot what to DISPLAY per visible tile, under a short borrow, then
-    // drop it before building DOM.
+    // tiles outside it. Then snapshot what to DISPLAY per visible tile, under
+    // the same short borrow, dropped before the DOM is built.
     //
-    // Display is a lookup, not the cache state: `best_available_svg` prefers
-    // the current look and otherwise takes any look already decoded for that
-    // tile. So while a scheme change re-styles, the previous palette keeps
-    // painting real cartography instead of the grid falling back to grey
-    // placeholders. Only a tile with NO decoded look at all shows a glyph
-    // (`…` Pending / `⟳` Fetching / `✗` Failed), which keeps the fetch path
-    // observable.
-    let states: BTreeMap<MapTileId, TileDisplay> =
-        data.downcast_ref::<MapTileCache>()
-            .map_or_else(BTreeMap::new, |c| {
-                let mut out = BTreeMap::new();
-                for k in c.tiles.keys() {
-                    if out.contains_key(&k.tile) {
-                        continue;
-                    }
-                    let disp = if let Some((_, svg)) = c.best_available_svg(k.tile, look) {
-                        TileDisplay::Svg(svg)
-                    } else {
-                        match c.tiles.get(&TileStyleKey { tile: k.tile, look }) {
-                            Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
-                            Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
-                            _ => TileDisplay::Glyph("…"),
-                        }
-                    };
-                    out.insert(k.tile, disp);
+    // Display is a lookup, not the cache state: `drawing_for` prefers the
+    // current look and otherwise takes any look already drawn for that tile.
+    // So while a scheme change re-styles, the previous palette keeps painting
+    // real cartography instead of the grid falling back to grey placeholders.
+    // Only a tile with NO drawn look at all shows a glyph (`…` Pending / `⟳`
+    // Fetching / `✗` Failed), which keeps the fetch path observable.
+    //
+    // A drawing is the worker's: no SVG is parsed and nothing is rasterised
+    // here (it was, for every visible tile on every render). Only the visible
+    // tiles are looked up - each a range of one tile's keys - not every entry
+    // of the cache.
+    let wanted = WantedTiles {
+        z: z_int,
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+    };
+    let states: BTreeMap<MapTileId, TileDisplay> = match data.downcast_mut::<MapTileCache>() {
+        Some(mut cache) => {
+            cache.want_tiles(wanted, look);
+            let mut out = BTreeMap::new();
+            for tile in wanted.tiles() {
+                if out.contains_key(&tile) {
+                    continue;
                 }
-                out
-            });
+                let display = match cache.drawing_for(tile, look) {
+                    Some(drawn) => TileDisplay::Drawn(drawn),
+                    None => match cache.tiles.get(&TileStyleKey { tile, look }) {
+                        Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
+                        Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
+                        _ => TileDisplay::Glyph("…"),
+                    },
+                };
+                out.insert(tile, display);
+            }
+            out
+        }
+        None => BTreeMap::new(),
+    };
 
     // Build the visible-tile grid. Each tile div is GPU-translated
     // into its screen position; the (CSS-driven) `transform` keeps
@@ -3212,8 +3543,12 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             );
     }
 
-    // Every visible tile's labels, in the grid's pixel space.
-    let mut label_candidates: Vec<(f32, f32, TileLabel)> = Vec::new();
+    // Every visible tile's labels, in the grid's pixel space - borrowed from
+    // the drawings in `states` - and the key of each: its tile and its place
+    // in the tile's list.
+    let mut label_candidates: Vec<(f32, f32, &TileLabel)> = Vec::new();
+    let mut label_keys: Vec<(u8, i32, i32, usize)> = Vec::new();
+    let mut tile_nodes = 0usize;
 
     for x in x_min..=x_max {
         for y in y_min..=y_max {
@@ -3254,10 +3589,10 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
 
             // Placeholder (still-loading) tiles show the loading grid — a grey
             // background + 1px border — so fetch state is visible. A LOADED tile
-            // drops that chrome entirely: the decoded SVG covers the tile, and
+            // drops that chrome entirely: the drawing covers the tile, and
             // keeping the per-tile border would draw a grey seam-grid over the
             // whole map (user-reported "small grey borders around the tiles").
-            let is_ready = matches!(states.get(&id), Some(TileDisplay::Svg(_)));
+            let is_ready = matches!(states.get(&id), Some(TileDisplay::Drawn(_)));
             let chrome = if is_ready {
                 ""
             } else {
@@ -3268,41 +3603,32 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                  height: {size_h}px; {chrome}"
             );
 
-            let mut tile_div = Dom::create_div().with_css(style.as_str());
+            // KEYED by the tile (the raw column: at zoom 0-1 one tile can show
+            // twice, wrapped), never by its place: a pan moves every tile, and
+            // the reconcile of the view's next render pairs each with itself
+            // by key instead of by position.
+            let mut tile_div = Dom::create_div()
+                .with_css(style.as_str())
+                .with_key(("azul-map-tile", z_int, x, y));
+            tile_nodes += 1;
 
-            // `Ready` tiles render their decoded SVG as a child DOM
-            // tree (parsed via the framework's existing XML→DOM path);
-            // everything else shows a state glyph + tile id so the grid
-            // math + fetch state stay observable.
+            // A drawn tile is its image (the worker's, shared - not drawn
+            // again); everything else shows a state glyph + tile id so the
+            // grid math + fetch state stay observable.
             match states.get(&id) {
-                Some(TileDisplay::Svg(svg)) => {
+                Some(TileDisplay::Drawn(drawn)) => {
                     // The labels leave the tile here and are laid out over
                     // the whole grid below, in its pixel space.
-                    let (geometry, labels) = split_tile_svg(svg.as_str());
                     let (sx, sy) = (size_w as f32 / 256.0, size_h as f32 / 256.0);
-                    label_candidates.extend(labels.into_iter().map(|label| {
-                        (
+                    for (index, label) in drawn.labels.iter().enumerate() {
+                        label_candidates.push((
                             screen_x as f32 + label.x * sx,
                             screen_y as f32 + label.y * sy,
                             label,
-                        )
-                    }));
-                    match svg_string_to_dom(&geometry) {
-                        Some(svg_dom) => {
-                            tile_div = tile_div.with_child(svg_dom);
-                        }
-                        None => {
-                            tile_div = tile_div.with_child(
-                                crate::widgets::widget_p_with_text(alloc::format!(
-                                    "✓? z{z_int}/{x}/{y}"
-                                ))
-                                .with_css(
-                                    "position: absolute; left: 4px; top: 4px; font-size: 11px; \
-                                     color: #888;",
-                                ),
-                            );
-                        }
+                        ));
+                        label_keys.push((z_int, x, y, index));
                     }
+                    tile_div = tile_div.with_child(drawn_tile_dom(drawn, z_int, x, y));
                 }
                 other => {
                     let state_tag = match other {
@@ -3333,8 +3659,28 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     } else {
         0.0
     };
-    for label in map_label_doms(label_candidates, width_px, height_px, &viewport, label_margin) {
-        grid = grid.with_child(label);
+    let shown = declutter_labels(
+        &label_candidates,
+        width_px,
+        height_px,
+        &viewport,
+        label_margin,
+    );
+    let label_nodes = shown.len();
+    for index in shown {
+        let (x, y, label) = label_candidates[index];
+        let (z, tile_x, tile_y, nth) = label_keys[index];
+        // Keyed like its tile: the same label is the same node next frame.
+        grid = grid.with_child(
+            label_dom(x, y, label, &viewport).with_key(("azul-map-label", z, tile_x, tile_y, nth)),
+        );
+    }
+
+    if let Some(started) = started {
+        println!(
+            "AZ_MAP_RENDER {} {tile_nodes} {label_nodes}",
+            started.elapsed().as_micros()
+        );
     }
 
     VirtualViewReturn {
@@ -5885,11 +6231,14 @@ mod autotest_generated {
     #[test]
     fn finish_viewport_change_returns_the_hooks_update_and_rerenders_only_without_a_rebuild() {
         // No hook: the handler owes the in-place VirtualView re-render itself.
+        // (No marker in an empty window: the re-render falls back to every
+        // view, which is what an unlaid-out map has to do.)
         let (update, changes) = with_callback_info(|mut info| {
             finish_viewport_change(
                 &OptionMapViewportChanged::None,
                 &mut info,
                 view(1.0, 2.0, 3.0),
+                AzString::from(""),
             )
         });
         assert_eq!(update, Update::DoNothing);
@@ -5907,7 +6256,7 @@ mod autotest_generated {
             callback: (record_viewport as MapViewportChangedCallbackType).into(),
         });
         let (update, changes) = with_callback_info(|mut info| {
-            finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0))
+            finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0), AzString::from(""))
         });
         assert_eq!(update, Update::DoNothing);
         assert!(changes
@@ -5924,7 +6273,7 @@ mod autotest_generated {
             callback: (record_viewport_and_refresh as MapViewportChangedCallbackType).into(),
         });
         let (update, changes) = with_callback_info(|mut info| {
-            finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0))
+            finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0), AzString::from(""))
         });
         assert_eq!(
             update,
