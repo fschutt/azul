@@ -21,6 +21,9 @@ use azul_layout::solver3::display_list::DisplayListItem;
 /// PDF -> page count, page sizes, page N as SVG, page text, outline (PDF9).
 pub mod parsed;
 pub use parsed::*;
+/// A stamp's SVG (a signature) as the paths printpdf draws onto a page.
+#[cfg(feature = "pdf")]
+mod stamp;
 
 /// Say once per process that the `pdf` feature is compiled out. Every stub
 /// arm below returns an empty/none result that is byte-for-byte

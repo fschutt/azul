@@ -421,6 +421,8 @@ pub mod menu;
 pub mod paged;
 /// SVG `d=""` path data parser.
 pub mod path_parser;
+/// A PDF's interactive form (AcroForm) as data: fields, values, stamps.
+pub mod pdf_form;
 /// CSS property cache for efficient per-node style resolution.
 pub mod physical_key;
 /// Per-node resolved CSS property cache, the layout engine's read path.

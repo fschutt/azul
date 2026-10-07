@@ -333,3 +333,130 @@ fn a_page_is_a_dom_whose_text_is_text_in_the_pages_own_font() {
         "in the page's own font (M is 90 pt wide), not a system font: {xs:?}"
     );
 }
+
+/// A one-page Letter PDF (612 x 792 pt) with a form: a text field `name`
+/// (value "Grace", 12 pt, at x 72..272, y 700..720 from the bottom) and a
+/// check box `agree` (unchecked, x 72..84, y 650..662).
+fn form_pdf() -> Vec<u8> {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 5 0 R] /DA (/Helv 0 Tf 0 g) >> >>"
+            .to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R] >>".to_string(),
+        "<< /Type /Annot /Subtype /Widget /P 3 0 R /T (name) /FT /Tx /DA (/Helv 12 Tf 0 g) \
+         /V (Grace) /Rect [72 700 272 720] >>"
+            .to_string(),
+        "<< /Type /Annot /Subtype /Widget /P 3 0 R /T (agree) /FT /Btn /V /Off /AS /Off \
+         /Rect [72 650 84 662] >>"
+            .to_string(),
+    ];
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+    for offset in offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+fn field_named(pdf: &ParsedPdf, name: &str) -> azul_core::pdf_form::PdfFormField {
+    pdf.form_fields()
+        .as_ref()
+        .iter()
+        .find(|f| f.name.as_str() == name)
+        .cloned()
+        .unwrap_or_else(|| panic!("no field {name}"))
+}
+
+#[test]
+fn a_forms_fields_are_read_with_rects_from_the_pages_top_left() {
+    use azul_core::pdf_form::PdfFormFieldKind;
+
+    let pdf = ParsedPdf::create_from_bytes(&form_pdf());
+    assert!(pdf.is_valid(), "error: {}", pdf.get_error().as_str());
+    assert_eq!(pdf.form_fields().len(), 2);
+    let name = field_named(&pdf, "name");
+    assert_eq!(name.kind, PdfFormFieldKind::Text);
+    assert_eq!(name.value.as_str(), "Grace");
+    assert_eq!(name.font_size_pt, 12.0);
+    let widget = &name.widgets.as_ref()[0];
+    assert_eq!(widget.page, 0);
+    assert!(
+        close(widget.rect.x, 72.0)
+            && close(widget.rect.y, 72.0)
+            && close(widget.rect.width, 200.0)
+            && close(widget.rect.height, 20.0),
+        "792 - 720 = 72 from the top: {:?}",
+        widget.rect
+    );
+    assert_eq!(field_named(&pdf, "agree").kind, PdfFormFieldKind::CheckBox);
+    assert!(ParsedPdf::create_from_bytes(&two_pages()).form_fields().is_empty());
+}
+
+#[test]
+fn a_page_renders_with_or_without_its_forms_values() {
+    use azul_core::pdf_form::PdfPageSvgOptions;
+
+    let pdf = ParsedPdf::create_from_bytes(&form_pdf());
+    let with = pdf
+        .page_to_svg_with(0, PdfPageSvgOptions { include_form_fields: true })
+        .into_option()
+        .expect("an SVG");
+    assert!(with.as_str().contains(">Grace</text>"), "{}", with.as_str());
+    let without = pdf
+        .page_to_svg_with(0, PdfPageSvgOptions { include_form_fields: false })
+        .into_option()
+        .expect("an SVG");
+    assert!(!without.as_str().contains("Grace"), "{}", without.as_str());
+}
+
+#[test]
+fn a_filled_form_keeps_its_values_and_a_flattened_one_draws_them() {
+    use azul_core::pdf_form::{PdfFieldValue, PdfPageSvgOptions, PdfRect, PdfStamp};
+    use azul_layout::callbacks::ResultU8VecString;
+
+    let pdf = ParsedPdf::create_from_bytes(&form_pdf());
+    let values = vec![
+        PdfFieldValue::create("name".into(), "Ada".into()),
+        PdfFieldValue::create("agree".into(), "true".into()),
+    ];
+    let ResultU8VecString::Ok(filled) = pdf.fill_form(values.clone().into(), Vec::new().into(), false)
+    else {
+        panic!("the form fills");
+    };
+    let filled = ParsedPdf::create_from_bytes(filled.as_ref());
+    assert!(filled.is_valid(), "{}", filled.get_error().as_str());
+    assert_eq!(field_named(&filled, "name").value.as_str(), "Ada");
+    assert_eq!(field_named(&filled, "agree").value.as_str(), "Yes");
+
+    // Flattened, with a signature stamped under the field.
+    let signature = r##"<svg viewBox="0 0 200 50"><path d="M10 40 C 60 0, 140 0, 190 40" stroke="#1a237e" stroke-width="4" fill="none"/></svg>"##;
+    let stamp = PdfStamp::create(
+        0,
+        PdfRect { x: 72.0, y: 100.0, width: 200.0, height: 50.0 },
+        signature.into(),
+    );
+    let ResultU8VecString::Ok(flat) = pdf.fill_form(values.into(), vec![stamp].into(), true) else {
+        panic!("the form flattens");
+    };
+    let flat = ParsedPdf::create_from_bytes(flat.as_ref());
+    assert!(flat.is_valid(), "{}", flat.get_error().as_str());
+    assert!(flat.form_fields().is_empty(), "no form left");
+    let svg = flat
+        .page_to_svg_with(0, PdfPageSvgOptions::default())
+        .into_option()
+        .expect("an SVG");
+    assert!(svg.as_str().contains("rgb(26, 35, 126)"), "the signature's stroke is on the page: {}", svg.as_str());
+}

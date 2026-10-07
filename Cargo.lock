@@ -7879,7 +7879,7 @@ dependencies = [
 [[package]]
 name = "printpdf"
 version = "0.12.8"
-source = "git+https://github.com/fschutt/printpdf?branch=azul-codegen-api#e1a77c17a8368c49967fbf5e7096a63613b17f6b"
+source = "git+https://github.com/fschutt/printpdf?branch=azul-codegen-api#45dcb53d527909506f799bcc6be60409fb6c92bd"
 dependencies = [
  "allsorts-azul",
  "azul-core",

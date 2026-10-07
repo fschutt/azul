@@ -59225,6 +59225,28 @@
                                 "StyleBackgroundClip"
                             ]
                         }
+                    },
+                    "PdfTextAlign": {
+                        "external": "azul_core::pdf_form::PdfTextAlign",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Left": {},
+                                "Center": {},
+                                "Right": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -126380,6 +126402,56 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "PdfRect": {
+                        "external": "azul_core::pdf_form::PdfRect",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "x": {
+                                    "type": "f32"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                },
+                                "width": {
+                                    "type": "f32"
+                                },
+                                "height": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PdfPageSvgOptions": {
+                        "external": "azul_core::pdf_form::PdfPageSvgOptions",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "include_form_fields": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -167360,6 +167432,858 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "PdfFieldValueVec": {
+                        "external": "azul_core::pdf_form::PdfFieldValueVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfFieldValue",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PdfFieldValueVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PdfFieldValueVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PdfFieldValueVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PdfFieldValueVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFieldValueVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_field_value_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_field_value_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "pdf_field_value_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PdfFieldValueVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PdfFieldValue"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFieldValueVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PdfFieldValueVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PdfFieldValue"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFieldValueVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPdfFieldValue"
+                                },
+                                "fn_body": "pdf_field_value_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PdfFieldValueVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFieldValueVecSlice"
+                                },
+                                "fn_body": "pdf_field_value_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFieldValueVecSlice"
+                                },
+                                "fn_body": "pdf_field_value_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PdfFieldValueVecDestructor": {
+                        "external": "azul_core::pdf_form::PdfFieldValueVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PdfFieldValueVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PdfFieldValueVecDestructorType": {
+                        "external": "azul_core::pdf_form::PdfFieldValueVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "PdfFieldValueVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "PdfFormFieldVec": {
+                        "external": "azul_core::pdf_form::PdfFormFieldVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfFormField",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PdfFormFieldVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PdfFormFieldVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PdfFormFieldVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PdfFormFieldVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormFieldVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_form_field_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_form_field_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "pdf_form_field_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PdfFormFieldVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PdfFormField"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormFieldVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PdfFormFieldVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PdfFormField"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormFieldVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPdfFormField"
+                                },
+                                "fn_body": "pdf_form_field_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PdfFormFieldVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormFieldVecSlice"
+                                },
+                                "fn_body": "pdf_form_field_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormFieldVecSlice"
+                                },
+                                "fn_body": "pdf_form_field_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PdfFormFieldVecDestructor": {
+                        "external": "azul_core::pdf_form::PdfFormFieldVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PdfFormFieldVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PdfFormFieldVecDestructorType": {
+                        "external": "azul_core::pdf_form::PdfFormFieldVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "PdfFormFieldVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "PdfFormWidgetVec": {
+                        "external": "azul_core::pdf_form::PdfFormWidgetVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfFormWidget",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PdfFormWidgetVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PdfFormWidgetVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PdfFormWidgetVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PdfFormWidgetVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormWidgetVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_form_widget_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_form_widget_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "pdf_form_widget_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PdfFormWidgetVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PdfFormWidget"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormWidgetVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PdfFormWidgetVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PdfFormWidget"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormWidgetVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPdfFormWidget"
+                                },
+                                "fn_body": "pdf_form_widget_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PdfFormWidgetVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormWidgetVecSlice"
+                                },
+                                "fn_body": "pdf_form_widget_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormWidgetVecSlice"
+                                },
+                                "fn_body": "pdf_form_widget_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PdfFormWidgetVecDestructor": {
+                        "external": "azul_core::pdf_form::PdfFormWidgetVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PdfFormWidgetVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PdfFormWidgetVecDestructorType": {
+                        "external": "azul_core::pdf_form::PdfFormWidgetVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "PdfFormWidgetVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "PdfStampVec": {
+                        "external": "azul_core::pdf_form::PdfStampVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfStamp",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PdfStampVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PdfStampVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PdfStampVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PdfStampVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfStampVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_stamp_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pdf_stamp_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "pdf_stamp_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PdfStampVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PdfStamp"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfStampVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PdfStampVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PdfStamp"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfStampVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPdfStamp"
+                                },
+                                "fn_body": "pdf_stamp_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PdfStampVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfStampVecSlice"
+                                },
+                                "fn_body": "pdf_stamp_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfStampVecSlice"
+                                },
+                                "fn_body": "pdf_stamp_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PdfStampVecDestructor": {
+                        "external": "azul_core::pdf_form::PdfStampVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PdfStampVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PdfStampVecDestructorType": {
+                        "external": "azul_core::pdf_form::PdfStampVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "PdfStampVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -177903,6 +178827,108 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionPdfFieldValue": {
+                        "external": "azul_core::pdf_form::OptionPdfFieldValue",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "PdfFieldValue",
+                                    "doc": [
+                                        "Some value of type PdfFieldValue"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPdfFormField": {
+                        "external": "azul_core::pdf_form::OptionPdfFormField",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "PdfFormField",
+                                    "doc": [
+                                        "Some value of type PdfFormField"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPdfFormWidget": {
+                        "external": "azul_core::pdf_form::OptionPdfFormWidget",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "PdfFormWidget",
+                                    "doc": [
+                                        "Some value of type PdfFormWidget"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPdfStamp": {
+                        "external": "azul_core::pdf_form::OptionPdfStamp",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "PdfStamp",
+                                    "doc": [
+                                        "Some value of type PdfStamp"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -187624,6 +188650,72 @@
                                     "type": "OptionString"
                                 },
                                 "fn_body": "object.page_to_svg(index)"
+                            },
+                            "fill_form": {
+                                "doc": [
+                                    "The PDF with its form filled: `values` set by field name, `stamps`",
+                                    "(drawings - a signature) put onto their pages. With `flatten` the",
+                                    "fields are drawn into the pages and the form removed (a \"printed\"",
+                                    "copy); without, the fields keep the values and stay editable. A value",
+                                    "for a name the form does not have is ignored. Slow for big documents:",
+                                    "call it on a `Thread`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "values": "PdfFieldValueVec"
+                                    },
+                                    {
+                                        "stamps": "PdfStampVec"
+                                    },
+                                    {
+                                        "flatten": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultU8VecString"
+                                },
+                                "fn_body": "object.fill_form(values, stamps, flatten)"
+                            },
+                            "form_fields": {
+                                "doc": [
+                                    "The fields of the PDF's interactive form (AcroForm), in document order;",
+                                    "none for a PDF without a form. Their rects are in points from each",
+                                    "page's top-left corner (the page SVG's user space)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PdfFormFieldVec"
+                                },
+                                "fn_body": "object.form_fields()"
+                            },
+                            "page_to_svg_with": {
+                                "doc": [
+                                    "[`Self::page_to_svg`] with `options`: the form fields' values drawn on",
+                                    "the page (`include_form_fields`) or not - a viewer that overlays live",
+                                    "inputs renders the page without them."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    },
+                                    {
+                                        "options": "PdfPageSvgOptions"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.page_to_svg_with(index, options)"
                             }
                         },
                         "repr": "C"
@@ -187663,6 +188755,293 @@
                                 "fn_body": "object.to_logical_size()"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "PdfFieldValue": {
+                        "external": "azul_core::pdf_form::PdfFieldValue",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "value": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::pdf_form::PdfFieldValue::create(name, value)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PdfStamp": {
+                        "external": "azul_core::pdf_form::PdfStamp",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "page": {
+                                    "type": "usize"
+                                },
+                                "rect": {
+                                    "type": "PdfRect"
+                                },
+                                "svg": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "fn_args": [
+                                    {
+                                        "page": "usize"
+                                    },
+                                    {
+                                        "rect": "PdfRect"
+                                    },
+                                    {
+                                        "svg": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::pdf_form::PdfStamp::create(page, rect, svg)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PdfFormField": {
+                        "external": "azul_core::pdf_form::PdfFormField",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String"
+                                },
+                                "kind": {
+                                    "type": "PdfFormFieldKind"
+                                },
+                                "value": {
+                                    "type": "String"
+                                },
+                                "default_value": {
+                                    "type": "String"
+                                },
+                                "options": {
+                                    "type": "StringVec"
+                                },
+                                "widgets": {
+                                    "type": "PdfFormWidgetVec"
+                                },
+                                "read_only": {
+                                    "type": "bool"
+                                },
+                                "required": {
+                                    "type": "bool"
+                                },
+                                "multiline": {
+                                    "type": "bool"
+                                },
+                                "password": {
+                                    "type": "bool"
+                                },
+                                "max_length": {
+                                    "type": "u32"
+                                },
+                                "font_size_pt": {
+                                    "type": "f32"
+                                },
+                                "alignment": {
+                                    "type": "PdfTextAlign"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PdfFormFieldKind": {
+                        "external": "azul_core::pdf_form::PdfFormFieldKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Text": {},
+                                "CheckBox": {},
+                                "RadioButton": {},
+                                "ComboBox": {},
+                                "ListBox": {},
+                                "PushButton": {},
+                                "Signature": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PdfFormWidget": {
+                        "external": "azul_core::pdf_form::PdfFormWidget",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "page": {
+                                    "type": "usize"
+                                },
+                                "rect": {
+                                    "type": "PdfRect"
+                                },
+                                "on_state": {
+                                    "type": "String"
+                                },
+                                "hidden": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PdfFieldValueVecSlice": {
+                        "external": "azul_core::pdf_form::PdfFieldValueVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfFieldValue",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PdfFormFieldVecSlice": {
+                        "external": "azul_core::pdf_form::PdfFormFieldVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfFormField",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PdfFormWidgetVecSlice": {
+                        "external": "azul_core::pdf_form::PdfFormWidgetVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfFormWidget",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PdfStampVecSlice": {
+                        "external": "azul_core::pdf_form::PdfStampVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PdfStamp",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }

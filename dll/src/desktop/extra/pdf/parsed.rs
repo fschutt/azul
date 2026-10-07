@@ -22,8 +22,12 @@
 use alloc::sync::Arc;
 use core::ffi::c_void;
 
-use azul_core::geom::LogicalSize;
+use azul_core::{
+    geom::LogicalSize,
+    pdf_form::{PdfFieldValueVec, PdfFormFieldVec, PdfPageSvgOptions, PdfStampVec},
+};
 use azul_css::{AzString, OptionString, StringVec};
+use azul_layout::callbacks::ResultU8VecString;
 
 /// CSS px per PDF point: a point is 1/72 inch, a CSS px 1/96 inch.
 pub const PDF_PX_PER_PT: f32 = 96.0 / 72.0;
@@ -55,6 +59,13 @@ struct Inner {
     /// The printpdf op model (`None`: the parse failed or no `pdf` feature).
     #[cfg(feature = "pdf")]
     doc: Option<printpdf::PdfDocument>,
+    /// The PDF's own bytes: a form is filled on them (printpdf's model drops
+    /// the form).
+    #[cfg(feature = "pdf")]
+    bytes: Vec<u8>,
+    /// The form's fields, read at parse time.
+    #[cfg(feature = "pdf")]
+    fields: Vec<printpdf::forms::FormField>,
     /// `true` if the bytes parsed.
     parsed: bool,
     /// One size per page (the MediaBox), read at parse time.
@@ -224,6 +235,80 @@ impl ParsedPdf {
         }
     }
 
+    /// [`Self::page_to_svg`] with `options`: the form fields' values drawn on
+    /// the page (`include_form_fields`) or not - a viewer that overlays live
+    /// inputs renders the page without them.
+    #[must_use]
+    pub fn page_to_svg_with(&self, index: usize, options: PdfPageSvgOptions) -> OptionString {
+        #[cfg(feature = "pdf")]
+        {
+            self.inner()
+                .and_then(|i| engine::page_svg_with(i, index, options))
+                .map(AzString::from)
+                .into()
+        }
+        #[cfg(not(feature = "pdf"))]
+        {
+            let _ = (index, options);
+            OptionString::None
+        }
+    }
+
+    /// The fields of the PDF's interactive form (AcroForm), in document order;
+    /// none for a PDF without a form. Their rects are in points from each
+    /// page's top-left corner (the page SVG's user space).
+    #[must_use]
+    pub fn form_fields(&self) -> PdfFormFieldVec {
+        #[cfg(feature = "pdf")]
+        {
+            self.inner()
+                .map(engine::form_fields)
+                .unwrap_or_default()
+                .into()
+        }
+        #[cfg(not(feature = "pdf"))]
+        {
+            PdfFormFieldVec::from_vec(Vec::new())
+        }
+    }
+
+    /// The PDF with its form filled: `values` set by field name, `stamps`
+    /// (drawings - a signature) put onto their pages. With `flatten` the
+    /// fields are drawn into the pages and the form removed (a "printed"
+    /// copy); without, the fields keep the values and stay editable. A value
+    /// for a name the form does not have is ignored. Slow for big documents:
+    /// call it on a `Thread`.
+    #[must_use]
+    pub fn fill_form(
+        &self,
+        values: PdfFieldValueVec,
+        stamps: PdfStampVec,
+        flatten: bool,
+    ) -> ResultU8VecString {
+        #[cfg(feature = "pdf")]
+        {
+            match self.inner() {
+                Some(inner) if inner.parsed => engine::fill_form(
+                    inner,
+                    values.as_ref(),
+                    stamps.as_ref(),
+                    flatten,
+                )
+                .map_err(AzString::from)
+                .into(),
+                Some(inner) => ResultU8VecString::from(Err(AzString::from(inner.error.clone()))),
+                None => ResultU8VecString::from(Err(AzString::from("an empty ParsedPdf"))),
+            }
+        }
+        #[cfg(not(feature = "pdf"))]
+        {
+            let _ = (values, stamps, flatten);
+            ResultU8VecString::from(Err(AzString::from(
+                "this build of azul has no PDF support (the `pdf` feature)",
+            )))
+        }
+    }
+
     /// The text of page `index` (0-based), one entry per text block in
     /// content order (lines end in `\r\n`) - for search and copy. Empty past
     /// the end or for a page without text (a scan).
@@ -291,6 +376,8 @@ mod engine {
         let warnings = warnings.iter().map(warning_line).collect();
         match parsed {
             Ok(doc) => Inner {
+                bytes: bytes.to_vec(),
+                fields: printpdf::forms::parse_form_fields(bytes).unwrap_or_default(),
                 parsed: true,
                 sizes: doc
                     .pages
@@ -323,6 +410,116 @@ mod engine {
         let page = index.checked_add(1)?;
         let mut warnings: Vec<PdfWarnMsg> = Vec::new();
         doc.page_to_svg(page, &PdfToSvgOptions::default(), &mut warnings)
+    }
+
+    /// [`page_svg`] with the form fields' values drawn on it when `options`
+    /// asks: printpdf's `fields_svg` inserted before the closing tag.
+    pub(super) fn page_svg_with(
+        inner: &Inner,
+        index: usize,
+        options: azul_core::pdf_form::PdfPageSvgOptions,
+    ) -> Option<String> {
+        let mut svg = page_svg(inner.doc.as_ref()?, index)?;
+        if options.include_form_fields {
+            let height = inner.sizes.get(index)?.height_pt;
+            let fields = printpdf::forms::fields_svg(&inner.fields, index, height);
+            if let Some(end) = svg.rfind("</svg>") {
+                svg.insert_str(end, &fields);
+            }
+        }
+        Some(svg)
+    }
+
+    /// The form's fields as the API hands them out: rects from the page's
+    /// top-left corner.
+    pub(super) fn form_fields(inner: &Inner) -> Vec<azul_core::pdf_form::PdfFormField> {
+        use azul_core::pdf_form::{
+            PdfFormField, PdfFormFieldKind as Kind, PdfFormWidget, PdfRect, PdfTextAlign,
+        };
+        use printpdf::forms::FormFieldKind;
+
+        inner
+            .fields
+            .iter()
+            .map(|field| PdfFormField {
+                name: field.name.clone().into(),
+                kind: match field.kind {
+                    FormFieldKind::Text => Kind::Text,
+                    FormFieldKind::CheckBox => Kind::CheckBox,
+                    FormFieldKind::RadioButton => Kind::RadioButton,
+                    FormFieldKind::ComboBox => Kind::ComboBox,
+                    FormFieldKind::ListBox => Kind::ListBox,
+                    FormFieldKind::PushButton => Kind::PushButton,
+                    FormFieldKind::Signature => Kind::Signature,
+                },
+                value: field.value.clone().into(),
+                default_value: field.default_value.clone().into(),
+                options: field.options.clone().into(),
+                widgets: field
+                    .widgets
+                    .iter()
+                    .map(|w| {
+                        let [llx, lly, urx, ury] = w.rect;
+                        let height = inner.sizes.get(w.page).map_or(0.0, |s| s.height_pt);
+                        PdfFormWidget {
+                            page: w.page,
+                            rect: PdfRect {
+                                x: llx,
+                                y: height - ury,
+                                width: urx - llx,
+                                height: ury - lly,
+                            },
+                            on_state: w.on_state.clone().into(),
+                            hidden: w.hidden,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .into(),
+                read_only: field.read_only,
+                required: field.required,
+                multiline: field.multiline,
+                password: field.password,
+                max_length: field.max_len.unwrap_or(0),
+                font_size_pt: field.font_size,
+                alignment: match field.alignment {
+                    1 => PdfTextAlign::Center,
+                    2 => PdfTextAlign::Right,
+                    _ => PdfTextAlign::Left,
+                },
+            })
+            .collect()
+    }
+
+    /// printpdf's `fill_form` on the PDF's bytes, the API's values and
+    /// stamps (a stamp's SVG read into paths).
+    pub(super) fn fill_form(
+        inner: &Inner,
+        values: &[azul_core::pdf_form::PdfFieldValue],
+        stamps: &[azul_core::pdf_form::PdfStamp],
+        flatten: bool,
+    ) -> Result<Vec<u8>, String> {
+        let values: Vec<printpdf::forms::FieldValue> = values
+            .iter()
+            .map(|v| printpdf::forms::FieldValue {
+                name: v.name.as_str().to_string(),
+                value: v.value.as_str().to_string(),
+            })
+            .collect();
+        let stamps: Vec<printpdf::forms::FormStamp> = stamps
+            .iter()
+            .filter_map(|stamp| {
+                let height = inner.sizes.get(stamp.page)?.height_pt;
+                let (view_box, paths) = super::super::stamp::svg_paths(stamp.svg.as_str())?;
+                let r = stamp.rect;
+                Some(printpdf::forms::FormStamp {
+                    page: stamp.page,
+                    rect: [r.x, height - r.y - r.height, r.x + r.width, height - r.y],
+                    view_box,
+                    paths,
+                })
+            })
+            .collect();
+        printpdf::forms::fill_form(&inner.bytes, &values, &stamps, flatten)
     }
 
     /// The bookmarks in document order. printpdf keys them `bookmark_<n>` in
