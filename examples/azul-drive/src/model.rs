@@ -39,7 +39,7 @@ impl ViewLayout {
         ViewLayout::Content,
     ];
 
-    /// The ribbon's label.
+    /// The label of the View menus and the Options.
     #[must_use]
     pub fn label(self) -> &'static str {
         match self {
@@ -76,7 +76,7 @@ impl ViewLayout {
         ViewLayout::ALL.into_iter().find(|l| l.name() == name)
     }
 
-    /// The ribbon's icon (Material Icons).
+    /// The layout's icon (Material Icons).
     #[must_use]
     pub fn icon(self) -> &'static str {
         match self {
@@ -318,6 +318,40 @@ impl Selection {
     /// Ctrl+Space: the focused item in or out of the selection.
     pub fn toggle_focused(&mut self) {
         self.inner.toggle_focused();
+    }
+
+    /// The selection as POSITIONS in `order` (the visible order) - what a list keyed by the
+    /// item's index shows (azul's IconGrid): the selected positions, the anchor's and the focus'.
+    #[must_use]
+    pub fn positions(&self, order: &[&str]) -> ListSelection {
+        let position = |key: u64| {
+            order
+                .iter()
+                .position(|name| ListSelection::key_of(*name) == key)
+                .map(|i| i as u64)
+        };
+        let picked: Vec<u64> = order
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| self.contains(name))
+            .map(|(i, _)| i as u64)
+            .collect();
+        let mut out = ListSelection::create();
+        out.select_keys(picked);
+        out.anchor = self.inner.anchor.clone().into_option().and_then(&position).into();
+        out.focus = self.inner.focus.clone().into_option().and_then(&position).into();
+        out
+    }
+
+    /// Takes over what a list keyed by the item's index reports (azul's IconGrid): `picked`'s
+    /// keys, anchor and focus are positions in `order` (the visible order).
+    pub fn adopt(&mut self, order: &[&str], picked: &ListSelection) {
+        let keys = self.learn_order(order);
+        let at = |i: u64| usize::try_from(i).ok().and_then(|i| keys.get(i).copied());
+        let chosen: Vec<u64> = picked.keys.as_slice().iter().filter_map(|i| at(*i)).collect();
+        self.inner.select_keys(chosen);
+        self.inner.anchor = picked.anchor.clone().into_option().and_then(&at).into();
+        self.inner.focus = picked.focus.clone().into_option().and_then(&at).into();
     }
 }
 
@@ -1039,5 +1073,29 @@ mod tests {
         assert!(!partial.show_extensions);
         assert_eq!(partial.group_by, GroupBy::None);
         assert_eq!(Settings::from_json("not json"), Settings::default());
+    }
+
+    /// The icon grid speaks positions: the selection reads back as positions in the visible
+    /// order (anchor and focus too), and takes the grid's positions back as the same keys.
+    #[test]
+    fn the_selection_round_trips_through_positions_in_the_visible_order() {
+        let order = ["a/", "a/x.txt", "a/y.txt", "a/z.txt"];
+        let mut s = Selection::default();
+        s.click("a/x.txt");
+        s.extend("a/z.txt", &order);
+        let grid = s.positions(&order);
+        assert_eq!(grid.keys.as_slice(), &[1, 2, 3]);
+        assert_eq!(grid.anchor.clone().into_option(), Some(1));
+        assert_eq!(grid.focus.clone().into_option(), Some(3));
+        // The grid selected its first item alone.
+        let mut next = ListSelection::create();
+        next.click(0);
+        s.adopt(&order, &next);
+        assert_eq!(s.keys(), vec![String::from("a/")]);
+        assert_eq!(s.focus(), Some("a/"));
+        assert_eq!(s.single(), Some("a/"));
+        // Nothing selected in the grid: nothing selected here.
+        s.adopt(&order, &ListSelection::create());
+        assert!(s.is_empty());
     }
 }
