@@ -1,26 +1,24 @@
-//! The panes around the content: the address bar, the navigation pane
-//! (Quick access, This PC), the preview pane, the details pane and the
-//! status bar.
+//! The panes around the content: the navigation row (the address bar), the
+//! navigation pane (Quick access, This PC, Network), the preview pane, the
+//! details pane and the status bar.
 
 use azul::{
     audio::{AudioConfig, AudioFrame, AudioSink},
     callbacks::{
         AddressBarOnEventCallbackType, ButtonOnClickCallbackType,
-        ShellNavigationPaneOnEventCallbackType, StatusBarOnViewSelectCallbackType,
+        StatusBarOnViewSelectCallbackType, TreeViewOnNodeClickCallbackType,
+        TreeViewOnNodeDropCallbackType, TreeViewOnNodeToggleCallbackType,
     },
     image::RawImageFormat,
-    menu::{Menu, MenuItem},
+    menu::MenuItem,
     prelude::*,
-    shells::{
-        ShellNavigationGroup, ShellNavigationPane, ShellNavigationPaneEvent,
-        ShellNavigationPaneEventKind,
-    },
     str::String as AzString,
     vec::{F32Vec, StatusBarSegmentVec, StatusBarViewVec, StringVec},
     video::{VideoConfig, VideoSource},
     widgets::{
         AddressBar, AddressBarEvent, AddressBarEventKind, DetailsPane, StatusBar,
-        StatusBarSegment, StatusBarView, StatusBarViewSwitcher, TreeViewNode, VideoWidget,
+        StatusBarSegment, StatusBarView, StatusBarViewSwitcher, TreeView, TreeViewNode,
+        VideoWidget,
     },
 };
 use azul_storage::{config::DriveLocation, key};
@@ -132,7 +130,7 @@ extern "C" fn on_address(
                         .into_iter()
                         .map(|(label, place)| menu_item(app, &label, Action::Go(place), false))
                         .collect();
-                    info.open_menu_for_hit_node(Menu::create(items));
+                    actions::open_menu_below(info, items);
                 }
                 Some(_) => s.info("This folder has no subfolders."),
                 None => {
@@ -163,21 +161,46 @@ extern "C" fn on_address(
 
 // ==== The navigation pane ====
 
-/// The places of a navigation group's tree, in its depth-first order.
-fn group_places(s: &DriveState, group: usize) -> Vec<Place> {
+/// The navigation pane's trees, top to bottom.
+const QUICK_ACCESS_TREE: usize = 0;
+const THIS_PC_TREE: usize = 1;
+const NETWORK_TREE: usize = 2;
+
+/// What a node of a navigation tree stands for, in the tree's depth-first order (the order
+/// the TreeView counts its nodes in, collapsed ones included).
+#[derive(Clone)]
+enum NavNode {
+    /// A place: the tree's root is its group's (Network's opens This PC), the rest folders.
+    Go(Place),
+    /// Network's "Add network location" (an S3 drive).
+    AddDrive,
+}
+
+/// The nodes of navigation tree `tree`, in its depth-first order.
+fn nav_nodes(s: &DriveState, tree: usize) -> Vec<NavNode> {
     let mut places = Vec::new();
-    match group {
-        0 => {
+    match tree {
+        QUICK_ACCESS_TREE => {
             places.push(Place::QuickAccess);
             for pin in &s.settings.pinned {
                 places.push(Place::folder(&pin.drive, &pin.prefix));
             }
         }
-        _ => {
+        THIS_PC_TREE => {
             let _ = this_pc_tree(s, &mut places);
         }
+        _ => {
+            places.push(Place::ThisPc);
+            for slot in s.slots.iter().filter(|slot| !slot.is_local()) {
+                places.push(Place::folder(&slot.entry.id, ""));
+            }
+        }
     }
-    places
+    let mut nodes: Vec<NavNode> = places.into_iter().map(NavNode::Go).collect();
+    if tree == NETWORK_TREE {
+        nodes.push(NavNode::AddDrive);
+    }
+    nodes
 }
 
 /// Quick access: the place itself, then the pinned folders.
@@ -197,7 +220,26 @@ fn quick_access_tree(s: &DriveState) -> TreeViewNode {
     root
 }
 
-/// This PC: the drives and their folders as far as they were listed.
+/// Network: the cloud drives as network locations (their folders open under This PC), then
+/// "Add network location".
+fn network_tree(s: &DriveState) -> TreeViewNode {
+    let mut root = TreeViewNode::create(AzString::from("Network"))
+        .with_icon(AzString::from("lan"))
+        .with_expanded(s.tree.network_open);
+    for slot in s.slots.iter().filter(|slot| !slot.is_local()) {
+        root = root.with_child(
+            TreeViewNode::create(AzString::from(slot.entry.name.as_str()))
+                .with_icon(AzString::from(slot.icon())),
+        );
+    }
+    root.with_child(
+        TreeViewNode::create(AzString::from("Add network location"))
+            .with_icon(AzString::from("add_link")),
+    )
+}
+
+/// This PC: the drives - on this computer and in the cloud - and their folders as far as
+/// they were listed.
 fn this_pc_tree(s: &DriveState, places: &mut Vec<Place>) -> TreeViewNode {
     places.push(Place::ThisPc);
     let mut root = TreeViewNode::create(AzString::from(browse::THIS_PC))
@@ -249,78 +291,122 @@ fn folder_node(
     node
 }
 
-/// Explorer's navigation pane: Quick access and This PC, each a group with
-/// its tree (the drives' folders listed lazily, one listing per expand).
+/// What a navigation tree's callbacks carry: the app and which tree.
+struct NavRef {
+    app: RefAny,
+    tree: usize,
+}
+
+fn nav_parts(data: &mut RefAny) -> Option<(RefAny, usize)> {
+    data.downcast_ref::<NavRef>().map(|r| (r.app.clone(), r.tree))
+}
+
+/// One tree of the navigation pane, with its clicks, its chevrons and its drops.
+fn nav_tree(app: &RefAny, tree: usize, root: TreeViewNode) -> Dom {
+    let data = RefAny::new(NavRef {
+        app: app.clone(),
+        tree,
+    });
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: column; margin-bottom: 10px;")
+        .with_child(
+            TreeView::create(root)
+                .with_on_node_click(data.clone(), on_nav_click as TreeViewOnNodeClickCallbackType)
+                .with_on_node_toggle(
+                    data.clone(),
+                    on_nav_toggle as TreeViewOnNodeToggleCallbackType,
+                )
+                .with_on_node_drop(data, on_nav_drop as TreeViewOnNodeDropCallbackType)
+                .dom(),
+        )
+}
+
+/// Explorer's navigation pane: Quick access, This PC (the drives and their folders, listed
+/// lazily, one listing per expand) and Network - a tree each, one under the other.
 pub(crate) fn navigation_pane(s: &DriveState, app: &RefAny) -> Dom {
     let mut places = Vec::new();
     let this_pc = this_pc_tree(s, &mut places);
-    ShellNavigationPane::create()
-        .with_label(AzString::from("Navigation pane"))
-        .with_group(
-            ShellNavigationGroup::create(AzString::from(browse::QUICK_ACCESS), quick_access_tree(s))
-                .with_count(s.settings.pinned.len())
-                .with_open(!s.tree.groups_closed[0]),
+    Dom::create_div()
+        .with_id(ids::NAV_PANE)
+        .with_css(
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+             overflow-y: auto; padding: 6px 0px;",
         )
-        .with_group(
-            ShellNavigationGroup::create(AzString::from(browse::THIS_PC), this_pc)
-                .with_count(s.slots.len())
-                .with_open(!s.tree.groups_closed[1]),
-        )
-        .with_on_event(app.clone(), on_nav_event as ShellNavigationPaneOnEventCallbackType)
-        .dom()
+        .with_child(nav_tree(app, QUICK_ACCESS_TREE, quick_access_tree(s)))
+        .with_child(nav_tree(app, THIS_PC_TREE, this_pc))
+        .with_child(nav_tree(app, NETWORK_TREE, network_tree(s)))
 }
 
-extern "C" fn on_nav_event(
+/// A node was clicked: its place opens (Network's "Add network location" adds an S3 drive).
+extern "C" fn on_nav_click(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    let Some((mut app, tree)) = nav_parts(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| {
+        match nav_nodes(s, tree).get(index).cloned() {
+            Some(NavNode::Go(place)) => go(info, app, s, place, true),
+            Some(NavNode::AddDrive) => actions::run_action(info, app, s, Action::AddDrive),
+            None => {}
+        }
+    })
+}
+
+/// A node's chevron (or an arrow key) opened or closed it: a root its tree, a drive or a
+/// folder its folders (listed on the first expand).
+extern "C" fn on_nav_toggle(
     mut data: RefAny,
     mut info: CallbackInfo,
-    event: ShellNavigationPaneEvent,
+    index: usize,
+    expand: bool,
 ) -> Update {
-    let mods = info.get_key_modifiers();
-    let copy = mods.primary_down();
-    with_state(&mut data, &mut info, |info, app, s| {
-        let group = event.group.min(1);
-        match event.kind {
-            ShellNavigationPaneEventKind::GroupToggled => {
-                s.tree.groups_closed[group] = !event.expand;
+    let Some((mut app, tree)) = nav_parts(&mut data) else {
+        return Update::DoNothing;
+    };
+    with_state(&mut app, &mut info, |info, app, s| {
+        if index == 0 {
+            match tree {
+                QUICK_ACCESS_TREE => s.tree.quick_open = expand,
+                THIS_PC_TREE => s.tree.this_pc_open = expand,
+                _ => s.tree.network_open = expand,
             }
-            ShellNavigationPaneEventKind::NodeClicked => {
-                if let Some(place) = group_places(s, group).get(event.index).cloned() {
-                    go(info, app, s, place, true);
-                }
+            return;
+        }
+        if tree == NETWORK_TREE {
+            return; // a network location's folders open under This PC
+        }
+        let Some(NavNode::Go(Place::Folder { drive, prefix })) =
+            nav_nodes(s, tree).get(index).cloned()
+        else {
+            return;
+        };
+        let node = (drive, prefix);
+        if expand {
+            s.tree.expanded.insert(node.clone());
+            if !s.tree.loaded.contains_key(&node) {
+                start_tree_listing(info, app, s, node);
             }
-            ShellNavigationPaneEventKind::NodeToggled => {
-                match group_places(s, group).get(event.index).cloned() {
-                    Some(Place::QuickAccess) => s.tree.quick_open = event.expand,
-                    Some(Place::ThisPc) => s.tree.this_pc_open = event.expand,
-                    Some(Place::Folder { drive, prefix }) => {
-                        let node = (drive, prefix);
-                        if event.expand {
-                            s.tree.expanded.insert(node.clone());
-                            if !s.tree.loaded.contains_key(&node) {
-                                start_tree_listing(info, app, s, node);
-                            }
-                        } else {
-                            s.tree.expanded.remove(&node);
-                        }
-                    }
-                    None => {}
-                }
-            }
-            // Items dragged in the window, dropped on a folder of the tree.
-            ShellNavigationPaneEventKind::NodeDropped => {
-                if let Some(place) = group_places(s, group).get(event.index).cloned() {
-                    actions::drop_on_place(info, app, s, place, copy);
-                }
-            }
-            ShellNavigationPaneEventKind::ModuleSelected
-            | ShellNavigationPaneEventKind::CollapseToggled => {}
+        } else {
+            s.tree.expanded.remove(&node);
+        }
+    })
+}
+
+/// Items dragged in the window, dropped on a folder of a tree (Ctrl copies).
+extern "C" fn on_nav_drop(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    let Some((mut app, tree)) = nav_parts(&mut data) else {
+        return Update::DoNothing;
+    };
+    let copy = info.get_key_modifiers().primary_down();
+    with_state(&mut app, &mut info, |info, app, s| {
+        if let Some(NavNode::Go(place)) = nav_nodes(s, tree).get(index).cloned() {
+            actions::drop_on_place(info, app, s, place, copy);
         }
     })
 }
 
 // ==== The status bar ====
 
-/// "12 items", "3 items selected 1.5 MB", the running transfer, Explorer's
+/// "12 items", "3 items selected, 1.5 MB", the running transfer, Explorer's
 /// Details / Large icons switch.
 pub(crate) fn status_bar(s: &DriveState, app: &RefAny) -> Dom {
     let mut segments = Vec::new();
@@ -346,7 +432,7 @@ pub(crate) fn status_bar(s: &DriveState, app: &RefAny) -> Dom {
         let bytes: u64 = selected.iter().filter_map(|e| e.size).sum();
         let mut text = browse::counted(selected.len(), "item selected", "items selected");
         if bytes > 0 {
-            text.push_str(&format!("  {}", browse::format_size(Some(bytes))));
+            text.push_str(&format!(", {}", browse::format_size(Some(bytes))));
         }
         segments.push(
             StatusBarSegment::create(AzString::from(text)).with_marker(AzString::from("selected")),

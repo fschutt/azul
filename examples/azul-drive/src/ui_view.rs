@@ -1,13 +1,16 @@
 //! The content pane: This PC (the drives as tiles in groups), Quick access
 //! (the pinned folders and the recent places), or a folder in one of
-//! Explorer's eight layouts - grouped or not, with item check boxes or not -
-//! with the InfoBar over it. Every item takes a click (Ctrl / Shift too), a
-//! double-click, a right-click (the context menu), a drag (a folder takes
-//! the drop: a move, Ctrl a copy) and F2's rename field.
+//! Explorer's eight layouts - Details by default (the file-type icon and
+//! name, Date modified, Type, Size under sortable headers, the rows shaded
+//! in turn), the icon layouts on azul's IconGrid - grouped or not, with item
+//! check boxes or not - with the InfoBar over it. Every item takes a click
+//! (Ctrl / Shift too), a double-click, a right-click (the context menu), a
+//! drag (a folder takes the drop: a move, Ctrl a copy) and F2's rename field.
 
 use azul::{
     callbacks::{
         AccordionOnToggleCallbackType, ButtonOnClickCallbackType, CheckBoxOnToggleCallbackType,
+        IconGridDataSourceCallbackType, IconGridOnEventCallbackType,
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TileOnClickCallbackType,
     },
@@ -16,8 +19,9 @@ use azul::{
     shells::ShellEmptyState,
     str::String as AzString,
     widgets::{
-        Accordion, AccordionSection, AccordionVariant, CheckBoxState, InfoBar, OnTextInputReturn,
-        TextInputState, TextInputValid, Tile, TileCapacity,
+        Accordion, AccordionSection, AccordionVariant, CheckBoxState, IconGrid, IconGridEvent,
+        IconGridEventKind, IconGridItem, InfoBar, OnTextInputReturn, TextInputState,
+        TextInputValid, Tile, TileCapacity,
     },
 };
 use crate::{
@@ -58,13 +62,30 @@ pub(crate) fn icon_for(entry: &Entry) -> &'static str {
     }
 }
 
-/// The colour of an item's icon: Explorer's folder yellow, else the ink.
+/// The colour of an item's icon, as Explorer tints its file-type icons: the folder yellow, a
+/// colour per kind of file, a grey-blue for the rest.
 fn icon_colour(entry: &Entry) -> &'static str {
     if entry.is_folder {
-        "color: #D9A93B;"
-    } else {
-        ""
+        return "color: #D9A93B;";
     }
+    match icon_for(entry) {
+        "image" => "color: #2E9E5B;",
+        "movie" => "color: #8E44AD;",
+        "music_note" => "color: #E67E22;",
+        "picture_as_pdf" => "color: #D93025;",
+        "archive" => "color: #A0743C;",
+        "code" => "color: #3B78D8;",
+        "table_chart" => "color: #1E8E3E;",
+        "article" => "color: #2B579A;",
+        "mail" => "color: #0F6CBD;",
+        "event" => "color: #C2410C;",
+        _ => "color: #6B7A8F;",
+    }
+}
+
+/// Whether `entry` is a file of a cloud drive (fetched when opened): Explorer's cloud status.
+fn in_the_cloud(s: &DriveState, entry: &Entry) -> bool {
+    !entry.is_folder && s.current_drive_id().is_some_and(|id| !s.is_local_drive(&id))
 }
 
 /// The paint of an item: selected, focused, cut (faded), hovered.
@@ -99,27 +120,52 @@ extern "C" fn on_dismiss(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |_info, _app, s| s.message = None)
 }
 
-/// The content pane.
-pub(crate) fn content(s: &DriveState, app: &RefAny) -> Dom {
+/// Whether the folder shows as azul's IconGrid: an icon layout, not grouped, without item
+/// check boxes, nothing being renamed in place (the grid draws its labels itself; the
+/// hand-built icon cells hold the rename field), and something to show.
+pub(crate) fn uses_icon_grid(s: &DriveState) -> bool {
+    matches!(s.place, Place::Folder { .. })
+        && matches!(
+            s.settings.layout,
+            ViewLayout::ExtraLargeIcons | ViewLayout::LargeIcons | ViewLayout::MediumIcons
+        )
+        && s.settings.group_by == model::GroupBy::None
+        && !s.settings.item_checkboxes
+        && s.renaming.is_none()
+        && !s.visible_entries().is_empty()
+}
+
+/// The content pane; `size` is what it has (the icon grid draws exactly that).
+pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     let mut area = Dom::create_div().with_id(ids::CONTENT).with_css(
         "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; min-width: 0px;",
     );
     if let Some(message) = &s.message {
         area.add_child(info_bar(message, app));
     }
+    let grid = uses_icon_grid(s);
     let view = match &s.place {
         Place::ThisPc => this_pc(s, app),
         Place::QuickAccess => quick_access(s, app),
+        Place::Folder { .. } if grid => icon_grid(s, app, size),
         Place::Folder { .. } => folder_view(s, app),
     };
     let background = RefAny::new(BackgroundRef { app: app.clone() });
-    area.add_child(
-        Dom::create_div()
-            .with_id(ids::VIEW)
-            .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow: auto;")
-            .with_child(view)
-            // A click on the empty space selects nothing; a right-click there
-            // is the folder's menu.
+    let mut host = Dom::create_div()
+        .with_id(ids::VIEW)
+        .with_css(if grid {
+            // The grid scrolls itself, by whole rows.
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+             overflow: hidden;"
+        } else {
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+             overflow: auto;"
+        })
+        .with_child(view);
+    if !grid {
+        // A click on the empty space selects nothing; a right-click there is the folder's
+        // menu. (The grid hit-tests its own empty space and says so in its events.)
+        host = host
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::Click),
                 background.clone(),
@@ -129,13 +175,13 @@ pub(crate) fn content(s: &DriveState, app: &RefAny) -> Dom {
                 EventFilter::Hover(HoverEventFilter::RightMouseUp),
                 background.clone(),
                 on_background_menu,
-            )
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::Drop),
-                background,
-                on_background_drop,
-            ),
-    );
+            );
+    }
+    area.add_child(host.with_callback(
+        EventFilter::Hover(HoverEventFilter::Drop),
+        background,
+        on_background_drop,
+    ));
     if s.next.is_some() && !s.loading && s.current_drive().is_some() {
         area.add_child(
             Dom::create_div()
@@ -348,7 +394,7 @@ fn this_pc(s: &DriveState, app: &RefAny) -> Dom {
         tiles(&local),
     )];
     sections.push((
-        String::from("Cloud drives (S3)"),
+        String::from("Network locations"),
         cloud.len(),
         if cloud.is_empty() {
             ShellEmptyState::create(AzString::from("No cloud drive yet."))
@@ -394,7 +440,7 @@ fn quick_access(s: &DriveState, app: &RefAny) -> Dom {
         ShellEmptyState::create(AzString::from("Nothing is pinned yet."))
             .with_icon(AzString::from("push_pin"))
             .with_detail(AzString::from(
-                "Open a folder and choose Pin to Quick access on the HOME tab.",
+                "Open a folder and choose See more (...) > Pin to Quick access.",
             ))
             .dom()
     } else {
@@ -688,7 +734,8 @@ fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f32) -> Dom {
         "font-size: {icon_px}px; margin-right: 6px; flex-shrink: 0; {}",
         icon_colour(entry)
     ));
-    let label = if s.renaming.as_ref().is_some_and(|r| r.key == entry.key) {
+    let renaming = s.renaming.as_ref().is_some_and(|r| r.key == entry.key);
+    let label = if renaming {
         rename_field(s, app)
     } else {
         Dom::create_span_with_text(AzString::from(
@@ -697,10 +744,18 @@ fn name_cell(s: &DriveState, app: &RefAny, entry: &Entry, icon_px: f32) -> Dom {
         .with_class(ids::NAME_CLASS)
         .with_css("overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")
     };
-    Dom::create_div()
+    let mut cell = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; min-width: 0px;")
         .with_child(icon)
-        .with_child(label)
+        .with_child(label);
+    if !renaming && in_the_cloud(s, entry) {
+        // Explorer's status: a cloud file, fetched when it is opened.
+        cell.add_child(
+            Dom::create_icon(AzString::from("cloud_queue"))
+                .with_css("font-size: 14px; margin-left: 6px; opacity: 0.55; flex-shrink: 0;"),
+        );
+    }
+    cell
 }
 
 /// What a column's edge carries.
@@ -718,8 +773,8 @@ fn column_parts(data: &mut RefAny) -> Option<(RefAny, Column)> {
 /// with an edge to drag (its width) or double-click (to fit).
 fn details_header(s: &DriveState, app: &RefAny) -> Dom {
     let mut row = Dom::create_div().with_id(ids::DETAILS_HEADER).with_css(
-        "display: flex; flex-direction: row; font-size: 12px; \
-         border-bottom: 1px solid rgba(128, 128, 128, 0.35);",
+        "display: flex; flex-direction: row; flex-shrink: 0; font-size: 12px; \
+         margin-bottom: 2px; border-bottom: 1px solid rgba(128, 128, 128, 0.35);",
     );
     if s.settings.item_checkboxes {
         row.add_child(Dom::create_div().with_css("width: 28px; flex-shrink: 0;"));
@@ -738,8 +793,9 @@ fn details_header(s: &DriveState, app: &RefAny) -> Dom {
                  :hover {{ background: var(--az-accent-glow, rgba(0, 120, 215, 0.10)); }}"
             ))
             .with_child(
-                Dom::create_span_with_text(AzString::from(c.column.label()))
-                    .with_css("flex-grow: 1; overflow: hidden; white-space: nowrap;"),
+                Dom::create_span_with_text(AzString::from(c.column.label())).with_css(
+                    "flex-grow: 1; overflow: hidden; white-space: nowrap; opacity: 0.85;",
+                ),
             );
         if s.settings.sort.column == c.column {
             let arrow = if s.settings.sort.descending {
@@ -871,12 +927,21 @@ pub(crate) extern "C" fn on_column_drag_end(mut data: RefAny, mut info: Callback
     })
 }
 
-/// A row of the Details layout.
-fn details_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
+/// A row of the Details layout; every other one (`alt`) is shaded, as Explorer's rows are
+/// told apart, under the hover and the selection.
+fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
+    let shade = if alt {
+        "background: rgba(128, 128, 128, 0.07);"
+    } else {
+        ""
+    };
     let mut row = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: row; align-items: center; height: 26px; {}",
+        "display: flex; flex-direction: row; align-items: center; height: 24px; {shade} {}",
         item_paint(s, entry)
     ));
+    if alt {
+        row.add_class(ids::ROW_ALT_CLASS);
+    }
     if s.settings.item_checkboxes {
         row.add_child(check_box(s, app, entry));
     }
@@ -1063,7 +1128,8 @@ fn items_of(s: &DriveState, app: &RefAny, layout: ViewLayout, entries: &[&Entry]
             .with_children(DomVec::from(
                 entries
                     .iter()
-                    .map(|e| details_row(s, app, e))
+                    .enumerate()
+                    .map(|(i, e)| details_row(s, app, e, i % 2 == 1))
                     .collect::<Vec<_>>(),
             )),
         ViewLayout::Content => Dom::create_div()
@@ -1096,7 +1162,8 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
         let (title, detail) = if s.search.trim().is_empty() {
             (
                 "This folder is empty.",
-                "Drop files here from your computer, or use New folder or Upload on the HOME tab.",
+                "Drop files here from your computer, or use New folder (or Upload) in the command \
+                 bar.",
             )
         } else {
             (
@@ -1135,4 +1202,108 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
     }
     view.add_child(body);
     view
+}
+
+// ==== The icon layouts: azul's IconGrid ====
+
+/// The grid's items, made once per build (the grid asks only for the ones in view).
+struct GridItems {
+    items: Vec<IconGridItem>,
+}
+
+/// The grid's data callback: item `index` of the visible order.
+extern "C" fn grid_item(mut data: RefAny, index: usize) -> IconGridItem {
+    data.downcast_ref::<GridItems>()
+        .and_then(|grid| grid.items.get(index).cloned())
+        .unwrap_or_else(IconGridItem::empty)
+}
+
+/// Extra large, Large and Medium icons: the folder's items as azul's IconGrid at the content
+/// pane's size - a picture's thumbnail once it is made, a cloud badge on a cloud drive's files
+/// (fetched when opened), Explorer's pointer (click, Ctrl / Shift, the rubber band, a drag
+/// out) and keyboard. Its selection is the app's (by position in the visible order).
+fn icon_grid(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
+    let layout = s.settings.layout;
+    let visible = s.visible_entries();
+    let keys: Vec<&str> = visible.iter().map(|e| e.key.as_str()).collect();
+    let items: Vec<IconGridItem> = visible
+        .iter()
+        .map(|entry| {
+            let mut item = IconGridItem::create(
+                entry.display_name(s.settings.show_extensions),
+                icon_for(entry),
+            )
+            .with_name(format!("{}, {}", entry.name, entry.kind()));
+            if let Some(Some(image)) = s.thumbnails.get(&entry.key) {
+                item = item.with_image(image.clone());
+            }
+            if in_the_cloud(s, entry) {
+                item = item.with_badge("cloud_queue");
+            }
+            item
+        })
+        .collect();
+    let count = items.len();
+    let icon = layout.icon_px();
+    let view = s.grid_view.clone().with_selection(s.selection.positions(&keys));
+    Dom::create_div()
+        .with_id(ids::FOLDER_VIEW)
+        .with_class(ids::layout_class(layout))
+        .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        .with_child(
+            IconGrid::create(count, size.0, size.1)
+                .with_id(ids::ICON_GRID)
+                .with_accessibility_name(s.place_name())
+                .with_cell_size(layout.cell_width(), icon + 40.0, icon)
+                .with_view(view)
+                .with_data_source(
+                    RefAny::new(GridItems { items }),
+                    grid_item as IconGridDataSourceCallbackType,
+                )
+                .with_on_event(app.clone(), on_grid_event as IconGridOnEventCallbackType)
+                .dom(),
+        )
+}
+
+/// What the grid did. Its view is kept (the first row, a rubber band); its selection is the
+/// app's from now on (the preview follows it); a double-click or Enter opens, a right click
+/// shows the selection's menu (the folder's on empty space), a drag carries the selection.
+extern "C" fn on_grid_event(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    event: IconGridEvent,
+) -> Update {
+    let kind = event.kind;
+    let index = event.index.into_option();
+    let view = event.view;
+    with_state(&mut data, &mut info, |info, app, s| {
+        let keys = s.visible_keys();
+        let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+        let before = s.selection.keys();
+        s.selection.adopt(&order, &view.selection);
+        s.grid_view = view;
+        if s.selection.keys() != before {
+            s.type_ahead.clear();
+            s.print_selection();
+            actions::request_preview(info, app, s);
+        }
+        match kind {
+            IconGridEventKind::Activate => {
+                if let Some(key) = index.and_then(|i| keys.get(i)).cloned() {
+                    actions::activate(info, app, s, &key);
+                }
+            }
+            IconGridEventKind::ContextMenu => {
+                let menu = actions::context_menu(app, s);
+                info.open_menu(menu);
+            }
+            IconGridEventKind::DragStart => {
+                if let Some(drive) = s.current_drive_id() {
+                    let items = s.selected_items();
+                    s.dragging = Some((drive, items));
+                }
+            }
+            IconGridEventKind::Select | IconGridEventKind::Scroll | IconGridEventKind::Drag => {}
+        }
+    })
 }

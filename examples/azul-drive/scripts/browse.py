@@ -7,13 +7,15 @@ walk the navigation tree, go Back / Forward / Up.
        and 60 objects under bulk/;
     2. starts AzDrive headless (AZ_BACKEND=headless, the debug server on --debug-port) with a
        temporary Home folder, drives file and Downloads folder; it opens on "This PC";
-    3. through AzDrive's debug server: the ribbon's DRIVE tab, "Add S3 drive", types name, endpoint,
-       region, bucket, access key and secret key into the form, clicks "Test connection" (asserts
-       it says "Connection OK" after exactly one ListObjectsV2 call) and "Save drive";
+    3. through AzDrive's debug server: This PC's "Add S3 drive" in the command bar, types name,
+       endpoint, region, bucket, access key and secret key into the form, clicks "Test
+       connection" (asserts it says "Connection OK" after exactly one ListObjectsV2 call) and
+       "Save drive";
     4. asserts the drives file names the drive and holds neither key;
     5. double-clicks the "mail" and "inbox" folders (the view shows 0001.eml), and asserts that
        browsing fetched listings only, not one object;
-    6. selects 0001.eml, clicks "Download" (SHARE tab: a transfer into the Downloads folder), and
+    6. selects 0001.eml, clicks "Download" (the command bar of a cloud drive's folder: a
+       transfer into the Downloads folder), and
        asserts the downloaded bytes are the object's and that the server saw exactly one
        GetObject, for mail/inbox/0001.eml;
     7. clicks "Home" in the navigation tree (the Home drive lists, notes.txt shows), then the
@@ -296,10 +298,9 @@ def run(args, logs):
         app.until("AzDrive's window", lambda: app.shows("This PC"))
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
 
-        # 3. The "Add drive" form: the ribbon's DRIVE tab.
-        app.must("click", text="DRIVE")
-        app.until("the DRIVE tab", lambda: app.shows("Add S3 drive"))
-        app.must("click", text="Add S3 drive")
+        # 3. The "Add drive" form: This PC's command bar (`__azdrive_cmd_add_drive`).
+        app.until("the command bar's Add S3 drive", lambda: app.shows("Add S3 drive"))
+        app.must("click", selector="#__azdrive_cmd_add_drive")
         dom = None
         if args.window_dialogs:
             def dialog_dom():
@@ -372,12 +373,12 @@ def run(args, logs):
         prefixes = [r["query"].get("prefix") for r in server.requests()]
         log("browsing made %d listing call(s) (%s) and fetched no object" % (len(prefixes), prefixes))
 
-        # 6. Download ONE file: select it, "Download" on the SHARE tab (a transfer of the queue).
+        # 6. Download ONE file: select it, "Download" in the command bar (a cloud drive's folder
+        # has Upload and Download there; a transfer of the queue).
         app.must("click", text="0001.eml")
         time.sleep(0.3)
-        app.must("click", text="SHARE")
-        app.until("the SHARE tab", lambda: app.shows("Download"))
-        app.must("click", text="Download")
+        app.until("the command bar's Download", lambda: app.shows("Download"))
+        app.must("click", selector="#__azdrive_cmd_download")
         app.until("the download (AZDRIVE_TRANSFER done)",
                   lambda: app.printed("AZDRIVE_TRANSFER", r"\d+ done 1"))
         path = os.path.join(downloads, "0001.eml")

@@ -1,8 +1,9 @@
 //! The dialogs (a modal window, or a sheet inside the window for scripts):
 //! Add drive, delete for good, remove a drive, Replace or Skip Files,
 //! Properties (General / Details), Choose location, the transfer queue;
-//! and the FILE backstage with the Options (azul-appkit's settings page: View, Navigation and
-//! Drives, then the kit's Appearance, Data, Keyboard shortcuts and About) and azul's About box.
+//! and the backstage (the gear, See more > Options) with the Options (azul-appkit's settings
+//! page: View, Navigation and Drives, then the kit's Appearance, Data, Keyboard shortcuts and
+//! About) and azul's About box.
 
 use azul::{
     callbacks::{
@@ -800,9 +801,9 @@ extern "C" fn on_path_style_label(mut data: RefAny, _info: CallbackInfo) -> Upda
     set_path_style(&mut data, None)
 }
 
-// ==== The FILE backstage ====
+// ==== The backstage ====
 
-/// FILE: the Options (ShellSettingsLayout), About, Close.
+/// The backstage (the gear, See more > Options / About): the Options, About, Close.
 pub(crate) fn backstage(s: &DriveState, app: &RefAny, page: usize) -> Dom {
     let items = vec![
         BackstageNavItem::create(AzString::from("Options")),
@@ -1081,8 +1082,9 @@ fn options_of(s: &DriveState, app: &RefAny, category: usize) -> Vec<(String, Dom
     }
 }
 
-/// FILE > About: azul's standard About box (DEDUP_OFFICE D12); OK closes the backstage. The
-/// data folder and the keys are on the Options' Data and Keyboard shortcuts pages.
+/// The backstage's About: azul's standard About box (DEDUP_OFFICE D12); OK closes the
+/// backstage. The data folder and the keys are on the Options' Data and Keyboard shortcuts
+/// pages.
 fn about(app: &RefAny) -> Dom {
     let about = crate::ABOUT;
     AboutDialog::create(about.name, about.version)
