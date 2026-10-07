@@ -251,8 +251,7 @@ pub(crate) trait RangeFetch: Send + Sync {
 
 /// The total of a `Content-Range` value (`bytes 0-1023/2070701`); `None` for `*`.
 pub(crate) fn range_total(value: &str) -> Option<u64> {
-    let _ = value;
-    None
+    value.rsplit('/').next()?.trim().parse().ok()
 }
 
 /// What an answer to a range request says: `206` is the part asked for (`Content-Range` tells
@@ -263,8 +262,24 @@ pub(crate) fn answer(
     content_range: Option<&str>,
     body: Vec<u8>,
 ) -> Result<Fetched, String> {
-    let _ = (status, content_range, body);
-    Err(String::from("not answered yet"))
+    match status {
+        206 => Ok(Fetched {
+            total: content_range.and_then(range_total),
+            body,
+            whole: false,
+        }),
+        200..=299 => Ok(Fetched {
+            total: Some(body.len() as u64),
+            body,
+            whole: true,
+        }),
+        416 => Ok(Fetched {
+            total: content_range.and_then(range_total),
+            body: Vec::new(),
+            whole: false,
+        }),
+        _ => Err(format!("the server answered {status}")),
+    }
 }
 
 /// [`RangeFetch`] over azul's HTTP client: `GET` with `Range: bytes=a-b`, through one
@@ -366,42 +381,297 @@ impl HttpSource {
     /// A reader of the download named `name`, joining it when it runs, else starting it through
     /// the fetcher `make` makes.
     pub(crate) fn shared(name: &str, make: impl FnOnce() -> Arc<dyn RangeFetch>) -> HttpSource {
-        let _ = (name, make);
-        HttpSource::with_fetch(name, Arc::new(Unanswered))
+        let mut downloads = lock(&DOWNLOADS);
+        downloads.retain(|(_, d)| d.strong_count() > 0);
+        let running = downloads
+            .iter()
+            .find(|(n, _)| n == name)
+            .and_then(|(_, d)| d.upgrade());
+        if let Some(shared) = running {
+            // A download that failed or stopped is not joined: this reader starts its own.
+            let joined = {
+                let mut store = lock(&shared.store);
+                (!store.quit && store.error.is_none()).then(|| store.add_reader())
+            };
+            if let Some(reader) = joined {
+                return HttpSource { shared, reader };
+            }
+        }
+        let source = HttpSource::with_fetch(name, make());
+        downloads.retain(|(n, _)| n != name);
+        downloads.push((name.to_string(), Arc::downgrade(&source.shared)));
+        source
     }
 
     /// A reader of a download of its own through `fetch` (not shared).
     pub(crate) fn with_fetch(name: &str, fetch: Arc<dyn RangeFetch>) -> HttpSource {
-        let _ = fetch;
         let shared = Arc::new(Shared {
             store: Mutex::new(Store::default()),
             wake: Condvar::new(),
             name: name.to_string(),
         });
-        HttpSource { shared, reader: 0 }
+        let reader = lock(&shared.store).add_reader();
+        let for_thread = Arc::clone(&shared);
+        let spawned = std::thread::Builder::new()
+            .name(String::from("azul-media-download"))
+            .spawn(move || download(&for_thread, fetch.as_ref()));
+        if let Err(e) = spawned {
+            lock(&shared.store).error = Some(format!("{name}: the download did not start ({e})"));
+        }
+        HttpSource { shared, reader }
     }
 }
 
-/// A fetch that never answers (the stub download).
-struct Unanswered;
-
-impl RangeFetch for Unanswered {
-    fn fetch(&self, _start: u64, _end: u64) -> Result<Fetched, String> {
-        Err(String::from("not downloaded"))
+impl Drop for HttpSource {
+    fn drop(&mut self) {
+        let mut store = lock(&self.shared.store);
+        store.readers.remove(&self.reader);
+        if store.readers.is_empty() {
+            store.quit = true;
+        }
+        drop(store);
+        self.shared.wake.notify_all();
     }
+}
+
+impl Store {
+    /// A new reader, at the start of the file.
+    fn add_reader(&mut self) -> u64 {
+        let id = self.next_reader;
+        self.next_reader += 1;
+        self.readers.insert(id, 0);
+        id
+    }
+
+    /// The blocks of the file (`None` while its length is not known).
+    fn block_count(&self) -> Option<u64> {
+        self.len.map(|len| len.div_ceil(BLOCK))
+    }
+
+    /// Whether block `b` is a block of the file that has not arrived.
+    fn missing(&self, b: u64) -> bool {
+        self.block_count().is_some_and(|n| b < n) && !self.blocks.contains_key(&b)
+    }
+
+    /// The next run of blocks to fetch: from the start while the length is not known; then a
+    /// block a reader waits for; then the nearest block missing in a reader's window.
+    fn next_run(&self) -> Option<(u64, u64)> {
+        if self.len.is_none() {
+            return Some((0, RUN_BLOCKS));
+        }
+        let blocks = self.block_count()?;
+        let first = self
+            .wanted
+            .iter()
+            .copied()
+            .find(|b| self.missing(*b))
+            .or_else(|| {
+                self.readers
+                    .values()
+                    .filter_map(|&r| (r..(r + AHEAD_BLOCKS).min(blocks)).find(|b| self.missing(*b)))
+                    .min()
+            })?;
+        let mut count = 1;
+        while count < RUN_BLOCKS && self.missing(first + count) {
+            count += 1;
+        }
+        Some((first, count))
+    }
+
+    /// An answer for the run `first..first + count` arrived.
+    fn take(&mut self, first: u64, count: u64, fetched: Fetched) {
+        if fetched.whole {
+            self.len = Some(fetched.body.len() as u64);
+            self.whole = Some(Arc::new(fetched.body));
+            self.blocks.clear();
+            self.wanted.clear();
+            return;
+        }
+        if let Some(total) = fetched.total {
+            self.len = Some(total);
+        }
+        let got = fetched.body.len() as u64;
+        if fetched.total.is_none() && got < count * BLOCK {
+            // No length in the answer (`bytes a-b/*`): a short answer is the end of the file.
+            self.len = Some(first * BLOCK + got);
+        }
+        let len = self.len.unwrap_or(u64::MAX);
+        let mut at = 0u64;
+        let mut block = first;
+        while at < got {
+            let n = BLOCK.min(got - at);
+            // Only whole blocks, or the file's last: a short block in the middle is fetched again.
+            if n == BLOCK || block * BLOCK + n >= len {
+                let start = usize::try_from(at).unwrap_or(usize::MAX);
+                let end = usize::try_from(at + n).unwrap_or(usize::MAX);
+                self.blocks
+                    .insert(block, Arc::new(fetched.body[start..end].to_vec()));
+            }
+            at += n;
+            block += 1;
+        }
+        let blocks = &self.blocks;
+        self.wanted.retain(|b| !blocks.contains_key(b));
+        self.evict();
+    }
+
+    /// Drops the blocks no reader is near (a window ahead and a little behind each).
+    fn evict(&mut self) {
+        let readers: Vec<u64> = self.readers.values().copied().collect();
+        let near = |b: u64| {
+            readers
+                .iter()
+                .any(|&r| b + BEHIND_BLOCKS >= r && b <= r + AHEAD_BLOCKS + RUN_BLOCKS)
+        };
+        let far: Vec<u64> = self
+            .blocks
+            .keys()
+            .copied()
+            .filter(|b| !near(*b) && !self.wanted.contains(b))
+            .collect();
+        for b in far {
+            self.blocks.remove(&b);
+        }
+    }
+}
+
+/// The download thread: fetches the runs [`Store::next_run`] picks until no reader is left,
+/// the whole file arrived, or the download failed for good.
+fn download(shared: &Shared, fetch: &dyn RangeFetch) {
+    loop {
+        let (first, count) = {
+            let mut store = lock(&shared.store);
+            loop {
+                if store.quit || store.whole.is_some() || store.error.is_some() {
+                    return;
+                }
+                if let Some(run) = store.next_run() {
+                    break run;
+                }
+                store = match shared.wake.wait_timeout(store, Duration::from_millis(500)) {
+                    Ok((guard, _)) => guard,
+                    Err(poisoned) => poisoned.into_inner().0,
+                };
+            }
+        };
+        let start = first * BLOCK;
+        let end = start + count * BLOCK - 1;
+        let fetched = fetch_again_and_again(shared, fetch, start, end);
+        let mut store = lock(&shared.store);
+        match fetched {
+            Ok(fetched) => store.take(first, count, fetched),
+            Err(why) => store.error = Some(format!("{}: {why}", shared.name)),
+        }
+        drop(store);
+        shared.wake.notify_all();
+    }
+}
+
+/// One fetch, tried again after each pause of [`RETRIES`] while a reader is left.
+fn fetch_again_and_again(
+    shared: &Shared,
+    fetch: &dyn RangeFetch,
+    start: u64,
+    end: u64,
+) -> Result<Fetched, String> {
+    let mut last = fetch.fetch(start, end);
+    for pause in RETRIES {
+        if last.is_ok() || lock(&shared.store).quit {
+            break;
+        }
+        std::thread::sleep(pause);
+        last = fetch.fetch(start, end);
+    }
+    last
 }
 
 impl ByteSource for HttpSource {
     fn byte_len(&self) -> Option<u64> {
-        lock(&self.shared.store).len
+        let store = lock(&self.shared.store);
+        store
+            .whole
+            .as_ref()
+            .map(|w| w.len() as u64)
+            .or(store.len)
     }
+
     fn read_at(&self, offset: u64, buf: &mut [u8], wait: Wait) -> io::Result<usize> {
-        let _ = (offset, buf, wait, self.reader);
-        Err(io::Error::other(format!("{}: not downloaded", self.shared.name)))
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let block = offset / BLOCK;
+        let deadline = Instant::now() + WAIT_LIMIT;
+        let mut store = lock(&self.shared.store);
+        loop {
+            if let Some(whole) = &store.whole {
+                return Ok(copy_from(whole, offset, buf));
+            }
+            if store.len.is_some_and(|len| offset >= len) {
+                return Ok(0);
+            }
+            // The reader is here now: the download's window follows it.
+            let moved = store.readers.insert(self.reader, block) != Some(block);
+            if let Some(data) = store.blocks.get(&block) {
+                let in_block = usize::try_from(offset - block * BLOCK).unwrap_or(usize::MAX);
+                let n = if in_block < data.len() {
+                    let n = buf.len().min(data.len() - in_block);
+                    buf[..n].copy_from_slice(&data[in_block..in_block + n]);
+                    n
+                } else {
+                    0
+                };
+                drop(store);
+                if moved {
+                    self.shared.wake.notify_all();
+                }
+                return Ok(n);
+            }
+            if let Some(why) = &store.error {
+                return Err(io::Error::other(why.clone()));
+            }
+            if store.quit {
+                return Err(io::Error::other(format!(
+                    "{}: the download stopped",
+                    self.shared.name
+                )));
+            }
+            if !store.wanted.contains(&block) {
+                store.wanted.push(block);
+            }
+            self.shared.wake.notify_all();
+            if wait == Wait::No {
+                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("{}: the download stalled", self.shared.name),
+                ));
+            }
+            store = match self.shared.wake.wait_timeout(store, deadline - now) {
+                Ok((guard, _)) => guard,
+                Err(poisoned) => poisoned.into_inner().0,
+            };
+        }
     }
-    fn has(&self, _offset: u64, _len: u64) -> bool {
-        false
+
+    fn has(&self, offset: u64, len: u64) -> bool {
+        let store = lock(&self.shared.store);
+        if store.whole.is_some() {
+            return true;
+        }
+        if len == 0 {
+            return true;
+        }
+        let end = offset.saturating_add(len);
+        let end = store.len.map_or(end, |l| end.min(l));
+        if end <= offset {
+            return store.len.is_some();
+        }
+        (offset / BLOCK..=(end - 1) / BLOCK).all(|b| store.blocks.contains_key(&b))
     }
+
     fn name(&self) -> String {
         self.shared.name.clone()
     }
