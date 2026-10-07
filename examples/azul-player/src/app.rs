@@ -12,7 +12,7 @@
 //! fades out what went.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
 };
 
@@ -168,6 +168,9 @@ pub struct Player {
     pub art: HashMap<String, Art>,
     /// The keys a worker is making.
     pub art_pending: HashSet<String>,
+    /// The pictures' keys in the order they were made: the oldest go first when the cache is
+    /// full ([`ART_KEPT`], [`FULL_KEPT`]).
+    pub art_order: VecDeque<String>,
     /// A picture worker runs (one at a time).
     pub art_busy: bool,
     /// The pages, the first the start strip; the last shows.
@@ -224,6 +227,7 @@ impl Player {
             scanning: [None, None, None, None],
             art: HashMap::new(),
             art_pending: HashSet::new(),
+            art_order: VecDeque::new(),
             art_busy: false,
             nav,
             strip: StripFocus::default(),
@@ -681,9 +685,13 @@ pub fn full_key(path: &str) -> String {
 }
 
 /// The thumbnails' size on the worker (device px: twice the tiles' logical size).
-const THUMB_PX: u32 = 440;
+const THUMB_PX: u32 = 320;
 /// The covers' size (now playing shows them large).
-const COVER_PX: u32 = 640;
+const COVER_PX: u32 = 400;
+/// How many thumbnails and covers are kept (a 320 px thumbnail is about 300 KB), and how many
+/// window-sized copies (one is 20 MB at 2560 px).
+pub const ART_KEPT: usize = 160;
+pub const FULL_KEPT: usize = 3;
 
 /// The picture a tile shows, as a job: a picture's thumbnail, an album's cover (its first song
 /// with one), a picture folder's first picture.
@@ -814,7 +822,28 @@ extern "C" fn on_art(mut data: RefAny, mut msg: RefAny, mut info: CallbackInfo) 
             return Update::DoNothing;
         };
         s.art_pending.remove(&done.key);
+        s.art_order.retain(|k| *k != done.key);
+        s.art_order.push_back(done.key.clone());
         s.art.insert(done.key, done.image);
+        // The oldest go when the cache is full: window-sized copies beyond the last few, the
+        // rest beyond their count (a page brought back asks for them again).
+        let fulls = s.art_order.iter().filter(|k| k.starts_with("f:")).count();
+        let mut drop_full = fulls.saturating_sub(FULL_KEPT);
+        let mut drop_rest = (s.art_order.len() - fulls).saturating_sub(ART_KEPT);
+        let mut kept = VecDeque::with_capacity(s.art_order.len());
+        while let Some(k) = s.art_order.pop_front() {
+            let full = k.starts_with("f:");
+            if full && drop_full > 0 {
+                drop_full -= 1;
+                s.art.remove(&k);
+            } else if !full && drop_rest > 0 {
+                drop_rest -= 1;
+                s.art.remove(&k);
+            } else {
+                kept.push_back(k);
+            }
+        }
+        s.art_order = kept;
         if done.last {
             s.art_busy = false;
             s.art_pending.clear();
