@@ -441,6 +441,12 @@ impl AudioPlayer {
     pub fn load_bytes(&self, _bytes: azul_css::U8Vec, _extension: AzString) -> u64 {
         0
     }
+    pub fn preload_file(&self, _path: AzString, _position_s: f64) -> u64 {
+        0
+    }
+    pub fn preload_url(&self, _url: AzString, _position_s: f64) -> u64 {
+        0
+    }
     pub fn queue_file(&self, _path: AzString) -> u64 {
         0
     }

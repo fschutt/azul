@@ -748,12 +748,69 @@ impl AnimationInterpolationFunction {
     /// the eased value - the curve's y where its x is `t`
     /// ([`SvgCubicCurve::get_y_at_x`]).
     ///
-    /// For a spring this evaluates the ease-in-out stand-in from
-    /// [`Self::get_curve`]; integrate the spring instead if you need its real
-    /// trajectory.
+    /// For a spring - a TIMED one, `animation: transform 220ms spring-snappy` -
+    /// this is the spring's own way from rest to its target, stretched over the
+    /// declared duration (it leaves at speed; `SNAPPY` overshoots and comes
+    /// back; `t = 1` is exactly on the target). Not [`Self::get_curve`]'s
+    /// ease-in-out stand-in, which only serialisation and previews use. A
+    /// retargetable spring with no duration (a structural move) is integrated
+    /// instead (`SpringCurve::step`).
     #[must_use]
     pub fn evaluate(self, t: f64) -> f32 {
-        f64_to_f32(self.get_curve().get_y_at_x(t))
+        match self {
+            Self::Spring(spring) => f64_to_f32(spring_progress(spring, t)),
+            _ => f64_to_f32(self.get_curve().get_y_at_x(t)),
+        }
+    }
+}
+
+/// How close to its target a timed spring is when its declared duration ends (the last bit is
+/// a jump nobody sees).
+const SPRING_SETTLE: f64 = 1e-3;
+
+/// A spring's way from 0 to 1 over a declared duration, at linear progress `t`: the step
+/// response of the mass-spring-damper from rest, its time stretched so the declared duration is
+/// the time the spring takes to settle within [`SPRING_SETTLE`] of its target (`t = 1` lands on
+/// it exactly). It leaves at speed; an under-damped spring (`SNAPPY`) overshoots and comes back,
+/// a critically damped one (`SMOOTH`) arrives without. Degenerate parameters (no stiffness, no
+/// mass, no damping - a spring that never settles) fall back to linear.
+// Explicit FP (no mul_add), as in `SpringCurve::step`: bit-reproducible sampling.
+#[allow(clippy::suboptimal_flops)]
+fn spring_progress(spring: SpringCurve, t: f64) -> f64 {
+    if t.is_nan() || t <= 0.0 {
+        return 0.0;
+    }
+    if t >= 1.0 {
+        return 1.0;
+    }
+    let k = f64::from(spring.stiffness);
+    let c = f64::from(spring.damping);
+    let m = f64::from(spring.mass);
+    if !(k > 0.0 && m > 0.0 && c > 0.0) || !(k.is_finite() && m.is_finite() && c.is_finite()) {
+        return t;
+    }
+    let w0 = (k / m).sqrt();
+    let zeta = c / (2.0 * (k * m).sqrt());
+    if zeta < 1.0 - 1e-6 {
+        // Under-damped: a decaying oscillation about the target.
+        let ratio = (1.0 - zeta * zeta).sqrt();
+        let settle = (1.0 / (SPRING_SETTLE * ratio)).ln() / (zeta * w0);
+        let time = t * settle;
+        let wd = w0 * ratio;
+        1.0 - (-zeta * w0 * time).exp()
+            * ((wd * time).cos() + (zeta * w0 / wd) * (wd * time).sin())
+    } else if zeta <= 1.0 + 1e-6 {
+        // Critical: (1 + x) e^-x falls to the settle band at x = 9.23.
+        let time = t * 9.233 / w0;
+        1.0 - (-w0 * time).exp() * (1.0 + w0 * time)
+    } else {
+        // Over-damped: two real decays; the slow one decides the settle time.
+        let r = (zeta * zeta - 1.0).sqrt();
+        let s1 = -w0 * (zeta - r);
+        let s2 = -w0 * (zeta + r);
+        let settle = ((1.0 / SPRING_SETTLE).ln() + 1.0) / -s1;
+        let time = t * settle;
+        1.0 + (s2 * (s1 * time).exp() - s1 * (s2 * time).exp()) / (s1 - s2)
     }
 }
 
@@ -789,6 +846,47 @@ mod autotest_generated {
         assert_eq!(AnimationInterpolationFunction::Ease.evaluate(0.0), 0.0);
         assert!((AnimationInterpolationFunction::Ease.evaluate(1.0) - 1.0).abs() < 1e-6);
         assert!((AnimationInterpolationFunction::Ease.evaluate(2.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_spring_timing_moves_like_a_spring_not_like_an_ease_in_out() {
+        let snappy = AnimationInterpolationFunction::Spring(SpringCurve::SNAPPY);
+        let smooth = AnimationInterpolationFunction::Spring(SpringCurve::SMOOTH);
+        let ease_in_out = AnimationInterpolationFunction::EaseInOut;
+        for spring in [snappy, smooth] {
+            assert_eq!(spring.evaluate(0.0), 0.0, "{spring:?} starts at 0");
+            assert_eq!(spring.evaluate(1.0), 1.0, "{spring:?} ends on its target");
+            assert_eq!(spring.evaluate(-1.0), 0.0);
+            assert_eq!(spring.evaluate(2.0), 1.0);
+            // A spring leaves at speed (an ease-in-out creeps out of its start).
+            assert!(
+                spring.evaluate(0.1) > ease_in_out.evaluate(0.1) + 0.1,
+                "{spring:?} at 0.1: {} vs ease-in-out {}",
+                spring.evaluate(0.1),
+                ease_in_out.evaluate(0.1)
+            );
+            // And is all but there well before the end of its time.
+            assert!(
+                (spring.evaluate(0.6) - 1.0).abs() < 0.03,
+                "{spring:?} at 0.6: {}",
+                spring.evaluate(0.6)
+            );
+        }
+        // The snappy spring overshoots its target and comes back; the smooth one never does.
+        let samples = |f: AnimationInterpolationFunction| -> Vec<f32> {
+            (0..=100).map(|i| f.evaluate(f64::from(i) / 100.0)).collect()
+        };
+        let peak = samples(snappy).into_iter().fold(0.0f32, f32::max);
+        assert!(peak > 1.03 && peak < 1.15, "spring-snappy overshoots: {peak}");
+        let smooth_samples = samples(smooth);
+        assert!(
+            smooth_samples.iter().all(|y| *y <= 1.0 + 1e-3),
+            "spring never overshoots"
+        );
+        assert!(
+            smooth_samples.windows(2).all(|w| w[1] >= w[0] - 1e-6),
+            "spring rises steadily to its target"
+        );
     }
 
     // ---- helpers -----------------------------------------------------------

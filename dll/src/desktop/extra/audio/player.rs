@@ -197,6 +197,32 @@ impl PlayerCore {
         self.start_now(id, source, out);
     }
 
+    /// Makes `source` (track `id`) the track heard next, from `position_s`, and HOLDS: nothing
+    /// is heard until [`set_paused`](Self::set_paused)`(false)`; what was playing and queued is
+    /// dropped.
+    pub(crate) fn preload(
+        &mut self,
+        id: u64,
+        mut source: Box<dyn PcmSource>,
+        position_s: f64,
+        out: &dyn PcmOutput,
+    ) {
+        self.queue.clear();
+        // A source that cannot seek stays at its start.
+        let reached = if position_s.is_finite() && position_s > 0.0 {
+            source.seek(position_s).unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        self.restart_output(out);
+        self.remember_duration(id, source.duration_s());
+        self.clock.begin(self.written, id, reached, self.out_rate);
+        self.current = Some((id, source));
+        self.paused = true;
+        // After the clear: an output whose clear plays it again (AVFoundation's node) holds.
+        let _ = out.pause();
+    }
+
     /// `source` becomes the track being decoded, heard from the next frame written.
     fn start_now(&mut self, id: u64, source: Box<dyn PcmSource>, out: &dyn PcmOutput) {
         self.restart_output(out);
@@ -248,6 +274,10 @@ impl PlayerCore {
         self.clock
             .begin(self.written, id, reached.unwrap_or(0.0), self.out_rate);
         self.current = Some((id, source));
+        if self.paused {
+            // A seek while held stays held, also on an output whose clear plays it again.
+            let _ = out.pause();
+        }
     }
 
     /// Holds (`true`) or resumes playback.
@@ -338,9 +368,14 @@ impl PlayerCore {
         chunk
     }
 
-    /// Feeds the output up to the lead. Returns the frames written.
+    /// Feeds the output up to the lead. Returns the frames written. Held, it writes nothing (an
+    /// output that cannot hold would play it) but keeps the next chunk decoded, so a play - a
+    /// preloaded track's first - starts at once.
     pub(crate) fn pump(&mut self, out: &dyn PcmOutput) -> u64 {
         if self.paused {
+            if self.held.is_none() {
+                self.held = self.next_chunk();
+            }
             return 0;
         }
         let channels = usize::from(self.out_channels);
@@ -370,6 +405,7 @@ impl PlayerCore {
     }
 
     /// What the listener hears now.
+    #[allow(clippy::cast_precision_loss)]
     pub(crate) fn state(&mut self, out: &dyn PcmOutput) -> AudioPlayerState {
         let played = out.samples_played();
         let (track, position_s) = self.clock.at(played).unwrap_or((0, 0.0));
@@ -389,9 +425,15 @@ impl PlayerCore {
             || self.held.is_some()
             || self.chunker.pending_frames() > 0;
         let finished = track != 0 && !decoding && played >= self.written;
+        // Decoded and not heard: the chunk held back, the part chunk, the output's queue.
+        let channels = usize::from(self.out_channels);
+        let waiting = self.held.as_ref().map_or(0, |h| (h.len() / channels) as u64)
+            + self.chunker.pending_frames() as u64
+            + self.written.saturating_sub(played);
         AudioPlayerState {
             position_s,
             duration_s,
+            buffered_s: waiting as f64 / f64::from(self.out_rate),
             track,
             failed_track: 0,
             volume: self.volume,
@@ -452,6 +494,8 @@ impl Drop for AudioPlayer {
 enum SourceSpec {
     Path(String),
     Bytes(Vec<u8>, String),
+    /// A file at an HTTP(S) URL, read by range requests.
+    Url(String),
 }
 
 impl SourceSpec {
@@ -461,6 +505,7 @@ impl SourceSpec {
             SourceSpec::Bytes(bytes, extension) => {
                 super::decode::FileSource::open_bytes(bytes, &extension)
             }
+            SourceSpec::Url(url) => super::decode::FileSource::open_url(&url),
         }
     }
 }
@@ -468,6 +513,8 @@ impl SourceSpec {
 /// What the handle asks the player's thread to do.
 enum Command {
     Load(u64, SourceSpec),
+    /// Opened, decoded ahead from the position (seconds) and held until `Play`.
+    Preload(u64, SourceSpec, f64),
     Queue(u64, SourceSpec),
     ClearQueue,
     Play,
@@ -588,6 +635,31 @@ fn player_thread(shared: SharedRef, open: OpenOutput) {
                             out.core.load(id, Box::new(source), &out.sink);
                             out.core.set_paused(false, &out.sink);
                             paused = false;
+                        }
+                    }
+                    Err(why) => {
+                        failed_track = id;
+                        error = Some(why);
+                    }
+                },
+                Command::Preload(id, spec, position_s) => match spec.open() {
+                    Ok(source) => {
+                        // The first file decides the output's rate, as for a load.
+                        if output.is_none() {
+                            match open_output(open, source.rate()) {
+                                Ok(mut out) => {
+                                    out.core.set_volume(volume);
+                                    output = Some(out);
+                                }
+                                Err(why) => {
+                                    failed_track = id;
+                                    error = Some(why);
+                                }
+                            }
+                        }
+                        if let Some(out) = output.as_mut() {
+                            out.core.preload(id, Box::new(source), position_s, &out.sink);
+                            paused = true;
                         }
                     }
                     Err(why) => {
@@ -751,6 +823,29 @@ impl AudioPlayer {
     pub fn load_bytes(&self, bytes: azul_css::U8Vec, extension: azul_css::AzString) -> u64 {
         let spec = SourceSpec::Bytes(bytes.as_ref().to_vec(), extension.as_str().to_string());
         self.send_track(|id| Command::Load(id, spec))
+    }
+
+    /// Gets the audio file at `path` ready to play from `position_s` and HOLDS: the file and the
+    /// output are opened and the first samples decoded on the player's thread, nothing is heard
+    /// until [`play`](Self::play) - which then starts at once (a video's sound that must start
+    /// with its first picture). What was playing and queued is dropped. Ready when
+    /// `AudioPlayerState::buffered_s` is above zero for this id. Returns the track's id; 0 when
+    /// closed.
+    pub fn preload_file(&self, path: azul_css::AzString, position_s: f64) -> u64 {
+        let path = path.as_str().to_string();
+        self.send_track(|id| Command::Preload(id, SourceSpec::Path(path), position_s))
+    }
+
+    /// [`preload_file`](Self::preload_file) for a file at an HTTP(S) URL - the sound of a video
+    /// streamed from a server: read by range requests a window ahead of the decoder (never
+    /// downloaded whole first), through the same download as the URL's picture when a
+    /// `<video>` plays it in this process. Ready, like a file, when
+    /// `AudioPlayerState::buffered_s` is above zero for this id; a URL that does not open shows
+    /// up as `AudioPlayerState::failed_track` with the reason in `error_message`. Returns the
+    /// track's id; 0 when closed.
+    pub fn preload_url(&self, url: azul_css::AzString, position_s: f64) -> u64 {
+        let url = url.as_str().to_string();
+        self.send_track(|id| Command::Preload(id, SourceSpec::Url(url), position_s))
     }
 
     /// Plays the audio file at `path` after the queued ones, gaplessly. Returns its id.
@@ -918,6 +1013,71 @@ mod handle_tests {
     }
 
     #[test]
+    fn a_preloaded_file_is_ready_and_silent_until_play_then_starts_where_it_was_preloaded() {
+        let player = AudioPlayer::create_with(synthetic);
+        let path = std::env::temp_dir().join(format!(
+            "azul-player-preload-{}.wav",
+            std::process::id()
+        ));
+        let wav: Vec<u8> = tone(3.0).as_ref().to_vec();
+        std::fs::write(&path, wav).expect("the test file is written");
+        let id = player.preload_file(AzString::from(path.to_string_lossy().into_owned()), 1.0);
+        assert!(id > 0);
+        let ready = wait(&player, Duration::from_secs(2), |s| {
+            s.track == id && s.buffered_s > 0.0
+        });
+        assert!(ready.buffered_s > 0.0, "ready to start: {ready:?}");
+        assert!(!ready.playing, "held: {ready:?}");
+        std::thread::sleep(Duration::from_millis(200));
+        let held = player.get_state();
+        assert!(!held.playing, "{held:?}");
+        assert!(
+            (held.position_s - 1.0).abs() < 0.01,
+            "nothing is heard while held: {held:?}"
+        );
+        player.play();
+        let s = wait(&player, Duration::from_secs(2), |s| s.position_s > 1.05);
+        assert!(s.playing && s.position_s > 1.05, "{s:?}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The sound of a video at a URL: preloaded by range requests from a server
+    /// (never downloaded whole first), ready and silent until play, then heard
+    /// from where it was preloaded - like a file.
+    #[cfg(feature = "http")]
+    #[test]
+    fn a_url_preloads_its_sound_by_range_requests_and_plays_it_like_a_file() {
+        use crate::desktop::extra::byte_source::test_server;
+
+        let wav: Vec<u8> = tone(3.0).as_ref().to_vec();
+        let (port, hits) = test_server::serve(wav, true);
+        let player = AudioPlayer::create_with(synthetic);
+        let url = format!("http://127.0.0.1:{port}/tone.wav");
+        let id = player.preload_url(AzString::from(url), 1.0);
+        assert!(id > 0);
+        let ready = wait(&player, Duration::from_secs(5), |s| {
+            s.track == id && s.buffered_s > 0.0
+        });
+        assert!(
+            ready.track == id && ready.buffered_s > 0.0,
+            "ready: {ready:?} ({:?})",
+            player.error_message()
+        );
+        assert!(!ready.playing, "held: {ready:?}");
+        assert!(
+            (ready.position_s - 1.0).abs() < 0.01,
+            "held where it was preloaded: {ready:?}"
+        );
+        assert!(
+            hits.load(std::sync::atomic::Ordering::SeqCst) >= 1,
+            "read from the server"
+        );
+        player.play();
+        let s = wait(&player, Duration::from_secs(3), |s| s.position_s > 1.05);
+        assert!(s.playing && s.position_s > 1.05, "{s:?}");
+    }
+
+    #[test]
     fn a_pause_holds_the_position_and_a_seek_moves_it() {
         let player = AudioPlayer::create_with(synthetic);
         player.load_bytes(tone(3.0), AzString::from("wav"));
@@ -960,6 +1120,8 @@ pub(crate) mod player_tests {
         pub played: Cell<u64>,
         pub clears: Cell<u32>,
         pub paused: Cell<bool>,
+        /// The output plays again after a clear (AVFoundation's player node: `stop`, `play`).
+        pub clear_resumes: Cell<bool>,
     }
 
     impl FakeOutput {
@@ -973,6 +1135,7 @@ pub(crate) mod player_tests {
                 played: Cell::new(0),
                 clears: Cell::new(0),
                 paused: Cell::new(false),
+                clear_resumes: Cell::new(false),
             }
         }
 
@@ -1025,6 +1188,9 @@ pub(crate) mod player_tests {
         fn clear(&self) -> bool {
             self.queued.set(0);
             self.clears.set(self.clears.get() + 1);
+            if self.clear_resumes.get() {
+                self.paused.set(false);
+            }
             true
         }
     }
@@ -1194,6 +1360,78 @@ pub(crate) mod player_tests {
         core.set_paused(false, &out);
         assert!(!out.paused.get());
         assert!(core.state(&out).playing);
+    }
+
+    #[test]
+    fn a_preloaded_track_is_decoded_ahead_and_heard_only_after_play() {
+        let out = FakeOutput::new(1000, 1, 10_000);
+        let mut core = PlayerCore::new(1000, 1, 100, 300);
+        core.preload(1, Ramp::boxed(1000, 2000, 0.0), 0.5, &out);
+        core.pump(&out);
+        core.pump(&out);
+        assert!(out.paused.get(), "the output holds");
+        assert!(
+            out.left().is_empty(),
+            "nothing reaches the output while held"
+        );
+        let s = core.state(&out);
+        assert_eq!(s.track, 1);
+        assert!(!s.playing && !s.finished, "{s:?}");
+        assert!(
+            close(s.position_s, 0.5),
+            "held at the preload position: {}",
+            s.position_s
+        );
+        assert!(
+            s.buffered_s >= 0.1 - 1e-9,
+            "a chunk is decoded ahead, ready to start: {}",
+            s.buffered_s
+        );
+        core.set_paused(false, &out);
+        core.pump(&out);
+        assert!(!out.paused.get());
+        let left = out.left();
+        assert_eq!(left.len(), 300, "play fills the lead at once");
+        assert!(
+            (left[0] - 500.0 / 100_000.0).abs() < 1e-6,
+            "the first frame heard is the preload position's: {}",
+            left[0]
+        );
+        assert!(
+            left.windows(2)
+                .all(|w| (w[1] - w[0] - 1.0 / 100_000.0).abs() < 1e-6),
+            "no frame lost or repeated between the chunk decoded ahead and the rest"
+        );
+        out.advance(100);
+        let s = core.state(&out);
+        assert!(s.playing);
+        assert!(close(s.position_s, 0.6), "{}", s.position_s);
+    }
+
+    #[test]
+    fn a_seek_while_held_decodes_ahead_from_the_target_and_the_output_stays_held() {
+        let out = FakeOutput::new(1000, 1, 10_000);
+        // An output whose clear plays it again (AVFoundation's player node does).
+        out.clear_resumes.set(true);
+        let mut core = PlayerCore::new(1000, 1, 100, 300);
+        core.preload(1, Ramp::boxed(1000, 2000, 0.0), 0.0, &out);
+        assert!(out.paused.get(), "held after the preload's clear");
+        core.pump(&out);
+        core.seek(1.5, &out);
+        assert!(out.paused.get(), "a seek while held stays held");
+        core.pump(&out);
+        assert!(out.left().is_empty(), "nothing heard while held");
+        let s = core.state(&out);
+        assert!(close(s.position_s, 1.5), "{}", s.position_s);
+        assert!(s.buffered_s > 0.0, "decoded ahead from the target");
+        core.set_paused(false, &out);
+        core.pump(&out);
+        let left = out.left();
+        assert!(
+            (left[0] - 1500.0 / 100_000.0).abs() < 1e-6,
+            "the first frame heard is the target's: {}",
+            left[0]
+        );
     }
 
     #[test]

@@ -17,6 +17,11 @@
 /// `audio/mod.rs`.
 pub mod audio;
 pub mod biometric;
+/// The bytes of a media file read where they are - a local file, an HTTP(S)
+/// URL by range requests (a download a window ahead of its readers, shared by
+/// a video's picture and sound), bytes in memory - so a player never needs
+/// the whole file before its first frame. See `byte_source.rs`.
+pub(crate) mod byte_source;
 /// Camera capture backend registration (v4l2 on Linux via rscam); plugs into
 /// the capture_common seam. See camera/mod.rs.
 pub mod camera;

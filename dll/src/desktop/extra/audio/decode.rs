@@ -56,6 +56,24 @@ impl FileSource {
         }
     }
 
+    /// Opens the file at an HTTP(S) `url`, read by range requests a window ahead of the decoder
+    /// (`byte_source`; the download is shared with a `<video>` of the same URL), its
+    /// extension a hint for the probe. Waits for the parts the container's header needs.
+    pub(crate) fn open_url(url: &str) -> Result<FileSource, String> {
+        #[cfg(feature = "audio-decode")]
+        {
+            use crate::desktop::extra::byte_source::{open_source, SourceReader, Wait};
+            let source = open_source(url, &azul_layout::http::OptionHttpClient::None)?;
+            let reader = SourceReader::new(source, Wait::Yes);
+            Self::from_engine(engine::Engine::open(Box::new(reader), url_extension(url)))
+                .map_err(|e| format!("{url}: {e}"))
+        }
+        #[cfg(not(feature = "audio-decode"))]
+        {
+            Err(format!("{url}: {}", NO_ENGINE))
+        }
+    }
+
     /// Opens a file held in memory (`extension`: "mp3", "flac", ...; a hint, may be empty).
     pub(crate) fn open_bytes(bytes: Vec<u8>, extension: &str) -> Result<FileSource, String> {
         #[cfg(feature = "audio-decode")]
@@ -164,6 +182,18 @@ impl FileSource {
     }
 }
 
+/// The extension of the file a URL names (`https://h/clips/a.m4a?x=1` -> `m4a`), a hint for
+/// the probe; "" when it has none.
+#[cfg_attr(not(feature = "audio-decode"), allow(dead_code))]
+fn url_extension(url: &str) -> &str {
+    let path = url.split(['?', '#']).next().unwrap_or("");
+    let name = path.rsplit('/').next().unwrap_or("");
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => ext,
+        _ => "",
+    }
+}
+
 /// Why a build without the decoder opens nothing.
 #[cfg(not(feature = "audio-decode"))]
 const NO_ENGINE: &str =
@@ -189,6 +219,18 @@ mod engine {
     use azul_css::{AzString, U8Vec};
 
     use super::AudioFileInfo;
+    use crate::desktop::extra::byte_source::{ByteSource, SourceReader};
+
+    /// Symphonia reads a file wherever its bytes are - at a URL, by range requests - through
+    /// the byte source's reader (waiting for the parts it reads).
+    impl MediaSource for SourceReader {
+        fn is_seekable(&self) -> bool {
+            ByteSource::byte_len(self.source().as_ref()).is_some()
+        }
+        fn byte_len(&self) -> Option<u64> {
+            ByteSource::byte_len(self.source().as_ref())
+        }
+    }
 
     /// Decoded audio: interleaved samples, their format, and the media time of the first frame.
     pub(super) struct Decoded {

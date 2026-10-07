@@ -12,16 +12,28 @@
 //! widget passes the change on to its decoder when it is rebuilt. The seek
 //! bar is azul's `SeekBar` (a press, a drag, the arrow keys), the times its
 //! media clock (`SeekBar::media_time`: `1:12`, `1:02:05`).
+//!
+//! While the video plays, the widget reports its position four times a
+//! second: the card moves the time and the seek bar IN PLACE
+//! (`change_node_text`, `SeekBar::update_position`) and rebuilds only when
+//! the phase or the length changes. A rebuild of this page per report kept
+//! the UI thread rebuilding instead of showing the bunny's frames.
 
 use azul::{
     callbacks::SeekBarOnSeekCallbackType,
     dom::OnVideoStatusCallback,
     image::RawImageFormat,
+    option::OptionString,
     prelude::*,
+    str::String as AzString,
     url::Url,
     video::{VideoConfig, VideoPhase, VideoSource, VideoStatus},
     widgets::{SeekBar, SeekBarState, UiTheme, VideoWidget},
 };
+
+/// The markers of what moves in place while the video plays.
+const TIME_MARKER: &str = "video-time";
+const SEEK_MARKER: &str = "video-seek";
 
 /// Big Buck Bunny: 10 s of 640 x 360 H.264 in an MP4, the clip
 /// `examples/c/video.c` plays.
@@ -174,7 +186,11 @@ pub fn card(state: &RefAny, theme: UiTheme) -> Dom {
         on_toggle,
     );
 
-    let time = Dom::create_span_with_text(time_text(&status)).with_css(TIME_CSS);
+    // The time moves in place while the video plays: its text carries a marker.
+    let time = Dom::create_span().with_css(TIME_CSS).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper(time_text(&status))
+            .with_marker(OptionString::Some(AzString::from(TIME_MARKER))),
+    );
 
     // azul's SeekBar: a press seeks there, a drag scrubs (the card seeks once,
     // on the release), the arrow keys step; its times are the row's label.
@@ -187,6 +203,7 @@ pub fn card(state: &RefAny, theme: UiTheme) -> Dom {
     .with_theme(theme)
     .with_on_seek(state.clone(), on_seek as SeekBarOnSeekCallbackType)
     .dom()
+    .with_marker(OptionString::Some(AzString::from(SEEK_MARKER)))
     .with_css(SEEK_CSS);
 
     let controls = Dom::create_div()
@@ -248,19 +265,48 @@ fn time_text(status: &VideoStatus) -> String {
     )
 }
 
-/// The widget reported where the video stands: keep it, and redraw.
-extern "C" fn on_video_status(mut data: RefAny, _: CallbackInfo, status: VideoStatus) -> Update {
-    let Some(mut card) = data.downcast_mut::<VideoCard>() else {
-        return Update::DoNothing;
+/// Whether a status changes the card's controls (the note, the badge, the
+/// toggle, the length): a new phase, length or message. A position report
+/// alone does not - it moves the time and the seek bar in place.
+fn needs_rebuild(shown: &VideoStatus, new: &VideoStatus) -> bool {
+    shown.phase != new.phase
+        || (shown.duration_s - new.duration_s).abs() > 0.01
+        || shown.message != new.message
+}
+
+/// The widget reported where the video stands: keep it; redraw the controls
+/// when they change, else move the time and the seek bar in place.
+extern "C" fn on_video_status(mut data: RefAny, mut info: CallbackInfo, status: VideoStatus) -> Update {
+    let rebuild = {
+        let Some(mut card) = data.downcast_mut::<VideoCard>() else {
+            return Update::DoNothing;
+        };
+        // A video that stopped by itself - at its end, or on a failure - is held
+        // now: the next press of play is a change of `paused` the widget passes
+        // on, which plays it again or retries it.
+        if matches!(status.phase, VideoPhase::Ended | VideoPhase::Failed) {
+            card.paused = true;
+        }
+        let rebuild = needs_rebuild(&card.status, &status);
+        card.status = status.clone();
+        rebuild
     };
-    // A video that stopped by itself - at its end, or on a failure - is held
-    // now: the next press of play is a change of `paused` the widget passes
-    // on, which plays it again or retries it.
-    if matches!(status.phase, VideoPhase::Ended | VideoPhase::Failed) {
-        card.paused = true;
+    if rebuild {
+        return Update::RefreshDom;
     }
-    card.status = status;
-    Update::RefreshDom
+    if let Some(node) = info
+        .get_node_id_by_marker(AzString::from(TIME_MARKER))
+        .into_option()
+    {
+        info.change_node_text(node, AzString::from(time_text(&status)));
+    }
+    if let Some(node) = info
+        .get_node_id_by_marker(AzString::from(SEEK_MARKER))
+        .into_option()
+    {
+        let _ = SeekBar::update_position(info, node, f64::from(finite_seconds(status.position_s)));
+    }
+    Update::DoNothing
 }
 
 /// Play or pause: the overlay over the video, and the button under it.
@@ -329,5 +375,18 @@ mod tests {
     fn a_video_past_an_hour_shows_its_hours() {
         assert_eq!(time_text(&status(3725.0, 7322.0)), "1:02:05 / 2:02:02");
         assert_eq!(time_text(&status(72.0, 562.0)), "1:12 / 9:22");
+    }
+
+    #[test]
+    fn a_position_report_moves_the_time_in_place_and_a_new_phase_rebuilds() {
+        let playing = status(1.0, 10.0);
+        assert!(
+            !needs_rebuild(&playing, &status(1.25, 10.0)),
+            "four reports a second while playing: in place"
+        );
+        let mut paused = status(1.25, 10.0);
+        paused.phase = VideoPhase::Paused;
+        assert!(needs_rebuild(&playing, &paused), "the badge comes back");
+        assert!(needs_rebuild(&status(0.0, 0.0), &playing), "the length is known");
     }
 }
