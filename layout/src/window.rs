@@ -2489,7 +2489,8 @@ impl LayoutWindow {
             },
             text_cache: TextLayoutCache::new(),
             font_manager,
-            image_cache: ImageCache::default(),
+            // The built-in textures under their CSS names, in every window.
+            image_cache: crate::texture::image_cache_with_builtin_textures(),
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
             content_journal: crate::overlay::ContentJournal::default(),

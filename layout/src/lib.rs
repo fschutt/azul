@@ -300,6 +300,9 @@ pub mod resource_handles;
     unused_assignments
 )]
 pub mod solver3;
+/// Built-in textures (the CC0 vellum grain): `ImageRef::create_builtin_texture`
+/// and the CSS names every window knows (`url(azul-texture-vellum)`).
+pub mod texture;
 /// Opt-in telemetry client: consent tiers, OTLP/HTTP JSON encoding, a
 /// disk-backed ping queue and an uploader. Requires the `telemetry`
 /// feature (std-only); collection stays *off* at runtime until a consent

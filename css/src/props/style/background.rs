@@ -57,6 +57,18 @@ pub enum ExtendMode {
 
 // -- Main Background Content Type --
 
+/// The image id a `builtin(<name>)` layer names (`azul-builtin:<name>`): a
+/// texture compiled into the library, which every window has registered under
+/// that id from the start (`azul_layout::texture`), so it composes like any
+/// `url(..)` image - a layer of a `background` list, repeated, positioned,
+/// over a colour.
+pub const BUILTIN_IMAGE_PREFIX: &str = "azul-builtin:";
+
+/// The textures `builtin(<name>)` draws: `vellum` (black-and-white parchment
+/// grain, opaque) and `vellum-overlay` (the same grain as black ink at a low
+/// alpha, to lay over any colour). Any other name is transparent.
+pub const BUILTIN_IMAGES: &[&str] = &["vellum", "vellum-overlay"];
+
 /// A single CSS background layer: a solid color, image URL, or gradient.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -132,7 +144,10 @@ impl PrintAsCssValue for StyleBackgroundContent {
                 };
                 format!("{}({})", prefix, cg.print_as_css_value())
             }
-            Self::Image(id) => format!("url(\"{}\")", id.as_str()),
+            Self::Image(id) => match id.as_str().strip_prefix(BUILTIN_IMAGE_PREFIX) {
+                Some(name) => format!("builtin({name})"),
+                None => format!("url(\"{}\")", id.as_str()),
+            },
             Self::Color(c) => c.to_hash(),
             Self::SystemColor(s) => s.as_css_str().to_string(),
         }
@@ -1460,6 +1475,7 @@ pub mod parser {
                 "repeating-conic-gradient",
                 "image",
                 "url",
+                "builtin",
             ],
         ) {
             Ok((background_type, brace_contents)) => {
@@ -1472,6 +1488,17 @@ pub mod parser {
                     "repeating-conic-gradient" => GradientType::RepeatingConicGradient,
                     "image" | "url" => {
                         return Ok(StyleBackgroundContent::Image(parse_image(brace_contents)?))
+                    }
+                    // `builtin(vellum)`: a texture compiled into the library,
+                    // by its reserved image id. An unknown name is a layer
+                    // no window has an image for: transparent, like a
+                    // `url(..)` that names nothing.
+                    "builtin" => {
+                        let name = parse_image(brace_contents.trim())?;
+                        let name = name.as_str().trim().to_ascii_lowercase();
+                        return Ok(StyleBackgroundContent::Image(
+                            format!("{BUILTIN_IMAGE_PREFIX}{name}").into(),
+                        ));
                     }
                     _ => unreachable!(),
                 };
@@ -4397,6 +4424,35 @@ pub use self::parser::*;
 
 #[cfg(all(test, feature = "parser"))]
 mod tests {
+
+    #[test]
+    fn a_builtin_texture_is_a_background_image_layer_and_prints_back() {
+        // `builtin(vellum)`: a texture compiled into the library, composed
+        // like `url(foo.png)` - a layer of a `background` list, over a colour.
+        let layers = parse_style_background_content_multiple("builtin(vellum-overlay), #f2f1ed")
+            .expect("a builtin layer over a colour");
+        let layers = layers.as_ref();
+        assert_eq!(layers.len(), 2);
+        assert_eq!(
+            layers[0],
+            StyleBackgroundContent::Image(
+                alloc::format!("{BUILTIN_IMAGE_PREFIX}vellum-overlay").as_str().into()
+            )
+        );
+        assert_eq!(layers[0].print_as_css_value(), "builtin(vellum-overlay)");
+        for name in BUILTIN_IMAGES {
+            assert!(parse_style_background_content(&alloc::format!("builtin({name})")).is_ok());
+            assert!(parse_style_background_content(&alloc::format!("builtin( '{name}' )")).is_ok());
+        }
+        // An unknown texture is a layer no window has an image for:
+        // transparent, like a `url(..)` that names nothing.
+        assert_eq!(
+            parse_style_background_content("builtin(no-such-texture)").ok(),
+            Some(StyleBackgroundContent::Image(
+                alloc::format!("{BUILTIN_IMAGE_PREFIX}no-such-texture").as_str().into()
+            ))
+        );
+    }
     use super::*;
     use crate::props::basic::{DirectionCorner, DirectionCorners};
 

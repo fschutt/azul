@@ -122766,6 +122766,26 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "BuiltinTexture": {
+                        "external": "azul_layout::texture::BuiltinTexture",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Vellum": {},
+                                "VellumOverlay": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -122885,6 +122905,17 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::resources::ImageRef::null_image(width, height, format, tag.as_slice().to_vec())"
+                            },
+                            "create_builtin_texture": {
+                                "doc": [
+                                    "The texture as an image (`ImageRef::create_builtin_texture`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "texture": "BuiltinTexture"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::texture::builtin_texture(texture)"
                             }
                         },
                         "functions": {
