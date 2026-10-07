@@ -19,32 +19,35 @@ const MAX_HOVER_HISTORY: usize = 5;
 
 /// Pick the front-most deepest hovered node across all hit DOMs.
 ///
-/// Iterates DOMs from highest `DomId` (most-nested child, composited on top)
-/// to lowest and returns the FRONT-MOST hit of the first DOM that has a
-/// regular hit: the smallest `hit_depth` (both hit testers number hits
-/// front to back). Ties fall back to the highest `NodeId`, which is what
-/// this used to return outright - right while the arena's DFS order was
-/// also the depth order, wrong for an inline-docked `<transient-window>`
+/// The FRONT-MOST regular hit of every DOM: the smallest `hit_depth` -
+/// both hit testers number hits front to back along ONE list for the whole
+/// window, a child DOM's hits where its `VirtualView` paints. A box of the
+/// host painted after the view (a map's zoom button) is in front of the
+/// page; this used to take the highest `DomId` with any hit, so every click
+/// on such a box reached the page under it. Ties fall back to the higher
+/// `DomId`, then the highest `NodeId` - right while the arena's DFS order
+/// was also the depth order, wrong for an inline-docked `<transient-window>`
 /// grafted under a zone with a higher id than its own subtree.
 /// See [`HoverManager::current_hover_node_full`].
 #[must_use]
 pub fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
-    for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
-        let front = hit
-            .regular_hit_test_nodes
-            .iter()
-            .min_by(|(a_id, a), (b_id, b)| a.hit_depth.cmp(&b.hit_depth).then(b_id.cmp(a_id)))
-            .map(|(node_id, _)| *node_id);
-        if let Some(node_id) = front {
-            return Some(DomNodeId {
-                dom: *dom_id,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
-                    node_id,
-                )),
-            });
-        }
-    }
-    None
+    ht.hovered_nodes
+        .iter()
+        .flat_map(|(dom_id, hit)| {
+            hit.regular_hit_test_nodes
+                .iter()
+                .map(move |(node_id, item)| (item.hit_depth, *dom_id, *node_id))
+        })
+        .min_by(|(a_depth, a_dom, a_id), (b_depth, b_dom, b_id)| {
+            a_depth
+                .cmp(b_depth)
+                .then(b_dom.cmp(a_dom))
+                .then(b_id.cmp(a_id))
+        })
+        .map(|(_, dom, node_id)| DomNodeId {
+            dom,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        })
 }
 
 /// The node a mouse press FOCUSES: the nearest focusable ancestor (self
@@ -1002,6 +1005,25 @@ mod autotest_generated {
         // dom 0 has the deeper NodeId (99) but dom 3 is composited on top.
         let ht = hits(&[(0, &[99]), (3, &[1])]);
         assert_eq!(deepest_node_across_doms(&ht), Some(dom_node(3, 1)));
+    }
+
+    #[test]
+    fn deepest_node_across_doms_takes_the_front_most_hit_whatever_its_dom() {
+        // A box of dom 0 painted over the VirtualView that shows dom 1 (a
+        // zoom button over a map) is nearer the user than the page: the hit
+        // depth says so, the dom id does not.
+        let mut full = FullHitTest::empty(None);
+        full.hovered_nodes
+            .entry(dom(0))
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(NodeId::new(7), hit_item(0));
+        full.hovered_nodes
+            .entry(dom(1))
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(NodeId::new(2), hit_item(1));
+        assert_eq!(deepest_node_across_doms(&full), Some(dom_node(0, 7)));
     }
 
     #[test]

@@ -73,6 +73,9 @@ pub struct CpuHitTester {
     scroll_containers: Vec<ScrollContainerEntry>,
     /// `VirtualView` child-DOM placements in window space (static coords).
     dom_placements: BTreeMap<DomId, LogicalRect>,
+    /// The child doms each dom shows through `VirtualView`s, with the index
+    /// of the view's item in its display list, the LAST painted first.
+    children_of: BTreeMap<DomId, Vec<(usize, DomId)>>,
 }
 
 /// A node's clip geometry together with the `viewBox`
@@ -115,6 +118,10 @@ struct HitTestEntry {
     /// - worse - kept SHADOWING whatever was behind them, which is precisely
     /// the thing a clip-path is asked for.
     clip_path: Option<HitClipGeometry>,
+    /// Its paint rank in its dom's display list (`paint_ranks`; `usize::MAX`
+    /// for a node that paints nothing): where a child dom's `VirtualView`
+    /// paints between this dom's boxes.
+    rank: usize,
 }
 
 /// A scroll container (`PushScrollFrame` owner) for wheel-target resolution.
@@ -646,6 +653,10 @@ struct Placement {
     rect: LogicalRect,
     clips: Vec<(LogicalRect, Vec<HitChainLink>)>,
     chain: Vec<HitChainLink>,
+    /// The dom whose display list shows this child dom, and the index of
+    /// the `VirtualView` item there: the child paints at that item.
+    host: DomId,
+    item: usize,
 }
 
 /// Resolve where each `VirtualView` / iframe child DOM lives on screen.
@@ -882,7 +893,11 @@ fn resolve_virtual_view_placements(
                         let mut clips = host_clips.clone();
                         clips.push((viewport, stack.clone()));
                         let differs = placements.get(child_dom_id).is_none_or(|p| {
-                            p.rect != absolute || p.clips != clips || p.chain != stack
+                            p.rect != absolute
+                                || p.clips != clips
+                                || p.chain != stack
+                                || p.host != *host_dom
+                                || p.item != item_idx
                         });
                         if differs {
                             placements.insert(
@@ -891,6 +906,8 @@ fn resolve_virtual_view_placements(
                                     rect: absolute,
                                     clips,
                                     chain: stack.clone(),
+                                    host: *host_dom,
+                                    item: item_idx,
                                 },
                             );
                             changed = true;
@@ -916,6 +933,7 @@ impl CpuHitTester {
             chains: vec![Vec::new()],
             scroll_containers: Vec::new(),
             dom_placements: BTreeMap::new(),
+            children_of: BTreeMap::new(),
         }
     }
 
@@ -1004,8 +1022,16 @@ impl CpuHitTester {
         let mut chain_lookup: std::collections::HashMap<Vec<HitChainLink>, u32> =
             std::collections::HashMap::new();
         chain_lookup.insert(Vec::new(), 0);
+        self.children_of.clear();
         for (dom_id, p) in &placements {
             self.dom_placements.insert(*dom_id, p.rect);
+            self.children_of
+                .entry(p.host)
+                .or_default()
+                .push((p.item, *dom_id));
+        }
+        for children in self.children_of.values_mut() {
+            children.sort_by(|a, b| b.cmp(a));
         }
 
         for (dom_id, layout_result) in layout_results {
@@ -1175,6 +1201,7 @@ impl CpuHitTester {
                     // a property is added to `azul_css`.
                     pointer_events_none: false,
                     clip_path: node_clip_path(styled_dom, node_id),
+                    rank: usize::MAX,
                 });
                 entry_layout_idx.push(idx);
             }
@@ -1204,7 +1231,13 @@ impl CpuHitTester {
                 .zip(entries)
                 .collect();
             ranked.sort_by_key(|(rank, _)| *rank);
-            let entries: Vec<HitTestEntry> = ranked.into_iter().map(|(_, e)| e).collect();
+            let entries: Vec<HitTestEntry> = ranked
+                .into_iter()
+                .map(|(rank, mut e)| {
+                    e.rank = rank;
+                    e
+                })
+                .collect();
             drop(sort_span);
 
             self.node_rects.insert(*dom_id, entries);
@@ -1271,42 +1304,99 @@ impl CpuHitTester {
             mapped.get(chain as usize).copied().unwrap_or(position)
         };
 
-        // DOMs FRONT-MOST FIRST (9g-ii-e-i): a child DOM (a `VirtualView` page,
-        // an iframe) always has a higher `DomId` than its host and is
-        // composited ON TOP of it, so the hits of the highest DOM are the
-        // nearest to the user. Visiting the map in ascending order gave the
-        // HOST's nodes the lower depth numbers, while WebRender - one scene
-        // for every DOM, walked in reverse paint order - numbers the page's
-        // nodes first. The two producers disagreed exactly where a page sat
-        // over its host, which is the only place the order matters.
-        for (dom_id, entries) in self.node_rects.iter().rev() {
-            // Walk in reverse (last painted = topmost)
-            for entry in entries.iter().rev() {
-                if entry.pointer_events_none {
-                    continue;
-                }
-
-                // Every clip box must contain the point (each in its owner's
-                // space).
-                if !entry
-                    .clips
-                    .iter()
-                    .all(|(clip, chain)| point_in_rect(local(*chain), clip))
-                {
-                    continue;
-                }
-
-                // Check node rect in the node's local (static) space.
-                let p_local = local(entry.chain);
-                if point_in_rect(p_local, &entry.rect)
-                    && point_in_clip_path(p_local, &entry.rect, entry.clip_path.as_ref())
-                {
-                    results.push((*dom_id, entry.node_id, p_local));
-                }
+        // FRONT-MOST FIRST across doms as well (9g-ii-e-i): a child dom (a
+        // `VirtualView` page, an iframe) paints AT ITS VIEW'S ITEM in its
+        // host's display list - over the boxes painted before the item, under
+        // the ones painted after it (a map's zoom buttons, a sidebar laid
+        // over the map). WebRender's one scene for every dom answers in that
+        // order; visiting the doms by id put every child dom over its whole
+        // host, so a click on a button over a map reached the map. The root
+        // doms (no host) go highest id first; a dom no walk reaches (its
+        // host is gone) last, so it is still hit.
+        let hit = |dom_id: DomId, entry: &HitTestEntry, results: &mut Vec<_>| {
+            if entry.pointer_events_none {
+                return;
             }
+            // Every clip box must contain the point (each in its owner's
+            // space).
+            if !entry
+                .clips
+                .iter()
+                .all(|(clip, chain)| point_in_rect(local(*chain), clip))
+            {
+                return;
+            }
+            // Check node rect in the node's local (static) space.
+            let p_local = local(entry.chain);
+            if point_in_rect(p_local, &entry.rect)
+                && point_in_clip_path(p_local, &entry.rect, entry.clip_path.as_ref())
+            {
+                results.push((dom_id, entry.node_id, p_local));
+            }
+        };
+        let mut visited = std::collections::BTreeSet::new();
+        let hosted: std::collections::BTreeSet<DomId> =
+            self.children_of.values().flatten().map(|(_, d)| *d).collect();
+        let roots: Vec<DomId> = self
+            .node_rects
+            .keys()
+            .rev()
+            .filter(|d| !hosted.contains(d))
+            .copied()
+            .collect();
+        for dom_id in roots {
+            self.hit_dom(dom_id, &hit, &mut visited, &mut results);
+        }
+        let unreached: Vec<DomId> = self
+            .node_rects
+            .keys()
+            .rev()
+            .filter(|d| !visited.contains(*d))
+            .copied()
+            .collect();
+        for dom_id in unreached {
+            self.hit_dom(dom_id, &hit, &mut visited, &mut results);
         }
 
         results
+    }
+
+    /// The hits of `dom_id`, topmost first, with each child dom it shows
+    /// spliced in where its `VirtualView` paints: before every entry painted
+    /// at or before the view's item (a node that paints nothing ranks below
+    /// the view). `visited` ends a cyclic view graph.
+    fn hit_dom<F>(
+        &self,
+        dom_id: DomId,
+        hit: &F,
+        visited: &mut std::collections::BTreeSet<DomId>,
+        results: &mut Vec<(DomId, NodeId, LogicalPosition)>,
+    ) where
+        F: Fn(DomId, &HitTestEntry, &mut Vec<(DomId, NodeId, LogicalPosition)>),
+    {
+        if !visited.insert(dom_id) {
+            return;
+        }
+        let children: &[(usize, DomId)] =
+            self.children_of.get(&dom_id).map_or(&[], Vec::as_slice);
+        let mut next = 0;
+        if let Some(entries) = self.node_rects.get(&dom_id) {
+            // Walk in reverse (last painted = topmost)
+            for entry in entries.iter().rev() {
+                while let Some(&(item, child)) = children.get(next) {
+                    let child_is_above = entry.rank == usize::MAX || item > entry.rank;
+                    if !child_is_above {
+                        break;
+                    }
+                    self.hit_dom(child, hit, visited, results);
+                    next += 1;
+                }
+                hit(dom_id, entry, results);
+            }
+        }
+        for &(_, child) in children.get(next..).unwrap_or(&[]) {
+            self.hit_dom(child, hit, visited, results);
+        }
     }
 }
 
@@ -1430,6 +1520,7 @@ fn push_inline_fragment_entries(
                     clips: entries[owner].clips.clone(),
                     pointer_events_none: false,
                     clip_path: None,
+                    rank: usize::MAX,
                 },
                 entry_layout_idx[owner],
             ));
@@ -1975,11 +2066,13 @@ mod autotest_generated {
     use super::*;
     use crate::{
         solver3::{
-            display_list::{DisplayList, DisplayListItem, WindowLogicalRect},
+            display_list::{DisplayList, DisplayListItem, EmitPhase, WindowLogicalRect},
             layout_tree::LayoutTree,
         },
         window::DomLayoutResult,
     };
+    use azul_core::geom::LogicalSize;
+    use azul_css::props::basic::color::ColorU;
 
     // -----------------------------------------------------------------------
     // fixtures
@@ -2528,6 +2621,69 @@ mod autotest_generated {
         tester.rebuild_from_layout(&BTreeMap::new());
         assert_eq!(tester.node_rects_total(), 0);
         assert!(tester.hit_test(p(0.0, 0.0)).is_empty());
+    }
+
+    #[test]
+    fn a_box_painted_over_a_virtual_view_is_hit_before_the_page_under_it() {
+        // Host dom 0: the root (0,0)-(300,300) painted first (item 0), a
+        // VirtualView showing child dom 1 over (0,0)-(300,300) (item 1), and
+        // an overlay - a zoom button over a map - at (200,200)-(240,240)
+        // painted AFTER it (item 2). A child dom is painted at its
+        // VirtualView item, not over the whole host dom: the overlay is on
+        // top, so it is hit first, then the page, then the root. Every
+        // child dom used to come first (AzMaps: a click on "+" dropped a
+        // pin on the map under it).
+        let rect = |x: f32, y: f32, w: f32, h: f32| DisplayListItem::Rect {
+            bounds: WindowLogicalRect::new(p(x, y), LogicalSize { width: w, height: h }),
+            color: ColorU::BLACK,
+            border_radius: Default::default(),
+        };
+        let mut host = layout_result(
+            styled(""),
+            vec![
+                hot(Some(0), Some((300.0, 300.0)), None),
+                hot(Some(1), Some((40.0, 40.0)), Some(0)),
+            ],
+            vec![p(0.0, 0.0), p(200.0, 200.0)],
+            Vec::new(),
+        );
+        host.display_list = std::sync::Arc::new(DisplayList {
+            items: vec![
+                rect(0.0, 0.0, 300.0, 300.0),
+                virtual_view(1, r(0.0, 0.0, 300.0, 300.0)),
+                rect(200.0, 200.0, 40.0, 40.0),
+            ],
+            layout_node_mapping: vec![
+                Some((0, EmitPhase::BgBorder)),
+                Some((0, EmitPhase::Content)),
+                Some((1, EmitPhase::BgBorder)),
+            ],
+            ..Default::default()
+        });
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), host);
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((300.0, 300.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(
+            tester.hit_test(p(220.0, 220.0)),
+            vec![(dom(0), NodeId::new(1)), (dom(1), NodeId::new(1)), (dom(0), NodeId::new(0))],
+            "the overlay, then the page it covers, then the host's root",
+        );
+        assert_eq!(
+            tester.hit_test(p(20.0, 20.0)),
+            vec![(dom(1), NodeId::new(1)), (dom(0), NodeId::new(0))],
+            "away from the overlay the page is on top of its host",
+        );
     }
 
     #[test]

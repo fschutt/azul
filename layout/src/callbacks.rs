@@ -8023,8 +8023,10 @@ mod autotest_generated {
         ht.regular_hit_test_nodes.insert(NodeId::new(5), item(3));
         let mut full = FullHitTest::empty(None);
         full.hovered_nodes.insert(DomId::ROOT_ID, ht);
-        // A VirtualView page (dom 1) on top: its node wins over any host node,
-        // whatever the depth numbers say - the page is the front-most surface.
+        // A VirtualView page (dom 1): the hit testers number ONE front-to-back
+        // list for every dom, a page's hits where its view paints. Here a box
+        // of the host painted over the page (a map's zoom button, depth 0) is
+        // in front of the page's node (depth 7): the box, not the page.
         let mut page = HitTest::empty();
         page.regular_hit_test_nodes.insert(NodeId::new(2), item(7));
         full.hovered_nodes.insert(DomId { inner: 1 }, page);
@@ -8033,7 +8035,23 @@ mod autotest_generated {
         lw.hover_manager.push_hit_test(InputPointId::Mouse, full);
         let picked = with_info_on(lw, node0(), |info| info.get_deepest_hovered_node());
         let picked = picked.expect("something is hovered");
-        assert_eq!(picked.dom, DomId { inner: 1 });
+        assert_eq!(picked.dom, DomId::ROOT_ID, "the host's box over the page");
+        assert_eq!(picked.node.into_crate_internal(), Some(NodeId::new(1)));
+
+        // ...and where the page is in front of the host (depth 0), the page.
+        let mut ht = HitTest::empty();
+        ht.regular_hit_test_nodes.insert(NodeId::new(1), item(1));
+        ht.regular_hit_test_nodes.insert(NodeId::new(5), item(3));
+        let mut full = FullHitTest::empty(None);
+        full.hovered_nodes.insert(DomId::ROOT_ID, ht);
+        let mut page = HitTest::empty();
+        page.regular_hit_test_nodes.insert(NodeId::new(2), item(0));
+        full.hovered_nodes.insert(DomId { inner: 1 }, page);
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.hover_manager.push_hit_test(InputPointId::Mouse, full);
+        let picked = with_info_on(lw, node0(), |info| info.get_deepest_hovered_node());
+        let picked = picked.expect("something is hovered");
+        assert_eq!(picked.dom, DomId { inner: 1 }, "the page over its host");
         assert_eq!(picked.node.into_crate_internal(), Some(NodeId::new(2)));
 
         // Single DOM: the front-most, not the largest id.
