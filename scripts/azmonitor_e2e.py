@@ -10,19 +10,26 @@ machine (--sample: 45 processes, 8 cores, 16 GB; nothing on this computer is end
     3. SORT: a click on the "Image Name" header sorts by name (AZMON_SORT "Image Name asc")
        and the next reading's first row is the alphabetically first process
        (accounts-daemon);
-    4. SCROLL WHILE UPDATING (the user's report, 2026-10-07): a wheel DOWN over the table
-       (the engine's raw delta_y < 0) scrolls it down by whole rows (AZMON_SCROLL > 0, the
-       first process leaves the screen), and two readings later it is still there; a wheel
-       up brings it back to the top;
+    4. THE TABLE KEEPS ITS PLACE (the user, 2026-10-07: "no real scroll position being saved
+       if the content updates"): AzFiles (by name the third row) is selected, a wheel DOWN
+       over the table (the engine's raw delta_y < 0) scrolls it out of view by whole rows
+       (AZMON_SCROLL > 2); three readings later the same process is the first row
+       (AZMON_VIEW) and the scroll bar's thumb has not moved; then AzFiles - above the view -
+       is killed: the next build shows the SAME process first, one row up in the list (the
+       position is a place in the processes, not a row number); a rustc in view is selected
+       and the table sorted by "User Name": the rustc is still selected and in view (it was
+       past the first screen in the new order); a wheel up brings the table to its top;
     5. FILTER: "rustc" typed into the filter shows the 12 rustc processes (AZMON_SHOWN 12)
        - again without a layout() per keystroke;
     6. END PROCESS: filter "pipewire", click its row (AZMON_SELECT 812 pipewire), Delete
        asks (AZMON_ASK), "Kill" ends it (AZMON_END 812 true, AZMON_NOTICE "Killed
-       pipewire (812)", 44 processes at the next reading); sshd (root) is refused
+       pipewire (812)", 43 processes at the next reading); sshd (root) is refused
        ("administrator rights");
     7. PERFORMANCE: the tab shows the CPU / memory meters and history graphs (one per core:
-       eight scrolling strips and the memory's) and its readings run no layout();
-       NETWORKING: the network graph and its figures; USERS: one row per user (root, user);
+       eight scrolling strips and the memory's) and its readings run no layout(); between
+       readings no graph box and no strip changes its rect (the scroll moves the strips'
+       transform, never their boxes); NETWORKING: the network graph and its figures; USERS:
+       one row per user (root, user);
     8. SETTINGS: Mod+, -> "2 s" (AZMON_SPEED 2000), "Export the last minute" writes
        monitor/history/<date>.csv into the data folder (AZMON_EXPORTED);
     9. a screenshot after each step (flat, light); the mode switched to dark at the end.
@@ -45,6 +52,10 @@ TAG = "azmonitor"
 PROCESSES = 45
 CORES = 8  # the sample machine's (one CPU graph each)
 P = "#__azmonitor_"
+# The DataTable's scroll bar thumb; the graphs' boxes and strips (classes).
+THUMB = ".__azul-native-data-table-thumb"
+GRAPH = "__azmonitor_graph"
+STRIP = "__azmonitor_graph-strip"
 
 
 def ticks(app):
@@ -86,6 +97,69 @@ def within(app, seconds, check):
 def table_center(app):
     box = app.box(P + "table-view")
     return box["x"] + box["width"] / 2.0, box["y"] + box["height"] / 2.0
+
+
+def view_of(value):
+    """An AZMON_VIEW value `<top> <pid> <selected> <name>` as (top, pid, selected, name):
+    the table's first row shown and its process, the selected process' row of the screen
+    ("-" none selected, "out" not in view)."""
+    parts = value.split(" ", 3)
+    if len(parts) < 4:
+        return None
+    return int(parts[0]), int(parts[1]), parts[2], parts[3]
+
+
+def last_view(app):
+    """The table's latest build (AZMON_VIEW), or None."""
+    value = app.last("AZMON_VIEW")
+    return view_of(value) if value else None
+
+
+def built_from(app, top):
+    """The table's latest build when it shows row `top` first, else None."""
+    view = last_view(app)
+    return view if view and view[0] == top else None
+
+
+def views_after(app, starts):
+    """The table's builds printed after the first stdout line `starts(line)` holds for, oldest
+    first (a reading's or a sort's line: the builds before it showed the rows before it)."""
+    try:
+        with open(app.out_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    found, seen = [], False
+    for line in lines:
+        if not seen:
+            seen = starts(line)
+        elif line.startswith("AZMON_VIEW "):
+            view = view_of(line[len("AZMON_VIEW "):])
+            if view:
+                found.append(view)
+    return found
+
+
+def thumb_rect(app):
+    """The process table's scroll bar thumb: its rect in the table's own DOM, or None."""
+    for dom in app.dom_ids():
+        if app._has_in(THUMB, dom):
+            r = app.value("get_node_layout", selector=THUMB, dom_id=dom).get("rect") or {}
+            return tuple(round(float(r.get(k, 0)), 1) for k in ("x", "y", "width", "height"))
+    return None
+
+
+def graph_rects(app):
+    """The rects of the graphs' boxes and strips (in the page's own DOM), in tree order, each
+    with whether it is a strip."""
+    found = []
+    for dom in app.dom_ids():
+        for d in e2e.dicts(app.op("get_all_nodes_layout", dom_id=dom)):
+            classes = d.get("classes") or []
+            if (GRAPH in classes or STRIP in classes) and isinstance(d.get("rect"), dict):
+                found.append((STRIP in classes,) + tuple(
+                    round(float(d["rect"].get(k, 0)), 1) for k in ("x", "y", "width", "height")))
+    return found
 
 
 def clear_filter(app):
@@ -147,30 +221,89 @@ def body(args, logs, out):
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "2-sorted-name.png"))
 
-        # ---- 4. the table scrolls, also while the readings go on ----
+        # ---- 4. the table keeps its place in the processes while the readings go on ----
         app.until("accounts-daemon in the table", lambda: app.shows("accounts-daemon", every_dom=True))
         x, y = table_center(app)
-        before = app.count("AZMON_SCROLL")
-        app.must("wheel", x=x, y=y, delta_x=0, delta_y=-120)
-        if not within(app, 5.0, lambda: app.count("AZMON_SCROLL") > before):
-            raise Failure("a wheel down over the table did not scroll it (no AZMON_SCROLL): "
-                          "the table took the wheel the other way, against its first row")
-        top = int(app.last("AZMON_SCROLL"))
-        if top <= 0:
-            raise Failure("a wheel down scrolled the table to row %d" % top)
+        # AzFiles, by name the third row: selected now, out of view above after the scroll.
+        app.click(text="AzFiles", every_dom=True)
+        app.expect_line("AZMON_SELECT", "3310 AzFiles", "AzFiles selected")
+        top = 0
+        for _ in range(4):
+            before = app.count("AZMON_SCROLL")
+            app.must("wheel", x=x, y=y, delta_x=0, delta_y=-120)
+            if not within(app, 5.0, lambda: app.count("AZMON_SCROLL") > before):
+                raise Failure("a wheel down over the table did not scroll it (no AZMON_SCROLL): "
+                              "the table took the wheel the other way, against its first row")
+            top = int(app.last("AZMON_SCROLL"))
+            if top >= 3:
+                break
+        if top < 3:
+            raise Failure("four wheel turns down scrolled the table to row %d: AzFiles (row 2) "
+                          "is still in view" % top)
+        first = app.until("the table built from row %d" % top, lambda: built_from(app, top))
         app.frame(3)
         if app.shows("accounts-daemon", every_dom=True):
             raise Failure("the first process is still shown after scrolling %d rows down" % top)
-        wait_ticks(app, 2, "two readings after the scroll")
+        thumb = thumb_rect(app)
+        if thumb is None:
+            raise Failure("the process table has no scroll bar thumb after scrolling")
+        # Three readings: the same process stays on top, the thumb where it was.
+        wait_ticks(app, 3, "three readings after the scroll")
         app.frame(2)
-        view_top = int((app.last("AZMON_VIEW") or "0 false").split()[0])
-        if view_top != top or app.shows("accounts-daemon", every_dom=True):
-            raise Failure("a reading scrolled the table back: row %d -> %d" % (top, view_top))
-        app.log("scrolled to row %d; two readings later it is still there" % top)
+        now = last_view(app)
+        if now is None or now[:2] != first[:2]:
+            raise Failure("a reading moved the table: row %d (%s) -> %s"
+                          % (first[0], first[3], now and "row %d (%s)" % (now[0], now[3])))
+        if thumb_rect(app) != thumb:
+            raise Failure("the scroll bar's thumb moved between readings: %s -> %s"
+                          % (thumb, thumb_rect(app)))
+        app.log("scrolled to row %d (%s); three readings later the same process is on top, the "
+                "thumb where it was" % (top, first[3]))
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "3-scrolled.png"))
-        app.must("wheel", x=x, y=y, delta_x=0, delta_y=600)
-        if not within(app, 5.0, lambda: app.last("AZMON_SCROLL") == "0"):
+        # AzFiles - above the view - ends: the view stays on its processes, one row up.
+        app.key("delete")
+        app.expect_line("AZMON_ASK", "3310 AzFiles", "the question for AzFiles")
+        # The question is a Modal: a window of its own.
+        app.click_exact("Kill", window=app.until("the question's window", app.popup))
+        app.expect_line("AZMON_END", "3310 true", "the kill of AzFiles")
+        alive = PROCESSES - 1
+
+        def after_kill():
+            return views_after(app, lambda line: line.startswith("AZMON_TICK ")
+                               and line.split()[2:3] == [str(alive)])
+
+        kept = app.until("the table built after AzFiles ended", after_kill)[-1]
+        if kept[:2] != (top - 1, first[1]):
+            raise Failure("a process ending above the view moved it: %s on row %d before, row %d "
+                          "shows %s (pid %d) after" % (first[3], top, kept[0], kept[3], kept[1]))
+        app.log("AzFiles ended above the view: %s is still the first row (row %d of %d)"
+                % (kept[3], kept[0], alive))
+        # A new sort keeps the selected process selected and in view.
+        picked = app.after("a rustc selected", "AZMON_SELECT", r"\d+ rustc",
+                           lambda: app.click(text="rustc", every_dom=True))
+        pid = picked.split()[0]
+        app.until("the selected rustc in view",
+                  lambda: (last_view(app) or (0, 0, "-"))[2].isdigit())
+        app.click(text="User Name", every_dom=True)
+        app.until("the user sort", lambda: app.last("AZMON_SORT") == "User Name asc")
+        sorted_views = app.until("the table built after the sort",
+                                 lambda: views_after(app, lambda l: l == "AZMON_SORT User Name asc"))
+        row = sorted_views[-1][2]
+        if not row.isdigit():
+            raise Failure("sorting by User Name left the selected rustc (%s) %s"
+                          % (pid, "out of view" if row == "out" else "unselected"))
+        if not app.shows(pid, every_dom=True):
+            raise Failure("the selected rustc's PID %s is not in the table after the sort" % pid)
+        app.log("sorted by User Name: rustc %s still selected, on row %s of the screen" % (pid, row))
+        app.must("wait_settled")
+        app.screenshot(os.path.join(out, "3b-sorted-user.png"))
+        # A wheel turn moves at most 12 rows: turn it up until the first row shows.
+        for _ in range(4):
+            app.must("wheel", x=x, y=y, delta_x=0, delta_y=600)
+            if within(app, 3.0, lambda: app.last("AZMON_SCROLL") == "0"):
+                break
+        else:
             raise Failure("a wheel up did not bring the table back to its first row (%s)"
                           % app.last("AZMON_SCROLL"))
         app.frame(2)
@@ -201,7 +334,9 @@ def body(args, logs, out):
         app.click_exact("Kill", window=app.until("the question's window", app.popup))
         app.expect_line("AZMON_END", "812 true", "the kill")
         app.until("the kill's notice", lambda: app.last("AZMON_NOTICE") == "Killed pipewire (812)")
-        app.until("44 processes", lambda: (app.last("AZMON_TICK") or "").split()[1:2] == [str(PROCESSES - 1)])
+        alive -= 1
+        app.until("%d processes" % alive,
+                  lambda: (app.last("AZMON_TICK") or "").split()[1:2] == [str(alive)])
         app.log("pipewire killed: %s" % app.last("AZMON_TICK"))
 
         clear_filter(app)
@@ -217,7 +352,7 @@ def body(args, logs, out):
         app.until("the refusal", lambda: "administrator" in (app.last("AZMON_NOTICE") or ""))
         app.log("sshd refused: %s" % app.last("AZMON_NOTICE"))
         clear_filter(app)
-        app.expect_line("AZMON_SHOWN", str(PROCESSES - 1), "every process again")
+        app.expect_line("AZMON_SHOWN", str(alive), "every process again")
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "6-ended.png"))
 
@@ -237,11 +372,27 @@ def body(args, logs, out):
             raise Failure("the Performance tab has no scrolling graph strips")
         if not app.has(".__azmonitor_meter", every_dom=True):
             raise Failure("the Performance tab has no usage meters")
+        # A reading moves no graph: every box and strip keeps its rect (the scroll moves the
+        # strips' transform, never their boxes) - the user saw them jitter at each reading.
+        rects = app.until("the graphs' rects", lambda: graph_rects(app))
+        strips = sum(1 for r in rects if r[0])
+        if strips != CORES + 1:
+            raise Failure("the Performance tab has %d graph strips, expected %d (one per core, "
+                          "the memory's)" % (strips, CORES + 1))
         before_layouts = layouts(app)
-        wait_ticks(app, 2, "two readings on the Performance tab")
-        app.frame(2)
+        for _ in range(2):
+            wait_ticks(app, 1, "a reading on the Performance tab")
+            app.frame(2)
+            again = graph_rects(app)
+            if again != rects:
+                moved = [(a, b) for a, b in zip(rects, again) if a != b]
+                raise Failure("a reading moved the graphs (%d of %d rects, first %s): %s"
+                              % (len(moved) or abs(len(again) - len(rects)), len(rects),
+                                 moved[:1], "the strips' boxes must not move"))
         if layouts(app) != before_layouts:
             raise Failure("readings on the Performance tab ran layout()")
+        app.log("two readings on the Performance tab: %d graphs, no box or strip moved"
+                % (len(rects) - strips))
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "7-performance.png"))
 
