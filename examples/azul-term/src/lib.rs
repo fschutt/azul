@@ -1025,6 +1025,8 @@ extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 #[cfg(test)]
 mod tests {
+    use azul::option::OptionTerminalLine;
+
     use super::*;
 
     fn kit() -> RefAny {
@@ -1177,6 +1179,216 @@ mod tests {
         assert_eq!(screen.lines.as_slice().len(), 30);
         let st = data.downcast_ref::<AppState>().expect("the app");
         assert_eq!(st.tabs[0].session.size(), GridSize::new(100, 30));
+    }
+
+    #[test]
+    fn closing_the_last_tab_closes_the_window_and_no_other_does() {
+        // iTerm's way: a window never stands empty.
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        st.open_tab();
+        assert!(!st.close_tab(1), "another tab is left");
+        assert!(st.close_tab(0), "the last tab closes the window");
+        assert!(st.tabs.is_empty());
+        // Cmd+W on the only tab: the same.
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        assert!(st.apply(WindowKey::CloseTab));
+        // A tab that is not there closes nothing.
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        assert!(!st.close_tab(3));
+        assert_eq!(st.tabs.len(), 1);
+        // Another window chord never closes the window.
+        assert!(!st.apply(WindowKey::NewTab));
+        assert!(!st.apply(WindowKey::NextTab));
+    }
+
+    #[test]
+    fn the_strip_is_the_title_bar_clear_of_the_window_controls() {
+        let css = strip_css(TabsInTitlebar::create(8.0, 78.0, 0.0));
+        assert!(css.contains("-azul-app-region: drag;"), "{css}");
+        assert!(css.contains("padding-top: 8px;"), "{css}");
+        assert!(css.contains("padding-left: 78px;"), "{css}");
+        assert!(css.contains("padding-right: 0px;"), "{css}");
+        // The grab strip is new room above the row of tabs (and its line).
+        assert!(css.contains("height: 37px;"), "{css}");
+        // The tabs and the buttons stay what they are.
+        for part in [TAB_CSS, TAB_ACTIVE_CSS, TAB_CLOSE_CSS, NEW_TAB_CSS] {
+            assert!(part.contains("-azul-app-region: no-drag;"), "{part}");
+        }
+    }
+
+    #[test]
+    fn every_tab_is_as_wide_and_the_strip_scrolls_when_they_do_not_fit() {
+        let width = format!("width: {TAB_PX}px;");
+        let least = format!("min-width: {TAB_MIN_PX}px;");
+        for part in [TAB_CSS, TAB_ACTIVE_CSS] {
+            assert!(part.contains(&width), "{part}");
+            assert!(part.contains(&least), "{part}");
+            assert!(part.contains("flex-grow: 0;"), "{part}");
+            assert!(part.contains("flex-shrink: 1;"), "{part}");
+        }
+        assert!(TAB_MIN_PX < TAB_PX);
+        // The tabs scroll sideways (a wheel over them too: the engine turns
+        // a vertical wheel over a box that only scrolls sideways); the "+"
+        // is outside the scroller, always in reach.
+        assert!(TAB_SCROLLER_CSS.contains("overflow-x: auto;"));
+        assert!(TAB_SCROLLER_CSS.contains("overflow-y: hidden;"));
+        assert!(TAB_SCROLLER_CSS.contains("min-width: 0px;"));
+        assert!(NEW_TAB_CSS.contains("flex-shrink: 0;"));
+    }
+
+    #[test]
+    fn a_new_or_picked_tab_is_scrolled_into_the_strip() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        assert!(st.reveal_ticks > 0);
+        st.reveal_ticks = 0;
+        st.open_tab();
+        assert!(st.reveal_ticks > 0);
+        st.reveal_ticks = 0;
+        st.select_tab(0);
+        assert!(st.reveal_ticks > 0);
+        st.reveal_ticks = 0;
+        st.cycle_tab(1);
+        assert!(st.reveal_ticks > 0);
+    }
+
+    /// The text of every row of `screen`.
+    fn rows_of(screen: &TerminalScreen) -> Vec<String> {
+        screen
+            .lines
+            .as_slice()
+            .iter()
+            .map(|l| {
+                l.runs
+                    .as_slice()
+                    .iter()
+                    .map(|r| r.text.as_str().to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
+    const GRID: TerminalGridSize = TerminalGridSize {
+        columns: 80,
+        rows: 24,
+    };
+
+    /// `f` on the app inside `data`.
+    fn with_app<R>(data: &mut RefAny, f: impl FnOnce(&mut AppState) -> R) -> R {
+        let mut st = data.downcast_mut::<AppState>().expect("the app");
+        f(&mut st)
+    }
+
+    #[test]
+    fn the_data_callback_slides_the_rows_and_gives_the_line_below_off_the_output() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        // The log: thousands of lines of scrollback.
+        st.open_tab();
+        let mut data = RefAny::new(st);
+        let at_output = terminal_screen(data.clone(), GRID);
+        assert_eq!(at_output.scroll, 0);
+        assert!(at_output.scroll_fraction.abs() < f32::EPSILON);
+        assert!(matches!(at_output.line_below, OptionTerminalLine::None));
+        // The view asks for 5 lines up, slid by a quarter of a line.
+        with_app(&mut data, |st| st.scroll_view(5, 0.25));
+        let up = terminal_screen(data.clone(), GRID);
+        assert_eq!(up.scroll, 5);
+        assert!((up.scroll_fraction - 0.25).abs() < 1e-6);
+        assert!(matches!(up.line_below, OptionTerminalLine::Some(_)));
+        // The line below is the first of the five under the rows.
+        let OptionTerminalLine::Some(below) = &up.line_below else {
+            unreachable!()
+        };
+        let five_up = rows_of(&up);
+        with_app(&mut data, |st| st.scroll_view(4, 0.0));
+        let four_up = rows_of(&terminal_screen(data.clone(), GRID));
+        assert_eq!(four_up[..23], five_up[1..]);
+        let below_text: String = below
+            .runs
+            .as_slice()
+            .iter()
+            .map(|r| r.text.as_str().to_string())
+            .collect();
+        assert_eq!(four_up[23], below_text);
+    }
+
+    #[test]
+    fn output_while_scrolled_up_keeps_the_view_still_and_counts_the_new_lines() {
+        let mut st = AppState::new(kit(), true);
+        // The build session: a prompt waiting. `seq 500` streams 500 lines,
+        // a few each tick.
+        st.open_tab();
+        st.write_active(b"seq 500".to_vec());
+        st.write_active(b"\r".to_vec());
+        assert!(st.tabs[0].session.pump());
+        let mut data = RefAny::new(st);
+        let _ = terminal_screen(data.clone(), GRID);
+        with_app(&mut data, |st| st.scroll_view(10, 0.5));
+        let before = terminal_screen(data.clone(), GRID);
+        assert_eq!(before.new_lines, 0);
+        // Output streams in; the scrolled-up view is not drawn meanwhile.
+        for _ in 0..3 {
+            assert!(with_app(&mut data, |st| st.tabs[0].session.pump()));
+        }
+        let tick = u32::try_from(sample::STREAM_LINES_PER_TICK).expect("a few");
+        // What is in view did not move: drawn now, it is the same rows.
+        let still = terminal_screen(data.clone(), GRID);
+        assert_eq!(rows_of(&still), rows_of(&before), "the view stays put");
+        assert!((still.scroll_fraction - 0.5).abs() < 1e-6, "to the pixel");
+        assert_eq!(still.scroll, before.scroll + 3 * tick);
+        assert_eq!(still.new_lines, 3 * tick);
+        // More output, then a wheel step the view worked out from the screen
+        // it showed (`still`): one line up from what is in view - not to
+        // the offset the engine had then, lines away from it now.
+        assert!(with_app(&mut data, |st| st.tabs[0].session.pump()));
+        with_app(&mut data, |st| st.scroll_view(still.scroll + 1, 0.5));
+        let one_more = terminal_screen(data.clone(), GRID);
+        assert_eq!(one_more.scroll, still.scroll + tick + 1);
+        assert_eq!(rows_of(&one_more)[1..], rows_of(&still)[..23]);
+        assert_eq!(one_more.new_lines, 4 * tick, "a scroll is no output");
+        // The follow button (a scroll to the output): following again.
+        with_app(&mut data, |st| st.scroll_view(0, 0.0));
+        let following = terminal_screen(data.clone(), GRID);
+        assert_eq!(following.scroll, 0);
+        assert!(following.scroll_fraction.abs() < f32::EPSILON);
+        assert_eq!(following.new_lines, 0);
+    }
+
+    #[test]
+    fn typing_follows_the_output_again() {
+        let mut st = AppState::new(kit(), true);
+        st.open_tab();
+        st.open_tab();
+        let mut data = RefAny::new(st);
+        let _ = terminal_screen(data.clone(), GRID);
+        with_app(&mut data, |st| st.scroll_view(40, 0.75));
+        assert_eq!(terminal_screen(data.clone(), GRID).scroll, 40);
+        with_app(&mut data, |st| st.write_active(b"l".to_vec()));
+        let typed = terminal_screen(data.clone(), GRID);
+        assert_eq!(typed.scroll, 0);
+        assert!(typed.scroll_fraction.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_scrolled_up_view_is_drawn_a_few_times_a_second_not_on_every_chunk() {
+        // Following, a flood is drawn every other tick; scrolled up, what is
+        // in view does not change - only the count and the thumb, now and
+        // then.
+        let (mut since, mut drawn) = (0, 0);
+        for _ in 0..60 {
+            since += 1;
+            if renders_scrolled_up(since) {
+                drawn += 1;
+                since = 0;
+            }
+        }
+        assert!((2..=6).contains(&drawn), "{drawn} frames a second");
+        assert!(!renders_scrolled_up(1));
+        assert!(renders_scrolled_up(SCROLLED_UP_TICKS));
     }
 
     #[test]

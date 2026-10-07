@@ -139,4 +139,36 @@ mod tests {
         let screen = crate::vt::screen(&*term, true);
         assert!(screen.history >= 4_970, "{}", screen.history);
     }
+
+    #[test]
+    fn the_sample_shell_knows_seq_and_yes_and_nothing_else() {
+        let lines = |command: &str| Stream::parse(command).map(|s| s.lines());
+        assert_eq!(lines("seq 3"), Some(3));
+        assert_eq!(lines("  seq   12 "), Some(12));
+        assert_eq!(lines("yes | head -n 100000"), Some(100_000));
+        assert_eq!(lines("yes|head -n 4"), Some(4));
+        assert_eq!(lines("yes | head -n4"), Some(4));
+        assert_eq!(lines("yes | head -4"), Some(4));
+        for other in ["echo hi", "seq", "seq x", "seq 0", "yes", "yes | head", "", "ls -la"] {
+            assert_eq!(lines(other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_stream_writes_its_lines_a_few_at_a_time() {
+        let mut seq = Stream::parse("seq 120").expect("seq");
+        let first = seq.take(50);
+        assert!(first.starts_with(b"1\r\n2\r\n"));
+        assert!(first.ends_with(b"\r\n50\r\n"));
+        assert!(!seq.done());
+        let _ = seq.take(50);
+        let last = seq.take(50);
+        let expected: String = (101..=120).map(|i| format!("{i}\r\n")).collect();
+        assert_eq!(last, expected.into_bytes());
+        assert!(seq.done());
+        assert!(seq.take(50).is_empty());
+        let mut yes = Stream::parse("yes | head -n 3").expect("yes");
+        assert_eq!(yes.take(50), b"y\r\ny\r\ny\r\n");
+        assert!(yes.done());
+    }
 }

@@ -292,6 +292,35 @@ mod tests {
     }
 
     #[test]
+    fn the_sample_shell_streams_seq_a_few_lines_a_tick() {
+        let mut s = Session::replay(b"$ ", GridSize::new(20, 5), 1000);
+        s.write(b"seq 125".to_vec());
+        // Typed with a slip: the sample shell's line has its backspace.
+        s.write(b"\x7f".to_vec());
+        s.write(b"0".to_vec());
+        assert!(!s.streaming());
+        s.write(b"\r".to_vec());
+        assert!(s.streaming());
+        let _ = s.signals.take_dirty();
+        let mut ticks = 0;
+        while s.pump() {
+            ticks += 1;
+            assert!(s.signals.take_dirty(), "every chunk is drawn");
+        }
+        assert_eq!(ticks, 120usize.div_ceil(crate::sample::STREAM_LINES_PER_TICK));
+        assert!(!s.streaming());
+        let rows = text(&s);
+        assert_eq!(rows[rows.len() - 2], "120");
+        // Typed text echoes again once it is over.
+        s.write(b"ls".to_vec());
+        assert!(text(&s).iter().any(|r| r == "ls"));
+        // A line that is no command streams nothing.
+        s.write(b"\r".to_vec());
+        assert!(!s.streaming());
+        assert!(!s.pump());
+    }
+
+    #[test]
     fn a_resize_changes_the_engine_grid_once() {
         let mut s = Session::replay(b"", GridSize::new(20, 3), 100);
         s.resize(GridSize::new(40, 10));
