@@ -45,6 +45,10 @@ use crate::{
 pub const ROW_PX: f32 = 20.0;
 /// The table's text, px.
 pub const FONT_PX: f32 = 12.0;
+/// The table's header row, px (the DataTable's own).
+pub const HEADER_PX: f32 = 30.0;
+/// The least height the table is built at, px.
+pub const MIN_HEIGHT: f32 = 120.0;
 /// How long after the user's last scroll / drag in the table a reading
 /// leaves the table as it is, ms.
 pub const HANDS_OFF_MS: u64 = 600;
@@ -169,6 +173,30 @@ pub fn follow_selection(view: &mut DataTableView, selected: Option<usize>, shown
     if view.top > last {
         view.top = last;
     }
+}
+
+/// How many rows a table `height` px tall shows at once (under its header).
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a few dozen rows
+pub fn page_rows(height: f32) -> usize {
+    let body = (height.max(MIN_HEIGHT) - HEADER_PX).max(ROW_PX);
+    ((body / ROW_PX).floor() as usize).max(1)
+}
+
+/// Where the first row shown goes when the rows shown change from `before`
+/// to `after` (process ids, top to bottom), the view showing `page` rows
+/// from row `top`.
+#[must_use]
+pub fn anchored_top(_before: &[u32], top: usize, _page: usize, after: &[u32]) -> usize {
+    top.min(after.len().saturating_sub(1))
+}
+
+/// The first row shown after a new sort put the selected process at
+/// `position`: `row` is the row of the screen it was on before the sort
+/// (`None`: it was not in view), `page` the rows in view.
+#[must_use]
+pub fn revealed_top(_position: usize, _row: Option<usize>, _page: usize) -> usize {
+    0
 }
 
 /// The data callback: cell `at` of the model's shown rows.
@@ -400,5 +428,90 @@ mod tests {
         assert_eq!(v.top, 11);
         follow_selection(&mut v, None, 0);
         assert_eq!(v.top, 0);
+    }
+
+    // ---- the scroll position is a place in the processes, not a row number ----
+
+    /// Processes `from..to`, as their ids.
+    fn ids(from: u32, to: u32) -> Vec<u32> {
+        (from..to).collect()
+    }
+
+    #[test]
+    fn a_table_shows_as_many_rows_as_fit_under_its_header() {
+        assert_eq!(page_rows(HEADER_PX + 12.0 * ROW_PX), 12);
+        assert_eq!(page_rows(HEADER_PX + 12.0 * ROW_PX + 19.0), 12);
+        // Never less than the least height the table is built at.
+        assert_eq!(page_rows(0.0), 4);
+    }
+
+    #[test]
+    fn a_process_ending_above_the_view_leaves_the_same_process_on_top() {
+        // 40 processes, the view from row 10 (process 110), 12 rows of it.
+        let before = ids(100, 140);
+        let ended: Vec<u32> = before.iter().copied().filter(|p| *p != 103).collect();
+        let top = anchored_top(&before, 10, 12, &ended);
+        assert_eq!(ended[top], 110, "row {top} shows {}", ended[top]);
+        // Two new processes sort in above the view: it moves two rows down.
+        let mut started = before.clone();
+        started.insert(0, 90);
+        started.insert(5, 91);
+        let top = anchored_top(&before, 10, 12, &started);
+        assert_eq!(started[top], 110, "row {top} shows {}", started[top]);
+    }
+
+    #[test]
+    fn the_rows_in_view_re_sorting_among_themselves_leave_the_view_at_its_row() {
+        // A CPU sort: the rows in view swap places every reading; no move is
+        // shared by most of them, so the view keeps its row.
+        let before = ids(0, 40);
+        let mut after = before.clone();
+        after[10..22].reverse();
+        assert_eq!(anchored_top(&before, 10, 12, &after), 10);
+    }
+
+    #[test]
+    fn one_process_leaving_the_view_does_not_take_the_view_along() {
+        // The process on top gets busy and sorts to the first row: the other
+        // eleven in view stay where they are, so the view stays.
+        let before = ids(0, 40);
+        let mut after = before.clone();
+        let busy = after.remove(10);
+        after.insert(0, busy);
+        assert_eq!(anchored_top(&before, 10, 12, &after), 10);
+    }
+
+    #[test]
+    fn a_view_at_the_first_row_shows_the_new_first_rows() {
+        let before = ids(0, 40);
+        let mut after = before.clone();
+        after.insert(0, 99);
+        assert_eq!(anchored_top(&before, 0, 12, &after), 0);
+    }
+
+    #[test]
+    fn when_every_process_in_view_is_gone_the_view_keeps_its_row() {
+        let before = ids(0, 40);
+        let after: Vec<u32> = before
+            .iter()
+            .copied()
+            .filter(|p| !(10..22).contains(p))
+            .collect();
+        assert_eq!(anchored_top(&before, 10, 12, &after), 10);
+        // ...within the rows there are now.
+        assert_eq!(anchored_top(&before, 10, 12, &ids(0, 5)), 4);
+    }
+
+    #[test]
+    fn a_new_sort_keeps_the_selected_process_on_its_row_of_the_screen() {
+        // On row 7 of the screen before the sort, at row 50 of the table
+        // after it: the view starts 7 rows above it.
+        assert_eq!(revealed_top(50, Some(7), 20), 43);
+        // Near the first row, as close as the table allows.
+        assert_eq!(revealed_top(3, Some(7), 20), 0);
+        // Not in view before the sort: in view after it (half a screen down
+        // when it is past the first screen).
+        assert_eq!(revealed_top(50, None, 20), 40);
+        assert_eq!(revealed_top(12, None, 20), 0);
     }
 }
