@@ -11,7 +11,8 @@
 //! line (`on_link`), the notice's action (`on_load_images`) and an
 //! attachment (`on_attachment`). The parts are the toolkit's own widgets:
 //! [`InfoBar`] for the notice, [`Chip`] for an attachment, [`Avatar`] for a
-//! person, a link [`Button`] for the sender and the people line. For
+//! person, a link [`Button`](crate::widgets::button::Button) for the sender
+//! and the people line (flora's text link under flora). For
 //! assistive technology the pane is a document named by its subject.
 //!
 //! Key types: [`ReadingPane`], [`ReadingPaneEvent`], [`ReadingPaneEventKind`].
@@ -43,7 +44,7 @@ use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::{
         avatar::{Avatar, AvatarSize},
-        button::{Button, ButtonOnClick, ButtonOnClickCallback, ButtonOnClickCallbackType, ButtonType},
+        button::{ButtonOnClick, ButtonOnClickCallback, ButtonOnClickCallbackType},
         chip::{Chip, ChipOnClickCallbackType, ChipState},
         details_pane::{PANE_KEY_BASE, PANE_ROW_BASE, PANE_VALUE_BASE},
         info_bar::{InfoBar, OptionInfoBar},

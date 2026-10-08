@@ -9,7 +9,9 @@
 //! (`on_pick`), a new or checked task (`on_task`) and an appointment click
 //! (`on_appointment`), and rebuilds. The parts are the toolkit's own
 //! widgets: the [`DatePicker`] inline for the calendar, a [`TextInput`] for
-//! the new task, a [`CheckBox`] per task, link [`Button`]s for what opens.
+//! the new task, a [`CheckBox`] per task, link
+//! [`Button`](crate::widgets::button::Button)s for what opens (flora's
+//! text links under flora).
 //! For assistive technology the bar is a group named by its accessibility
 //! name ("To-Do bar").
 //!
@@ -41,7 +43,7 @@ use azul_css::{
 use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::{
-        button::{Button, ButtonOnClickCallbackType, ButtonType},
+        button::ButtonOnClickCallbackType,
         check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
         date_picker::{
             DatePicker, DatePickerOnChangeCallbackType, DatePickerState, DatePickerWeekStart,
