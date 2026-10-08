@@ -7,21 +7,22 @@ Worktree: .claude/worktrees/agent-ac6b5f2a41bfa4152, branch worktree-agent-ac6b5
 (fast-forwarded from 626aa43c6 to the stated tip 5d78255a4 before any edit). No compiles (house rule).
 
 ## DONE (commit hashes)
-- (this file)
+- 1d51ad756 this file
+- 91d3bb6ab azul-appkit azlin_config.rs: `endpoints` section, profiles, env names, layered resolution + tests
+- 07bc14de6 crate (own [workspace] + rust-toolchain 1.99, root `exclude`), settings, state dir, secrets
+- bd83b2c53 token API (routes incl. /credentials) + Account (signup, join/invite, refresh lock, lockdown)
+- 77c419a84 Drive: transport preference (probe, transport.json, 5 min retry, fallback re-probe)
+- aae993ff2 Sync: rules, remote index, local index + scan, three-way merge, MemStore, CAS loop, GC, tests
+- aa3d368ac Share + bin/azcloud.rs
+- Every file parses (rustfmt --check of the copied crate tree: 0 diff hunks). NOTHING COMPILED YET.
 
 ## IN PROGRESS
-- crate skeleton + root `exclude`
+- scripts/azcloud_e2e.py
 
 ## NEXT (in order)
-1. azul-appkit azlin_config.rs: `endpoints` section, profiles, env names, precedence with provenance + tests
-2. azcloud-api: state dir, secrets file (0600), drives.json (azul-storage format), device id, refresh lock
-3. token API (signup, credentials, info, members, lockdown, cancel, restore, status) + Account
-4. Drive: transport preference (probe, remember, retry window) + tests of the pure logic
-5. Sync: rules, local index, remote index, three-way merge, CAS loop, MemStore tests
-6. Share: presigned links, lockdown / restore
-7. bin/azcloud.rs
-8. scripts/azcloud_e2e.py
-9. syntax check of every file with `rustfmt --check` on /tmp copies; report
+1. scripts/azcloud_e2e.py (signup, 1 MiB + 50 MiB up/down, sync twice, .azlin round trip A <-> B,
+   transports https + iroh)
+2. final review pass of the Rust for compile errors (by reading; no cargo); report
 
 ## Findings so far (for the report)
 - azlin-client `TokenServer::refresh` posts to `/v1/drives/{id}/refresh`; the token server only routes
