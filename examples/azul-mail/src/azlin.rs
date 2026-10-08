@@ -1,0 +1,1063 @@
+//! The Azlin account kind: the mailbox is files in the user's Azlin drive (`AZLIN_MAIL.md`).
+//!
+//! - The bucket's names: [`object_name`] (`<stamp>-<hash>.eml`), [`message_id`],
+//!   [`marker_key`], the well-known folders ([`WELL_KNOWN`]).
+//! - [`AzlinSession`]: what the keyring keeps for an Azlin account - the drive token and the
+//!   current S3 credentials - and the S3 drive they open.
+//! - [`CloudAccount`]: what AzMail needs from the Azlin account service (a new drive, fresh
+//!   credentials). [`TokenServer`] is the token server's HTTP API over any azul-storage
+//!   `Transport` (azul's HTTP client in the app, a fake in the tests); azcloud-api's `Account`
+//!   takes its place later as a second implementation, nothing else changes.
+//! - [`Endpoints`]: the token server's URL and an S3 endpoint override, from the shared Azlin
+//!   config, then the environment, then the command line. There is no built-in default.
+//!
+//! No azul types here: tested without a window. Nothing here prints or `Debug`s a secret.
+
+use std::collections::{BTreeSet, HashMap};
+
+use azul_storage::{
+    sigv4::{sha256_hex, uri_decode, uri_encode},
+    time::{amz_date, parse_iso8601},
+    Credentials, DriveError, HttpCall, HttpReply, Method, S3Config, S3Drive, Transport,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::folders::Role;
+
+// ==== The bucket's names ====
+
+/// The mailbox in the drive.
+pub const MAIL_PREFIX: &str = "mail/";
+/// The state markers: `mail/.state/<id>/<flag>`.
+pub const STATE_PREFIX: &str = "mail/.state/";
+/// A message object's extension.
+pub const EML: &str = ".eml";
+/// The marker of a read message.
+pub const SEEN: &str = "seen";
+/// The marker of a message flagged for follow-up.
+pub const FLAGGED: &str = "flagged";
+/// The marker of a message replied to.
+pub const ANSWERED: &str = "answered";
+/// The folder of a message's label markers in its state.
+pub const LABEL_DIR: &str = "label";
+
+/// The well-known folders as AzMail writes them, by role (read in any case).
+pub const WELL_KNOWN: [(Role, &str); 6] = [
+    (Role::Inbox, "Inbox"),
+    (Role::Sent, "Sent"),
+    (Role::Drafts, "Drafts"),
+    (Role::Archive, "Archive"),
+    (Role::Spam, "Spam"),
+    (Role::Trash, "Trash"),
+];
+
+/// The bucket's name of the well-known folder of `role` (`Spam`); `None` for any other role.
+pub fn well_known_name(role: Role) -> Option<&'static str> {
+    WELL_KNOWN
+        .iter()
+        .find(|(r, _)| *r == role)
+        .map(|(_, name)| *name)
+}
+
+/// `20261008T091500Z-3f2a9c1e5b7d4a60.eml`: the arrival time `stamp_secs` (UTC, the SigV4 date
+/// format) and the first 16 hex digits of the SHA-256 of `bytes`. The same bytes arriving in
+/// the same second always get the same name; different bytes never share one.
+pub fn object_name(bytes: &[u8], stamp_secs: u64) -> String {
+    let hash = sha256_hex(bytes);
+    format!("{}-{}{EML}", amz_date(stamp_secs), &hash[..16])
+}
+
+/// `name` without its `.eml` (any case); `None` when it has none.
+fn strip_eml(name: &str) -> Option<&str> {
+    let cut = name.len().checked_sub(EML.len())?;
+    let stem = name.get(..cut)?;
+    let extension = name.get(cut..)?;
+    extension.eq_ignore_ascii_case(EML).then_some(stem)
+}
+
+/// The id of the message object `key` (`mail/Inbox/X.eml` is `X`): what its state markers are
+/// filed under. `None` for a key that is no message of a folder (not under `mail/<folder>/`,
+/// AzMail's own bookkeeping, not `.eml`).
+pub fn message_id(key: &str) -> Option<&str> {
+    folder_of_key(key)?;
+    let name = key.rsplit('/').next()?;
+    strip_eml(name).filter(|id| !id.is_empty())
+}
+
+/// The folder of the message object `key`, under `mail/` (`mail/Work/Projects/X.eml` is
+/// `Work/Projects`); `None` outside a folder or in AzMail's bookkeeping (a name starting with
+/// `.`).
+pub fn folder_of_key(key: &str) -> Option<&str> {
+    let rest = key.strip_prefix(MAIL_PREFIX)?;
+    let (folder, _) = rest.rsplit_once('/')?;
+    let hidden = folder
+        .split('/')
+        .any(|segment| segment.is_empty() || segment.starts_with('.'));
+    (!hidden).then_some(folder)
+}
+
+/// `mail/<folder>/<name>`.
+pub fn message_key(folder: &str, name: &str) -> String {
+    format!("{MAIL_PREFIX}{folder}/{name}")
+}
+
+/// `mail/<folder>/`.
+pub fn folder_prefix(folder: &str) -> String {
+    format!("{MAIL_PREFIX}{folder}/")
+}
+
+/// The arrival time an id starts with (`20261008T091500Z-...`), in seconds since 1970; `None`
+/// for a name that does not start with a stamp (a file put into a folder by hand).
+pub fn stamp_of(id: &str) -> Option<u64> {
+    let b = id.as_bytes();
+    if b.len() < 16 || b[8] != b'T' || b[15] != b'Z' || (b.len() > 16 && b[16] != b'-') {
+        return None;
+    }
+    let digits = |range: std::ops::Range<usize>| b[range].iter().all(u8::is_ascii_digit);
+    if !digits(0..8) || !digits(9..15) {
+        return None;
+    }
+    // The first 16 bytes are ASCII from here on.
+    let s = &id[..16];
+    let iso = format!(
+        "{}-{}-{}T{}:{}:{}Z",
+        &s[0..4],
+        &s[4..6],
+        &s[6..8],
+        &s[9..11],
+        &s[11..13],
+        &s[13..15]
+    );
+    parse_iso8601(&iso)
+}
+
+/// `mail/.state/<id>/<flag>`: the marker that says `flag` (`seen`, `flagged`, `answered`).
+pub fn marker_key(id: &str, flag: &str) -> String {
+    format!("{STATE_PREFIX}{id}/{flag}")
+}
+
+/// `mail/.state/<id>/label/<label>`, the label percent-encoded.
+pub fn label_marker_key(id: &str, label: &str) -> String {
+    format!("{STATE_PREFIX}{id}/{LABEL_DIR}/{}", uri_encode(label, true))
+}
+
+/// `mail/.state/<id>/`: every marker of a message.
+pub fn state_prefix(id: &str) -> String {
+    format!("{STATE_PREFIX}{id}/")
+}
+
+/// What one marker says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Marker {
+    /// `seen`, `flagged`, `answered`, or a flag of a newer AzMail.
+    Flag(String),
+    Label(String),
+}
+
+/// The message id and what the marker `key` says; `None` for a key that is no marker.
+pub fn parse_marker(key: &str) -> Option<(String, Marker)> {
+    let rest = key.strip_prefix(STATE_PREFIX)?;
+    let (id, what) = rest.split_once('/')?;
+    if id.is_empty() || what.is_empty() {
+        return None;
+    }
+    match what.split_once('/') {
+        None => Some((id.to_string(), Marker::Flag(what.to_string()))),
+        Some((LABEL_DIR, label)) if !label.is_empty() && !label.contains('/') => {
+            uri_decode(label).map(|label| (id.to_string(), Marker::Label(label)))
+        }
+        Some(_) => None,
+    }
+}
+
+/// A message's state, as its markers say.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MessageState {
+    pub seen: bool,
+    pub flagged: bool,
+    pub answered: bool,
+    pub labels: BTreeSet<String>,
+}
+
+impl MessageState {
+    /// Takes one marker into the state (a flag AzMail does not know is left out).
+    pub fn apply(&mut self, marker: Marker) {
+        match marker {
+            Marker::Flag(flag) => match flag.as_str() {
+                SEEN => self.seen = true,
+                FLAGGED => self.flagged = true,
+                ANSWERED => self.answered = true,
+                _ => {}
+            },
+            Marker::Label(label) => {
+                self.labels.insert(label);
+            }
+        }
+    }
+
+    /// The state as an IMAP server's flags (`\Seen`, `\Flagged`, `\Answered`): what the index's
+    /// `flags` hold for every account.
+    pub fn imap_flags(&self) -> Vec<String> {
+        let mut flags = Vec::new();
+        if self.seen {
+            flags.push(String::from("\\Seen"));
+        }
+        if self.flagged {
+            flags.push(String::from("\\Flagged"));
+        }
+        if self.answered {
+            flags.push(String::from("\\Answered"));
+        }
+        flags
+    }
+}
+
+/// Every message's state from the keys of a listing of `mail/.state/`.
+pub fn states_from_keys<'a>(
+    keys: impl IntoIterator<Item = &'a str>,
+) -> HashMap<String, MessageState> {
+    let mut states: HashMap<String, MessageState> = HashMap::new();
+    for key in keys {
+        if let Some((id, marker)) = parse_marker(key) {
+            states.entry(id).or_default().apply(marker);
+        }
+    }
+    states
+}
+
+// ==== The session: the drive token and the S3 credentials ====
+
+/// The region a bundle that names none is in (S3's own default, what the token server says).
+pub const DEFAULT_REGION: &str = "us-east-1";
+/// Credentials with less than this left are refreshed before a Send/Receive (seconds).
+pub const REFRESH_MARGIN_SECS: u64 = 3600;
+
+/// What the keyring keeps for an Azlin account (`AzMail/<account>/azlin`, as JSON): the drive
+/// token - a refresh token, a new one with every refresh - and the S3 credentials of the last
+/// refresh with where the drive is. `Debug` shows no secret.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AzlinSession {
+    pub drive_id: String,
+    pub drive_token: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub region: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bucket: String,
+    #[serde(default = "path_style_default")]
+    pub path_style: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub access_key_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub secret_access_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
+    /// When the credentials stop working, in seconds since 1970; `None`: keys that do not expire
+    /// (a token server handing out long-lived keys).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+}
+
+fn path_style_default() -> bool {
+    true
+}
+
+impl std::fmt::Debug for AzlinSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AzlinSession")
+            .field("drive_id", &self.drive_id)
+            .field("drive_token", &"<hidden>")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("credentials", &self.has_credentials())
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl AzlinSession {
+    /// A session that has only its drive token (typed into the wizard): the first Send/Receive
+    /// refreshes it.
+    pub fn with_token(drive_id: &str, drive_token: &str) -> AzlinSession {
+        AzlinSession {
+            drive_id: drive_id.trim().to_string(),
+            drive_token: drive_token.trim().to_string(),
+            endpoint: String::new(),
+            region: String::new(),
+            bucket: String::new(),
+            path_style: true,
+            access_key_id: String::new(),
+            secret_access_key: String::new(),
+            session_token: None,
+            expires_at: None,
+        }
+    }
+
+    /// The keyring entry's text (JSON).
+    pub fn to_secret(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    /// The keyring entry read back: a session, or (anything that is not one) a bare drive token
+    /// for the drive `drive_id`.
+    pub fn from_secret(secret: &str, drive_id: &str) -> AzlinSession {
+        let text = secret.trim();
+        if text.starts_with('{') {
+            if let Ok(mut session) = serde_json::from_str::<AzlinSession>(text) {
+                if session.drive_id.is_empty() {
+                    session.drive_id = drive_id.trim().to_string();
+                }
+                return session;
+            }
+        }
+        AzlinSession::with_token(drive_id, text)
+    }
+
+    /// The session holds S3 credentials and knows where the drive is.
+    pub fn has_credentials(&self) -> bool {
+        !self.access_key_id.is_empty()
+            && !self.secret_access_key.is_empty()
+            && !self.endpoint.is_empty()
+            && !self.bucket.is_empty()
+    }
+
+    /// The credentials must be refreshed before they are used at `now` (seconds since 1970):
+    /// there are none, or less than [`REFRESH_MARGIN_SECS`] are left.
+    pub fn needs_refresh(&self, now: u64) -> bool {
+        !self.has_credentials()
+            || self
+                .expires_at
+                .is_some_and(|at| at <= now.saturating_add(REFRESH_MARGIN_SECS))
+    }
+
+    /// Where the bucket is: the endpoint the token server reported, or `endpoint_override`
+    /// (`$AZLIN_S3_URL`, `--azlin-s3-url`).
+    pub fn s3_config(&self, endpoint_override: Option<&str>) -> S3Config {
+        let endpoint = endpoint_override
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+            .unwrap_or(self.endpoint.trim());
+        let region = if self.region.trim().is_empty() {
+            DEFAULT_REGION
+        } else {
+            self.region.trim()
+        };
+        S3Config {
+            endpoint: endpoint.to_string(),
+            region: region.to_string(),
+            bucket: self.bucket.clone(),
+            path_style: self.path_style,
+        }
+    }
+
+    /// The S3 credentials (with the session token of temporary ones).
+    pub fn credentials(&self) -> Credentials {
+        let credentials = Credentials::new(&self.access_key_id, &self.secret_access_key);
+        match self.session_token.as_deref().filter(|t| !t.is_empty()) {
+            Some(token) => credentials.with_session_token(token),
+            None => credentials,
+        }
+    }
+
+    /// The drive these credentials open, its requests sent through `transport`. Sends nothing.
+    pub fn open_drive(
+        &self,
+        endpoint_override: Option<&str>,
+        transport: Box<dyn Transport>,
+    ) -> Result<S3Drive, DriveError> {
+        if !self.has_credentials() {
+            return Err(DriveError::Denied {
+                message: String::from(
+                    "not signed in to the Azlin drive yet (Send/Receive signs in)",
+                ),
+            });
+        }
+        S3Drive::new(
+            self.s3_config(endpoint_override),
+            self.credentials(),
+            transport,
+        )
+    }
+}
+
+// ==== The account service: the token server ====
+
+/// Why the account service could not help.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AzlinError {
+    /// No answer (DNS, connection, TLS, timeout).
+    Connect(String),
+    /// The drive token was refused (revoked, reused, unknown): sign in again.
+    SignIn(String),
+    /// Another refusal, or an answer that makes no sense.
+    Protocol(String),
+    /// Not set up: no token server, no drive id, a URL that cannot be one.
+    Config(String),
+}
+
+impl std::fmt::Display for AzlinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AzlinError::Connect(e) => write!(f, "no answer from the Azlin token server: {e}"),
+            AzlinError::SignIn(e) => {
+                write!(f, "the Azlin token server refused the drive token: {e}")
+            }
+            AzlinError::Protocol(e) => {
+                write!(f, "the Azlin token server answered unexpectedly: {e}")
+            }
+            AzlinError::Config(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+/// What AzMail needs from the Azlin account service. [`TokenServer`] is the token server's
+/// HTTP API; azcloud-api's `Account` is the next implementation.
+pub trait CloudAccount {
+    /// A new drive named `name` and its first credentials (a development token server only:
+    /// real sign-ups go through a checkout).
+    fn create_drive(&self, name: &str) -> Result<AzlinSession, AzlinError>;
+    /// Fresh credentials for `drive_id` with this device's drive token. The answer carries the
+    /// NEXT drive token: the one given is dead from then on, and reusing it makes the token
+    /// server revoke this device.
+    fn refresh(&self, drive_id: &str, drive_token: &str) -> Result<AzlinSession, AzlinError>;
+}
+
+/// The host of an `http://` or `https://` URL (`[::1]` keeps its brackets), and whether it is
+/// `https`; `None` for anything else.
+pub fn url_host(url: &str) -> Option<(&str, bool)> {
+    let url = url.trim();
+    let (scheme, rest) = url.split_once("://")?;
+    let https = if scheme.eq_ignore_ascii_case("https") {
+        true
+    } else if scheme.eq_ignore_ascii_case("http") {
+        false
+    } else {
+        return None;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.contains('@') {
+        return None;
+    }
+    let host = if authority.starts_with('[') {
+        let end = authority.find(']')?;
+        &authority[..=end]
+    } else {
+        authority.split(':').next().unwrap_or_default()
+    };
+    (!host.is_empty()).then_some((host, https))
+}
+
+/// Checks a token server's URL: `https://`, or `http://` to this computer only (the drive token
+/// and the credentials would cross the network in the clear).
+pub fn check_token_url(url: &str) -> Result<(), AzlinError> {
+    let Some((host, https)) = url_host(url) else {
+        return Err(AzlinError::Config(format!(
+            "The token server \"{}\" is not a web address (https://...).",
+            url.trim()
+        )));
+    };
+    if !https && !crate::account::is_loopback_host(host) {
+        return Err(AzlinError::Config(format!(
+            "An unencrypted token server (http://) is only allowed on this computer, not {host}: \
+             the drive token would cross the network in the clear."
+        )));
+    }
+    Ok(())
+}
+
+/// The token server: `POST /v1/drives` and `POST /v1/drives/<id>/credentials`, JSON both ways.
+/// Blocking: call it from an azul `Thread`.
+pub struct TokenServer<'a> {
+    base: String,
+    transport: &'a dyn Transport,
+}
+
+impl<'a> TokenServer<'a> {
+    /// The token server at `base` (`http://127.0.0.1:8081`, `https://token.example`); refused
+    /// when it is no usable URL ([`check_token_url`]).
+    pub fn new(base: &str, transport: &'a dyn Transport) -> Result<TokenServer<'a>, AzlinError> {
+        check_token_url(base)?;
+        Ok(TokenServer {
+            base: base.trim().trim_end_matches('/').to_string(),
+            transport,
+        })
+    }
+
+    fn post(
+        &self,
+        path: &str,
+        bearer: Option<&str>,
+        body: &Value,
+    ) -> Result<HttpReply, AzlinError> {
+        let mut headers = vec![(String::from("accept"), String::from("application/json"))];
+        if let Some(token) = bearer {
+            headers.push((String::from("authorization"), format!("Bearer {token}")));
+        }
+        let call = HttpCall {
+            method: Method::Post,
+            url: format!("{}{path}", self.base),
+            headers,
+            body: body.to_string().into_bytes(),
+            content_type: String::from("application/json"),
+        };
+        self.transport.send(&call).map_err(AzlinError::Connect)
+    }
+}
+
+impl CloudAccount for TokenServer<'_> {
+    fn create_drive(&self, name: &str) -> Result<AzlinSession, AzlinError> {
+        // The tier is the token server's default one.
+        let reply = self.post(
+            "/v1/drives",
+            None,
+            &serde_json::json!({ "name": name.trim() }),
+        )?;
+        session_of_reply(&reply)
+    }
+
+    fn refresh(&self, drive_id: &str, drive_token: &str) -> Result<AzlinSession, AzlinError> {
+        let drive_id = drive_id.trim();
+        if drive_id.is_empty() {
+            return Err(AzlinError::Config(String::from(
+                "The account names no drive.",
+            )));
+        }
+        if drive_token.trim().is_empty() {
+            return Err(AzlinError::SignIn(String::from("there is no drive token")));
+        }
+        let path = format!("/v1/drives/{}/credentials", uri_encode(drive_id, true));
+        let reply = self.post(&path, Some(drive_token.trim()), &serde_json::json!({}))?;
+        let session = session_of_reply(&reply)?;
+        if session.drive_id != drive_id {
+            return Err(AzlinError::Protocol(format!(
+                "the answer is for the drive {}, not {drive_id}",
+                session.drive_id
+            )));
+        }
+        Ok(session)
+    }
+}
+
+/// The token server's error answer: `{"error": "<code>", "message": "<sentence>"}`.
+fn error_of(status: u16, body: &str) -> String {
+    let value: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let code = value["error"].as_str().unwrap_or_default();
+    let message = value["message"].as_str().unwrap_or_default();
+    match (code.is_empty(), message.is_empty()) {
+        (true, true) => format!("HTTP {status}"),
+        (false, true) => format!("{code} (HTTP {status})"),
+        (true, false) => format!("{message} (HTTP {status})"),
+        (false, false) => format!("{message} ({code}, HTTP {status})"),
+    }
+}
+
+fn session_of_reply(reply: &HttpReply) -> Result<AzlinSession, AzlinError> {
+    let text = String::from_utf8_lossy(&reply.body);
+    if !reply.is_success() {
+        let why = error_of(reply.status, &text);
+        return Err(match reply.status {
+            401 | 403 => AzlinError::SignIn(why),
+            _ => AzlinError::Protocol(why),
+        });
+    }
+    session_from_bundle(&text)
+}
+
+/// A token server's answer (the drive bundle: `drive.id`, `drive.location`, `credentials`,
+/// `drive_token`) as a session.
+pub fn session_from_bundle(json: &str) -> Result<AzlinSession, AzlinError> {
+    let value: Value = serde_json::from_str(json)
+        .map_err(|_| AzlinError::Protocol(String::from("the answer is not JSON")))?;
+    let text = |v: &Value| v.as_str().unwrap_or_default().trim().to_string();
+    let either = |a: &Value, b: &Value| {
+        let first = text(a);
+        if first.is_empty() {
+            text(b)
+        } else {
+            first
+        }
+    };
+    let drive = &value["drive"];
+    let location = &drive["location"];
+    let credentials = &value["credentials"];
+    let expires = &credentials["expires_at"];
+    let session = AzlinSession {
+        drive_id: text(&drive["id"]),
+        drive_token: text(&value["drive_token"]),
+        endpoint: either(&location["endpoint"], &credentials["endpoint"]),
+        region: text(&location["region"]),
+        bucket: either(&location["bucket"], &drive["bucket"]),
+        path_style: location["path_style"].as_bool().unwrap_or(true),
+        access_key_id: text(&credentials["access_key_id"]),
+        secret_access_key: text(&credentials["secret_access_key"]),
+        session_token: Some(text(&credentials["session_token"])).filter(|t| !t.is_empty()),
+        expires_at: expires
+            .as_u64()
+            .or_else(|| expires.as_str().and_then(parse_iso8601)),
+    };
+    if session.drive_id.is_empty() || session.drive_token.is_empty() {
+        return Err(AzlinError::Protocol(String::from(
+            "the answer has no drive id or no drive token",
+        )));
+    }
+    if !session.has_credentials() {
+        return Err(AzlinError::Protocol(String::from(
+            "the answer has no credentials, endpoint or bucket",
+        )));
+    }
+    Ok(session)
+}
+
+// ==== Where the token server is ====
+
+/// The token server's URL in the environment.
+pub const TOKEN_URL_VAR: &str = "AZLIN_TOKEN_URL";
+/// The S3 endpoint override in the environment.
+pub const S3_URL_VAR: &str = "AZLIN_S3_URL";
+/// The token server's URL on the command line.
+pub const TOKEN_URL_FLAG: &str = "--azlin-token-url";
+/// The S3 endpoint override on the command line.
+pub const S3_URL_FLAG: &str = "--azlin-s3-url";
+/// The section of the shared Azlin config (`~/.azlin/config.json`) with the endpoints.
+pub const CONFIG_SECTION: &str = "endpoints";
+/// The spellings of the token server's key in that section this reader takes, until azul-appkit's
+/// typed accessor of the section replaces [`endpoints_from_config`].
+const CONFIG_TOKEN_KEYS: [&str; 5] = [
+    "token",
+    "token_url",
+    "tokenUrl",
+    "token_server",
+    "tokenServer",
+];
+/// The same for the S3 endpoint.
+const CONFIG_S3_KEYS: [&str; 4] = ["s3", "s3_url", "s3Url", "storage"];
+
+/// Where the Azlin services are, as this run was told.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Endpoints {
+    /// The token server; `None`: nobody said (the wizard asks).
+    pub token_url: Option<String>,
+    /// The S3 endpoint to use instead of the one the token server reports.
+    pub s3_url: Option<String>,
+}
+
+/// A value that says something: trimmed, not empty.
+fn said(value: Option<String>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+impl Endpoints {
+    /// The shared config's `endpoints` section (the file's text, if there is a file), then the
+    /// environment (`env` reads a variable), then the switches: a later source wins where it
+    /// says something.
+    pub fn resolve(
+        config_json: Option<&str>,
+        env: &dyn Fn(&str) -> Option<String>,
+        flags: &Endpoints,
+    ) -> Endpoints {
+        let mut out = config_json.map(endpoints_from_config).unwrap_or_default();
+        if let Some(url) = said(env(TOKEN_URL_VAR)) {
+            out.token_url = Some(url);
+        }
+        if let Some(url) = said(env(S3_URL_VAR)) {
+            out.s3_url = Some(url);
+        }
+        if let Some(url) = said(flags.token_url.clone()) {
+            out.token_url = Some(url);
+        }
+        if let Some(url) = said(flags.s3_url.clone()) {
+            out.s3_url = Some(url);
+        }
+        out
+    }
+
+    /// The token server an account uses: its own (the one it was created with), else this
+    /// run's.
+    pub fn token_url_for(&self, account_url: &str) -> Option<String> {
+        said(Some(account_url.to_string())).or_else(|| self.token_url.clone())
+    }
+}
+
+/// The `endpoints` section of the shared Azlin config's text; nothing for a file that is not a
+/// config or has no such section.
+pub fn endpoints_from_config(json: &str) -> Endpoints {
+    let Ok(Value::Object(config)) = serde_json::from_str::<Value>(json) else {
+        return Endpoints::default();
+    };
+    let Some(Value::Object(section)) = config.get(CONFIG_SECTION) else {
+        return Endpoints::default();
+    };
+    let pick = |keys: &[&str]| {
+        said(
+            keys.iter()
+                .find_map(|key| section.get(*key).and_then(Value::as_str))
+                .map(str::to_string),
+        )
+    };
+    Endpoints {
+        token_url: pick(&CONFIG_TOKEN_KEYS),
+        s3_url: pick(&CONFIG_S3_KEYS),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    #[test]
+    fn an_object_name_is_the_arrival_stamp_and_the_start_of_the_hash() {
+        // SHA-256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad.
+        assert_eq!(
+            object_name(b"abc", 0),
+            "19700101T000000Z-ba7816bf8f01cfea.eml"
+        );
+        // 2026-10-08T09:15:00Z
+        let name = object_name(b"abc", 1_791_450_900);
+        assert_eq!(name, "20261008T091500Z-ba7816bf8f01cfea.eml");
+        assert_eq!(
+            object_name(b"abc", 1_791_450_900),
+            name,
+            "the same bytes, the same name"
+        );
+        assert_ne!(
+            object_name(b"abd", 1_791_450_900),
+            name,
+            "other bytes, another name"
+        );
+        assert_eq!(stamp_of(name.trim_end_matches(".eml")), Some(1_791_450_900));
+    }
+
+    #[test]
+    fn a_messages_id_and_folder_come_from_its_key() {
+        let key = "mail/Inbox/20261008T091500Z-ba7816bf8f01cfea.eml";
+        assert_eq!(message_id(key), Some("20261008T091500Z-ba7816bf8f01cfea"));
+        assert_eq!(folder_of_key(key), Some("Inbox"));
+        assert_eq!(
+            folder_of_key("mail/Work/Projects/x.EML"),
+            Some("Work/Projects")
+        );
+        assert_eq!(
+            message_id("mail/Work/Projects/x.EML"),
+            Some("x"),
+            "any case"
+        );
+        assert_eq!(message_id("mail/x.eml"), None, "not in a folder");
+        assert_eq!(message_id("mail/Inbox/notes.txt"), None, "not a message");
+        assert_eq!(
+            message_id("mail/.state/x/seen"),
+            None,
+            "AzMail's bookkeeping"
+        );
+        assert_eq!(message_id("docs/Inbox/x.eml"), None, "not the mailbox");
+        assert_eq!(message_id("mail/Inbox/.eml"), None, "no name");
+        assert_eq!(message_key("Spam", "x.eml"), "mail/Spam/x.eml");
+        assert_eq!(folder_prefix("Work/Projects"), "mail/Work/Projects/");
+        assert_eq!(stamp_of("invoice"), None, "a name put there by hand");
+        assert_eq!(stamp_of("20261008T091500Zx"), None);
+        assert_eq!(
+            stamp_of("2026€008T091500Z-x"),
+            None,
+            "never cuts a character"
+        );
+    }
+
+    #[test]
+    fn markers_say_a_flag_or_a_label_of_one_message() {
+        assert_eq!(marker_key("X", SEEN), "mail/.state/X/seen");
+        assert_eq!(state_prefix("X"), "mail/.state/X/");
+        let label = label_marker_key("X", "Work/Urgent");
+        assert_eq!(label, "mail/.state/X/label/Work%2FUrgent");
+        assert_eq!(
+            parse_marker(&label),
+            Some((
+                String::from("X"),
+                Marker::Label(String::from("Work/Urgent"))
+            ))
+        );
+        assert_eq!(
+            parse_marker("mail/.state/X/seen"),
+            Some((String::from("X"), Marker::Flag(String::from("seen"))))
+        );
+        assert_eq!(parse_marker("mail/.state/X"), None);
+        assert_eq!(parse_marker("mail/.state/X/other/thing"), None);
+        assert_eq!(parse_marker("mail/Inbox/X.eml"), None);
+        let states = states_from_keys([
+            "mail/.state/A/seen",
+            "mail/.state/A/flagged",
+            "mail/.state/B/answered",
+            "mail/.state/B/label/Garden",
+            "mail/.state/C/something-new",
+        ]);
+        assert_eq!(states["A"].imap_flags(), vec!["\\Seen", "\\Flagged"]);
+        assert_eq!(states["B"].imap_flags(), vec!["\\Answered"]);
+        assert!(states["B"].labels.contains("Garden"));
+        assert_eq!(
+            states["C"],
+            MessageState::default(),
+            "an unknown flag is left out"
+        );
+    }
+
+    #[test]
+    fn a_session_round_trips_through_its_keyring_entry_and_debug_shows_no_secret() {
+        let mut session = AzlinSession::with_token("d_1", " dt_f.0.secret-token ");
+        assert_eq!(session.drive_token, "dt_f.0.secret-token");
+        assert!(!session.has_credentials());
+        assert!(session.needs_refresh(0), "no credentials yet");
+        session.endpoint = String::from("http://127.0.0.1:9000");
+        session.bucket = String::from("d-1");
+        session.access_key_id = String::from("AKID-SECRET-PART");
+        session.secret_access_key = String::from("s3-secret-key");
+        session.session_token = Some(String::from("session-token-secret"));
+        session.expires_at = Some(10_000);
+        let text = session.to_secret();
+        assert_eq!(AzlinSession::from_secret(&text, "d_1"), session);
+        let shown = format!("{session:?}");
+        for secret in [
+            "secret-token",
+            "AKID-SECRET-PART",
+            "s3-secret-key",
+            "session-token-secret",
+        ] {
+            assert!(!shown.contains(secret), "{shown}");
+        }
+        assert!(!session.needs_refresh(10_000 - REFRESH_MARGIN_SECS - 1));
+        assert!(
+            session.needs_refresh(10_000 - REFRESH_MARGIN_SECS),
+            "less than the margin left"
+        );
+        session.expires_at = None;
+        assert!(
+            !session.needs_refresh(u64::MAX / 2),
+            "long-lived keys never need one"
+        );
+        // A drive token typed into the wizard is a session too.
+        assert_eq!(
+            AzlinSession::from_secret("dt_f.0.typed", "d_1"),
+            AzlinSession::with_token("d_1", "dt_f.0.typed")
+        );
+        let config = session.s3_config(None);
+        assert_eq!(config.endpoint, "http://127.0.0.1:9000");
+        assert_eq!(config.region, DEFAULT_REGION);
+        assert!(config.path_style);
+        assert_eq!(
+            session.s3_config(Some(" http://127.0.0.1:9100 ")).endpoint,
+            "http://127.0.0.1:9100"
+        );
+        assert_eq!(
+            session.credentials().session_token.as_deref(),
+            Some("session-token-secret")
+        );
+    }
+
+    /// The token server's answer as azlin-token writes it (`drives::signup_response`).
+    fn bundle(token: &str, expires: &str) -> String {
+        serde_json::json!({
+            "drive": {
+                "id": "d_42",
+                "name": "AzMail",
+                "location": {"kind": "s3", "endpoint": "http://127.0.0.1:9000", "region": "us-east-1",
+                             "bucket": "d-42", "path_style": true,
+                             "auth": {"type": "azlin", "drive_id": "d_42", "account_url": ""}}
+            },
+            "credentials": {"access_key_id": "AZT1", "secret_access_key": "sk", "session_token": "st",
+                            "expires_at": expires},
+            "failover": ["http://127.0.0.1:9001"],
+            "nodes": [{"url": "http://127.0.0.1:9001"}],
+            "quota_bytes": 107_374_182_400_u64,
+            "read_only": false,
+            "drive_token": token,
+            "tier": "100GB"
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn a_drive_bundle_becomes_a_session() {
+        let session = session_from_bundle(&bundle("dt_f.1.abc", "2026-10-08T21:15:00Z")).unwrap();
+        assert_eq!(session.drive_id, "d_42");
+        assert_eq!(session.drive_token, "dt_f.1.abc");
+        assert_eq!(session.endpoint, "http://127.0.0.1:9000");
+        assert_eq!(session.bucket, "d-42");
+        assert_eq!(session.region, "us-east-1");
+        assert_eq!(session.access_key_id, "AZT1");
+        assert_eq!(session.session_token.as_deref(), Some("st"));
+        assert_eq!(session.expires_at, Some(1_791_494_100));
+        assert!(matches!(
+            session_from_bundle("{}"),
+            Err(AzlinError::Protocol(_))
+        ));
+        assert!(matches!(
+            session_from_bundle("not json"),
+            Err(AzlinError::Protocol(_))
+        ));
+    }
+
+    /// A transport that answers from a list and records the calls.
+    struct Fake {
+        calls: Mutex<Vec<HttpCall>>,
+        answers: Mutex<Vec<HttpReply>>,
+    }
+
+    impl Transport for Fake {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.calls.lock().unwrap().push(call.clone());
+            let mut answers = self.answers.lock().unwrap();
+            if answers.is_empty() {
+                return Err(String::from("connection refused"));
+            }
+            Ok(answers.remove(0))
+        }
+    }
+
+    fn reply(status: u16, body: &str) -> HttpReply {
+        HttpReply {
+            status,
+            headers: Vec::new(),
+            body: body.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn the_token_server_client_signs_up_and_refreshes_with_the_drive_token() {
+        let fake = Fake {
+            calls: Mutex::new(Vec::new()),
+            answers: Mutex::new(vec![
+                reply(201, &bundle("dt_f.0.first", "2026-10-08T21:15:00Z")),
+                reply(200, &bundle("dt_f.1.second", "2026-10-09T09:15:00Z")),
+                reply(
+                    401,
+                    r#"{"error": "token_reuse", "message": "an old token was reused"}"#,
+                ),
+            ]),
+        };
+        let server = TokenServer::new("http://127.0.0.1:8081/", &fake).unwrap();
+        let created = server.create_drive("AzMail").unwrap();
+        assert_eq!(created.drive_token, "dt_f.0.first");
+        let refreshed = server.refresh("d_42", &created.drive_token).unwrap();
+        assert_eq!(
+            refreshed.drive_token, "dt_f.1.second",
+            "a new token with every refresh"
+        );
+        let refused = server.refresh("d_42", &created.drive_token).unwrap_err();
+        assert!(
+            matches!(&refused, AzlinError::SignIn(why) if why.contains("token_reuse")),
+            "{refused:?}"
+        );
+        let calls = fake.calls.lock().unwrap();
+        assert_eq!(calls[0].method, Method::Post);
+        assert_eq!(calls[0].url, "http://127.0.0.1:8081/v1/drives");
+        assert!(String::from_utf8_lossy(&calls[0].body).contains("AzMail"));
+        assert_eq!(
+            calls[1].url,
+            "http://127.0.0.1:8081/v1/drives/d_42/credentials"
+        );
+        let auth = calls[1]
+            .headers
+            .iter()
+            .find(|(n, _)| n == "authorization")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(auth, Some("Bearer dt_f.0.first"));
+        assert!(
+            calls[0].headers.iter().all(|(n, _)| n != "authorization"),
+            "a sign-up needs none"
+        );
+        drop(calls);
+        assert!(matches!(
+            server.refresh("d_42", ""),
+            Err(AzlinError::SignIn(_))
+        ));
+        assert!(
+            matches!(server.refresh("d_42", "dt"), Err(AzlinError::Connect(_))),
+            "no answers left"
+        );
+    }
+
+    #[test]
+    fn a_token_server_is_https_or_on_this_computer() {
+        let fake = Fake {
+            calls: Mutex::new(Vec::new()),
+            answers: Mutex::new(Vec::new()),
+        };
+        assert!(TokenServer::new("https://token.example", &fake).is_ok());
+        assert!(TokenServer::new("http://127.0.0.1:8081", &fake).is_ok());
+        assert!(TokenServer::new("http://localhost:8081", &fake).is_ok());
+        assert!(TokenServer::new("http://[::1]:8081", &fake).is_ok());
+        assert!(matches!(
+            TokenServer::new("http://token.example", &fake),
+            Err(AzlinError::Config(_))
+        ));
+        assert!(matches!(
+            TokenServer::new("ftp://token.example", &fake),
+            Err(AzlinError::Config(_))
+        ));
+        assert!(matches!(
+            TokenServer::new("", &fake),
+            Err(AzlinError::Config(_))
+        ));
+        assert_eq!(url_host("https://user@token.example"), None);
+        assert_eq!(
+            url_host("http://127.0.0.1:8081/v1"),
+            Some(("127.0.0.1", false))
+        );
+    }
+
+    #[test]
+    fn the_endpoints_come_from_the_shared_config_then_the_environment_then_the_switches() {
+        let config = r#"{"currentTheme": "flora", "endpoints": {"token": " http://127.0.0.1:8081 ", "s3": ""}}"#;
+        let none = |_: &str| -> Option<String> { None };
+        let from_config = Endpoints::resolve(Some(config), &none, &Endpoints::default());
+        assert_eq!(
+            from_config.token_url.as_deref(),
+            Some("http://127.0.0.1:8081")
+        );
+        assert_eq!(from_config.s3_url, None, "an empty value says nothing");
+        let env =
+            |name: &str| (name == TOKEN_URL_VAR).then(|| String::from("http://127.0.0.1:18081"));
+        let from_env = Endpoints::resolve(Some(config), &env, &Endpoints::default());
+        assert_eq!(
+            from_env.token_url.as_deref(),
+            Some("http://127.0.0.1:18081")
+        );
+        let flags = Endpoints {
+            token_url: Some(String::from("http://127.0.0.1:28081")),
+            s3_url: Some(String::from("http://127.0.0.1:29000")),
+        };
+        let from_flags = Endpoints::resolve(Some(config), &env, &flags);
+        assert_eq!(from_flags, flags);
+        assert_eq!(
+            Endpoints::resolve(None, &none, &Endpoints::default()),
+            Endpoints::default()
+        );
+        assert_eq!(endpoints_from_config("not json"), Endpoints::default());
+        assert_eq!(
+            endpoints_from_config(r#"{"endpoints": {"tokenUrl": "https://t.example"}}"#)
+                .token_url
+                .as_deref(),
+            Some("https://t.example")
+        );
+        // The account's own token server wins over this run's.
+        assert_eq!(
+            from_config.token_url_for("https://own.example").as_deref(),
+            Some("https://own.example")
+        );
+        assert_eq!(
+            from_config.token_url_for(" ").as_deref(),
+            Some("http://127.0.0.1:8081")
+        );
+    }
+
+    #[test]
+    fn the_well_known_folders_have_their_names_by_role() {
+        assert_eq!(well_known_name(Role::Spam), Some("Spam"));
+        assert_eq!(well_known_name(Role::Inbox), Some("Inbox"));
+        assert_eq!(well_known_name(Role::Other), None);
+        assert_eq!(well_known_name(Role::All), None);
+    }
+}
