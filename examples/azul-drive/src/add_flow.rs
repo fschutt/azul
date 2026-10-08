@@ -1,15 +1,18 @@
 //! What the Add drive dialog's buttons start, and what their jobs answer: a source's connection
 //! test and its saving (the drives file without secrets, the keyring with them), Buy storage's
 //! tier list, a test drive of a development token server, a checkout paid in the browser and
-//! the wait for its drive. The dialog's data is `add_drive`, its view `ui_add_drive`.
+//! the wait for its drive - and the claims of the checkouts no dialog waits for any more: after
+//! "Stop waiting" in the background, at every start (azcloud-kit's `pending`: the checkouts and
+//! their claim keys outlive AzDrive in the keyring). The dialog's data is `add_drive`, its view
+//! `ui_add_drive`.
 //!
 //! On stdout, for scripts: `AZDRIVE_ADD_PAGE <page>`, `AZDRIVE_TESTED ok|error`,
-//! `AZDRIVE_TIERS <n>`, `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_ADDED <drive id>`. No secret
-//! and no payment page address is printed.
+//! `AZDRIVE_TIERS <n>`, `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive
+//! id>`, `AZDRIVE_ADDED <drive id>`. No secret and no payment page address is printed.
 
 use std::sync::{atomic::AtomicBool, Arc};
 
-use azcloud_kit::{Checkout, ClaimKey, DriveBundle, Tiers};
+use azcloud_kit::{pending::Claimed, Checkout, PendingCheckout, Tiers};
 use azul::{prelude::*, url::Url};
 use azul_storage::{
     config::{self, DriveEntry, DrivesFile},
@@ -20,7 +23,7 @@ use crate::{
     add_drive::{AddDialog, BuyStep, TiersState},
     browse::Place,
     go,
-    jobs::Job,
+    jobs::{BoughtDrive, Job},
     keyring, refresh_disks, spawn, DriveState, KeyringCall, KeyringOp, Popup, Slot,
 };
 
@@ -121,7 +124,7 @@ pub(crate) fn event(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState, e
         AddEvent::Cancel => cancel(s),
         AddEvent::CreateTestDrive => create_test_drive(info, app, s),
         AddEvent::Buy => buy(info, app, s),
-        AddEvent::StopWaiting => stop_waiting(s),
+        AddEvent::StopWaiting => stop_waiting(info, app, s),
     }
     if let Some(d) = dialog(s) {
         if d.page_line() != page_before {
@@ -210,7 +213,7 @@ fn save(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         d.error = problem;
         return;
     }
-    add_slot(info, app, s, new.entry, new.secret, true);
+    add_slot(info, app, s, new.entry, new.secret, true, false);
 }
 
 /// Writes `entry` into the drives file at `path` (replacing the drive with its id).
@@ -228,9 +231,10 @@ fn save_entry(path: Option<&std::path::Path>, entry: &DriveEntry) -> Result<(), 
         .map_err(|e: DriveError| format!("The drive could not be saved: {e}"))
 }
 
-/// A new (or re-keyed) drive joins the source list with its secret (into the keyring too); with
-/// `from_dialog` (the open dialog made it) the dialog closes and the window opens the drive - a
-/// drive whose payment arrived after its dialog closed just joins the list.
+/// A new (or re-keyed) drive joins the source list with its secret (into the keyring too,
+/// unless `in_keyring`: an Azlin drive's session a worker thread stored under the drive's
+/// lock); with `from_dialog` (the open dialog made it) the dialog closes and the window opens
+/// the drive - a drive whose payment arrived after its dialog closed just joins the list.
 pub(crate) fn add_slot(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -238,6 +242,7 @@ pub(crate) fn add_slot(
     entry: DriveEntry,
     secret: Option<String>,
     from_dialog: bool,
+    in_keyring: bool,
 ) {
     let id = entry.id.clone();
     let local = matches!(entry.location, azul_storage::config::DriveLocation::Local { .. });
@@ -264,20 +269,26 @@ pub(crate) fn add_slot(
     }
     println!("AZDRIVE_ADDED {id}");
     let name = s.slots[index].entry.name.clone();
-    if let Some(secret) = secret {
-        keyring(
+    let stored_already = in_keyring && secret.is_some();
+    match secret {
+        Some(secret) if !in_keyring => keyring(
             info,
             s,
             KeyringOp::Store {
                 drive_id: id.clone(),
             },
             KeyringCall::Store(config::keyring_key(&id), secret),
-        );
-    } else {
-        s.success(format!("\"{name}\" is a drive now."));
+        ),
+        Some(_) => {}
+        None => s.success(format!("\"{name}\" is a drive now.")),
     }
     if from_dialog {
         go(info, app, s, Place::folder(&id, ""), true);
+        if stored_already {
+            s.success(format!(
+                "\"{name}\" is a drive now; its session is in the system keyring."
+            ));
+        }
     } else {
         s.info(format!("\"{name}\" is ready: it is in the source list."));
     }
@@ -365,6 +376,7 @@ fn create_test_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
         d.step = BuyStep::Creating;
         d.notice = String::from("Creating the test drive...");
     }
+    let keyring = s.keyring.clone();
     spawn(
         info,
         app,
@@ -374,13 +386,15 @@ fn create_test_drive(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) 
             token_url,
             name,
             tier,
+            keyring,
         },
     );
 }
 
-/// "Buy": a checkout; its payment page opens in the browser when it is made.
+/// "Buy": a checkout, on the keyring's list of unfinished checkouts with its claim key; its
+/// payment page opens in the browser when it is made.
 fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
-    let Some((tier, _, token_url, serial)) = buy_parts(s) else {
+    let Some((tier, name, token_url, serial)) = buy_parts(s) else {
         return;
     };
     let months = match dialog(s) {
@@ -391,6 +405,7 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         }
         None => return,
     };
+    let keyring = s.keyring.clone();
     spawn(
         info,
         app,
@@ -400,24 +415,34 @@ fn buy(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
             token_url,
             tier,
             months,
+            name,
+            keyring,
         },
     );
 }
 
 /// The checkout's answer: its payment page opens in the browser, and the dialog waits for the
-/// drive.
+/// drive (the checkout is on the keyring's list already: a payment the dialog does not see
+/// still brings the drive).
 pub(crate) fn checkout_started(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    result: Result<(Checkout, ClaimKey), String>,
+    result: Result<(Checkout, PendingCheckout), String>,
 ) {
-    let token_url = s.token.url.clone().unwrap_or_default();
+    let keyring = s.keyring.clone();
+    if dialog_of(s, serial).is_none() {
+        // The dialog closed while the checkout was made: the background claims wait for it.
+        if result.is_ok() {
+            start_claims(info, app, s);
+        }
+        return;
+    }
     let Some(d) = dialog_of(s, serial) else {
         return;
     };
-    let (checkout, claim) = match result {
+    let (checkout, kept) = match result {
         Ok(started) => started,
         Err(why) => {
             d.step = BuyStep::Idle;
@@ -425,6 +450,7 @@ pub(crate) fn checkout_started(
             return;
         }
     };
+    let token_url = kept.token_url.clone();
     println!("AZDRIVE_CHECKOUT {}", checkout.checkout_id);
     let opened = Url::parse(checkout.pay_url.as_str())
         .into_result()
@@ -453,61 +479,84 @@ pub(crate) fn checkout_started(
         s,
         Job::AwaitPayment {
             serial,
+            checkout: kept,
             token_url,
-            checkout_id: checkout.checkout_id,
-            claim,
+            keyring,
             cancel,
         },
     );
 }
 
-/// "Stop waiting": the payment page stays where it is; the dialog asks no more.
-fn stop_waiting(s: &mut DriveState) {
-    if let Some(d) = dialog(s) {
-        let stopped = match &d.step {
-            BuyStep::Paying {
-                cancel,
-                checkout_id,
-            } => {
-                cancel.store(true, std::sync::atomic::Ordering::SeqCst);
-                format!(
-                    "Stopped waiting for the payment of checkout {checkout_id}. A payment made \
-                     now still creates the drive at the token server."
-                )
-            }
-            _ => String::from("Stopped waiting."),
-        };
-        d.step = BuyStep::Idle;
-        d.notice = stopped;
+/// "Stop waiting": the payment page stays where it is; the dialog asks no more, the background
+/// claims do (and every start of AzDrive): a payment made now still brings the drive.
+fn stop_waiting(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let Some(d) = dialog(s) else {
+        return;
+    };
+    let stopped = match &d.step {
+        BuyStep::Paying {
+            cancel,
+            checkout_id,
+        } => {
+            cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+            Some(format!(
+                "Stopped waiting for the payment of checkout {checkout_id}. A payment made now \
+                 still brings the drive: AzDrive asks in the background, and again at its next \
+                 start."
+            ))
+        }
+        _ => None,
+    };
+    d.step = BuyStep::Idle;
+    d.notice = stopped
+        .clone()
+        .unwrap_or_else(|| String::from("Stopped waiting."));
+    if stopped.is_some() {
+        start_claims(info, app, s);
     }
 }
 
-/// The wait for a payment ended without a drive.
-pub(crate) fn payment_ended(s: &mut DriveState, serial: u64, why: String) {
-    if let Some(d) = dialog_of(s, serial) {
-        d.step = BuyStep::Idle;
-        d.notice = why;
+/// The wait for a payment ended without a drive: why - said in the dialog, else in the window
+/// (the checkout's end is said once). Empty: the dialog stopped waiting ("Stop waiting", Back,
+/// Cancel, the dialog closed), and the background claims wait for the payment instead.
+pub(crate) fn payment_ended(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: u64,
+    why: String,
+) {
+    if why.is_empty() {
+        start_claims(info, app, s);
+        return;
+    }
+    match dialog_of(s, serial) {
+        Some(d) => {
+            d.step = BuyStep::Idle;
+            d.notice = why;
+        }
+        None => s.info(why),
     }
 }
 
-/// A new Azlin drive (a test drive, or the paid checkout's): into the drives file under the
-/// name typed, its session into the keyring, into the source list.
+/// A development server's test drive: into the drives file under the name typed, into the
+/// source list with its session (the keyring has it: the job wrote it under the drive's lock -
+/// unless the keyring did not take it, then it is tried once more from here).
 pub(crate) fn bought(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
     serial: u64,
-    result: Result<DriveBundle, String>,
+    result: Result<BoughtDrive, String>,
 ) {
     let token_url = s.token.url.clone().unwrap_or_default();
     let file_path = s.drives_file.clone();
     let (name, open) = match dialog_of(s, serial) {
         Some(d) => (d.buy_name.trim().to_string(), true),
-        // The dialog was closed meanwhile (a payment): the drive is kept anyway - it is paid.
         None => (String::new(), false),
     };
-    let bundle = match result {
-        Ok(bundle) => bundle,
+    let bought = match result {
+        Ok(bought) => bought,
         Err(why) => {
             if let Some(d) = dialog_of(s, serial) {
                 d.step = BuyStep::Idle;
@@ -518,16 +567,128 @@ pub(crate) fn bought(
             return;
         }
     };
-    let entry = bundle.entry_named(&name, &token_url);
+    let entry = bought.bundle.entry_named(&name, &token_url);
     let saved = save_entry(file_path.as_deref(), &entry);
-    let secret = bundle.session().to_keyring_secret();
-    // The session goes to the keyring even when the drives file cannot take the entry: the
-    // drive token is the only way back into a paid drive.
-    add_slot(info, app, s, entry, Some(secret), open);
+    let in_keyring = bought.unsaved.is_none();
+    // The session is kept even when the drives file cannot take the entry: the drive token is
+    // the only way back into the drive.
+    add_slot(info, app, s, entry, Some(bought.session), open, in_keyring);
     if let Err(problem) = saved {
         // Said in the window (the dialog closed with the drive).
         s.error(format!(
             "{problem} The drive works until AzDrive closes; its session is in the keyring."
+        ));
+    }
+}
+
+// ==== The claims: a paid drive reaches AzDrive however late ====
+
+/// Starts the background claims of the keyring's unfinished checkouts, unless they run: at
+/// every start, after "Stop waiting".
+pub(crate) fn start_claims(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    if s.claiming {
+        return;
+    }
+    s.claiming = true;
+    let keyring = s.keyring.clone();
+    let token_url = s.token.url.clone();
+    spawn(info, app, s, Job::Claims { keyring, token_url });
+}
+
+/// A paid checkout's drive, its session in the keyring (written there under the drive's lock):
+/// from the dialog's wait (`serial`: the dialog closes and the window opens the drive) or from
+/// the background claims (it joins the source list, the window stays where it is). Idempotent
+/// by drive id: a drive the window has keeps its slot and its session. Once the drive is in the
+/// drives file its checkout leaves the keyring's list; until then the next start claims it
+/// again.
+pub(crate) fn claimed(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    serial: Option<u64>,
+    checkout: &PendingCheckout,
+    claimed: &Claimed,
+) {
+    let drive_id = claimed.bundle.drive_id().to_string();
+    println!("AZDRIVE_CLAIMED {} {drive_id}", checkout.checkout_id);
+    let from_dialog = serial.is_some_and(|serial| dialog_of(s, serial).is_some());
+    let in_drives_file = match s.slot_index(&drive_id) {
+        Some(index) => {
+            if from_dialog {
+                cancel(s);
+                s.selected_drive = Some(index);
+                go(info, app, s, Place::folder(&drive_id, ""), true);
+            }
+            true
+        }
+        None => {
+            let token_url = if checkout.token_url.is_empty() {
+                s.token.url.clone().unwrap_or_default()
+            } else {
+                checkout.token_url.clone()
+            };
+            let entry = claimed.bundle.entry_named(&checkout.name, &token_url);
+            let saved = save_entry(s.drives_file.as_deref(), &entry);
+            add_slot(
+                info,
+                app,
+                s,
+                entry,
+                Some(claimed.session.clone()),
+                from_dialog,
+                true,
+            );
+            match saved {
+                Ok(()) => true,
+                Err(problem) => {
+                    s.error(format!(
+                        "{problem} The drive works until AzDrive closes; its session is in the \
+                         keyring, and AzDrive adds it again at its next start."
+                    ));
+                    false
+                }
+            }
+        }
+    };
+    if in_drives_file {
+        let keyring = s.keyring.clone();
+        spawn(
+            info,
+            app,
+            s,
+            Job::ForgetCheckout {
+                keyring,
+                checkout_id: checkout.checkout_id.clone(),
+            },
+        );
+    }
+}
+
+/// The background claims took a checkout off the keyring's list: said once.
+pub(crate) fn checkout_dropped(s: &mut DriveState, checkout_id: &str, why: &str) {
+    s.warn(format!(
+        "The checkout {checkout_id} is not waited for any more: {why}."
+    ));
+}
+
+/// The background claims ended.
+pub(crate) fn claims_done(s: &mut DriveState, problem: Option<String>) {
+    s.claiming = false;
+    if let Some(problem) = problem {
+        s.warn(problem);
+    }
+}
+
+/// A claimed checkout's removal from the keyring's list.
+pub(crate) fn checkout_forgotten(
+    s: &mut DriveState,
+    checkout_id: &str,
+    result: Result<bool, String>,
+) {
+    if let Err(why) = result {
+        s.error(format!(
+            "The checkout {checkout_id} could not be taken off the keyring's list ({why}); \
+             AzDrive asks about it again at its next start."
         ));
     }
 }

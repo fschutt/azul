@@ -69,9 +69,9 @@
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
 //! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
 //! `AZDRIVE_ADD_PAGE choose|buy|sources|form <source>`, `AZDRIVE_TIERS <n>`,
-//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`,
-//! `AZDRIVE_FILE_MENU <action>`, `AZDRIVE_NEW_WINDOW <path>`. Keys, passwords, tokens and
-//! payment pages are never printed.
+//! `AZDRIVE_CHECKOUT <checkout id>`, `AZDRIVE_CLAIMED <checkout id> <drive id>`,
+//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
+//! `AZDRIVE_NEW_WINDOW <path>`. Keys, passwords, tokens and payment pages are never printed.
 //!
 //! Add drive (Home > Add drive, Computer > Add drive, the source list's "Add drive...", the
 //! Options' Drives) is a modal dialog - a transient window over the window: Buy storage (Azlin's
@@ -81,6 +81,14 @@
 //! SQLite browsed as tables with `sql`; a form per source, "Test connection", "Add drive").
 //! `--token-url <url>` / `--profile <name>` name the token server (else `$AZLIN_TOKEN_URL`, the
 //! shared Azlin config, the profile's).
+//!
+//! A checkout names a claim key of its own (azcloud-kit's `claim`): the token server seals the
+//! paid drive's sign-up to it. The checkout and its key go on the keyring's list of unfinished
+//! checkouts before the payment page opens, so a drive paid after "Stop waiting" joins the
+//! source list in the background, and one paid while AzDrive was closed arrives at the next start
+//! (azcloud-kit's `pending`). An Azlin drive's session is written by worker threads only, under
+//! the drive's lock every AzDrive window shares: a second window never spends a drive token the
+//! first one has spent (the token server would revoke the device).
 
 mod actions;
 /// The Add drive dialog as data: Buy storage, Connect data source, the source's form.
@@ -174,10 +182,19 @@ const LEAF_FRAME_Y: f32 = 2.0 * 8.0 + 2.0 + 25.0 + 23.0;
 
 // ==== Drives ====
 
-/// The sessions of Azlin drives that refreshed their credentials on a worker thread, as
-/// (drive id, keyring text): the UI thread stores each in the keyring (`store_rotated`) - the
-/// drive token they replace is spent.
-pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<(String, String)>>>;
+/// A session an Azlin drive switched to on a worker thread: refreshed there (and stored in the
+/// keyring under the drive's lock before anything used it) or read from the keyring (another
+/// window refreshed). The UI thread takes it as the drive's secret (`take_rotated`).
+pub(crate) struct Rotated {
+    pub drive_id: String,
+    /// The keyring text of the session. Never printed.
+    pub secret: String,
+    /// Why the keyring did not take it: it lives in this process only.
+    pub unsaved: Option<String>,
+}
+
+/// The sessions Azlin drives switched to on worker threads, for the UI thread.
+pub(crate) type RotatedSessions = Arc<std::sync::Mutex<Vec<Rotated>>>;
 
 /// A drive.
 pub(crate) struct Slot {
@@ -204,12 +221,15 @@ impl Slot {
     }
 
     /// The drive, opened on first use: an Azlin drive through azcloud-kit (it refreshes its
-    /// credentials; a rotated session lands in `rotated`, its token server is the one the entry
-    /// names, else `token_url`), every other one through azul-storage.
+    /// credentials under the drive's lock in `keyring`, which it re-reads first - another window
+    /// may have refreshed - and writes before it lets go; every session it switches to lands in
+    /// `rotated`; its token server is the one the entry names, else `token_url`), every other
+    /// one through azul-storage.
     pub fn open(
         &mut self,
         rotated: &RotatedSessions,
         token_url: Option<&str>,
+        keyring: &azcloud_kit::SharedKeyring,
     ) -> Result<Arc<dyn Drive>, DriveError> {
         if let Some(drive) = &self.drive {
             return Ok(drive.clone());
@@ -232,12 +252,19 @@ impl Slot {
                 &self.entry,
                 session,
                 token_url.unwrap_or_default(),
+                keyring.clone(),
                 transports,
-                Box::new(move |session: &azcloud_kit::AzlinSession| {
-                    if let Ok(mut queue) = queue.lock() {
-                        queue.push((id.clone(), session.to_keyring_secret()));
-                    }
-                }),
+                Box::new(
+                    move |session: &azcloud_kit::AzlinSession, saved: Result<(), String>| {
+                        if let Ok(mut queue) = queue.lock() {
+                            queue.push(Rotated {
+                                drive_id: id.clone(),
+                                secret: session.to_keyring_secret(),
+                                unsaved: saved.err(),
+                            });
+                        }
+                    },
+                ),
             )?)
         } else {
             Arc::from(self.entry.open_with_secret(
@@ -585,8 +612,14 @@ pub(crate) struct DriveState {
     /// The Azlin token server of this run (Buy storage; the refreshes of Azlin drives that
     /// name none): `--token-url`, the environment, the shared Azlin config, the profile.
     pub token: azcloud_kit::TokenEndpoint,
-    /// Azlin drives' sessions rotated on a worker thread, for the keyring.
+    /// The sessions Azlin drives switched to on worker threads, for the slots' secrets.
     pub rotated: RotatedSessions,
+    /// The keyring as the worker threads read and write it (azul's blocking keyring calls),
+    /// with the locks every AzDrive of this user shares beside the drives file: an Azlin
+    /// drive's session (its refreshes), the unfinished checkouts.
+    pub keyring: azcloud_kit::SharedKeyring,
+    /// The background claims of unfinished checkouts run (one job at a time).
+    pub claiming: bool,
 }
 
 impl DriveState {
@@ -876,10 +909,11 @@ pub(crate) fn open_current(s: &mut DriveState) -> Option<Arc<dyn Drive>> {
 pub(crate) fn open_slot(s: &mut DriveState, index: usize) -> Option<Arc<dyn Drive>> {
     let rotated = s.rotated.clone();
     let token_url = s.token.url.clone();
+    let keyring = s.keyring.clone();
     let opened = s
         .slots
         .get_mut(index)?
-        .open(&rotated, token_url.as_deref());
+        .open(&rotated, token_url.as_deref(), &keyring);
     match opened {
         Ok(drive) => Some(drive),
         Err(e) => {
@@ -1241,14 +1275,15 @@ pub(crate) fn save_settings(info: &mut CallbackInfo, app: &RefAny, s: &mut Drive
 
 // ==== Keyring ====
 
-/// A keyring operation in flight or queued (the keyring answers one at a time).
+/// A keyring operation of the UI thread in flight or queued (the keyring answers one at a
+/// time). An Azlin drive's session is never written here: the worker threads write it under
+/// the drive's lock (`DriveState::keyring`), where a later write of the UI thread could put a
+/// spent drive token back over a newer one.
 pub(crate) enum KeyringOp {
     /// Reading a drive's keyring entry (keys, a session, secret settings) to open it.
     Unlock { drive_id: String },
     /// Saving a new drive's keys.
     Store { drive_id: String },
-    /// Saving an Azlin drive's rotated session (quietly: only a failure is said).
-    Rotate { drive_id: String },
     /// Removing a forgotten drive's keys.
     Forget,
 }
@@ -1274,25 +1309,26 @@ pub(crate) fn check_secret(entry: &DriveEntry, secret: &str) -> Result<(), Strin
     }
 }
 
-/// Stores the sessions Azlin drives rotated on worker threads (each one's drive token is the
-/// next refresh's; the one before is spent).
-pub(crate) fn store_rotated(info: &mut CallbackInfo, s: &mut DriveState) {
-    let rotated: Vec<(String, String)> = match s.rotated.lock() {
+/// Takes the sessions Azlin drives switched to on worker threads as their slots' secrets (a
+/// presigned link signs with the current keys). The keyring has them already - the refresh
+/// wrote them under the drive's lock -; one it did not take is said.
+pub(crate) fn take_rotated(s: &mut DriveState) {
+    let rotated: Vec<Rotated> = match s.rotated.lock() {
         Ok(mut queue) => queue.drain(..).collect(),
         Err(_) => return,
     };
-    for (drive_id, secret) in rotated {
-        if let Some(index) = s.slot_index(&drive_id) {
-            s.slots[index].secret = Some(secret.clone());
+    for session in rotated {
+        let Some(index) = s.slot_index(&session.drive_id) else {
+            continue;
+        };
+        s.slots[index].secret = Some(session.secret);
+        if let Some(why) = session.unsaved {
+            let name = s.slots[index].entry.name.clone();
+            s.error(format!(
+                "The new session of \"{name}\" could not be saved in the keyring: {why}. AzDrive \
+                 keeps it until it closes; after that the drive must be added again."
+            ));
         }
-        keyring(
-            info,
-            s,
-            KeyringOp::Rotate {
-                drive_id: drive_id.clone(),
-            },
-            KeyringCall::Store(config::keyring_key(&drive_id), secret),
-        );
     }
 }
 
@@ -1413,19 +1449,6 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                         }
                     }
                 }
-            }
-        }
-        KeyringOp::Rotate { drive_id } => {
-            if !matches!(result, KeyringResult::Stored) {
-                let name = s
-                    .slot_index(&drive_id)
-                    .map(|i| s.slots[i].entry.name.clone())
-                    .unwrap_or_default();
-                s.error(format!(
-                    "The new session of \"{name}\" could not be saved: {}. AzDrive keeps it until \
-                     it closes; after that the drive must be added again.",
-                    keyring_problem(&result)
-                ));
             }
         }
         KeyringOp::Store { drive_id } => {
@@ -1575,18 +1598,22 @@ pub(crate) extern "C" fn on_job_done(
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    // A scan's batches before its last one and a transfer's progress are messages of a thread
-    // that still runs.
+    // A scan's batches before its last one, a transfer's progress and what the background
+    // claims found are messages of a thread that still runs.
     let still_running = matches!(
         outcome,
-        Outcome::Progress { .. } | Outcome::Thumbnail { .. } | Outcome::Scanned { done: false, .. }
+        Outcome::Progress { .. }
+            | Outcome::Thumbnail { .. }
+            | Outcome::Scanned { done: false, .. }
+            | Outcome::Claimed { serial: None, .. }
+            | Outcome::CheckoutDropped { .. }
     );
     if !still_running {
         s.running = s.running.saturating_sub(1);
     }
-    // An Azlin drive may have refreshed its credentials during the job: its new session (and
-    // drive token) goes to the keyring before anything else.
-    store_rotated(&mut info, s);
+    // An Azlin drive may have switched sessions during the job (refreshed, or read another
+    // window's from the keyring): the slot's secret follows.
+    take_rotated(s);
     match outcome {
         Outcome::Scanned {
             serial,
@@ -1811,7 +1838,22 @@ pub(crate) extern "C" fn on_job_done(
         Outcome::CheckoutStarted { serial, result } => {
             add_flow::checkout_started(&mut info, &handle, s, serial, result);
         }
-        Outcome::PaymentEnded { serial, why } => add_flow::payment_ended(s, serial, why),
+        Outcome::PaymentEnded { serial, why } => {
+            add_flow::payment_ended(&mut info, &handle, s, serial, why);
+        }
+        Outcome::Claimed {
+            serial,
+            checkout,
+            claimed,
+        } => add_flow::claimed(&mut info, &handle, s, serial, &checkout, &claimed),
+        Outcome::CheckoutDropped { checkout_id, why } => {
+            add_flow::checkout_dropped(s, &checkout_id, &why);
+        }
+        Outcome::ClaimsDone { problem } => add_flow::claims_done(s, problem),
+        Outcome::CheckoutForgotten {
+            checkout_id,
+            result,
+        } => add_flow::checkout_forgotten(s, &checkout_id, result),
         Outcome::SettingsSaved { result } => {
             if let Err(e) = result {
                 s.error(format!("The settings could not be saved: {e}"));
@@ -2027,7 +2069,21 @@ extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let backstage = s.backstage;
         go(info, app, s, place, false);
         s.backstage = backstage;
+        // A drive paid after "Stop waiting", or while AzDrive was closed, arrives now.
+        add_flow::start_claims(info, app, s);
     })
+}
+
+/// The folder of the locks every AzDrive of this user (and every Azlin app) shares: beside the
+/// drives file (`<config dir>/azul-storage/locks`), else in the temporary folder.
+fn lock_dir(drives_file: Option<&Path>) -> PathBuf {
+    drives_file
+        .and_then(Path::parent)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map_or_else(
+            || std::env::temp_dir().join("azul-storage-locks"),
+            |dir| dir.join("locks"),
+        )
 }
 
 /// The data tree as a drive: the data root, opened as the data tree's `LocalDrive` (the one that
@@ -2182,6 +2238,12 @@ pub fn start() {
         .as_deref()
         .and_then(|text| browse::parse_path(text, &drive_names))
         .unwrap_or(place);
+    // The keyring as the worker threads use it (azul's blocking calls), with the locks of its
+    // entries beside the drives file.
+    let keyring = azcloud_kit::SharedKeyring::new(
+        Arc::new(azul_storage::azul_keyring::AzulKeyring::new()),
+        azcloud_kit::LockDir::new(lock_dir(drives_file.as_deref())),
+    );
     let mut state = DriveState {
         slots,
         place,
@@ -2251,6 +2313,8 @@ pub fn start() {
         kit,
         token,
         rotated: RotatedSessions::default(),
+        keyring,
+        claiming: false,
     };
     if args.screen == args::Screen::Settings {
         state.settings_found = Some(state.settings.clone());
