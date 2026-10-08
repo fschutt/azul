@@ -1,0 +1,70 @@
+[package]
+name = "azcloud-api"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The client side of Azlin Storage every app shares (azul-apps
+    iso/docs/AZDRIVE-INTEGRATION.md §3): an `Account` (signup, joining a drive
+    from another device, credentials refreshed before they expire, the node
+    list), a `Drive` (one bucket, iroh first and HTTPS as the fallback,
+    remembered per session), `Sync` (a folder against a drive prefix: a CAS
+    index, content-addressed BLAKE3 blobs, a local index, three-way merge),
+    `Share` (presigned links, lockdown and restore) and the `azcloud` CLI.
+    Every endpoint comes from the shared Azlin config, the environment or a
+    flag (`azcloud config` says which).
+"""
+publish = false
+
+# Its own workspace and lockfile, like doc/aztest: azlin-client lives in the
+# private azul-apps checkout next to this repository (the same layout
+# `azctl test gui` expects from the other side), so azul's CI cannot build this
+# crate, and the iso crates' exact pins (tokio, rustls, iroh 1.3) stay out of
+# azul's Cargo.lock. The root Cargo.toml lists this folder in `exclude`.
+[workspace]
+
+[dependencies]
+# What the server tests use: signup, S3 requests with SigV4 and failover, CAS,
+# parallel multipart / ranged transfers, S3 over iroh (feature `iroh`).
+azlin-client = { path = "../../../azul-apps/iso/crates/azlin-client" }
+# The request builder (presigned links), the credential type, the time format.
+azlin-proto = { path = "../../../azul-apps/iso/crates/azlin-proto" }
+# The shared Azlin config (`endpoints`) and the data root of every app; plain
+# Rust without its `azul` feature (no libazul).
+azul-appkit = { path = "../azul-appkit" }
+# drives.json (the format AzDrive reads), key checks, and the data tree's
+# LocalDrive, which keeps `.azlin/cache` right when the sync writes there.
+azul-storage = { path = "../azul-storage" }
+anyhow = "1"
+blake3 = "1.8"
+# The same OS folders azul's FilePath::get_data_dir / get_config_dir return
+# (layout/ uses dirs 6), so the data root here is the apps' data root.
+dirs = "6"
+# `buffer_unordered`: parallel transfers on one task, no Send bounds needed.
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots-no-provider"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+# The client endpoint of "S3 over iroh", built here so its relay comes from
+# the config (azlin-client's own `iroh_transport::endpoint()` is fixed to n0's
+# relays). The same version and features as azlin-client's.
+iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"], optional = true }
+
+[features]
+default = ["iroh"]
+# Without it the CLI speaks HTTPS only and `azcloud transport` says so.
+iroh = ["dep:iroh", "azlin-client/iroh"]
+
+[dev-dependencies]
+# The one temporary folder for tests (azul_storage::testing::TempDir).
+azul-storage = { path = "../azul-storage", features = ["testing"] }
+
+[lib]
+name = "azcloud_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "azcloud"
+path = "src/bin/azcloud.rs"
