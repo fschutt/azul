@@ -1115,7 +1115,8 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let app = &mut *guard;
     app.window_width = width;
     app.dark = matches!(mode, DarkLightMode::Dark);
-    app.flora = theme.as_str() == "flora";
+    // Flora or a spin of it ("flora:green").
+    app.flora = azul_appkit::Theme::parse(theme.as_str()).is_some_and(azul_appkit::Theme::is_flora);
     let settings = kit::settings_open(&app.kit);
 
     let main = if settings {

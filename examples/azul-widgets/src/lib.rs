@@ -626,8 +626,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     // THE theme of this pass: the app theme (the toolbar's Flat / Flora, or
     // the debug server's `set_theme`); every widget below that has a theme
-    // (`with_theme`) is built in it.
-    let theme = if info.get_theme().as_str() == "flora" {
+    // (`with_theme`) is built in it - flora for flora and its spins
+    // ("flora:green").
+    let app_theme = info.get_theme();
+    let theme = if app_theme.as_str() == "flora" || app_theme.as_str().starts_with("flora:") {
         UiTheme::Flora
     } else {
         UiTheme::Flat
