@@ -395,7 +395,7 @@ fn sync_folder(
         // 1. Push: mail filed here first goes into the folder (whatever the listing said, it
         //    is there now).
         let mut pushed: HashSet<String> = HashSet::new();
-        let local_only: Vec<(u32, String, u64)> = index
+        let local_only: Vec<(u32, String, u64, Vec<String>)> = index
             .values()
             .filter(|entry| entry.remote.is_empty())
             .map(|entry| {
@@ -403,10 +403,11 @@ fn sync_folder(
                     entry.uid,
                     entry.path.clone(),
                     arrival_of(entry, options.now),
+                    entry.flags.clone(),
                 )
             })
             .collect();
-        for (uid, file, arrival) in local_only {
+        for (uid, file, arrival, flags) in local_only {
             let bytes = match store.get(&file) {
                 Ok(bytes) => bytes,
                 // A line whose file is gone holds nothing to put: it goes.
@@ -418,6 +419,14 @@ fn sync_folder(
             };
             let object = azlin::message_key(path, &azlin::object_name(&bytes, arrival));
             drive.put(&object, &bytes).map_err(drive_error)?;
+            // Its flags go with it (a sent mail and a draft are read): as markers.
+            if let Some(id) = azlin::message_id(&object) {
+                let written = write_flag_markers(drive, id, &flags)?;
+                let state = states.entry(id.to_string()).or_default();
+                state.seen |= written.seen;
+                state.flagged |= written.flagged;
+                state.answered |= written.answered;
+            }
             if let Some(entry) = index.get_mut(&uid) {
                 entry.remote = object.clone();
             }
@@ -549,6 +558,32 @@ fn sync_folder(
     recorded?;
     report.messages = index.len() as u64;
     Ok(report)
+}
+
+/// Writes the markers of the IMAP flags `flags` (`\Seen`, `\Flagged`, `\Answered`) a message
+/// filed here carries, for its id `id` in the drive; returns what they say.
+fn write_flag_markers(
+    drive: &dyn Drive,
+    id: &str,
+    flags: &[String],
+) -> Result<MessageState, SyncError> {
+    let has = |flag: &str| flags.iter().any(|f| f.eq_ignore_ascii_case(flag));
+    let state = MessageState {
+        seen: has("\\Seen"),
+        flagged: has("\\Flagged"),
+        answered: has("\\Answered"),
+        ..MessageState::default()
+    };
+    for (marker, on) in [
+        (azlin::SEEN, state.seen),
+        (azlin::FLAGGED, state.flagged),
+        (azlin::ANSWERED, state.answered),
+    ] {
+        if on {
+            set_marker(drive, id, marker, true)?;
+        }
+    }
+    Ok(state)
 }
 
 /// Writes the marker `flag` of the message `id` (`on`) or removes it.
@@ -805,6 +840,10 @@ pub fn upload_message(
     let stamp = u64::try_from(now).unwrap_or(0);
     let object = azlin::message_key(&path, &azlin::object_name(&bytes, stamp));
     drive.put(&object, &bytes).map_err(drive_error)?;
+    // A draft is read: its markers say so in the drive too.
+    if let Some(id) = azlin::message_id(&object) {
+        write_flag_markers(drive, id, &entry.flags)?;
+    }
     entry.remote = object.clone();
     write_index(store, folder, &index).map_err(io)?;
     if let Some(old) = replaces
@@ -1063,6 +1102,15 @@ mod tests {
             f.bucket.inner.get(&sent[0].remote).unwrap(),
             mail(9, "From here")
         );
+        let id = azlin::message_id(&sent[0].remote).unwrap().to_string();
+        assert!(
+            f.bucket
+                .inner
+                .head(&azlin::marker_key(&id, azlin::SEEN))
+                .is_ok(),
+            "read, in the drive too"
+        );
+        assert_eq!(sent[0].flags, ["\\Seen"], "a sent mail stays read");
         let again = run(&f);
         assert_eq!(
             (again.pushed(), again.fetched(), again.removed()),
@@ -1279,8 +1327,15 @@ mod tests {
         let drafts = index(&f.store, "drafts");
         assert_eq!(drafts.len(), 1);
         assert_eq!(drafts[0].remote, key2);
+        let id = azlin::message_id(&key2).unwrap().to_string();
+        assert!(f
+            .bucket
+            .inner
+            .head(&azlin::marker_key(&id, azlin::SEEN))
+            .is_ok());
         assert_eq!(remote_of(&f.store, "drafts", second.uid), Some(key2));
         assert_eq!(run(&f).fetched(), 0, "Send/Receive knows the draft");
+        assert_eq!(index(&f.store, "drafts")[0].flags, ["\\Seen"], "a draft stays read");
     }
 
     #[test]
