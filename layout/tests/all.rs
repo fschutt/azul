@@ -991,3 +991,5 @@ mod each_background_layer_is_clipped_to_its_own_box;
 mod a_flora_tab_row_is_cut_from_the_websites_metal;
 #[path = "a_flex_items_negative_margin_overhangs_its_row_without_growing_it.rs"]
 mod a_flex_items_negative_margin_overhangs_its_row_without_growing_it;
+#[path = "a_node_mounted_inside_a_virtual_view_hears_its_after_mount.rs"]
+mod a_node_mounted_inside_a_virtual_view_hears_its_after_mount;
