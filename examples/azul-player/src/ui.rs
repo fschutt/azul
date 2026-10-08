@@ -844,12 +844,15 @@ fn gallery_page(
         let focused = !place.focus.on_views && i == place.focus.index && content_lit;
         sheet.add_child(gallery_tile(s, app, &tiles[i], i, focused, &grid, stage));
     }
+    // `clip`, not `hidden`: a hidden box is still a scroll container, which the engine scrolls
+    // to bring a focused tile into view - behind the sheet's own offset, shifting the gallery
+    // under it. The app places the sheet; nothing else may scroll it.
     page.add_child(
         Dom::create_div()
             .with_id(ids::GALLERY)
             .with_css(format!(
                 "position: absolute; left: {GALLERY_LEFT}px; right: 0px; top: {GALLERY_TOP}px; \
-                 bottom: {GALLERY_BOTTOM}px; overflow: hidden;"
+                 bottom: {GALLERY_BOTTOM}px; overflow: clip;"
             ))
             .with_child(sheet),
     );
@@ -1739,11 +1742,13 @@ fn settings_page(
             ),
             stage,
         ))
+        // `clip`: the rows are placed by the app (the focused one in view), never scrolled
+        // by the engine.
         .with_child(
             Dom::create_div()
                 .with_css(format!(
                     "position: absolute; left: 44px; right: 60px; top: {top:.0}px; bottom: \
-                     {bottom:.0}px; overflow: hidden;"
+                     {bottom:.0}px; overflow: clip;"
                 ))
                 .with_child(sheet),
         )
