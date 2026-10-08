@@ -723,7 +723,9 @@ fn the_scroll_bar_thumb_drags_through_every_line() {
 
 #[test]
 fn the_view_builds_its_lines_with_the_kind_classes_and_the_caret() {
-    let dom = sample().with_theme(UiTheme::Flat).dom();
+    // What the view's VirtualView renders (`render_lines`).
+    let dom = lines_dom(resolve(sample().with_theme(UiTheme::Flat)));
+    assert!(tc::has_class(&dom, LINES_CLASS_NAME), "the root of the lines");
     let lines = tc::find_all(&dom, LINE_CLASS_NAME);
     assert_eq!(lines.len(), 4, "the sample's four lines");
     let keyword = tc::find(&dom, CodeTokenKind::Keyword.class_name()).expect("the fn keyword");
@@ -731,7 +733,20 @@ fn the_view_builds_its_lines_with_the_kind_classes_and_the_caret() {
     assert_eq!(text_of(lines[1]), "2    let answer = 42;", "the number, then the tab as spaces");
     assert_eq!(tc::find_all(&dom, CARET_CLASS_NAME).len(), 1, "one caret");
     assert!(tc::find(lines[1], CURRENT_LINE_CLASS_NAME).is_some() || tc::has_class(lines[1], CURRENT_LINE_CLASS_NAME));
-    assert_eq!(dom.root.get_tab_index(), Some(azul_core::dom::TabIndex::Auto), "one focus stop");
+}
+
+#[test]
+fn the_view_node_asks_for_no_line_its_virtual_view_asks_for_the_lines_in_view() {
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let _view = generated(1000, &asked).dom();
+    assert!(
+        asked.lock().expect("log").is_empty(),
+        "building the view node asks the data callback for nothing - the lines are asked for once, \
+         when the VirtualView renders them"
+    );
+    let lines = lines_dom(resolve(generated(1000, &asked)));
+    assert_eq!(tc::find_all(&lines, LINE_CLASS_NAME).len(), 22, "400 px of 19 px lines");
+    assert_eq!(*asked.lock().expect("log"), (0..22).collect::<Vec<u32>>(), "each line in view once");
 }
 
 #[test]
@@ -754,5 +769,14 @@ fn the_view_follows_the_app_theme() {
         "code_view",
         || sample().dom(),
         |t: UiTheme| sample().with_theme(t).dom(),
+    );
+}
+
+#[test]
+fn the_lines_follow_the_app_theme() {
+    checks::assert_follows_the_app_theme(
+        "code_view (lines)",
+        || lines_dom(resolve(sample())),
+        |t: UiTheme| lines_dom(resolve(sample().with_theme(t))),
     );
 }

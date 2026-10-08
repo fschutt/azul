@@ -673,6 +673,19 @@ fn status_bar(app: &RefAny, st: &AppState) -> Dom {
 
 /// The CodeView: an edit, a move, undo / redo of the file in front.
 pub extern "C" fn on_code_event(mut data: RefAny, mut info: CallbackInfo, event: CodeViewEvent) -> Update {
+    // A scroll moves only the lines, and the view has rendered them again
+    // itself: the view is kept for the next build, the window is not
+    // rebuilt. Rebuilding it for every wheel notch (the layout callback, the
+    // cascade and the layout of the whole workbench) was why scrolling the
+    // code lagged.
+    if event.kind == CodeViewEventKind::Scroll {
+        if let Some(mut st) = data.downcast_mut::<AppState>() {
+            if let Some(doc) = st.tabs.active_mut() {
+                doc.view = event.view;
+            }
+        }
+        return Update::DoNothing;
+    }
     with_state(&mut data, &mut info, |st, _info, _app| {
         let Some(doc) = st.tabs.active_mut() else {
             return;
