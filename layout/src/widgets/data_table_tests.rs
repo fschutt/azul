@@ -940,8 +940,8 @@ fn a_big_table_whose_rows_changed_is_ordered_again_through_start_query() {
         },
     );
     let styled = StyledDom::create_from_dom(caller);
-    let (_, changes) = rv::fire(&styled, id(NodeId::new(0)), EventFilter::Hover(HoverEventFilter::Click))
-        .expect("the app's callback runs");
+    let click = EventFilter::Hover(HoverEventFilter::Click);
+    let (_, changes) = rv::fire(&styled, id(NodeId::new(0)), click).expect("the app's callback runs");
     assert!(
         changes.iter().any(|c| matches!(c, crate::callbacks::CallbackChange::AddTimer { .. })),
         "the order job's timer reads the new rows' keys"
