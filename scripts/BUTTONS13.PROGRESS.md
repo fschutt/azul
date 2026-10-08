@@ -32,8 +32,12 @@ immediately to the hover state without interpolating the gradient, glow, etc."
   `shadow_tween_tests`; layout/tests/a_hovered_button_passes_through_the_faces_in_between.rs.
 - 1662afad5 fix(css): background layers pair (all gradient kinds, moving stops, colour as a
   one-colour gradient), fade added layers, cross-fade the rest; shadows tween / fade in-out.
-- (next commit) fix(flora): stone + metal-edged command fade at flora.css's pace
+- 37f892495 fix(flora): stone + metal-edged command fade at flora.css's pace
   (`LIT_FACE`: background 1.2s --fl-ease, edges + shadows 1.2s ease; press 0.14s).
+- 6ce667b92 RED + ae89ef0a5 fix(css): transitions mix colours premultiplied (CSS Color 4):
+  no grey dip when a wash / edge / gradient fades in from transparent.
+- (next commit) guard test: every flat (Office 2010) button fades what its hover changes
+  (120 ms ease-out) and presses at once - passes today.
 
 ## IN PROGRESS
 - Review pass; report.

@@ -607,3 +607,66 @@ fn every_flora_button_fades_everything_its_hover_changes_at_flora_css_pace() {
         }
     }
 }
+
+/// flat's face fade (`decl::state_fade` over `decl::BUTTON_FADE_MS`): the
+/// Office 2010 face follows the pointer over 120 ms, ease-out.
+const FLAT_FADE_MS: u32 = 120;
+
+#[test]
+fn every_flat_button_fades_everything_its_hover_changes_and_presses_at_once() {
+    for dark in [false, true] {
+        if dark && mode_pinned_by_env() {
+            continue;
+        }
+        for kind in [
+            ButtonType::Default,
+            ButtonType::Primary,
+            ButtonType::Danger,
+            ButtonType::Illuminated,
+        ] {
+            for look in [Look::Pinned(UiTheme::Flat), Look::Following(UiTheme::Flat)] {
+                let mut lw = window(&Button::with_type(AzString::from("Go"), kind), look, dark);
+                let node = button_node(&lw);
+                let changed = hover_changes(&lw, node);
+                assert!(
+                    !changed.is_empty(),
+                    "{kind:?} {look:?} dark={dark}: harness - a flat command changes its face \
+                     under the pointer"
+                );
+                hover(&mut lw, node);
+                for ty in &changed {
+                    let Some(tr) = lw
+                        .css_transitions
+                        .iter()
+                        .find(|t| t.node == node && t.prop_type == *ty)
+                    else {
+                        panic!(
+                            "{kind:?} {look:?} dark={dark}: the hover changes {} and nothing fades \
+                             it - it snaps (started: {:?})",
+                            ty.to_str(),
+                            started(&lw, node)
+                        );
+                    };
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let ms = (tr.duration_s * 1000.0).round() as u32;
+                    assert_eq!(
+                        (ms, tr.timing),
+                        (FLAT_FADE_MS, AnimationTiming::EaseOut),
+                        "{kind:?} {look:?} dark={dark}: {} fades at flat's pace",
+                        ty.to_str()
+                    );
+                }
+
+                // Pressed, the face darkens on the next frame, as a native
+                // button does - nothing fades in.
+                run(&mut lw, 1.0);
+                press(&mut lw, node);
+                assert!(
+                    lw.css_transitions.iter().all(|t| t.node != node),
+                    "{kind:?} {look:?} dark={dark}: a press shows at once: {:?}",
+                    started(&lw, node)
+                );
+            }
+        }
+    }
+}
