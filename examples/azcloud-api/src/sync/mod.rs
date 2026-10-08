@@ -447,18 +447,20 @@ async fn merge_json_files<S: RemoteStore>(
             .files
             .get(key)
             .ok_or_else(|| anyhow!("{key} vanished from the index"))?;
-        let theirs = object(&fetch_blob(store, prefix, &theirs_file.hash, theirs_file.size).await?);
+        let theirs_blob = fetch_blob(store, prefix, &theirs_file.hash, theirs_file.size).await?;
+        let theirs = object(theirs_blob.as_slice());
         let base_object = match base.get(key) {
             Some(entry) => match fetch_blob(store, prefix, &entry.hash, 0).await {
-                Ok(bytes) => object(&bytes),
+                Ok(bytes) => object(bytes.as_slice()),
                 Err(_) => Map::new(),
             },
             None => Map::new(),
         };
-        let (merged, clashes) = merge::merge_json(&base_object, &object(&current), &theirs);
+        let ours = object(current.as_slice());
+        let (merged, clashes) = merge::merge_json(&base_object, &ours, &theirs);
         let blob = local::pretty(&Value::Object(merged));
-        let file =
-            local::json_with_local_keys(&blob, Some(&current)).unwrap_or_else(|| blob.clone());
+        let file = local::json_with_local_keys(&blob, Some(current.as_slice()))
+            .unwrap_or_else(|| blob.clone());
         report
             .merge_clashes
             .extend(clashes.into_iter().map(|k| format!("{key}: {k}")));
