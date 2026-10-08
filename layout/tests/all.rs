@@ -880,6 +880,8 @@ mod a_rebuild_under_the_pointer_starts_no_transition;
 mod a_rebuild_slides_only_what_declares_a_move;
 #[path = "a_rebuild_of_an_unchanged_page_costs_little.rs"]
 mod a_rebuild_of_an_unchanged_page_costs_little;
+#[path = "text_over_a_layer_is_not_stamped_on_its_ancestors_colour.rs"]
+mod text_over_a_layer_is_not_stamped_on_its_ancestors_colour;
 #[path = "an_inline_blocks_baseline_is_its_last_line_box.rs"]
 mod an_inline_blocks_baseline_is_its_last_line_box;
 #[path = "a_percentage_height_inline_block_in_an_auto_height_body_is_as_tall_as_its_content.rs"]

@@ -2653,10 +2653,21 @@ pub fn render_single_item(
             }
             // LCD text needs an opaque backdrop (see `backdrop_is_opaque`): a
             // run over a transparent layer pixel takes grayscale coverage.
-            let grayscale = item
+            let run = item
                 .visual_bounds()
-                .and_then(|ink| text_run_clip(&scroll_rect(&ink), clip, dpi_factor))
-                .is_some_and(|run| !backdrop_is_opaque(pixmap, run));
+                .and_then(|ink| text_run_clip(&scroll_rect(&ink), clip, dpi_factor));
+            let grayscale = run.is_some_and(|run| !backdrop_is_opaque(pixmap, run));
+            // The display list's uniform background is a HINT from the
+            // ancestors (`compute_uniform_text_bg`: the first one painting an
+            // opaque colour) - but a layer painted between that ancestor and
+            // the text (a positioned gradient, a band of light) is the real
+            // backdrop. The pre-blended tiles bake the hinted colour under
+            // every glyph: AzPlayer's start strip showed BLACK boxes (its
+            // black body under a blue layer). Trusted only when the pixels the
+            // run covers ARE that colour.
+            let item_uniform_bg = item_uniform_bg.filter(|(bg, _)| {
+                run.is_some_and(|run| backdrop_is_colour(pixmap, run, *bg))
+            });
             render_text_with_bg(
                 glyphs,
                 *font_hash,
@@ -3801,6 +3812,26 @@ fn text_run_clip(clip_rect: &LogicalRect, clip: Option<AzRect>, dpi_factor: f32)
 /// grayscale coverage instead, as browsers draw text in a layer without an
 /// opaque background.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel coords
+/// Whether every pixel of `rect` is exactly the opaque colour `bg` - the
+/// proof a pre-blended LCD tile over `bg` needs before it is stamped there.
+fn backdrop_is_colour(pixmap: &AzulPixmap, rect: AzRect, bg: ColorU) -> bool {
+    if bg.a != 255 {
+        return false;
+    }
+    let w = pixmap.width as usize;
+    let h = pixmap.height as usize;
+    let x0 = (rect.x.floor().max(0.0) as usize).min(w);
+    let y0 = (rect.y.floor().max(0.0) as usize).min(h);
+    let x1 = ((rect.x + rect.width).ceil().max(0.0) as usize).min(w).max(x0);
+    let y1 = ((rect.y + rect.height).ceil().max(0.0) as usize).min(h);
+    let data = pixmap.data();
+    let want = [bg.r, bg.g, bg.b, 255];
+    (y0..y1).all(|y| {
+        data.get((y * w + x0) * 4..(y * w + x1) * 4)
+            .is_none_or(|row| row.chunks_exact(4).all(|p| p == want))
+    })
+}
+
 fn backdrop_is_opaque(pixmap: &AzulPixmap, rect: AzRect) -> bool {
     let w = pixmap.width as usize;
     let h = pixmap.height as usize;
