@@ -1,6 +1,6 @@
 //! AzMaps' command line: azul-appkit's switches (`--theme`, `--mode`, `--size`, `--shot`,
-//! `--sample`, `--data-dir`) plus AzMaps' own `--stats`; `-h` / `--help`. Pure: no azul
-//! types, tested without a window.
+//! `--sample`, `--data-dir`) plus AzMaps' own `--stats` and `--tiles`; `-h` / `--help`. Pure:
+//! no azul types, tested without a window.
 
 use azul_appkit::{args::help, AppArgs};
 
@@ -31,8 +31,12 @@ pub fn tile_template(
     env: Option<&str>,
     shared: Option<&str>,
 ) -> Option<String> {
-    let _ = (flag, env, shared);
-    None
+    [flag, env, shared]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|t| !t.is_empty())
+        .map(String::from)
 }
 
 /// The usage text: appkit's, then AzMaps' own switches.
@@ -44,7 +48,10 @@ pub fn usage() -> String {
          (tiles\n                             by state), AZ_MAP_RENDER (each render of the \
          tiles),\n                             AZ_MAP_TILE (each tile's fetch / decode / draw \
          ms),\n                             AZMAPS_LAYOUT (each window rebuild). Also \
-         AZMAPS_STATS=1\n",
+         AZMAPS_STATS=1\n    --tiles <URL>            The tile server's URL template \
+         ({z}/{x}/{y}) for this run; else\n                             AZMAPS_TILES, else \
+         endpoints.tiles of the shared Azlin config,\n                             else \
+         OpenFreeMap's public tiles\n",
     );
     text
 }
@@ -68,19 +75,28 @@ where
         });
     }
     let mut stats = env_stats;
+    let mut tiles = None;
     let mut rest = Vec::with_capacity(argv.len());
-    for arg in argv {
+    let mut argv = argv.into_iter();
+    while let Some(arg) = argv.next() {
         if arg == "--stats" {
             stats = true;
         } else if arg.starts_with("--stats=") {
             return Err("--stats takes no value".to_string());
+        } else if arg == "--tiles" {
+            tiles = Some(
+                argv.next()
+                    .ok_or_else(|| "--tiles needs a URL template".to_string())?,
+            );
+        } else if let Some(template) = arg.strip_prefix("--tiles=") {
+            tiles = Some(template.to_string());
         } else {
             rest.push(arg);
         }
     }
     Ok(Args {
         stats,
-        tiles: None,
+        tiles,
         help: false,
         kit: AppArgs::parse(&crate::SPEC, rest)?,
     })

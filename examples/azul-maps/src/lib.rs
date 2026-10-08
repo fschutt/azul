@@ -27,7 +27,10 @@
 //! file jobs on a Thread); the last viewport and the sidebar in settings.json.
 //! azul-appkit gives the switches (`--theme`, `--mode`, `--size`, `--shot`,
 //! `--data-dir`) and the settings page (the gear, Mod+,). Arrows pan, `+` /
-//! `-` zoom (not while a travel field is being typed in).
+//! `-` zoom (not while a travel field is being typed in). The tiles come from
+//! `--tiles <url template>`, else `AZMAPS_TILES`, else the shared Azlin
+//! config's `endpoints.tiles` (a local tile server for an offline run), else
+//! the map widget's own (OpenFreeMap's public planet tiles).
 //!
 //! stdout, for scripts (`scripts/azmaps_e2e.py`): `AZMAPS_VIEW <lat> <lon>
 //! <zoom>` on every viewport change, `AZMAPS_PINS <n>` when the pins change,
