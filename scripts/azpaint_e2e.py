@@ -13,7 +13,7 @@
        canvas, then 1 stroke and the stroke back - on screen, not only in the counter;
     4. exports a PNG (Mod+S) and an SVG (Mod+Shift+S) INTO the data tree through the
        Drive (`AZPAINT_EXPORTED paint/exports/<name> <bytes>`) and checks both files;
-    5. takes screenshots (flat light, flora dark).
+    5. takes screenshots (flat light, flora dark, flora light - each after the theme's fades).
 
 Usage: python3 scripts/azpaint_e2e.py [--bin target/release/AzPaint] [--debug-port 8794]
 Run it through scripts/waves/tools/run_capped.sh on a small machine.
@@ -111,11 +111,16 @@ def body(args, logs, out):
                 raise e2e.Failure("%s is not the export it should be (%r, %s bytes)" % (path, head, size))
             app.log("exported %s (%s bytes)" % (name, size))
 
-        # 5. The look.
+        # 5. The look: flora by night and by day (the flat shots are above).
         app.must("set_theme", theme="flora")
         app.must("set_mode", mode="dark")
         app.frame(3)
+        app.settle()
         shot("azpaint-flora-dark.png")
+        app.must("set_mode", mode="light")
+        app.frame(3)
+        app.settle()
+        shot("azpaint-flora-light.png")
         app.log("PASS: stroke on screen while drawn, undo / redo on screen, PNG + SVG exports in the data tree")
         return True
     finally:
