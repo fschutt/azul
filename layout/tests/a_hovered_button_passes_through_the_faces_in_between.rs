@@ -510,7 +510,8 @@ const FACE: [CssPropertyType; 11] = [
 fn hover_changes(lw: &LayoutWindow, node: NodeId) -> Vec<CssPropertyType> {
     let styled = &lw.layout_results[&DomId::ROOT_ID].styled_dom;
     let cache = styled.get_css_property_cache();
-    let nd = &styled.node_data.as_container()[node];
+    let node_data = styled.node_data.as_container();
+    let nd = &node_data[node];
     let now: StyledNodeState = styled.styled_nodes.as_container()[node].styled_node_state;
     let hovered = StyledNodeState { hover: true, ..now };
     FACE.iter()

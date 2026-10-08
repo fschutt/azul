@@ -36,14 +36,20 @@ immediately to the hover state without interpolating the gradient, glow, etc."
   (`LIT_FACE`: background 1.2s --fl-ease, edges + shadows 1.2s ease; press 0.14s).
 - 6ce667b92 RED + ae89ef0a5 fix(css): transitions mix colours premultiplied (CSS Color 4):
   no grey dip when a wash / edge / gradient fades in from transparent.
-- (next commit) guard test: every flat (Office 2010) button fades what its hover changes
+- 30447006c guard test: every flat (Office 2010) button fades what its hover changes
   (120 ms ease-out) and presses at once - passes today.
+- (last commit) review fix in the layout test (node container bound before indexing).
 
 ## IN PROGRESS
-- Review pass; report.
+- nothing - handed to the lead.
 
-## NEXT
-- Report to the lead (tests to run, what to look at, risks).
+## NEXT (lead)
+- cargo test --release -p azul-css --lib -- background_face_tween_tests shadow_tween_tests
+  interpolate_a_solid_background_colour_tweens_and_a_stopless_gradient_jumps
+- cargo test --release -p azul-layout --test all -- a_hovered_button_passes_through_the_faces_in_between
+  a_button_fades_into_its_hover_face a_face_fade_frame_is_patched_in_place
+- Follow-up (perf, not done): a display-list patch path for gradient / shadow tweens (today they
+  restyle the DOM's compact cache and rebuild the list every frame, as before this fix).
 
 ## Choices (for the report)
 - Mismatched faces cross-fade (new over old at t; old kept whole under an opaque new face,
