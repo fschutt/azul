@@ -7790,19 +7790,52 @@ pub fn details_pane(p: crate::widgets::details_pane::DetailsPane) -> Dom {
 // ==== address_bar ====
 //
 // A flora address bar is a toolbar strip (--fl-strip) over a --fl-bd
-// hairline; the path sits in field paper (--fl-fld) inside a --fl-bd2 rule
-// at the house radius, ringed by the accent under the pointer; the search
-// box keeps a fixed width. At night the night strip, field and glow.
+// hairline, set in the house serif (flora's chrome is Garamond; the path
+// keeps its own case, so no capitals). Back and Forward are round stones of
+// raised paper (--fl-rT / --fl-rB) in a --fl-bd2 ring that lift to the hover
+// face and press in; Recent and Up are quiet arrows on the strip. The
+// breadcrumb box is field paper (--fl-fld) inside a --fl-bd2 rule at the
+// house radius, ringed by the accent under the pointer, the location's icon
+// in brass ink; its segments are the house ink on the bare paper until the
+// pointer lifts them to the hover face, each folder with a quiet --fl-soft2
+// chevron; Refresh closes the box past a hairline. Focus is flora's accent
+// halo. At night the night strip, field, faces and glow.
+
+/// A button of the flora address bar at rest: bare paper in a transparent
+/// 1 px rim (so the hover's rim moves nothing), `width` (or its content's)
+/// by `height`; the hover face in a --fl-bd2 rim under the pointer, the
+/// pressed face in --fl-bd3 pressed, the accent halo on focus.
+fn address_bar_control(width: Option<isize>, height: isize) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::new();
+    if let Some(width) = width {
+        v.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(width),
+        )));
+    }
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+        LayoutHeight::const_px(height),
+    )));
+    v.extend(decl::border(1));
+    v.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    v.extend(decl::radius(3));
+    v.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    v.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    v.extend(decl::hover_border_color(LIGHT_BD2, DARK_BD2));
+    v.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    v.extend(decl::active_border_color(LIGHT_BD3, DARK_BD3));
+    v.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+    v
+}
 
 /// Flora's address-bar look.
 #[must_use]
 pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook {
     use super::decl;
+    type C = CssPropertyWithConditions;
     let mut bar = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-            13,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
     ];
     bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
@@ -7810,25 +7843,92 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
     bar.extend(decl::border_bottom(1));
     bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut field = vec![CssPropertyWithConditions::simple(CssProperty::const_height(
-        LayoutHeight::const_px(26),
-    ))];
-    field.extend(decl::padding(0, 8, 0, 8));
-    field.extend(decl::margin(0, 8, 0, 4));
-    field.extend(decl::border(1));
-    field.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
-    field.extend(decl::radius(3));
-    field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
-    field.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
+    // Back and Forward: round stones of raised paper in the --fl-bd2 ring.
+    let mut round = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(26))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(26))),
+    ];
+    round.extend(decl::border(1));
+    round.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    round.extend(decl::radius(13));
+    round.extend(decl::themed_layers(vec![RAISED_FACE_LIGHT], vec![RAISED_FACE_DARK]));
+    round.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    round.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+    round.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    round.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    let mut arrow_icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    arrow_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    // The breadcrumb box: field paper in the --fl-bd2 rule, the accent ring
+    // under the pointer.
+    let mut field_box = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(26)))];
+    field_box.extend(decl::padding(0, 0, 0, 2));
+    field_box.extend(decl::margin(0, 8, 0, 6));
+    field_box.extend(decl::border(1));
+    field_box.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    field_box.extend(decl::radius(3));
+    field_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    field_box.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
+
+    // The location's icon in brass ink, flora's quiet accent.
+    let mut icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    icon.extend(decl::padding(0, 4, 0, 4));
+    icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut crumb = address_bar_control(None, 22);
+    crumb.extend(decl::padding(0, 6, 0, 6));
+
+    let mut label = vec![
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+    ];
+    label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut chevron_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14)))];
+    chevron_icon.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+
+    // Refresh closes the box past a --fl-bd hairline; it lifts like the
+    // segments and keeps its rule.
+    let mut refresh = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(26))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(24))),
+    ];
+    refresh.extend(decl::border_left(1));
+    refresh.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+    refresh.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
+    refresh.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    refresh.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    refresh.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut refresh_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
+    refresh_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
 
     crate::widgets::address_bar::AddressBarLook {
+        theme: super::UiTheme::Flora,
         bar,
         nav: decl::margin(0, 2, 0, 0).to_vec(),
-        field,
-        field_editing: decl::margin(0, 8, 0, 4).to_vec(),
-        search: vec![CssPropertyWithConditions::simple(CssProperty::const_width(
-            LayoutWidth::const_px(220),
-        ))],
+        round,
+        arrow: address_bar_control(Some(24), 26),
+        recent: address_bar_control(Some(16), 26),
+        arrow_icon,
+        field_box,
+        // The path field draws its own frame: the box keeps its place.
+        field_box_editing: decl::margin(0, 8, 0, 6).to_vec(),
+        icon,
+        field: decl::padding(0, 1, 0, 1).to_vec(),
+        edit: Vec::new(),
+        crumb,
+        current: Vec::new(),
+        label,
+        chevron: address_bar_control(Some(16), 22),
+        chevron_icon,
+        overflow: address_bar_control(Some(22), 22),
+        refresh,
+        refresh_icon,
+        search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
@@ -7837,6 +7937,161 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
 #[must_use]
 pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
     crate::widgets::address_bar::build(b, &address_bar_look())
+}
+
+// ==== ribbon_file_menu ====
+//
+// A flora File menu is a leaf of paper (--fl-sur) laid over the ribbon in a
+// --fl-bd2 hairline at the house radius with flora's warm cast shadow. Its
+// left column is the strip's paper (--fl-strip): commands set in flora's
+// capitals beside their brass-ink icons, lifting to the hover face in a
+// --fl-bd2 rim under the pointer and pressing in; quiet --fl-soft2 chevrons
+// on the commands with sub-commands, --fl-sep rules between the groups. The
+// side column's title is a section title in capitals over a rule; the places
+// are Garamond, their numbers and pins in brass; a sub-command's label sits
+// over its description in the softer ink. Focus is flora's accent halo. At
+// night every paper, rule and ink takes its night value.
+
+/// Flora's File-menu look.
+#[must_use]
+pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::RibbonFileMenuLook {
+    use super::decl;
+    type C = CssPropertyWithConditions;
+    let px = |n: isize| C::simple(CssProperty::const_font_size(StyleFontSize::const_px(n)));
+    // A row of the menu at rest: bare paper in a transparent rim (so the
+    // hover's rim moves nothing); the hover face in a --fl-bd2 rim under the
+    // pointer, the pressed face in --fl-bd3, the accent halo inside it on
+    // focus (the columns clip at their edges).
+    let row = |height: isize| {
+        let mut v = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(height)))];
+        v.extend(decl::border(1));
+        v.extend(decl::border_colors(ColorU::TRANSPARENT).map(C::simple));
+        v.extend(decl::radius(3));
+        v.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
+        v.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+        v.extend(decl::hover_border_color(LIGHT_BD2, DARK_BD2));
+        v.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+        v.extend(decl::active_border_color(LIGHT_BD3, DARK_BD3));
+        v.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+        v
+    };
+
+    let mut menu = vec![px(14), C::simple(CssProperty::const_font_family(SERIF_FAMILY))];
+    menu.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    menu.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    menu.extend(decl::border(1));
+    menu.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    menu.extend(decl::radius(4));
+    menu.extend(decl::themed_shadow(
+        4,
+        14,
+        ColorU::new(48, 45, 38, 64),
+        ColorU::new(0, 0, 0, 160),
+    ));
+
+    let mut commands = vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(250)))];
+    commands.extend(decl::padding(6, 4, 6, 4));
+    commands.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+
+    let mut command = row(46);
+    command.extend(decl::padding(0, 8, 0, 6));
+
+    let mut command_icon = vec![px(30)];
+    command_icon.extend(decl::margin(0, 10, 0, 0));
+    command_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    // A command is a command: flora's capitals.
+    let mut command_label = caps(CAPS_COMMAND);
+    command_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut arrow = vec![px(16)];
+    arrow.extend(decl::margin(0, 0, 0, 6));
+    arrow.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+
+    let mut rule = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(1)))];
+    rule.extend(decl::margin(4, 8, 4, 50));
+    rule.extend(decl::themed_fill(LIGHT_SEP, DARK_SEP));
+
+    let mut side = vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(320)))];
+    side.extend(decl::padding(8, 8, 8, 8));
+    side.extend(decl::border_left(1));
+    side.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+
+    // The side column's title: a section title in capitals over a rule.
+    let mut title = caps(CAPS_TITLE);
+    title.extend(decl::padding(2, 4, 6, 4));
+    title.extend(decl::margin(0, 0, 4, 0));
+    title.extend(decl::border_bottom(1));
+    title.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut open = row(26);
+    open.extend(decl::padding(0, 4, 0, 4));
+
+    let mut number = vec![
+        px(12),
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
+        C::simple(CssProperty::text_decoration(StyleTextDecoration::Underline)),
+    ];
+    number.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut place_label = vec![px(14), C::simple(CssProperty::const_font_family(SERIF_FAMILY))];
+    place_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut pin = row(26);
+    pin.push(C::simple(CssProperty::const_width(LayoutWidth::const_px(26))));
+    pin.extend(decl::margin(0, 0, 0, 2));
+
+    let mut pin_icon = vec![px(14)];
+    pin_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut sub = row(52);
+    sub.extend(decl::padding(0, 8, 0, 6));
+
+    let mut sub_icon = vec![px(24)];
+    sub_icon.extend(decl::margin(0, 10, 0, 0));
+    sub_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut sub_label = vec![
+        px(14),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+        decl::semibold(),
+    ];
+    sub_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut sub_description = vec![px(12)];
+    sub_description.extend(decl::margin(1, 0, 0, 0));
+    sub_description.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::ribbon_file_menu::RibbonFileMenuLook {
+        theme: super::UiTheme::Flora,
+        menu,
+        commands,
+        command,
+        command_icon,
+        command_label,
+        arrow,
+        rule,
+        side,
+        title,
+        place: Vec::new(),
+        open,
+        number,
+        place_label,
+        pin,
+        pin_icon,
+        sub,
+        sub_icon,
+        sub_label,
+        sub_description,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora File menu.
+#[must_use]
+pub fn ribbon_file_menu(m: crate::widgets::ribbon_file_menu::RibbonFileMenu) -> Dom {
+    crate::widgets::ribbon_file_menu::build(m, &ribbon_file_menu_look())
 }
 
 // ==== shells ====

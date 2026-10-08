@@ -1,26 +1,34 @@
 //! AzDrive: a file manager on the public azul API that looks and works like
-//! Windows' File Explorer (7 / 10).
+//! Windows 8's File Explorer, with a Finder window for its body.
 //!
-//! The window is the S5 `BrowserShell`: the app-drawn title row; the
-//! navigation row (Back / Forward / Recent locations / Up, the breadcrumb with
-//! a menu per crumb and the typed path, Refresh, "Search <folder>") over the
-//! command bar (New folder, New item, Cut, Copy, Paste, Rename, Delete, Undo,
-//! Properties, Upload / Download on a cloud drive, Sort, the Large icons /
-//! List / Details views, Select all, "See more" with every other command;
-//! the Navigation / Preview / Details pane switches and the Options at its
-//! right end - the drive commands on This PC). Under it the body is a Finder
-//! window in the app theme (`look`: flora's linen, leaves and Garamond
-//! capitals; Office 2010's silver in flat): the navigation pane is Finder's
-//! source list (`ui_sidebar`: FAVORITES - Quick access, the standard
+//! The window is the S5 `BrowserShell` without a title row: Windows 8's
+//! ribbon (`ui_ribbon`: File - a mini backstage in a popup under its tab -,
+//! Home, Share, View; Computer at This PC) whose tab strip is the window's
+//! title bar, over Explorer's address row (round Back / Forward, Recent
+//! locations, Up, the breadcrumb box - a chevron per crumb dropping its
+//! folders, the first crumbs folded into « when the path is long, a click on
+//! its empty part for the typed path - with Refresh at its end, "Search
+//! <folder>"). The window's title is the open place's path. Under it the body
+//! is a Finder window in the app theme (`look`: flora's linen, leaves and
+//! Garamond capitals; Office 2010's silver in flat): the navigation pane is
+//! Finder's source list (`ui_sidebar`: FAVORITES - Quick access, the standard
 //! folders, the pins -, LOCATIONS - This PC and the drives on this computer,
-//! their folders listed lazily -, CLOUD - the S3 drives with their state -,
-//! the transfers' activity, + and the actions); the content is a leaf on the
-//! page (This PC's drive tiles, Quick access's pinned folders, or a folder in
-//! one of Explorer's eight layouts - Details by default, the icon layouts on
-//! azul's IconGrid - grouped or not, with check boxes or not) with Finder's
-//! path bar and status line ("N items, N selected, X available") at its foot;
-//! the preview pane OR the details pane at the right, a leaf too.
-//! The Options and About are the backstage (See more > Options, the gear).
+//! their folders listed when a row opens -, CLOUD - the S3 drives with their
+//! state -, the transfers' activity, + and the actions); the content is a leaf
+//! on the page (This PC's drive tiles, Quick access's pinned folders, or a
+//! folder in one of Explorer's eight layouts - Details by default, the icon
+//! layouts on azul's IconGrid - grouped or not, with check boxes or not) with
+//! Finder's path bar and status line ("N items, N selected, X available") at
+//! its foot; the preview pane OR the details pane at the right, a leaf too.
+//! The Options and About are the backstage (View > Options, File > Help).
+//!
+//! A folder of any size opens at once (`listing`, `jobs`): its scan reads the
+//! names and kinds with one `read_dir` - no stat per entry - and streams them
+//! in batches into the rows (kept in the view's order), a navigation stops it;
+//! the views are virtual (only the rows in view and a screen either side are
+//! built); the rows in view get their sizes and dates (a stat each), the
+//! folders among them their item counts (one `read_dir` each) and the pictures
+//! their thumbnails, nothing else.
 //!
 //! The drives: "Home" (the user's home folder, a `LocalDrive`), the local
 //! folders and S3 drives the user added (AWS S3, Cloudflare R2, MinIO). Every
@@ -51,6 +59,7 @@
 //! - `--data-dir <dir>` (`$AZLIN_DATA`): the data root (azul-appkit).
 //! - `--dialogs inline` (`$AZDRIVE_DIALOGS=inline`): show the dialogs as a sheet inside the
 //!   window instead of a modal dialog window (scripts: the debug server drives the main window).
+//! - `--open <path>`: open at a place as the address bar names it (File > Open new window).
 //!
 //! On stdout, for scripts: `AZDRIVE_PLACE quick-access | this-pc | <drive id> <prefix or />`,
 //! `AZDRIVE_LISTED <drive id> <prefix or /> <entries>`, `AZDRIVE_TREE <drive id>
@@ -58,8 +67,9 @@
 //! `AZDRIVE_SORT <column> <asc|desc>`, `AZDRIVE_GROUP <name>`, `AZDRIVE_PANES <nav> <preview> <details>`,
 //! `AZDRIVE_TRANSFER <id> planned|conflict|done|failed|cancelled <n>`, `AZDRIVE_DONE <what> <key>`,
 //! `AZDRIVE_DELETED <n>`, `AZDRIVE_RENAMING <key>`, `AZDRIVE_PREVIEW <kind> <key>`,
-//! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`.
-//! Keys and secrets are never printed.
+//! `AZDRIVE_CLIPBOARD copy|cut <n>`, `AZDRIVE_TESTED ok|error`, `AZDRIVE_ADDED <drive id>`,
+//! `AZDRIVE_TITLE <window title>`, `AZDRIVE_RIBBON_TAB <tab>`, `AZDRIVE_FILE_MENU <action>`,
+//! `AZDRIVE_NEW_WINDOW <path>`. Keys and secrets are never printed.
 
 mod actions;
 pub mod args;
@@ -68,13 +78,16 @@ pub mod fileops;
 mod ids;
 mod jobs;
 pub mod keys;
+/// The open folder's listing as it streams in, and the window of it the views build.
+pub mod listing;
 /// The body's looks in flat and flora, by day and at night.
 mod look;
 pub mod model;
 pub mod preview;
-mod ui_commands;
 mod ui_dialogs;
 mod ui_panes;
+/// Windows 8's ribbon and its File menu.
+mod ui_ribbon;
 /// The navigation pane: Finder's source list.
 mod ui_sidebar;
 mod ui_view;
@@ -82,7 +95,10 @@ mod ui_view;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use azul::{
@@ -94,16 +110,16 @@ use azul::{
     shells::{BrowserShell, ShellPane, ShellPaneKind, ShellThemeScope},
     str::String as AzString,
     url::Url,
-    widgets::{AlertKind, Dialog, IconGridView, Titlebar},
+    widgets::{AlertKind, Dialog, IconGridView},
 };
 use azul_storage::{
     azul_transport::AzulTransport,
     config::{self, DriveEntry, DriveLocation, DrivesFile},
-    key, Credentials, Drive, DriveError, ListRequest, LocalDrive,
+    key, Credentials, Drive, DriveError, LocalDrive,
 };
 use browse::{DriveForm, Entry, History, Place};
 use fileops::{ConflictChoice, Plan, SourceItem, TransferKind, TransferQueue};
-use jobs::{Done, FolderSize, Job, JobInit, ListPurpose, Outcome, PreviewContent};
+use jobs::{Done, FolderSize, Job, JobInit, Outcome, PreviewContent};
 use model::{Selection, Settings, TypeAhead};
 
 pub(crate) const USER_AGENT: &str = "AzDrive/0.2";
@@ -121,10 +137,6 @@ pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
     license: "MIT",
     app_folder: "drive",
 };
-/// Entries per listing page.
-const PAGE_SIZE: u32 = 500;
-/// Folders per tree listing (one listing per expand).
-const TREE_PAGE_SIZE: u32 = 500;
 /// The Home drive's id (never in the drives file).
 pub(crate) const HOME_ID: &str = "home";
 /// The places "Recent locations" remembers.
@@ -397,13 +409,35 @@ pub(crate) struct DriveState {
     pub history: History,
     /// The places visited last (Recent locations), newest first.
     pub recent: Vec<Place>,
-    /// The open folder's rows.
+    /// The open folder's rows, in the view's sort order (a scan's batches merge into them).
     pub entries: Vec<Entry>,
-    /// Where the next page of the listing starts.
-    pub next: Option<String>,
+    /// Nothing of the open folder has arrived yet ("Loading...").
     pub loading: bool,
+    /// The scan of the open folder has handed over its last batch.
+    pub listing_done: bool,
+    /// The open folder could not be listed (its drive did not open, its keys could not be
+    /// read, the scan failed): the content says so instead of calling the folder empty.
+    pub listing_failed: bool,
     /// The listing the rows belong to; an answer for an older one is dropped.
     pub list_serial: u64,
+    /// The running scan's stop: set when the window goes elsewhere, so a big folder left
+    /// half-read is not read to its end.
+    pub list_cancel: Arc<AtomicBool>,
+    /// A refresh's rows, gathered while the rows it replaces still show; they take their place
+    /// when the scan ends (no folder blinks empty on F5).
+    pub refreshing: Option<Vec<Entry>>,
+    /// The rows whose size and date were asked for (the ones in view; a sort's).
+    pub stats_asked: HashSet<String>,
+    /// The item counts of the open folder's subfolders (their keys), and the ones asked for
+    /// during this listing (a listing asks again; the old count shows until the new one is in).
+    pub counts: HashMap<String, usize>,
+    pub counts_asked: HashSet<String>,
+    /// Where the folder view's last scroll left it: its offset and its height (px; the
+    /// height as the view last drew, 0 before it has).
+    pub view_scroll: (f32, f32),
+    /// The folder view's width as it last drew (its virtual view records it; 0 before it has):
+    /// the rows in view are counted in the columns the view draws.
+    pub view_width: f32,
     pub selection: Selection,
     /// The selected drive tile of This PC.
     pub selected_drive: Option<usize>,
@@ -430,6 +464,8 @@ pub(crate) struct DriveState {
     pub pane_ratios: (f32, f32),
     /// The backstage, open on its page (0 the Options, 1 About).
     pub backstage: Option<usize>,
+    /// The ribbon's tab chosen last (the place shows it where it has it).
+    pub ribbon_tab: ui_ribbon::RibbonTabKind,
     /// AzDrive's own settings as the Options found them when they opened: what their Cancel
     /// puts back (`reload_settings`).
     pub settings_found: Option<Settings>,
@@ -461,6 +497,9 @@ pub(crate) struct DriveState {
     pub trash_serial: u32,
     /// The window's width, for the grid's rows (the arrow keys).
     pub window_width: f32,
+    /// The window's height: the estimate of the rows in view until the folder view has drawn
+    /// (and says how tall it is).
+    pub window_height: f32,
     /// The open folder's pictures as thumbnails (`None`: none can be made).
     pub thumbnails: HashMap<String, Option<azul::image::ImageRef>>,
     /// The pictures whose thumbnails are being made.
@@ -533,6 +572,11 @@ impl DriveState {
 
     /// The selected rows, in the shown order.
     pub fn selected_entries(&self) -> Vec<&Entry> {
+        // Nothing selected (the usual case) asks no row: a folder of 100,000 items would hash
+        // every key once per caller, several times per build of the window.
+        if self.selection.is_empty() {
+            return Vec::new();
+        }
         self.visible_entries()
             .into_iter()
             .filter(|e| self.selection.contains(&e.key))
@@ -670,8 +714,8 @@ impl DriveState {
     /// over it and the leaf's frame and foot around it. An estimate that errs small - an empty
     /// strip, never a clipped row.
     pub fn content_size(&self, window: (f32, f32)) -> (f32, f32) {
-        /// The title row, the navigation row and the command bar.
-        const CHROME_PX: f32 = 160.0;
+        /// The ribbon (its tab strip in the title bar, its band) and the address row.
+        const CHROME_PX: f32 = 172.0;
         /// A splitter and the pane's edges.
         const SPLITTER_PX: f32 = 8.0;
         let (mut width, mut height) = window;
@@ -679,7 +723,11 @@ impl DriveState {
             width = self.window_width;
         }
         if height <= 0.0 {
-            height = 760.0;
+            height = if self.window_height > 0.0 {
+                self.window_height
+            } else {
+                760.0
+            };
         }
         if self.settings.navigation_pane {
             width = width * (1.0 - self.pane_ratios.0) - SPLITTER_PX;
@@ -692,10 +740,26 @@ impl DriveState {
         if self.message.is_some() {
             height -= 52.0;
         }
-        if self.next.is_some() {
-            height -= 44.0;
-        }
         ((width - 8.0).max(120.0), height.max(120.0))
+    }
+
+    /// [`Self::content_size`] of the window as it is now (its last resize).
+    pub fn content_estimate(&self) -> (f32, f32) {
+        self.content_size((self.window_width, self.window_height))
+    }
+
+    /// The folder on this computer that holds `prefix` of drive `index`, for a local drive (the
+    /// scan reads it with `read_dir`); `None` for a bucket.
+    pub fn local_dir(&self, index: usize, prefix: &str) -> Option<PathBuf> {
+        match &self.slots.get(index)?.entry.location {
+            DriveLocation::Local { root } => Some(jobs::path_in(Path::new(root), prefix)),
+            DriveLocation::S3 { .. } => None,
+        }
+    }
+
+    /// The root folder of drive `index` on this computer (`None` for a bucket).
+    pub fn local_root(&self, index: usize) -> Option<PathBuf> {
+        self.local_dir(index, "")
     }
 
     /// Prints the selection for scripts.
@@ -747,42 +811,65 @@ pub(crate) fn open_drive(s: &mut DriveState, drive_id: &str) -> Option<Arc<dyn D
     open_slot(s, index)
 }
 
-/// Lists the open folder from its start (`append == false`) or its next page.
+/// Stops the running scan of the open folder (its batches would be dropped anyway: they carry
+/// an older serial) - a big folder the window left is not read to its end.
+pub(crate) fn cancel_listing(s: &mut DriveState) {
+    s.list_cancel.store(true, Ordering::SeqCst);
+}
+
+/// Scans the open folder: its rows stream in batches ([`Outcome::Scanned`]). A `refresh`
+/// gathers the new rows while the old ones still show and swaps them in at the end; otherwise
+/// the rows start empty and fill as the batches land.
 pub(crate) fn start_listing(
     info: &mut CallbackInfo,
     app: &RefAny,
     s: &mut DriveState,
-    append: bool,
+    refresh: bool,
 ) {
-    let Some(drive) = open_current(s) else {
+    let Some(index) = s.current_drive() else {
         return;
     };
-    let mut request = ListRequest::folder(s.prefix()).with_max_keys(PAGE_SIZE);
-    if append {
-        match s.next.clone() {
-            Some(token) => request = request.with_continuation(token),
-            None => return,
-        }
+    let Some(drive) = open_slot(s, index) else {
+        // The drive cannot be opened (the message says why): nothing is being listed, so
+        // nothing is waited for - the content says so instead of "Loading...".
+        s.listing_done = true;
+        s.listing_failed = true;
+        return;
+    };
+    cancel_listing(s);
+    let cancel = Arc::new(AtomicBool::new(false));
+    s.list_cancel = cancel.clone();
+    s.list_serial += 1;
+    s.listing_done = false;
+    s.listing_failed = false;
+    s.stats_asked.clear();
+    s.counts_asked.clear();
+    if refresh && !s.entries.is_empty() {
+        s.refreshing = Some(Vec::new());
     } else {
-        s.list_serial += 1;
-        s.next = None;
+        s.refreshing = None;
+        s.entries.clear();
+        s.loading = true;
     }
-    s.loading = true;
+    let prefix = s.prefix().to_string();
+    let dir = s.local_dir(index, &prefix);
     let serial = s.list_serial;
     spawn(
         info,
         app,
         s,
-        Job::List {
+        Job::Scan {
             drive,
-            request,
-            purpose: ListPurpose::Content { serial, append },
+            dir,
+            prefix,
+            serial,
+            cancel,
         },
     );
 }
 
-/// Lists the folders of the tree node `node` (one listing), unlocking its
-/// drive first when it needs the keyring.
+/// Lists the folders of the tree node `node` (one read of the folder), unlocking its drive
+/// first when it needs the keyring.
 pub(crate) fn start_tree_listing(
     info: &mut CallbackInfo,
     app: &RefAny,
@@ -805,18 +892,71 @@ pub(crate) fn start_tree_listing(
     let Some(drive) = open_slot(s, index) else {
         return;
     };
-    let request = ListRequest::folder(&node.1).with_max_keys(TREE_PAGE_SIZE);
+    let dir = s.local_dir(index, &node.1);
     s.tree.listing.insert(node.clone());
+    spawn(info, app, s, Job::Folders { drive, dir, node });
+}
+
+/// Counts the items of the local folders `keys` of drive `index` (`""`: its root), the ones not
+/// asked for during this listing - one `read_dir` each, on a worker thread. A listing asks
+/// again (F5, a change on disk): the old count shows until the new one is in.
+pub(crate) fn request_counts(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    index: usize,
+    keys: Vec<String>,
+) {
+    let Some(root) = s.local_root(index) else {
+        return;
+    };
+    let keys: Vec<String> = keys
+        .into_iter()
+        .filter(|k| !s.counts_asked.contains(k))
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+    s.counts_asked.extend(keys.iter().cloned());
+    let drive_id = s.slots[index].entry.id.clone();
+    let show_hidden = s.settings.show_hidden;
     spawn(
         info,
         app,
         s,
-        Job::List {
-            drive,
-            request,
-            purpose: ListPurpose::Tree { node },
+        Job::Count {
+            drive_id,
+            root,
+            keys,
+            show_hidden,
         },
     );
+}
+
+/// This PC's local drive tiles say how many items each drive's root holds: one cheap count each
+/// (no listing of the drive).
+pub(crate) fn count_drive_roots(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
+    let local: Vec<usize> = (0..s.slots.len())
+        .filter(|&i| s.slots[i].is_local() && !s.root_counts.contains_key(&s.slots[i].entry.id))
+        .collect();
+    for index in local {
+        let Some(root) = s.local_root(index) else {
+            continue;
+        };
+        let drive_id = s.slots[index].entry.id.clone();
+        let show_hidden = s.settings.show_hidden;
+        spawn(
+            info,
+            app,
+            s,
+            Job::Count {
+                drive_id,
+                root,
+                keys: vec![String::new()],
+                show_hidden,
+            },
+        );
+    }
 }
 
 /// Reads an S3 drive's keys from the keyring (once at a time).
@@ -862,8 +1002,15 @@ pub(crate) fn go(
     s.editing_path = false;
     s.renaming = None;
     s.search.clear();
+    // The folder being left may still be read: that read stops here.
+    cancel_listing(s);
     s.entries.clear();
-    s.next = None;
+    s.refreshing = None;
+    s.listing_done = false;
+    s.listing_failed = false;
+    s.stats_asked.clear();
+    s.counts.clear();
+    s.counts_asked.clear();
     s.selection = Selection::default();
     s.selected_pin = None;
     s.grid_view = IconGridView::create();
@@ -873,7 +1020,14 @@ pub(crate) fn go(
     s.loading = false;
     s.list_serial += 1;
     s.backstage = None;
+    // The new folder opens at its top, wherever the last one was scrolled to.
+    s.view_scroll.0 = 0.0;
+    ui_view::scroll_view_to_top(info);
+    set_window_title(info, s);
     println!("AZDRIVE_PLACE {}", s.place_line());
+    if s.place == Place::ThisPc {
+        count_drive_roots(info, app, s);
+    }
     let Some(index) = s.current_drive() else {
         return;
     };
@@ -888,11 +1042,35 @@ pub(crate) fn go(
 /// Lists the open folder again (F5), keeping the selection.
 pub(crate) fn refresh(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
     if s.current_drive().is_none() {
-        // This PC: the drives' sizes again.
+        // This PC: the drives' sizes and item counts again.
         refresh_disks(s);
+        s.root_counts.clear();
+        count_drive_roots(info, app, s);
         return;
     }
-    start_listing(info, app, s, false);
+    start_listing(info, app, s, true);
+}
+
+/// The window's title is the open place's path (the title bar shows the ribbon's tabs, so the
+/// path is what the system's window list, the Dock and Mission Control name the window by).
+pub(crate) fn set_window_title(info: &mut CallbackInfo, s: &DriveState) {
+    let mut state = info.get_current_window_state();
+    let title = window_title(s);
+    println!("AZDRIVE_TITLE {title}");
+    if state.title.as_str() != title {
+        state.title = AzString::from(title);
+        info.modify_window_state(state);
+    }
+}
+
+/// [`set_window_title`]'s text: `Home/Documents - AzDrive`.
+pub(crate) fn window_title(s: &DriveState) -> String {
+    let drive_name = s.drive_name(&s.place);
+    let path_drive = match &s.place {
+        Place::Folder { .. } => Some(drive_name.as_str()),
+        _ => None,
+    };
+    format!("{} - AzDrive", browse::path_text(&s.place, path_drive))
 }
 
 /// The local volumes' size and free space, from the OS - and the standard folders the Home
@@ -1071,12 +1249,22 @@ extern "C" fn on_keyring_result(mut data: RefAny, mut info: CallbackInfo) -> Upd
                         }
                         Err(e) => {
                             s.loading = false;
+                            if is_current {
+                                // No listing follows: the folder waits for nothing.
+                                s.listing_done = true;
+                                s.listing_failed = true;
+                            }
                             s.error(format!("The keys of \"{name}\" cannot be read: {e}."));
                         }
                     }
                 }
                 other => {
                     s.loading = false;
+                    if is_current {
+                        // No listing follows: the folder waits for nothing.
+                        s.listing_done = true;
+                        s.listing_failed = true;
+                    }
                     s.tree.pending.retain(|node| node.0 != drive_id);
                     s.error(format!(
                         "\"{name}\" cannot be opened: {}. Enter its keys again.",
@@ -1141,7 +1329,8 @@ pub(crate) fn changed(
     prefix: &str,
 ) {
     if showing(s, drive_id, prefix) {
-        start_listing(info, app, s, false);
+        // Read again behind the rows that show: they stay until the new ones are in.
+        start_listing(info, app, s, true);
     }
     tree_invalidate(info, app, s, (drive_id.to_string(), prefix.to_string()));
 }
@@ -1152,6 +1341,70 @@ fn changed_here(info: &mut CallbackInfo, app: &RefAny, s: &mut DriveState) {
         let prefix = s.prefix().to_string();
         changed(info, app, s, &drive_id, &prefix);
     }
+}
+
+/// A batch of the open folder's scan landed (`done` with the last one): it merges into the rows
+/// in the view's order - while a refresh runs it is gathered behind the rows that still show,
+/// which it replaces at the end -, and the rows in view get their stats, counts and thumbnails.
+/// The selection is checked against the rows once, at the end (a batch only adds rows).
+fn scanned(
+    info: &mut CallbackInfo,
+    app: &RefAny,
+    s: &mut DriveState,
+    batch: Vec<Entry>,
+    done: bool,
+    error: Option<String>,
+) {
+    let sort = s.settings.sort;
+    match s.refreshing.as_mut() {
+        Some(gathered) => gathered.extend(batch),
+        None => {
+            listing::merge_batch(&mut s.entries, batch, sort);
+            s.loading = false;
+        }
+    }
+    if let Some(e) = error {
+        s.loading = false;
+        s.listing_done = true;
+        s.listing_failed = true;
+        s.refreshing = None;
+        s.error(format!("Could not list this folder: {e}"));
+        return;
+    }
+    if !done {
+        actions::request_view_work(info, app, s);
+        return;
+    }
+    s.listing_done = true;
+    s.loading = false;
+    if let Some(mut fresh) = s.refreshing.take() {
+        // The rows read again show the old sizes and dates until their own stats are in.
+        listing::carry_stats(&s.entries, &mut fresh);
+        browse::sort_entries(&mut fresh, sort);
+        s.entries = fresh;
+    }
+    let keys = s.visible_keys();
+    let order: Vec<&str> = keys.iter().map(String::as_str).collect();
+    s.selection.retain(&order);
+    if let Place::Folder { drive, prefix } = &s.place {
+        if prefix.is_empty() {
+            s.root_counts.insert(drive.clone(), s.entries.len());
+        }
+        println!(
+            "AZDRIVE_LISTED {drive} {} {}",
+            if prefix.is_empty() { "/" } else { prefix },
+            s.entries.len()
+        );
+    }
+    // A new folder waiting for its name is scrolled into view (it may sort far down).
+    if let Some(key) = s.renaming.as_ref().map(|r| r.key.clone()) {
+        ui_view::reveal_item(info, s, &key);
+    }
+    actions::request_preview(info, app, s);
+    if actions::needs_all_stats(s) {
+        actions::request_sort_stats(info, app, s);
+    }
+    actions::request_view_work(info, app, s);
 }
 
 pub(crate) extern "C" fn on_job_done(
@@ -1170,73 +1423,75 @@ pub(crate) extern "C" fn on_job_done(
         return Update::DoNothing;
     };
     let s = &mut *guard;
-    if !matches!(outcome, Outcome::Progress { .. } | Outcome::Thumbnail { .. }) {
+    // A scan's batches before its last one and a transfer's progress are messages of a thread
+    // that still runs.
+    let still_running = matches!(
+        outcome,
+        Outcome::Progress { .. } | Outcome::Thumbnail { .. } | Outcome::Scanned { done: false, .. }
+    );
+    if !still_running {
         s.running = s.running.saturating_sub(1);
     }
     match outcome {
-        Outcome::Listed {
-            purpose: ListPurpose::Content { serial, append },
-            result,
+        Outcome::Scanned {
+            serial,
+            batch,
+            done,
+            error,
         } => {
             if serial != s.list_serial {
                 return Update::DoNothing; // another folder or drive by now
             }
-            s.loading = false;
-            match result {
-                Ok(page) => {
-                    let prefix = s.prefix().to_string();
-                    let mut more = browse::entries_of(&page, &prefix);
-                    if append {
-                        more.retain(|e| !s.entries.iter().any(|old| old.key == e.key));
-                        s.entries.extend(more);
-                    } else {
-                        s.entries = more;
-                    }
+            scanned(&mut info, &handle, s, batch, done, error);
+        }
+        Outcome::Stats { serial, stats } => {
+            if serial != s.list_serial {
+                return Update::DoNothing;
+            }
+            let changed = listing::apply_stats(&mut s.entries, &stats);
+            if actions::needs_all_stats(s) {
+                // A sort by Size or Date modified is a chain: every answer asks for the next
+                // rows - even one that changed no row (its rows gone since) - and the answer
+                // that leaves no row unknown sorts.
+                if listing::all_known(&s.entries) {
+                    // The last sizes and dates are in: the rows take the order they ask for.
                     browse::sort_entries(&mut s.entries, s.settings.sort);
-                    s.next = page.next;
-                    let keys = s.visible_keys();
-                    let order: Vec<&str> = keys.iter().map(String::as_str).collect();
-                    s.selection.retain(&order);
-                    if let Place::Folder { drive, prefix } = &s.place {
-                        if prefix.is_empty() {
-                            s.root_counts.insert(drive.clone(), s.entries.len());
-                        }
-                        println!(
-                            "AZDRIVE_LISTED {drive} {} {}",
-                            if prefix.is_empty() { "/" } else { prefix },
-                            s.entries.len()
-                        );
-                    }
-                    actions::request_preview(&mut info, &handle, s);
-                    actions::request_thumbnails(&mut info, &handle, s);
+                } else {
+                    actions::request_sort_stats(&mut info, &handle, s);
                 }
-                Err(e) => s.error(format!("Could not list this folder: {e}")),
+            } else if changed == 0 {
+                return Update::DoNothing;
+            }
+            // A picture's size is known now: it may get its thumbnail.
+            actions::request_view_work(&mut info, &handle, s);
+        }
+        Outcome::Counted { drive_id, counts } => {
+            for (key, n) in counts {
+                if key.is_empty() {
+                    s.root_counts.insert(drive_id.clone(), n);
+                } else if s.current_drive_id().as_deref() == Some(drive_id.as_str()) {
+                    s.counts.insert(key, n);
+                }
             }
         }
-        Outcome::Listed {
-            purpose: ListPurpose::Tree { node },
-            result,
-        } => {
+        Outcome::Folders { node, result } => {
             s.tree.listing.remove(&node);
             match result {
-                Ok(page) => {
+                Ok((folders, items)) => {
                     if node.1.is_empty() {
-                        s.root_counts
-                            .insert(node.0.clone(), page.folders.len() + page.objects.len());
+                        s.root_counts.insert(node.0.clone(), items);
                     }
                     println!(
                         "AZDRIVE_TREE {} {} {}",
                         node.0,
                         if node.1.is_empty() { "/" } else { &node.1 },
-                        page.folders.len()
+                        folders.len()
                     );
                     let show_hidden = s.settings.show_hidden;
-                    let mut folders: Vec<String> = page
-                        .folders
+                    let folders: Vec<String> = folders
                         .into_iter()
                         .filter(|f| show_hidden || !key::last_segment(f).starts_with('.'))
                         .collect();
-                    folders.sort_by_key(|f| f.to_lowercase());
                     s.tree.loaded.insert(node, folders);
                 }
                 Err(e) => {
@@ -1443,24 +1698,13 @@ pub(crate) fn with_state(
     Update::RefreshDom
 }
 
-/// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
-/// draws only the traffic lights).
-fn title_row(s: &DriveState) -> Dom {
-    let title = format!("{} - AzDrive", s.place_name());
-    Titlebar::create(AzString::from(title))
-        .without_border_bottom()
-        .dom()
-}
-
-/// Explorer's chrome over the panes: the navigation row (Back, Forward, Up, the breadcrumb,
-/// "Search <folder>") over the command bar. It stands in the shell's address bar slot (the
-/// `shell-address-bar` host), with no ribbon over it.
+/// Explorer's address row under the ribbon (Back, Forward, Recent, Up, the breadcrumb box with
+/// Refresh, "Search <folder>"): the shell's address bar slot (the `shell-address-bar` host).
 fn chrome(s: &DriveState, app: &RefAny, width: f32) -> Dom {
     Dom::create_div()
         .with_id(ids::CHROME)
         .with_css("display: flex; flex-direction: column;")
-        .with_child(ui_panes::address_bar(s, app))
-        .with_child(ui_commands::command_bar(s, app, width))
+        .with_child(ui_panes::address_bar(s, app, width))
 }
 
 /// The DOM id of the details pane, which shares the right side with the preview pane.
@@ -1512,8 +1756,9 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         s.window_width
     };
 
-    // Finder's body under Explorer's command bar: the source list, the content as a leaf on the
+    // Finder's body under Explorer's ribbon: the source list, the content as a leaf on the
     // page (its path bar and status line at its foot), the right pane a leaf too.
+    let backstage = s.backstage_shown();
     let mut browser = BrowserShell::create(
         chrome(s, &app, width),
         ui_sidebar::sidebar(s, &app),
@@ -1525,6 +1770,10 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     if s.settings.preview_pane {
         browser = browser.with_preview(ui_view::on_page(ui_panes::preview_pane(s, &app, dark)));
     }
+    // Windows 8's ribbon over the address row; its tab strip is the window's title bar.
+    if backstage.is_none() {
+        browser = browser.with_ribbon(ui_ribbon::ribbon(s, &app));
+    }
     let mut shell = browser.office_shell();
     // Explorer 10's right side: the preview pane OR the details pane.
     if s.settings.details_pane && !s.settings.preview_pane {
@@ -1534,12 +1783,15 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 .with_label("Details"),
         );
     }
-    // The title row is the OfficeShell's; the counts are the leaf's status line (no status bar).
-    let mut shell = shell
-        .with_title_row(title_row(s))
-        .with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
-    if let Some(page) = s.backstage_shown() {
-        shell = shell.with_backstage(ui_dialogs::backstage(s, &app, page));
+    // No title row while the ribbon shows - its tabs are the title bar; the backstage (the
+    // Options, About), which has no ribbon, keeps azul's title row to move the window by. The
+    // counts are the leaf's status line (no status bar).
+    let mut shell =
+        shell.with_on_pane_resize(app.clone(), on_pane_resize as ShellOnPaneResizeCallbackType);
+    if let Some(page) = backstage {
+        shell = shell
+            .with_title_row(azul_appkit::ui::title_row(&window_title(s)))
+            .with_backstage(ui_dialogs::backstage(s, &app, page));
     }
     let mut body = Dom::create_body()
         .with_css(
@@ -1616,6 +1868,12 @@ fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         azul_appkit::ui::on_window_created(&s.kit, info);
+        // The size the window opened at (a window manager may have changed it).
+        let size = info.get_current_window_state().size.dimensions;
+        if size.width > 0.0 && size.height > 0.0 {
+            s.window_width = size.width;
+            s.window_height = size.height;
+        }
         let place = s.place.clone();
         // `--screen settings` opens on the backstage, which a visit closes.
         let backstage = s.backstage;
@@ -1749,15 +2007,33 @@ pub fn start() {
             model::StartPlace::ThisPc => Place::ThisPc,
         },
     };
+    // `--open` (File > Open new window): the place as the address bar names it.
+    let drive_names: Vec<(String, String)> = slots
+        .iter()
+        .map(|slot| (slot.entry.id.clone(), slot.entry.name.clone()))
+        .collect();
+    let place = args
+        .open
+        .as_deref()
+        .and_then(|text| browse::parse_path(text, &drive_names))
+        .unwrap_or(place);
     let mut state = DriveState {
         slots,
         place,
         history: History::default(),
         recent: Vec::new(),
         entries: Vec::new(),
-        next: None,
         loading: false,
+        listing_done: false,
+        listing_failed: false,
         list_serial: 0,
+        list_cancel: Arc::new(AtomicBool::new(false)),
+        refreshing: None,
+        stats_asked: HashSet::new(),
+        counts: HashMap::new(),
+        counts_asked: HashSet::new(),
+        view_scroll: (0.0, 0.0),
+        view_width: 0.0,
         selection: Selection::default(),
         selected_drive: None,
         selected_pin: None,
@@ -1780,6 +2056,7 @@ pub fn start() {
         grid_view: IconGridView::create(),
         pane_ratios: (0.22, 0.7),
         backstage: (args.screen == args::Screen::Settings).then_some(0),
+        ribbon_tab: ui_ribbon::RibbonTabKind::default(),
         settings_found: None,
         clipboard: None,
         queue: TransferQueue::default(),
@@ -1802,6 +2079,7 @@ pub fn start() {
         running: 0,
         trash_serial: 0,
         window_width: 1200.0,
+        window_height: 760.0,
         thumbnails: HashMap::new(),
         thumbnails_pending: HashSet::new(),
         audio: None,
@@ -1814,13 +2092,21 @@ pub fn start() {
 
     // The theme and mode: a switch for this run, else the ones saved on the Options' Appearance.
     let config = azul_appkit::ui::app_config(&state.kit);
-    let window = azul_appkit::ui::window_options(
+    let mut window = azul_appkit::ui::window_options(
         &state.kit,
         layout,
         (1200.0, 760.0),
         (640.0, 420.0),
         startup,
     );
+    // The rows in view are estimated from the window's size until the folder view has drawn:
+    // the size this run opens at (`--size`, else the default).
+    let opens_at = window.window_state.size.dimensions;
+    state.window_width = opens_at.width;
+    state.window_height = opens_at.height;
+    // The title bar shows the ribbon's tabs: the title is what the system's window list names
+    // the window by - the open place's path.
+    window.window_state.title = AzString::from(window_title(&state));
     let app = App::create(RefAny::new(state), config);
     app.run(window);
 }

@@ -425,6 +425,64 @@ impl S3Drive {
         }
     }
 
+    /// A link anyone holding it can download `key` with for `expires_secs` (S3 takes at most
+    /// seven days): SigV4's query-string signature - the request's signature rides in the URL,
+    /// the payload unsigned, the host the only signed header. Nothing is sent; the bucket answers
+    /// the link's GET as if it came from these keys (AzDrive's Share > Copy link).
+    pub fn presigned_get_url(&self, key: &str, expires_secs: u64) -> Result<String, DriveError> {
+        /// What S3 takes as a presigned URL's lifetime at most.
+        const MAX_EXPIRES_SECS: u64 = 7 * 24 * 3600;
+        /// The payload hash of a presigned request: its body is not known when it is signed.
+        const UNSIGNED_PAYLOAD: &str = "UNSIGNED-PAYLOAD";
+        check_s3_key(key)?;
+        let date = amz_date((self.clock)());
+        let day = date.get(..8).unwrap_or(&date).to_string();
+        let host = self.host();
+        let path = self.object_path(key);
+        let mut query = vec![
+            (
+                String::from("X-Amz-Algorithm"),
+                String::from(sigv4::ALGORITHM),
+            ),
+            (
+                String::from("X-Amz-Credential"),
+                format!(
+                    "{}/{day}/{}/s3/aws4_request",
+                    self.credentials.access_key_id, self.config.region
+                ),
+            ),
+            (String::from("X-Amz-Date"), date.clone()),
+            (
+                String::from("X-Amz-Expires"),
+                expires_secs.clamp(1, MAX_EXPIRES_SECS).to_string(),
+            ),
+            (String::from("X-Amz-SignedHeaders"), String::from("host")),
+        ];
+        if let Some(token) = &self.credentials.session_token {
+            query.push((String::from("X-Amz-Security-Token"), token.clone()));
+        }
+        let signed = sigv4::sign(
+            &SigningParams {
+                access_key_id: &self.credentials.access_key_id,
+                secret_access_key: &self.credentials.secret_access_key,
+                region: &self.config.region,
+                service: "s3",
+                amz_date: &date,
+            },
+            "GET",
+            &path,
+            &query,
+            &[(String::from("host"), host.clone())],
+            UNSIGNED_PAYLOAD,
+        );
+        query.push((String::from("X-Amz-Signature"), signed.signature));
+        Ok(format!(
+            "{}://{host}{path}?{}",
+            self.endpoint.scheme,
+            sigv4::canonical_query(&query)
+        ))
+    }
+
     fn send(&self, call: &HttpCall) -> Result<HttpReply, DriveError> {
         self.transport.send(call).map_err(DriveError::Transport)
     }

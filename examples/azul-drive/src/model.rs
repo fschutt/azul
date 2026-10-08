@@ -801,6 +801,7 @@ mod tests {
             size: Some(size),
             modified: Some(modified),
             etag: None,
+            known: true,
         }
     }
 
@@ -812,6 +813,7 @@ mod tests {
             size: None,
             modified: None,
             etag: None,
+            known: true,
         }
     }
 

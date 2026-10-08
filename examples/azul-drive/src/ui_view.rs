@@ -8,6 +8,16 @@
 //! with the InfoBar over it, and Finder's path bar and status line at its foot. Every item takes
 //! a click (Ctrl / Shift too), a double-click, a right-click (the context menu), a drag (a
 //! folder takes the drop: a move, Ctrl a copy) and F2's rename field.
+//!
+//! A folder's items are a VIRTUAL view ([`folder_view`]): only the lines in view and a screen
+//! either side are built (a line is a Details or Content row, or a row of cells, or a group's
+//! header - every line of a layout one height, [`line_px`]), however many items the folder has;
+//! a scroll draws the lines it brings in without a rebuild of the window, and when it settles
+//! the rows in view get their sizes, dates, item counts and thumbnails
+//! (`actions::request_view_work`). The icon layouts' IconGrid draws its viewport only and asks
+//! for the items it shows ([`GridItems`]).
+
+use std::ops::Range;
 
 use azul::{
     callbacks::{
@@ -16,7 +26,7 @@ use azul::{
         TextInputOnFocusLostCallbackType, TextInputOnTextInputCallbackType,
         TextInputOnVirtualKeyDownCallbackType, TileOnClickCallbackType,
     },
-    dom::{AttributeType, FocusTarget, VirtualKeyCode},
+    dom::{AttributeType, DomId, FocusTarget, NodeId, VirtualKeyCode},
     prelude::*,
     shells::ShellEmptyState,
     str::String as AzString,
@@ -29,7 +39,9 @@ use azul::{
 use crate::{
     actions::{self, action_ref, on_action, Action},
     browse::{self, Column, Entry, Place},
-    go, ids, look,
+    go, ids,
+    listing::{self, Line},
+    look,
     model::{self, ViewLayout},
     preview::{self, PreviewKind},
     save_settings, ui_panes, with_state, ColumnDrag, DriveState, Message,
@@ -172,6 +184,7 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         area.add_child(info_bar(message, app));
     }
     let grid = uses_icon_grid(s);
+    let folder = matches!(s.place, Place::Folder { .. });
     let view = match &s.place {
         Place::ThisPc => this_pc(s, app),
         Place::QuickAccess => quick_access(s, app),
@@ -185,6 +198,11 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
             // The grid scrolls itself, by whole rows.
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
              overflow: hidden;"
+        } else if folder {
+            // A folder's rows are a virtual view that scrolls itself; a Details header wider
+            // than the leaf scrolls across with them.
+            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+             overflow-x: auto; overflow-y: hidden;"
         } else {
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
              overflow: auto;"
@@ -210,18 +228,6 @@ pub(crate) fn content(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
         background,
         on_background_drop,
     ));
-    if s.next.is_some() && !s.loading && s.current_drive().is_some() {
-        area.add_child(
-            Dom::create_div()
-                .with_css("display: flex; flex-direction: row; flex-shrink: 0; padding: 6px 12px;")
-                .with_child(
-                    Button::create(AzString::from("Load more"))
-                        .with_on_click(app.clone(), on_load_more as ButtonOnClickCallbackType)
-                        .dom()
-                        .with_id(ids::LOAD_MORE),
-                ),
-        );
-    }
     area.add_child(ui_panes::path_bar(s, app));
     area.add_child(ui_panes::status_line(s, app));
     Dom::create_div()
@@ -276,14 +282,6 @@ extern "C" fn on_background_drop(mut data: RefAny, mut info: CallbackInfo) -> Up
     with_state(&mut app, &mut info, |info, app, s| {
         let prefix = s.prefix().to_string();
         actions::drop_on_folder(info, app, s, &prefix, copy);
-    })
-}
-
-extern "C" fn on_load_more(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    with_state(&mut data, &mut info, |info, app, s| {
-        if !s.loading {
-            crate::start_listing(info, app, s, true);
-        }
     })
 }
 
@@ -973,10 +971,11 @@ pub(crate) extern "C" fn on_column_drag_end(mut data: RefAny, mut info: Callback
 /// under the hover and the selection.
 fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
     let shade = if alt { look::STRIPE } else { "" };
-    // Finder's dense rows (the rename field may make one taller).
+    // Finder's dense rows, all of one height: the virtual view places a row by its position.
     let mut row = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: row; align-items: center; min-height: 22px; \
-         flex-shrink: 0; {shade} {}",
+        "display: flex; flex-direction: row; align-items: center; height: {}px; \
+         box-sizing: border-box; flex-shrink: 0; {shade} {}",
+        line_px(s, ViewLayout::Details),
         item_paint(s, entry)
     ));
     if alt {
@@ -990,11 +989,7 @@ fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
         let (cell, extra) = match c.column {
             Column::Name => (name_cell(s, app, entry, 16.0), ""),
             Column::Size => (
-                Dom::create_span_with_text(AzString::from(model::cell_text(
-                    entry,
-                    c.column,
-                    s.settings.show_extensions,
-                ))),
+                Dom::create_span_with_text(AzString::from(size_text(s, entry))),
                 "opacity: 0.8; display: flex; flex-direction: row; justify-content: flex-end; \
                  padding-right: 12px;",
             ),
@@ -1022,17 +1017,23 @@ fn details_row(s: &DriveState, app: &RefAny, entry: &Entry, alt: bool) -> Dom {
 /// A row of the Content layout: icon, name and type, date and size.
 fn content_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     let mut row = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: row; align-items: center; height: 54px; padding: 0px 8px; \
-         flex-shrink: 0; {}",
+        "display: flex; flex-direction: row; align-items: center; height: {}px; \
+         box-sizing: border-box; padding: 0px 8px; flex-shrink: 0; {}",
+        line_px(s, ViewLayout::Content),
         item_paint(s, entry)
     ));
     if s.settings.item_checkboxes {
         row.add_child(check_box(s, app, entry));
     }
     let size = if entry.is_folder {
-        String::new()
-    } else {
+        s.counts
+            .get(&entry.key)
+            .map(|n| browse::counted(*n, "item", "items"))
+            .unwrap_or_default()
+    } else if entry.known {
         format!("Size: {}", browse::format_size(entry.size))
+    } else {
+        String::new()
     };
     let modified = browse::format_modified(entry.modified, &chrono::Local);
     let modified = if modified.is_empty() {
@@ -1061,13 +1062,29 @@ fn content_row(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
     interactive(s, app, entry, row)
 }
 
-/// A cell of the icon layouts: the big icon over the name.
+/// What the Size column says: a file's size once its stat is in, a folder's item count once it
+/// is counted (one `read_dir`, no stat per item), else nothing yet.
+fn size_text(s: &DriveState, entry: &Entry) -> String {
+    if entry.is_folder {
+        return s
+            .counts
+            .get(&entry.key)
+            .map(|n| browse::counted(*n, "item", "items"))
+            .unwrap_or_default();
+    }
+    model::cell_text(entry, Column::Size, s.settings.show_extensions)
+}
+
+/// A cell of the icon layouts: the big icon over the name, in a box of the layout's fixed size
+/// (the virtual view places a line by its position).
 fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) -> Dom {
     let px = layout.icon_px();
-    let width = layout.cell_width();
+    let width = layout.cell_width() + 8.0;
+    let height = line_px(s, layout) - 6.0;
     let mut cell = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: column; align-items: center; width: {width}px; \
-         padding: 6px 4px; margin: 3px; {}",
+        "display: flex; flex-direction: column; align-items: center; box-sizing: border-box; \
+         width: {width}px; height: {height}px; padding: 6px 4px; margin: 3px; flex-shrink: 0; \
+         overflow: hidden; {}",
         cell_paint(s, entry)
     ));
     if s.settings.item_checkboxes {
@@ -1083,7 +1100,7 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
             Dom::create_div()
                 .with_css(format!(
                     "display: flex; flex-direction: row; align-items: center; \
-                     justify-content: center; width: {px}px; height: {px}px;"
+                     justify-content: center; width: {px}px; height: {px}px; flex-shrink: 0;"
                 ))
                 .with_child(
                     Dom::create_image(image.clone())
@@ -1093,7 +1110,7 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
         ),
         _ => cell.add_child(
             Dom::create_icon(AzString::from(icon_for(entry)))
-                .with_css(format!("font-size: {px}px; {}", icon_colour(entry))),
+                .with_css(format!("font-size: {px}px; flex-shrink: 0; {}", icon_colour(entry))),
         ),
     }
     if s.renaming.as_ref().is_some_and(|r| r.key == entry.key) {
@@ -1115,10 +1132,11 @@ fn icon_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) ->
 
 /// A cell of the List and Small icons layouts: a small icon beside the name.
 fn inline_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) -> Dom {
-    let width = layout.cell_width();
+    let width = layout.cell_width() + 8.0;
     let mut cell = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: row; align-items: center; width: {width}px; \
-         height: 24px; padding: 0px 4px; margin: 1px; border-radius: 4px; {}",
+        "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; \
+         width: {width}px; height: 24px; padding: 0px 4px; margin: 1px; border-radius: 4px; \
+         flex-shrink: 0; {}",
         item_paint(s, entry)
     ));
     if s.settings.item_checkboxes {
@@ -1128,82 +1146,456 @@ fn inline_cell(s: &DriveState, app: &RefAny, entry: &Entry, layout: ViewLayout) 
     interactive(s, app, entry, cell)
 }
 
-/// A tile of the Tiles layout (the Tile widget: icon, name, type and size).
+/// The box of a tile of the Tiles layout, its margin outside it.
+const TILE_BOX: (f32, f32) = (250.0, 72.0);
+
+/// A tile of the Tiles layout (the Tile widget: icon, name, type and size) in a box of the
+/// layout's fixed size.
 fn tile_cell(s: &DriveState, app: &RefAny, entry: &Entry) -> Dom {
+    let (width, height) = TILE_BOX;
+    let selected = s.selection.contains(&entry.key);
+    let mut frame = Dom::create_div().with_css(format!(
+        "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; \
+         width: {width}px; height: {height}px; margin: 0px 8px 8px 0px; flex-shrink: 0; \
+         overflow: hidden;{}",
+        if actions::is_cut(s, &entry.key) {
+            " opacity: 0.5;"
+        } else {
+            ""
+        }
+    ));
+    if s.settings.item_checkboxes {
+        frame.add_child(check_box(s, app, entry));
+    }
     if s.renaming.as_ref().is_some_and(|r| r.key == entry.key) {
-        return inline_cell(s, app, entry, ViewLayout::Tiles);
+        frame.add_child(name_cell(s, app, entry, 32.0));
+        return interactive(s, app, entry, frame);
     }
     let detail = if entry.is_folder {
         entry.kind()
-    } else {
+    } else if entry.known {
         format!("{}, {}", entry.kind(), browse::format_size(entry.size))
+    } else {
+        entry.kind()
     };
-    let mut css = tile_css(250, s.selection.contains(&entry.key));
-    if actions::is_cut(s, &entry.key) {
-        css.push_str(" opacity: 0.5;");
-    }
-    let tile = Tile::create(AzString::from(
-        entry.display_name(s.settings.show_extensions),
-    ))
-    .with_icon(AzString::from(icon_for(entry)))
-    .with_detail(AzString::from(detail))
-    .with_selected(s.selection.contains(&entry.key))
-    .dom()
-    .with_css(css);
-    if s.settings.item_checkboxes {
-        let row = Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center;")
-            .with_child(check_box(s, app, entry))
-            .with_child(tile);
-        return interactive(s, app, entry, row);
-    }
-    interactive(s, app, entry, tile)
+    frame.add_child(
+        Tile::create(AzString::from(
+            entry.display_name(s.settings.show_extensions),
+        ))
+        .with_icon(AzString::from(icon_for(entry)))
+        .with_detail(AzString::from(detail))
+        .with_selected(selected)
+        .dom()
+        .with_css(format!(
+            "flex-grow: 1; min-width: 0px; height: 100%; {}",
+            if selected { look::TILE_SELECTED } else { "" }
+        )),
+    );
+    interactive(s, app, entry, frame)
 }
 
-/// The items of one group in the layout.
-fn items_of(s: &DriveState, app: &RefAny, layout: ViewLayout, entries: &[&Entry]) -> Dom {
+// ==== A folder: a virtual view of lines ====
+
+/// The height (px) of one line of items in `layout`: every line of a layout is this high, so
+/// the virtual view knows where any line is without laying out the ones before it.
+pub(crate) fn line_px(s: &DriveState, layout: ViewLayout) -> f32 {
     match layout {
-        ViewLayout::Details => Dom::create_div()
-            .with_css("display: flex; flex-direction: column;")
-            .with_children(DomVec::from(
-                entries
-                    .iter()
-                    .enumerate()
-                    .map(|(i, e)| details_row(s, app, e, i % 2 == 1))
-                    .collect::<Vec<_>>(),
-            )),
-        ViewLayout::Content => Dom::create_div()
-            .with_css("display: flex; flex-direction: column;")
-            .with_children(DomVec::from(
-                entries
-                    .iter()
-                    .map(|e| content_row(s, app, e))
-                    .collect::<Vec<_>>(),
-            )),
-        ViewLayout::Tiles => wrap_row(entries.iter().map(|e| tile_cell(s, app, e)).collect()),
-        ViewLayout::List | ViewLayout::SmallIcons => {
-            wrap_row(entries.iter().map(|e| inline_cell(s, app, e, layout)).collect())
-        }
+        ViewLayout::Details | ViewLayout::List | ViewLayout::SmallIcons => 26.0,
+        ViewLayout::Content => 56.0,
+        ViewLayout::Tiles => TILE_BOX.1 + 8.0,
         ViewLayout::ExtraLargeIcons | ViewLayout::LargeIcons | ViewLayout::MediumIcons => {
-            wrap_row(entries.iter().map(|e| icon_cell(s, app, e, layout)).collect())
+            let checks = if s.settings.item_checkboxes { 22.0 } else { 0.0 };
+            layout.icon_px() + 62.0 + checks
         }
     }
 }
 
-/// The open folder in its layout, grouped or not.
-fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
+/// How many items a line of `layout` holds in a view `width` px wide (one in Details and
+/// Content): the cells' boxes with their margins, inside the line's padding.
+pub(crate) fn columns_in(layout: ViewLayout, width: f32) -> usize {
+    let cell = match layout {
+        ViewLayout::Details | ViewLayout::Content => return 1,
+        ViewLayout::Tiles => TILE_BOX.0 + 8.0,
+        ViewLayout::List | ViewLayout::SmallIcons => layout.cell_width() + 10.0,
+        ViewLayout::ExtraLargeIcons | ViewLayout::LargeIcons | ViewLayout::MediumIcons => {
+            layout.cell_width() + 14.0
+        }
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = ((width - 16.0) / cell).floor().max(1.0) as usize;
+    n
+}
+
+/// The folder view as the virtual view draws it: the shown items in order (grouped: group
+/// after group), the groups' headers, the lines and where each starts.
+pub(crate) struct FolderModel<'a> {
+    pub order: Vec<&'a Entry>,
+    /// Grouped: every group's header and how many items it holds.
+    pub groups: Vec<(String, usize)>,
+    pub columns: usize,
+    pub line_px: f32,
+    pub lines: Vec<Line>,
+    pub tops: Vec<f32>,
+    pub total: f32,
+}
+
+/// [`FolderModel`] of the open folder in a view `width` px wide.
+pub(crate) fn folder_model(s: &DriveState, width: f32) -> FolderModel<'_> {
+    let layout = s.settings.layout;
     let visible = s.visible_entries();
-    if visible.is_empty() {
-        if s.loading {
+    let grouped = s.settings.group_by != model::GroupBy::None;
+    let (order, groups) = if grouped {
+        let now = actions::now_secs() as i64;
+        let mut order = Vec::with_capacity(visible.len());
+        let mut groups = Vec::new();
+        for g in model::group_entries(&visible, s.settings.group_by, now) {
+            groups.push((g.label, g.entries.len()));
+            order.extend(g.entries);
+        }
+        (order, groups)
+    } else {
+        (visible, Vec::new())
+    };
+    let (sizes, open): (Vec<usize>, Vec<bool>) = if grouped {
+        groups
+            .iter()
+            .map(|(label, n)| (*n, !s.groups_closed.contains(label)))
+            .unzip()
+    } else {
+        (vec![order.len()], vec![true])
+    };
+    let columns = columns_in(layout, width);
+    let lines = listing::lines_of(&sizes, &open, columns, grouped);
+    let line_px = line_px(s, layout);
+    let (tops, total) = listing::line_tops(&lines, line_px);
+    FolderModel {
+        order,
+        groups,
+        columns,
+        line_px,
+        lines,
+        tops,
+        total,
+    }
+}
+
+/// The width the folder view draws its lines in: as it last drew (the virtual view records
+/// it), else the content's estimate - for the work done for the rows in view (their stats,
+/// counts and thumbnails) and for the line a key reveals.
+fn view_width(s: &DriveState) -> f32 {
+    if s.view_width > 0.0 {
+        s.view_width
+    } else {
+        s.content_estimate().0
+    }
+}
+
+/// The folder view's height: as it last drew or scrolled, else the content's estimate.
+fn view_height(s: &DriveState) -> f32 {
+    if s.view_scroll.1 > 0.0 {
+        s.view_scroll.1
+    } else {
+        s.content_estimate().1
+    }
+}
+
+/// The positions (in the shown order) of the items in view now, by the view's last scroll -
+/// the IconGrid's top row in its layouts.
+pub(crate) fn items_in_view(s: &DriveState) -> Range<usize> {
+    if uses_icon_grid(s) {
+        let (width, height) = s.content_estimate();
+        let layout = s.settings.layout;
+        let columns = ((width / layout.cell_width()).floor().max(1.0)) as usize;
+        let rows = ((height / (layout.icon_px() + 40.0)).ceil() as usize)
+            .max(1)
+            .saturating_add(1);
+        let start = s.grid_view.top_row.saturating_mul(columns);
+        return start..start.saturating_add(rows.saturating_mul(columns));
+    }
+    let model = folder_model(s, view_width(s));
+    let lines =
+        listing::lines_in_view(&model.tops, model.total, s.view_scroll.0, view_height(s));
+    listing::positions_of(&model.lines, lines)
+}
+
+/// The items of the folder view in its shown order (grouped: group after group), as
+/// [`items_in_view`] counts positions.
+pub(crate) fn shown_order(s: &DriveState) -> Vec<&Entry> {
+    if s.settings.group_by == model::GroupBy::None {
+        return s.visible_entries();
+    }
+    let visible = s.visible_entries();
+    let now = actions::now_secs() as i64;
+    model::group_entries(&visible, s.settings.group_by, now)
+        .into_iter()
+        .flat_map(|g| g.entries)
+        .collect()
+}
+
+/// What the folder's virtual view carries: the app (the rows are read from its state when the
+/// view draws, so a scroll needs no rebuild of the window).
+struct FolderRowsRef {
+    app: RefAny,
+}
+
+fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+    LogicalRect::create(LogicalPosition::create(x, y), LogicalSize::create(w, h))
+}
+
+/// The folder's virtual view: the lines in view and a screen either side, one under the other
+/// from the first one's place; the document is every line, however many items the folder has.
+extern "C" fn folder_lines(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let Some(rows) = data.downcast_ref::<FolderRowsRef>() else {
+        return VirtualViewReturn::default();
+    };
+    let app = rows.app.clone();
+    let mut state = app.clone();
+    let Some(mut guard) = state.downcast_mut::<DriveState>() else {
+        return VirtualViewReturn::default();
+    };
+    let size = info.bounds.get_logical_size();
+    // The box the view draws in is what the work for the rows in view counts with (their
+    // stats, counts and thumbnails; the line a key reveals): the window's estimate errs by
+    // the frames around the view, a column's worth in the grids.
+    guard.view_width = size.width;
+    if size.height > 0.0 {
+        guard.view_scroll.1 = size.height;
+    }
+    let s = &*guard;
+    let layout = s.settings.layout;
+    // A Details view is as wide as its columns (it scrolls across in the view's host).
+    let width = if layout == ViewLayout::Details {
+        size.width.max(details_width(s))
+    } else {
+        size.width.max(1.0)
+    };
+    let model = folder_model(s, width);
+    let window = listing::lines_window(&model.tops, model.total, info.scroll_offset.y, size.height);
+    let mut root = Dom::create_div().with_css(format!(
+        "display: flex; flex-direction: column; width: {width}px;"
+    ));
+    for i in window.clone() {
+        root.add_child(line_dom(s, &app, &model, i));
+    }
+    let top = model.tops.get(window.start).copied().unwrap_or(0.0);
+    let bottom = model
+        .tops
+        .get(window.end)
+        .copied()
+        .unwrap_or(model.total);
+    VirtualViewReturn::with_dom(
+        root,
+        rect(0.0, top, width, (bottom - top).max(1.0)),
+        rect(0.0, 0.0, width, model.total.max(1.0)),
+    )
+}
+
+/// The Details columns' width, the check boxes' column with them.
+fn details_width(s: &DriveState) -> f32 {
+    let checks = if s.settings.item_checkboxes { 28.0 } else { 0.0 };
+    s.settings.columns.columns.iter().map(|c| c.width + 8.0).sum::<f32>() + checks
+}
+
+/// Line `index` of the view: a group's header, or its items (a Details or Content row, or a row
+/// of cells).
+fn line_dom(s: &DriveState, app: &RefAny, model: &FolderModel<'_>, index: usize) -> Dom {
+    match model.lines[index] {
+        Line::Header { group } => {
+            let (label, count) = model.groups.get(group).cloned().unwrap_or_default();
+            group_header(s, app, &label, count)
+        }
+        Line::Items { start, end } => {
+            let layout = s.settings.layout;
+            let items = &model.order[start..end];
+            match layout {
+                ViewLayout::Details => details_row(s, app, items[0], start % 2 == 1),
+                ViewLayout::Content => content_row(s, app, items[0]),
+                _ => {
+                    let cells: Vec<Dom> = items
+                        .iter()
+                        .map(|entry| match layout {
+                            ViewLayout::Tiles => tile_cell(s, app, entry),
+                            ViewLayout::List | ViewLayout::SmallIcons => {
+                                inline_cell(s, app, entry, layout)
+                            }
+                            _ => icon_cell(s, app, entry, layout),
+                        })
+                        .collect();
+                    Dom::create_div()
+                        .with_css(format!(
+                            "display: flex; flex-direction: row; align-items: flex-start; \
+                             box-sizing: border-box; height: {}px; padding: 0px 8px; \
+                             flex-shrink: 0; overflow: hidden;",
+                            model.line_px
+                        ))
+                        .with_children(DomVec::from(cells))
+                }
+            }
+        }
+    }
+}
+
+/// What a group header carries: the app and the group's label (a click opens or closes it).
+struct GroupHeaderRef {
+    app: RefAny,
+    label: String,
+}
+
+/// Explorer's group header: the triangle, the label, the count and a rule.
+fn group_header(s: &DriveState, app: &RefAny, label: &str, count: usize) -> Dom {
+    let open = !s.groups_closed.contains(label);
+    Dom::create_div()
+        .with_class(ids::GROUP_HEADER_CLASS)
+        .with_css(format!(
+            "display: flex; flex-direction: row; align-items: center; box-sizing: border-box; \
+             height: {}px; padding: 0px 8px; flex-shrink: 0; font-size: 13px; font-weight: 600; \
+             cursor: default; {}",
+            listing::HEADER_PX,
+            look::ITEM
+        ))
+        .with_accessibility_name(label)
+        .with_child(
+            Dom::create_icon(AzString::from(if open {
+                "expand_more"
+            } else {
+                "chevron_right"
+            }))
+            .with_css("font-size: 16px; margin-right: 4px; opacity: 0.7; flex-shrink: 0;"),
+        )
+        .with_child(Dom::create_span_with_text(AzString::from(label)))
+        .with_child(
+            Dom::create_span_with_text(AzString::from(format!(" ({count})")))
+                .with_css("opacity: 0.6; font-weight: 400; margin-right: 8px;"),
+        )
+        .with_child(Dom::create_div().with_css(
+            "flex-grow: 1; height: 1px; opacity: 0.35; background: currentcolor;",
+        ))
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::Click),
+            RefAny::new(GroupHeaderRef {
+                app: app.clone(),
+                label: label.to_string(),
+            }),
+            on_group_header_click,
+        )
+}
+
+/// A click on a group's header opens or closes the group.
+extern "C" fn on_group_header_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((mut app, label)) = data
+        .downcast_ref::<GroupHeaderRef>()
+        .map(|g| (g.app.clone(), g.label.clone()))
+    else {
+        return Update::DoNothing;
+    };
+    info.stop_propagation();
+    with_state(&mut app, &mut info, |info, app, s| {
+        if !s.groups_closed.remove(&label) {
+            s.groups_closed.insert(label);
+        }
+        actions::request_view_work(info, app, s);
+    })
+}
+
+/// The view's scroll settled: where it is now decides which rows get their stats, counts and
+/// thumbnails (the rows already drawn follow the scroll by themselves).
+extern "C" fn on_view_scrolled(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut app) = data
+        .downcast_ref::<FolderRowsRef>()
+        .map(|r| r.app.clone())
+    else {
+        return Update::DoNothing;
+    };
+    let hit = info.get_hit_node();
+    let Some(raw) = hit.node.into_raw().checked_sub(1) else {
+        return Update::DoNothing;
+    };
+    let offset = info
+        .get_scroll_offset_for_node(hit.dom, NodeId { inner: raw })
+        .into_option()
+        .map_or(0.0, |p| p.y);
+    let height = info.get_node_size(hit).into_option().map_or(0.0, |size| size.height);
+    let handle = app.clone();
+    let Some(mut guard) = app.downcast_mut::<DriveState>() else {
+        return Update::DoNothing;
+    };
+    let s = &mut *guard;
+    s.view_scroll = (offset, height);
+    // The rows in view already show; what they lack (sizes, counts, thumbnails) is fetched on a
+    // worker thread and rebuilds the window when it is in - a scroll itself rebuilds nothing.
+    actions::request_view_work(&mut info, &handle, s);
+    Update::DoNothing
+}
+
+/// Scrolls the folder's rows back to their top (a new folder opens at its top): the view node,
+/// found by its id, keeps its identity across the rebuild, and with it the scroll offset.
+pub(crate) fn scroll_view_to_top(info: &mut CallbackInfo) {
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, ids::FOLDER_ROWS);
+    if node.into_raw() == 0 {
+        return;
+    }
+    info.scroll_to(dom, node, LogicalPosition::create(0.0, 0.0));
+}
+
+/// Scrolls the folder's rows so the item `key` is in view (the arrow keys, a new folder waiting
+/// for its name).
+pub(crate) fn reveal_item(info: &mut CallbackInfo, s: &mut DriveState, key: &str) {
+    if uses_icon_grid(s) {
+        return; // the grid keeps its focused item in view itself
+    }
+    let model = folder_model(s, view_width(s));
+    let Some(position) = model.order.iter().position(|e| e.key == key) else {
+        return;
+    };
+    let Some(line) = model.lines.iter().position(
+        |l| matches!(*l, Line::Items { start, end } if start <= position && position < end),
+    ) else {
+        return;
+    };
+    let top = model.tops[line];
+    let bottom = top + model.line_px;
+    let scroll = s.view_scroll.0;
+    let height = view_height(s);
+    let y = if top < scroll {
+        top
+    } else if bottom > scroll + height {
+        bottom - height
+    } else {
+        return;
+    };
+    let dom = DomId { inner: 0 };
+    let node = info.get_node_id_by_id_attribute(dom, ids::FOLDER_ROWS);
+    if node.into_raw() == 0 {
+        return;
+    }
+    s.view_scroll.0 = y.max(0.0);
+    info.scroll_to(dom, node, LogicalPosition::create(0.0, y.max(0.0)));
+}
+
+/// The open folder in its layout, grouped or not: the Details header over a virtual view of
+/// the lines (only the lines in view and a screen either side are ever built).
+fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
+    if s.visible_entries().is_empty() {
+        if s.loading || !s.listing_done {
             return Dom::create_div()
                 .with_css("padding: 16px; opacity: 0.7;")
                 .with_child(Dom::create_span_with_text(AzString::from("Loading...")));
         }
+        if s.listing_failed {
+            return ShellEmptyState::create(AzString::from("This folder could not be read."))
+                .with_icon(AzString::from("folder_off"))
+                .with_detail(AzString::from(
+                    "The message above says why; Refresh (F5) tries again.",
+                ))
+                .dom()
+                .with_id(ids::EMPTY_FOLDER);
+        }
         let (title, detail) = if s.search.trim().is_empty() {
             (
                 "This folder is empty.",
-                "Drop files here from your computer, or use New folder (or Upload) in the command \
-                 bar.",
+                "Drop files here from your computer, or use New folder (or Upload) on the \
+                 ribbon's Home tab.",
             )
         } else {
             (
@@ -1218,44 +1610,73 @@ fn folder_view(s: &DriveState, app: &RefAny) -> Dom {
             .with_id(ids::EMPTY_FOLDER);
     }
     let layout = s.settings.layout;
-    let now = actions::now_secs() as i64;
-    let grouped = model::group_entries(&visible, s.settings.group_by, now);
-    let mut sections: Vec<(String, usize, Dom)> = grouped
-        .into_iter()
-        .map(|g| {
-            let count = g.entries.len();
-            let body = items_of(s, app, layout, &g.entries);
-            (g.label, count, body)
-        })
-        .collect();
-    let body = if s.settings.group_by == model::GroupBy::None && sections.len() == 1 {
-        sections.remove(0).2
-    } else {
-        groups(s, app, sections)
-    };
     let mut view = Dom::create_div()
         .with_id(ids::FOLDER_VIEW)
         .with_class(ids::layout_class(layout))
-        .with_css("display: flex; flex-direction: column;");
+        .with_css(if layout == ViewLayout::Details {
+            format!(
+                "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                 min-width: {}px;",
+                details_width(s)
+            )
+        } else {
+            String::from("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
+        });
     if layout == ViewLayout::Details {
         view.add_child(details_header(s, app));
     }
-    view.add_child(body);
+    let rows = RefAny::new(FolderRowsRef { app: app.clone() });
+    view.add_child(
+        Dom::create_virtual_view(rows.clone(), folder_lines)
+            .with_id(ids::FOLDER_ROWS)
+            .with_accessibility_name(s.place_name().as_str())
+            .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::ScrollEnd),
+                rows,
+                on_view_scrolled,
+            ),
+    );
     view
 }
 
 // ==== The icon layouts: azul's IconGrid ====
 
-/// The grid's items, made once per build (the grid asks only for the ones in view).
+/// The grid's data: the app and the positions (in `entries`) of the items it shows, in order -
+/// an item is made when the grid asks for it (only the ones in view), never one per item of
+/// the folder per rebuild.
 struct GridItems {
-    items: Vec<IconGridItem>,
+    app: RefAny,
+    order: Vec<usize>,
 }
 
 /// The grid's data callback: item `index` of the visible order.
 extern "C" fn grid_item(mut data: RefAny, index: usize) -> IconGridItem {
-    data.downcast_ref::<GridItems>()
-        .and_then(|grid| grid.items.get(index).cloned())
-        .unwrap_or_else(IconGridItem::empty)
+    let Some(grid) = data.downcast_ref::<GridItems>() else {
+        return IconGridItem::empty();
+    };
+    let Some(&at) = grid.order.get(index) else {
+        return IconGridItem::empty();
+    };
+    let mut app = grid.app.clone();
+    let Some(s) = app.downcast_ref::<DriveState>() else {
+        return IconGridItem::empty();
+    };
+    let Some(entry) = s.entries.get(at) else {
+        return IconGridItem::empty();
+    };
+    let mut item = IconGridItem::create(
+        entry.display_name(s.settings.show_extensions),
+        icon_for(entry),
+    )
+    .with_name(format!("{}, {}", entry.name, entry.kind()));
+    if let Some(Some(image)) = s.thumbnails.get(&entry.key) {
+        item = item.with_image(image.clone());
+    }
+    if in_the_cloud(&s, entry) {
+        item = item.with_badge("cloud_queue");
+    }
+    item
 }
 
 /// Extra large, Large and Medium icons: the folder's items as azul's IconGrid at the content
@@ -1264,26 +1685,17 @@ extern "C" fn grid_item(mut data: RefAny, index: usize) -> IconGridItem {
 /// out) and keyboard. Its selection is the app's (by position in the visible order).
 fn icon_grid(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
     let layout = s.settings.layout;
-    let visible = s.visible_entries();
-    let keys: Vec<&str> = visible.iter().map(|e| e.key.as_str()).collect();
-    let items: Vec<IconGridItem> = visible
+    let show_hidden = s.settings.show_hidden;
+    let order: Vec<usize> = s
+        .entries
         .iter()
-        .map(|entry| {
-            let mut item = IconGridItem::create(
-                entry.display_name(s.settings.show_extensions),
-                icon_for(entry),
-            )
-            .with_name(format!("{}, {}", entry.name, entry.kind()));
-            if let Some(Some(image)) = s.thumbnails.get(&entry.key) {
-                item = item.with_image(image.clone());
-            }
-            if in_the_cloud(s, entry) {
-                item = item.with_badge("cloud_queue");
-            }
-            item
-        })
+        .enumerate()
+        .filter(|(_, e)| show_hidden || !e.is_hidden())
+        .filter(|(_, e)| browse::matches_search(e, &s.search))
+        .map(|(i, _)| i)
         .collect();
-    let count = items.len();
+    let keys: Vec<&str> = order.iter().map(|&i| s.entries[i].key.as_str()).collect();
+    let count = order.len();
     let icon = layout.icon_px();
     let view = s.grid_view.clone().with_selection(s.selection.positions(&keys));
     Dom::create_div()
@@ -1297,7 +1709,10 @@ fn icon_grid(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
                 .with_cell_size(layout.cell_width(), icon + 40.0, icon)
                 .with_view(view)
                 .with_data_source(
-                    RefAny::new(GridItems { items }),
+                    RefAny::new(GridItems {
+                        app: app.clone(),
+                        order,
+                    }),
                     grid_item as IconGridDataSourceCallbackType,
                 )
                 .with_on_event(app.clone(), on_grid_event as IconGridOnEventCallbackType)
@@ -1307,7 +1722,8 @@ fn icon_grid(s: &DriveState, app: &RefAny, size: (f32, f32)) -> Dom {
 
 /// What the grid did. Its view is kept (the first row, a rubber band); its selection is the
 /// app's from now on (the preview follows it); a double-click or Enter opens, a right click
-/// shows the selection's menu (the folder's on empty space), a drag carries the selection.
+/// shows the selection's menu (the folder's on empty space), a drag carries the selection; a
+/// scroll brings the thumbnails of the pictures that came into view.
 extern "C" fn on_grid_event(
     mut data: RefAny,
     mut info: CallbackInfo,
@@ -1343,7 +1759,10 @@ extern "C" fn on_grid_event(
                     s.dragging = Some((drive, items));
                 }
             }
-            IconGridEventKind::Select | IconGridEventKind::Scroll | IconGridEventKind::Drag => {}
+            IconGridEventKind::Scroll => {
+                actions::request_view_work(info, app, s);
+            }
+            IconGridEventKind::Select | IconGridEventKind::Drag => {}
         }
     })
 }
