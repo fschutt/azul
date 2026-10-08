@@ -193,4 +193,23 @@ mod tests {
             [rust_fontconfig::FcWeight::Normal, rust_fontconfig::FcWeight::Bold]
         );
     }
+
+    /// Running text has emphasis: under flora the `system:` text roles are
+    /// Garamond, so an italic run needs an italic Garamond - the upright face
+    /// would set the emphasis upright (azul draws no synthetic oblique).
+    #[test]
+    fn the_garamond_bundle_has_an_italic_regular_and_bold() {
+        let italic_weights: Vec<_> = bundled_ui_fonts()
+            .iter()
+            .filter_map(|(family, bytes)| {
+                let faces = rust_fontconfig::FcParseFontBytes(bytes, family).expect("parses");
+                let (pattern, _) = faces.into_iter().next().expect("one face");
+                (pattern.italic == rust_fontconfig::PatternMatch::True).then_some(pattern.weight)
+            })
+            .collect();
+        assert_eq!(
+            italic_weights,
+            [rust_fontconfig::FcWeight::Normal, rust_fontconfig::FcWeight::Bold]
+        );
+    }
 }
