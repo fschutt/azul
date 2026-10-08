@@ -127,6 +127,7 @@ pub(crate) const ABOUT: azul_appkit::AboutInfo = azul_appkit::AboutInfo {
 mod args;
 mod audio;
 mod chat;
+mod crypto;
 mod ids;
 mod keys;
 mod pace;
