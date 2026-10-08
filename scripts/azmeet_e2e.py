@@ -917,8 +917,15 @@ def relay_phase(args, binary, worker, logs, out, capped, skip, procs):
         direct = [p for p in app.printed("AZMEET_PATH") if p.endswith(" direct")]
         if direct:
             raise Failure("%s found a direct path although relay-only: %s" % (app.tag, direct))
-    # The relay's own counters: both clients connected, and the call's bytes went in and out.
+    # The relay's own counters: both clients connected, and the call's bytes went in and out. Two
+    # 600 kbit/s cameras pass the floor within seconds; a call that just began may not have yet, so
+    # the counters are read until they do (or the phase's deadline passes).
+    floor = args.min_relayed_kib * 1024
     counted = relay.relayed(before)
+    while (counted is not None and time.time() < deadline
+           and (counted[0] < floor or counted[1] < floor)):
+        time.sleep(1)
+        counted = relay.relayed(before)
     if counted is None:
         log("relay phase: no metrics for the relay at %s (--relay-metrics-url): its byte counts "
             "are not checked; the paths above say relayed" % relay.url)
@@ -928,7 +935,6 @@ def relay_phase(args, binary, worker, logs, out, capped, skip, procs):
             % (got / 1024, passed_on / 1024, accepts))
         if accepts < 2:
             raise Failure("the relay accepted %d client connections, not both clients" % accepts)
-        floor = args.min_relayed_kib * 1024
         if got < floor or passed_on < floor:
             raise Failure("the relay carried %.0f KiB in and %.0f KiB out: less than --min-relayed-kib %d each "
                           "(the video did not go through it)" % (got / 1024, passed_on / 1024, args.min_relayed_kib))

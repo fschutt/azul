@@ -597,10 +597,17 @@ struct Pending {
     handle: u64,
     node_id: String,
     polls: u32,
+    /// What it said meanwhile about itself (its capabilities, its report, its call state): a peer
+    /// says each once, when it took the connection, so dropping them leaves this side sending it
+    /// only audio and never learning what it decodes. Replayed when it is confirmed.
+    held: Vec<Vec<u8>>,
 }
 
 /// Reads of the peers list a pending connection may wait for its announcement.
 const PENDING_POLLS: u32 = 3;
+
+/// The messages a pending connection's [`Pending::held`] keeps (the newest).
+const PENDING_HELD: usize = 32;
 
 struct MeetState {
     name: String,
@@ -1632,6 +1639,7 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
                         handle: event.peer,
                         node_id,
                         polls: 0,
+                        held: Vec::new(),
                     });
                 }
                 return false;
@@ -1666,28 +1674,48 @@ fn apply_link_event(s: &mut MeetState, event: &IrohEvent) -> bool {
             s.link_status = format!("error: {}", event.text.as_str());
             true
         }
-        IrohEventKind::Message => {
-            let Some(audio::Control::State(state)) = audio::decode_control(event.data.as_ref())
-            else {
-                return false;
-            };
-            let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == event.peer) else {
-                return false;
-            };
-            if remote.state == Some(state) {
-                return false;
-            }
-            remote.state = Some(state);
-            let node_id = remote.node_id.clone();
-            let label = format!("{} · connected", remote_name(s, &node_id));
-            eprintln!(
-                "[azmeet] {}: {}",
-                s.name,
-                audio::person_line(&label, Some(state))
-            );
-            true
-        }
+        IrohEventKind::Message => apply_peer_state(s, event.peer, event.data.as_ref()),
         _ => false,
+    }
+}
+
+/// A peer's call state (`audio::Control::State`: microphone, camera, hand) from connection `conn`.
+/// True when it changed.
+fn apply_peer_state(s: &mut MeetState, conn: u64, bytes: &[u8]) -> bool {
+    let Some(audio::Control::State(state)) = audio::decode_control(bytes) else {
+        return false;
+    };
+    let Some(remote) = s.remotes.iter_mut().find(|r| r.handle == conn) else {
+        return false;
+    };
+    if remote.state == Some(state) {
+        return false;
+    }
+    remote.state = Some(state);
+    let node_id = remote.node_id.clone();
+    let label = format!("{} · connected", remote_name(s, &node_id));
+    eprintln!(
+        "[azmeet] {}: {}",
+        s.name,
+        audio::person_line(&label, Some(state))
+    );
+    true
+}
+
+/// A message a connection sent while it was pending ([`Pending::held`]), taken now that it is a
+/// peer: its report, its capabilities, its call state. Media it sent then is gone (a keyframe
+/// request brings the picture back).
+fn replay_held(s: &mut MeetState, conn: u64, bytes: &[u8]) -> bool {
+    let Some(sender) = s.remotes.iter().find(|r| r.handle == conn).map(|r| r.key) else {
+        return false;
+    };
+    if let Some(sync) = routes::decode_sync(bytes) {
+        return apply_sync(s, conn, sync);
+    }
+    match video_wire::decode_message(bytes) {
+        Some(Message::Control(control)) => apply_video_control(s, conn, sender, None, control),
+        Some(Message::Packet(..)) => false,
+        None => apply_peer_state(s, conn, bytes),
     }
 }
 
@@ -1731,6 +1759,9 @@ fn settle_pending(s: &mut MeetState) -> bool {
     for mut p in pending {
         if peer_announced(s, &p.node_id) {
             changed |= accept_peer(s, p.handle, p.node_id);
+            for bytes in std::mem::take(&mut p.held) {
+                changed |= replay_held(s, p.handle, &bytes);
+            }
             continue;
         }
         p.polls += 1;
@@ -3923,6 +3954,22 @@ fn receive_item(
     let conn = event.peer;
     let bytes = event.data.as_slice();
     let Some(sender) = s.remotes.iter().find(|r| r.handle == conn).map(|r| r.key) else {
+        // A connection waiting for its signed announcement: what it says about itself is kept
+        // for when it is confirmed (`settle_pending`); its media is not taken.
+        let about_itself = routes::decode_sync(bytes).is_some()
+            || matches!(video_wire::decode_message(bytes), Some(Message::Control(_)))
+            || matches!(
+                audio::decode_control(bytes),
+                Some(audio::Control::State(_))
+            );
+        if about_itself {
+            if let Some(p) = s.pending.iter_mut().find(|p| p.handle == conn) {
+                if p.held.len() == PENDING_HELD {
+                    p.held.remove(0);
+                }
+                p.held.push(bytes.to_vec());
+            }
+        }
         return false;
     };
     if let Some(relayed) = routes::decode_relay(bytes) {

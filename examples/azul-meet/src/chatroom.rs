@@ -1157,7 +1157,12 @@ impl ChatRoom {
             // it: no copy of its key was ever sealed to this device.
             let before = self.waiting.len();
             self.waiting.retain(|(_, waited)| *waited < WAIT_READS);
-            self.before_join += (before - self.waiting.len()) as u32;
+            let sealed = (before - self.waiting.len()) as u32;
+            if sealed > 0 {
+                // the view says how many: it changes
+                self.before_join += sealed;
+                changes.shown = true;
+            }
             if !self.synced_once {
                 self.synced_once = true;
                 changes.history = Some(self.messages.len());
@@ -2162,6 +2167,58 @@ mod tests {
             "one message was written before she could read it"
         );
         assert_eq!(cleo.room.unreadable(), 0, "and nothing failed a check");
+    }
+
+    /// The knock path of `a_newcomer_reads_what_is_written_after_it_joined_and_nothing_before`
+    /// (what the crypto phase of azmeet_e2e.py does with Cleo): the messages of before her
+    /// admission are counted as sealed before she joined, once she is a member.
+    #[test]
+    fn a_device_let_in_after_a_knock_counts_what_was_sealed_before_it_joined() {
+        let mut w = FakeWorker::new();
+        let (mut ada, mut ben, id, _invite) = ada_and_ben(&mut w);
+        ada.room.send(&ada.me, "Only the members can read this", w.now).unwrap();
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        ben.room.send(&ben.me, "Agreed", w.now).unwrap();
+        settle(&mut ben, &mut w);
+        settle(&mut ada, &mut w);
+        let mut cleo = device(3, "Cleo", &id, None);
+        cleo.room.join();
+        // the read that counts them says the view changed (it shows the count)
+        let mut counted_shown = None;
+        // a knock waits a while: more reads than a message waits for its key
+        for _ in 0..4 {
+            let before = cleo.room.before_join();
+            let changes = settle(&mut cleo, &mut w);
+            if cleo.room.before_join() != before {
+                counted_shown = Some(changes.shown);
+            }
+        }
+        assert_eq!(cleo.room.state, Membership::Knocking);
+        settle(&mut ada, &mut w);
+        let knock = ada.room.knocks().next().unwrap().clone();
+        ada.room.admit(&knock.device);
+        settle(&mut ada, &mut w);
+        settle(&mut ben, &mut w);
+        for _ in 0..4 {
+            let before = cleo.room.before_join();
+            let changes = settle(&mut cleo, &mut w);
+            if cleo.room.before_join() != before {
+                counted_shown = Some(changes.shown);
+            }
+        }
+        assert_eq!(cleo.room.state, Membership::Member);
+        assert_eq!(
+            cleo.room.before_join(),
+            2,
+            "the two messages of before her admission were sealed before she joined"
+        );
+        assert_eq!(cleo.room.unreadable(), 0);
+        assert_eq!(
+            counted_shown,
+            Some(true),
+            "the read that counted them asks for the view again"
+        );
     }
 
     #[test]
