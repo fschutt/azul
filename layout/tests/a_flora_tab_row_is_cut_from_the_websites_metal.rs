@@ -213,8 +213,11 @@ fn the_rule_turns_into_the_s_in_the_turn_colour_beside_each_foot() {
     for (x, what) in [
         (row.tab.origin.x - curve, "the left S's foot"),
         (row.tab.origin.x - curve - 1.0, "the left run-out's end"),
-        (row.tab.origin.x + row.tab.size.width + curve - 1.0, "the right S's foot"),
-        (row.tab.origin.x + row.tab.size.width + curve, "the right run-out's end"),
+        // One pixel out from the right foot: the S flares into the rule, so
+        // the pixel AT its foot is the curve's anti-aliased edge - the left
+        // foot's sample lands on a covered pixel only by its x's fraction.
+        (row.tab.origin.x + row.tab.size.width + curve, "the right S's foot"),
+        (row.tab.origin.x + row.tab.size.width + curve + 1.0, "the right run-out's end"),
     ] {
         assert!(
             close(row.rgb(x, y), turn, 10),
