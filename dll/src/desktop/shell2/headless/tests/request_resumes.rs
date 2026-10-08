@@ -54,7 +54,7 @@ extern "C" fn save_the_draft(
     let mut asked = 0usize;
     let _registration = azul_layout::request::defer(
         data.clone(),
-        azul_layout::callbacks::ResumeCallback::create(registered),
+        azul_layout::callbacks::ResumeCallback::create(on_registered),
         Box::new(move || {
             if std::thread::current().id() != owner {
                 return None;
@@ -67,7 +67,7 @@ extern "C" fn save_the_draft(
 }
 
 /// The server's answer: the link is registered, the week must say so.
-extern "C" fn registered(
+extern "C" fn on_registered(
     mut data: RefAny,
     info: azul_layout::callbacks::CallbackInfo,
     _answer: RefAny,

@@ -27,12 +27,22 @@ fast-forwarded to fix/input-bugs-2026-09-19 @ b46726f3d). Nothing compiled or ru
   every other one (event.rs); request.rs module doc corrected (doc only)
 - c79b29f4d RED test B
   `a_screen_readers_press_that_asks_for_a_rebuild_is_shown_after_one_turn_of_the_loop`
-- (next commit) fix 2: headless `pump_once` Phase 2c frame gate (`regeneration_pending()` /
+- 1d40c53c1 fix 2: headless `pump_once` Phase 2c frame gate (`regeneration_pending()` /
   `resize_relayout_pending()`, open windows only); `run()` / `start_as_child()` retire the
   born-with request with the initial layout (epoch + `clear_regeneration_unless_reraised`)
+- test fn renamed `registered` -> `on_registered` (no shadowing), with this file's last update
 
 ## IN PROGRESS
-- the report
+- nothing: report handed to the lead
+
+## Open questions / notes
+- Other backends: fix 1 is shared trait code, so the cross-window loss (a popup's close pass or
+  any secondary window delivering another window's resume) is fixed on macOS / Windows / X11 /
+  Wayland too; mobile is single-window (default no-op fan-out). The frame-gate gap is
+  headless-only (every desktop loop already gates on `regeneration_pending()`).
+- Not done (latency only): a child's all-windows bump does not wake the root's condvar in
+  `run()`; the root rebuilds at its next wake (a timer, the debug poll, the next request) -
+  Phase 0 runs before the debug timer answers, so the next `get_node_hierarchy` is fresh.
 
 ## For the lead (build / run)
 - `cargo test --release -p azul-dll --lib request_resumes` (default features carry a11y +
