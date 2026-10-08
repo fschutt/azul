@@ -55,15 +55,17 @@ inside the full `--test all` run. Recorded as-is: one engine panic (see Bugs).
 ### Frame sizes before (`scripts/refactor/frame_sizes.py <binary>`; prologue `sub sp` incl. the
 stack-probe target, register pushes excluded)
 
-| function | debug (debuginfo=0) | release |
+| function | debug (debuginfo=0) | release (`cargo build --release -p azul-layout --lib`) |
 |---|---|---|
-| solver3::fc::layout_bfc | 25,952 | (pending) |
-| solver3::cache::calculate_layout_for_subtree_fragment | 7,312 | (pending) |
-| solver3::fc::layout_formatting_context | 1,104 | (pending) |
-| solver3::cache::calculate_layout_for_subtree | 64 | (pending) |
+| solver3::fc::layout_bfc | 25,952 (+32 saved regs) | 3,248 (+160) |
+| solver3::cache::calculate_layout_for_subtree_fragment | 7,312 (+32) | 1,344 (+160) |
+| solver3::fc::layout_formatting_context | 1,104 (+32) | 2,128 (+160) |
+| solver3::cache::calculate_layout_for_subtree | 64 | 64 |
 
-Per nesting level (debug) ~34.4 KiB + 128 B of pushes. The lead's 26,736 / 7,776 / 1,152 / 144
-were measured with debuginfo, which spills arguments to extra slots.
+Per nesting level: debug ~34.4 KiB + 128 B of pushes; release 6,784 + 480 B. The lead's debug
+26,736 / 7,776 / 1,152 / 144 were measured with debuginfo, which spills arguments to extra
+slots; release matches the lead's (3,248 / 2,128 / 1,328~1,344). Release is measured on the
+rlib (`/tmp/r13/release_before.rlib`, the merged tip).
 
 Other functions on recursive paths (debug, outside the div-chain target): layout_document 24,176
 (once per layout); fc::layout_ifc 12,624; fc::layout_table_fc 9,664;

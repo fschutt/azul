@@ -52,9 +52,16 @@ def imm(text):
 def frame_of(binary, sym):
     # `otool -p` disassembles from the symbol to the end of the section: read
     # only the prologue and stop it.
-    proc = subprocess.Popen(["otool", "-tv", "-p", sym, binary], stdout=subprocess.PIPE, text=True)
-    out = []
+    # In an archive (.rlib) every member without the symbol prints its own
+    # header first: start at the symbol's label line.
+    proc = subprocess.Popen(
+        ["otool", "-tv", "-p", sym, binary], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+    )
+    out, started = [], False
     for line in proc.stdout:
+        if not started:
+            started = line.rstrip("\n") == sym + ":"
+            continue
         out.append(line.rstrip("\n"))
         if len(out) > 60:
             break
@@ -67,7 +74,7 @@ def frame_of(binary, sym):
         mnemonic, args = op[0], (op[1] if len(op) > 1 else "")
         if mnemonic in ("bl", "b", "ret", "br", "blr", "cbz", "cbnz", "tbz", "tbnz"):
             break
-        m = re.match(r"x\d+, x\d+, \[sp, #-(0x[0-9a-f]+|\d+)\]!", args)
+        m = re.match(r"[xd]\d+, [xd]\d+, \[sp, #-(0x[0-9a-f]+|\d+)\]!", args)
         if mnemonic == "stp" and m:
             pushes += imm(m.group(1))
             continue
