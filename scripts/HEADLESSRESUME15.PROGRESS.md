@@ -21,12 +21,14 @@ fast-forwarded to fix/input-bugs-2026-09-19 @ b46726f3d). Nothing compiled or ru
   phase) sits until an unrelated event. Every desktop loop has a `regeneration_pending()` gate.
 
 ## DONE
-(none yet)
+- 2262aeb21 RED test A: headless/tests/request_resumes.rs
+  `a_request_answered_while_its_popover_closes_rebuilds_the_window_that_shows_the_answer`
+- (fix 1, next commit) `invoke_completed_requests` raises a resume's rebuild for this window AND
+  every other one (event.rs); request.rs module doc corrected (doc only)
 
 ## IN PROGRESS
-- RED test A: headless/tests/request_resumes.rs
-
-## NEXT
-- fix 1: `invoke_completed_requests` raises a resume's rebuild for this window AND every other one
 - RED test B (screen reader's press, Phase 1b) + fix 2 (headless end-of-turn frame gate, initial
   request retired by the initial layout)
+
+## NEXT
+- the report
