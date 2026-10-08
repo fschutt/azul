@@ -107,7 +107,9 @@ pub struct Entry {
     pub etag: Option<String>,
     /// Whether `size` and `modified` say what the item has. A bucket listing carries both; a
     /// scan of a folder on this computer reads only the names and kinds (no stat per entry, so a
-    /// folder of any size opens at once), and the rows in view are stat'ed afterwards.
+    /// folder of any size opens at once), and the rows in view are stat'ed afterwards. A row
+    /// whose stat failed (gone since the scan, a dangling link) is known too, with neither: it
+    /// was answered, and nothing waits for it or asks again.
     pub known: bool,
 }
 

@@ -1408,16 +1408,19 @@ pub(crate) extern "C" fn on_job_done(
             if serial != s.list_serial {
                 return Update::DoNothing;
             }
-            if listing::apply_stats(&mut s.entries, &stats) == 0 {
-                return Update::DoNothing;
-            }
+            let changed = listing::apply_stats(&mut s.entries, &stats);
             if actions::needs_all_stats(s) {
+                // A sort by Size or Date modified is a chain: every answer asks for the next
+                // rows - even one that changed no row (its rows gone since) - and the answer
+                // that leaves no row unknown sorts.
                 if listing::all_known(&s.entries) {
                     // The last sizes and dates are in: the rows take the order they ask for.
                     browse::sort_entries(&mut s.entries, s.settings.sort);
                 } else {
                     actions::request_sort_stats(&mut info, &handle, s);
                 }
+            } else if changed == 0 {
+                return Update::DoNothing;
             }
             // A picture's size is known now: it may get its thumbnail.
             actions::request_view_work(&mut info, &handle, s);

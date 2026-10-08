@@ -697,9 +697,19 @@ fn scan_bucket(
     }
 }
 
-/// The sizes and dates of the local items `keys` (a [`Job::Stat`]'s answer).
+/// The sizes and dates of the local items `keys` (a [`Job::Stat`]'s answer): one answer per key,
+/// a key whose stat fails (gone since the scan, a dangling link) with neither size nor date -
+/// answered all the same, so a sort that waits for every row is not held up by it.
 fn stats_of(root: &Path, keys: &[String]) -> Vec<Stat> {
-    keys.iter().filter_map(|key| stat_of(root, key)).collect()
+    keys.iter()
+        .map(|key| {
+            stat_of(root, key).unwrap_or_else(|| Stat {
+                key: key.clone(),
+                size: None,
+                modified: None,
+            })
+        })
+        .collect()
 }
 
 /// A local item's size and date (`fs::metadata` follows a symbolic link, as the drive's own
