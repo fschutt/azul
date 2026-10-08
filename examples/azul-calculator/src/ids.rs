@@ -15,23 +15,32 @@ macro_rules! names {
 }
 
 names! {
-    // ---- the calculator screen ----
+    // ---- the calculator surface ----
+    /// The calculator's surface: it holds the keyboard focus, so the
+    /// characters the keyboard types arrive at the window.
+    CALC = "calc";
     /// The display (expression over result).
     DISPLAY = "display";
     EXPRESSION = "expression";
+    /// The expression typeset (the graphing view).
+    MATH = "math";
     RESULT = "result";
     NOTICE = "notice";
-    /// The keypad grid of the screen's mode.
+    /// The keypad grid of the view (the standard one; the scientific one in
+    /// the graphing view).
     KEYPAD = "keypad";
-    /// The memory keys' row (Standard).
+    /// The memory keys' row.
     MEMORY_ROW = "memory-row";
-    /// Programmer: the HEX / DEC / OCT / BIN rows, the word size, the bits.
+    /// Programmer: the panel, the HEX / DEC / OCT / BIN rows, the word size,
+    /// the bits, the bitwise keys.
+    PROGRAMMER = "programmer";
     BASES = "bases";
     WORD = "word";
     BITS = "bits";
-    /// Scientific: DEG / RAD / GRAD.
+    PROGPAD = "progpad";
+    /// Graphing: DEG / RAD / GRAD.
     ANGLE = "angle";
-    // ---- the side panel ----
+    // ---- the history tape / memory panel ----
     PANEL = "panel";
     PANEL_TABS = "panel-tabs";
     HISTORY = "history";
@@ -41,8 +50,18 @@ names! {
     MEMORY = "memory";
     /// Class of one memory entry.
     MEMORY_ENTRY = "memory-entry";
+    // ---- the graph ----
+    GRAPH = "graph";
+    PLOT = "plot";
+    FUNCTIONS = "functions";
+    /// Class of one function in the list.
+    FUNCTION = "function";
+    RESET_VIEW = "reset-view";
+    CLEAR_PLOTS = "clear-plots";
+    /// Class of a tick label of the plot.
+    TICK = "tick";
     // ---- the mode row ----
-    MODES = "modes";
+    VIEW = "view";
     TOGGLE_PANEL = "toggle-panel";
     SETTINGS = "settings";
     // ---- the date screen ----
@@ -74,10 +93,19 @@ names! {
 }
 
 /// A name made at run time from a part defined once elsewhere (a key of a
-/// keypad table, a base row, a bit): the prefix, then `suffix`.
+/// keypad table, a base row, a bit, a curve): the prefix, then `suffix`.
 #[must_use]
 pub fn named(suffix: &str) -> AzString {
     AzString::from(format!("{PREFIX}{suffix}"))
+}
+
+/// The id of the graph's curve of function `i` (`draft`: the entry being typed).
+#[must_use]
+pub fn curve(i: Option<usize>) -> String {
+    match i {
+        Some(i) => format!("{PREFIX}curve-{i}"),
+        None => format!("{PREFIX}curve-draft"),
+    }
 }
 
 #[cfg(test)]
@@ -86,9 +114,11 @@ mod tests {
 
     #[test]
     fn every_name_carries_the_app_prefix() {
-        for name in [DISPLAY, KEYPAD, HISTORY_ENTRY, DATE_FROM, CONV_TO_UNIT, SET_CLEAR_HISTORY] {
+        for name in [CALC, DISPLAY, KEYPAD, HISTORY_ENTRY, PLOT, DATE_FROM, CONV_TO_UNIT, SET_CLEAR_HISTORY] {
             assert!(name.as_str().starts_with(PREFIX), "{}", name.as_str());
         }
         assert_eq!(named("key-7").as_str(), "__azcalc_key-7");
+        assert_eq!(curve(Some(0)), "__azcalc_curve-0");
+        assert_eq!(curve(None), "__azcalc_curve-draft");
     }
 }

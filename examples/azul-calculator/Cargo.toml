@@ -7,13 +7,17 @@ license = "MIT"
 description = """
     AzCalculator - the first Azlin app (build ledger step 1, F9), the vehicle
     for the shared skeleton (azul-appkit: switches, data layout, settings,
-    shortcuts, About). Standard, Scientific, Programmer (HEX / DEC / OCT /
-    BIN, bit toggles, word size), Date calculation and a unit converter, a
+    shortcuts, About). One window that grows with its size: the small
+    standard calculator, the programmer one when widened (HEX / DEC / OCT /
+    BIN, bit toggles, word size, bitwise keys), the graphing one when large
+    (scientific keys, the expression typeset, a plot of the typed functions
+    of x with zoom and pan); Date calculation and a unit converter, a
     history (calculator/history.jsonl in the user's data folder, written on
-    an azul Thread through azul-storage) and a memory, keyboard input for
-    everything, copy and paste. Exact decimal arithmetic (bigdecimal, already
-    in the tree): 0.1 + 0.2 is 0.3. Built on azul's S9 UtilityShell, NoTitle
-    with the app-drawn Titlebar, flat and flora, light and dark.
+    an azul Thread through azul-storage) and a memory; typed input as the
+    keyboard layout types it (names like sqrt and sin letter by letter),
+    copy and paste. Exact decimal arithmetic (bigdecimal, already in the
+    tree): 0.1 + 0.2 is 0.3. Built on azul's S9 UtilityShell, NoTitle with
+    the app-drawn Titlebar, flat and flora, light and dark.
 """
 publish = false
 
