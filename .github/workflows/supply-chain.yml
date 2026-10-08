@@ -5,11 +5,11 @@
 
 name: Supply chain
 
+# On demand, like rust.yml: a "ci run" comment on a pull request (ci-command.yml) or a manual
+# dispatch, and on a release tag.
 on:
   push:
-    branches: ['**']
     tags: ['[0-9]+.[0-9]+.[0-9]+*']
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -117,7 +117,10 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            BASE="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+            # A dispatched run (the "ci run" comment) has no "before": every version the
+            # branch changed since it left master is checked, not only the last commit's.
+            git fetch --quiet origin master 2>/dev/null || true
+            BASE="$(git merge-base HEAD origin/master 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
           fi
           echo "comparing Cargo.lock against $BASE"
           # One-off, SELF-EXPIRING exception, per the rule in

@@ -1,0 +1,72 @@
+# "ci run": CI on demand. CI does not run on every push (rust.yml and supply-chain.yml run on
+# a release tag and when dispatched); a collaborator who writes a comment starting with
+# "ci run" on a pull request starts both on the pull request's branch, and ci-report.yml
+# answers in the same pull request when each one has finished.
+#
+# GitHub runs issue_comment workflows from the DEFAULT branch, so this file works once it is
+# on master. Until then (or without a pull request): `gh workflow run rust.yml --ref <branch>
+# -f run_mode=ci` and `gh workflow run supply-chain.yml --ref <branch>`.
+
+name: ci command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  ci_run:
+    name: Start CI for "ci run"
+    # Only on a pull request, only from someone with write access to the repository: the
+    # comment starts runs that spend the repository's minutes.
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, 'ci run') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-22.04
+    permissions:
+      actions: write
+      issues: write
+      pull-requests: write
+    concurrency:
+      group: ci-command-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Dispatch build and supply chain on the pull request's branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=rocket > /dev/null
+          head_repo=$(gh pr view "$PR" -R "$REPO" --json headRepositoryOwner,headRepository \
+            -q '.headRepositoryOwner.login + "/" + .headRepository.name')
+          if [ "$head_repo" != "$REPO" ]; then
+            gh pr comment "$PR" -R "$REPO" --body "ci run: this pull request's branch is in $head_repo; CI runs on branches of $REPO only."
+            exit 0
+          fi
+          ref=$(gh pr view "$PR" -R "$REPO" --json headRefName -q .headRefName)
+          sha=$(gh pr view "$PR" -R "$REPO" --json headRefOid -q .headRefOid)
+          gh workflow run rust.yml -R "$REPO" --ref "$ref" -f run_mode=ci
+          gh workflow run supply-chain.yml -R "$REPO" --ref "$ref"
+          # The dispatched runs, to link them (a dispatch does not answer with its run).
+          links=""
+          for wf in rust.yml supply-chain.yml; do
+            url=""
+            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              sleep 5
+              url=$(gh run list -R "$REPO" --workflow "$wf" --branch "$ref" --event workflow_dispatch \
+                --limit 5 --json url,headSha -q "map(select(.headSha == \"$sha\")) | .[0].url // empty")
+              [ -n "$url" ] && break
+            done
+            links="$links
+          - $wf: ${url:-not found yet - see the Actions tab}"
+          done
+          gh pr comment "$PR" -R "$REPO" --body "CI started on \`${sha:0:9}\` ($ref):$links
+
+          The result is posted here when each run finishes."
