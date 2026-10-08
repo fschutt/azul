@@ -396,6 +396,10 @@ class Run:
             'AZ_DEBUG': str(self.debug),
             'AZMAIL_DATA': self.data,
             'AZMAIL_TEST_PASSWORD': self.password,
+            # The kit's data root and the shared Azlin config stay out of the run: never the
+            # user's own.
+            'AZLIN_DATA': os.path.join(self.tmp, 'azlin-data'),
+            'AZLIN_CONFIG': 'off',
         }
         if self.args.tls:
             ca = self.until('the server certificate', lambda: (re.search(
