@@ -1139,6 +1139,7 @@ fn launch_azmeet(program: &Path, meet: &Meeting) -> std::io::Result<Child> {
         ));
     }
     Command::new(program)
+        .args(meeting::join_args(meet))
         .envs(meeting::join_env(meet))
         .env_remove("AZ_DEBUG")
         .stdin(Stdio::null())

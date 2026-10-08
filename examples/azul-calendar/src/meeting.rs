@@ -294,6 +294,21 @@ pub fn sibling_program(
     Some(dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
 }
 
+/// The switches AzMeet is started with to join `meeting`: `--worker <server>` - this run's
+/// meeting server, over the one AzMeet saved (a link is only known to its own server) - and
+/// `--join <link>` (with its invite secret). [`join_env`] says the same for an AzMeet from before
+/// its switches.
+pub fn join_args(meeting: &Meeting) -> Vec<String> {
+    let mut args = Vec::with_capacity(4);
+    if let Some(server) = meet_rooms::normalize_server(&meeting.server) {
+        args.push(String::from("--worker"));
+        args.push(server);
+    }
+    args.push(String::from("--join"));
+    args.push(meeting.link.clone());
+    args
+}
+
 /// The environment AzMeet is started with to join `meeting`: the link, and the server that
 /// minted it (a link is only known to its own server).
 pub fn join_env(meeting: &Meeting) -> Vec<(&'static str, String)> {
@@ -685,6 +700,19 @@ mod tests {
                 ("AZMEET_JOIN", format!("azlin://meet/{ROOM}")),
                 ("AZMEET_WORKER", String::from(SERVER)),
             ]
+        );
+        // The switches outrank the meeting server AzMeet saved (its variable does not).
+        assert_eq!(
+            join_args(&meeting),
+            vec!["--worker", SERVER, "--join", &format!("azlin://meet/{ROOM}")]
+        );
+        let no_server = Meeting {
+            server: String::new(),
+            ..meeting
+        };
+        assert_eq!(
+            join_args(&no_server),
+            vec!["--join", &format!("azlin://meet/{ROOM}")]
         );
     }
 }
