@@ -2966,7 +2966,8 @@ pub(crate) fn build_lines(resolved: CodeViewResolved, look: &CodeViewLook) -> Do
 /// the current one, as the view node is built (`CodeView::dom`).
 pub(crate) fn lines_dom(resolved: CodeViewResolved) -> Dom {
     use crate::widgets::themes::UiTheme;
-    match resolved.cv.theme.into_option() {
+    let theme = resolved.cv.theme.into_option();
+    match theme {
         Some(UiTheme::Flora) => flora_lines(resolved),
         Some(UiTheme::Flat) => flat_lines(resolved),
         None => crate::widgets::themes::theme_blocks::follow_app_theme(resolved, flat_lines, flora_lines),
