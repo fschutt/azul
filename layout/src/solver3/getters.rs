@@ -10033,6 +10033,60 @@ mod autotest_generated {
         );
     }
 
+    /// Under the app theme flora the `system:` TEXT roles - the UI, a title,
+    /// a menu, a caption, the serif - are set in flora's hand: EB Garamond
+    /// (the bundled face, `text3::ui_fonts`), then Georgia. Monospace keeps
+    /// the platform's face and a named family stays the author's; flat keeps
+    /// the OS UI font. A styled DOM carries the context it was cascaded
+    /// under, so the stack a run shapes with follows that theme - and the
+    /// stack memo must not hand one theme's stack to the other.
+    #[test]
+    fn under_flora_the_system_text_roles_are_set_in_eb_garamond() {
+        use azul_css::dynamic_selector::DynamicSelectorContext;
+        let first_family = |theme: &str, family: &str| -> String {
+            let css = format!("font-family: {family};");
+            let dom = Dom::create_body().with_child(
+                Dom::create_p()
+                    .with_css(&css)
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Aa")),
+            );
+            let ctx = DynamicSelectorContext::default().with_app_theme(theme);
+            let sd = StyledDom::create_from_dom_with_context(dom, Some(ctx));
+            // body > p > "Aa": the text node inherits the paragraph's family.
+            let props =
+                get_style_properties(&sd, NodeId::new(2), None, PhysicalSize::new(800.0, 600.0));
+            match props.font_stack {
+                FontStack::Stack(stack) => stack[0].family.clone(),
+                FontStack::Ref(_) => panic!("{family}: a font reference, not a stack"),
+            }
+        };
+        assert_eq!(first_family("flat", "system:ui"), "system-ui", "flat keeps the OS UI font");
+        for role in [
+            "system:ui",
+            "system:ui:bold",
+            "system:serif",
+            "system:serif:bold",
+            "system:title",
+            "system:title:bold",
+            "system:menu",
+            "system:small",
+        ] {
+            assert_eq!(first_family("flora", role), "EB Garamond", "{role} under flora");
+            assert_eq!(first_family("flora:green", role), "EB Garamond", "{role} under a spin");
+        }
+        assert_eq!(
+            first_family("flat", "system:ui"),
+            "system-ui",
+            "the memo keeps flat's stack apart from flora's"
+        );
+        assert_ne!(
+            first_family("flora", "system:monospace"),
+            "EB Garamond",
+            "code keeps a monospace face"
+        );
+        assert_eq!(first_family("flora", "Menlo"), "Menlo", "a named family is the author's");
+    }
+
     #[test]
     fn build_font_selector_stack_does_not_duplicate_a_generic_the_author_already_listed() {
         // Case-insensitive: "MONOSPACE" must suppress the "monospace" fallback.
