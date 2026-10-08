@@ -31,8 +31,8 @@ done
 trap 'rmdir /tmp/az_app_run.lock 2>/dev/null' EXIT INT TERM HUP
 echo "locked_cargo: lock taken $(date +%H:%M:%S), $(($(free_kb) / 1024 / 1024)) GB free" >&2
 export CARGO_TARGET_DIR="${REFACTOR_TARGET_DIR:-/Users/fschutt/Development/azul-refactor-target}"
-export CARGO_PROFILE_DEV_DEBUG=0
-export CARGO_PROFILE_TEST_DEBUG=0
+export CARGO_PROFILE_DEV_DEBUG=${LOCKED_CARGO_DEBUG:-0}
+export CARGO_PROFILE_TEST_DEBUG=${LOCKED_CARGO_DEBUG:-0}
 # The incremental cache of the debug test builds alone grew to 2.2 GB on a
 # disk with < 8 GB free; a clean rebuild of azul-layout is minutes.
 export CARGO_INCREMENTAL=0

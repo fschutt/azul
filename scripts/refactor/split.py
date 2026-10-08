@@ -274,6 +274,9 @@ def split(plan, root, index_bin, dry_run):
     mod_rs += [l + "\n" for l in plan.get("mod_block_comment", [])]
     for name in module_names:
         vis = {it["vis"] for it in items if dest[it["idx"]] == name}
+        # A macro invocation can define `pub` items the index cannot see.
+        if any(it["kind"] == "macro" for it in items if dest[it["idx"]] == name):
+            vis.add("pub")
         reexport = "pub use" if "pub" in vis else "pub(crate) use"
         if "pub(crate)" in vis:
             mod_rs += [l + "\n" for l in plan.get("pub_crate_module_attrs", [])]
