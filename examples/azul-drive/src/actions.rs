@@ -908,14 +908,31 @@ pub(crate) extern "C" fn on_key_down(mut data: RefAny, mut info: CallbackInfo) -
 /// window (the address bar folds the crumbs that no longer fit into its « menu, the
 /// folder view lays its lines out for the new width, the icon grid draws exactly its new
 /// viewport).
-pub(crate) extern "C" fn on_resized(mut data: RefAny, info: CallbackInfo) -> Update {
-    let width = info.get_current_window_state().size.dimensions.width;
-    let Some(mut s) = data.downcast_mut::<DriveState>() else {
+pub(crate) extern "C" fn on_resized(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let size = info.get_current_window_state().size.dimensions;
+    let handle = data.clone();
+    let Some(mut guard) = data.downcast_mut::<DriveState>() else {
         return Update::DoNothing;
     };
-    let changed = (s.window_width - width).abs() >= 1.0;
-    s.window_width = width;
-    if changed || crate::ui_view::uses_icon_grid(&s) {
+    let s = &mut *guard;
+    let wider = (s.window_width - size.width).abs() >= 1.0;
+    let taller = size.height - s.window_height;
+    s.window_width = size.width;
+    s.window_height = size.height;
+    if wider {
+        // The view's new width is known once it draws again; the estimate until then.
+        s.view_width = 0.0;
+    }
+    if s.view_scroll.1 > 0.0 {
+        // The chrome above and below the view keeps its height: the view gains (or loses)
+        // what the window does.
+        s.view_scroll.1 = (s.view_scroll.1 + taller).max(1.0);
+    }
+    if wider || taller.abs() >= 1.0 {
+        // Rows came into view: what they lack (sizes, counts, thumbnails) is asked for.
+        request_view_work(&mut info, &handle, s);
+    }
+    if wider || crate::ui_view::uses_icon_grid(s) {
         Update::RefreshDom
     } else {
         Update::DoNothing

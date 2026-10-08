@@ -1279,18 +1279,31 @@ pub(crate) fn folder_model(s: &DriveState, width: f32) -> FolderModel<'_> {
     }
 }
 
-/// The width the folder view has, as the content's estimate gives it (the virtual view draws
-/// at its own box; this is for the work done for the rows in view - their stats, counts and
-/// thumbnails).
+/// The width the folder view draws its lines in: as it last drew (the virtual view records
+/// it), else the content's estimate - for the work done for the rows in view (their stats,
+/// counts and thumbnails) and for the line a key reveals.
 fn view_width(s: &DriveState) -> f32 {
-    s.content_size((s.window_width, 0.0)).0
+    if s.view_width > 0.0 {
+        s.view_width
+    } else {
+        s.content_estimate().0
+    }
+}
+
+/// The folder view's height: as it last drew or scrolled, else the content's estimate.
+fn view_height(s: &DriveState) -> f32 {
+    if s.view_scroll.1 > 0.0 {
+        s.view_scroll.1
+    } else {
+        s.content_estimate().1
+    }
 }
 
 /// The positions (in the shown order) of the items in view now, by the view's last scroll -
 /// the IconGrid's top row in its layouts.
 pub(crate) fn items_in_view(s: &DriveState) -> Range<usize> {
     if uses_icon_grid(s) {
-        let (width, height) = s.content_size((s.window_width, 0.0));
+        let (width, height) = s.content_estimate();
         let layout = s.settings.layout;
         let columns = ((width / layout.cell_width()).floor().max(1.0)) as usize;
         let rows = ((height / (layout.icon_px() + 40.0)).ceil() as usize).max(1) + 1;
@@ -1298,12 +1311,8 @@ pub(crate) fn items_in_view(s: &DriveState) -> Range<usize> {
         return start..start.saturating_add(rows * columns);
     }
     let model = folder_model(s, view_width(s));
-    let height = if s.view_scroll.1 > 0.0 {
-        s.view_scroll.1
-    } else {
-        s.content_size((s.window_width, 0.0)).1
-    };
-    let lines = listing::lines_in_view(&model.tops, model.total, s.view_scroll.0, height);
+    let lines =
+        listing::lines_in_view(&model.tops, model.total, s.view_scroll.0, view_height(s));
     listing::positions_of(&model.lines, lines)
 }
 
@@ -1339,11 +1348,18 @@ extern "C" fn folder_lines(mut data: RefAny, info: VirtualViewCallbackInfo) -> V
     };
     let app = rows.app.clone();
     let mut state = app.clone();
-    let Some(guard) = state.downcast_ref::<DriveState>() else {
+    let Some(mut guard) = state.downcast_mut::<DriveState>() else {
         return VirtualViewReturn::default();
     };
-    let s = &*guard;
     let size = info.bounds.get_logical_size();
+    // The box the view draws in is what the work for the rows in view counts with (their
+    // stats, counts and thumbnails; the line a key reveals): the window's estimate errs by
+    // the frames around the view, a column's worth in the grids.
+    guard.view_width = size.width;
+    if size.height > 0.0 {
+        guard.view_scroll.1 = size.height;
+    }
+    let s = &*guard;
     let layout = s.settings.layout;
     // A Details view is as wide as its columns (it scrolls across in the view's host).
     let width = if layout == ViewLayout::Details {
@@ -1537,12 +1553,8 @@ pub(crate) fn reveal_item(info: &mut CallbackInfo, s: &mut DriveState, key: &str
     };
     let top = model.tops[line];
     let bottom = top + model.line_px;
-    let (scroll, height) = s.view_scroll;
-    let height = if height > 0.0 {
-        height
-    } else {
-        s.content_size((s.window_width, 0.0)).1
-    };
+    let scroll = s.view_scroll.0;
+    let height = view_height(s);
     let y = if top < scroll {
         top
     } else if bottom > scroll + height {

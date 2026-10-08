@@ -429,8 +429,12 @@ pub(crate) struct DriveState {
     /// during this listing (a listing asks again; the old count shows until the new one is in).
     pub counts: HashMap<String, usize>,
     pub counts_asked: HashSet<String>,
-    /// Where the folder view's last scroll left it: its offset and its height (px).
+    /// Where the folder view's last scroll left it: its offset and its height (px; the
+    /// height as the view last drew, 0 before it has).
     pub view_scroll: (f32, f32),
+    /// The folder view's width as it last drew (its virtual view records it; 0 before it has):
+    /// the rows in view are counted in the columns the view draws.
+    pub view_width: f32,
     pub selection: Selection,
     /// The selected drive tile of This PC.
     pub selected_drive: Option<usize>,
@@ -490,6 +494,9 @@ pub(crate) struct DriveState {
     pub trash_serial: u32,
     /// The window's width, for the grid's rows (the arrow keys).
     pub window_width: f32,
+    /// The window's height: the estimate of the rows in view until the folder view has drawn
+    /// (and says how tall it is).
+    pub window_height: f32,
     /// The open folder's pictures as thumbnails (`None`: none can be made).
     pub thumbnails: HashMap<String, Option<azul::image::ImageRef>>,
     /// The pictures whose thumbnails are being made.
@@ -713,7 +720,11 @@ impl DriveState {
             width = self.window_width;
         }
         if height <= 0.0 {
-            height = 760.0;
+            height = if self.window_height > 0.0 {
+                self.window_height
+            } else {
+                760.0
+            };
         }
         if self.settings.navigation_pane {
             width = width * (1.0 - self.pane_ratios.0) - SPLITTER_PX;
@@ -727,6 +738,11 @@ impl DriveState {
             height -= 52.0;
         }
         ((width - 8.0).max(120.0), height.max(120.0))
+    }
+
+    /// [`Self::content_size`] of the window as it is now (its last resize).
+    pub fn content_estimate(&self) -> (f32, f32) {
+        self.content_size((self.window_width, self.window_height))
     }
 
     /// The folder on this computer that holds `prefix` of drive `index`, for a local drive (the
@@ -1830,6 +1846,12 @@ fn path_of(dir: Option<FilePath>) -> Option<PathBuf> {
 extern "C" fn startup(mut data: RefAny, mut info: CallbackInfo) -> Update {
     with_state(&mut data, &mut info, |info, app, s| {
         azul_appkit::ui::on_window_created(&s.kit, info);
+        // The size the window opened at (a window manager may have changed it).
+        let size = info.get_current_window_state().size.dimensions;
+        if size.width > 0.0 && size.height > 0.0 {
+            s.window_width = size.width;
+            s.window_height = size.height;
+        }
         let place = s.place.clone();
         // `--screen settings` opens on the backstage, which a visit closes.
         let backstage = s.backstage;
@@ -1988,6 +2010,7 @@ pub fn start() {
         counts: HashMap::new(),
         counts_asked: HashSet::new(),
         view_scroll: (0.0, 0.0),
+        view_width: 0.0,
         selection: Selection::default(),
         selected_drive: None,
         selected_pin: None,
@@ -2033,6 +2056,7 @@ pub fn start() {
         running: 0,
         trash_serial: 0,
         window_width: 1200.0,
+        window_height: 760.0,
         thumbnails: HashMap::new(),
         thumbnails_pending: HashSet::new(),
         audio: None,
@@ -2052,6 +2076,11 @@ pub fn start() {
         (640.0, 420.0),
         startup,
     );
+    // The rows in view are estimated from the window's size until the folder view has drawn:
+    // the size this run opens at (`--size`, else the default).
+    let opens_at = window.window_state.size.dimensions;
+    state.window_width = opens_at.width;
+    state.window_height = opens_at.height;
     // The title bar shows the ribbon's tabs: the title is what the system's window list names
     // the window by - the open place's path.
     window.window_state.title = AzString::from(window_title(&state));
