@@ -69,11 +69,13 @@ Stdout: `AZDRIVE_ADD_PAGE choose|buy|sources|form <service>`, `AZDRIVE_TIERS <n>
   Computer, source list, Options, details, Properties; --token-url / --profile).
 - 2c671eb32 mock token server: the real price ladder + checkouts.
 - 62479727a E2E: scripts/azdrive_add_e2e.py; azdrive_e2e.py / browse.py follow the rename.
-- A review fork checks every new Rust file for compile errors; its fixes merge when it reports.
+- Compile review fork (reading only): no compile error found; 4d2e97a1f (OpenDAL's deprecated
+  remove_all -> delete_with(recursive)). 8f6a5c5d9: a late payment's drive does not take over
+  the window; the two fields the review found unread are read.
 
 ## NEXT
 
-- Merge the review fork; final report to the lead.
+- Nothing open on this branch: the lead builds, runs the suites and the E2E.
 
 ## Open questions / gaps found
 
@@ -93,3 +95,15 @@ Stdout: `AZDRIVE_ADD_PAGE choose|buy|sources|form <service>`, `AZDRIVE_TIERS <n>
   mailed to the account) - a server-side decision.
 - OAuth sources (Google Drive, Dropbox, OneDrive) take a refresh token + client id / secret in
   the form today; an in-app OAuth flow (browser + loopback redirect) is the next step.
+- Two AzDrive processes (File > Open new window starts one) each hold an Azlin drive's session:
+  when one refreshes (the drive token rotates), the other still holds the spent token, and its
+  next refresh makes the token server revoke the device. A fix needs the refresh to re-read the
+  keyring under a cross-process lock (azcloud-api's CLI does this with a lock file), but azul's
+  keyring is request / answer on the UI thread only (CallbackInfo::keyring_*), so a worker
+  thread cannot re-read it - either route the refresh through the UI thread or give the
+  keyring a blocking call for threads.
+- Supply-chain gate: the 14-day publish-age cooldown refuses opendal 0.59.4 and its 0.59.4
+  service crates (published 2026-10-05) until 2026-10-19, and other new crates published
+  late September (reqsign 3.x, redis 1.7, asyncband 0.7.3, jiff 0.2.38): wait, pin older
+  versions with `cargo update --precise`, or a self-expiring exemption; cargo-vet needs
+  exemptions for every new crate.
