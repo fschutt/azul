@@ -464,12 +464,22 @@ class App:
         anywhere: a chart's "Sales by row" before the table's "Sales" header)."""
         def found():
             nodes, inside = self._within(scope)
+            by_index = {n["index"]: n for n in nodes}
             for n in nodes:
                 if n.get("text") == text and inside(n):
-                    return n.get("parent", n["index"])
+                    # a text node, and an inline span around it (flora's capitals on a
+                    # segment), have no box of their own: the click goes to the nearest
+                    # ancestor that has one - the segment, the button, the cell
+                    at = by_index.get(n.get("parent"))
+                    while at is not None and not at.get("rect"):
+                        at = by_index.get(at.get("parent"))
+                    return (at or n)["index"]
             return None
         node = self.until('the text "%s" in %s' % (text, scope), found)
         self.settle(limit=2.0)
+        # found again after the settle: a rebuild in it (a page's data arriving) renumbers the
+        # nodes, and the index found before it may name nothing or another node
+        node = found() or node
         self.must("click", node_id=node)
         self.frame(frames)
 
