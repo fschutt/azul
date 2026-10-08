@@ -12,6 +12,8 @@ _build/
 **/*.rs.bk
 *.pdf
 *.bin
+# Built-in textures compiled into azul-layout (include_bytes!): source, not output.
+!layout/assets/textures/*.bin
 *.json.gz
 *.iso
 *.img
