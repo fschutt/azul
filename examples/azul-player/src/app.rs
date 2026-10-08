@@ -382,14 +382,13 @@ impl Player {
         Grid::new(pages::tile_kind(tiles), w, h)
     }
 
-    /// The gallery's area (logical px): under the title and the views, over the status line.
+    /// The gallery's area (logical px): under the title and the views, over the status line
+    /// (no title row: the window is the Media Center's, edge to edge).
     #[must_use]
     pub fn gallery_area(&self) -> (f32, f32) {
-        let title_row = if self.fullscreen { 0.0 } else { 32.0 };
         (
             (self.window.0 - crate::ui::GALLERY_LEFT).max(100.0),
-            (self.window.1 - title_row - crate::ui::GALLERY_TOP - crate::ui::GALLERY_BOTTOM)
-                .max(80.0),
+            (self.window.1 - crate::ui::GALLERY_TOP - crate::ui::GALLERY_BOTTOM).max(80.0),
         )
     }
 }

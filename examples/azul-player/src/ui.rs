@@ -22,18 +22,17 @@ use azul::{
     dom::{AttributeType, TabIndex},
     image::RawImageFormat,
     menu::{Menu, MenuItem, StringMenuItem},
-    option::{OptionColorU, OptionString},
+    option::OptionString,
     prelude::*,
     shells::{MediaShell, ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     video::{VideoConfig, VideoPhase, VideoSource},
-    widgets::{SeekBar, TextInput, Titlebar, VideoWidget},
+    widgets::{SeekBar, TextInput, VideoWidget},
 };
 use azul_appkit::ui as kit;
 
 use crate::{
     app::{self, cover_key, full_key, thumb_key, Art, Player},
-    args::SPEC,
     curtain::{Curtain, Stage},
     gallery::{Grid, TileKind},
     ids,
@@ -47,9 +46,15 @@ use crate::{
 
 // ==== Geometry ====
 
+/// The window's top band: no title row is drawn, the band moves the window (logical px).
+pub const BAND_H: f32 = 52.0;
+/// A page's big title, under the band.
+pub const TITLE_TOP: f32 = 56.0;
+/// A line under a page's title (a group's artist, the views row, the search field).
+const UNDER_TITLE: f32 = TITLE_TOP + 74.0;
 /// A library page's gallery: its distance from the page's left, top and bottom (logical px).
 pub const GALLERY_LEFT: f32 = 56.0;
-pub const GALLERY_TOP: f32 = 168.0;
+pub const GALLERY_TOP: f32 = 190.0;
 pub const GALLERY_BOTTOM: f32 = 56.0;
 
 /// The start strip: a category's row, the focused one's, its items.
@@ -62,6 +67,11 @@ const STRIP_GAP: f32 = 14.0;
 
 /// The column every screen fills.
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
+
+/// What moves the window (the framework hands a press on it to the window manager, a double
+/// click zooms the window), and a control in it, which is its own.
+const DRAG: &str = "-azul-app-region: drag;";
+const NO_DRAG: &str = "-azul-app-region: no-drag;";
 
 // ==== The window ====
 
@@ -83,23 +93,19 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let column = if kit::settings_open(&s.kit) {
         // The settings: the kit's page in the theme's own chrome.
         let page = kit::settings_page(&s.kit, Vec::new());
-        let mut office = MediaShell::create_player(page, Dom::create_div()).office_shell();
-        if !s.fullscreen {
-            office = office.with_title_row(kit::title_row(SPEC.name));
-        }
+        let office = MediaShell::create_player(page, Dom::create_div()).office_shell();
         Dom::create_div().with_css(COLUMN).with_child(office.dom())
     } else {
-        let mut column = Dom::create_div().with_css(COLUMN);
-        if !s.fullscreen {
-            column.add_child(title_row(s));
-        }
-        column.add_child(root(s, &app));
-        column
+        // No title row: the Media Center runs edge to edge, its top band moves the window
+        // (`corner`).
+        Dom::create_div().with_css(COLUMN).with_child(root(s, &app))
     };
     let mut body = ShellThemeScope::create(column)
         .with_accent(ShellThemeAccent::Leaf)
         .body();
-    if !s.fullscreen {
+    // The menu bar only where it is the system's (macOS's, above every window): in the window
+    // it would be a desktop strip over the ten-foot pages - their strip and keys do it all.
+    if !s.fullscreen && cfg!(target_os = "macos") {
         body = body.with_menu_bar(menu_bar(s, &app));
     }
     body.with_callback(
@@ -120,28 +126,6 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         app,
         nav::on_pointer,
     )
-}
-
-/// The title row (the window is `NoTitle`): the ground's blue over the menus, black over a
-/// picture or a video, the title in light ink.
-fn title_row(s: &Player) -> Dom {
-    let playing = s.video.as_ref().map(VideoSession::title);
-    let title = match playing {
-        Some(t) if !t.is_empty() => format!("{t} - {}", SPEC.name),
-        _ => SPEC.name.to_string(),
-    };
-    let ground = if s.place().screen.on_ground() && s.video.is_none() {
-        ColorU::rgb(0x1b, 0x5a, 0xa6)
-    } else {
-        ColorU::rgb(0, 0, 0)
-    };
-    let mut bar = Titlebar::create(title.as_str())
-        .with_background(ground)
-        .with_background_inactive(ground)
-        .without_border_bottom();
-    bar.title_color = ColorU::rgb(0xe6, 0xf0, 0xff);
-    bar.title_color_inactive = OptionColorU::Some(ColorU::rgb(0x9a, 0xb4, 0xd6));
-    bar.dom()
 }
 
 /// The root: black; the stage (a video) under the menus while it opens, alone once it plays.
@@ -282,6 +266,19 @@ fn text(content: &str, css: &str, stage: Stage) -> Dom {
     ))
 }
 
+/// A page's big lower-case title (Media Center's "music"), under the top band.
+fn page_title(title: &str, stage: Stage) -> Dom {
+    text(
+        title,
+        &format!(
+            "position: absolute; left: 56px; top: {TITLE_TOP:.0}px; {} color: {};",
+            look::PAGE_TITLE,
+            look::INK
+        ),
+        stage,
+    )
+}
+
 /// An icon in `css`, with the curtain's icon fade.
 fn icon(name: &str, css: &str, stage: Stage) -> Dom {
     Dom::create_icon(name).with_css(format!("{css} {}", look::icon_fade(stage)))
@@ -314,15 +311,32 @@ fn act_part(dom: Dom, app: &RefAny, act: Act, name: &str) -> Dom {
         )
 }
 
-// ==== The corner pieces: the orb, back, the clock ====
+// ==== The top band: back, the clock; it moves the window ====
 
-/// The back button top left - it shows when the pointer moves and hides when it rests (in
-/// place) - and the clock top right.
+/// The room the window's own controls take in the top band (logical px, left and right):
+/// macOS's traffic lights before the back button (`TabsInTitlebar::platform()`, the room the
+/// ribbon apps' tabs leave them), the software controls' after the clock on Linux; none in
+/// fullscreen.
+fn window_controls(s: &Player) -> (f32, f32) {
+    if s.fullscreen {
+        return (0.0, 0.0);
+    }
+    let chrome = kit::tabs_in_titlebar();
+    (chrome.left.max(0.0), chrome.right.max(0.0))
+}
+
+/// The window's top band - no title row is drawn, the Media Center runs edge to edge: the band
+/// moves the window (`-azul-app-region: drag`; a double click on it zooms the window), with the
+/// back button on its left - right of the traffic lights on macOS; it shows when the pointer
+/// moves and hides when it rests (in place) - and the clock on its right, each its own
+/// (`no-drag`).
 fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
-    let mut left = Dom::create_div().with_css(
-        "position: absolute; left: 18px; top: 14px; display: flex; flex-direction: row; \
+    let (lights, controls) = window_controls(s);
+    let mut left = Dom::create_div().with_css(format!(
+        "position: absolute; left: {:.0}px; top: 9px; display: flex; flex-direction: row; \
          align-items: center;",
-    );
+        18.0 + lights
+    ));
     if place.screen != Screen::Start {
         left.add_child(
             Dom::create_div()
@@ -348,16 +362,22 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         s.clock_text.clone(),
         ids::CLOCK_TEXT,
         &format!(
-            "position: absolute; right: 30px; top: 18px; font-size: 24px; font-weight: 300; \
-             color: {}; {}",
+            "position: absolute; right: {:.0}px; top: 13px; font-size: 24px; font-weight: 300; \
+             color: {}; {NO_DRAG} {}",
+            30.0 + controls,
             look::INK,
             look::text_fade(stage)
         ),
     )
     .with_id(ids::CLOCK);
+    // `cursor: default`: what gives the band its place in the hit test (a press on it must
+    // land on it, not on the page under it).
     Dom::create_div()
-        .with_id(ids::LOGO)
-        .with_css(look::FILL.replace("bottom: 0px;", "height: 0px;"))
+        .with_id(ids::BAND)
+        .with_css(format!(
+            "position: absolute; left: 0px; top: 0px; right: 0px; height: {BAND_H}px; cursor: \
+             default; {DRAG}"
+        ))
         .with_child(left)
         .with_child(clock)
 }
@@ -380,8 +400,8 @@ fn round_button(
         .with_id(id)
         .with_css(format!(
             "display: flex; flex-shrink: 0; width: {size}px; height: {size}px; margin-left: \
-             8px; cursor: pointer; border-radius: {radius}px; :focus {{ box-shadow: 0px 0px \
-             14px 2px rgba(118, 196, 255, 0.95); }}"
+             8px; cursor: pointer; border-radius: {radius}px; {NO_DRAG} :focus {{ box-shadow: \
+             0px 0px 14px 2px rgba(118, 196, 255, 0.95); }}"
         ))
         .with_tab_index(TabIndex::Auto)
         .with_accessibility_name(name)
@@ -519,8 +539,7 @@ fn entry_reason(s: &Player, entry: &Entry) -> Option<String> {
 const STRIP_GLIDE_MS: u32 = 420;
 
 fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
-    let title_row = if s.fullscreen { 0.0 } else { 32.0 };
-    let height = (s.window.1 - title_row).max(200.0);
+    let height = s.window.1.max(200.0);
     let width = s.window.0.max(320.0);
     let focused = s.strip.row;
     // The focused category's middle at 52 % of the height.
@@ -703,10 +722,11 @@ fn section_page(s: &Player, app: &RefAny, place: &Place, section: Section, stage
 /// when the row has the keyboard).
 fn views_row(s: &Player, app: &RefAny, place: &Place, section: Section, stage: Stage) -> Dom {
     let _ = s;
-    let mut row = Dom::create_div().with_id(ids::VIEWS).with_css(
-        "position: absolute; left: 60px; top: 106px; display: flex; flex-direction: row; \
+    let mut row = Dom::create_div().with_id(ids::VIEWS).with_css(format!(
+        "position: absolute; left: 60px; top: {:.0}px; display: flex; flex-direction: row; \
          align-items: center;",
-    );
+        UNDER_TITLE - 2.0
+    ));
     for (i, view) in section.views().iter().enumerate() {
         let shown = i == place.focus.view;
         let focused = shown && place.focus.on_views;
@@ -745,15 +765,7 @@ fn gallery_page(
     let tiles = s.page_tiles(place);
     let grid = s.grid(&tiles);
     let mut page = Dom::create_div()
-        .with_child(text(
-            title,
-            &format!(
-                "position: absolute; left: 56px; top: 30px; {} color: {};",
-                look::PAGE_TITLE,
-                look::INK
-            ),
-            stage,
-        ))
+        .with_child(page_title(title, stage))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::Scroll),
             app.clone(),
@@ -763,7 +775,8 @@ fn gallery_page(
         page.add_child(text(
             sub,
             &format!(
-                "position: absolute; left: 62px; top: 110px; font-size: 18px; color: {};",
+                "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 18px; \
+                 color: {};",
                 look::INK_DIM
             ),
             stage,
@@ -1166,7 +1179,10 @@ fn search_page(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         .dom()
         .with_id(ids::SEARCH_FIELD)
         .with_attribute(AttributeType::Autofocus)
-        .with_css("position: absolute; left: 60px; top: 104px; width: 460px;");
+        .with_css(format!(
+            "position: absolute; left: 60px; top: {:.0}px; width: 460px;",
+            UNDER_TITLE - 4.0
+        ));
     let mut page = gallery_page(s, app, place, "search", None, stage);
     page.add_child(field);
     page
@@ -1208,19 +1224,11 @@ fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         look::text_fade(stage)
     ));
     Dom::create_div()
-        .with_child(text(
-            "open an address",
-            &format!(
-                "position: absolute; left: 56px; top: 30px; {} color: {};",
-                look::PAGE_TITLE,
-                look::INK
-            ),
-            stage,
-        ))
+        .with_child(page_title("open an address", stage))
         .with_child(
             Dom::create_div()
                 .with_css(
-                    "position: absolute; left: 60px; top: 120px; display: flex; flex-direction: \
+                    "position: absolute; left: 60px; top: 146px; display: flex; flex-direction: \
                      row; align-items: center;",
                 )
                 .with_child(field)
@@ -1230,7 +1238,7 @@ fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
             "An MP4 or MOV video (H.264) on a web server plays while it downloads; the sound \
              starts with the picture.",
             &format!(
-                "position: absolute; left: 62px; top: 186px; right: 60px; font-size: 18px; \
+                "position: absolute; left: 62px; top: 212px; right: 60px; font-size: 18px; \
                  font-weight: 300; color: {};",
                 look::INK_DIM
             ),
@@ -1238,7 +1246,7 @@ fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         ))
         .with_child(
             Dom::create_div()
-                .with_css("position: absolute; left: 54px; top: 236px;")
+                .with_css("position: absolute; left: 54px; top: 262px;")
                 .with_child(act_part(
                     sample.with_id(ids::ADDRESS_SAMPLE),
                     app,
@@ -1256,16 +1264,12 @@ fn address_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
 fn now_playing_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     let mut page = Dom::create_div();
     let Some(music) = s.music.as_ref() else {
-        page.add_child(text(
-            "now playing",
-            &format!("position: absolute; left: 56px; top: 30px; {}", look::PAGE_TITLE),
-            stage,
-        ));
+        page.add_child(page_title("now playing", stage));
         page.add_child(text(
             "Nothing is playing. Choose music library or play all on the start screen.",
             &format!(
-                "position: absolute; left: 62px; top: 130px; font-size: 22px; font-weight: 300; \
-                 color: {};",
+                "position: absolute; left: 62px; top: {UNDER_TITLE:.0}px; font-size: 22px; \
+                 font-weight: 300; color: {};",
                 look::INK_DIM
             ),
             stage,
@@ -1501,8 +1505,7 @@ fn picture_page(s: &Player, app: &RefAny) -> Dom {
     let Some(path) = viewer.paths.get(viewer.index) else {
         return page;
     };
-    let title_row = if s.fullscreen { 0.0 } else { 32.0 };
-    let (w, h) = (s.window.0.max(100.0), (s.window.1 - title_row).max(100.0));
+    let (w, h) = (s.window.0.max(100.0), s.window.1.max(100.0));
     let full = s.art.get(&full_key(path)).cloned().flatten();
     let thumb = s.art.get(&thumb_key(path)).cloned().flatten();
     let mut slide = Dom::create_div()
@@ -1659,8 +1662,9 @@ fn video_stage(s: &Player, video: &VideoSession, app: &RefAny, stage: Stage) -> 
     dom
 }
 
-/// The top strip over the picture: back and the orb on the left, the title, fullscreen on the
-/// right.
+/// The top strip over the picture: back on the left (right of the traffic lights), the title,
+/// fullscreen on the right. It is the window's top band while a video plays: it moves the
+/// window, its buttons are their own.
 fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
     let stage = Curtain::Closed.stage();
     let (full_icon, full_name) = if s.fullscreen {
@@ -1668,14 +1672,17 @@ fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
     } else {
         ("fullscreen", "Fullscreen")
     };
+    let (lights, controls) = window_controls(s);
     Dom::create_div()
         .with_id(ids::TOP)
         .with_marker(OptionString::Some(ids::TOP))
         .with_css(format!(
             "position: absolute; left: 0px; top: 0px; right: 0px; height: 72px; display: flex; \
-             flex-direction: row; align-items: center; padding: 0px 24px 0px 16px; background: \
-             linear-gradient(to bottom, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); opacity: {}; \
-             animation: opacity 300ms ease-out;",
+             flex-direction: row; align-items: center; padding: 0px {:.0}px 0px {:.0}px; \
+             background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0)); \
+             opacity: {}; animation: opacity 300ms ease-out; cursor: default; {DRAG}",
+            24.0 + controls,
+            16.0 + lights,
             if s.controls_shown { 1 } else { 0 }
         ))
         .with_child(round_button(app, Command::Back, "arrow_back", "Back", 40.0, ids::BACK, stage))

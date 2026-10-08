@@ -31,9 +31,9 @@ names! {
     FALLOFF = "falloff";
     RAYS_NEAR = "rays-near";
     RAYS_FAR = "rays-far";
-    /// The Media Center orb and name, top left; the back button beside it (shown when the pointer
-    /// moves: id and marker).
-    LOGO = "logo";
+    /// The window's top band (no title row is drawn: the band moves the window), the back
+    /// button on it (its box shown when the pointer moves: id and marker).
+    BAND = "band";
     BACK = "back";
     CORNER = "corner";
     /// The clock, top right (its text node is a marker, rewritten in place).
