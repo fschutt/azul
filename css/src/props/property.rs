@@ -10273,23 +10273,33 @@ mod transform_tween_tests {
 /// that hovers to a lighter paper, a stone with a streak), and a background
 /// tween understood only one solid colour: anything else held its start face
 /// until the midpoint and then jumped - a declared hover fade that snapped
-/// half way. Layers pair up one to one: colour with colour, a linear gradient
-/// with a linear gradient of the same direction, extend mode and stop
-/// positions; then every colour tweens. Anything that does not pair up keeps
-/// the half-way switch (`interpolate_a_solid_background_colour_tweens_and_a_gradient_jumps`).
+/// half way. Layers pair up one to one: colour with colour, a gradient with a
+/// gradient of the same kind and number of stops, whose colours AND positions
+/// tween (CSS Images 4); a colour pairs with a gradient as that gradient in
+/// one colour. Faces that do not pair up cross-fade, the way a browser fades
+/// one picture into another.
+///
+/// flora's blue stone - the primary button - is six layers, three of them
+/// radial, and its streak moves its stops on hover: until the user saw it
+/// ("it switches immediately to the hover state without interpolating the
+/// gradient, glow, etc.", 2026-10-07) only linear gradients with stops in
+/// place paired, and the stone held its face and jumped.
 #[cfg(test)]
 mod background_face_tween_tests {
     use super::*;
     use crate::props::{
         basic::{
+            angle::AngleValue,
             animation::AnimationInterpolationFunction,
-            color::ColorU,
+            color::{ColorOrSystem, ColorU},
             direction::{Direction, DirectionCorner, DirectionCorners},
             length::PercentageValue,
+            pixel::PixelValue,
         },
         style::background::{
-            ExtendMode, LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
-            StyleBackgroundContent as B,
+            BackgroundPositionHorizontal, BackgroundPositionVertical, ExtendMode, LinearGradient,
+            NormalizedLinearColorStop, NormalizedLinearColorStopVec, RadialGradient,
+            RadialGradientSize, Shape, StyleBackgroundContent as B, StyleBackgroundPosition,
         },
     };
 
@@ -10348,21 +10358,466 @@ mod background_face_tween_tests {
         assert_eq!(rest.interpolate(&hover, 1.0, &linear()), hover);
     }
 
+    fn stops_of(stops: &[(isize, ColorU)]) -> NormalizedLinearColorStopVec {
+        NormalizedLinearColorStopVec::from_vec(
+            stops
+                .iter()
+                .map(|(at, c)| NormalizedLinearColorStop::new(PercentageValue::const_new(*at), *c))
+                .collect(),
+        )
+    }
+
+    /// A linear gradient raked at `deg` degrees.
+    fn raked(deg: isize, stops: &[(isize, ColorU)]) -> B {
+        B::LinearGradient(LinearGradient {
+            direction: Direction::Angle(AngleValue::const_deg(deg)),
+            extend_mode: ExtendMode::Clamp,
+            stops: stops_of(stops),
+        })
+    }
+
+    /// An elliptical radial gradient centred at (`x` %, `y` %).
+    fn radial_at(x: isize, y: isize, stops: &[(isize, ColorU)]) -> B {
+        B::RadialGradient(RadialGradient {
+            shape: Shape::Ellipse,
+            size: RadialGradientSize::FarthestCorner,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_percent(x)),
+                vertical: BackgroundPositionVertical::Exact(PixelValue::const_percent(y)),
+            },
+            extend_mode: ExtendMode::Clamp,
+            stops: stops_of(stops),
+        })
+    }
+
+    /// The layers of a `background` value.
+    fn layers_of(p: &CssProperty) -> Vec<B> {
+        match p {
+            CssProperty::BackgroundContent(v) => v
+                .get_property()
+                .map(|l| l.as_ref().to_vec())
+                .unwrap_or_default(),
+            other => panic!("not a background: {other:?}"),
+        }
+    }
+
+    /// `(offset in %, colour)` of every stop of a linear or radial layer.
+    fn stops(layer: &B) -> Vec<(f32, ColorU)> {
+        let of = |s: &[NormalizedLinearColorStop]| {
+            s.iter()
+                .map(|s| match s.color {
+                    ColorOrSystem::Color(c) => (s.offset.normalized() * 100.0, c),
+                    ColorOrSystem::System(_) => panic!("a system colour in a tweened stop"),
+                })
+                .collect::<Vec<_>>()
+        };
+        match layer {
+            B::LinearGradient(g) => of(g.stops.as_ref()),
+            B::RadialGradient(g) => of(g.stops.as_ref()),
+            other => panic!("not a linear or radial gradient: {other:?}"),
+        }
+    }
+
+    fn near(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.01
+    }
+
+    /// `c` at strength `a` (255 is opaque).
+    fn alpha(c: ColorU, a: u8) -> ColorU {
+        ColorU { a, ..c }
+    }
+
     #[test]
-    fn faces_that_do_not_pair_up_keep_the_half_way_switch() {
+    fn faces_whose_stops_moved_tween_the_stop_positions_too() {
         let r = linear();
         let one = background(vec![face(rgb(0, 0, 0), rgb(100, 100, 100), 100)]);
-        // Another stop position: no stop-to-stop correspondence.
         let moved = background(vec![face(rgb(200, 200, 200), rgb(0, 0, 0), 50)]);
-        assert_eq!(one.interpolate(&moved, 0.25, &r), one);
-        assert_eq!(one.interpolate(&moved, 0.75, &r), moved);
-        // Another layer count.
-        let two = background(vec![
+        let mid = one.interpolate(&moved, 0.5, &r);
+        let [layer] = layers_of(&mid)
+            .try_into()
+            .expect("one layer, as on both ends");
+        let s = stops(&layer);
+        assert_eq!(s.len(), 2, "two stops, as on both ends: {s:?}");
+        assert!(
+            near(s[0].0, 0.0) && near(s[1].0, 75.0),
+            "the stop half way from 100% to 50%: {s:?}"
+        );
+        assert_eq!((s[0].1, s[1].1), (rgb(100, 100, 100), rgb(50, 50, 50)));
+    }
+
+    #[test]
+    fn a_stone_of_radial_layers_tweens_every_layer_and_its_streak_moves() {
+        // flora's stone, cut down to two of its six layers: the radial gem
+        // (the same at rest and hovered) and the specular streak, which
+        // brightens AND widens under the pointer (flora.css's
+        // `.btn-primary:hover::before`).
+        let gem = radial_at(
+            30,
+            12,
+            &[
+                (0, rgb(122, 147, 198)),
+                (48, rgb(47, 74, 133)),
+                (100, rgb(30, 50, 96)),
+            ],
+        );
+        let sheen = ColorU::new(255, 248, 215, 0);
+        let rest = background(vec![
+            gem.clone(),
+            raked(
+                115,
+                &[
+                    (6, sheen),
+                    (15, alpha(sheen, 51)),
+                    (22, alpha(sheen, 15)),
+                    (32, sheen),
+                ],
+            ),
+        ]);
+        let hover = background(vec![
+            gem.clone(),
+            raked(
+                115,
+                &[
+                    (4, sheen),
+                    (14, alpha(sheen, 87)),
+                    (23, alpha(sheen, 26)),
+                    (34, sheen),
+                ],
+            ),
+        ]);
+        let mid = rest.interpolate(&hover, 0.5, &linear());
+        let layers = layers_of(&mid);
+        assert_eq!(
+            layers.len(),
+            2,
+            "every layer pairs with its twin: {layers:?}"
+        );
+        assert_eq!(
+            layers[0], gem,
+            "a layer that does not change stays as it is"
+        );
+        let s = stops(&layers[1]);
+        let offsets: Vec<f32> = s.iter().map(|(at, _)| *at).collect();
+        assert!(
+            near(offsets[0], 5.0)
+                && near(offsets[1], 14.5)
+                && near(offsets[2], 22.5)
+                && near(offsets[3], 33.0),
+            "half way, every stop is half way to where the hovered streak has it: {offsets:?}"
+        );
+        assert_eq!(s[1].1, alpha(sheen, 69), "and half as much brighter: {s:?}");
+    }
+
+    #[test]
+    fn two_radial_gradients_tween_their_colours_and_their_centre() {
+        let rest = background(vec![radial_at(
+            30,
+            12,
+            &[(0, rgb(200, 0, 0)), (100, rgb(0, 0, 0))],
+        )]);
+        let lit = background(vec![radial_at(
+            40,
+            20,
+            &[(0, rgb(0, 200, 0)), (100, rgb(0, 0, 100))],
+        )]);
+        let mid = rest.interpolate(&lit, 0.5, &linear());
+        let [layer] = layers_of(&mid).try_into().expect("one layer");
+        let B::RadialGradient(g) = &layer else {
+            panic!("a radial gradient stays radial: {layer:?}");
+        };
+        assert_eq!(
+            (g.position.horizontal, g.position.vertical),
+            (
+                BackgroundPositionHorizontal::Exact(PixelValue::const_percent(35)),
+                BackgroundPositionVertical::Exact(PixelValue::const_percent(16)),
+            ),
+            "the light moves half way"
+        );
+        let s = stops(&layer);
+        assert_eq!((s[0].1, s[1].1), (rgb(100, 100, 0), rgb(0, 0, 50)), "{s:?}");
+    }
+
+    #[test]
+    fn a_colour_fades_into_a_gradient_and_back() {
+        // flat's neutral button on a dark desktop rests on the desktop's
+        // button face (one colour) and hovers to Office's gradient.
+        let r = linear();
+        let solid = background(vec![B::Color(rgb(100, 0, 0))]);
+        let gradient = background(vec![face(rgb(200, 0, 0), rgb(0, 0, 100), 100)]);
+        let half = background(vec![face(rgb(150, 0, 0), rgb(50, 0, 50), 100)]);
+        assert_eq!(
+            solid.interpolate(&gradient, 0.5, &r),
+            half,
+            "the colour is the gradient's shape in one colour, and that shape tweens"
+        );
+        assert_eq!(
+            gradient.interpolate(&solid, 0.5, &r),
+            half,
+            "and back the same way"
+        );
+    }
+
+    #[test]
+    fn faces_of_another_layer_count_cross_fade() {
+        let r = linear();
+        let one = face(rgb(0, 0, 0), rgb(100, 100, 100), 100);
+        let two = vec![
             face(rgb(200, 200, 200), rgb(0, 0, 0), 100),
             B::Color(rgb(0, 0, 200)),
+        ];
+        let mid = background(vec![one.clone()]).interpolate(&background(two), 0.5, &r);
+        let layers = layers_of(&mid);
+        assert_eq!(
+            layers.len(),
+            3,
+            "the new face lies over the old one: {layers:?}"
+        );
+        assert_eq!(
+            layers[0], one,
+            "the new face is opaque, so the old one stays whole under it"
+        );
+        let s = stops(&layers[1]);
+        assert_eq!(
+            (s[0].1, s[1].1),
+            (ColorU::new(200, 200, 200, 128), ColorU::new(0, 0, 0, 128))
+        );
+        assert_eq!(
+            layers[2],
+            B::Color(ColorU::new(0, 0, 200, 128)),
+            "every new layer at half strength"
+        );
+    }
+
+    #[test]
+    fn a_cross_fade_into_a_translucent_face_fades_the_old_face_out() {
+        // A linear and a radial gradient have no stops in common: the old
+        // face goes as the new one comes, or it would show through the new
+        // face at the end and jump away when the tween is over.
+        let r = linear();
+        let paper = face(rgb(250, 250, 250), rgb(230, 230, 230), 100);
+        let glow = radial_at(
+            50,
+            50,
+            &[
+                (0, ColorU::new(255, 255, 0, 200)),
+                (100, ColorU::new(255, 255, 0, 0)),
+            ],
+        );
+        let mid = background(vec![paper]).interpolate(&background(vec![glow]), 0.5, &r);
+        let layers = layers_of(&mid);
+        assert_eq!(layers.len(), 2, "{layers:?}");
+        let old = stops(&layers[0]);
+        assert_eq!(
+            (old[0].1.a, old[1].1.a),
+            (128, 128),
+            "the old face at half strength: {old:?}"
+        );
+        let new = stops(&layers[1]);
+        assert_eq!(
+            (new[0].1.a, new[1].1.a),
+            (100, 0),
+            "the new face at half strength: {new:?}"
+        );
+    }
+
+    #[test]
+    fn a_layer_the_hover_adds_fades_in_and_out() {
+        let r = linear();
+        let paper = face(rgb(250, 250, 250), rgb(230, 230, 230), 100);
+        let rest = background(vec![paper.clone()]);
+        let lit = background(vec![
+            paper.clone(),
+            B::Color(ColorU::new(255, 255, 255, 100)),
         ]);
-        assert_eq!(one.interpolate(&two, 0.25, &r), one);
-        assert_eq!(one.interpolate(&two, 0.75, &r), two);
+        let half = background(vec![paper, B::Color(ColorU::new(255, 255, 255, 50))]);
+        assert_eq!(rest.interpolate(&lit, 0.5, &r), half);
+        assert_eq!(lit.interpolate(&rest, 0.5, &r), half);
+    }
+
+    #[test]
+    fn a_background_fades_in_from_none() {
+        let r = linear();
+        let none = CssProperty::auto(CssPropertyType::BackgroundContent);
+        let wash = background(vec![B::Color(ColorU::new(180, 135, 44, 20))]);
+        assert_eq!(
+            none.interpolate(&wash, 0.5, &r),
+            background(vec![B::Color(ColorU::new(180, 135, 44, 10))])
+        );
+        assert_eq!(
+            wash.interpolate(&none, 0.5, &r),
+            background(vec![B::Color(ColorU::new(180, 135, 44, 10))])
+        );
+    }
+
+    #[test]
+    fn faces_of_images_keep_the_half_way_switch() {
+        // An image has no colour to fade: a face made of one switches half
+        // way, as a discrete property does.
+        let r = linear();
+        let a = background(vec![B::Image(AzString::from_const_str("a.png"))]);
+        let b = background(vec![B::Image(AzString::from_const_str("b.png"))]);
+        assert_eq!(a.interpolate(&b, 0.25, &r), a);
+        assert_eq!(a.interpolate(&b, 0.75, &r), b);
+    }
+}
+
+/// A box shadow tweens (CSS Backgrounds 3 s7.1, "a shadow list"): two
+/// shadows tween every length and their colour, and a slot with no shadow
+/// takes a transparent shadow of zero size as its twin, so a shadow that
+/// comes or goes fades in or out. An inset shadow has no outset twin: it
+/// fades out through nothing, and the other comes in.
+///
+/// flora's hover glow is two shadows - the gold rim and the bloom off the
+/// stone - and its pressed well, its lip and its keyboard ring are shadows
+/// too. A shadow had no interpolation: every one of them held, then jumped.
+#[cfg(test)]
+mod shadow_tween_tests {
+    use super::*;
+    use crate::props::{
+        basic::{
+            animation::AnimationInterpolationFunction,
+            color::ColorU,
+            pixel::{PixelValue, PixelValueNoPercent},
+        },
+        style::box_shadow::{BoxShadowClipMode, StyleBoxShadow},
+    };
+
+    fn linear() -> InterpolateResolver {
+        InterpolateResolver {
+            interpolate_func: AnimationInterpolationFunction::Linear,
+            parent_rect_width: 100.0,
+            parent_rect_height: 100.0,
+            current_rect_width: 100.0,
+            current_rect_height: 100.0,
+        }
+    }
+
+    fn px(v: f32) -> PixelValueNoPercent {
+        PixelValueNoPercent {
+            inner: PixelValue::px(v),
+        }
+    }
+
+    /// `[inset] 0 <y>px <blur>px <spread>px <color>`.
+    fn shadow(y: f32, blur: f32, spread: f32, color: ColorU, inset: bool) -> StyleBoxShadow {
+        StyleBoxShadow {
+            offset_x: px(0.0),
+            offset_y: px(y),
+            blur_radius: px(blur),
+            spread_radius: px(spread),
+            clip_mode: if inset {
+                BoxShadowClipMode::Inset
+            } else {
+                BoxShadowClipMode::Outset
+            },
+            color,
+        }
+    }
+
+    /// The shadow a shadow property holds, `None` for none.
+    fn shown(p: &CssProperty) -> Option<StyleBoxShadow> {
+        match p {
+            CssProperty::BoxShadowLeft(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::TextShadow(v) => v.get_property().map(|s| **s),
+            other => panic!("not a shadow: {other:?}"),
+        }
+    }
+
+    /// `(y, blur, spread)` of `s` in px, and whether its lengths are `want`.
+    fn lengths_are(s: &StyleBoxShadow, want: (f32, f32, f32)) -> bool {
+        let near = |a: PixelValueNoPercent, b: f32| (a.inner.number.get() - b).abs() < 0.01;
+        near(s.offset_x, 0.0)
+            && near(s.offset_y, want.0)
+            && near(s.blur_radius, want.1)
+            && near(s.spread_radius, want.2)
+    }
+
+    /// flora's gold rim: `0 0 0 1px rgba(214, 197, 140, .55)`, here 2px.
+    const GOLD: ColorU = ColorU::new(214, 197, 140, 140);
+
+    #[test]
+    fn a_glow_fades_in_from_no_shadow_and_out_again() {
+        let r = linear();
+        let rim = CssProperty::box_shadow_left(shadow(0.0, 0.0, 2.0, GOLD, false));
+        for none in [
+            CssProperty::auto(CssPropertyType::BoxShadowLeft),
+            CssProperty::none(CssPropertyType::BoxShadowLeft),
+        ] {
+            for mid in [
+                none.interpolate(&rim, 0.5, &r),
+                rim.interpolate(&none, 0.5, &r),
+            ] {
+                let s = shown(&mid).expect("half way, the glow is half there");
+                assert!(lengths_are(&s, (0.0, 0.0, 1.0)), "half its spread: {s:?}");
+                assert_eq!(
+                    s.color,
+                    ColorU::new(214, 197, 140, 70),
+                    "half its strength, in its own colour"
+                );
+                assert_eq!(s.clip_mode, BoxShadowClipMode::Outset);
+            }
+        }
+    }
+
+    #[test]
+    fn two_shadows_tween_every_length_and_their_colour() {
+        // flora's stone under the pointer: the cast shadow becomes the bloom.
+        let cast = CssProperty::box_shadow_bottom(shadow(
+            1.0,
+            2.0,
+            0.0,
+            ColorU::new(48, 45, 38, 36),
+            false,
+        ));
+        let bloom = CssProperty::box_shadow_bottom(shadow(
+            0.0,
+            14.0,
+            0.0,
+            ColorU::new(214, 197, 140, 82),
+            false,
+        ));
+        let s = shown(&cast.interpolate(&bloom, 0.5, &linear())).expect("a shadow");
+        assert!(lengths_are(&s, (0.5, 8.0, 0.0)), "{s:?}");
+        assert_eq!(s.color, ColorU::new(131, 121, 89, 59));
+    }
+
+    #[test]
+    fn an_inset_and_an_outset_shadow_fade_through_no_shadow() {
+        let r = linear();
+        let well =
+            CssProperty::box_shadow_top(shadow(2.0, 6.0, 0.0, ColorU::new(0, 0, 0, 120), true));
+        let lift =
+            CssProperty::box_shadow_top(shadow(4.0, 8.0, 0.0, ColorU::new(0, 0, 0, 60), false));
+        let early = shown(&well.interpolate(&lift, 0.25, &r)).expect("the well, going");
+        assert_eq!(early.clip_mode, BoxShadowClipMode::Inset);
+        assert!(lengths_are(&early, (1.0, 3.0, 0.0)), "{early:?}");
+        assert_eq!(
+            early.color.a, 60,
+            "half way to nothing at a quarter of the way"
+        );
+        let late = shown(&well.interpolate(&lift, 0.75, &r)).expect("the lift, coming");
+        assert_eq!(late.clip_mode, BoxShadowClipMode::Outset);
+        assert!(lengths_are(&late, (2.0, 4.0, 0.0)), "{late:?}");
+        assert_eq!(late.color.a, 30);
+    }
+
+    #[test]
+    fn a_text_shadow_tweens_like_a_box_shadow() {
+        let r = linear();
+        let none = CssProperty::auto(CssPropertyType::TextShadow);
+        let cut = CssProperty::TextShadow(CssPropertyValue::Exact(BoxOrStatic::heap(shadow(
+            1.0,
+            1.0,
+            0.0,
+            ColorU::new(0, 0, 0, 78),
+            false,
+        ))));
+        let s = shown(&none.interpolate(&cut, 0.5, &r)).expect("half there");
+        assert!(lengths_are(&s, (0.5, 0.5, 0.0)), "{s:?}");
+        assert_eq!(s.color, ColorU::new(0, 0, 0, 39));
     }
 }
 
