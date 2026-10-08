@@ -214,6 +214,26 @@ pub(crate) fn background_tiles(
     tiles
 }
 
+/// The value a per-layer background list (`background-clip`,
+/// `background-repeat`, ...) gives layer `layer` of `layers`; `None` for an
+/// empty list (every layer then takes the property's initial value).
+///
+/// The layers and their lists are stored in paint order, the bottom layer
+/// first (`parse_style_background_content_multiple`). CSS lists both from the
+/// TOP layer and repeats a list shorter than the layers from there, dropping
+/// the excess of a longer one (CSS Backgrounds 3 s2.2): the list is aligned
+/// at its end with the top layer. Lists of the layers' own length - what a
+/// theme builds - pair up index by index.
+#[must_use]
+pub(crate) fn layer_value<T: Copy>(values: &[T], layers: usize, layer: usize) -> Option<T> {
+    let count = values.len();
+    if count == 0 || layer >= layers {
+        return None;
+    }
+    let from_top = layers - 1 - layer;
+    values.get(count - 1 - from_top % count).copied()
+}
+
 const APPROX_ASCENT_RATIO: f32 = 0.8;
 const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
 const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
@@ -3728,11 +3748,8 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
             let canvas_rect = generator.ctx.canvas_rect;
             let tile = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
             for (i, layer) in layers.iter().enumerate() {
-                let repeat = if repeats.is_empty() {
-                    azul_css::props::style::StyleBackgroundRepeat::PatternRepeat
-                } else {
-                    repeats[i % repeats.len()]
-                };
+                let repeat = layer_value(&repeats, layers.len(), i)
+                    .unwrap_or(azul_css::props::style::StyleBackgroundRepeat::PatternRepeat);
                 builder.push_background_layer_tiled(
                     canvas_rect,
                     tile,
@@ -16835,5 +16852,36 @@ mod a_list_marker_paints_no_box_of_its_items_tests {
             })
             .collect();
         assert_eq!(borders.len(), 1, "the item's border, once: {borders:?}");
+    }
+}
+
+#[cfg(test)]
+mod per_layer_list_tests {
+    use super::layer_value;
+
+    /// A list as long as the layers pairs up index by index (paint order on
+    /// both sides); a shorter one repeats from the TOP layer down, as CSS
+    /// lists it: `a, b` over three layers (top to bottom) is `a, b, a`.
+    #[test]
+    fn a_per_layer_list_is_aligned_with_the_top_layer() {
+        // Paint order: the bottom layer's value first.
+        assert_eq!(layer_value(&['z', 'y', 'x'], 3, 0), Some('z'));
+        assert_eq!(layer_value(&['z', 'y', 'x'], 3, 2), Some('x'));
+        // CSS `a, b` is stored `b, a`: top layer a, then b, then a again.
+        let short = ['b', 'a'];
+        assert_eq!(layer_value(&short, 3, 2), Some('a'), "the top layer");
+        assert_eq!(layer_value(&short, 3, 1), Some('b'));
+        assert_eq!(layer_value(&short, 3, 0), Some('a'), "the list repeats");
+        // One value is every layer's.
+        for layer in 0..4 {
+            assert_eq!(layer_value(&['p'], 4, layer), Some('p'));
+        }
+        // CSS `a, b, c` over two layers drops `c`, the bottom-most value.
+        let long = ['c', 'b', 'a'];
+        assert_eq!(layer_value(&long, 2, 1), Some('a'));
+        assert_eq!(layer_value(&long, 2, 0), Some('b'));
+        // No list, or no such layer: the property's initial value.
+        assert_eq!(layer_value::<char>(&[], 2, 0), None);
+        assert_eq!(layer_value(&['p'], 2, 2), None);
     }
 }

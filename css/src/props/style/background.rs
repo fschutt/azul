@@ -197,10 +197,13 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundContentVec {
     }
 }
 
+// The layers as CSS lists them, the top one first: the reverse of the vec's
+// paint order (see `parse_style_background_content_multiple`).
 impl PrintAsCssValue for StyleBackgroundContentVec {
     fn print_as_css_value(&self) -> String {
         self.as_ref()
             .iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
@@ -816,9 +819,11 @@ impl PrintAsCssValue for StyleBackgroundPosition {
         )
     }
 }
+// In CSS order, the top layer's first: the vec is in paint order.
 impl PrintAsCssValue for StyleBackgroundPositionVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
@@ -971,9 +976,11 @@ impl PrintAsCssValue for StyleBackgroundSize {
         }
     }
 }
+// In CSS order, the top layer's first: the vec is in paint order.
 impl PrintAsCssValue for StyleBackgroundSizeVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
@@ -1026,9 +1033,11 @@ impl PrintAsCssValue for StyleBackgroundRepeat {
         }
     }
 }
+// In CSS order, the top layer's first: the vec is in paint order.
 impl PrintAsCssValue for StyleBackgroundRepeatVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
@@ -1443,18 +1452,28 @@ pub mod parser {
 
     // -- Top-level Parsers for background-* properties --
 
-    /// Parses multiple backgrounds, such as "linear-gradient(red, green), url(image.png)".
+    /// Parses multiple backgrounds, such as "linear-gradient(red, green), url(image.png)",
+    /// into PAINT order.
+    ///
+    /// CSS lists the layers from the top down: "the first image in the list is
+    /// the layer closest to the user" (CSS Backgrounds 3 s2.2). A
+    /// [`StyleBackgroundContentVec`] holds them in the order they are painted -
+    /// the bottom layer first, the way the display list paints them and every
+    /// theme builds them - so the comma list is read back to front. Every
+    /// per-layer list (`background-clip`, `-position`, `-size`, `-repeat`) is
+    /// stored the same way, and printed back in CSS order.
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-content-multiple` value.
     pub fn parse_style_background_content_multiple(
         input: &str,
     ) -> Result<StyleBackgroundContentVec, CssBackgroundParseError<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut layers = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_content(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        layers.reverse();
+        Ok(layers.into())
     }
 
     /// Parses a single background value, which can be a color, image, or gradient.
@@ -1516,18 +1535,21 @@ pub mod parser {
         }
     }
 
-    /// Parses multiple `background-position` values.
+    /// Parses multiple `background-position` values, one per layer, into paint
+    /// order (the bottom layer's first, see
+    /// [`parse_style_background_content_multiple`]).
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-position-multiple` value.
     pub fn parse_style_background_position_multiple(
         input: &str,
     ) -> Result<StyleBackgroundPositionVec, CssBackgroundPositionParseError<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut positions = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_position(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        positions.reverse();
+        Ok(positions.into())
     }
 
     /// Parses a single `background-position` value.
@@ -1580,18 +1602,21 @@ pub mod parser {
         ))
     }
 
-    /// Parses multiple `background-size` values.
+    /// Parses multiple `background-size` values, one per layer, into paint
+    /// order (the bottom layer's first, see
+    /// [`parse_style_background_content_multiple`]).
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-size-multiple` value.
     pub fn parse_style_background_size_multiple(
         input: &str,
     ) -> Result<StyleBackgroundSizeVec, InvalidValueErr<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut sizes = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_size(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        sizes.reverse();
+        Ok(sizes.into())
     }
 
     /// Parses a single `background-size` value.
@@ -1621,18 +1646,21 @@ pub mod parser {
         }
     }
 
-    /// Parses multiple `background-repeat` values.
+    /// Parses multiple `background-repeat` values, one per layer, into paint
+    /// order (the bottom layer's first, see
+    /// [`parse_style_background_content_multiple`]).
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-repeat-multiple` value.
     pub fn parse_style_background_repeat_multiple(
         input: &str,
     ) -> Result<StyleBackgroundRepeatVec, InvalidValueErr<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut repeats = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_repeat(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        repeats.reverse();
+        Ok(repeats.into())
     }
 
     /// Parses a single `background-repeat` value.
@@ -3246,17 +3274,18 @@ pub mod parser {
 
         #[test]
         fn autotest_background_content_multiple_valid_and_adversarial() {
+            // Paint order: the image (listed last, the bottom layer) first.
             let parsed =
                 parse_style_background_content_multiple("linear-gradient(red, blue), url(a.png)")
                     .unwrap();
             assert_eq!(parsed.len(), 2);
             assert!(matches!(
                 parsed.as_slice()[0],
-                StyleBackgroundContent::LinearGradient(_)
+                StyleBackgroundContent::Image(_)
             ));
             assert!(matches!(
                 parsed.as_slice()[1],
-                StyleBackgroundContent::Image(_)
+                StyleBackgroundContent::LinearGradient(_)
             ));
 
             // One bad layer poisons the whole list.
@@ -3387,10 +3416,11 @@ pub mod parser {
                 0
             );
 
+            // Paint order: the bottom layer's position (listed last) first.
             let parsed = parse_style_background_position_multiple("left top, 10px 20px").unwrap();
             assert_eq!(parsed.len(), 2);
             assert_eq!(
-                parsed.as_slice()[1].horizontal,
+                parsed.as_slice()[0].horizontal,
                 BackgroundPositionHorizontal::Exact(PixelValue::px(10.0))
             );
 
@@ -3504,10 +3534,11 @@ pub mod parser {
         fn autotest_background_size_multiple() {
             assert_eq!(parse_style_background_size_multiple("").unwrap().len(), 0);
 
+            // Paint order: the bottom layer's size (listed last) first.
             let parsed = parse_style_background_size_multiple("contain, 10px 20px, cover").unwrap();
             assert_eq!(parsed.len(), 3);
-            assert_eq!(parsed.as_slice()[0], StyleBackgroundSize::Contain);
-            assert_eq!(parsed.as_slice()[2], StyleBackgroundSize::Cover);
+            assert_eq!(parsed.as_slice()[0], StyleBackgroundSize::Cover);
+            assert_eq!(parsed.as_slice()[2], StyleBackgroundSize::Contain);
 
             assert!(parse_style_background_size_multiple("cover, auto").is_err());
             assert!(parse_style_background_size_multiple("   ").is_err());
@@ -3579,10 +3610,11 @@ pub mod parser {
         fn autotest_background_repeat_multiple() {
             assert_eq!(parse_style_background_repeat_multiple("").unwrap().len(), 0);
 
+            // Paint order: the bottom layer's repeat (listed last) first.
             let parsed = parse_style_background_repeat_multiple("repeat, no-repeat").unwrap();
             assert_eq!(parsed.len(), 2);
-            assert_eq!(parsed.as_slice()[0], StyleBackgroundRepeat::PatternRepeat);
-            assert_eq!(parsed.as_slice()[1], StyleBackgroundRepeat::NoRepeat);
+            assert_eq!(parsed.as_slice()[0], StyleBackgroundRepeat::NoRepeat);
+            assert_eq!(parsed.as_slice()[1], StyleBackgroundRepeat::PatternRepeat);
 
             assert!(parse_style_background_repeat_multiple("repeat,,repeat").is_err());
             assert!(parse_style_background_repeat_multiple("   ").is_err());
@@ -4328,10 +4360,12 @@ pub mod parser {
 
         #[test]
         fn autotest_round_trip_vec_printing_is_comma_separated() {
+            // Stored in paint order (the bottom layer, blue, first), printed
+            // back as CSS lists it.
             let contents = parse_style_background_content_multiple("red, blue").unwrap();
             assert_eq!(contents.print_as_css_value(), "#ff0000ff, #0000ffff");
             assert_eq!(
-                contents.as_slice()[1],
+                contents.as_slice()[0],
                 StyleBackgroundContent::Color(blue())
             );
             let reparsed =
@@ -4429,17 +4463,20 @@ mod tests {
     fn a_builtin_texture_is_a_background_image_layer_and_prints_back() {
         // `builtin(vellum)`: a texture compiled into the library, composed
         // like `url(foo.png)` - a layer of a `background` list, over a colour.
+        // In paint order the colour (the bottom layer) comes first and the
+        // grain over it second.
         let layers = parse_style_background_content_multiple("builtin(vellum-overlay), #f2f1ed")
             .expect("a builtin layer over a colour");
         let layers = layers.as_ref();
         assert_eq!(layers.len(), 2);
+        assert!(matches!(layers[0], StyleBackgroundContent::Color(_)));
         assert_eq!(
-            layers[0],
+            layers[1],
             StyleBackgroundContent::Image(
                 alloc::format!("{BUILTIN_IMAGE_PREFIX}vellum-overlay").as_str().into()
             )
         );
-        assert_eq!(layers[0].print_as_css_value(), "builtin(vellum-overlay)");
+        assert_eq!(layers[1].print_as_css_value(), "builtin(vellum-overlay)");
         for name in BUILTIN_IMAGES {
             assert!(parse_style_background_content(&alloc::format!("builtin({name})")).is_ok());
             assert!(parse_style_background_content(&alloc::format!("builtin( '{name}' )")).is_ok());
@@ -4507,17 +4544,18 @@ mod tests {
 
     #[test]
     fn test_parse_multiple_background_content() {
+        // Paint order: the gradient (listed last, the bottom layer) first.
         let result =
             parse_style_background_content_multiple("url(foo.png), linear-gradient(red, blue)")
                 .unwrap();
         assert_eq!(result.len(), 2);
         assert!(matches!(
             result.as_slice()[0],
-            StyleBackgroundContent::Image(_)
+            StyleBackgroundContent::LinearGradient(_)
         ));
         assert!(matches!(
             result.as_slice()[1],
-            StyleBackgroundContent::LinearGradient(_)
+            StyleBackgroundContent::Image(_)
         ));
     }
 
