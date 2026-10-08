@@ -7507,19 +7507,52 @@ pub fn details_pane(p: crate::widgets::details_pane::DetailsPane) -> Dom {
 // ==== address_bar ====
 //
 // A flora address bar is a toolbar strip (--fl-strip) over a --fl-bd
-// hairline; the path sits in field paper (--fl-fld) inside a --fl-bd2 rule
-// at the house radius, ringed by the accent under the pointer; the search
-// box keeps a fixed width. At night the night strip, field and glow.
+// hairline, set in the house serif (flora's chrome is Garamond; the path
+// keeps its own case, so no capitals). Back and Forward are round stones of
+// raised paper (--fl-rT / --fl-rB) in a --fl-bd2 ring that lift to the hover
+// face and press in; Recent and Up are quiet arrows on the strip. The
+// breadcrumb box is field paper (--fl-fld) inside a --fl-bd2 rule at the
+// house radius, ringed by the accent under the pointer, the location's icon
+// in brass ink; its segments are the house ink on the bare paper until the
+// pointer lifts them to the hover face, each folder with a quiet --fl-soft2
+// chevron; Refresh closes the box past a hairline. Focus is flora's accent
+// halo. At night the night strip, field, faces and glow.
+
+/// A button of the flora address bar at rest: bare paper in a transparent
+/// 1 px rim (so the hover's rim moves nothing), `width` (or its content's)
+/// by `height`; the hover face in a --fl-bd2 rim under the pointer, the
+/// pressed face in --fl-bd3 pressed, the accent halo on focus.
+fn address_bar_control(width: Option<isize>, height: isize) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::new();
+    if let Some(width) = width {
+        v.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(width),
+        )));
+    }
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+        LayoutHeight::const_px(height),
+    )));
+    v.extend(decl::border(1));
+    v.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    v.extend(decl::radius(3));
+    v.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    v.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    v.extend(decl::hover_border_color(LIGHT_BD2, DARK_BD2));
+    v.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    v.extend(decl::active_border_color(LIGHT_BD3, DARK_BD3));
+    v.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+    v
+}
 
 /// Flora's address-bar look.
 #[must_use]
 pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook {
     use super::decl;
+    type C = CssPropertyWithConditions;
     let mut bar = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-            13,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
     ];
     bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
@@ -7527,25 +7560,92 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
     bar.extend(decl::border_bottom(1));
     bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut field = vec![CssPropertyWithConditions::simple(CssProperty::const_height(
-        LayoutHeight::const_px(26),
-    ))];
-    field.extend(decl::padding(0, 8, 0, 8));
-    field.extend(decl::margin(0, 8, 0, 4));
-    field.extend(decl::border(1));
-    field.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
-    field.extend(decl::radius(3));
-    field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
-    field.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
+    // Back and Forward: round stones of raised paper in the --fl-bd2 ring.
+    let mut round = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(26))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(26))),
+    ];
+    round.extend(decl::border(1));
+    round.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    round.extend(decl::radius(13));
+    round.extend(decl::themed_layers(vec![RAISED_FACE_LIGHT], vec![RAISED_FACE_DARK]));
+    round.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    round.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+    round.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    round.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    let mut arrow_icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    arrow_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    // The breadcrumb box: field paper in the --fl-bd2 rule, the accent ring
+    // under the pointer.
+    let mut field_box = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(26)))];
+    field_box.extend(decl::padding(0, 0, 0, 2));
+    field_box.extend(decl::margin(0, 8, 0, 6));
+    field_box.extend(decl::border(1));
+    field_box.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    field_box.extend(decl::radius(3));
+    field_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    field_box.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
+
+    // The location's icon in brass ink, flora's quiet accent.
+    let mut icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    icon.extend(decl::padding(0, 4, 0, 4));
+    icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut crumb = address_bar_control(None, 22);
+    crumb.extend(decl::padding(0, 6, 0, 6));
+
+    let mut label = vec![
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+    ];
+    label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut chevron_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14)))];
+    chevron_icon.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+
+    // Refresh closes the box past a --fl-bd hairline; it lifts like the
+    // segments and keeps its rule.
+    let mut refresh = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(26))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(24))),
+    ];
+    refresh.extend(decl::border_left(1));
+    refresh.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+    refresh.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
+    refresh.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    refresh.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    refresh.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut refresh_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
+    refresh_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
 
     crate::widgets::address_bar::AddressBarLook {
+        theme: super::UiTheme::Flora,
         bar,
         nav: decl::margin(0, 2, 0, 0).to_vec(),
-        field,
-        field_editing: decl::margin(0, 8, 0, 4).to_vec(),
-        search: vec![CssPropertyWithConditions::simple(CssProperty::const_width(
-            LayoutWidth::const_px(220),
-        ))],
+        round,
+        arrow: address_bar_control(Some(24), 26),
+        recent: address_bar_control(Some(16), 26),
+        arrow_icon,
+        field_box,
+        // The path field draws its own frame: the box keeps its place.
+        field_box_editing: decl::margin(0, 8, 0, 6).to_vec(),
+        icon,
+        field: decl::padding(0, 1, 0, 1).to_vec(),
+        edit: Vec::new(),
+        crumb,
+        current: Vec::new(),
+        label,
+        chevron: address_bar_control(Some(16), 22),
+        chevron_icon,
+        overflow: address_bar_control(Some(22), 22),
+        refresh,
+        refresh_icon,
+        search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }

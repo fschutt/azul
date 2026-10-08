@@ -4818,21 +4818,52 @@ pub fn details_pane(p: crate::widgets::details_pane::DetailsPane) -> Dom {
 
 // ==== address_bar ====
 //
-// The flat address bar is Explorer's: a strip on the window surface over a
-// hairline, the arrows and Refresh as flat icon buttons, the path in a
-// field - a white box in the field rule, ringed by the field ring under the
-// pointer - and the search box at a fixed width. At night the desktop's
-// surfaces, the dark field and the accent ring.
+// The flat address bar is Windows 7 / 8 Explorer's in Office 2010's faces: a
+// strip on the window surface over a hairline; Back and Forward as ROUND
+// arrows - the raised white-to-silver face in a grey ring - Recent and Up as
+// flat arrows; the breadcrumb box a white field in the field rule, ringed by
+// the field ring under the pointer, its segments plain ink (Explorer's path
+// is buttons, not links) that light up with Office 2010's yellow face in its
+// gold rim under the pointer and its orange one in the brown rim pressed,
+// each folder with a chevron of its own; Refresh closes the box past a
+// hairline; the search box keeps its width. At night the desktop's surfaces,
+// the dark field, the amber faces and the accent ring.
+
+/// A button of the flat address bar at rest: no face, in a transparent 1 px
+/// rim (so the hover's rim moves nothing), `width` (or its content's) by
+/// `height`; Office 2010's yellow face in its gold rim under the pointer, the
+/// orange one in its brown rim pressed, the field ring as a halo on focus.
+fn address_bar_control(width: Option<isize>, height: isize) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::new();
+    if let Some(width) = width {
+        v.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(width),
+        )));
+    }
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+        LayoutHeight::const_px(height),
+    )));
+    v.extend(decl::border(1));
+    v.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    v.extend(decl::radius(2));
+    v.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    v.extend(hover_face_both());
+    v.extend(decl::hover_border_color(LIGHT_HOVER_BORDER, DARK_HOVER_BORDER));
+    v.extend(active_face_both());
+    v.extend(decl::active_border_color(LIGHT_PRESSED_BORDER, DARK_PRESSED_BORDER));
+    v.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+    v
+}
 
 /// Flat's address-bar look.
 #[must_use]
 pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook {
     use super::decl;
+    type C = CssPropertyWithConditions;
     let mut bar = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-            13,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+        C::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     ];
     bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     bar.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
@@ -4840,25 +4871,98 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
     bar.extend(decl::border_bottom(1));
     bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut field = vec![CssPropertyWithConditions::simple(CssProperty::const_height(
-        LayoutHeight::const_px(26),
-    ))];
-    field.extend(decl::padding(0, 6, 0, 6));
-    field.extend(decl::margin(0, 8, 0, 4));
-    field.extend(decl::border(1));
-    field.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
-    field.extend(decl::radius(2));
-    field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
-    field.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+    // Back and Forward: Windows 8's round arrows, the raised face in a grey
+    // ring; they light and press like every button of the bar.
+    let mut round = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(24))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(24))),
+    ];
+    round.extend(decl::border(1));
+    round.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    round.extend(decl::radius(12));
+    round.extend(decl::themed_layers(
+        vec![decl::face(LIGHT_RT, LIGHT_RB)],
+        vec![decl::face(DARK_RT, DARK_RB)],
+    ));
+    round.extend(hover_face_both());
+    round.extend(decl::hover_border_color(LIGHT_HOVER_BORDER, DARK_HOVER_BORDER));
+    round.extend(active_face_both());
+    round.extend(decl::active_border_color(LIGHT_PRESSED_BORDER, DARK_PRESSED_BORDER));
+    round.extend(decl::focus_halo(FIELD_RING, DARK_ACC));
+
+    let mut arrow_icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    arrow_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    // The breadcrumb box: a white field in the field rule, ringed by the
+    // field ring under the pointer.
+    let mut field_box = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(24)))];
+    field_box.extend(decl::padding(0, 0, 0, 2));
+    field_box.extend(decl::margin(0, 8, 0, 6));
+    field_box.extend(decl::border(1));
+    field_box.extend(decl::themed_border_color(LIGHT_BD3, DARK_BD3));
+    field_box.extend(decl::radius(2));
+    field_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    field_box.extend(decl::hover_border_color(FIELD_RING, DARK_ACC));
+
+    let mut icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    icon.extend(decl::padding(0, 4, 0, 3));
+    icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    let mut crumb = address_bar_control(None, 20);
+    crumb.extend(decl::padding(0, 5, 0, 5));
+
+    // A segment's name in the house ink at the bar's size: the path, not a
+    // link to it.
+    let mut label = vec![
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+        C::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    ];
+    label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut chevron_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14)))];
+    chevron_icon.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    // Refresh closes the box past a hairline; it lights like the segments
+    // and keeps its rule, so it takes no rim of its own.
+    let mut refresh = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(24))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(22))),
+    ];
+    refresh.extend(decl::border_left(1));
+    refresh.extend(decl::themed_border_left_color(LIGHT_SEP, DARK_SEP));
+    refresh.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
+    refresh.extend(hover_face_both());
+    refresh.extend(active_face_both());
+    refresh.extend(decl::focus_halo_inset(FIELD_RING, DARK_ACC));
+
+    let mut refresh_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
+    refresh_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
 
     crate::widgets::address_bar::AddressBarLook {
+        theme: super::UiTheme::Flat,
         bar,
         nav: decl::margin(0, 2, 0, 0).to_vec(),
-        field,
-        field_editing: decl::margin(0, 8, 0, 4).to_vec(),
-        search: vec![CssPropertyWithConditions::simple(CssProperty::const_width(
-            LayoutWidth::const_px(220),
-        ))],
+        round,
+        arrow: address_bar_control(Some(22), 24),
+        recent: address_bar_control(Some(16), 24),
+        arrow_icon,
+        field_box,
+        // The path field draws its own frame: the box keeps its place.
+        field_box_editing: decl::margin(0, 8, 0, 6).to_vec(),
+        icon,
+        field: decl::padding(0, 1, 0, 1).to_vec(),
+        edit: Vec::new(),
+        crumb,
+        current: Vec::new(),
+        label,
+        chevron: address_bar_control(Some(15), 20),
+        chevron_icon,
+        overflow: address_bar_control(Some(20), 20),
+        refresh,
+        refresh_icon,
+        search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
         marker: None,
     }
 }
