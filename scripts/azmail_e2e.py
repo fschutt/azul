@@ -119,6 +119,16 @@ def log(line):
     print(f'[azmail-e2e] {line}', flush=True)
 
 
+def on_paper(item, papers):
+    """Whether `item` is a text whose centre lies on one of `papers` (node rects)."""
+    if item.get('type') not in ('text', 'text_layout') or item.get('width') is None:
+        return False
+    cx = item['x'] + item['width'] / 2.0
+    cy = item['y'] + item.get('height', 0) / 2.0
+    return any(r['x'] <= cx <= r['x'] + r['width'] and r['y'] <= cy <= r['y'] + r['height']
+               for r in papers)
+
+
 class Failure(Exception):
     pass
 
@@ -729,6 +739,11 @@ class SampleRun(Run):
         rect = self.layout(selector, window)
         return rect.get('y', 0) + rect.get('height', 0)
 
+    def rects(self, cls, window=None):
+        answer = self.op('get_node_hierarchy', window)
+        nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
+        return [n['rect'] for n in nodes if cls in (n.get('classes') or []) and n.get('rect')]
+
     def widths(self, cls, window=None):
         answer = self.op('get_node_hierarchy', window)
         nodes = (((answer or {}).get('data') or {}).get('value') or {}).get('nodes') or []
@@ -805,6 +820,11 @@ class SampleRun(Run):
                 self.settle(limit=3.0)
                 self.frame(None, 2)
                 items = (value(self.must('get_display_list')) or {}).get('items') or []
+                # The mail's own colours are its sender's: the newsletter's dark rule lays its
+                # body black under its own dark ink, as a client that keeps a mail's dark rules
+                # shows it. The promise is about the app's text, so the paper's is skipped.
+                papers = self.rects('__azmail_paper')
+                items = [it for it in items if not on_paper(it, papers)]
                 base = (255.0, 255.0, 255.0) if mode == 'light' else (30.0, 30.0, 30.0)
                 findings += [f'{theme}/{mode}: {f}'
                              for f in azlin_e2e.contrast_findings(items, base)]
