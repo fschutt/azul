@@ -219,8 +219,13 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
     // so that subsequent layout passes (for auto-sizing) have access to the positioned floats
     let mut float_context = FloatingContext::default();
 
-    let (children_containing_block_size, scrollbar_reservation, multicol, flow_cross_size) =
-        bfc_prepare(ctx, tree, &node, node_index, constraints, writing_mode);
+    let BfcPrepared {
+        node,
+        children_containing_block_size,
+        scrollbar_reservation,
+        multicol,
+        flow_cross_size,
+    } = bfc_prepare(ctx, tree, node, node_index, constraints, writing_mode);
 
     // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
     //
@@ -320,33 +325,34 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
         }
     }
 
-    let (escaped_top_margin, escaped_bottom_margin, fragment_token_out, child_scrollbar_reflow) =
-        bfc_place_children(
-            ctx,
-            tree,
-            text_cache,
-            node_index,
-            constraints,
-            float_cache,
-            &node,
-            writing_mode,
-            &mut output,
-            legacy_center,
-            &mut float_context,
-            children_containing_block_size,
-            multicol.as_ref(),
-            flow_cross_size,
-            child_scrollbar_reflow,
-        )?;
-
-    Ok(BfcLayoutResult {
+    bfc_place_children(
+        ctx,
+        tree,
+        text_cache,
+        node_index,
+        constraints,
+        float_cache,
+        node,
+        writing_mode,
         output,
-        escaped_top_margin,
-        escaped_bottom_margin,
-        outgoing_token: fragment_token_out,
-        scrollbar_reflow_needed: child_scrollbar_reflow,
-        reserved_scrollbar_width: scrollbar_reservation,
-    })
+        legacy_center,
+        float_context,
+        children_containing_block_size,
+        scrollbar_reservation,
+        multicol,
+        flow_cross_size,
+        child_scrollbar_reflow,
+    )
+}
+
+/// What [`bfc_prepare`] hands back to [`layout_bfc`]: the node it was given,
+/// and what its children are sized against and placed across.
+struct BfcPrepared {
+    node: LayoutNodeHot,
+    children_containing_block_size: LogicalSize,
+    scrollbar_reservation: f32,
+    multicol: Option<BlockColumns>,
+    flow_cross_size: f32,
 }
 
 /// What [`layout_bfc`] decides before its first pass: the containing block its
@@ -361,11 +367,11 @@ pub(super) fn layout_bfc<T: ParsedFontTrait>(
 fn bfc_prepare<T: ParsedFontTrait>(
     ctx: &LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    node: &LayoutNodeHot,
+    node: LayoutNodeHot,
     node_index: usize,
     constraints: &LayoutConstraints<'_>,
     writing_mode: LayoutWritingMode,
-) -> (LogicalSize, f32, Option<BlockColumns>, f32) {
+) -> BfcPrepared {
     // +spec:containing-block:42b75f - Block element establishes containing block for inline content
     // (IFC) Calculate this node's content-box size for use as containing block for children
     // CSS 2.2 § 10.1: The containing block for in-flow children is formed by the
@@ -532,20 +538,19 @@ fn bfc_prepare<T: ParsedFontTrait>(
         }
     }
 
-    (
+    BfcPrepared {
+        node,
         children_containing_block_size,
         scrollbar_reservation,
         multicol,
         flow_cross_size,
-    )
+    }
 }
 
 /// [`layout_bfc`] after its first pass: places the children that pass sized
 /// (margin collapsing, floats and clearance, fragmentation), cuts them into the
 /// container's columns, and resolves the margins that escape the box, its
-/// content height and its baseline. Returns the escaped top and bottom margins,
-/// the outgoing break token and whether a descendant needs another layout pass
-/// for a scrollbar.
+/// content height and its baseline.
 ///
 /// Out of line, so that none of its locals is on the stack while the first pass
 /// recurses into the children (see [`bfc_prepare`]).
@@ -557,21 +562,17 @@ fn bfc_place_children<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints<'_>,
     float_cache: &mut HashMap<usize, FloatingContext>,
-    node: &LayoutNodeHot,
+    node: LayoutNodeHot,
     writing_mode: LayoutWritingMode,
-    output: &mut LayoutOutput,
+    mut output: LayoutOutput,
     legacy_center: bool,
-    float_context: &mut FloatingContext,
+    mut float_context: FloatingContext,
     children_containing_block_size: LogicalSize,
-    multicol: Option<&BlockColumns>,
+    scrollbar_reservation: f32,
+    multicol: Option<BlockColumns>,
     flow_cross_size: f32,
     mut child_scrollbar_reflow: bool,
-) -> Result<(
-    Option<f32>,
-    Option<f32>,
-    Option<crate::solver3::break_token::BreakToken>,
-    bool,
-)> {
+) -> Result<BfcLayoutResult> {
     // +spec:block-formatting-context:98b633 - CSS 2.2 § 9.4.1: boxes laid out vertically, margins
     // collapse === Pass 2: Position children using known sizes ===
     //
@@ -2649,10 +2650,12 @@ fn bfc_place_children<T: ParsedFontTrait>(
         warm_mut.baseline = output.baseline;
     }
 
-    Ok((
+    Ok(BfcLayoutResult {
+        output,
         escaped_top_margin,
         escaped_bottom_margin,
-        fragment_token_out,
-        child_scrollbar_reflow,
-    ))
+        outgoing_token: fragment_token_out,
+        scrollbar_reflow_needed: child_scrollbar_reflow,
+        reserved_scrollbar_width: scrollbar_reservation,
+    })
 }
