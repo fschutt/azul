@@ -1013,11 +1013,22 @@ fn graphing_view(s: &CalcApp, app: &RefAny, look: Look) -> Dom {
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; flex-shrink: 0;")
                 .with_child(keys)
-                .with_child(side_panel(
-                    s,
-                    app,
-                    &format!("width: 290px; flex-shrink: 0; {}", look::ENTER_SIDE),
-                )),
+                // The tape fills the height the keys give the row and scrolls in it,
+                // out of the flow: a row is as tall as its tallest item, and a long
+                // tape made the row taller than the window and pushed the graph out.
+                .with_child(
+                    Dom::create_div()
+                        .with_css("position: relative; width: 290px; flex-shrink: 0;")
+                        .with_child(side_panel(
+                            s,
+                            app,
+                            &format!(
+                                "position: absolute; top: 0px; right: 0px; bottom: 0px; \
+                                 left: 0px; {}",
+                                look::ENTER_SIDE
+                            ),
+                        )),
+                ),
         )
         .with_child(graphview::panel(s, app, look))
 }
