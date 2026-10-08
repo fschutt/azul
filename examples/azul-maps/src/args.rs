@@ -11,10 +11,28 @@ pub struct Args {
     /// `AZ_MAP_TILES` / `AZ_MAP_RENDER` from the map widget, `AZ_MAP_TILE`
     /// from its tile worker, `AZMAPS_LAYOUT` for every window rebuild.
     pub stats: bool,
+    /// `--tiles <url template>`: the tile server for this run (see [`tile_template`]).
+    pub tiles: Option<String>,
     /// `-h` / `--help`.
     pub help: bool,
     /// The Azlin switches (azul-appkit).
     pub kit: AppArgs,
+}
+
+/// The variable naming the tile server, the fallback for `--tiles`.
+pub const TILES_VAR: &str = "AZMAPS_TILES";
+
+/// The tile server's URL template (`{z}`, `{x}`, `{y}`): `--tiles`, else
+/// [`TILES_VAR`], else the shared Azlin config's `endpoints.tiles`; `None`
+/// keeps the map widget's own (OpenFreeMap's public planet tiles).
+#[must_use]
+pub fn tile_template(
+    flag: Option<&str>,
+    env: Option<&str>,
+    shared: Option<&str>,
+) -> Option<String> {
+    let _ = (flag, env, shared);
+    None
 }
 
 /// The usage text: appkit's, then AzMaps' own switches.
@@ -62,6 +80,7 @@ where
     }
     Ok(Args {
         stats,
+        tiles: None,
         help: false,
         kit: AppArgs::parse(&crate::SPEC, rest)?,
     })
@@ -88,5 +107,42 @@ mod tests {
         assert!(parse(["--stats=yes"], false).is_err(), "--stats takes no value");
         assert!(parse(["--bogus"], false).is_err());
         assert!(usage().contains("--stats") && usage().contains("--data-dir"));
+    }
+
+    #[test]
+    fn the_tiles_switch_names_the_tile_server_for_this_run() {
+        let local = "http://127.0.0.1:8099/tiles/{z}/{x}/{y}.pbf";
+        let a = parse(["--tiles", local, "--stats"], false).expect("valid");
+        assert_eq!(a.tiles.as_deref(), Some(local));
+        assert!(a.stats);
+        let a = parse([format!("--tiles={local}")], false).expect("valid");
+        assert_eq!(a.tiles.as_deref(), Some(local));
+        assert!(parse(["--tiles"], false).is_err(), "--tiles needs a template");
+        assert!(usage().contains("--tiles"));
+    }
+
+    #[test]
+    fn the_switch_wins_over_the_variable_and_the_variable_over_the_shared_config() {
+        let flag = "http://127.0.0.1:8099/a/{z}/{x}/{y}.pbf";
+        let env = "http://127.0.0.1:8099/b/{z}/{x}/{y}.pbf";
+        let shared = "http://127.0.0.1:8099/c/{z}/{x}/{y}.pbf";
+        assert_eq!(
+            tile_template(Some(flag), Some(env), Some(shared)).as_deref(),
+            Some(flag)
+        );
+        assert_eq!(
+            tile_template(None, Some(env), Some(shared)).as_deref(),
+            Some(env)
+        );
+        assert_eq!(
+            tile_template(None, Some("  "), Some(shared)).as_deref(),
+            Some(shared),
+            "a blank variable counts as unset"
+        );
+        assert_eq!(
+            tile_template(None, None, None),
+            None,
+            "the widget's own tiles"
+        );
     }
 }

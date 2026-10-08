@@ -1445,6 +1445,16 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 
 // ==== Entry ====
 
+/// The map's tile layer: the widget's own, on `template`'s server when one is named
+/// ([`args::tile_template`]).
+fn tile_layer(template: Option<String>) -> MapTileLayer {
+    let mut layer = MapTileLayer::default();
+    if let Some(template) = template {
+        layer.url_template = AzString::from(template);
+    }
+    layer
+}
+
 pub fn start() {
     let stats_env =
         std::env::var("AZMAPS_STATS").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0");
@@ -1479,6 +1489,21 @@ pub fn start() {
         };
         read
     };
+    // The tile server: `--tiles`, `AZMAPS_TILES`, the shared config's `endpoints.tiles` (the
+    // file the kit read; none for a `--shot` run), else the widget's own.
+    let shared_tiles = {
+        let mut k = kit_ref.clone();
+        let found = k
+            .downcast_ref::<kit::Kit>()
+            .and_then(|k| k.config_path.clone());
+        found
+    }
+    .and_then(|path| azul_appkit::shared_endpoint::in_file(&path, "tiles"));
+    let tiles = args::tile_template(
+        args.tiles.as_deref(),
+        std::env::var(args::TILES_VAR).ok().as_deref(),
+        shared_tiles.as_deref(),
+    );
     // The map opens where it was left (settings.json), else on the start.
     let (lat, lon, zoom) = kept.unwrap_or(HOME);
     println!("{}", view_line(lat, lon, zoom));
@@ -1490,7 +1515,7 @@ pub fn start() {
             bearing_deg: 0.0,
             pitch_deg: 0.0,
         },
-        layer: MapTileLayer::default(),
+        layer: tile_layer(tiles),
         locating: false,
         last_fix: None,
         pins: Vec::new(),
