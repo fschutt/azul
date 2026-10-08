@@ -103,6 +103,14 @@ proof(device, dh) = sign(invite_sk, "azmeet/v1/proof\n{room}\n{device}\n{dh}")
 - The short **code** (`xq4-8kd-2nm`) is the Worker's alias of the room id; it carries no secret.
   Joining with it is a **knock** (section 6). Joining by code trusts the Worker to send the person
   to the right room until they compare safety codes; joining by link does not.
+- **AzCalendar** makes meeting links the same way, offline: a room id and an invite secret for an
+  event, the link with the secret kept in the event (and its `.ics`), the room registered with
+  `invite_key` once a meeting server answers. The derivation of `invite_sk` lives in
+  `src/invite.rs`, which AzCalendar includes by path and `crypto::Invite` uses too (both pin the
+  Worker's vector). A Worker that already holds the room under another key answers with that one,
+  and AzMeet refuses to join the link: a squatted room id fails closed.
+- Rooms registered without an `invite_key` (by an AzMeet or AzCalendar from before) are not
+  joined: AzMeet says the room is not end-to-end encrypted.
 
 ## 5. Members
 
