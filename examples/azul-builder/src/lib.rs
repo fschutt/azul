@@ -22,16 +22,20 @@ fn scripted() -> bool {
     std::env::var_os("AZ_E2E").is_some() || std::env::var_os("AZ_E2E_TEST").is_some()
 }
 
-/// The debug server's port: the caller's `AZ_DEBUG`, else 8080.
+/// The debug server's port: the caller's `AZ_DEBUG`, else [`DEFAULT_PORT`].
 fn debug_port() -> String {
     port_from(std::env::var("AZ_DEBUG").ok().as_deref())
 }
+
+/// The debug server's port without `AZ_DEBUG`: one the local stack leaves free (its sqld is on
+/// 8080, the token server on 8081, S3 on 9000, the meeting server on 8790).
+const DEFAULT_PORT: &str = "8765";
 
 /// [`debug_port`] from `AZ_DEBUG`'s value.
 fn port_from(var: Option<&str>) -> String {
     var.filter(|p| !p.trim().is_empty())
         .map(String::from)
-        .unwrap_or_else(|| "8080".to_string())
+        .unwrap_or_else(|| DEFAULT_PORT.to_string())
 }
 
 extern "C" fn on_start(_data: RefAny, _info: CallbackInfo) -> Update {

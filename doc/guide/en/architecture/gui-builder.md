@@ -29,10 +29,10 @@ for any Azul app.
 ## Starting the Builder
 
 Download `AzBuilder` for your OS from the Demos section of the [releases page](https://azul.rs/ui/releases)
-and run it. It opens an empty native window and a debug server on `http://localhost:8080`, and
-opens that address in your default browser. The HTTP server runs on a background thread of the
-same process and hands every request to the window's thread through a message queue, so the
-browser can change the window while it is running.
+and run it. It opens an empty native window and a debug server on `http://localhost:8765` (another
+port with `AZ_DEBUG=<port>`), and opens that address in your default browser. The HTTP server runs
+on a background thread of the same process and hands every request to the window's thread through a
+message queue, so the browser can change the window while it is running.
 
 The browser's DOM Explorer opens in **Document** mode for AzBuilder: you edit the builder's
 document, not the raw DOM of the window. Switch to **Live DOM** to inspect whatever the window
@@ -240,10 +240,10 @@ Since `AzBuilder` is merely a window listening on an HTTP port, you can control 
 
 ```sh
 # resize the AzBuilder window
-curl -s -X POST http://localhost:8080/ -d '{"op": "resize", "width": 100, "height": 200}'
+curl -s -X POST http://localhost:8765/ -d '{"op": "resize", "width": 100, "height": 200}'
 
 # insert a paragraph into the builder document (uid 0 is the <body>)
-curl -s -X POST http://localhost:8080/ -d '{"op": "builder_insert", "parent": 0, "component": "p", "attrs": {"text": "Hello"}}'
+curl -s -X POST http://localhost:8765/ -d '{"op": "builder_insert", "parent": 0, "component": "p", "attrs": {"text": "Hello"}}'
 ```
 
 The ops are documented in the [Debugging Guide](../debugging.md). In the browser, press "/" in
