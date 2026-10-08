@@ -44,8 +44,10 @@ pub struct Loaded {
 pub fn tasks_root(
     named_data_dir: Option<&Path>,
     tasks_var: Option<&str>,
+    azlin_var: Option<&str>,
     user_data: Option<PathBuf>,
 ) -> PathBuf {
+    let _ = azlin_var;
     azul_appkit::data::data_root(named_data_dir, tasks_var, user_data)
 }
 
@@ -287,23 +289,47 @@ mod tests {
     fn the_tasks_live_with_aztasks_unless_a_data_folder_is_named() {
         let user = Some(PathBuf::from("/home/ada/.local/share"));
         assert_eq!(
-            tasks_root(Some(Path::new("/tmp/cal")), Some("/srv/tasks"), user.clone()),
+            tasks_root(
+                Some(Path::new("/tmp/cal")),
+                Some("/srv/tasks"),
+                None,
+                user.clone()
+            ),
             PathBuf::from("/tmp/cal"),
             "a named folder holds everything (the tests, the E2E)"
         );
         assert_eq!(
-            tasks_root(None, Some(" /srv/tasks "), user.clone()),
+            tasks_root(None, Some(" /srv/tasks "), None, user.clone()),
             PathBuf::from("/srv/tasks"),
             "AzTasks' AZTASKS_DATA"
         );
         assert_eq!(
-            tasks_root(None, Some("  "), user.clone()),
+            tasks_root(None, Some("  "), None, user.clone()),
             PathBuf::from("/home/ada/.local/share/Azlin")
         );
         assert_eq!(
-            tasks_root(None, None, user),
+            tasks_root(None, None, None, user),
             PathBuf::from("/home/ada/.local/share/Azlin")
         );
-        assert_eq!(tasks_root(None, None, None), PathBuf::from("Azlin"));
+        assert_eq!(tasks_root(None, None, None, None), PathBuf::from("Azlin"));
+    }
+
+    #[test]
+    fn without_aztasks_data_the_tasks_live_in_the_azlin_data_root() {
+        let user = Some(PathBuf::from("/home/ada/.local/share"));
+        assert_eq!(
+            tasks_root(None, None, Some("/tmp/e2e"), user.clone()),
+            PathBuf::from("/tmp/e2e"),
+            "AZLIN_DATA, the root every Azlin app shares"
+        );
+        assert_eq!(
+            tasks_root(None, Some("/srv/tasks"), Some("/tmp/e2e"), user.clone()),
+            PathBuf::from("/srv/tasks"),
+            "AZTASKS_DATA first"
+        );
+        assert_eq!(
+            tasks_root(None, Some(" "), Some("/tmp/e2e"), user),
+            PathBuf::from("/tmp/e2e")
+        );
     }
 }

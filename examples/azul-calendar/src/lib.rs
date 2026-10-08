@@ -1239,6 +1239,7 @@ pub fn start() {
     let tasks_root = tasks::tasks_root(
         named_dir.as_deref(),
         std::env::var(tasks::TASKS_DATA_VAR).ok().as_deref(),
+        std::env::var(azul_appkit::data::DATA_VAR).ok().as_deref(),
         user_data_dir(),
     );
     let today = chrono::Local::now().date_naive();
