@@ -5932,6 +5932,12 @@ fn group_popup_window(
     // The popup's root holds no Tab stop of its own: its first control takes
     // the focus.
     window.set_tab_index(TabIndex::NoKeyboardFocus);
+    // The shared part as the window's dataset, carried over the app's
+    // rebuilds by `merge_group_popup_shared`.
+    window.set_dataset(azul_core::refany::OptionRefAny::Some(shared.clone()));
+    window.set_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+        merge_group_popup_shared,
+    ));
     window.add_callback(
         EventFilter::Component(ComponentEventFilter::Dismissed),
         shared,
@@ -6189,6 +6195,25 @@ fn popup_window_of(info: &CallbackInfo, node: DomNodeId) -> Option<DomNodeId> {
         current = info.get_parent(n);
     }
     None
+}
+
+/// Reconcile: a command picked in a collapsed group's popup survives the
+/// app's rebuild between the pick and the popup's close. The popup closes
+/// itself from its own window, which wakes every window - the app's window
+/// rebuilds its DOM (a fresh popup, a fresh shared part) before it hears the
+/// `Dismissed`, and the command was left in the old shared part. The new
+/// build's shared part (the one its `Dismissed` handler holds) takes the old
+/// one's pick over.
+extern "C" fn merge_group_popup_shared(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    let pending = old_data
+        .downcast_mut::<GroupPopupShared>()
+        .and_then(|mut old| old.pending.take());
+    if let Some(mut new) = new_data.downcast_mut::<GroupPopupShared>() {
+        if new.pending.is_none() {
+            new.pending = pending;
+        }
+    }
+    new_data
 }
 
 /// A collapsed group's popup closed - a command closed it, or a press

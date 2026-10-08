@@ -743,6 +743,31 @@ fn a_command_in_the_popup_closes_it_and_runs_in_the_apps_window_once() {
 }
 
 #[test]
+fn a_command_picked_in_the_popup_survives_the_apps_rebuild_before_the_popup_closes() {
+    // The popup closes itself from its own window, and that wakes every window: the app's
+    // window rebuilds its DOM - a fresh popup, a fresh shared part - before it hears the
+    // `Dismissed`. The engine carries the old shared part over the rebuild (the window node's
+    // dataset merge), and the command with it.
+    let log = log();
+    let mut old = StyledDom::create_from_dom(narrowest(vec![show_hide(&log)]));
+    let window = nodes_with_class(&old, RIBBON_GROUP_POPUP_WINDOW_CLASS)[0];
+    let hide = popup_button(&old, window, "Hide selected items");
+    click(&old, hide).expect("the command takes the click");
+    let mut new = StyledDom::create_from_dom(narrowest(vec![show_hide(&log)]));
+    let new_window = nodes_with_class(&new, RIBBON_GROUP_POPUP_WINDOW_CLASS)[0];
+    azul_core::diff::transfer_states(
+        old.node_data.as_container_mut().internal,
+        new.node_data.as_container_mut().internal,
+        &[azul_core::diff::NodeMove {
+            old_node_id: window,
+            new_node_id: new_window,
+        }],
+    );
+    dismissed(&new, new_window).expect("the rebuilt window hears the popup close");
+    assert_eq!(heard(&log), vec!["Hide selected items"], "the command picked before the rebuild runs");
+}
+
+#[test]
 fn a_control_of_the_popup_that_is_no_command_runs_there_and_rebuilds_the_apps_window_too() {
     let log = log();
     let label = Dom::create_div()
