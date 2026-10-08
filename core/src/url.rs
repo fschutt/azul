@@ -131,7 +131,9 @@ impl Url {
     }
 
     /// Opens this URL in the system's default browser. `true` once the
-    /// opener started (`false` where the platform has none).
+    /// opener started (`false` where the platform has none). A headless or
+    /// scripted run (`AZ_BACKEND=headless`, `AZ_E2E_TEST`) starts nothing and
+    /// answers `true`.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn open(&self) -> bool {
@@ -141,7 +143,8 @@ impl Url {
     /// Opens a file in its default app, or a folder in the file manager
     /// (`open` on macOS, `xdg-open` on Linux and the BSDs, `explorer` on
     /// Windows; the path is one argument, no shell parses it). `true` once
-    /// the opener started (`false` where the platform has none).
+    /// the opener started (`false` where the platform has none). A headless
+    /// or scripted run starts nothing and answers `true`, as [`Self::open`].
     #[cfg(feature = "std")]
     #[must_use]
     pub fn open_path(path: &str) -> bool {
@@ -244,9 +247,29 @@ fn opener_command<'a>(
     }
 }
 
+/// Whether this run starts no opener: a headless one (`AZ_BACKEND=headless`)
+/// or one a test scripts (`AZ_E2E_TEST`), as `var` reads the environment.
+///
+/// There is no desktop to show a page or a file on, and a test must never
+/// pop up the browser of the machine it runs on - the keyring and the
+/// biometric prompt have headless stand-ins for the same reason.
+#[cfg(feature = "std")]
+#[must_use]
+fn opens_nothing(var: &dyn Fn(&str) -> Option<String>) -> bool {
+    var("AZ_BACKEND").is_some_and(|backend| backend == "headless")
+        || var("AZ_E2E_TEST").is_some()
+}
+
 /// Spawns [`opener_command`] for this platform; `true` once it started.
+///
+/// A headless or scripted run ([`opens_nothing`]) starts nothing and answers
+/// `true`: the test plays the browser, and the app goes on as it would for
+/// its user.
 #[cfg(feature = "std")]
 fn spawn_opener(target: &str, is_path: bool) -> bool {
+    if opens_nothing(&|name| std::env::var(name).ok()) {
+        return true;
+    }
     opener_command(target, is_path, std::env::consts::OS).is_some_and(|(program, args)| {
         std::process::Command::new(program)
             .args(args)
