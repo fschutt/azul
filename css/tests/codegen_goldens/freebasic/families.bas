@@ -197,23 +197,25 @@ Function StyleEffects() As AzCssPropertyWithConditionsVec
     Dim t2(0 To 0) As AzStyleBackgroundPosition
     Dim t3(0 To 0) As AzStyleBackgroundSize
     Dim t4(0 To 0) As AzStyleBackgroundRepeat
-    Dim t5(0 To 0) As AzStyleTransform
-    Dim t6(0 To 8) As AzCssPropertyWithConditions
+    Dim t5(0 To 0) As AzStyleBackgroundClip
+    Dim t6(0 To 0) As AzStyleTransform
+    Dim t7(0 To 8) As AzCssPropertyWithConditions
     t1(0) = AzStyleBackgroundContent_color(Type<AzColorU>(250, 250, 250, 255))
     t2(0) = Type<AzStyleBackgroundPosition>(AzBackgroundPositionHorizontal_center(), AzBackgroundPositionVertical_center())
     t3(0) = AzStyleBackgroundSize_cover()
     t4(0) = AzStyleBackgroundRepeat_NoRepeat
-    t5(0) = AzStyleTransform_rotate(Type<AzAngleValue>(AzAngleMetric_Degree, AzFloatValue_create(45.0)))
-    t6(0) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t1(0), 1)))
-    t6(1) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(@t2(0), 1)))
-    t6(2) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(@t3(0), 1)))
-    t6(3) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(@t4(0), 1)))
-    t6(4) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(AzStyleBackgroundClip_PaddingBox))
-    t6(5) = AzCssPropertyWithConditions_simple(AzCssProperty_transform(AzStyleTransformVec_copyFromPtr(@t5(0), 1)))
-    t6(6) = AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin(Type<AzStyleTransformOrigin>(AzPixelValue_percent(50.0), AzPixelValue_percent(50.0))))
-    t6(7) = AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin(Type<AzStylePerspectiveOrigin>(AzPixelValue_px(10.0), AzPixelValue_px(20.0))))
-    t6(8) = AzCssPropertyWithConditions_simple(AzCssProperty_backfaceVisibility(AzStyleBackfaceVisibility_Hidden))
-    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t6(0), 9)
+    t5(0) = AzStyleBackgroundClip_PaddingBox
+    t6(0) = AzStyleTransform_rotate(Type<AzAngleValue>(AzAngleMetric_Degree, AzFloatValue_create(45.0)))
+    t7(0) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundContent(AzStyleBackgroundContentVec_copyFromPtr(@t1(0), 1)))
+    t7(1) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr(@t2(0), 1)))
+    t7(2) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr(@t3(0), 1)))
+    t7(3) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr(@t4(0), 1)))
+    t7(4) = AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(AzStyleBackgroundClipVec_copyFromPtr(@t5(0), 1)))
+    t7(5) = AzCssPropertyWithConditions_simple(AzCssProperty_transform(AzStyleTransformVec_copyFromPtr(@t6(0), 1)))
+    t7(6) = AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin(Type<AzStyleTransformOrigin>(AzPixelValue_percent(50.0), AzPixelValue_percent(50.0))))
+    t7(7) = AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin(Type<AzStylePerspectiveOrigin>(AzPixelValue_px(10.0), AzPixelValue_px(20.0))))
+    t7(8) = AzCssPropertyWithConditions_simple(AzCssProperty_backfaceVisibility(AzStyleBackfaceVisibility_Hidden))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t7(0), 9)
 End Function
 
 ' CSS: .fragment

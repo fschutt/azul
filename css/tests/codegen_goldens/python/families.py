@@ -193,7 +193,7 @@ def style_effects():
         CssPropertyWithConditions.simple(CssProperty.background_position(StyleBackgroundPositionVec.from_item(_with(StyleBackgroundPosition.default(), horizontal=BackgroundPositionHorizontal.Center(), vertical=BackgroundPositionVertical.Center())))),
         CssPropertyWithConditions.simple(CssProperty.background_size(StyleBackgroundSizeVec.from_item(StyleBackgroundSize.Cover()))),
         CssPropertyWithConditions.simple(CssProperty.background_repeat(StyleBackgroundRepeatVec.from_item(StyleBackgroundRepeat.NoRepeat))),
-        CssPropertyWithConditions.simple(CssProperty.background_clip(StyleBackgroundClip.PaddingBox)),
+        CssPropertyWithConditions.simple(CssProperty.background_clip(StyleBackgroundClipVec.from_item(StyleBackgroundClip.PaddingBox))),
         CssPropertyWithConditions.simple(CssProperty.transform(StyleTransformVec.from_item(StyleTransform.Rotate(_with(AngleValue.default(), metric=AngleMetric.Degree, number=FloatValue.create(45.0)))))),
         CssPropertyWithConditions.simple(CssProperty.transform_origin(_with(StyleTransformOrigin.default(), x=PixelValue.percent(50.0), y=PixelValue.percent(50.0)))),
         CssPropertyWithConditions.simple(CssProperty.perspective_origin(_with(StylePerspectiveOrigin.default(), x=PixelValue.px(10.0), y=PixelValue.px(20.0)))),

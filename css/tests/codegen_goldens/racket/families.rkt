@@ -319,7 +319,7 @@
       (css-property-with-conditions-simple (css-property-background-position (css-vec style-background-position-vec-copy-from-ptr _AzStyleBackgroundPosition (list (make-AzStyleBackgroundPosition (background-position-horizontal-center) (background-position-vertical-center))))))
       (css-property-with-conditions-simple (css-property-background-size (css-vec style-background-size-vec-copy-from-ptr _AzStyleBackgroundSize (list (style-background-size-cover)))))
       (css-property-with-conditions-simple (css-property-background-repeat (css-vec style-background-repeat-vec-copy-from-ptr _AzStyleBackgroundRepeat (list AzStyleBackgroundRepeat_NoRepeat))))
-      (css-property-with-conditions-simple (css-property-background-clip AzStyleBackgroundClip_PaddingBox))
+      (css-property-with-conditions-simple (css-property-background-clip (css-vec style-background-clip-vec-copy-from-ptr _AzStyleBackgroundClip (list AzStyleBackgroundClip_PaddingBox))))
       (css-property-with-conditions-simple (css-property-transform (css-vec style-transform-vec-copy-from-ptr _AzStyleTransform (list (style-transform-rotate (make-AzAngleValue AzAngleMetric_Degree (float-value-create 45.0)))))))
       (css-property-with-conditions-simple (css-property-transform-origin (make-AzStyleTransformOrigin (pixel-value-percent 50.0) (pixel-value-percent 50.0))))
       (css-property-with-conditions-simple (css-property-perspective-origin (make-AzStylePerspectiveOrigin (pixel-value-px 10.0) (pixel-value-px 20.0))))

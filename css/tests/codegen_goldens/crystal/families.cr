@@ -233,7 +233,7 @@ module AzulStyles
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_position([Azul::StyleBackgroundPosition.__own(LibAzul::AzStyleBackgroundPosition.new(horizontal: Azul::BackgroundPositionHorizontal.center.__take, vertical: Azul::BackgroundPositionVertical.center.__take))] of Azul::StyleBackgroundPosition)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_size([Azul::StyleBackgroundSize.cover] of Azul::StyleBackgroundSize)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_repeat([Azul::StyleBackgroundRepeat::NoRepeat] of Azul::StyleBackgroundRepeat)),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_clip(Azul::StyleBackgroundClip::PaddingBox)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.background_clip([Azul::StyleBackgroundClip::PaddingBox] of Azul::StyleBackgroundClip)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.transform([Azul::StyleTransform.rotate(Azul::AngleValue.__own(LibAzul::AzAngleValue.new(metric: Azul::AngleMetric::Degree, number: Azul::FloatValue.new(45.0_f32).__take)))] of Azul::StyleTransform)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.transform_origin(Azul::StyleTransformOrigin.__own(LibAzul::AzStyleTransformOrigin.new(x: Azul::PixelValue.percent(50.0_f32).__take, y: Azul::PixelValue.percent(50.0_f32).__take)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.perspective_origin(Azul::StylePerspectiveOrigin.__own(LibAzul::AzStylePerspectiveOrigin.new(x: Azul::PixelValue.px(10.0_f32).__take, y: Azul::PixelValue.px(20.0_f32).__take)))),

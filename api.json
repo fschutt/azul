@@ -38779,7 +38779,7 @@
                                     "type": "StyleZoomValue"
                                 },
                                 "BackgroundClip": {
-                                    "type": "StyleBackgroundClipValue"
+                                    "type": "StyleBackgroundClipVecValue"
                                 },
                                 "FontVariantNumeric": {
                                     "type": "StyleFontVariantNumericValue"
@@ -59258,16 +59258,6 @@
                         ],
                         "repr": "C"
                     },
-                    "StyleBackgroundClipValue": {
-                        "external": "azul_css::props::property::StyleBackgroundClipValue",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "CssPropertyValue",
-                            "generic_args": [
-                                "StyleBackgroundClip"
-                            ]
-                        }
-                    },
                     "PdfTextAlign": {
                         "external": "azul_core::pdf_form::PdfTextAlign",
                         "derive": [
@@ -59342,6 +59332,42 @@
                                 "StyleFontVariantNumeric"
                             ]
                         }
+                    },
+                    "StyleBackgroundClipVecValue": {
+                        "external": "azul_css::props::property::StyleBackgroundClipVecValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleBackgroundClipVec"
+                            ]
+                        }
+                    },
+                    "StyleBackgroundClipVecSlice": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleBackgroundClip",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -168736,6 +168762,223 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "StyleBackgroundClipVec": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleBackgroundClip",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "StyleBackgroundClipVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `StyleBackgroundClipVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `StyleBackgroundClipVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "style_background_clip_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "style_background_clip_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "style_background_clip_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `StyleBackgroundClipVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "StyleBackgroundClip"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `StyleBackgroundClipVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const StyleBackgroundClip"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionStyleBackgroundClip"
+                                },
+                                "fn_body": "style_background_clip_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `StyleBackgroundClipVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVecSlice"
+                                },
+                                "fn_body": "style_background_clip_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVecSlice"
+                                },
+                                "fn_body": "style_background_clip_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StyleBackgroundClipVecDestructor": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "StyleBackgroundClipVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleBackgroundClipVecDestructorType": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "StyleBackgroundClipVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -179396,6 +179639,35 @@
                                 "None": {},
                                 "Some": {
                                     "type": "TabsInTitlebar"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStyleBackgroundClip": {
+                        "external": "azul_css::props::style::background::OptionStyleBackgroundClip",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "StyleBackgroundClip",
+                                    "doc": [
+                                        "Some value of type StyleBackgroundClip"
+                                    ]
                                 }
                             }
                         ],

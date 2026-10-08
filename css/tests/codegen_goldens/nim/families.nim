@@ -254,7 +254,7 @@ proc styleEffects*(): AzCssPropertyWithConditionsVec =
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(azVec(AzStyleBackgroundPositionVec_copyFromPtr, [AzStyleBackgroundPosition(horizontal: AzBackgroundPositionHorizontal_center(), vertical: AzBackgroundPositionVertical_center())]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(azVec(AzStyleBackgroundSizeVec_copyFromPtr, [AzStyleBackgroundSize_cover()]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(azVec(AzStyleBackgroundRepeatVec_copyFromPtr, [AzStyleBackgroundRepeat.NoRepeat]))),
-    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(AzStyleBackgroundClip.PaddingBox)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(azVec(AzStyleBackgroundClipVec_copyFromPtr, [AzStyleBackgroundClip.PaddingBox]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_transform(azVec(AzStyleTransformVec_copyFromPtr, [AzStyleTransform_rotate(AzAngleValue(metric: AzAngleMetric.Degree, number: AzFloatValue_create(45.0)))]))),
     AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin(AzStyleTransformOrigin(x: AzPixelValue_percent(50.0), y: AzPixelValue_percent(50.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin(AzStylePerspectiveOrigin(x: AzPixelValue_px(10.0), y: AzPixelValue_px(20.0)))),

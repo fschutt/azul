@@ -328,7 +328,7 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_background_position(AzulCodegen.vec(:az_style_background_position_vec_copy_from_ptr, N::AzStyleBackgroundPosition, AzulCodegen.struct(N::AzStyleBackgroundPosition, horizontal: N.az_background_position_horizontal_center(), vertical: N.az_background_position_vertical_center())))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_size(AzulCodegen.vec(:az_style_background_size_vec_copy_from_ptr, N::AzStyleBackgroundSize, N.az_style_background_size_cover()))),
       N.az_css_property_with_conditions_simple(N.az_css_property_background_repeat(AzulCodegen.vec(:az_style_background_repeat_vec_copy_from_ptr, nil, N::AzStyleBackgroundRepeat::NoRepeat))),
-      N.az_css_property_with_conditions_simple(N.az_css_property_background_clip(N::AzStyleBackgroundClip::PaddingBox)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_background_clip(AzulCodegen.vec(:az_style_background_clip_vec_copy_from_ptr, nil, N::AzStyleBackgroundClip::PaddingBox))),
       N.az_css_property_with_conditions_simple(N.az_css_property_transform(AzulCodegen.vec(:az_style_transform_vec_copy_from_ptr, N::AzStyleTransform, N.az_style_transform_rotate(AzulCodegen.struct(N::AzAngleValue, metric: N::AzAngleMetric::Degree, number: N.az_float_value_create(45.0)))))),
       N.az_css_property_with_conditions_simple(N.az_css_property_transform_origin(AzulCodegen.struct(N::AzStyleTransformOrigin, x: N.az_pixel_value_percent(50.0), y: N.az_pixel_value_percent(50.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_perspective_origin(AzulCodegen.struct(N::AzStylePerspectiveOrigin, x: N.az_pixel_value_px(10.0), y: N.az_pixel_value_px(20.0)))),

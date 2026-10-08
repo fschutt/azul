@@ -257,7 +257,7 @@ pub fn style_effects() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::background_position(StyleBackgroundPositionVec::from(vec![StyleBackgroundPosition { horizontal: BackgroundPositionHorizontal::Center, vertical: BackgroundPositionVertical::Center }]))),
         CssPropertyWithConditions::simple(CssProperty::background_size(StyleBackgroundSizeVec::from(vec![StyleBackgroundSize::Cover]))),
         CssPropertyWithConditions::simple(CssProperty::background_repeat(StyleBackgroundRepeatVec::from(vec![StyleBackgroundRepeat::NoRepeat]))),
-        CssPropertyWithConditions::simple(CssProperty::background_clip(StyleBackgroundClip::PaddingBox)),
+        CssPropertyWithConditions::simple(CssProperty::background_clip(StyleBackgroundClipVec::from(vec![StyleBackgroundClip::PaddingBox]))),
         CssPropertyWithConditions::simple(CssProperty::transform(StyleTransformVec::from(vec![StyleTransform::Rotate(AngleValue { metric: AngleMetric::Degree, number: FloatValue::create(45.0) })]))),
         CssPropertyWithConditions::simple(CssProperty::transform_origin(StyleTransformOrigin { x: PixelValue::percent(50.0), y: PixelValue::percent(50.0) })),
         CssPropertyWithConditions::simple(CssProperty::perspective_origin(StylePerspectiveOrigin { x: PixelValue::px(10.0), y: PixelValue::px(20.0) })),

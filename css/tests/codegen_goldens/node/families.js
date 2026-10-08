@@ -254,7 +254,7 @@ function styleEffects() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundPosition(lib.AzStyleBackgroundPositionVec_copyFromPtr([{ horizontal: lib.AzBackgroundPositionHorizontal_center(), vertical: lib.AzBackgroundPositionVertical_center() }], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundSize(lib.AzStyleBackgroundSizeVec_copyFromPtr([lib.AzStyleBackgroundSize_cover()], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundRepeat(lib.AzStyleBackgroundRepeatVec_copyFromPtr([azul.StyleBackgroundRepeat.NoRepeat], 1))),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundClip(azul.StyleBackgroundClip.PaddingBox)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_backgroundClip(lib.AzStyleBackgroundClipVec_copyFromPtr([azul.StyleBackgroundClip.PaddingBox], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_transform(lib.AzStyleTransformVec_copyFromPtr([lib.AzStyleTransform_rotate({ metric: azul.AngleMetric.Degree, number: lib.AzFloatValue_create(45.0) })], 1))),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_transformOrigin({ x: lib.AzPixelValue_percent(50.0), y: lib.AzPixelValue_percent(50.0) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_perspectiveOrigin({ x: lib.AzPixelValue_px(10.0), y: lib.AzPixelValue_px(20.0) })),

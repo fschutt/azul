@@ -253,7 +253,7 @@ pub fn styleEffects() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(&[_]C.AzStyleBackgroundPosition{ C.AzStyleBackgroundPosition{ .horizontal = C.AzBackgroundPositionHorizontal_center(), .vertical = C.AzBackgroundPositionVertical_center() } }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(&[_]C.AzStyleBackgroundSize{ C.AzStyleBackgroundSize_cover() }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(&[_]C.AzStyleBackgroundRepeat{ C.AzStyleBackgroundRepeat_NoRepeat }, 1))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClip_PaddingBox)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClipVec_copyFromPtr(&[_]C.AzStyleBackgroundClip{ C.AzStyleBackgroundClip_PaddingBox }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transform(C.AzStyleTransformVec_copyFromPtr(&[_]C.AzStyleTransform{ C.AzStyleTransform_rotate(C.AzAngleValue{ .metric = C.AzAngleMetric_Degree, .number = C.AzFloatValue_create(45.0) }) }, 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transformOrigin(C.AzStyleTransformOrigin{ .x = C.AzPixelValue_percent(50.0), .y = C.AzPixelValue_percent(50.0) })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_perspectiveOrigin(C.AzStylePerspectiveOrigin{ .x = C.AzPixelValue_px(10.0), .y = C.AzPixelValue_px(20.0) })),
