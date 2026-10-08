@@ -75,6 +75,10 @@ pub mod testing;
 #[cfg(test)]
 mod tests;
 
+/// Client-side encryption: the keys of an encrypted drive and its AZL1 objects.
+#[cfg(feature = "encryption")]
+pub mod crypto;
+
 use std::{fmt, io::Read, path::PathBuf};
 
 pub use config::SecretOptions;

@@ -21,5 +21,9 @@ mod xml;
 #[cfg(feature = "opendal")]
 mod opendal_drive;
 
+/// The keys of an encrypted drive (feature `encryption`).
+#[cfg(feature = "encryption")]
+mod crypto;
+
 /// A fresh folder under the system's temporary folder, removed when dropped.
 pub(crate) use crate::testing::TempDir;
