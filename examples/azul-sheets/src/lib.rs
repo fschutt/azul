@@ -1629,7 +1629,8 @@ fn formula_bar(s: &AppState, app: &RefAny) -> Dom {
         .with_id(ids::FORMULA_ROW)
         .with_css(
             "display: flex; flex-direction: row; align-items: center; flex-grow: 0; padding: 4px \
-             8px; border-bottom: 1px solid rgba(128, 128, 128, 0.35);",
+             8px; border-bottom: 1px solid rgba(128, 128, 128, 0.35); @theme(flora) { \
+             border-bottom: 1px solid system:separator; }",
         )
         .with_child(name_box)
         .with_child(fx)
@@ -1686,7 +1687,8 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
         .with_id(ids::SHEET_TABS)
         .with_css(
             "display: flex; flex-direction: row; align-items: stretch; flex-grow: 0; padding: 0px 8px 2px 8px; \
-             border-top: 1px solid rgba(128, 128, 128, 0.35);",
+             border-top: 1px solid rgba(128, 128, 128, 0.35); @theme(flora) { border-top: 1px solid \
+             system:separator; }",
         )
         .with_accessibility_info(AccessibilityInfo::named(AzString::from("Sheets"), AccessibilityRole::PageTabList));
     // An icon-only button, named for assistive technology ("New sheet").
@@ -1722,13 +1724,17 @@ fn sheet_tabs(s: &AppState, app: &RefAny) -> Dom {
             .and_then(|h| ColorU::parse_hex(h).into_option())
             .map(|c| format!("rgb({}, {}, {})", c.r, c.g, c.b));
         // The active tab: bold, attached to the grid (no top edge), its
-        // underline the tab colour or Excel's green; the others: flat, only
-        // their own colour under them.
+        // underline the tab colour or Excel's green (under flora the
+        // theme's stone - the app's green spin - between the separator's
+        // edges); the others: flat, only their own colour under them.
         let look = if active {
             format!(
                 "font-weight: 600; border-left: 1px solid rgba(128, 128, 128, 0.5); \
-                 border-right: 1px solid rgba(128, 128, 128, 0.5); border-bottom: 3px solid {};",
-                tab_color.as_deref().unwrap_or("#217346")
+                 border-right: 1px solid rgba(128, 128, 128, 0.5); border-bottom: 3px solid {}; \
+                 @theme(flora) {{ border-left: 1px solid system:separator; border-right: 1px solid \
+                 system:separator; border-bottom: 3px solid {}; }}",
+                tab_color.as_deref().unwrap_or("#217346"),
+                tab_color.as_deref().unwrap_or("system:accent")
             )
         } else {
             format!(
@@ -1839,9 +1845,15 @@ fn panel(s: &AppState, app: &RefAny) -> Option<Dom> {
             .with_id(ids::SIDE_PANEL)
             .with_css(
                 "display: flex; flex-direction: column; flex-grow: 0; width: 280px; padding: 8px; \
-                 border-left: 1px solid rgba(128, 128, 128, 0.35); overflow-y: auto;",
+                 border-left: 1px solid rgba(128, 128, 128, 0.35); overflow-y: auto; \
+                 @theme(flora) { border-left: 1px solid system:separator; }",
             )
-            .with_child(Dom::create_p_with_text(AzString::from(title)).with_css("font-weight: 600; margin: 4px 0px 8px 0px;"))
+            // The panel's title: flora's label under flora (capitals in the label ink).
+            .with_child(Dom::create_p_with_text(AzString::from(title)).with_css(
+                "font-weight: 600; margin: 4px 0px 8px 0px; @theme(flora) { font-size: 11px; \
+                 font-weight: bold; text-transform: uppercase; letter-spacing: 0.12em; color: \
+                 system:secondary-text; }",
+            ))
     };
     let close = || {
         Button::create(AzString::from("Close"))

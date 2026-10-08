@@ -9,7 +9,9 @@
 //! (`on_pick`), a new or checked task (`on_task`) and an appointment click
 //! (`on_appointment`), and rebuilds. The parts are the toolkit's own
 //! widgets: the [`DatePicker`] inline for the calendar, a [`TextInput`] for
-//! the new task, a [`CheckBox`] per task, link [`Button`]s for what opens.
+//! the new task, a [`CheckBox`] per task, link
+//! [`Button`](crate::widgets::button::Button)s for what opens (flora's
+//! text links under flora).
 //! For assistive technology the bar is a group named by its accessibility
 //! name ("To-Do bar").
 //!
@@ -41,7 +43,7 @@ use azul_css::{
 use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::{
-        button::{Button, ButtonOnClickCallbackType, ButtonType},
+        button::ButtonOnClickCallbackType,
         check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
         date_picker::{
             DatePicker, DatePickerOnChangeCallbackType, DatePickerState, DatePickerWeekStart,
@@ -673,12 +675,17 @@ pub(crate) fn build(bar: ToDoBar, look: &ToDoBarLook) -> Dom {
         on_appointment,
         calendar,
     });
+    // An appointment and a task's title are data a user opens: a link, in
+    // flora flora's text link rather than its quiet command.
     let link = |label: AzString, data: RefAny, cb: ButtonOnClickCallbackType| {
-        let mut b = Button::with_type(label, ButtonType::Link).with_on_click(data, cb);
-        if let Some(theme) = theme {
-            b = b.with_theme(theme);
-        }
-        b.dom()
+        crate::widgets::button::data_link(
+            crate::widgets::button::DataLink {
+                label,
+                data,
+                on_click: cb,
+            },
+            theme,
+        )
     };
 
     // The calendar: the date picker, inline, today ringed.
@@ -1069,6 +1076,61 @@ mod todo_bar_tests {
                 (ToDoBarEventKind::TaskToggled, 1, 2),
                 (ToDoBarEventKind::TaskOpened, 1, 2)
             ]
+        );
+    }
+
+    /// The node whose direct text child reads `text`, and its parent: a
+    /// button's label and the button.
+    fn label_and_button<'a>(dom: &'a Dom, text: &str) -> Option<(&'a Dom, &'a Dom)> {
+        for child in dom.children.as_ref() {
+            let holds = child.children.as_ref().iter().any(|t| {
+                matches!(t.root.get_node_type(), NodeType::Text(s) if s.as_ref().as_str() == text)
+            });
+            if holds {
+                return Some((child, dom));
+            }
+            if let Some(found) = label_and_button(child, text) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Under flora a task's title is DATA, set as flora's text link
+    /// (flora.css `a`: brass ink, underlined, in the running hand) - not as
+    /// its quiet command (`.btn-quiet`: a boxed note in capitals), which
+    /// turned "Reply to Alice" into "REPLY TO ALICE" (AzMail's and
+    /// AzCalendar's To-Do bars).
+    #[test]
+    fn under_flora_a_task_title_is_a_text_link_not_a_command() {
+        use azul_css::props::{
+            property::{CssProperty, CssPropertyType},
+            style::text::StyleTextTransform,
+        };
+
+        use crate::widgets::themes::flora;
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = bar(&log).with_theme(UiTheme::Flora).dom();
+        let (label, button) = label_and_button(&dom, "Reply to Alice").expect("the task's title");
+        let transform = theme_checks::resolve(label, CssPropertyType::TextTransform, false, None);
+        assert!(
+            !matches!(
+                &transform,
+                Some(CssProperty::TextTransform(v))
+                    if v.get_property() == Some(&StyleTextTransform::Uppercase)
+            ),
+            "a title keeps its case: {transform:?}"
+        );
+        assert_eq!(theme_checks::text_color(label, false), Some(flora::LIGHT_QT), "brass ink");
+        assert_eq!(theme_checks::text_color(label, true), Some(flora::DARK_QT));
+        let width = theme_checks::resolve(button, CssPropertyType::BorderTopWidth, false, None);
+        assert!(
+            !matches!(
+                &width,
+                Some(CssProperty::BorderTopWidth(w))
+                    if w.get_property().is_some_and(|w| w.inner.number.get() > 0.0)
+            ),
+            "no box around a link: {width:?}"
         );
     }
 

@@ -378,7 +378,8 @@ const NOTICE: &str = "flex-grow: 1; min-width: 0px; padding-right: 8px; font-siz
 /// A tile's box: the video (or the initials) fills it, the name label sits on it.
 const TILE: &str = "position: relative; display: flex; flex-direction: column; align-items: \
                     center; justify-content: center; width: 100%; border-radius: 8px; overflow: \
-                    hidden; background: #1e1f24; color: #e8e8ee;";
+                    hidden; background: #1e1f24; color: #e8e8ee; @theme(flora) { border-radius: \
+                    5px; }";
 /// A gallery or filmstrip tile (and the waiting room's preview) is 16:9 at its cell's width.
 const TILE_IN_ROW: &str = "aspect-ratio: 16 / 9;";
 /// The stage's tile takes the stage's room.
@@ -392,7 +393,8 @@ const MIRRORED: &str = "transform: scaleX(-1);";
 /// The name label on a tile.
 const TILE_LABEL: &str = "position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; \
                           border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #ffffff; \
-                          font-size: 12px; white-space: nowrap;";
+                          font-size: 12px; white-space: nowrap; @theme(flora) { border-radius: \
+                          3px; }";
 /// A side-panel column that scrolls.
 const PANEL_SCROLL: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: \
                             0px; overflow-y: auto; padding: 8px;";
@@ -982,7 +984,8 @@ const ROOM_BODY: &str = "display: flex; flex-direction: row; flex-wrap: wrap; al
 /// The room view's chat column.
 const ROOM_CHAT: &str = "display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; \
                          flex-basis: 420px; min-width: 280px; height: 480px; margin: 0px 12px \
-                         16px 0px; border-radius: 8px; background: system:control-background;";
+                         16px 0px; border-radius: 8px; background: system:control-background; \
+                         @theme(flora) { border-radius: 5px; }";
 
 /// The room view: a room outside a call - its chat; beside it the room's title, times and link,
 /// this device's safety code, the members with theirs ("Mark verified"), the devices asking to
@@ -1365,7 +1368,11 @@ fn lobby(view: &CallView, data: &RefAny, actions: &Actions) -> Dom {
                 if lobby.server_ok {
                     "font-size: 12px; color: system:secondary-text; margin: -8px 0px 12px 0px;"
                 } else {
-                    "font-size: 12px; color: system:accent; margin: -8px 0px 12px 0px;"
+                    // A server that does not answer: flat's accent; flora's clay stone
+                    // (its colour for a problem, by day and by night).
+                    "font-size: 12px; color: system:accent; margin: -8px 0px 12px 0px; \
+                     @theme(flora) { color: #7E4A42; @media (prefers-color-scheme: dark) { \
+                     color: #B3837A; } }"
                 },
             ));
         if !lobby.identity_ready {

@@ -221,7 +221,7 @@ fn spread(
     for i in 0..geometry.per_view {
         let page = st.page + i;
         if page < pages.page_count() {
-            let column = paginate::column_dom(xml, &st.settings, geometry.text_width)
+            let column = paginate::column_dom(xml, &st.settings, geometry.text_width, st.flora)
                 .with_class(ids::COLUMN_CLASS);
             row.add_child(page_frame(column, pages.span(page), geometry, colors, i));
         } else {
@@ -235,7 +235,7 @@ fn spread(
 #[must_use]
 pub fn pages(app: &RefAny, st: &AppState) -> Dom {
     let geometry = st.geometry();
-    let colors = st.settings.paper.colors(st.dark);
+    let colors = st.settings.paper.colors(st.dark, st.flora);
     let mut area = Dom::create_div()
         .with_id(ids::READING_AREA)
         .with_marker(OptionString::Some(st.area_marker.clone()))

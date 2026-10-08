@@ -2119,4 +2119,47 @@ mod summary_list_tests {
             "a list without marks has none"
         );
     }
+
+    /// Flora's chosen message rests on flora's selection - the stone's soft
+    /// wash by day, its deep tone at night - so it reads as chosen against
+    /// the leaf the list lies on. It rested on the trough (`--fl-track`):
+    /// 1.1:1 against the leaf by day and darker than it at night, no
+    /// selection to see at all (AzMail, AzNotes).
+    #[test]
+    fn a_flora_selected_row_rests_on_floras_selection() {
+        use crate::widgets::themes::flora as f;
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = list(&log).with_theme(UiTheme::Flora).dom();
+        let selected = theme_checks::find(&dom, "__azul-native-summary-list-row-selected")
+            .expect("the selected row");
+        for (dark, want) in [(false, f::LIGHT_SOFT), (true, f::DARK_DEEP)] {
+            let fill = theme_checks::background(selected, dark)
+                .and_then(|p| theme_checks::bg_color(&p));
+            assert_eq!(fill, Some(want), "the selected row's fill (dark {dark})");
+        }
+    }
+
+    /// A flora group header ("Today", "Yesterday") is flora's label
+    /// (`.fl-label`): Garamond capitals, bold, tracked out, in the label ink.
+    #[test]
+    fn a_flora_group_header_is_floras_label_in_capitals() {
+        use azul_css::props::{property::CssPropertyType, style::text::StyleTextTransform};
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let dom = list(&log).with_theme(UiTheme::Flora).dom();
+        let group =
+            theme_checks::find(&dom, "__azul-native-summary-list-group").expect("a group header");
+        let transform = theme_checks::resolve(group, CssPropertyType::TextTransform, false, None);
+        assert!(
+            matches!(
+                &transform,
+                Some(CssProperty::TextTransform(v))
+                    if v.get_property() == Some(&StyleTextTransform::Uppercase)
+            ),
+            "the header is set in capitals: {transform:?}"
+        );
+        assert_eq!(
+            theme_checks::text_color(group, false),
+            Some(crate::widgets::themes::flora::LIGHT_SOFT1)
+        );
+    }
 }

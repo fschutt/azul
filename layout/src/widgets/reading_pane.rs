@@ -11,7 +11,8 @@
 //! line (`on_link`), the notice's action (`on_load_images`) and an
 //! attachment (`on_attachment`). The parts are the toolkit's own widgets:
 //! [`InfoBar`] for the notice, [`Chip`] for an attachment, [`Avatar`] for a
-//! person, a link [`Button`] for the sender and the people line. For
+//! person, a link [`Button`](crate::widgets::button::Button) for the sender
+//! and the people line (flora's text link under flora). For
 //! assistive technology the pane is a document named by its subject.
 //!
 //! Key types: [`ReadingPane`], [`ReadingPaneEvent`], [`ReadingPaneEventKind`].
@@ -43,7 +44,7 @@ use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::{
         avatar::{Avatar, AvatarSize},
-        button::{Button, ButtonOnClick, ButtonOnClickCallback, ButtonOnClickCallbackType, ButtonType},
+        button::{ButtonOnClick, ButtonOnClickCallback, ButtonOnClickCallbackType},
         chip::{Chip, ChipOnClickCallbackType, ChipState},
         details_pane::{PANE_KEY_BASE, PANE_ROW_BASE, PANE_VALUE_BASE},
         info_bar::{InfoBar, OptionInfoBar},
@@ -624,12 +625,17 @@ pub(crate) fn build(pane: ReadingPane, look: &ReadingPaneLook) -> Dom {
         sender: sender.clone(),
         people_line: people_line.clone(),
     });
+    // The sender and the people line are data a user opens: a link, in
+    // flora flora's text link rather than its quiet command.
     let link = |label: AzString, cb: ButtonOnClickCallbackType| {
-        let mut b = Button::with_type(label, ButtonType::Link).with_on_click(shared.clone(), cb);
-        if let Some(theme) = theme {
-            b = b.with_theme(theme);
-        }
-        b.dom()
+        crate::widgets::button::data_link(
+            crate::widgets::button::DataLink {
+                label,
+                data: shared.clone(),
+                on_click: cb,
+            },
+            theme,
+        )
     };
 
     // The header: the subject over the sender line.

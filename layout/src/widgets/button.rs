@@ -792,6 +792,54 @@ impl Button {
     }
 }
 
+/// A piece of DATA a user can open - a task's title, an appointment, a
+/// message's sender - drawn as a link button: flat's link button, and in
+/// flora flora.css's text link (`a`: brass ink, underlined, in the running
+/// hand) rather than flora's quiet COMMAND (`.btn-quiet`), whose box and
+/// capitals belong to commands ([`crate::widgets::themes::flora::as_text_link`]).
+#[derive(Clone)]
+pub(crate) struct DataLink {
+    /// What the link reads.
+    pub label: AzString,
+    /// What its click hands `on_click`.
+    pub data: RefAny,
+    /// Called on a click.
+    pub on_click: ButtonOnClickCallbackType,
+}
+
+impl DataLink {
+    /// The link button, pinned to `theme`.
+    fn button(self, theme: crate::widgets::themes::UiTheme) -> Button {
+        Button::with_type(self.label, ButtonType::Link)
+            .with_on_click(self.data, self.on_click)
+            .with_theme(theme)
+    }
+}
+
+fn flat_data_link(link: DataLink) -> Dom {
+    link.button(crate::widgets::themes::UiTheme::Flat).dom()
+}
+
+fn flora_data_link(link: DataLink) -> Dom {
+    crate::widgets::themes::flora::as_text_link(link.button(crate::widgets::themes::UiTheme::Flora))
+        .dom()
+}
+
+/// `link` in the widget theme `theme` (`None`: following the app theme,
+/// both looks in one DOM, as an unpinned [`Button`] would).
+pub(crate) fn data_link(link: DataLink, theme: Option<crate::widgets::themes::UiTheme>) -> Dom {
+    use crate::widgets::themes::UiTheme;
+    match theme {
+        Some(UiTheme::Flat) => flat_data_link(link),
+        Some(UiTheme::Flora) => flora_data_link(link),
+        None => crate::widgets::themes::theme_blocks::follow_app_theme(
+            link,
+            flat_data_link,
+            flora_data_link,
+        ),
+    }
+}
+
 /// Added to a disabled button ([`Button::disabled_reason`]).
 pub const BUTTON_DISABLED_CLASS: &str = "__azul-native-button-disabled";
 

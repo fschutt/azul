@@ -20,7 +20,8 @@ interpreted ERP views.
     7. RESTART + IMPORT: AzERP again on the same folder with a CSV file argument - the 12
        sample assets read back (the new one was deleted), the import preview names 1 new
        asset, Import writes it;
-    8. screenshots after each step, flat light; dark at the end.
+    8. screenshots after each step, flat light; dark at the end, then flora by night and by day
+       (9-flora-dark.png, 10-flora-light.png).
 
 Usage (after building libazul with the debug server and AzERP; ONE app at a time, through
 scripts/waves/tools/run_capped.sh on the 8 GB Mac):
@@ -224,6 +225,15 @@ def body(args, logs, out):
         app.must("set_mode", mode="dark")
         app.must("wait_settled")
         app.screenshot(os.path.join(out, "8-dark.png"))
+        # Flora by night and by day (after the theme's fades).
+        app.must("set_theme", theme="flora")
+        app.frame(2)
+        app.settle()
+        app.screenshot(os.path.join(out, "9-flora-dark.png"))
+        app.must("set_mode", mode="light")
+        app.frame(2)
+        app.settle()
+        app.screenshot(os.path.join(out, "10-flora-light.png"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise

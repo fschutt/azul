@@ -151,40 +151,62 @@ pub(crate) const UNTITLED: &str = "(No title)";
 // paints the theme's own ground around them); the few colours of the app's own (the calendars'
 // tints in `calendars.rs`, today, the draft, the notice, the error red) carry a dark twin under
 // `@media (prefers-color-scheme: dark)`.
+//
+// Under flora (`@theme(flora)`, after the flat values it outranks) the app's own colours are
+// flora's: `system:` keywords where flora names a role (the engine resolves them to flora's
+// tokens - the selection's soft wash and deep ink, the desk, the accent), the accent ramp
+// (#2F4A85 / #1E3260 / #E0E4EE / #7A93C6: a spin recuts them) and the clay stone for danger;
+// the hand is flora's Garamond (the `system:ui` role under flora).
 pub(crate) const BODY: &str = "display: flex; flex-direction: column; height: 100%; margin: 0; \
                                font-family: sans-serif; font-size: 14px; color: system:text; \
-                               background: system:window-background;";
+                               background: system:window-background; \
+                               @theme(flora) { font-family: system:ui; }";
 pub(crate) const NOTICE: &str = "padding: 6px 16px; font-size: 13px; color: #2c4a7a; background: \
                                  #e6eefc; @media (prefers-color-scheme: dark) { color: #c4d7ff; \
-                                 background: #1f2d45; }";
+                                 background: #1f2d45; } @theme(flora) { color: \
+                                 system:selection-text; background: system:selection-background; }";
 pub(crate) const LINE: &str = "system:separator";
 pub(crate) const LABEL: &str = "font-size: 12px; color: system:secondary-text; margin-top: 12px; \
-                                margin-bottom: 4px;";
+                                margin-bottom: 4px; @theme(flora) { font-size: 11px; font-weight: \
+                                bold; text-transform: uppercase; letter-spacing: 0.1em; }";
 /// A day's surface; today's is tinted with the accent.
 pub(crate) const DAY_PAINT: &str = "background: system:control-background;";
 pub(crate) const TODAY_PAINT: &str =
-    "background: #f7faff; @media (prefers-color-scheme: dark) { background: #1b2433; }";
-/// A day of another month in the month grid: dimmer than the month's own.
+    "background: #f7faff; @media (prefers-color-scheme: dark) { background: #1b2433; } \
+     @theme(flora) { background: #E0E4EE; @media (prefers-color-scheme: dark) { background: \
+     #1E3260; } }";
+/// A day of another month in the month grid: dimmer than the month's own (under flora the
+/// desk, the recessed band behind the leaves).
 pub(crate) const OTHER_MONTH_PAINT: &str =
-    "background: #f3f4f6; @media (prefers-color-scheme: dark) { background: #262626; }";
+    "background: #f3f4f6; @media (prefers-color-scheme: dark) { background: #262626; } \
+     @theme(flora) { background: system:under-page-background; }";
 /// The draft's box: pale, with a dashed accent edge.
 pub(crate) const DRAFT_PAINT: &str = "background: #eef4ff; border: 2px dashed #2f6db0; @media \
                                       (prefers-color-scheme: dark) { background: #1a2c4d; \
-                                      border: 2px dashed #6ea8ff; }";
+                                      border: 2px dashed #6ea8ff; } @theme(flora) { background: \
+                                      #E0E4EE; border: 2px dashed #2F4A85; @media \
+                                      (prefers-color-scheme: dark) { background: #1E3260; \
+                                      border: 2px dashed #7A93C6; } }";
 /// The draft's title, in the accent.
 pub(crate) const DRAFT_TITLE: &str =
-    "font-weight: bold; color: #2f6db0; @media (prefers-color-scheme: dark) { color: #8dbbff; }";
+    "font-weight: bold; color: #2f6db0; @media (prefers-color-scheme: dark) { color: #8dbbff; } \
+     @theme(flora) { color: system:accent; }";
 /// The selected event's ring.
 pub(crate) const SELECTED_RING: &str = "box-shadow: 0px 0px 0px 2px #2f6db0; @media \
                                         (prefers-color-scheme: dark) { box-shadow: 0px 0px 0px \
-                                        2px #8dbbff; }";
-/// The "now" line in today's column.
-pub(crate) const NOW_LINE: &str = "background: #d93025;";
+                                        2px #8dbbff; } @theme(flora) { box-shadow: 0px 0px 0px \
+                                        2px #2F4A85; @media (prefers-color-scheme: dark) { \
+                                        box-shadow: 0px 0px 0px 2px #7A93C6; } }";
+/// The "now" line in today's column (under flora the clay stone, its glow at night).
+pub(crate) const NOW_LINE: &str = "background: #d93025; @theme(flora) { background: #7E4A42; \
+                                   @media (prefers-color-scheme: dark) { background: #B3837A; } }";
 /// Secondary lines: an event's time, what a form line means.
 pub(crate) const SECONDARY: &str = "color: system:secondary-text;";
 /// A form's error line.
 pub(crate) const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12px; @media \
-                                (prefers-color-scheme: dark) { color: #f2b8b5; }";
+                                (prefers-color-scheme: dark) { color: #f2b8b5; } @theme(flora) { \
+                                color: #7E4A42; @media (prefers-color-scheme: dark) { color: \
+                                #B3837A; } }";
 /// A block's title: one line, cut with an ellipsis at the block's edge.
 pub(crate) const CLIPPED_TITLE: &str = "font-weight: bold; white-space: nowrap; overflow: \
                                         hidden; text-overflow: ellipsis; flex-shrink: 0;";
@@ -196,7 +218,8 @@ pub(crate) const POPOVER: &str = "display: flex; flex-direction: column; width: 
                                   16px; box-sizing: border-box; background: \
                                   system:window-background; border: 1px solid system:separator; \
                                   border-radius: 8px; font-family: sans-serif; font-size: 14px; \
-                                  color: system:text;";
+                                  color: system:text; @theme(flora) { border-radius: 5px; \
+                                  font-family: system:ui; }";
 /// A page of the backstage, and the editor window's body: padded, scrolling.
 pub(crate) const PAGE: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: \
                                0; overflow-y: auto; padding: 20px 28px; color: system:text;";

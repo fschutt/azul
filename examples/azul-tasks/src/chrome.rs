@@ -25,6 +25,7 @@ use azul::{
         ToDoTask,
     },
 };
+use azul_appkit::args::Theme;
 use azul_appkit::ribbon::{self as ribbon_kit, column, RibbonCommand};
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
@@ -343,6 +344,7 @@ pub fn ribbon(s: &Tasks, app: &RefAny, theme: &str, dark: bool) -> Dom {
         ])))
         .with_group(RibbonGroup::create("Move").with_item(RibbonItem::Drop(move_to)));
     let sort = s.settings.sort;
+    let flora = Theme::parse(theme).is_some_and(Theme::is_flora);
     let view = RibbonTab::create("VIEW")
         .with_group(RibbonGroup::create("Sort by").with_item(column(vec![
             labelled(app, Command::Sort(SortMode::Manual), "Manual", sort == SortMode::Manual),
@@ -360,8 +362,9 @@ pub fn ribbon(s: &Tasks, app: &RefAny, theme: &str, dark: bool) -> Dom {
         .with_group(
             RibbonGroup::create("Appearance")
                 .with_item(column(vec![
-                    labelled(app, Command::ThemeFlat, "Flat", theme != "flora"),
-                    labelled(app, Command::ThemeFlora, "Flora", theme == "flora"),
+                    // Flora or a spin of it ("flora:green") checks Flora.
+                    labelled(app, Command::ThemeFlat, "Flat", !flora),
+                    labelled(app, Command::ThemeFlora, "Flora", flora),
                 ]))
                 .with_item(column(vec![
                     labelled(app, Command::ModeLight, "Light", !dark),

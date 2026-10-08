@@ -2471,6 +2471,31 @@ mod groups_tests {
             .collect()
     }
 
+    /// A flora group title ("Library (1)", "Notebooks") is flora's label
+    /// (`.fl-label`): Garamond capitals, bold, tracked out, in the label ink.
+    #[test]
+    fn a_flora_group_title_is_floras_label_in_capitals() {
+        use azul_css::props::{
+            property::{CssProperty, CssPropertyType},
+            style::text::StyleTextTransform,
+        };
+
+        use crate::widgets::themes::{flora, theme_checks};
+        let dom = groups().with_theme(UiTheme::Flora).dom();
+        let title = theme_checks::find(&dom, "__azul-native-accordion-title").expect("a title");
+        let transform = theme_checks::resolve(title, CssPropertyType::TextTransform, false, None);
+        assert!(
+            matches!(
+                &transform,
+                Some(CssProperty::TextTransform(v))
+                    if v.get_property() == Some(&StyleTextTransform::Uppercase)
+            ),
+            "the title is set in capitals: {transform:?}"
+        );
+        assert_eq!(theme_checks::text_color(title, false), Some(flora::LIGHT_SOFT1));
+        assert_eq!(theme_checks::text_color(title, true), Some(flora::DARK_SOFT1));
+    }
+
     #[test]
     fn a_section_count_follows_its_title_in_brackets() {
         for theme in checks::BOTH {

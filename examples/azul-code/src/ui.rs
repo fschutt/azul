@@ -238,8 +238,11 @@ fn activity_item(
     active: bool,
     callback: CallbackType,
 ) -> Dom {
+    // Under flora the marker is the theme's stone (its glow at night, where the scope's
+    // `--az-accent` fill is too dark to see on the bar).
     let look = if active {
-        "border-left: 2px solid var(--az-accent, #0078D4);"
+        "border-left: 2px solid var(--az-accent, #0078D4); @theme(flora) { border-left: 2px \
+         solid system:accent; }"
     } else {
         "border-left: 2px solid transparent; opacity: 0.55; :hover { opacity: 1; }"
     };
@@ -304,7 +307,9 @@ pub fn recent_row(app: &RefAny, id: AzString, index: usize, folder: &str) -> Dom
     .with_child(Dom::create_icon("folder").with_css("font-size: 16px; padding-right: 6px; opacity: 0.8;"))
     .with_child(label(
         &name,
-        "font-size: 13px; color: var(--az-accent, #3794FF); padding-right: 8px; flex-shrink: 0;",
+        // Under flora a recent folder's name is a link in flora's brass.
+        "font-size: 13px; color: var(--az-accent, #3794FF); padding-right: 8px; flex-shrink: 0; \
+         @theme(flora) { color: system:link; }",
     ))
     .with_child(label(
         &parent,
@@ -364,7 +369,10 @@ fn tab_strip(app: &RefAny, st: &AppState) -> Dom {
 /// button (the dot of unsaved changes in its place).
 fn tab(app: &RefAny, index: usize, doc: &Doc, active: bool) -> Dom {
     let face = if active {
-        "border-top: 1px solid var(--az-accent, #0078D4); border-bottom: 1px solid transparent;".to_string()
+        // Under flora the active tab's rule is the stone (its glow at night).
+        "border-top: 1px solid var(--az-accent, #0078D4); border-bottom: 1px solid transparent; \
+         @theme(flora) { border-top: 1px solid system:accent; }"
+            .to_string()
     } else {
         format!("background: {RECESSED}; border-top: 1px solid transparent; border-bottom: 1px solid {RULE};")
     };
@@ -534,8 +542,10 @@ fn link(
 ) -> Dom {
     let mut row = clickable(
         id,
+        // Under flora a link is flora's brass.
         "display: flex; flex-direction: row; align-items: center; padding: 4px 0px; cursor: pointer; \
-         color: var(--az-accent, #3794FF); :hover { opacity: 0.8; }",
+         color: var(--az-accent, #3794FF); :hover { opacity: 0.8; } @theme(flora) { color: \
+         system:link; }",
         title,
         app.clone(),
         callback,

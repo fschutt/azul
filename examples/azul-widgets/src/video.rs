@@ -48,7 +48,7 @@ const BBB_PATH: &str = "/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2
 /// The video's frame: the widget fills it, the overlay lies on top of it.
 const STAGE_CSS: &str =
     "position: relative; width: 480px; height: 270px; border-radius: 8px; overflow: hidden; \
-     background-color: system:control-background;";
+     background-color: system:control-background; @theme(flora) { border-radius: 5px; }";
 /// The overlay over the whole video is a button: a click anywhere on the
 /// video plays or pauses it, and so do Space and Enter once it has focus.
 const OVERLAY_CSS: &str =
@@ -63,7 +63,8 @@ const BADGE_ICON_CSS: &str = "font-size: 44px; color: system:accent-text;";
 /// A note over the video: loading, or why it cannot play.
 const NOTE_CSS: &str =
     "display: flex; flex-direction: column; align-items: center; max-width: 400px; padding: \
-     12px 16px; border-radius: 8px; background-color: system:window-background;";
+     12px 16px; border-radius: 8px; background-color: system:window-background; \
+     @theme(flora) { border-radius: 5px; }";
 const NOTE_TITLE_CSS: &str =
     "font-size: 14px; font-weight: bold; color: system:text; margin-bottom: 4px;";
 const NOTE_DETAIL_CSS: &str =

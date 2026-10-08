@@ -1517,6 +1517,13 @@ fn preview_in_dark_mode(
     context.system_colors = callback_info
         .get_system_style()
         .colors_for_theme(DarkLightMode::Dark);
+    // A flora window's night is flora's (`LayoutWindow::dynamic_selector_context`).
+    #[cfg(feature = "widgets")]
+    if let Some(palette) =
+        crate::widgets::themes::flora_palette::for_chain(context.theme_chain.as_slice(), true)
+    {
+        context.system_colors = palette;
+    }
     let background = SystemColorRef::Background.resolve_for_theme(&context.system_colors, true);
     styled.set_dynamic_selector_context(context);
     background

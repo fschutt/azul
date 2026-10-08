@@ -65,8 +65,12 @@ fn text_line(text: &str, css: &str) -> Dom {
 
 /// The window's layout.
 pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
-    // Reading the mode makes a light / dark switch rebuild the window.
-    let look = look::of(matches!(info.get_mode(), DarkLightMode::Dark));
+    // Reading the mode makes a light / dark switch rebuild the window (a
+    // theme switch always does).
+    let look = look::of(
+        look::is_flora(info.get_theme().as_str()),
+        matches!(info.get_mode(), DarkLightMode::Dark),
+    );
     let app = data.clone();
     let Some(guard) = data.downcast_ref::<AppState>() else {
         return Dom::create_body();
@@ -90,8 +94,10 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;")
         .with_child(title_row(look))
         .with_child(area);
+    // No font here: the theme scope sets the hand every text inherits (the
+    // system's UI font under flat, flora's Garamond under flora).
     Dom::create_body()
-        .with_css("display: flex; flex-direction: column; height: 100%; margin: 0px; font-family: sans-serif;")
+        .with_css("display: flex; flex-direction: column; height: 100%; margin: 0px;")
         .with_child(
             ShellThemeScope::create(column)
                 .with_accent(ShellThemeAccent::Leaf)
@@ -120,8 +126,12 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 /// The window's title row, drawn by azul (macOS draws only the traffic
-/// lights): the chrome's colour, no line of its own.
+/// lights): the chrome's colour, no line of its own. Under flora the
+/// Titlebar's own flora look (the window chrome band, Garamond).
 fn title_row(look: &Look) -> Dom {
+    if look.flora {
+        return Titlebar::create("AzNotes").without_border_bottom().dom();
+    }
     let (r, g, b) = look.chrome_rgb;
     let mut bar = Titlebar::create("AzNotes")
         .with_background(ColorU::rgb(r, g, b))
@@ -1047,7 +1057,7 @@ fn reading_pane(s: &AppState, app: &RefAny, look: &Look) -> Dom {
         Dom::create_div()
             .with_id(ids::NOTE_SCROLL)
             .with_css("display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; padding: 8px 32px 0px 32px;")
-            .with_child(editor::editor_dom(s, app, note)),
+            .with_child(editor::editor_dom(s, app, note, look.flora)),
     );
     pane
 }
@@ -1210,6 +1220,9 @@ extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// The open note as a PDF (A4 at 96 dpi), through azul's paged pipeline;
 /// the state is let go before the render.
 fn export_pdf(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    // The paper is white in every theme (a print); the hand is the theme's:
+    // flora's Garamond in flora's ink, flat's sans.
+    let flora = look::is_flora(info.get_theme().as_str());
     let (name, dom) = {
         let Some(mut guard) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -1219,12 +1232,20 @@ fn export_pdf(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         let Some(note) = s.open_note() else {
             return Update::DoNothing;
         };
+        let ink = if flora { "#262521" } else { look::LIGHT.text };
         let page = Dom::create_body()
             .with_css(format!(
-                "margin: 0px; padding: 72px; background: white; color: {}; font-family: sans-serif;",
-                look::LIGHT.text
+                "margin: 0px; padding: 72px; background: white; color: {ink}; font-family: {};",
+                look::paper_font(flora)
             ))
-            .with_child(editor::print_dom(s, note, &note.doc, note.display_title(), 15.0));
+            .with_child(editor::print_dom(
+                s,
+                note,
+                &note.doc,
+                note.display_title(),
+                look::TextSize::Medium.px_for(flora) - 1.0,
+                flora,
+            ));
         (export_name(note.display_title(), "pdf"), page)
     };
     let bytes = azul::pdf::Pdf::create()
@@ -1278,9 +1299,9 @@ fn sheet(look: &Look, id: AzString, title: &str, body: Dom, buttons: Dom) -> Dom
                 .with_id(id)
                 .with_accessibility_name(title)
                 .with_css(format!(
-                    "width: 440px; padding: 18px 20px; background: {}; color: {}; border-radius: 8px; \
+                    "width: 440px; padding: 18px 20px; background: {}; color: {}; border-radius: {}; \
                      border: 1px solid {}; display: flex; flex-direction: column;",
-                    look.sheet, look.text, look.line
+                    look.sheet, look.text, look.sheet_radius, look.line
                 ))
                 .with_child(text_line(title, "font-size: 16px; font-weight: bold; margin-bottom: 12px;"))
                 .with_child(body)
@@ -2084,7 +2105,8 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                 meta.title.as_str()
             };
             detail.add_child(
-                editor::print_dom(s, note, &doc, title, s.settings.text_size.px()).with_id(ids::HISTORY_VERSION),
+                editor::print_dom(s, note, &doc, title, s.settings.text_size.px_for(look.flora), look.flora)
+                    .with_id(ids::HISTORY_VERSION),
             );
             let then = doc.to_markdown();
             let now = note.doc.to_markdown();
@@ -2094,9 +2116,13 @@ fn history_screen(s: &AppState, app: &RefAny, look: &Look) -> Dom {
                      border-top: 1px solid {}; font-family: monospace; font-size: 12px;",
                     look.line
                 ));
+                // The heading over the (monospace) diff, in the theme's hand.
                 changes.add_child(text_line(
                     "Changes from this version to now",
-                    "font-family: sans-serif; font-weight: bold; margin-bottom: 6px;",
+                    &format!(
+                        "font-family: {}; font-weight: bold; margin-bottom: 6px;",
+                        look::paper_font(look.flora)
+                    ),
                 ));
                 let changed = diff.iter().filter(|(c, _)| *c != model::Change::Kept).count();
                 if changed == 0 {

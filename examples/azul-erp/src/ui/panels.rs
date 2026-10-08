@@ -45,14 +45,20 @@ fn fact(label: &str, value: &str) -> Dom {
         .with_child(
             text(label)
                 .with_class(ids::FIELD_LABEL)
-                .with_css("width: 200px; flex-shrink: 0; font-size: 13px; opacity: 0.75;"),
+                .with_css(format!(
+                    "width: 200px; flex-shrink: 0; font-size: 13px; opacity: 0.75; {}",
+                    super::QUIET_FLORA
+                )),
         )
         .with_child(text(value).with_css("font-size: 13px;"))
 }
 
-/// A heading inside a panel.
+/// A heading inside a panel (flora's label under flora).
 fn heading(title: &str) -> Dom {
-    text(title).with_css("font-size: 13px; font-weight: 600; padding: 12px 0px 4px 0px;")
+    text(title).with_css(format!(
+        "font-size: 13px; font-weight: 600; padding: 12px 0px 4px 0px; {}",
+        super::LABEL_FLORA
+    ))
 }
 
 // ==== FixedAssetOverviewPanel ====
@@ -201,7 +207,7 @@ fn card(caption: &str, value: &str) -> Dom {
         .with_css(
             "display: flex; flex-direction: column; padding: 8px 16px 8px 0px; min-width: 140px;",
         )
-        .with_child(text(caption).with_css("font-size: 12px; opacity: 0.75;"))
+        .with_child(text(caption).with_css(format!("font-size: 12px; opacity: 0.75; {}", super::QUIET_FLORA)))
         .with_child(text(value).with_css("font-size: 18px; font-weight: 600;"))
 }
 
@@ -317,7 +323,10 @@ pub fn run(s: &Erp, app: &RefAny, view: &View) -> Dom {
         text(&title)
             .with_id(ids::PAGE_TITLE)
             .with_css("font-size: 16px; font-weight: 600;"),
-        text(&step_title).with_css("font-size: 13px; opacity: 0.75; padding-bottom: 8px;"),
+        text(&step_title).with_css(format!(
+            "font-size: 13px; opacity: 0.75; padding-bottom: 8px; {}",
+            super::QUIET_FLORA
+        )),
     ];
     if step == 0 {
         children.push(

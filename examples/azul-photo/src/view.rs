@@ -216,17 +216,32 @@ pub struct ViewColors {
 }
 
 impl ViewColors {
+    /// The view's colours in a mode under the flat theme ([`Self::for_look`]).
     #[must_use]
     pub const fn for_mode(dark: bool) -> Self {
+        Self::for_look(dark, false)
+    }
+
+    /// The view's colours in a mode, under flora or not: under flora the workspace is flora's
+    /// desk (`--fl-desk`, #DDDBD5 by day, #121212 at night) the picture lies on; the
+    /// transparency checkers stay neutral in every theme (they judge the picture's alpha).
+    #[must_use]
+    pub const fn for_look(dark: bool, flora: bool) -> Self {
+        let workspace = match (flora, dark) {
+            (false, false) => [0xb9, 0xbc, 0xc2],
+            (false, true) => [0x28, 0x29, 0x2d],
+            (true, false) => [0xdd, 0xdb, 0xd5],
+            (true, true) => [0x12, 0x12, 0x12],
+        };
         if dark {
             Self {
-                workspace: [0x28, 0x29, 0x2d],
+                workspace,
                 checker_light: [0xcc, 0xcc, 0xcc],
                 checker_dark: [0x99, 0x99, 0x99],
             }
         } else {
             Self {
-                workspace: [0xb9, 0xbc, 0xc2],
+                workspace,
                 checker_light: [0xff, 0xff, 0xff],
                 checker_dark: [0xcc, 0xcc, 0xcc],
             }
@@ -410,6 +425,18 @@ mod tests {
     use super::*;
 
     const LIGHT: ViewColors = ViewColors::for_mode(false);
+
+    #[test]
+    fn under_flora_the_workspace_is_floras_desk_and_the_checkers_stay() {
+        for dark in [false, true] {
+            assert_eq!(ViewColors::for_mode(dark), ViewColors::for_look(dark, false));
+            let flora = ViewColors::for_look(dark, true);
+            let flat = ViewColors::for_mode(dark);
+            assert_eq!((flora.checker_light, flora.checker_dark), (flat.checker_light, flat.checker_dark));
+        }
+        assert_eq!(ViewColors::for_look(false, true).workspace, [0xdd, 0xdb, 0xd5]);
+        assert_eq!(ViewColors::for_look(true, true).workspace, [0x12, 0x12, 0x12]);
+    }
 
     fn view(zoom: f32, pan_x: f32, pan_y: f32, w: u32, h: u32) -> View {
         View {

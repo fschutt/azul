@@ -567,9 +567,10 @@ impl PhotoState {
         }
     }
 
-    /// Light or dark mode: the view's own colours.
-    pub fn set_dark(&mut self, dark: bool) -> Effects {
-        let colors = ViewColors::for_mode(dark);
+    /// Light or dark mode, under flora or not: the view's own colours
+    /// ([`ViewColors::for_look`]).
+    pub fn set_look(&mut self, dark: bool, flora: bool) -> Effects {
+        let colors = ViewColors::for_look(dark, flora);
         if colors == self.colors {
             return Effects::default();
         }

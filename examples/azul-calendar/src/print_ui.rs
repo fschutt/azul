@@ -53,7 +53,8 @@ const PREVIEW_LONG_PX: f32 = 640.0;
 const PREVIEW_SCALE: f32 = 2.0;
 /// The surface the preview's sheets lie on: grey, so that white paper stands out on it.
 pub(crate) const PREVIEW_SURFACE: &str = "background: #d5d8dc; @media (prefers-color-scheme: \
-                                          dark) { background: #1c1c1c; }";
+                                          dark) { background: #1c1c1c; } @theme(flora) { \
+                                          background: system:under-page-background; }";
 /// What Print says when azul made no PDF.
 const NO_PDF: &str = "azul made no PDF: this build of azul has no PDF writer (its `pdf` feature).";
 

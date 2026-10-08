@@ -13,6 +13,7 @@ use azul::{
     prelude::*,
     str::String as AzString,
     vec::{F32VecRef, StringVec, U8VecRef},
+    shells::ShellThemeScope,
     widgets::{AboutDialog, Dialog, DialogState, StandardDialogEvent, Titlebar},
 };
 use azul_appkit::{
@@ -1003,13 +1004,27 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
     new_data
 }
 
+/// The bar over the canvas: flat's dark bar (one band with the title row);
+/// under flora a leaf under flora's window chrome, in its ink and its hand.
 const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding: 12px 20px; \
                       flex-direction: row; align-items: center; font-family: sans-serif; \
-                      font-size: 16px; user-select: none;";
+                      font-size: 16px; user-select: none; @theme(flora) { background: \
+                      system:window-background; color: system:text; font-family: system:ui; \
+                      border-bottom: 1px solid system:separator; }";
 const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%; margin: 0px;";
+/// The column in the theme scope: the title row, the header, the canvas.
+const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 
-extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+/// The app theme is flora or a spin of it ("flora:green").
+fn is_flora(theme: &str) -> bool {
+    theme == "flora" || theme.starts_with("flora:")
+}
+
+extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+    // Reading the theme makes a switch rebuild the window (the title row is
+    // flora's own chrome under flora).
+    let flora = is_flora(info.get_theme().as_str());
     let (n_strokes, metaballs, hud, device_line, last_pressure) = data
         .downcast_ref::<PaintState>()
         .map(|s| {
@@ -1185,28 +1200,30 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .downcast_ref::<PaintState>()
         .map(|s| (s.kit.clone(), s.about_open))
         .unwrap_or((RefAny::new(()), false));
-    let mut body = Dom::create_body()
+    let mut column = Dom::create_div().with_css(COLUMN).with_child(title_row(flora));
+    if kit::settings_open(&kit_ref) {
+        // azul-appkit's settings page: Appearance (remembered), Data,
+        // Shortcuts, About.
+        column.add_child(kit::settings_page(&kit_ref, Vec::new()));
+    } else {
+        column.add_child(header);
+        column.add_child(canvas);
+        if about_open {
+            column.add_child(about_dialog(&data));
+        }
+    }
+    // The theme's ground, ink and hand around everything (the settings page
+    // and the About dialog inherit them, flora's scrollbars come with it).
+    Dom::create_body()
         .with_css(ROOT)
         .with_menu_bar(menu)
         .with_context_menu(ctx_menu)
-        .with_child(title_row())
+        .with_child(ShellThemeScope::create(column).dom())
         .with_callback(
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             data.clone(),
             on_key,
-        );
-    if kit::settings_open(&kit_ref) {
-        // azul-appkit's settings page: Appearance (remembered), Data,
-        // Shortcuts, About.
-        body.add_child(kit::settings_page(&kit_ref, Vec::new()));
-        return body;
-    }
-    body.add_child(header);
-    body.add_child(canvas);
-    if about_open {
-        body.add_child(about_dialog(&data));
-    }
-    body
+        )
 }
 
 /// Help > About AzPaint: azul's standard AboutDialog in a modal Dialog.
@@ -1291,9 +1308,14 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 /// The window's title row, drawn by azul (the window is `NoTitle`, so macOS
-/// draws only the traffic lights): the header's colour and no line under it,
-/// so the title row and the header read as one bar.
-fn title_row() -> Dom {
+/// draws only the traffic lights). Flat: the header's colour and no line
+/// under it, so the title row and the header read as one bar. Flora: flora's
+/// window chrome and its line over the header's leaf (flora draws its own
+/// chrome; the bar's colour fields are flat's).
+fn title_row(flora: bool) -> Dom {
+    if flora {
+        return Titlebar::create("AzPaint").dom();
+    }
     let mut bar = Titlebar::create("AzPaint")
         .with_background(ColorU::rgb(0x2b, 0x2b, 0x2b))
         .without_border_bottom();
@@ -1796,6 +1818,21 @@ fn android_ctor() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flora_and_its_spins_are_flora_and_the_header_keeps_flats_bar() {
+        assert!(is_flora("flora"));
+        assert!(is_flora("flora:green"));
+        assert!(!is_flora("flat"));
+        assert!(!is_flora("florabunda"));
+        // Flat's dark bar stays; flora's block (after it) lays the leaf and
+        // names no colour of its own.
+        let (flat, flora) = HEADER.split_once("@theme(flora)").expect("a flora block");
+        assert!(flat.contains("background: #2b2b2b;"));
+        assert!(flora.contains("background: system:window-background;"));
+        assert!(flora.contains("font-family: system:ui;"));
+        assert!(!flora.contains('#'), "flora's header names system: colours: {flora}");
+    }
 
     fn pt(x: f32, y: f32, pressure: f32) -> StrokePoint {
         StrokePoint {

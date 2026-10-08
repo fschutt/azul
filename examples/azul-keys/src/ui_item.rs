@@ -117,7 +117,11 @@ fn field_row(label: &str, value: Dom, buttons: Vec<Dom>) -> Dom {
         "align-items: flex-start; padding: 4px 0px;",
         vec![
             block(
-                "width: 100px; flex-shrink: 0; font-size: 12px; opacity: 0.7; padding-top: 4px;",
+                &format!(
+                    "width: 100px; flex-shrink: 0; font-size: 12px; opacity: 0.7; padding-top: \
+                     4px; {}",
+                    crate::ui::QUIET_FLORA
+                ),
                 text(label),
             ),
             block(
@@ -159,7 +163,10 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                         text(item.title.as_str()),
                     )
                     .with_id(ids::ITEM_TITLE),
-                    block("font-size: 12px; opacity: 0.7;", text(subtitle)),
+                    block(
+                        &format!("font-size: 12px; opacity: 0.7; {}", crate::ui::QUIET_FLORA),
+                        text(subtitle),
+                    ),
                 ],
             ),
             Button::create(if item.favorite {
@@ -231,7 +238,10 @@ fn item_view(s: &KeysApp, session: &Session, item: &Item, app: &RefAny) -> Dom {
                     ],
                 )
             }
-            Err(why) => block("font-size: 12px; color: #d13438;", text(why)),
+            Err(why) => block(
+                &format!("font-size: 12px; {}", crate::ui::PROBLEM_INK),
+                text(why),
+            ),
         };
         rows.push(field_row(
             "one-time",
@@ -1581,7 +1591,7 @@ fn audit_view(session: &Session, filter: Filter, app: &RefAny) -> Dom {
                         text(finding.strength.label()),
                     ),
                     block(
-                        "width: 18%; font-size: 12px; opacity: 0.7;",
+                        &format!("width: 18%; font-size: 12px; opacity: 0.7; {}", crate::ui::QUIET_FLORA),
                         text(date(finding.changed)),
                     ),
                 ],

@@ -44,15 +44,18 @@ const HEADER: &str = "display: flex; flex-direction: row; flex-shrink: 0; height
                       font-size: 11px; border-bottom: 1px solid #b4b4b4; \
                       background: linear-gradient(to bottom, #fdfdfd, #e6e6e6); \
                       @media (prefers-color-scheme: dark) { border-bottom: 1px solid #121212; \
-                      background: linear-gradient(to bottom, #3b3b3b, #2f2f2f); }";
+                      background: linear-gradient(to bottom, #3b3b3b, #2f2f2f); } \
+                   @theme(flora) { border-bottom: 1px solid system:separator; background: #E9E7E2; @media (prefers-color-scheme: dark) { background: #1F1F1F; } }";
 const HEAD_CELL: &str = "display: flex; flex-direction: row; align-items: center; height: 19px; \
                          box-sizing: border-box; padding: 0px 2px 0px 6px; overflow: hidden; \
                          white-space: nowrap; border-right: 1px solid rgba(128, 128, 128, 0.35); \
-                         cursor: pointer;";
+                         cursor: pointer; \
+                   @theme(flora) { border-right: 1px solid system:grid; }";
 /// The sorted column's header: Mail's blue.
 const HEAD_ACTIVE: &str = "background: linear-gradient(to bottom, #cfe1f7, #a9c6ec); \
                            @media (prefers-color-scheme: dark) { \
-                           background: linear-gradient(to bottom, #34537d, #27436b); }";
+                           background: linear-gradient(to bottom, #34537d, #27436b); } \
+                   @theme(flora) { background: #E0E4EE; @media (prefers-color-scheme: dark) { background: #1E3260; } }";
 /// The narrow columns (the unread dot, the star): centred.
 const MARK_COL: &str = "width: 20px; flex-shrink: 0; justify-content: center; padding: 0px;";
 const TITLE_COL: &str = "flex-grow: 1; flex-basis: 0px; min-width: 0px;";
@@ -65,7 +68,8 @@ const ROW: &str = "display: flex; flex-direction: row; align-items: center; heig
                    flex-shrink: 0; font-size: 12px; cursor: default;";
 const ROW_EVEN: &str = "background: system:control-background;";
 const ROW_ODD: &str = "background: #edf3fe; \
-                       @media (prefers-color-scheme: dark) { background: #2b2f36; }";
+                       @media (prefers-color-scheme: dark) { background: #2b2f36; } \
+                   @theme(flora) { background: #E9E7E2; @media (prefers-color-scheme: dark) { background: #232323; } }";
 const ROW_SELECTED: &str = "background: system:selection-background; \
                             color: system:selection-text;";
 const CELL: &str = "display: flex; flex-direction: row; align-items: center; height: 20px; \
@@ -76,8 +80,10 @@ const CLIP: &str = "overflow: hidden; white-space: nowrap; text-overflow: ellips
                     min-width: 0px;";
 /// Mail's unread dot.
 const DOT: &str = "font-size: 9px; color: #3478d8; \
-                   @media (prefers-color-scheme: dark) { color: #6ea8ff; }";
-const STAR: &str = "font-size: 11px; color: #d99a00;";
+                   @media (prefers-color-scheme: dark) { color: #6ea8ff; } \
+                   @theme(flora) { color: #2F4A85; @media (prefers-color-scheme: dark) { color: #7A93C6; } }";
+const STAR: &str = "font-size: 11px; color: #d99a00; \
+                   @theme(flora) { color: #6E6349; @media (prefers-color-scheme: dark) { color: #C4B58E; } }";
 const DAY_ROW: &str = "display: flex; flex-direction: row; align-items: center; height: 20px; \
                        box-sizing: border-box; flex-shrink: 0; padding-left: 8px; \
                        font-size: 11px; font-weight: 700; \

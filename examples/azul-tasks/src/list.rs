@@ -54,17 +54,23 @@ const SCROLL: &str = "display: flex; flex-direction: column; flex-grow: 1; min-h
                       overflow-y: auto; padding: 0px 8px 12px 8px;";
 const SECTION_TITLE: &str = "font-size: 11px; font-weight: bold; letter-spacing: 0.5px; \
                              color: system:secondary-text; padding: 12px 8px 4px 8px;";
+// Under flora (`@theme(flora)` after the flat values): a problem, a priority and a flag are
+// flora's clay stone (it has no orange), the rows take its 3px corner and a selected row lies
+// on the theme's selection - the one every widget's list shows - not the scope's accent wash.
 const SECTION_OVERDUE: &str = "font-size: 11px; font-weight: bold; letter-spacing: 0.5px; \
                                padding: 12px 8px 4px 8px; color: #b3261e; @media \
-                               (prefers-color-scheme: dark) { color: #ff8a80; }";
+                               (prefers-color-scheme: dark) { color: #ff8a80; } @theme(flora) { \
+                               color: #7E4A42; @media (prefers-color-scheme: dark) { color: \
+                               #B3837A; } }";
 const ROW: &str = "display: flex; flex-direction: row; align-items: flex-start; padding: 6px \
                    8px; gap: 8px; border-radius: 6px; border-bottom: 1px solid \
-                   system:separator; cursor: default;";
+                   system:separator; cursor: default; @theme(flora) { border-radius: 3px; }";
 const ROW_SELECTED: &str = "display: flex; flex-direction: row; align-items: flex-start; \
                             padding: 6px 8px; gap: 8px; border-radius: 6px; border-bottom: 1px \
                             solid transparent; background: var(--az-accent-soft, #e1e6e1); \
                             @media (prefers-color-scheme: dark) { background: \
-                            var(--az-accent-soft, #2f4c39); }";
+                            var(--az-accent-soft, #2f4c39); } @theme(flora) { border-radius: \
+                            3px; background: system:selection-background; }";
 const ROW_TEXT: &str = "display: flex; flex-direction: column; flex-grow: 1; min-width: 0px; \
                         gap: 2px;";
 const TITLE_LINE: &str = "display: flex; flex-direction: row; align-items: center; gap: 6px;";
@@ -74,8 +80,11 @@ const TITLE_DONE: &str = "font-size: 14px; color: system:secondary-text; text-de
 const META_LINE: &str = "display: flex; flex-direction: row; flex-wrap: wrap; align-items: \
                          center; gap: 6px; font-size: 12px; color: system:secondary-text;";
 const PRIORITY: &str = "font-size: 13px; font-weight: bold; color: #c25e00; @media \
-                        (prefers-color-scheme: dark) { color: #ffb366; }";
-const FLAG: &str = "color: #d9730d; @media (prefers-color-scheme: dark) { color: #f2a65a; }";
+                        (prefers-color-scheme: dark) { color: #ffb366; } @theme(flora) { color: \
+                        #7E4A42; @media (prefers-color-scheme: dark) { color: #B3837A; } }";
+const FLAG: &str = "color: #d9730d; @media (prefers-color-scheme: dark) { color: #f2a65a; } \
+                    @theme(flora) { color: #7E4A42; @media (prefers-color-scheme: dark) { color: \
+                    #B3837A; } }";
 const NOTES: &str = "font-size: 12px; color: system:secondary-text; overflow: hidden; \
                      white-space: nowrap; text-overflow: ellipsis; max-width: 360px;";
 const BAR_ROW: &str = "display: flex; flex-direction: row; align-items: center; gap: 8px; \

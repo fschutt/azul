@@ -167,8 +167,14 @@ const ROOT: &str =
     "position: relative; flex-grow: 1; min-height: 0px; overflow: hidden; display: flex;";
 /// The map: the whole window. Ground under the tiles; the tiles follow the
 /// mode themselves.
+///
+/// Under flora (`@theme(flora)` blocks after the flat values here and below; flat is
+/// unchanged) the ground is flora's desk, the floating panels are leaves at flora's corners
+/// under its warm shadow, a section head is flora's label, the licence line and the toast
+/// are flora's paper and clay. The map's own marks (pins, route, location) stay the map's.
 const MAP_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; \
-                        background: #cbd2d8; overflow: hidden;";
+                        background: #cbd2d8; overflow: hidden; @theme(flora) { background: \
+                        system:under-page-background; }";
 /// The title area over the map: the window's drag region; the traffic
 /// lights sit in its left end on macOS.
 #[cfg(target_os = "macos")]
@@ -184,7 +190,10 @@ const NO_DRAG: &str = "-azul-app-region: no-drag;";
 /// A floating group of map controls (Apple Maps' rounded pills).
 const CONTROL_GROUP: &str = "display: flex; flex-direction: column; background: \
                              system:window-background; border-radius: 8px; box-shadow: 0px 1px \
-                             4px rgba(0,0,0,0.3); -azul-app-region: no-drag;";
+                             4px rgba(0,0,0,0.3); -azul-app-region: no-drag; @theme(flora) { \
+                             border-radius: 5px; box-shadow: 0px 1px 4px rgba(48, 45, 38, 0.3); \
+                             @media (prefers-color-scheme: dark) { box-shadow: 0px 1px 4px \
+                             rgba(0, 0, 0, 0.55); } }";
 /// The controls' column, bottom right.
 const CONTROLS: &str = "position: absolute; right: 12px; bottom: 30px; display: flex; \
                         flex-direction: column; gap: 10px;";
@@ -192,7 +201,10 @@ const CONTROLS: &str = "position: absolute; right: 12px; bottom: 30px; display: 
 const SIDEBAR: &str = "position: absolute; left: 10px; top: 44px; bottom: 26px; width: 290px; \
                        display: flex; flex-direction: column; gap: 12px; padding: 12px; \
                        background: system:window-background; color: system:text; \
-                       border-radius: 12px; box-shadow: 0px 2px 10px rgba(0,0,0,0.25);";
+                       border-radius: 12px; box-shadow: 0px 2px 10px rgba(0,0,0,0.25); \
+                       @theme(flora) { border-radius: 5px; box-shadow: 0px 2px 10px rgba(48, \
+                       45, 38, 0.22); @media (prefers-color-scheme: dark) { box-shadow: 0px 2px \
+                       10px rgba(0, 0, 0, 0.5); } }";
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 const TRAVEL_PANEL: &str = "display: flex; flex-direction: column; gap: 6px;";
 const ROW: &str = "display: flex; flex-direction: row; align-items: center; gap: 6px;";
@@ -208,7 +220,9 @@ const DISTANCE: &str = "flex-grow: 1; text-align: right; font-size: 13px; color:
 const RECENTS_SECTION: &str =
     "display: flex; flex-direction: column; gap: 4px; flex-grow: 1; min-height: 0px;";
 const SECTION_HEAD: &str = "display: flex; flex-direction: row; align-items: center; \
-                            font-size: 12px; font-weight: bold; color: system:secondary-text;";
+                            font-size: 12px; font-weight: bold; color: system:secondary-text; \
+                            @theme(flora) { font-size: 11px; text-transform: uppercase; \
+                            letter-spacing: 0.12em; }";
 const RECENTS_LIST: &str = "display: flex; flex-direction: column; gap: 2px; overflow-y: auto; \
                             flex-grow: 1; min-height: 0px;";
 /// A place's card in its popover.
@@ -219,11 +233,14 @@ const CARD_SUB: &str = "font-size: 12px; color: system:secondary-text;";
 /// The tiles' licence line - required (ODbL, CC BY), so it stays, small.
 const ATTRIBUTION: &str = "position: absolute; right: 4px; bottom: 3px; font-size: 10px; color: \
                            #333333; background: rgba(255,255,255,0.7); padding: 1px 4px; \
-                           border-radius: 3px;";
+                           border-radius: 3px; @theme(flora) { color: #262521; background: \
+                           rgba(251, 250, 246, 0.8); @media (prefers-color-scheme: dark) { \
+                           color: #E7E7E7; background: rgba(29, 29, 29, 0.8); } }";
 /// A problem with the pins file, as a small toast.
 const NOTICE: &str = "position: absolute; left: 50%; bottom: 30px; width: 360px; margin-left: \
                       -180px; text-align: center; font-size: 12px; color: #ffffff; background: \
-                      rgba(176,0,32,0.9); padding: 6px 10px; border-radius: 6px;";
+                      rgba(176,0,32,0.9); padding: 6px 10px; border-radius: 6px; @theme(flora) \
+                      { color: #F4F2EA; background: rgba(126, 74, 66, 0.94); border-radius: 3px; }";
 const LOCATION_DOT: &str = "position: absolute; width: 16px; height: 16px; margin-left: -8px; \
                             margin-top: -8px; background: #4285f4; border-radius: 8px; \
                             box-shadow: 0px 0px 0px 3px rgba(66,133,244,0.35);";

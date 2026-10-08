@@ -123,6 +123,14 @@ pub extern "C" fn on_strip_event(mut data: RefAny, mut info: CallbackInfo, event
 
 // ==== The canvas ====
 
+/// The slide's shadow on the canvas: flat's black one on its grey ground; under flora a leaf's
+/// (flora.css `--fl-shadow-2`'s first layer, deepened to carry a slide), warm by day, black at
+/// night, on the desk.
+const SLIDE_SHADOW: &str = "box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.45); flex-shrink: 0; \
+                            @theme(flora) { box-shadow: 0px 2px 8px rgba(48, 45, 38, 0.3); \
+                            @media (prefers-color-scheme: dark) { box-shadow: 0px 2px 8px \
+                            rgba(0, 0, 0, 0.55); } }";
+
 /// The slide under the selection adorner at `scale`, centred in a scroll box.
 #[must_use]
 pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
@@ -175,11 +183,12 @@ pub fn canvas(app: &RefAny, st: &AppState, ed: &Editor, scale: f32) -> Dom {
         .with_id(crate::ids::CANVAS)
         .with_css(
             "display: flex; flex-direction: column; align-items: center; justify-content: center; \
-             flex-grow: 1; min-height: 0px; overflow: auto; padding: 24px; background: #8f8f8f;",
+             flex-grow: 1; min-height: 0px; overflow: auto; padding: 24px; background: #8f8f8f; \
+             @theme(flora) { background: system:under-page-background; }",
         )
         .with_child(
             Dom::create_div()
-                .with_css("box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.45); flex-shrink: 0;")
+                .with_css(SLIDE_SHADOW)
                 .with_child(adorner.dom()),
         )
 }
@@ -629,7 +638,8 @@ pub fn outline(app: &RefAny, ed: &Editor) -> Dom {
 pub fn notes_page(app: &RefAny, st: &AppState, ed: &Editor) -> Dom {
     let mut pages = Dom::create_div().with_css(
         "display: flex; flex-direction: column; align-items: center; flex-grow: 1; overflow-y: auto; \
-         padding: 24px; background: #8f8f8f;",
+         padding: 24px; background: #8f8f8f; @theme(flora) { background: \
+         system:under-page-background; }",
     );
     let width = 640.0;
     for (i, slide) in ed.deck.slides.iter().enumerate() {
@@ -715,8 +725,13 @@ fn frame_field(app: &RefAny, label: &str, field: FrameField, value: f32) -> Dom 
         )
 }
 
+/// A pane's section title: bold in flat; flora's label under flora (capitals in the label ink).
 fn section_title(text: &str) -> Dom {
-    Dom::create_p_with_text(text).with_css("margin: 12px 0px 6px 0px; font-size: 13px; font-weight: bold;")
+    Dom::create_p_with_text(text).with_css(
+        "margin: 12px 0px 6px 0px; font-size: 13px; font-weight: bold; @theme(flora) { \
+         font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: \
+         system:secondary-text; }",
+    )
 }
 
 fn swatch(app: &RefAny, label: &str, cmd: Command) -> Dom {
@@ -805,8 +820,15 @@ pub fn format_pane(app: &RefAny, ed: &Editor) -> Dom {
                 let selected = ed.selection.contains(*id);
                 pane.add_child(Dom::create_p_with_text(format!("{}  {effect}  {}", n + 1, e.name())).with_css(format!(
                     "margin: 0px 0px 2px 0px; padding: 2px 4px; {}",
+                    // The pane is chrome: under flora a selected step lies on the theme's
+                    // selection, not in the deck's colours.
                     if selected {
-                        format!("background: {}; color: {};", css_color(c.accent), css_color(c.background))
+                        format!(
+                            "background: {}; color: {}; @theme(flora) {{ background: \
+                             system:selection-background; color: system:selection-text; }}",
+                            css_color(c.accent),
+                            css_color(c.background)
+                        )
                     } else {
                         String::new()
                     }

@@ -52,18 +52,26 @@ pub(crate) use azul_appkit::pieces::{
     block, button, column, flex_row, icon_button, primary, strs, text,
 };
 
+/// Quiet text (a note, a subtitle, a field's label) fades the ink in flat; under flora it is
+/// the label ink, unfaded (appended after the part's own `opacity`).
+pub(crate) const QUIET_FLORA: &str = "@theme(flora) { opacity: 1; color: system:secondary-text; }";
+
 /// A line of secondary text.
 pub(crate) fn note(content: &str) -> Dom {
     block(
-        "font-size: 12px; opacity: 0.75; padding: 2px 0px;",
+        &format!("font-size: 12px; opacity: 0.75; padding: 2px 0px; {QUIET_FLORA}"),
         text(content),
     )
 }
 
-/// A line that reports a problem (red in both modes).
+/// A problem's ink: red in both modes; under flora its clay stone, by day and by night.
+pub(crate) const PROBLEM_INK: &str = "color: #d13438; @theme(flora) { color: #7E4A42; @media \
+                                      (prefers-color-scheme: dark) { color: #B3837A; } }";
+
+/// A line that reports a problem.
 pub(crate) fn problem(content: &str, id: AzString) -> Dom {
     block(
-        "font-size: 12px; color: #d13438; padding: 4px 0px;",
+        &format!("font-size: 12px; padding: 4px 0px; {PROBLEM_INK}"),
         text(content),
     )
     .with_id(id)
@@ -738,8 +746,11 @@ fn list_pane(session: &Session, app: &RefAny) -> Dom {
         );
         let mut position = 0;
         for (letter, members) in sections(&session.open.vault, &list) {
+            // A letter's head: flora's label under flora (tracked, the label ink).
             rows.add_child(block(
-                "padding: 4px 8px; font-size: 11px; font-weight: 700; opacity: 0.8;",
+                "padding: 4px 8px; font-size: 11px; font-weight: 700; opacity: 0.8; \
+                 @theme(flora) { opacity: 1; color: system:secondary-text; letter-spacing: \
+                 0.12em; }",
                 text(letter.to_string()),
             ));
             for i in members {
@@ -761,7 +772,7 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
     let mut texts = vec![block("font-size: 13px;", text(item.title.as_str()))];
     let subtitle = item.subtitle();
     if !subtitle.is_empty() {
-        texts.push(block("font-size: 11px; opacity: 0.7;", text(subtitle)));
+        texts.push(block(&format!("font-size: 11px; opacity: 0.7; {QUIET_FLORA}"), text(subtitle)));
     }
     let mut children = vec![
         Avatar::create(item.initials())
@@ -771,7 +782,7 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
     ];
     if !item.totp.is_empty() {
         children.push(block(
-            "padding: 0px 4px; font-size: 11px; opacity: 0.7;",
+            &format!("padding: 0px 4px; font-size: 11px; opacity: 0.7; {QUIET_FLORA}"),
             text("2FA"),
         ));
     }
@@ -784,8 +795,10 @@ fn item_row(session: &Session, app: &RefAny, index: usize, position: usize) -> D
     flex_row(
         &format!(
             "padding: 4px 8px; cursor: pointer; {}",
+            // Under flora a selected row lies on the theme's selection (every widget's list).
             if selected {
-                "background-color: rgba(64, 128, 255, 0.18);"
+                "background-color: rgba(64, 128, 255, 0.18); @theme(flora) { background-color: \
+                 system:selection-background; }"
             } else {
                 ""
             }

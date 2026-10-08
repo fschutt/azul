@@ -85,6 +85,16 @@ pub const DARK: Palette = Palette {
 
 // ==== Small builders ====
 
+/// A selected row's fill (a layer, the history's current step): the app accent's soft wash;
+/// under flora the theme's selection, as every list of the engine shows it (flora's soft
+/// wash by day, its stone at night - not the scope's clay).
+fn selected_css(p: &Palette) -> String {
+    format!(
+        "background: {}; @theme(flora) {{ background: system:selection-background; }}",
+        p.selected
+    )
+}
+
 fn strings(items: &[&str]) -> StringVec {
     items
         .iter()
@@ -685,7 +695,7 @@ fn layers_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
             "padding: 3px 4px 3px {}px; border-bottom: 1px solid {}; {}",
             4 + depth * 14,
             p.line,
-            if selected { format!("background: {};", p.selected) } else { String::new() }
+            if selected { selected_css(p) } else { String::new() }
         ))
         .with_id(ids::numbered(ids::LAYER_ROW_PREFIX, id))
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), cmd(app, Command::LayerPress(id)), commands::on_command)
@@ -784,7 +794,7 @@ fn history_panel(app: &RefAny, a: &PhotoApp, p: &Palette) -> Dom {
         let css = format!(
             "font-size: 12px; padding: 2px 6px; color: {}; {}",
             if i > current { p.muted } else { p.text },
-            if i == current { format!("background: {};", p.selected) } else { String::new() }
+            if i == current { selected_css(p) } else { String::new() }
         );
         list.add_child(
             text(label, &css)
@@ -1114,9 +1124,11 @@ pub extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         return Dom::create_body();
     };
     let a = &mut *guard;
-    if a.dark != dark || a.s.colors != view::ViewColors::for_mode(dark) {
+    // flora and its spins ("flora:green"): the workspace is flora's desk.
+    let flora = theme == "flora" || theme.starts_with("flora:");
+    if a.dark != dark || a.s.colors != view::ViewColors::for_look(dark, flora) {
         a.dark = dark;
-        let _ = a.s.set_dark(dark);
+        let _ = a.s.set_look(dark, flora);
         a.canvas_image = None;
     }
     if !theme.is_empty() {

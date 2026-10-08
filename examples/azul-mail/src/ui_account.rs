@@ -57,9 +57,15 @@ const AZLIN_SENDING_NOTE: &str = "Your Azlin drive stores your mail; it does not
                                   sends from this computer as chosen here, and the next \
                                   Send/Receive puts the copy from Sent Items into the drive.";
 
-const NOTE: &str = "font-size: 12px; margin-top: 4px; opacity: 0.75;";
-const LABEL: &str = "font-size: 12px; margin-top: 12px; margin-bottom: 4px;";
-const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12px;";
+const NOTE: &str = "font-size: 12px; margin-top: 4px; opacity: 0.75; \
+                    @theme(flora) { opacity: 1; color: system:secondary-text; }";
+/// A field's label; under flora flora's label (`.fl-label`): capitals in the label ink.
+const LABEL: &str = "font-size: 12px; margin-top: 12px; margin-bottom: 4px; \
+                     @theme(flora) { font-size: 11px; font-weight: bold; text-transform: uppercase; \
+                     letter-spacing: 0.1em; color: system:secondary-text; }";
+/// An error line: Material red under flat; flora's clay stone by day, its glow at night.
+const ERROR: &str = "font-size: 13px; color: #b3261e; margin-top: 12px; @theme(flora) { \
+                     color: #7E4A42; @media (prefers-color-scheme: dark) { color: #B3837A; } }";
 const PAGE: &str = "display: flex; flex-direction: column; max-width: 520px;";
 
 /// An account being added or edited.
@@ -432,7 +438,10 @@ pub(crate) fn settings_page(s: &MailApp, app: &RefAny) -> Dom {
     if !editor.error.is_empty() {
         footer.add_child(
             Dom::create_span_with_text(editor.error.as_str())
-                .with_css("flex-grow: 1; font-size: 13px; color: #b3261e;"),
+                .with_css(
+                    "flex-grow: 1; font-size: 13px; color: #b3261e; @theme(flora) { color: \
+                     #7E4A42; @media (prefers-color-scheme: dark) { color: #B3837A; } }",
+                ),
         );
     } else {
         footer.add_child(Dom::create_div().with_css("flex-grow: 1;"));

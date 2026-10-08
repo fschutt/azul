@@ -642,17 +642,25 @@ def stage_contrast(app, ctx):
     os.makedirs(out, exist_ok=True)
     findings = []
     shots = 0
+    # A theme or mode switch fades flora's faces (--fl-dur, 420 ms; a stone over 1.2 s): a
+    # shot after a few frames caught the To-Do bar's keys and the status bar's segments midway
+    # (a washed-out key, a dark box over the light strip). Every shot waits for them.
+    def settle():
+        azlin_e2e.settle_animations(lambda: w.value({"op": "get_animations"}), lambda: w.frames(1))
+
     for theme in ("flat", "flora"):
         for mode in ("light", "dark"):
             w.must({"op": "set_theme", "theme": theme})
             w.must({"op": "set_mode", "mode": mode})
             w.frames(4)
+            settle()
             base = (255.0, 255.0, 255.0) if mode == "light" else (30.0, 30.0, 30.0)
             screens = [("week", "3"), ("month", "4"), ("agenda", "6")]
             for name, key in screens:
                 w.key(key, primary=True, alt=True)
                 w.wait_for(wi.sel(f"view-{name}"))
                 w.frames(3)
+                settle()
                 items = (w.value({"op": "get_display_list"}) or {}).get("items", [])
                 for f in azlin_e2e.contrast_findings(items, base):
                     findings.append(f"{theme}/{mode}/{name}: {f}")
@@ -663,6 +671,7 @@ def stage_contrast(app, ctx):
             w.click(text="Open & Export")
             w.wait_for(wi.sel("import-path"))
             w.frames(3)
+            settle()
             items = (w.value({"op": "get_display_list"}) or {}).get("items", [])
             for f in azlin_e2e.contrast_findings(items, base):
                 findings.append(f"{theme}/{mode}/backstage: {f}")

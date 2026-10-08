@@ -6382,6 +6382,18 @@ impl LayoutWindow {
                 DarkLightMode::Light
             });
         }
+        // Under flora (or a spin of it) the room is flora's: the `system:`
+        // keywords name its tokens - the leaf, the field paper, the ink, the
+        // rules, the stone of the spin - so an app's own panes and text match
+        // the flora widgets around them (`widgets::themes::flora_palette`).
+        // Every other theme keeps the desktop's palette.
+        #[cfg(feature = "widgets")]
+        if let Some(palette) = crate::widgets::themes::flora_palette::for_chain(
+            ctx.theme_chain.as_slice(),
+            ctx.mode == azul_css::system::DarkLightMode::Dark,
+        ) {
+            ctx.system_colors = palette;
+        }
         ctx
     }
 
@@ -33145,6 +33157,128 @@ mod window_theme_context {
             after.size.width > before.size.width,
             "a longer label widens the box: {before:?} -> {after:?}"
         );
+    }
+}
+
+#[cfg(all(test, feature = "widgets"))]
+mod flora_system_palette_tests {
+    //! Under the app theme flora the `system:` colour keywords are flora's
+    //! palette (doc/templates/flora.css): an app that paints its own panes,
+    //! rules and text with `system:` colours sits in the same room as the
+    //! flora widgets around it, instead of in the desktop's grey.
+    use azul_core::window::DarkLightMode;
+    use azul_css::props::basic::color::{ColorU, SystemColorRef as R};
+    use rust_fontconfig::FcFontCache;
+
+    use super::*;
+    use crate::{
+        widgets::themes::{flora as f, spin::FloraSpin},
+        window_state::FullWindowState,
+    };
+
+    // `SystemStyle` implements `Drop`, so `..Default::default()` is not an
+    // option: the fields are assigned after the fact.
+    #[allow(clippy::field_reassign_with_default)]
+    fn window(app_theme: &str, mode: DarkLightMode, desktop: ColorU) -> LayoutWindow {
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut style = azul_css::system::SystemStyle::default();
+        style.mode = mode;
+        // A desktop that reports its own window background: the colour flat
+        // must keep and flora must not show.
+        style.colors.window_background = azul_css::props::basic::color::OptionColorU::Some(desktop);
+        lw.set_system_style(std::sync::Arc::new(style));
+        lw.app_theme = AzString::from(app_theme);
+        lw
+    }
+
+    fn colour(lw: &LayoutWindow, mode: DarkLightMode, slot: R) -> ColorU {
+        let ws = FullWindowState {
+            mode,
+            ..Default::default()
+        };
+        lw.dynamic_selector_context(&ws).system_color(slot)
+    }
+
+    const DESKTOP: ColorU = ColorU::rgb(0x12, 0x34, 0x56);
+
+    #[test]
+    fn under_flora_by_day_the_system_keywords_are_the_flora_palette() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return; // AZ_MODE pins the mode; the palette follows the pin
+        }
+        let mode = DarkLightMode::Light;
+        let lw = window("flora", mode, DESKTOP);
+        for (slot, want) in [
+            (R::Text, f::LIGHT_INK),
+            (R::SecondaryText, f::LIGHT_SOFT1),
+            (R::WindowBackground, f::LIGHT_SUR),
+            (R::ControlBackground, f::LIGHT_FLD),
+            (R::Background, f::LIGHT_FLD),
+            (R::UnderPageBackground, f::LIGHT_DESK),
+            (R::Separator, f::LIGHT_BD),
+            (R::Grid, f::LIGHT_SEP),
+            (R::Accent, f::LIGHT_ACC),
+            (R::AccentText, f::LIGHT_ON_ACC),
+            (R::Link, f::LIGHT_QT),
+            (R::SelectionBackground, f::LIGHT_SOFT),
+            (R::SelectionText, f::LIGHT_DEEP),
+            (R::DisabledText, f::LIGHT_DISTX),
+        ] {
+            assert_eq!(colour(&lw, mode, slot), want, "system:{} by day", slot.as_css_str());
+        }
+    }
+
+    #[test]
+    fn under_flora_at_night_the_system_keywords_are_the_flora_night_palette() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return;
+        }
+        let mode = DarkLightMode::Dark;
+        let lw = window("flora", mode, DESKTOP);
+        for (slot, want) in [
+            (R::Text, f::DARK_INK),
+            (R::SecondaryText, f::DARK_SOFT1),
+            (R::WindowBackground, f::DARK_SUR),
+            (R::ControlBackground, f::DARK_FLD),
+            (R::UnderPageBackground, f::DARK_DESK),
+            (R::Separator, f::DARK_BD),
+            (R::Grid, f::DARK_SEP),
+            // At night the stone's ink lifts to its own highlight
+            // (flora.css: `--focus-color: var(--fl-glow)`), the ink on it
+            // is the deep tone.
+            (R::Accent, f::LIGHT_GLOW),
+            (R::AccentText, f::LIGHT_DEEP),
+            (R::Link, f::DARK_QT),
+            // flora.css's night `::selection`: the stone, the paper ink.
+            (R::SelectionBackground, f::LIGHT_ACC),
+            (R::SelectionText, f::LIGHT_ON_ACC),
+            (R::DisabledText, f::DARK_DISTX),
+        ] {
+            assert_eq!(colour(&lw, mode, slot), want, "system:{} at night", slot.as_css_str());
+        }
+    }
+
+    #[test]
+    fn a_flora_spin_cuts_the_system_accent_and_selection_from_its_own_stone() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return;
+        }
+        let green = FloraSpin::Green.ramp();
+        let lw = window("flora:green", DarkLightMode::Light, DESKTOP);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::Accent), green.acc);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::SelectionBackground), green.soft);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::SelectionText), green.deep);
+        // The ground is flora's, whatever the stone.
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::WindowBackground), f::LIGHT_SUR);
+    }
+
+    #[test]
+    fn under_flat_the_system_keywords_stay_the_desktops_colours() {
+        if azul_css::dynamic_selector::mode_pinned_by_env().is_some() {
+            return;
+        }
+        let lw = window("flat", DarkLightMode::Light, DESKTOP);
+        assert_eq!(colour(&lw, DarkLightMode::Light, R::WindowBackground), DESKTOP);
     }
 }
 

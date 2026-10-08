@@ -19,8 +19,12 @@ const ROW_CSS: &str = "display: flex; flex-direction: row; align-items: center; 
 const LIST_CSS: &str = "display: flex; flex-direction: column; width: 260px; border: 1px solid \
                         system:separator; background-color: system:control-background;";
 const ROW_ITEM_CSS: &str = "padding: 5px 10px; font-size: 13px; color: system:text; cursor: pointer;";
+/// The selected row: the accent in flat; flora's selection under flora (the soft wash and
+/// the deep ink by day, the stone at night), as its own lists show it.
 const ROW_SELECTED_CSS: &str = "padding: 5px 10px; font-size: 13px; cursor: pointer; \
-                                background-color: system:accent; color: system:accent-text;";
+                                background-color: system:accent; color: system:accent-text; \
+                                @theme(flora) { background-color: system:selection-background; \
+                                color: system:selection-text; }";
 
 /// The folders of the selection demo, in list order (names no other card uses).
 const MAILBOXES: [&str; 6] = [

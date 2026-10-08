@@ -212,7 +212,8 @@ fn appearance_settings(app: &RefAny, theme: &str, mode: ModePref) -> Vec<ShellSe
         ShellSettingsSection::create(
             "Theme",
             Segmented::create(strings(&["Flat", "Flora"]))
-                .with_selected_index(usize::from(theme == "flora"))
+                // Flora or a spin of it ("flora:green").
+                .with_selected_index(usize::from(Theme::parse(theme).is_some_and(Theme::is_flora)))
                 .with_on_change(app.clone(), on_theme as SegmentedOnChangeCallbackType)
                 .dom()
                 .with_id(ids::SETTINGS_THEME),

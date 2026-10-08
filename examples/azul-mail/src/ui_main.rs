@@ -149,10 +149,25 @@ const ROW_HEIGHT: usize = 48;
 const MAX_LINES: usize = 3000;
 /// Quote bar colours by level (1, 2, 3, then again).
 const QUOTE_COLOURS: [&str; 4] = ["#2f6db0", "#2e7d32", "#8e24aa", "#b36b00"];
+/// A quoted line under flora, every level: flora.css's `blockquote` - set off by a thread of
+/// brass in the margin (`system:link`, the brass ink), in the quiet ink, in italic. After the
+/// flat colours, which it outranks under flora.
+const FLORA_QUOTE: &str = "@theme(flora) { border-left-color: system:link; \
+                           color: system:secondary-text; font-style: italic; }";
 /// The paper a plain-text mail is read on: white with dark text in either mode, like a mail
-/// without dark rules (`html.rs`).
+/// without dark rules (`html.rs`). Under flora ([`FLORA_PAPER`]) flora's field paper and ink,
+/// by day and at night.
 const PAPER: &str = "display: flex; flex-direction: column; padding: 12px 16px; \
                      background: #ffffff; color: #1a1a1a;";
+/// [`PAPER`] under flora: a plain-text mail has no colours of its own to keep light, so it
+/// lies on flora's field paper in the ink of the mode (the `system:` keywords flora names);
+/// its text inherits the reading pane's Garamond.
+const FLORA_PAPER: &str =
+    "@theme(flora) { background: system:background; color: system:text; }";
+/// An error line in the reading pane: Material red under flat; flora's clay stone by day and
+/// its glow at night under flora (the red read 2.4:1 on the night leaf).
+const ERROR_LINE: &str = "padding: 16px; color: #b3261e; @theme(flora) { color: #7E4A42; \
+                          @media (prefers-color-scheme: dark) { color: #B3837A; } }";
 /// The plain-text paper's font size and a line's height at 100 %.
 const PAPER_FONT_SIZE: f32 = 14.0;
 const PAPER_LINE_HEIGHT: f32 = 18.0;
@@ -1880,7 +1895,7 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
         // An Azlin account's big message on its way from the drive: no error.
         Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px;")
     } else if !open.error.is_empty() {
-        Dom::create_span_with_text(open.error.as_str()).with_css("padding: 16px; color: #b3261e;")
+        Dom::create_span_with_text(open.error.as_str()).with_css(ERROR_LINE)
     } else {
         match html {
             // A mail wider than the pane (its paper grows with it, `html.rs`) scrolls sideways
@@ -1910,7 +1925,7 @@ fn reading_pane(s: &MailApp, app: &RefAny) -> Dom {
 fn plain_body(text: &str, zoom: f32) -> Dom {
     let scale = zoom / 100.0;
     let mut body = Dom::create_div().with_css(format!(
-        "{PAPER} font-size: {:.1}px;",
+        "{PAPER} font-size: {:.1}px; {FLORA_PAPER}",
         PAPER_FONT_SIZE * scale
     ));
     let line_height = PAPER_LINE_HEIGHT * scale;
@@ -1925,7 +1940,7 @@ fn plain_body(text: &str, zoom: f32) -> Dom {
             format!(
                 "white-space: pre-wrap; min-height: {line_height:.1}px; overflow-wrap: anywhere; \
                  margin-left: {}px; padding-left: 8px; border-left: 3px solid {colour}; color: \
-                 {colour};",
+                 {colour}; {FLORA_QUOTE}",
                 (line.level - 1) * 12
             )
         };
@@ -1951,7 +1966,7 @@ fn html_body(sanitized: &html::Sanitized) -> Dom {
         ResultXmlXmlError::Err(e) => Dom::create_span_with_text(format!(
             "The HTML part could not be shown: {e:?}"
         ))
-        .with_css("padding: 16px; color: #b3261e;"),
+        .with_css(ERROR_LINE),
     }
 }
 
