@@ -461,7 +461,8 @@ const fn cond_border_box() -> Cond {
     Cond::simple(P::const_box_sizing(LayoutBoxSizing::BorderBox))
 }
 
-fn push_row_center(v: &mut Vec<Cond>) {
+/// A row, its content centred on the bar's axis, that the bar never grows.
+fn push_row(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_display(LayoutDisplay::Flex)));
     v.push(Cond::simple(P::const_flex_direction(
         LayoutFlexDirection::Row,
@@ -470,9 +471,27 @@ fn push_row_center(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
         0,
     ))));
+}
+
+/// [`push_row`] at its own width: the bar's controls - the zoom, the view
+/// switcher, their buttons - never shrink.
+fn push_row_center(v: &mut Vec<Cond>) {
+    push_row(v);
     v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
         inner: FloatValue::const_new(0),
     })));
+}
+
+/// [`push_row`] for a part that says something - a segment, the sync line:
+/// where the bar is too narrow for every part, the texts give way (down to
+/// nothing, below their longest word) and the controls at the right end keep
+/// their size and their place in the bar. Outlook's bar.
+fn push_text_row(v: &mut Vec<Cond>) {
+    push_row(v);
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(1),
+    })));
+    v.push(Cond::simple(P::const_min_width(LayoutMinWidth::const_px(0))));
 }
 
 /// Transparent, hover-highlighted flat button chassis shared by every
@@ -619,7 +638,7 @@ fn theme_bar(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 
 fn theme_segment(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
-    push_row_center(&mut v);
+    push_text_row(&mut v);
     push_flat_button(&mut v, t);
     v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
         BAR_HEIGHT,
@@ -641,10 +660,17 @@ fn theme_segment_icon(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
+/// A segment's text: one line, cut off with an ellipsis where its segment
+/// gives way ([`push_text_row`]).
 fn theme_segment_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
-        TEXT_PX,
-    )))];
+    let mut v = vec![
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(TEXT_PX))),
+        Cond::simple(P::WhiteSpace(StyleWhiteSpace::Nowrap.into())),
+        Cond::simple(P::const_overflow_x(LayoutOverflow::Hidden)),
+        Cond::simple(P::const_overflow_y(LayoutOverflow::Hidden)),
+        Cond::simple(P::TextOverflow(StyleTextOverflow::Ellipsis.into())),
+        Cond::simple(P::const_min_width(LayoutMinWidth::const_px(0))),
+    ];
     push_ink(&mut v, t, t.text, flat::DARK_INK);
     CssPropertyWithConditionsVec::from_vec(v)
 }

@@ -829,9 +829,16 @@ class SampleRun(Run):
         except (Failure, OSError) as e:
             self.check('File > Print', False, str(e))
         finally:
-            # Home leaves File (the ribbon's tab row stays on top of the backstage).
+            # Home leaves File (the ribbon's tab row stays on top of the backstage); Escape
+            # does too - and the File page must be gone before the status bar is used.
             if self.has_id(PREFIX + 'backstage'):
                 self.click_exact('Home')
+            if self.has_id(PREFIX + 'backstage'):
+                self.key('escape')
+            try:
+                self.until('File closed', lambda: not self.has_id(PREFIX + 'backstage'), limit=10)
+            except Failure as e:
+                self.check('File > Print closes again', False, str(e))
 
     def zoom_in(self):
         # The status bar's + sits between the slider's track and the percent label: the
@@ -853,7 +860,9 @@ class SampleRun(Run):
         deadline = time.time() + 5
         while not self.shows('110%') and time.time() < deadline:
             self.frame(None, 1)
-        self.check("the status bar's + zooms the reading pane to 110 %", self.shows('110%'))
+        seen = sorted({t for t in self.texts() if t.strip().endswith('%')})
+        self.check("the status bar's + zooms the reading pane to 110 %", self.shows('110%'),
+                   f'(clicked at {x:.1f},{y:.1f}; the window shows {seen})')
 
     def restart_keeps_tasks(self):
         for name, child in self.children:

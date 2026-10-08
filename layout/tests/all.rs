@@ -965,3 +965,5 @@ mod a_flora_spin_recolours_only_the_accent;
 mod a_node_that_comes_in_is_drawn_from_its_first_keyframe;
 #[path = "a_virtual_views_content_inherits_from_its_host.rs"]
 mod a_virtual_views_content_inherits_from_its_host;
+#[path = "a_long_status_text_leaves_the_zoom_in_its_bar.rs"]
+mod a_long_status_text_leaves_the_zoom_in_its_bar;
