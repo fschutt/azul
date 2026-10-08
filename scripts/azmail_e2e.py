@@ -849,7 +849,10 @@ class SampleRun(Run):
         x = (track['x'] + track['width'] + label['x']) / 2
         y = label['y'] + label['height'] / 2
         self.must('click', x=x, y=y)
-        self.frame(None, 2)
+        # The zoom applies on the next rebuild; give it a moment, not two frames.
+        deadline = time.time() + 5
+        while not self.shows('110%') and time.time() < deadline:
+            self.frame(None, 1)
         self.check("the status bar's + zooms the reading pane to 110 %", self.shows('110%'))
 
     def restart_keeps_tasks(self):

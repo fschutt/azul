@@ -316,8 +316,8 @@ fn act_part(dom: Dom, app: &RefAny, act: Act, name: &str) -> Dom {
 
 // ==== The corner pieces: the orb, back, the clock ====
 
-/// The Media Center orb (the start strip) and the back button top left - the back button shows
-/// when the pointer moves and hides when it rests (in place) - and the clock top right.
+/// The back button top left - it shows when the pointer moves and hides when it rests (in
+/// place) - and the clock top right.
 fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
     let mut left = Dom::create_div().with_css(
         "position: absolute; left: 18px; top: 14px; display: flex; flex-direction: row; \
@@ -344,7 +344,6 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
                 )),
         );
     }
-    left.add_child(orb(app, 38.0, 10.0, stage));
     let clock = live_text(
         s.clock_text.clone(),
         ids::CLOCK_TEXT,
@@ -361,33 +360,6 @@ fn corner(s: &Player, app: &RefAny, place: &Place, stage: Stage) -> Dom {
         .with_css(look::FILL.replace("bottom: 0px;", "height: 0px;"))
         .with_child(left)
         .with_child(clock)
-}
-
-/// The green orb (Media Center's start button): the start strip.
-fn orb(app: &RefAny, size: f32, margin_left: f32, stage: Stage) -> Dom {
-    let radius = size / 2.0;
-    let icon_px = (size * 0.6).round();
-    Dom::create_div()
-        .with_tab_index(TabIndex::Auto)
-        .with_accessibility_name("Start")
-        .with_css(format!(
-            "{} width: {size}px; height: {size}px; border-radius: {radius}px; margin-left: \
-             {margin_left}px; cursor: pointer; {} :hover {{ box-shadow: 0px 0px 16px rgba(150, \
-             240, 120, 0.9); }} :focus {{ box-shadow: 0px 0px 16px rgba(150, 240, 120, 0.9); }}",
-            look::ORB,
-            look::icon_fade(stage)
-        ))
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::Click),
-            RefAny::new(CommandRef {
-                app: app.clone(),
-                command: Command::Home,
-            }),
-            media::on_command,
-        )
-        .with_child(Dom::create_icon("play_arrow").with_css(format!(
-            "font-size: {icon_px}px; color: #ffffff;"
-        )))
 }
 
 /// A round glass button doing `command`: an icon, named `name` for assistive technology; the
@@ -542,6 +514,10 @@ fn entry_reason(s: &Player, entry: &Entry) -> Option<String> {
 
 /// The start strip: the categories down the window, the focused one on the middle row (its name
 /// big, its items beside it); the column slides to keep the focused category in the middle.
+/// How long the strip glides to a new focus (a spring: it settles with its speed when the
+/// next arrow comes before it has).
+const STRIP_GLIDE_MS: u32 = 420;
+
 fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     let title_row = if s.fullscreen { 0.0 } else { 32.0 };
     let height = (s.window.1 - title_row).max(200.0);
@@ -552,9 +528,11 @@ fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
     let top = height * 0.52 - focused as f32 * ROW_H - FOCUSED_ROW_H / 2.0;
     let left = (width * 0.04).round();
     let items_left = left + NAME_W + 24.0;
+    // The strip glides to the focused category (Media Center's, Kodi's): the column, each
+    // row and the item row declare their moves - nothing slides undeclared.
     let mut column = Dom::create_div().with_id(ids::STRIP).with_css(format!(
         "position: absolute; left: 0px; right: 0px; top: {top:.1}px; display: flex; \
-         flex-direction: column;"
+         flex-direction: column; animation: move {STRIP_GLIDE_MS}ms spring;"
     ));
     for (row, category) in CATEGORIES.iter().enumerate() {
         let is_focused = row == focused;
@@ -564,10 +542,12 @@ fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
                 "position: absolute; left: {left}px; width: {NAME_W}px; top: 0px; height: {h}px; \
                  margin: 0px; display: flex; align-items: center; justify-content: flex-end; \
                  font-size: {}px; font-weight: 300; color: {}; white-space: nowrap; cursor: \
-                 pointer; {} :hover {{ color: #ffffff; }}",
+                 pointer; {} animation: opacity {}ms ease-in, color 220ms ease-out, font-size \
+                 260ms ease-out; :hover {{ color: #ffffff; }}",
                 if is_focused { 38 } else { 26 },
                 if is_focused { look::INK } else { look::INK_FAINT },
-                look::text_fade(stage)
+                look::text_fade(stage),
+                crate::curtain::TEXT_FADE_MS
             ))
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::Click),
@@ -580,7 +560,8 @@ fn start_page(s: &Player, app: &RefAny, stage: Stage) -> Dom {
         let mut row_dom = Dom::create_div()
             .with_id(ids::id(&format!("row-{row}")))
             .with_css(format!(
-                "position: relative; height: {h}px; flex-shrink: 0;"
+                "position: relative; height: {h}px; flex-shrink: 0; animation: move \
+                 {STRIP_GLIDE_MS}ms spring, height 260ms ease-out;"
             ))
             .with_child(name);
         if is_focused {
@@ -617,7 +598,7 @@ fn strip_items(
         .with_id(ids::id(&format!("items-{row}")))
         .with_css(format!(
             "position: absolute; left: {:.1}px; top: 14px; height: {}px; display: flex; \
-             flex-direction: row;",
+             flex-direction: row; animation: move {STRIP_GLIDE_MS}ms spring;",
             items_left - shift,
             STRIP_TILE_H + 36.0
         ));
@@ -1698,7 +1679,6 @@ fn top_strip(s: &Player, video: &VideoSession, app: &RefAny) -> Dom {
             if s.controls_shown { 1 } else { 0 }
         ))
         .with_child(round_button(app, Command::Back, "arrow_back", "Back", 40.0, ids::BACK, stage))
-        .with_child(orb(app, 40.0, 10.0, stage))
         .with_child(
             Dom::create_p_with_text(video.title().as_str())
                 .with_id(ids::TITLE)
