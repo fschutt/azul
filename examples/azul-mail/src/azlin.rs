@@ -992,6 +992,23 @@ mod tests {
     }
 
     #[test]
+    fn a_new_drive_is_asked_for_in_the_tier_every_azlin_app_signs_up_with() {
+        let fake = Fake {
+            calls: Mutex::new(Vec::new()),
+            answers: Mutex::new(vec![reply(
+                201,
+                &bundle("dt_f.0.first", "2026-10-08T21:15:00Z"),
+            )]),
+        };
+        let server = TokenServer::new("http://127.0.0.1:8081", &fake).unwrap();
+        server.create_drive("AzMail").unwrap();
+        let calls = fake.calls.lock().unwrap();
+        let body: Value = serde_json::from_slice(&calls[0].body).unwrap();
+        assert_eq!(body["name"], "AzMail");
+        assert_eq!(body["tier"], "100GB", "{body}");
+    }
+
+    #[test]
     fn a_token_server_is_https_or_on_this_computer() {
         let fake = Fake {
             calls: Mutex::new(Vec::new()),
