@@ -12,7 +12,8 @@
        (save_bytes mocked) and checks the app reports the bytes;
     6. closes the window (pending saves first), starts AzNotes again on the same folder and
        checks the note, its heading and its tag are read back from the file;
-    7. takes screenshots: flat light, flora dark, the settings screen.
+    7. takes screenshots in flat and flora, light and dark (each settled and contrast-checked),
+       and of the settings screen.
 
 Usage (from the azul repository, after building libazul with the debug server and AzNotes):
 
@@ -43,6 +44,8 @@ if not os.environ.get("AZLIN_CONFIG"):
         tempfile.mkdtemp(prefix="azlin-e2e-config-"), "config.json")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import azlin_e2e  # noqa: E402  (contrast_findings, settle_animations)
 
 
 def log(line):
@@ -344,20 +347,43 @@ def first_session(app, data, out):
     app.until("the PDF export", lambda: len(app.printed("AZNOTES_EXPORTED", r"pdf \d+")) > before)
     log("exported %s" % app.printed("AZNOTES_EXPORTED", r"pdf \d+")[-1])
 
-    # Looks.
-    app.screenshot(os.path.join(out, "flat-light.png"))
-    app.must("set_theme", theme="flora")
-    app.must("set_mode", mode="dark")
-    app.frame(3)
-    app.screenshot(os.path.join(out, "flora-dark.png"))
-    app.must("set_theme", theme="flat")
-    app.must("set_mode", mode="light")
+    # Looks: flat / flora x light / dark.
+    looks(app, out)
     app.click("#__aznotes_open-settings")
     # azul-appkit's settings page: AzNotes' categories, then the kit's.
     app.until("the settings", lambda: app.shows("General") and app.shows("Text size"))
     app.screenshot(os.path.join(out, "settings.png"))
     app.key("escape")
     return note_id
+
+
+def looks(app, out):
+    """The open note in flat and flora, each light and dark: the theme and the mode set
+    explicitly (the first shot used to be whatever mode the machine was in), the switch's
+    fades settled (flora's faces fade over --fl-dur), a screenshot each
+    (flat-light.png ... flora-dark.png) and every text checked to read at 2:1 or better
+    against what is painted under it (scripts/azlin_e2e.py contrast_findings, AzCalendar's
+    check). Ends in flat light."""
+    findings = []
+    for theme in ("flat", "flora"):
+        for mode in ("light", "dark"):
+            app.must("set_theme", theme=theme)
+            app.must("set_mode", mode=mode)
+            app.frame(3)
+            azlin_e2e.settle_animations(lambda: app.value("get_animations"), lambda: app.frame(1))
+            app.frame(2)
+            items = (app.value("get_display_list") or {}).get("items", [])
+            base = (255.0, 255.0, 255.0) if mode == "light" else (30.0, 30.0, 30.0)
+            for f in azlin_e2e.contrast_findings(items, base):
+                findings.append("%s/%s: %s" % (theme, mode, f))
+            app.screenshot(os.path.join(out, "%s-%s.png" % (theme, mode)))
+    app.must("set_theme", theme="flat")
+    app.must("set_mode", mode="light")
+    app.frame(3)
+    if findings:
+        raise Failure("%d text(s) under 2:1 (screenshots in %s):\n  %s"
+                      % (len(findings), out, "\n  ".join(findings[:40])))
+    log("every text reads at 2:1 or better in flat / flora x light / dark")
 
 
 def second_session(app, note_id):

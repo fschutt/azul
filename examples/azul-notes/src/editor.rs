@@ -45,22 +45,24 @@ fn with_images(mut editor: RichTextEditor, s: &AppState, note: &Note, doc: &Rich
 }
 
 /// The editing host of the open note (the note pane draws its own paper
-/// around it).
+/// around it). Its text takes the theme scope's hand - flora's Garamond, at
+/// flora's reading size under `flora` (`TextSize::px_for`).
 #[must_use]
-pub fn editor_dom(s: &AppState, app: &RefAny, note: &Note) -> Dom {
+pub fn editor_dom(s: &AppState, app: &RefAny, note: &Note, flora: bool) -> Dom {
     let editor = RichTextEditor::create(s.editor.clone())
         .with_id(ids::NOTE_BODY)
         .with_accessibility_name("Note text")
-        .with_font_size(s.settings.text_size.px())
+        .with_font_size(s.settings.text_size.px_for(flora))
         .with_on_change(app.clone(), on_editor_change as RichTextEditorOnChangeCallbackType)
         .with_on_link(app.clone(), on_editor_link as RichTextEditorOnLinkCallbackType);
     with_images(editor, s, note, &note.doc).content_dom()
 }
 
 /// `doc` read-only, with `title` over it (a version in the history, the PDF
-/// export).
+/// export), in the theme's hand (`look::paper_font`: flora's Garamond, flat's
+/// sans).
 #[must_use]
-pub fn print_dom(s: &AppState, note: &Note, doc: &RichTextDoc, title: &str, font_px: f32) -> Dom {
+pub fn print_dom(s: &AppState, note: &Note, doc: &RichTextDoc, title: &str, font_px: f32, flora: bool) -> Dom {
     let mut view = state_for(doc);
     view.host_id = ids::NOTE_PRINT;
     let editor = RichTextEditor::create(view)
@@ -68,7 +70,10 @@ pub fn print_dom(s: &AppState, note: &Note, doc: &RichTextDoc, title: &str, font
         .with_accessibility_name(title)
         .with_font_size(font_px);
     Dom::create_div()
-        .with_css(format!("display: block; font-size: {font_px}px; font-family: sans-serif;"))
+        .with_css(format!(
+            "display: block; font-size: {font_px}px; font-family: {};",
+            crate::look::paper_font(flora)
+        ))
         .with_child(
             Dom::create_h1_with_text(title)
                 .with_css(format!("margin: 0px; margin-bottom: 14px; font-size: {}px;", (font_px * 2.0).round())),
