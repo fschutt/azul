@@ -11,6 +11,11 @@ mod secrets;
 mod session;
 mod settings;
 mod state;
+mod sync;
+mod sync_local;
+mod sync_merge;
+mod sync_remote;
+mod sync_rules;
 mod token;
 mod transport;
 
