@@ -31,12 +31,14 @@ const SIDEBAR: &str = "display: flex; flex-direction: column; flex-grow: 1; widt
                        height: 100%; min-width: 0px; min-height: 0px; overflow: hidden; \
                        background: #dde3ea; color: #1d2633; \
                        @media (prefers-color-scheme: dark) { background: #25282d; \
-                       color: #d8dde4; }";
+                       color: #d8dde4; } \
+                   @theme(flora) { background: system:window-background; color: system:text; }";
 const LIST: &str = "flex-grow: 1; min-height: 0px; overflow-y: auto; padding-bottom: 8px;";
 const SECTION_HEAD: &str = "display: flex; flex-direction: row; align-items: center; \
                             height: 20px; padding: 6px 8px 0px 6px; font-size: 11px; \
                             font-weight: 700; color: #6b7889; cursor: pointer; \
-                            @media (prefers-color-scheme: dark) { color: #8f9aa8; }";
+                            @media (prefers-color-scheme: dark) { color: #8f9aa8; } \
+                   @theme(flora) { color: system:secondary-text; letter-spacing: 0.12em; }";
 const TRIANGLE: &str = "width: 13px; flex-shrink: 0; font-size: 8px;";
 const CLIP: &str = "flex-grow: 1; min-width: 0px; overflow: hidden; white-space: nowrap; \
                     text-overflow: ellipsis;";
@@ -46,18 +48,22 @@ const ROW_SELECTED: &str = "background: system:selection-background; \
                             color: system:selection-text; font-weight: 700;";
 const ROW_ICON: &str = "font-size: 15px; width: 18px; flex-shrink: 0; margin-right: 5px; \
                         color: #5d6f86; \
-                        @media (prefers-color-scheme: dark) { color: #9fb0c4; }";
+                        @media (prefers-color-scheme: dark) { color: #9fb0c4; } \
+                   @theme(flora) { color: #56544C; @media (prefers-color-scheme: dark) { color: #BEBEBE; } }";
 const ROW_ICON_SELECTED: &str = "font-size: 15px; width: 18px; flex-shrink: 0; \
                                  margin-right: 5px;";
 /// Mail's unread count: a grey-blue pill, white on the selected row.
 const PILL: &str = "flex-shrink: 0; margin-left: 4px; padding: 0px 6px; border-radius: 8px; \
                     font-size: 10px; font-weight: 700; color: #ffffff; background: #8a9bb3; \
-                    @media (prefers-color-scheme: dark) { background: #56657a; }";
+                    @media (prefers-color-scheme: dark) { background: #56657a; } \
+                   @theme(flora) { border-radius: 3px; color: #66645C; background: #DDDBD5; @media (prefers-color-scheme: dark) { color: #A8A8A8; background: #121212; } }";
 const PILL_SELECTED: &str = "flex-shrink: 0; margin-left: 4px; padding: 0px 6px; \
                              border-radius: 8px; font-size: 10px; font-weight: 700; \
-                             color: #2f6fd6; background: #ffffff;";
+                             color: #2f6fd6; background: #ffffff; \
+                   @theme(flora) { border-radius: 3px; color: #1E3260; background: #FBFAF6; }";
 const ACTIVITY: &str = "flex-shrink: 0; padding: 4px 0px 6px 0px; font-size: 11px; \
-                        border-top: 1px solid rgba(0, 0, 0, 0.18);";
+                        border-top: 1px solid rgba(0, 0, 0, 0.18); \
+                   @theme(flora) { border-top: 1px solid system:separator; }";
 const ACTIVITY_HEAD: &str = "padding: 0px 0px 4px 0px; font-size: 10px; font-weight: 700; \
                              text-align: center; opacity: 0.6;";
 const ACTIVITY_LINE: &str = "padding: 1px 10px; overflow: hidden; white-space: nowrap; \
@@ -67,11 +73,13 @@ const BOTTOM: &str = "display: flex; flex-direction: row; align-items: center; \
                       border-top: 1px solid rgba(0, 0, 0, 0.25); \
                       background: linear-gradient(to bottom, #f4f4f4, #d9d9d9); \
                       @media (prefers-color-scheme: dark) { \
-                      background: linear-gradient(to bottom, #3a3a3a, #2d2d2d); }";
+                      background: linear-gradient(to bottom, #3a3a3a, #2d2d2d); } \
+                   @theme(flora) { border-top: 1px solid system:separator; background: #E9E7E2; @media (prefers-color-scheme: dark) { background: #1F1F1F; } }";
 const SMALL_BUTTON: &str = "display: flex; align-items: center; justify-content: center; \
                             width: 30px; height: 23px; font-size: 15px; cursor: pointer; \
                             border-right: 1px solid rgba(0, 0, 0, 0.22); \
-                            :hover { background: rgba(0, 0, 0, 0.08); }";
+                            :hover { background: rgba(0, 0, 0, 0.08); } \
+                   @theme(flora) { border-right: 1px solid system:separator; }";
 
 /// The source list, the activity area, the buttons under them.
 pub(super) fn sidebar(s: &NewsApp, app: &RefAny) -> Dom {

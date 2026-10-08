@@ -290,7 +290,32 @@ pub fn reader_css(font_px: u32, measure_px: u32, sepia: bool) -> String {
         ".{} {{ font-family: sans-serif; font-size: 0.8em; opacity: 0.6; }}\n",
         ids::IMAGE_PLACEHOLDER_CLASS
     ));
+    css.push_str(&flora_reader_css(&a));
     css
+}
+
+/// The reader under flora (`doc/templates/flora.css`), after the flat rules it outranks: the
+/// body's `serif` is flora's Garamond already (the engine sets a generic serif in flora's
+/// hand), and the headings, a caption and a picture's placeholder take the same hand (the
+/// `system:ui` role) instead of flat's sans; links are brass (`system:link`); a quote stands
+/// against a brass thread in the margin in the quiet ink; code is flora's ink panel by day and
+/// by night; table and rule lines are the house rules. The article's own colours and fonts
+/// are gone already (`article`), so nothing here outranks the author.
+#[must_use]
+fn flora_reader_css(a: &str) -> String {
+    let cap = ids::CAPTION_CLASS;
+    let ph = ids::IMAGE_PLACEHOLDER_CLASS;
+    format!(
+        "@theme(flora) {{ \
+         {a} h2, {a} h3, {a} h4, {a} h5, {a} h6, .{cap}, .{ph} {{ font-family: system:ui; }} \
+         {a} a {{ color: system:link; }} \
+         {a} blockquote {{ border-left: 2px solid system:link; color: system:secondary-text; }} \
+         {a} pre {{ background-color: #211F1B; color: #E4E1D6; }} \
+         {a} td, {a} th {{ border: 1px solid system:separator; }} \
+         {a} hr {{ border-top: 1px solid system:grid; }} \
+         @media (prefers-color-scheme: dark) {{ {a} pre {{ background-color: #141414; color: \
+         #E2E2E2; }} }} }}\n"
+    )
 }
 
 /// `html` (an article's body) through azul's HTML5-like parser into the reader view: only what
@@ -693,6 +718,19 @@ mod tests {
             text(&blocked)
         );
         assert!(names(&blocked).contains(&"span.__aznews_image-placeholder".to_string()));
+    }
+
+    /// Under flora the article's headings and notes are in flora's hand (no sans), its links
+    /// brass, its code on flora's ink panel - after the flat rules, in a flora block.
+    #[test]
+    fn under_flora_the_reader_takes_floras_hand_links_and_code_panel() {
+        let css = reader_css(20, 680, false);
+        let flora = &css[css.find("@theme(flora)").expect("a flora block")..];
+        assert!(flora.contains(".__aznews_article h2"), "{flora}");
+        assert!(flora.contains("font-family: system:ui"), "{flora}");
+        assert!(flora.contains(".__aznews_article a { color: system:link; }"), "{flora}");
+        assert!(flora.contains("background-color: #211F1B"), "{flora}");
+        assert!(!flora.contains("sans-serif"), "no sans under flora: {flora}");
     }
 
     #[test]

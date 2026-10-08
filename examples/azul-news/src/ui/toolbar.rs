@@ -26,7 +26,8 @@ const BAR: &str = "display: flex; flex-direction: row; align-items: flex-end; \
                    background: linear-gradient(to bottom, #e8e8e8, #c6c6c6); \
                    @media (prefers-color-scheme: dark) { color: #e6e6e6; \
                    border-bottom: 1px solid #141414; \
-                   background: linear-gradient(to bottom, #3e3e3e, #2b2b2b); }";
+                   background: linear-gradient(to bottom, #3e3e3e, #2b2b2b); } \
+                   @theme(flora) { color: system:text; border-bottom: 1px solid system:separator; background: #E9E7E2; @media (prefers-color-scheme: dark) { background: #1F1F1F; } }";
 const TOOL: &str = "display: flex; flex-direction: column; align-items: center; \
                     flex-shrink: 0; min-width: 50px; padding: 2px 5px; border-radius: 4px; \
                     cursor: pointer; :hover { background: rgba(0, 0, 0, 0.07); }";
@@ -38,9 +39,11 @@ const FACE: &str = "display: flex; align-items: center; justify-content: center;
                     border: 1px solid #8e8e8e; \
                     background: linear-gradient(to bottom, #fefefe, #dcdcdc); \
                     @media (prefers-color-scheme: dark) { border: 1px solid #1e1e1e; \
-                    background: linear-gradient(to bottom, #5c5c5c, #454545); }";
+                    background: linear-gradient(to bottom, #5c5c5c, #454545); } \
+                   @theme(flora) { border-radius: 3px; border: 1px solid #B4B1A9; background: linear-gradient(to bottom, #FAF9F5, #ECEAE4); @media (prefers-color-scheme: dark) { border: 1px solid #4A4A4A; background: linear-gradient(to bottom, #333333, #292929); } }";
 const ICON: &str = "font-size: 17px;";
-const LABEL: &str = "padding-top: 2px; font-size: 11px; white-space: nowrap;";
+const LABEL: &str = "padding-top: 2px; font-size: 11px; white-space: nowrap; \
+                   @theme(flora) { font-weight: bold; text-transform: uppercase; letter-spacing: 0.07em; }";
 /// The room between two groups of tools.
 const GAP: &str = "width: 12px; flex-shrink: 0;";
 
