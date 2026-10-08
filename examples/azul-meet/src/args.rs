@@ -2,10 +2,11 @@
 //! `--size`, `--theme <flat|flora>`, `--mode <system|light|dark>`, `--shot`, `--sample`,
 //! `--data-dir`) with AzMeet's screens (`lobby | waiting | call | settings`), plus its own
 //! `--name <name>` and one switch per `AZMEET_*` environment variable ([`SWITCHES`]: `--worker`,
-//! `--join`, `--relay`, `--relay-only`, `--test-tone`, ...). A switch wins over its variable;
-//! the variable is still read when the switch is not given, so older scripts keep working.
-//! `-h` / `--help` lists them all. A script (or a screenshot run) opens AzMeet where it wants,
-//! in the look it wants. Pure: no azul types (appkit's plain modules only), unit-tested here.
+//! `--join`, `--identity-file`, `--relay`, `--relay-only`, `--test-tone`, ...). A switch wins
+//! over its variable; the variable is still read when the switch is not given, so older scripts
+//! keep working. `-h` / `--help` lists them all. A script (or a screenshot run) opens AzMeet
+//! where it wants, in the look it wants. Pure: no azul types (appkit's plain modules only),
+//! unit-tested here.
 
 use std::collections::BTreeMap;
 
@@ -14,14 +15,15 @@ use azul_appkit::{args::help, AppArgs, AppSpec};
 /// Which screen opens first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Screen {
-    /// The start screen: new meeting, join with a link, the meeting server.
+    /// The start screen: new meeting or chat room, join with a link or a code, the meeting
+    /// server, the rooms this device is in.
     #[default]
     Lobby,
     /// A new meeting's waiting room: the camera preview, the switches, the devices, the name,
     /// the link, "Start meeting"; a preview of one when no meeting server answers (with
     /// `--shot`, a screenshot of it).
     Waiting,
-    /// The call view (the in-process demo opens it on its own).
+    /// The call: a new meeting, entered at once (as `--autocreate` without the waiting room).
     Call,
     /// The settings.
     Settings,
@@ -31,7 +33,7 @@ pub enum Screen {
 pub const SPEC: AppSpec = AppSpec {
     name: "AzMeet",
     binary: "AzMeet",
-    summary: "video meetings over azul.iroh",
+    summary: "video meetings and chat rooms over azul.iroh, end-to-end encrypted",
     screens: &["lobby", "waiting", "call", "settings"],
     files_help: "",
 };
@@ -80,10 +82,40 @@ pub const SWITCHES: &[Switch] = &[
         help: "join that meeting (a link or a code) at start",
     },
     Switch {
+        flag: "--open",
+        var: "AZMEET_OPEN",
+        takes: Takes::Text("<LINK>"),
+        help: "open that room's view at start (joining it when this device is not in it)",
+    },
+    Switch {
         flag: "--autocreate",
         var: "AZMEET_AUTOCREATE",
         takes: Takes::Nothing("1"),
         help: "create a meeting at start and print AZMEET_LINK <link>",
+    },
+    Switch {
+        flag: "--chat-room",
+        var: "AZMEET_CHAT_ROOM",
+        takes: Takes::Nothing("1"),
+        help: "with --autocreate: a chat room instead of a meeting, opened in the room view",
+    },
+    Switch {
+        flag: "--starts-at",
+        var: "AZMEET_STARTS_AT",
+        takes: Takes::Text("<TIME>"),
+        help: "with --autocreate: when the meeting starts (RFC 3339, 2026-10-09T14:00:00Z)",
+    },
+    Switch {
+        flag: "--ends-at",
+        var: "AZMEET_ENDS_AT",
+        takes: Takes::Text("<TIME>"),
+        help: "with --autocreate and --starts-at: when the meeting ends (RFC 3339)",
+    },
+    Switch {
+        flag: "--identity-file",
+        var: "AZMEET_IDENTITY_FILE",
+        takes: Takes::Text("<PATH>"),
+        help: "keep this device's key in that file (mode 0600), not the system keyring",
     },
     Switch {
         flag: "--waiting-room",
@@ -461,6 +493,14 @@ mod tests {
             "Ben",
             "--panel=statistics",
             "--autocreate",
+            "--open",
+            "azlin://meet/def#secret",
+            "--chat-room",
+            "--starts-at=2026-10-09T14:00:00Z",
+            "--ends-at",
+            "2026-10-09T15:00:00Z",
+            "--identity-file",
+            "/tmp/ada.identity.json",
         ])
         .expect("valid");
         let given: Vec<&str> = args.switches.keys().copied().collect();
@@ -480,6 +520,23 @@ mod tests {
         assert_eq!(args.setting_with("AZMEET_MESH_CAP", none).as_deref(), Some("2"));
         assert_eq!(args.setting_with("AZMEET_LAYOUT", none).as_deref(), Some("speaker"));
         assert_eq!(args.setting_with("AZMEET_PANEL", none).as_deref(), Some("statistics"));
+        assert_eq!(
+            args.setting_with("AZMEET_OPEN", none).as_deref(),
+            Some("azlin://meet/def#secret")
+        );
+        assert_eq!(args.setting_with("AZMEET_CHAT_ROOM", none).as_deref(), Some("1"));
+        assert_eq!(
+            args.setting_with("AZMEET_STARTS_AT", none).as_deref(),
+            Some("2026-10-09T14:00:00Z")
+        );
+        assert_eq!(
+            args.setting_with("AZMEET_ENDS_AT", none).as_deref(),
+            Some("2026-10-09T15:00:00Z")
+        );
+        assert_eq!(
+            args.setting_with("AZMEET_IDENTITY_FILE", none).as_deref(),
+            Some("/tmp/ada.identity.json")
+        );
         // A switch wins over its variable.
         let env = |_: &str| Some(String::from("off"));
         assert_eq!(args.setting_with("AZMEET_RELAY", env).as_deref(), Some("http://127.0.0.1:3340"));
@@ -522,5 +579,7 @@ mod tests {
         assert!(parse(["--join"]).unwrap_err().contains("--join"));
         assert!(parse(["--join", " "]).unwrap_err().contains("--join"));
         assert!(parse(["--relay-only=yes"]).unwrap_err().contains("takes no value"));
+        assert!(parse(["--identity-file"]).unwrap_err().contains("--identity-file"));
+        assert!(parse(["--chat-room=yes"]).unwrap_err().contains("takes no value"));
     }
 }
