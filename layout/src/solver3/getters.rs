@@ -4794,7 +4794,9 @@ fn structural_theme_of(styled_dom: &StyledDom) -> Option<&str> {
 /// via `FontStack::Ref`), `SystemType` families expand to the platform's
 /// fallback chain - or, for a text role the theme has a hand of its own for
 /// (flora: EB Garamond, [`crate::text3::ui_fonts::theme_font_families`]), to
-/// that hand at the role's weight - and the generic
+/// that hand at the role's weight; a generic the theme sets in its own hand
+/// (flora's `serif`, [`crate::text3::ui_fonts::theme_generic_families`])
+/// expands the same way - and the generic
 /// `sans-serif`/`serif`/`monospace` fallbacks are appended if not already present.
 ///
 /// Generic families are pushed AS generics. rust-fontconfig expands them
@@ -4905,6 +4907,19 @@ fn build_font_selector_stack_themed(
             } else {
                 name
             };
+            if let Some(hand) = crate::text3::ui_fonts::theme_generic_families(theme, &name) {
+                // A generic the theme has its own hand for (flora's serif).
+                for font_name in hand {
+                    stack.push(FontSelector {
+                        family: (*font_name).to_string(),
+                        weight: fc_weight,
+                        style: fc_style,
+                        unicode_ranges: Vec::new(),
+                        optical_size: 0,
+                    });
+                }
+                continue;
+            }
             stack.push(FontSelector {
                 family: name,
                 weight: fc_weight,

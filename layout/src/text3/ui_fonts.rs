@@ -75,6 +75,23 @@ pub fn theme_font_families(
     }
 }
 
+/// The families the structural app theme `theme` sets the generic CSS family
+/// `generic` in, where the theme has a hand of its own for it - else `None`,
+/// and the generic stays a generic (the platform's, through the font cache).
+///
+/// A UA's default serif is the UA's to choose (a browser's "serif font"
+/// setting), and flora's is its reading hand: under flora `serif` - what an
+/// article, a book page or a mail names, and the family of text that names
+/// none - is [`FLORA_HAND`] (which ends in `serif` itself, for the characters
+/// the hand lacks). `sans-serif`, `monospace` and the rest stay what they are.
+#[must_use]
+pub fn theme_generic_families(theme: Option<&str>, generic: &str) -> Option<&'static [&'static str]> {
+    match theme? {
+        "flora" if generic.eq_ignore_ascii_case("serif") => Some(FLORA_HAND),
+        _ => None,
+    }
+}
+
 const EB_GARAMOND_REGULAR_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-Regular.ttf.br");
 const EB_GARAMOND_BOLD_BR: &[u8] = include_bytes!("../../assets/fonts/ui/EBGaramond-Bold.ttf.br");
@@ -229,6 +246,17 @@ mod tests {
         }
         assert_eq!(FLORA_HAND.first(), Some(&EB_GARAMOND), "the bundled face first");
         assert_eq!(FLORA_HAND.last(), Some(&"serif"), "a serif to the end, as flora.css");
+    }
+
+    #[test]
+    fn floras_serif_is_its_hand_and_every_other_generic_stays() {
+        assert_eq!(theme_generic_families(Some("flora"), "serif"), Some(FLORA_HAND));
+        assert_eq!(theme_generic_families(Some("flora"), "SERIF"), Some(FLORA_HAND));
+        for generic in ["sans-serif", "monospace", "cursive", "fantasy", "system-ui"] {
+            assert_eq!(theme_generic_families(Some("flora"), generic), None, "{generic}");
+        }
+        assert_eq!(theme_generic_families(Some("flat"), "serif"), None);
+        assert_eq!(theme_generic_families(None, "serif"), None);
     }
 
     #[test]
