@@ -166,7 +166,7 @@ pub fn index_key() -> String {
     azul_appkit::data::app_key(APP_FOLDER, crate::roomlist::INDEX_FILE)
 }
 
-/// The folder of meeting `meeting` (its room key, or the demo's code): `meet/<meeting>/`, every
+/// The folder of meeting `meeting` (its room id): `meet/<meeting>/`, every
 /// character but a letter, a digit, `-` and `_` an underscore, at most 64 of them; `None` for a
 /// meeting without a name.
 #[must_use]
@@ -306,11 +306,12 @@ pub fn record_people(text: &str) -> Vec<String> {
 /// What `meeting.json` says about a meeting.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct MeetingRecord {
-    /// The room key (or the demo's code).
+    /// The room id.
     pub meeting: String,
-    /// The link others join with ("" in the demo).
+    /// The link others join with, without its invite secret (the file is the user's, but a link
+    /// with the secret lets in whoever reads it).
     pub link: String,
-    /// The meeting server ("" in the demo).
+    /// The meeting server.
     pub server: String,
     /// When this side joined, seconds since 1970.
     pub joined: u64,

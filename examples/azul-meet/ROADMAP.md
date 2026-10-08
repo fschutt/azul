@@ -28,6 +28,11 @@ keys do not change, so AzDrive browses a meeting's folder like any other.
   Long recordings want a multipart, resumable upload, which `S3Drive` does not have yet.
 - The `meet` Worker gets no recording tables: at most an access link (who may read
   `meet/<room id>/`) so the other participants can fetch the summary or the recording.
+- `chat.jsonl` is the chat in clear today (the user's own record on this computer; the meeting
+  server keeps it only as ciphertext, CRYPTO.md section 8). Before the folder goes to the bucket
+  it must be sealed with the device's local key (`crypto::Identity::seal_local`, as
+  `meet/rooms.json` keeps its invite secrets) - or a bucket provider reads what the meeting
+  server cannot. The same holds for a recording and a transcript.
 
 ## 1. Recording
 
