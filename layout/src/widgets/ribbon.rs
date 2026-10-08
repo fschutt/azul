@@ -7852,11 +7852,22 @@ mod flora_tests {
         let dom = ribbon(UiTheme::Flora);
         let active = node(&dom, "__azul-native-ribbon-tab-active");
         let app = node(&dom, "__azul-native-ribbon-appbutton");
-        for (what, stone) in [("the selected tab", active), ("the application button", app)] {
+        // The fixture's selected tab is its first, right after the
+        // application button: that side has no rule to ease (the button's
+        // stone stands over it), so it hangs only the right run-out.
+        let tab_runouts: &[(usize, &str, bool)] = &[(3, "__azul-native-tab-runout-right", false)];
+        let app_runouts: &[(usize, &str, bool)] = &[
+            (3, "__azul-native-tab-runout-left", true),
+            (4, "__azul-native-tab-runout-right", false),
+        ];
+        for (what, stone, runouts) in [
+            ("the selected tab", active, tab_runouts),
+            ("the application button", app, app_runouts),
+        ] {
             assert_eq!(
                 stone.children.as_ref().len(),
-                5,
-                "{what}: its label, its two curves, the two run-outs beside its feet"
+                3 + runouts.len(),
+                "{what}: its label, its two curves, the run-outs beside its feet"
             );
             for (i, side) in [(1, CURVE_LEFT_CLASS), (2, CURVE_RIGHT_CLASS)] {
                 let curve = &stone.children.as_ref()[i];
@@ -7875,10 +7886,7 @@ mod flora_tests {
                     "{what}: the S is cut from the rolled metal its head is cut from"
                 );
             }
-            for (i, side, left) in [
-                (3, "__azul-native-tab-runout-left", true),
-                (4, "__azul-native-tab-runout-right", false),
-            ] {
+            for &(i, side, left) in runouts {
                 let runout = &stone.children.as_ref()[i];
                 assert!(tc::has_class(runout, side), "{what}: child {i} is its {side}");
                 assert_eq!(face(runout, false, None), vec![tc::flora_css_runout(left)]);
