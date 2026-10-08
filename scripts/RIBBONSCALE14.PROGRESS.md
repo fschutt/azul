@@ -13,11 +13,11 @@ x = 1378 in a 1280 px window). No compiling (house rule): the lead builds and ru
   ribbon's steps re-runs layout() and any other resize re-flows the DOM. No app change.
   Override: `Ribbon.available_width` (0 = the window's) for a ribbon in a narrower box.
 - Widths: estimated at build time from the part styles' own metrics (paddings, borders, 32/16 px
-  icons, 120 px gallery cells) + Helvetica advances x 1.1 for the labels (errs wide).
+  icons, 120 px gallery cells) + Helvetica advances x 1.1 for the labels (errs wide), 4 px slack.
 - Steps (all that make the tab narrower, in order): 1 medium (large -> small buttons, stacked three
   to a column) R->L; 2 galleries one cell at a time down to 2 (list galleries to one column) R->L;
   3 small (every button its icon alone, named by its label) R->L; 4 collapse R->L. The first step
-  whose total fits (with 8 px slack) is built.
+  whose total fits is built.
 - Collapsed group: one large Menu button (group icon - `RibbonGroup.icon`, else its first button's
   - over its label and the arrow) spanning the group, plus a `<transient-window>` (closed, Bottom,
   Outside) holding the FULL group on a `group_popup_style` panel. The button's click toggles it
@@ -28,11 +28,17 @@ x = 1378 in a 1280 px window). No compiling (house rule): the lead builds and ru
 - Top-level rows (RibbonX boxes) stack three to a column like small items (AzDrive's Show/hide).
 
 ## DONE
-- (none yet)
+- c57edd063 progress file
+- 99e4b7348 RED core: build_window_tests (core/src/callbacks_test.rs)
+- 01170ec3b core WindowSizeScope + build_window_width_less_than; shell + web enter the scope
+- d4a8ed0c3 RED ribbon: a_row_at_a_groups_top_level_stacks_with_the_small_items
+- 41a9f14de fix: rows stack (is_small_item)
+- aa9b408d5 RED ribbon scaling: layout/src/widgets/ribbon_scaling_tests.rs (+ mod line) and
+  layout/tests/a_ribbon_tab_wider_than_its_window_keeps_every_control_inside_it.rs (all.rs)
+- 87d238b8e fix: the scaling, the collapsed group + popup, flora's group_popup_style
 
 ## IN PROGRESS
-- core scope RED test + fix
+- second review pass (compile risks, lints), report
 
 ## NEXT
-- rows stacking RED + fix; ribbon scaling RED (unit + layout test) + fix; flora group_popup_style;
-  report (api.json entries, tests to run, what to look at).
+- report: api.json entries, tests to run, what to look at, risks.
