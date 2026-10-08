@@ -31,6 +31,7 @@ pub mod error;
 pub mod secrets;
 pub mod session;
 pub mod settings;
+pub mod share;
 pub mod state;
 pub mod store;
 pub mod sync;

@@ -10,6 +10,7 @@ mod fake_s3;
 mod secrets;
 mod session;
 mod settings;
+mod share;
 mod state;
 mod sync;
 mod sync_local;
