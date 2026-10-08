@@ -878,6 +878,8 @@ mod a_short_list_in_a_shell_pane_fills_its_pane_from_the_top;
 mod focusing_a_search_field_by_its_id_focuses_its_text;
 #[path = "a_button_fades_into_its_hover_face.rs"]
 mod a_button_fades_into_its_hover_face;
+#[path = "a_hovered_button_passes_through_the_faces_in_between.rs"]
+mod a_hovered_button_passes_through_the_faces_in_between;
 #[path = "a_rebuild_under_the_pointer_starts_no_transition.rs"]
 mod a_rebuild_under_the_pointer_starts_no_transition;
 #[path = "a_rebuild_slides_only_what_declares_a_move.rs"]
@@ -930,6 +932,12 @@ mod a_virtual_view_leaves_its_hosts_font_chains_in_place;
 mod a_transform_tween_moves_no_box_and_rebuilds_no_list;
 #[path = "a_face_fade_frame_is_patched_in_place.rs"]
 mod a_face_fade_frame_is_patched_in_place;
+#[path = "a_gradient_face_fade_frame_is_patched_in_place.rs"]
+mod a_gradient_face_fade_frame_is_patched_in_place;
+#[path = "a_rebuild_mid_glide_keeps_the_running_transition.rs"]
+mod a_rebuild_mid_glide_keeps_the_running_transition;
+#[path = "a_switchs_fade_leaves_the_switches_after_it_alone.rs"]
+mod a_switchs_fade_leaves_the_switches_after_it_alone;
 #[path = "a_layout_tween_frame_reuses_the_tree_and_patches_the_list.rs"]
 mod a_layout_tween_frame_reuses_the_tree_and_patches_the_list;
 #[path = "a_relayout_keeps_the_virtual_views_of_an_unchanged_host.rs"]
@@ -975,3 +983,15 @@ mod a_long_status_text_leaves_the_zoom_in_its_bar;
 mod a_line_too_long_for_its_box_ends_in_an_ellipsis;
 #[path = "a_blocks_text_decoration_decorates_the_text_in_it.rs"]
 mod a_blocks_text_decoration_decorates_the_text_in_it;
+#[path = "an_inline_blocks_paint_belongs_to_its_own_node.rs"]
+mod an_inline_blocks_paint_belongs_to_its_own_node;
+#[path = "a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window.rs"]
+mod a_wheel_notch_scrolls_a_code_view_without_rebuilding_the_window;
+#[path = "the_first_background_layer_is_painted_on_top.rs"]
+mod the_first_background_layer_is_painted_on_top;
+#[path = "each_background_layer_is_clipped_to_its_own_box.rs"]
+mod each_background_layer_is_clipped_to_its_own_box;
+#[path = "a_flora_tab_row_is_cut_from_the_websites_metal.rs"]
+mod a_flora_tab_row_is_cut_from_the_websites_metal;
+#[path = "a_flex_items_negative_margin_overhangs_its_row_without_growing_it.rs"]
+mod a_flex_items_negative_margin_overhangs_its_row_without_growing_it;

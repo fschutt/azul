@@ -274,7 +274,7 @@ function M.style_effects()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundPosition(C.AzStyleBackgroundPositionVec_copyFromPtr(ffi.new('AzStyleBackgroundPosition[1]', { ffi.new('AzStyleBackgroundPosition', { horizontal = C.AzBackgroundPositionHorizontal_center(), vertical = C.AzBackgroundPositionVertical_center() }) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundSize(C.AzStyleBackgroundSizeVec_copyFromPtr(ffi.new('AzStyleBackgroundSize[1]', { C.AzStyleBackgroundSize_cover() }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundRepeat(C.AzStyleBackgroundRepeatVec_copyFromPtr(ffi.new('AzStyleBackgroundRepeat[1]', { C.AzStyleBackgroundRepeat_NoRepeat }), 1))),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClip_PaddingBox)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_backgroundClip(C.AzStyleBackgroundClipVec_copyFromPtr(ffi.new('AzStyleBackgroundClip[1]', { C.AzStyleBackgroundClip_PaddingBox }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transform(C.AzStyleTransformVec_copyFromPtr(ffi.new('AzStyleTransform[1]', { C.AzStyleTransform_rotate(ffi.new('AzAngleValue', { metric = C.AzAngleMetric_Degree, number = C.AzFloatValue_create(45.0) })) }), 1))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_transformOrigin(ffi.new('AzStyleTransformOrigin', { x = C.AzPixelValue_percent(50.0), y = C.AzPixelValue_percent(50.0) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_perspectiveOrigin(ffi.new('AzStylePerspectiveOrigin', { x = C.AzPixelValue_px(10.0), y = C.AzPixelValue_px(20.0) }))),

@@ -302,7 +302,7 @@ function style_effects()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundPosition(az_vec(Azul.AzStyleBackgroundPositionVec_copyFromPtr, Azul.AzStyleBackgroundPosition, Azul.AzStyleBackgroundPosition(Azul.AzBackgroundPositionHorizontal_center(), Azul.AzBackgroundPositionVertical_center())))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundSize(az_vec(Azul.AzStyleBackgroundSizeVec_copyFromPtr, Azul.AzStyleBackgroundSize, Azul.AzStyleBackgroundSize_cover()))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundRepeat(az_vec(Azul.AzStyleBackgroundRepeatVec_copyFromPtr, Azul.AzStyleBackgroundRepeat, Azul.AzStyleBackgroundRepeat_NoRepeat))),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundClip(Azul.AzStyleBackgroundClip_PaddingBox)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_backgroundClip(az_vec(Azul.AzStyleBackgroundClipVec_copyFromPtr, Azul.AzStyleBackgroundClip, Azul.AzStyleBackgroundClip_PaddingBox))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_transform(az_vec(Azul.AzStyleTransformVec_copyFromPtr, Azul.AzStyleTransform, Azul.AzStyleTransform_rotate(Azul.AzAngleValue(Azul.AzAngleMetric_Degree, Azul.AzFloatValue_create(45.0f0)))))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_transformOrigin(Azul.AzStyleTransformOrigin(Azul.AzPixelValue_percent(50.0f0), Azul.AzPixelValue_percent(50.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_perspectiveOrigin(Azul.AzStylePerspectiveOrigin(Azul.AzPixelValue_px(10.0f0), Azul.AzPixelValue_px(20.0f0)))),

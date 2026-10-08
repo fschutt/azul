@@ -245,7 +245,7 @@ func StyleEffects() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundPosition(azul.AzStyleBackgroundPositionVec_copyFromPtr(&[]azul.AzStyleBackgroundPosition{azul.AzStyleBackgroundPosition{Horizontal: azul.AzBackgroundPositionHorizontal_Center(), Vertical: azul.AzBackgroundPositionVertical_Center()}}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundSize(azul.AzStyleBackgroundSizeVec_copyFromPtr(&[]azul.AzStyleBackgroundSize{azul.AzStyleBackgroundSize_Cover()}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundRepeat(azul.AzStyleBackgroundRepeatVec_copyFromPtr(&[]azul.AzStyleBackgroundRepeat{azul.StyleBackgroundRepeat_NoRepeat}[0], 1))),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundClip(azul.StyleBackgroundClip_PaddingBox)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_backgroundClip(azul.AzStyleBackgroundClipVec_copyFromPtr(&[]azul.AzStyleBackgroundClip{azul.StyleBackgroundClip_PaddingBox}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transform(azul.AzStyleTransformVec_copyFromPtr(&[]azul.AzStyleTransform{azul.AzStyleTransform_Rotate(azul.AzAngleValue{Metric: azul.AngleMetric_Degree, Number: azul.AzFloatValue_create(45.0)})}[0], 1))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_transformOrigin(azul.AzStyleTransformOrigin{X: azul.AzPixelValue_percent(50.0), Y: azul.AzPixelValue_percent(50.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_perspectiveOrigin(azul.AzStylePerspectiveOrigin{X: azul.AzPixelValue_px(10.0), Y: azul.AzPixelValue_px(20.0)})),

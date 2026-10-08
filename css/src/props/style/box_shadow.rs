@@ -13,7 +13,7 @@ use crate::{
             },
             pixel::{
                 parse_pixel_value_no_percent, CssPixelValueParseError,
-                CssPixelValueParseErrorOwned, PixelValueNoPercent,
+                CssPixelValueParseErrorOwned, PixelValue, PixelValueNoPercent,
             },
         },
         formatter::PrintAsCssValue,
@@ -70,6 +70,86 @@ impl StyleBoxShadow {
         self.offset_y.scale_for_dpi(scale_factor);
         self.blur_radius.scale_for_dpi(scale_factor);
         self.spread_radius.scale_for_dpi(scale_factor);
+    }
+
+    /// This shadow with no size and no strength: what a slot without a shadow
+    /// stands for while a shadow comes or goes (CSS Backgrounds 3 s7.1: "a
+    /// transparent shadow" whose lengths are all zero). It keeps its own hue
+    /// at alpha 0 - a tween toward transparent BLACK would darken a fading
+    /// gold rim on its way out - and its lengths keep their units.
+    #[must_use]
+    pub(crate) fn faded_out(&self) -> Self {
+        let none = |len: PixelValueNoPercent| PixelValueNoPercent {
+            inner: PixelValue::from_metric(len.inner.metric, 0.0),
+        };
+        Self {
+            offset_x: none(self.offset_x),
+            offset_y: none(self.offset_y),
+            blur_radius: none(self.blur_radius),
+            spread_radius: none(self.spread_radius),
+            clip_mode: self.clip_mode,
+            color: ColorU { a: 0, ..self.color },
+        }
+    }
+
+    /// This shadow on its way to `other` at `t`: every length and the colour
+    /// tween. Inset or outset is this shadow's; [`interpolate_shadow`] pairs
+    /// only shadows that agree on it.
+    #[must_use]
+    pub(crate) fn interpolate(&self, other: &Self, t: f32) -> Self {
+        // An equal length is kept as it is: the fixed-point round trip of a
+        // tween would move a length that does not move.
+        let length = |a: PixelValueNoPercent, b: PixelValueNoPercent| {
+            if a == b {
+                a
+            } else {
+                PixelValueNoPercent {
+                    inner: a.inner.interpolate(&b.inner, t),
+                }
+            }
+        };
+        Self {
+            offset_x: length(self.offset_x, other.offset_x),
+            offset_y: length(self.offset_y, other.offset_y),
+            blur_radius: length(self.blur_radius, other.blur_radius),
+            spread_radius: length(self.spread_radius, other.spread_radius),
+            clip_mode: self.clip_mode,
+            color: self.color.interpolate_premultiplied(&other.color, t),
+        }
+    }
+}
+
+/// The shadow a shadow slot shows on its way from `from` to `to` at `t`
+/// (the eased progress, `0..=1`; `None`: no shadow) - every frame of a
+/// `box-shadow` or `text-shadow` transition.
+///
+/// Two shadows tween every length and their colour. A shadow that comes or
+/// goes tweens with a transparent shadow of zero size
+/// ([`StyleBoxShadow::faded_out`]), so it fades in or out where it stands. An
+/// inset shadow and an outset one have nothing in between: the first fades
+/// out over the first half and the second in over the second - the nearest a
+/// slot holding one shadow comes to cross-fading two (CSS would not animate
+/// them at all).
+///
+/// flora's hover glow is two shadows - the gold rim and the bloom off the
+/// stone - and its lip, its pressed well and its keyboard ring are shadows
+/// too; with no tween a shadow held, then jumped half way.
+#[must_use]
+pub(crate) fn interpolate_shadow(
+    from: Option<&StyleBoxShadow>,
+    to: Option<&StyleBoxShadow>,
+    t: f32,
+) -> Option<StyleBoxShadow> {
+    match (from, to) {
+        (None, None) => None,
+        (Some(a), None) => Some(a.interpolate(&a.faded_out(), t)),
+        (None, Some(b)) => Some(b.faded_out().interpolate(b, t)),
+        (Some(a), Some(b)) if a.clip_mode == b.clip_mode => Some(a.interpolate(b, t)),
+        (Some(a), Some(b)) => Some(if t < 0.5 {
+            a.interpolate(&a.faded_out(), t * 2.0)
+        } else {
+            b.faded_out().interpolate(b, t * 2.0 - 1.0)
+        }),
     }
 }
 

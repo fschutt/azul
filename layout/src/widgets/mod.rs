@@ -317,6 +317,13 @@ pub mod radio_group;
 pub mod reading_pane;
 /// Ribbon widget
 pub mod ribbon;
+/// Ribbon file menu widget.
+///
+/// Windows 8 Explorer's File menu: the drop-down the ribbon's File tab opens
+/// (a "mini backstage" in a transient window) - commands with large icons,
+/// their sub-commands and the frequent places with pins; see
+/// `ribbon_file_menu.rs`.
+pub mod ribbon_file_menu;
 /// WAI-ARIA "roving tabindex" shared by the composite widgets (radio group,
 /// segmented control, tabs, list view, tree view, date grid): one Tab stop per
 /// group, arrow keys move within it; see `roving.rs`.
@@ -1409,6 +1416,47 @@ mod label_convention {
                 .dom(),
             ),
             (
+                "ribbon_file_menu",
+                super::ribbon_file_menu::RibbonFileMenu::create(
+                    super::ribbon_file_menu::RibbonFileMenuCommandVec::from_vec(vec![
+                        super::ribbon_file_menu::RibbonFileMenuCommand::create(
+                            AzString::from("open_in_new"),
+                            AzString::from("Open new window"),
+                        ),
+                        super::ribbon_file_menu::RibbonFileMenuCommand::create(
+                            AzString::from("help"),
+                            AzString::from("Help"),
+                        )
+                        .with_separator_before(true)
+                        .with_child(
+                            super::ribbon_file_menu::RibbonFileMenuCommand::create(
+                                AzString::from("info"),
+                                AzString::from("About"),
+                            )
+                            .with_description(AzString::from("The version and the licence")),
+                        ),
+                        super::ribbon_file_menu::RibbonFileMenuCommand::create(
+                            AzString::from("close"),
+                            AzString::from("Close"),
+                        )
+                        .with_separator_before(true),
+                    ]),
+                )
+                .with_places(
+                    AzString::from("Frequent places"),
+                    super::ribbon_file_menu::RibbonFileMenuPlaceVec::from_vec(vec![
+                        super::ribbon_file_menu::RibbonFileMenuPlace::create(AzString::from(
+                            "Downloads",
+                        ))
+                        .with_pinned(true),
+                        super::ribbon_file_menu::RibbonFileMenuPlace::create(AzString::from(
+                            "Documents",
+                        )),
+                    ]),
+                )
+                .dom(),
+            ),
+            (
                 "segmented",
                 Segmented::create(labels(&["Day", "Week", "Month"])).dom(),
             ),
@@ -2033,8 +2081,10 @@ mod label_convention {
                 .with_accessibility_name("Level")
                 .dom(),
         ));
-        // The code view: a short function, the caret on its second line.
-        all.push(("code_view", super::code_view::fixtures::sample().dom()));
+        // The code view: a short function, the caret on its second line -
+        // its lines (the DOM of its VirtualView) drawn in place, so their
+        // inks are read on the view's own ground.
+        all.push(("code_view", super::code_view::fixtures::sample_with_lines()));
         all
     }
 
@@ -2984,6 +3034,8 @@ pub(crate) mod theme_contrast {
         "pagination",
         "quick_access",
         "ribbon",
+        // The ribbon's File menu: its commands and places on the menu's paper.
+        "ribbon_file_menu",
         "statusbar",
         "statusbar (sync)",
         "stepper",

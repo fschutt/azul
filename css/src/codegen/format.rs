@@ -51,6 +51,7 @@ pub struct VecContents {
     pub style_filters: BTreeMap<u64, StyleFilterVec>,
     pub style_background_sizes: BTreeMap<u64, StyleBackgroundSizeVec>,
     pub style_background_repeats: BTreeMap<u64, StyleBackgroundRepeatVec>,
+    pub style_background_clips: BTreeMap<u64, StyleBackgroundClipVec>,
     pub style_background_contents: BTreeMap<u64, StyleBackgroundContentVec>,
     pub style_background_positions: BTreeMap<u64, StyleBackgroundPositionVec>,
     pub style_transforms: BTreeMap<u64, StyleTransformVec>,
@@ -115,6 +116,20 @@ impl VecContents {
             let _ = write!(
                 result,
                 "\r\n    const STYLE_BACKGROUND_REPEAT_{key}_ITEMS: &[StyleBackgroundRepeat] = \
+                 &[\r\n{t2}{val}\r\n{t}];"
+            );
+        }
+
+        for (key, item) in &self.style_background_clips {
+            let val = item
+                .iter()
+                .map(|clip| clip.format_as_rust_code(tabs + 1))
+                .collect::<Vec<_>>()
+                .join(&format!(",\r\n{t}"));
+
+            let _ = write!(
+                result,
+                "\r\n    const STYLE_BACKGROUND_CLIP_{key}_ITEMS: &[StyleBackgroundClip] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
         }
@@ -232,6 +247,9 @@ impl VecContents {
             CssProperty::BackgroundRepeat(CssPropertyValue::Exact(v)) => {
                 self.style_background_repeats
                     .insert(v.get_hash(), v.clone());
+            }
+            CssProperty::BackgroundClip(CssPropertyValue::Exact(v)) => {
+                self.style_background_clips.insert(v.get_hash(), v.clone());
             }
             CssProperty::BackgroundSize(CssPropertyValue::Exact(v)) => {
                 self.style_background_sizes.insert(v.get_hash(), v.clone());

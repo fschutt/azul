@@ -243,7 +243,7 @@ public func styleEffects() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(horizontal: BackgroundPositionHorizontal.center, vertical: BackgroundPositionVertical.center)])),
         CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),
-        CssPropertyWithConditions.simple(CssProperty.backgroundClip(StyleBackgroundClip.paddingBox)),
+        CssPropertyWithConditions.simple(CssProperty.backgroundClip([StyleBackgroundClip.paddingBox])),
         CssPropertyWithConditions.simple(CssProperty.transform([StyleTransform.rotate(AngleValue(metric: AngleMetric.degree, number: FloatValue(45.0)))])),
         CssPropertyWithConditions.simple(CssProperty.transformOrigin(StyleTransformOrigin(x: PixelValue.percent(50.0), y: PixelValue.percent(50.0)))),
         CssPropertyWithConditions.simple(CssProperty.perspectiveOrigin(StylePerspectiveOrigin(x: PixelValue.px(10.0), y: PixelValue.px(20.0)))),

@@ -13,9 +13,15 @@ use azul_css::{
         PseudoStateType, ThemeCondition,
     },
     props::{
-        basic::color::ColorU,
+        basic::{
+            animation::AnimationTiming, color::ColorU, AngleValue, Direction, FloatValue,
+            PercentageValue,
+        },
         property::{CssProperty, CssPropertyType},
-        style::StyleBackgroundContent,
+        style::{
+            ExtendMode, LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+            StyleBackgroundClip, StyleBackgroundContent,
+        },
     },
 };
 
@@ -522,8 +528,8 @@ pub(crate) fn theme_colours(theme: UiTheme) -> Vec<ColorU> {
                 DARK_ICON, DARK_RT, DARK_RB, DARK_HT, DARK_HB, DARK_PT, DARK_PB, DARK_FLD,
                 DARK_FLD2, DARK_DISBG, DARK_DISTX, DARK_QT, DARK_QT2, DARK_ACC, DARK_DEEP,
                 DARK_SOFT, DARK_GLOW, DARK_ON_ACC,
-                // The metal rule.
-                TAB_METAL,
+                // The metal: the rule, the rolled bead, the turn colour.
+                TAB_METAL, METAL_LIT, METAL_ROLL, METAL_GLINT, METAL_DIM, METAL_SHADE,
             ]
         }
     }
@@ -659,6 +665,117 @@ pub(crate) fn assert_structure_is_shared(what: &str, dom: &Dom, allowed: &[Theme
          the reason the themes differ):\n  {}",
         themed.join("\n  ")
     );
+}
+
+// ==== flora.css's metal and motion, as the stylesheet writes them ====
+//
+// What the flora tab rows are held to: the website's own values, transcribed
+// here once and apart from the theme module that cuts the tabs from them, so
+// a test compares the widget with the stylesheet rather than with itself.
+
+/// A colour stop as flora.css writes one - `rgba(r, g, b, a) <percent>%` -
+/// its alpha rounded the way the CSS parser rounds it.
+fn css_stop(percent: isize, (r, g, b): (u8, u8, u8), alpha: f32) -> NormalizedLinearColorStop {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0..=255
+    let a = (alpha * 255.0).round() as u8;
+    NormalizedLinearColorStop::new(PercentageValue::const_new(percent), ColorU::new(r, g, b, a))
+}
+
+/// `linear-gradient(<degrees>deg, <stops>)`.
+fn css_linear(degrees: isize, stops: Vec<NormalizedLinearColorStop>) -> StyleBackgroundContent {
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::Angle(AngleValue::const_deg(degrees)),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_vec(stops),
+    })
+}
+
+/// `--fl-metal-turn`: the value the ribbon has where the rule turns up the tab.
+const FLORA_CSS_METAL_TURN: (u8, u8, u8) = (198, 178, 121);
+
+/// `--fl-rule-metal-bg`, the rule that closes a tab strip: brass at half
+/// alpha at both ends, the bright glint at a third and at two thirds, a
+/// darker roll between them.
+pub(crate) fn flora_css_rule_metal() -> StyleBackgroundContent {
+    let (shade, glint, dim) = ((122, 112, 82), (239, 235, 211), (162, 146, 95));
+    css_linear(
+        90,
+        alloc::vec![
+            css_stop(0, shade, 0.5),
+            css_stop(16, FLORA_CSS_METAL_TURN, 0.95),
+            css_stop(32, glint, 1.0),
+            css_stop(50, dim, 0.9),
+            css_stop(68, glint, 1.0),
+            css_stop(84, FLORA_CSS_METAL_TURN, 0.95),
+            css_stop(100, shade, 0.5),
+        ],
+    )
+}
+
+/// `--fl-rolled-tab`, the bead the selected tab's metal is cut from: lit at
+/// its head, arriving at `--fl-metal-turn` at the cove's tangent -
+/// `calc(100% - var(--fl-cove-o))`, `--fl-cove-o` being 12px + 2px - and
+/// holding it to the foot.
+pub(crate) fn flora_css_rolled_tab() -> StyleBackgroundContent {
+    let mut at_the_tangent = css_stop(100, FLORA_CSS_METAL_TURN, 1.0);
+    at_the_tangent.offset_px = FloatValue::const_new(-14);
+    css_linear(
+        180,
+        alloc::vec![
+            css_stop(0, (0xFF, 0xFD, 0xF3), 1.0),
+            css_stop(22, (0xE4, 0xDC, 0xB8), 1.0),
+            at_the_tangent,
+            css_stop(100, FLORA_CSS_METAL_TURN, 1.0),
+        ],
+    )
+}
+
+/// `.fl-tab-runout-l` (`left`) or `-r`: the rule easing into the turn
+/// colour beside a foot - `--fl-metal-turn-0` at its far end.
+pub(crate) fn flora_css_runout(left: bool) -> StyleBackgroundContent {
+    css_linear(
+        if left { 90 } else { 270 },
+        alloc::vec![
+            css_stop(0, FLORA_CSS_METAL_TURN, 0.0),
+            css_stop(100, FLORA_CSS_METAL_TURN, 1.0),
+        ],
+    )
+}
+
+/// The `background-clip` boxes of `node` in that mode and state, in the
+/// layers' paint order; empty when it declares none.
+pub(crate) fn background_clips(
+    node: &Dom,
+    dark: bool,
+    state: Option<PseudoStateType>,
+) -> Vec<StyleBackgroundClip> {
+    match resolve(node, CssPropertyType::BackgroundClip, dark, state) {
+        Some(CssProperty::BackgroundClip(v)) => v
+            .get_property()
+            .map(|clips| clips.as_ref().to_vec())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// The fades `node` declares in `state` - azul spells a transition as an
+/// `animation` naming the property - as (property, milliseconds, timing).
+pub(crate) fn fades(
+    node: &Dom,
+    state: Option<PseudoStateType>,
+) -> Vec<(String, u32, AnimationTiming)> {
+    match resolve(node, CssPropertyType::Animation, false, state) {
+        Some(CssProperty::Animation(v)) => v
+            .get_property()
+            .map(|list| {
+                list.as_ref()
+                    .iter()
+                    .map(|a| (String::from(a.name.as_str()), a.duration.millis(), a.timing))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
 }
 
 #[cfg(test)]

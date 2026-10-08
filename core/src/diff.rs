@@ -2618,6 +2618,15 @@ pub struct PreCascadeTransfers {
     /// survives an identical rebuild and its callbacks (installed from
     /// `callbacks` above) end up on the SAME allocation as its dataset.
     pub datasets: Vec<(usize, RefAny)>,
+    /// `(flattened NodeId index, fresh payload)` for every `VirtualView`: its
+    /// callback and refany, which the fingerprint does not read
+    /// (`NodeType::VirtualView` is a bare variant, the payload lives beside
+    /// it). Installed on the retained DOM BEFORE the datasets are merged, so
+    /// a widget whose handlers and view share one `RefAny` stays ONE
+    /// allocation: the retained view used to keep last build's refany while
+    /// the handlers got the fresh one, and the view rendered a state nothing
+    /// wrote any more.
+    pub virtual_views: Vec<(usize, crate::dom::VirtualViewNode)>,
 }
 
 /// Walk a recursive [`crate::dom::Dom`] once, pre-order.
@@ -2768,6 +2777,9 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         }
         if let Some(ds) = dom.root.get_dataset() {
             transfers.datasets.push((idx, ds.clone()));
+        }
+        if let Some(view) = dom.root.get_virtual_view_node_ref() {
+            transfers.virtual_views.push((idx, view.clone()));
         }
 
         for child in dom.children.as_ref() {

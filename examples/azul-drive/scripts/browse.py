@@ -8,7 +8,8 @@ walk the source list, go Back / Forward / Up.
     2. starts AzDrive headless (AZ_BACKEND=headless, the debug server on --debug-port) with a
        temporary Home folder, drives file and Downloads folder (`--home`, `--drives`,
        `--downloads`); it opens on "This PC";
-    3. through AzDrive's debug server: This PC's "Add S3 drive" in the command bar, types name,
+    3. through AzDrive's debug server: This PC's "Add S3 drive" on the ribbon's Computer tab,
+       types name,
        endpoint, region, bucket, access key and secret key into the form, clicks "Test
        connection" (asserts it says "Connection OK" after exactly one ListObjectsV2 call) and
        "Save drive";
@@ -16,8 +17,8 @@ walk the source list, go Back / Forward / Up.
        the drive in CLOUD (its row selected, its eject button);
     5. double-clicks the "mail" and "inbox" folders (the view shows 0001.eml), and asserts that
        browsing fetched listings only, not one object;
-    6. selects 0001.eml, clicks "Download" (the command bar of a cloud drive's folder: a
-       transfer into the Downloads folder), and
+    6. selects 0001.eml, clicks "Download" (the ribbon's Share tab: a transfer into the
+       Downloads folder), and
        asserts the downloaded bytes are the object's and that the server saw exactly one
        GetObject, for mail/inbox/0001.eml;
     7. clicks Home in the source list (`#__azdrive_side_drive_home`: the Home drive lists,
@@ -251,14 +252,14 @@ def open_folder(app, label, prefix):
     """Double-clicks the item `label` and waits for the listing of `prefix`."""
     listed = r"\S+ %s \d+" % re.escape(prefix)
     before = len(app.printed("AZDRIVE_LISTED", listed))
-    app.must("double_click", text=label)
+    click_anywhere(app, "double_click", label)
     try:
         app.until("the listing of %s" % prefix,
                   lambda: len(app.printed("AZDRIVE_LISTED", listed)) > before)
     except Failure:
         # The double-click did not open it: select the item and press Enter (Explorer's Open).
         log("WARNING: double-clicking %s did not open it; selecting it and pressing Enter" % label)
-        app.must("click", text=label)
+        click_anywhere(app, "click", label)
         time.sleep(0.3)
         mods = {"shift": False, "ctrl": False, "alt": False, "meta": False}
         app.must("key_down", key="enter", modifiers=mods)
@@ -268,6 +269,72 @@ def open_folder(app, label, prefix):
 
 
 NAV_CLASS = "__azul-native-address-bar-nav"
+RIBBON_ID = "__azdrive_ribbon"
+
+
+def norm(text):
+    """A label as it reads: a large ribbon button sets its label on two lines with no-break
+    spaces between the words of a line."""
+    return " ".join((text or "").replace("\u00a0", " ").split())
+
+
+def dom_ids(app):
+    """The window's DOMs, the virtual views' first: a folder's rows are the virtual view's own
+    DOM (src/ui_view.rs), which a text search of DOM 0 never reaches."""
+    answer = app.op("list_doms")
+    ids = [d["dom_id"] for d in dicts(answer) if isinstance(d.get("dom_id"), int)]
+    ids = sorted(set(ids), key=lambda d: (d == 0, d))
+    return ids or [0]
+
+
+def shows_anywhere(app, text):
+    """Whether any DOM of the window shows `text` (a row of the virtual view included)."""
+    return any(app.shows(text, dom_id=d) for d in dom_ids(app))
+
+
+def click_anywhere(app, op, text):
+    """`op` (click, double_click) on the first node holding `text`, the virtual views' DOMs
+    searched first."""
+    for d in dom_ids(app):
+        answer = app.op(op, dom_id=d, text=text)
+        if isinstance(answer, dict) and answer.get("status") != "error":
+            log("%s %r in DOM %s" % (op, text, d))
+            return answer
+    raise Failure("%s %r: no DOM of the window has it" % (op, text))
+
+
+def ribbon_click(app, label):
+    """Clicks the ribbon's control (or tab) labelled `label`: the node under the ribbon
+    (#__azdrive_ribbon) whose text reads `label`, through its nearest ancestor with a box."""
+    def found():
+        nodes = app.nodes()
+        by_index = {n["index"]: n for n in nodes}
+
+        def inside(n):
+            for _ in range(256):
+                if n is None:
+                    return False
+                if n.get("id") == RIBBON_ID:
+                    return True
+                n = by_index.get(n.get("parent"))
+            return False
+
+        for n in nodes:
+            if norm(n.get("text")) == label and inside(n):
+                return n
+        return None
+
+    node = app.until('the ribbon\'s "%s"' % label, found)
+    parents = {n["index"]: n.get("parent") for n in app.nodes()}
+    at = node.get("parent", node["index"])
+    while isinstance(at, int) and at >= 0:
+        answer = app.op("click", node_id=at, button="left")
+        if isinstance(answer, dict) and answer.get("status") != "error":
+            log('ribbon: "%s" (node %d)' % (label, at))
+            time.sleep(0.3)
+            return
+        at = parents.get(at)
+    raise Failure('click on the ribbon\'s "%s": no node from its label up has a box' % label)
 
 
 def nav_click(app, index, what):
@@ -318,9 +385,8 @@ def run(args, logs):
         app.until("AzDrive's window", lambda: app.shows("This PC"))
         app.until("the This PC view", lambda: app.printed("AZDRIVE_PLACE", r"this-pc"))
 
-        # 3. The "Add drive" form: This PC's command bar (`__azdrive_cmd_add_drive`).
-        app.until("the command bar's Add S3 drive", lambda: app.shows("Add S3 drive"))
-        app.must("click", selector="#__azdrive_cmd_add_drive")
+        # 3. The "Add drive" form: This PC's ribbon tab, Computer > Network > Add S3 drive.
+        ribbon_click(app, "Add S3 drive")
         dom = None
         if args.window_dialogs:
             def dialog_dom():
@@ -390,23 +456,23 @@ def run(args, logs):
 
         # 5. Browse to mail/inbox/.
         server.clear_log()
-        app.until("the mail folder in the list", lambda: app.shows("mail"))
+        app.until("the mail folder in the list", lambda: shows_anywhere(app, "mail"))
         open_folder(app, "mail", "mail/")
-        app.until("inbox in the list", lambda: app.shows("inbox"))
+        app.until("inbox in the list", lambda: shows_anywhere(app, "inbox"))
         open_folder(app, "inbox", "mail/inbox/")
-        app.until("0001.eml in the list", lambda: app.shows("0001.eml"))
+        app.until("0001.eml in the list", lambda: shows_anywhere(app, "0001.eml"))
         ops = sorted({r["op"] for r in server.requests()})
         if server.object_gets() or ops != ["ListObjectsV2"]:
             raise Failure("browsing fetched more than listings: %r" % server.requests())
         prefixes = [r["query"].get("prefix") for r in server.requests()]
         log("browsing made %d listing call(s) (%s) and fetched no object" % (len(prefixes), prefixes))
 
-        # 6. Download ONE file: select it, "Download" in the command bar (a cloud drive's folder
-        # has Upload and Download there; a transfer of the queue).
-        app.must("click", text="0001.eml")
+        # 6. Download ONE file: select it, Share > Cloud > Download on the ribbon (a transfer of
+        # the queue).
+        click_anywhere(app, "click", "0001.eml")
         time.sleep(0.3)
-        app.until("the command bar's Download", lambda: app.shows("Download"))
-        app.must("click", selector="#__azdrive_cmd_download")
+        ribbon_click(app, "Share")
+        ribbon_click(app, "Download")
         app.until("the download (AZDRIVE_TRANSFER done)",
                   lambda: app.printed("AZDRIVE_TRANSFER", r"\d+ done 1"))
         path = os.path.join(downloads, "0001.eml")
@@ -429,7 +495,7 @@ def run(args, logs):
         app.must("click", selector="#__azdrive_side_drive_home")
         app.until("the Home drive listed from the source list",
                   lambda: len(app.printed("AZDRIVE_LISTED", home_listed)) > before)
-        app.until("notes.txt in the Home drive", lambda: app.shows("notes.txt"))
+        app.until("notes.txt in the Home drive", lambda: shows_anywhere(app, "notes.txt"))
         inbox_listed = r"%s mail/inbox/ \d+" % re.escape(drive_id)
         before = len(app.printed("AZDRIVE_LISTED", inbox_listed))
         nav_click(app, 0, "Back")

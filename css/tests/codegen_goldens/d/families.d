@@ -252,7 +252,7 @@ CssPropertyWithConditions[] styleEffects()
         CssPropertyWithConditions.simple(CssProperty.backgroundPosition([StyleBackgroundPosition(BackgroundPositionHorizontal.center(), BackgroundPositionVertical.center())])),
         CssPropertyWithConditions.simple(CssProperty.backgroundSize([StyleBackgroundSize.cover()])),
         CssPropertyWithConditions.simple(CssProperty.backgroundRepeat([StyleBackgroundRepeat.noRepeat])),
-        CssPropertyWithConditions.simple(CssProperty.backgroundClip(StyleBackgroundClip.paddingBox)),
+        CssPropertyWithConditions.simple(CssProperty.backgroundClip([StyleBackgroundClip.paddingBox])),
         CssPropertyWithConditions.simple(CssProperty.transform([StyleTransform.rotate(AngleValue(AngleMetric.degree, FloatValue(45.0f)))])),
         CssPropertyWithConditions.simple(CssProperty.transformOrigin(StyleTransformOrigin(PixelValue.percent(50.0f), PixelValue.percent(50.0f)))),
         CssPropertyWithConditions.simple(CssProperty.perspectiveOrigin(StylePerspectiveOrigin(PixelValue.px(10.0f), PixelValue.px(20.0f)))),

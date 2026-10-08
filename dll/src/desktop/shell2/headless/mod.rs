@@ -7236,6 +7236,81 @@ mod tests {
         );
     }
 
+    // --- An identical rebuild renders its views from the FRESH payload --------
+    //
+    // CODESCROLL13 (2026-10-08): when the fresh build fingerprints equal, the
+    // pre-cascade skip keeps the retained StyledDom and moves the fresh
+    // build's event callbacks, image callbacks and datasets onto it - but not
+    // its VirtualViews' callback and refany, which the fingerprint does not
+    // read. The retained view kept LAST build's refany. A widget that makes
+    // one RefAny per build and hands clones of it to its handlers and to its
+    // VirtualView (the code view: its view state) was split in two after any
+    // identical rebuild: the handlers wrote the fresh allocation, the view
+    // kept rendering the old one - a scroll was stored and nothing moved. The
+    // equivalence exit has always transferred the view's refany.
+
+    /// The app state: the model's value, handed to a FRESH RefAny per build.
+    struct VvFreshState {
+        value: u32,
+    }
+
+    extern "C" fn fresh_view_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let value = data
+            .downcast_ref::<VvFreshState>()
+            .map(|s| s.value)
+            .expect("app state");
+        Dom::create_body().with_child(
+            Dom::create_virtual_view(
+                RefAny::new(VvCounter { value }),
+                azul_core::callbacks::VirtualViewCallback::create(counter_view_render),
+            )
+            .with_css("width: 200px; height: 100px;"),
+        )
+    }
+
+    #[test]
+    fn an_identical_rebuild_renders_its_virtual_views_from_the_fresh_payload() {
+        use crate::desktop::shell2::common::{
+            event::PlatformWindow, layout::LayoutRegenerateResult,
+        };
+
+        let state = Arc::new(RefCell::new(RefAny::new(VvFreshState { value: 0 })));
+        let mut window = make_window_sized(&state, fresh_view_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        window.common.drain_virtual_view_updates();
+        assert!(
+            nested_dom_texts(&window)
+                .iter()
+                .any(|t| t.contains("value 0")),
+            "the view must have rendered the initial model: {:?}",
+            nested_dom_texts(&window)
+        );
+
+        // The model moves. The rebuilt DOM has the same shape and style: only
+        // the VirtualView's refany - a fresh allocation - carries the change.
+        {
+            let mut g = state.borrow_mut();
+            let r: &mut RefAny = &mut g;
+            let mut app = r.downcast_mut::<VvFreshState>().expect("app state");
+            app.value = 1;
+        }
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout().expect("refresh");
+        assert!(
+            matches!(result, LayoutRegenerateResult::LayoutUnchanged),
+            "this test exercises an UNCHANGED exit - an identical rebuild must take it"
+        );
+        window.common.drain_virtual_view_updates();
+        let texts = nested_dom_texts(&window);
+        assert!(
+            texts.iter().any(|t| t.contains("value 1")),
+            "the view renders the payload of the build on screen, not the one before it: {texts:?}"
+        );
+    }
+
     // --- A native pinch reaches the callbacks of its own pass --------------
     //
     // REPORTED (AzMap, 2026-08-21): a trackpad pinch over the map did nothing.

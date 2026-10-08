@@ -771,12 +771,26 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.position =
             from_layout_position(get_position(styled_dom, id, node_state).unwrap_or_default());
 
-        // Inset (top, left, bottom, right)
-        taffy_style.inset = Rect {
-            left: multi_value_to_lpa(get_css_left(styled_dom, id, node_state)),
-            right: multi_value_to_lpa(get_css_right(styled_dom, id, node_state)),
-            top: multi_value_to_lpa(get_css_top(styled_dom, id, node_state)),
-            bottom: multi_value_to_lpa(get_css_bottom(styled_dom, id, node_state)),
+        // Inset (top, left, bottom, right) - for a box taffy POSITIONS (an
+        // absolutely positioned child of a flex or grid container). A
+        // relatively positioned (or sticky) item is shifted where it is
+        // painted by `positioning::adjust_relative_positions`, the one pass
+        // that shifts every kind of box: handed to taffy as well, a flex item
+        // with `top: 10px` moved 20 px.
+        taffy_style.inset = if taffy_style.position == Position::Absolute {
+            Rect {
+                left: multi_value_to_lpa(get_css_left(styled_dom, id, node_state)),
+                right: multi_value_to_lpa(get_css_right(styled_dom, id, node_state)),
+                top: multi_value_to_lpa(get_css_top(styled_dom, id, node_state)),
+                bottom: multi_value_to_lpa(get_css_bottom(styled_dom, id, node_state)),
+            }
+        } else {
+            Rect {
+                left: LengthPercentageAuto::auto(),
+                right: LengthPercentageAuto::auto(),
+                top: LengthPercentageAuto::auto(),
+                bottom: LengthPercentageAuto::auto(),
+            }
         };
 
         // Size

@@ -214,6 +214,26 @@ pub(crate) fn background_tiles(
     tiles
 }
 
+/// The value a per-layer background list (`background-clip`,
+/// `background-repeat`, ...) gives layer `layer` of `layers`; `None` for an
+/// empty list (every layer then takes the property's initial value).
+///
+/// The layers and their lists are stored in paint order, the bottom layer
+/// first (`parse_style_background_content_multiple`). CSS lists both from the
+/// TOP layer and repeats a list shorter than the layers from there, dropping
+/// the excess of a longer one (CSS Backgrounds 3 s2.2): the list is aligned
+/// at its end with the top layer. Lists of the layers' own length - what a
+/// theme builds - pair up index by index.
+#[must_use]
+pub(crate) fn layer_value<T: Copy>(values: &[T], layers: usize, layer: usize) -> Option<T> {
+    let count = values.len();
+    if count == 0 || layer >= layers {
+        return None;
+    }
+    let from_top = layers - 1 - layer;
+    values.get(count - 1 - from_top % count).copied()
+}
+
 const APPROX_ASCENT_RATIO: f32 = 0.8;
 const APPROX_UNDERLINE_THICKNESS_RATIO: f32 = 0.08;
 const APPROX_UNDERLINE_OFFSET_RATIO: f32 = 0.12;
@@ -1337,6 +1357,141 @@ impl DisplayList {
             }
         }
         damage
+    }
+
+    /// Patch a node's BACKGROUND in place, layer by layer - the per-tick fast
+    /// path of a fade between two backgrounds of one shape: a gradient face
+    /// (flora paints its faces as two-stop gradients, `themes::decl::face`) or
+    /// a list of colour layers. Every item `node` paints for a layer of `from`
+    /// takes the layer of `to` at the same position: a colour layer is a
+    /// `Rect`, a gradient layer its gradient item. Neither item's bounds depend
+    /// on the layer's colours, so only the paint moves and the backend's
+    /// display-list diff damages exactly these items.
+    ///
+    /// Only the node's OWN items are rewritten: a background is not
+    /// inherited, so a descendant painting an equal face paints its own.
+    ///
+    /// Returns the damage union, or `None` when the list cannot be patched and
+    /// the caller must rebuild it: the two lists do not pair up kind for kind,
+    /// a layer is an image (where its tiles go may depend on what it shows),
+    /// two layers of `from` are equal (the match could not tell their items
+    /// apart), or a layer that changes paints nothing this walk can find (a
+    /// transparent colour is not drawn at all).
+    pub fn patch_background_layers(
+        &mut self,
+        node: NodeId,
+        from: &[azul_css::props::style::StyleBackgroundContent],
+        to: &[azul_css::props::style::StyleBackgroundContent],
+    ) -> Option<LogicalRect> {
+        use azul_css::props::style::StyleBackgroundContent as B;
+        if from.is_empty() || from.len() != to.len() {
+            return None;
+        }
+        for (i, pair) in from.iter().zip(to).enumerate() {
+            let same_kind = matches!(
+                pair,
+                (B::Color(_), B::Color(_))
+                    | (B::LinearGradient(_), B::LinearGradient(_))
+                    | (B::RadialGradient(_), B::RadialGradient(_))
+                    | (B::ConicGradient(_), B::ConicGradient(_))
+            );
+            if !same_kind || from[..i].contains(pair.0) {
+                return None;
+            }
+        }
+        let mut found = vec![false; from.len()];
+        let mut damage: Option<LogicalRect> = None;
+        for (idx, item) in self.items.iter_mut().enumerate() {
+            if self.node_mapping.get(idx).copied().flatten() != Some(node) {
+                continue;
+            }
+            let bounds = match item {
+                DisplayListItem::Rect { color, bounds, .. } => {
+                    let Some(i) = from.iter().position(|f| *f == B::Color(*color)) else {
+                        continue;
+                    };
+                    let B::Color(next) = &to[i] else {
+                        continue;
+                    };
+                    *color = *next;
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::LinearGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::LinearGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::LinearGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::RadialGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::RadialGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::RadialGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                DisplayListItem::ConicGradient {
+                    gradient, bounds, ..
+                } => {
+                    let Some(i) = from
+                        .iter()
+                        .position(|f| matches!(f, B::ConicGradient(g) if g == gradient))
+                    else {
+                        continue;
+                    };
+                    let B::ConicGradient(next) = &to[i] else {
+                        continue;
+                    };
+                    *gradient = next.clone();
+                    found[i] = true;
+                    *bounds.inner()
+                }
+                _ => continue,
+            };
+            damage = Some(damage.map_or(bounds, |d| {
+                let x = d.origin.x.min(bounds.origin.x);
+                let y = d.origin.y.min(bounds.origin.y);
+                let right = (d.origin.x + d.size.width).max(bounds.origin.x + bounds.size.width);
+                let bottom = (d.origin.y + d.size.height).max(bounds.origin.y + bounds.size.height);
+                LogicalRect {
+                    origin: LogicalPosition { x, y },
+                    size: LogicalSize {
+                        width: right - x,
+                        height: bottom - y,
+                    },
+                }
+            }));
+        }
+        // A layer that moves must have been found: one the walk missed would
+        // keep painting its old face while the rest of the background fades.
+        let missed = from
+            .iter()
+            .zip(to)
+            .zip(&found)
+            .any(|((f, t), seen)| !*seen && f != t);
+        if missed {
+            return None;
+        }
+        Some(damage.unwrap_or_else(LogicalRect::zero))
     }
 
     pub fn patch_node_image(&mut self, node: NodeId, image: &ImageRef) -> Option<LogicalRect> {
@@ -3728,11 +3883,8 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
             let canvas_rect = generator.ctx.canvas_rect;
             let tile = generator.get_paint_rect(tree.root).unwrap_or(canvas_rect);
             for (i, layer) in layers.iter().enumerate() {
-                let repeat = if repeats.is_empty() {
-                    azul_css::props::style::StyleBackgroundRepeat::PatternRepeat
-                } else {
-                    repeats[i % repeats.len()]
-                };
+                let repeat = layer_value(&repeats, layers.len(), i)
+                    .unwrap_or(azul_css::props::style::StyleBackgroundRepeat::PatternRepeat);
                 builder.push_background_layer_tiled(
                     canvas_rect,
                     tile,
@@ -6499,19 +6651,21 @@ where
             });
         }
         if !background_contents.is_empty() {
-            let (area, radius) = match super::getters::get_background_clip(
-                self.ctx.styled_dom,
-                dom_id,
-                node_state,
-            ) {
-                StyleBackgroundClip::BorderBox => (border_box, border_radius),
-                StyleBackgroundClip::PaddingBox => (padding_box, padding_radius),
-                StyleBackgroundClip::ContentBox => (
-                    inset_rect(padding_box, padding),
-                    inset_radius(padding_radius, padding),
-                ),
-            };
-            for layer in background_contents {
+            // Each layer within its own clip box: a gradient on the border
+            // box under a face on the padding box shows only through the
+            // border (a metal edge).
+            let clips =
+                super::getters::get_background_clips(self.ctx.styled_dom, dom_id, node_state);
+            let layers = background_contents.len();
+            for (i, layer) in background_contents.iter().enumerate() {
+                let (area, radius) = match layer_value(&clips, layers, i).unwrap_or_default() {
+                    StyleBackgroundClip::BorderBox => (border_box, border_radius),
+                    StyleBackgroundClip::PaddingBox => (padding_box, padding_radius),
+                    StyleBackgroundClip::ContentBox => (
+                        inset_rect(padding_box, padding),
+                        inset_radius(padding_radius, padding),
+                    ),
+                };
                 builder.push_background_layer(area, layer, radius, self.ctx.image_cache);
             }
         }
@@ -9446,7 +9600,13 @@ where
 
     // +spec:inline-block:a60a89 - inline-block painted atomically as pseudo-stacking-context per
     // E.2
-    /// Paints an inline shape (inline-block background and border)
+    /// Paints an inline shape (inline-block background and border), mapped to
+    /// the inline-block's OWN node: it is painted while its line's block is
+    /// being painted, and the block's attribution made the box's paint the
+    /// block's in the list - no face of its own for a button in a row to fade
+    /// or patch, and its damage the block's. Only the node changes: the items
+    /// stay in the block's content run (`current_layout`), which is where a
+    /// cached copy of the run replays them.
     fn paint_inline_shape(
         &self,
         builder: &mut DisplayListBuilder,
@@ -9454,11 +9614,26 @@ where
         shape: &InlineShape,
         bounds: &crate::text3::cache::Rect,
     ) {
-        // Render inline-block backgrounds and borders using their CSS styling
-        // The text3 engine positions these correctly in the inline flow
         let Some(node_id) = shape.source_node_id else {
             return;
         };
+        let block = builder.current_node();
+        builder.set_current_node(Some(node_id));
+        self.paint_inline_shape_of(builder, object_bounds, shape, bounds, node_id);
+        builder.set_current_node(block);
+    }
+
+    /// [`Self::paint_inline_shape`] for the inline-block `node_id`.
+    fn paint_inline_shape_of(
+        &self,
+        builder: &mut DisplayListBuilder,
+        object_bounds: LogicalRect,
+        shape: &InlineShape,
+        bounds: &crate::text3::cache::Rect,
+        node_id: NodeId,
+    ) {
+        // Render inline-block backgrounds and borders using their CSS styling
+        // The text3 engine positions these correctly in the inline flow
 
         // If this inline-block establishes a stacking context, its background was
         // already painted by paint_node_background_and_border (called from
@@ -16835,5 +17010,36 @@ mod a_list_marker_paints_no_box_of_its_items_tests {
             })
             .collect();
         assert_eq!(borders.len(), 1, "the item's border, once: {borders:?}");
+    }
+}
+
+#[cfg(test)]
+mod per_layer_list_tests {
+    use super::layer_value;
+
+    /// A list as long as the layers pairs up index by index (paint order on
+    /// both sides); a shorter one repeats from the TOP layer down, as CSS
+    /// lists it: `a, b` over three layers (top to bottom) is `a, b, a`.
+    #[test]
+    fn a_per_layer_list_is_aligned_with_the_top_layer() {
+        // Paint order: the bottom layer's value first.
+        assert_eq!(layer_value(&['z', 'y', 'x'], 3, 0), Some('z'));
+        assert_eq!(layer_value(&['z', 'y', 'x'], 3, 2), Some('x'));
+        // CSS `a, b` is stored `b, a`: top layer a, then b, then a again.
+        let short = ['b', 'a'];
+        assert_eq!(layer_value(&short, 3, 2), Some('a'), "the top layer");
+        assert_eq!(layer_value(&short, 3, 1), Some('b'));
+        assert_eq!(layer_value(&short, 3, 0), Some('a'), "the list repeats");
+        // One value is every layer's.
+        for layer in 0..4 {
+            assert_eq!(layer_value(&['p'], 4, layer), Some('p'));
+        }
+        // CSS `a, b, c` over two layers drops `c`, the bottom-most value.
+        let long = ['c', 'b', 'a'];
+        assert_eq!(layer_value(&long, 2, 1), Some('a'));
+        assert_eq!(layer_value(&long, 2, 0), Some('b'));
+        // No list, or no such layer: the property's initial value.
+        assert_eq!(layer_value::<char>(&[], 2, 0), None);
+        assert_eq!(layer_value(&['p'], 2, 2), None);
     }
 }

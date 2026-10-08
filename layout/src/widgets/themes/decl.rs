@@ -306,6 +306,36 @@ pub(crate) const fn hover_border_color(
     ]
 }
 
+/// All four border colours while pressed (`:active`), each with its dark twin
+/// right after it - the rim of a pressed face (Office 2010's brown one).
+#[must_use]
+pub(crate) const fn active_border_color(
+    light: ColorU,
+    dark: ColorU,
+) -> [CssPropertyWithConditions; 8] {
+    type C = CssPropertyWithConditions;
+    [
+        C::on_active(CssProperty::const_border_top_color(StyleBorderTopColor { inner: light })),
+        C::dark_on_active(CssProperty::const_border_top_color(StyleBorderTopColor { inner: dark })),
+        C::on_active(CssProperty::const_border_right_color(StyleBorderRightColor {
+            inner: light,
+        })),
+        C::dark_on_active(CssProperty::const_border_right_color(StyleBorderRightColor {
+            inner: dark,
+        })),
+        C::on_active(CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+            inner: light,
+        })),
+        C::dark_on_active(CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+            inner: dark,
+        })),
+        C::on_active(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: light })),
+        C::dark_on_active(CssProperty::const_border_left_color(StyleBorderLeftColor {
+            inner: dark,
+        })),
+    ]
+}
+
 /// A surface on `:hover`, with its dark twin.
 #[must_use]
 pub(crate) fn hover_fill(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions; 2] {
@@ -989,7 +1019,9 @@ pub(crate) fn state_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithCon
 }
 
 /// What a button's face is made of: the properties [`state_fade`] tweens for
-/// flat's and flora's Button (its fill and its four border colours).
+/// flat's Button and its toolbar keys (the fill and the four border colours;
+/// flora's commands name their shadows too - `flora::FLORA_FACE`,
+/// `flora::LIT_FACE`).
 pub(crate) const BUTTON_FACE: &[&str] = &[
     "background",
     "border-top-color",

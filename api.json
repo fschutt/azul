@@ -24725,6 +24725,25 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "RibbonFileMenuOnEventCallbackType": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuOnEventCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "RibbonFileMenuEvent"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -37659,6 +37678,38 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "RibbonFileMenuOnEventCallback": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuOnEventCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "RibbonFileMenuOnEventCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -38779,7 +38830,7 @@
                                     "type": "StyleZoomValue"
                                 },
                                 "BackgroundClip": {
-                                    "type": "StyleBackgroundClipValue"
+                                    "type": "StyleBackgroundClipVecValue"
                                 },
                                 "FontVariantNumeric": {
                                     "type": "StyleFontVariantNumericValue"
@@ -59258,16 +59309,6 @@
                         ],
                         "repr": "C"
                     },
-                    "StyleBackgroundClipValue": {
-                        "external": "azul_css::props::property::StyleBackgroundClipValue",
-                        "repr": "C",
-                        "type_alias": {
-                            "target": "CssPropertyValue",
-                            "generic_args": [
-                                "StyleBackgroundClip"
-                            ]
-                        }
-                    },
                     "PdfTextAlign": {
                         "external": "azul_core::pdf_form::PdfTextAlign",
                         "derive": [
@@ -59342,6 +59383,42 @@
                                 "StyleFontVariantNumeric"
                             ]
                         }
+                    },
+                    "StyleBackgroundClipVecValue": {
+                        "external": "azul_css::props::property::StyleBackgroundClipVecValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleBackgroundClipVec"
+                            ]
+                        }
+                    },
+                    "StyleBackgroundClipVecSlice": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleBackgroundClip",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -74104,6 +74181,9 @@
                                 },
                                 "on_click": {
                                     "type": "OptionButtonOnClick"
+                                },
+                                "menu": {
+                                    "type": "OptionDom"
                                 }
                             }
                         ],
@@ -74157,6 +74237,37 @@
                                     "type": "RibbonAppButton"
                                 },
                                 "fn_body": "object.with_on_click(data, on_click)"
+                            },
+                            "set_menu": {
+                                "doc": [
+                                    "Sets the drop-down the button opens (see [`Self::menu`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "menu": "Dom"
+                                    }
+                                ],
+                                "fn_body": "object.set_menu(menu)"
+                            },
+                            "with_menu": {
+                                "doc": [
+                                    "Builder method: sets the drop-down the button opens and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "menu": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonAppButton"
+                                },
+                                "fn_body": "object.with_menu(menu)"
                             }
                         },
                         "repr": "C"
@@ -80081,6 +80192,12 @@
                                 },
                                 "show_recent": {
                                     "type": "bool"
+                                },
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "available_width": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -80395,6 +80512,71 @@
                                     "type": "AddressBar"
                                 },
                                 "fn_body": "object.with_recent(show_recent)"
+                            },
+                            "set_icon": {
+                                "doc": [
+                                    "The location's icon at the start of the breadcrumb box (a Material",
+                                    "icon name; empty draws none) - see [`Self::icon`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_icon(icon)"
+                            },
+                            "with_icon": {
+                                "doc": [
+                                    "[`Self::set_icon`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_icon(icon)"
+                            },
+                            "with_available_width": {
+                                "doc": [
+                                    "[`Self::set_available_width`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AddressBar"
+                                },
+                                "fn_body": "object.with_available_width(px)"
+                            },
+                            "set_available_width": {
+                                "doc": [
+                                    "How wide the bar is, in px: the trail's leading segments that do not",
+                                    "fit fold into the overflow menu at its start (0 never folds) - see",
+                                    "[`Self::available_width`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "px": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.set_available_width(px)"
                             }
                         },
                         "repr": "C"
@@ -109484,6 +109666,640 @@
                                 "fn_body": "object.traffic_light_position(row_height)"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuCommand": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuCommand",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "label": {
+                                    "type": "String"
+                                },
+                                "description": {
+                                    "type": "String"
+                                },
+                                "disabled_reason": {
+                                    "type": "String"
+                                },
+                                "children": {
+                                    "type": "RibbonFileMenuCommandVec"
+                                },
+                                "separator_before": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A command with `icon` and `label`, no sub-commands, enabled."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "icon": "String"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuCommand::create(icon, label)"
+                            }
+                        },
+                        "functions": {
+                            "set_description": {
+                                "doc": [
+                                    "The line under a sub-command's label."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "description": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_description(description)"
+                            },
+                            "with_description": {
+                                "doc": [
+                                    "[`Self::set_description`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "description": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommand"
+                                },
+                                "fn_body": "object.with_description(description)"
+                            },
+                            "set_disabled": {
+                                "doc": [
+                                    "Disables the command: `reason` says why it cannot run now (empty",
+                                    "enables it again)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "reason": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_disabled(reason)"
+                            },
+                            "with_disabled": {
+                                "doc": [
+                                    "[`Self::set_disabled`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "reason": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommand"
+                                },
+                                "fn_body": "object.with_disabled(reason)"
+                            },
+                            "is_disabled": {
+                                "doc": [
+                                    "Whether the command is disabled (it has a reason)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_disabled()"
+                            },
+                            "add_child": {
+                                "doc": [
+                                    "Appends a sub-command (see [`Self::children`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "child": "RibbonFileMenuCommand"
+                                    }
+                                ],
+                                "fn_body": "object.add_child(child)"
+                            },
+                            "with_child": {
+                                "doc": [
+                                    "[`Self::add_child`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "child": "RibbonFileMenuCommand"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommand"
+                                },
+                                "fn_body": "object.with_child(child)"
+                            },
+                            "set_separator_before": {
+                                "doc": [
+                                    "A rule above this command (or none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "separator_before": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_separator_before(separator_before)"
+                            },
+                            "with_separator_before": {
+                                "doc": [
+                                    "[`Self::set_separator_before`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "separator_before": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommand"
+                                },
+                                "fn_body": "object.with_separator_before(separator_before)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuPlace": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuPlace",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "detail": {
+                                    "type": "String"
+                                },
+                                "pinned": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A place called `label`, not pinned."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuPlace::create(label)"
+                            }
+                        },
+                        "functions": {
+                            "set_detail": {
+                                "doc": [
+                                    "Where the place is (see [`Self::detail`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "detail": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_detail(detail)"
+                            },
+                            "with_detail": {
+                                "doc": [
+                                    "[`Self::set_detail`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "detail": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlace"
+                                },
+                                "fn_body": "object.with_detail(detail)"
+                            },
+                            "set_pinned": {
+                                "doc": [
+                                    "Whether the place is pinned."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pinned": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_pinned(pinned)"
+                            },
+                            "with_pinned": {
+                                "doc": [
+                                    "[`Self::set_pinned`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "pinned": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlace"
+                                },
+                                "fn_body": "object.with_pinned(pinned)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonFileMenu": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenu",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "commands": {
+                                    "type": "RibbonFileMenuCommandVec"
+                                },
+                                "places_title": {
+                                    "type": "String"
+                                },
+                                "places": {
+                                    "type": "RibbonFileMenuPlaceVec"
+                                },
+                                "on_event": {
+                                    "type": "OptionRibbonFileMenuOnEvent"
+                                },
+                                "theme": {
+                                    "type": "OptionUiTheme"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A menu of `commands`, no places, no callback, following the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "commands": "RibbonFileMenuCommandVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenu::create(commands)"
+                            }
+                        },
+                        "functions": {
+                            "add_command": {
+                                "doc": [
+                                    "Appends a command to the left column."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "command": "RibbonFileMenuCommand"
+                                    }
+                                ],
+                                "fn_body": "object.add_command(command)"
+                            },
+                            "with_command": {
+                                "doc": [
+                                    "[`Self::add_command`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "command": "RibbonFileMenuCommand"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenu"
+                                },
+                                "fn_body": "object.with_command(command)"
+                            },
+                            "set_places": {
+                                "doc": [
+                                    "The side column's places and their title."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "places": "RibbonFileMenuPlaceVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_places(title, places)"
+                            },
+                            "with_places": {
+                                "doc": [
+                                    "[`Self::set_places`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "places": "RibbonFileMenuPlaceVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenu"
+                                },
+                                "fn_body": "object.with_places(title, places)"
+                            },
+                            "set_on_event": {
+                                "doc": [
+                                    "The callback that hears every pick."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "cb": "RibbonFileMenuOnEventCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_event(data, cb)"
+                            },
+                            "with_on_event": {
+                                "doc": [
+                                    "[`Self::set_on_event`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "cb": "RibbonFileMenuOnEventCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenu"
+                                },
+                                "fn_body": "object.with_on_event(data, cb)"
+                            },
+                            "set_theme": {
+                                "doc": [
+                                    "Pin the widget theme; unset, the menu follows the app theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "fn_body": "object.set_theme(theme)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "[`Self::set_theme`] for the builder chain."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "UiTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenu"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "swap_with_default": {
+                                "doc": [
+                                    "Replaces `self` with an empty menu and returns the original."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenu"
+                                },
+                                "fn_body": "object.swap_with_default()"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "The menu's DOM: the `<transient-window>` holding the panel, closed -",
+                                    "hand it to `RibbonAppButton::with_menu`, whose button opens it. The",
+                                    "look comes from the theme module (`themes::flat::ribbon_file_menu` /",
+                                    "`themes::flora::ribbon_file_menu`); `None` carries both looks, each",
+                                    "in its `@theme(<name>)` block, and the app theme picks."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuOnEvent": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "RibbonFileMenuOnEventCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuEvent": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "RibbonFileMenuEventKind"
+                                },
+                                "index": {
+                                    "type": "usize"
+                                },
+                                "sub_index": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuEventKind": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuEventKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Command": {},
+                                "SubCommand": {},
+                                "OpenPlace": {},
+                                "TogglePin": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuCommandVecSlice": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuCommandVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonFileMenuCommand",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuPlaceVecSlice": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuPlaceVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonFileMenuPlace",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -168736,6 +169552,647 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "StyleBackgroundClipVec": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StyleBackgroundClip",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "StyleBackgroundClipVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `StyleBackgroundClipVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `StyleBackgroundClipVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "style_background_clip_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "style_background_clip_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "style_background_clip_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `StyleBackgroundClipVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "StyleBackgroundClip"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `StyleBackgroundClipVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const StyleBackgroundClip"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionStyleBackgroundClip"
+                                },
+                                "fn_body": "style_background_clip_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `StyleBackgroundClipVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVecSlice"
+                                },
+                                "fn_body": "style_background_clip_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StyleBackgroundClipVecSlice"
+                                },
+                                "fn_body": "style_background_clip_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StyleBackgroundClipVecDestructor": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "StyleBackgroundClipVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleBackgroundClipVecDestructorType": {
+                        "external": "azul_css::props::style::background::StyleBackgroundClipVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "StyleBackgroundClipVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuCommandVec": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuCommandVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonFileMenuCommand",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RibbonFileMenuCommandVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RibbonFileMenuCommandVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommandVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RibbonFileMenuCommandVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommandVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_file_menu_command_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_file_menu_command_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "ribbon_file_menu_command_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RibbonFileMenuCommandVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RibbonFileMenuCommand"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommandVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RibbonFileMenuCommandVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RibbonFileMenuCommand"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommandVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRibbonFileMenuCommand"
+                                },
+                                "fn_body": "ribbon_file_menu_command_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RibbonFileMenuCommandVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommandVecSlice"
+                                },
+                                "fn_body": "ribbon_file_menu_command_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuCommandVecSlice"
+                                },
+                                "fn_body": "ribbon_file_menu_command_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuCommandVecDestructor": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuCommandVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RibbonFileMenuCommandVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RibbonFileMenuCommandVecDestructorType": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuCommandVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "RibbonFileMenuCommandVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "RibbonFileMenuPlaceVec": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuPlaceVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "RibbonFileMenuPlace",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "RibbonFileMenuPlaceVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `RibbonFileMenuPlaceVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlaceVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `RibbonFileMenuPlaceVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlaceVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_file_menu_place_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "ribbon_file_menu_place_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "ribbon_file_menu_place_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `RibbonFileMenuPlaceVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "RibbonFileMenuPlace"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlaceVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `RibbonFileMenuPlaceVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const RibbonFileMenuPlace"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlaceVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRibbonFileMenuPlace"
+                                },
+                                "fn_body": "ribbon_file_menu_place_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `RibbonFileMenuPlaceVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlaceVecSlice"
+                                },
+                                "fn_body": "ribbon_file_menu_place_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RibbonFileMenuPlaceVecSlice"
+                                },
+                                "fn_body": "ribbon_file_menu_place_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "RibbonFileMenuPlaceVecDestructor": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuPlaceVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "RibbonFileMenuPlaceVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "RibbonFileMenuPlaceVecDestructorType": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::RibbonFileMenuPlaceVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "RibbonFileMenuPlaceVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
                     }
                 }
             },
@@ -179396,6 +180853,113 @@
                                 "None": {},
                                 "Some": {
                                     "type": "TabsInTitlebar"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStyleBackgroundClip": {
+                        "external": "azul_css::props::style::background::OptionStyleBackgroundClip",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "StyleBackgroundClip",
+                                    "doc": [
+                                        "Some value of type StyleBackgroundClip"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonFileMenuOnEvent": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::OptionRibbonFileMenuOnEvent",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RibbonFileMenuOnEvent"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonFileMenuCommand": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::OptionRibbonFileMenuCommand",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RibbonFileMenuCommand",
+                                    "doc": [
+                                        "Some value of type RibbonFileMenuCommand"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRibbonFileMenuPlace": {
+                        "external": "azul_layout::widgets::ribbon_file_menu::OptionRibbonFileMenuPlace",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "RibbonFileMenuPlace",
+                                    "doc": [
+                                        "Some value of type RibbonFileMenuPlace"
+                                    ]
                                 }
                             }
                         ],

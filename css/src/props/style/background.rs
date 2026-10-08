@@ -11,8 +11,9 @@ use crate::props::basic::{
     color::parse_color_or_system,
     error::{InvalidValueErr, InvalidValueErrOwned},
     parse::{
-        parse_image, parse_parentheses, split_string_respect_comma, CssImageParseError,
-        CssImageParseErrorOwned, ParenthesisParseError, ParenthesisParseErrorOwned,
+        parse_image, parse_parentheses, split_string_respect_comma,
+        split_string_respect_whitespace, CssImageParseError, CssImageParseErrorOwned,
+        ParenthesisParseError, ParenthesisParseErrorOwned,
     },
 };
 use crate::{
@@ -29,6 +30,7 @@ use crate::{
             },
             direction::{
                 parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
+                DirectionCorner,
             },
             length::{
                 parse_percentage_value, FloatValue, OptionPercentageValue, PercentageParseError,
@@ -197,10 +199,13 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundContentVec {
     }
 }
 
+// The layers as CSS lists them, the top one first: the reverse of the vec's
+// paint order (see `parse_style_background_content_multiple`).
 impl PrintAsCssValue for StyleBackgroundContentVec {
     fn print_as_css_value(&self) -> String {
         self.as_ref()
             .iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
@@ -257,70 +262,473 @@ pub struct ResolvedLinearGradient {
     pub stops: Vec<(f32, ColorOrSystem)>,
 }
 
-/// Two background layer lists tweened at `t` - when they pair up one to one:
-/// a colour with a colour, a linear gradient with a linear gradient of the
-/// same direction, extend mode and stop positions (every stop colour
-/// concrete). `None` when they do not, and the caller keeps its half-way
-/// switch: two faces of different shapes have no colour in between.
+/// The most layers a tweened face may paint. A cross-fade lays the new face
+/// over the old one, and a fade reversed half way lays the next face over
+/// both; past this many a face takes the half-way switch instead of growing.
+const MAX_TWEENED_LAYERS: usize = 32;
+
+/// A face - a list of background layers, painted first to last - on its way
+/// from `from` to `to` at `t` (the eased progress, `0..=1`): what every frame
+/// of a `background` transition paints.
 ///
-/// What lets a gradient FACE fade (flora's buttons hover from one paper
-/// gradient to another); the solid colour is the one-layer case.
+/// - Two lists of one length pair up layer by layer ([`interpolate_background_layer`]): a colour
+///   with a colour, a gradient with a gradient of its kind and number of stops (every stop's
+///   colour AND position tween, as do a linear gradient's angle and a radial or conic gradient's
+///   centre - CSS Images 4), and a colour with a gradient as that gradient in the one colour. A
+///   pair with nothing in between cross-fades in its place ([`cross_fade_layers`]).
+/// - A list that is the other one plus layers on top fades just those layers in or out: a face
+///   that adds a glow under the pointer, a background that comes from `none` or goes to it.
+/// - Any other two lists cross-fade as a whole: the new face comes in over the old one.
+///
+/// `None` when a layer that must fade cannot - an image, an unresolved system colour, a gradient
+/// without stops - or the face would grow past [`MAX_TWEENED_LAYERS`]: the caller keeps its
+/// half-way switch, as for a discrete property.
+///
+/// flora's blue stone is six layers, three of them radial, and its streak moves its stops under
+/// the pointer: while only colours and linear gradients with their stops in place paired up, the
+/// stone held its face and jumped half way through its fade.
 #[must_use]
 pub(crate) fn interpolate_background_layers(
     from: &[StyleBackgroundContent],
     to: &[StyleBackgroundContent],
     t: f32,
 ) -> Option<Vec<StyleBackgroundContent>> {
-    if from.is_empty() || from.len() != to.len() {
-        return None;
+    if from == to {
+        return Some(from.to_vec());
     }
-    from.iter()
-        .zip(to)
-        .map(|(a, b)| interpolate_background_layer(a, b, t))
-        .collect()
+    let mut out = Vec::with_capacity(from.len().max(to.len()) + 1);
+    if from.len() == to.len() {
+        for (a, b) in from.iter().zip(to) {
+            match interpolate_background_layer(a, b, t) {
+                Some(layer) => out.push(layer),
+                None => {
+                    cross_fade_layers(
+                        core::slice::from_ref(a),
+                        core::slice::from_ref(b),
+                        t,
+                        &mut out,
+                    )?;
+                }
+            }
+        }
+    } else if to.starts_with(from) {
+        out.extend_from_slice(from);
+        for layer in &to[from.len()..] {
+            out.push(fade_layer(layer, t)?);
+        }
+    } else if from.starts_with(to) {
+        out.extend_from_slice(to);
+        for layer in &from[to.len()..] {
+            out.push(fade_layer(layer, 1.0 - t)?);
+        }
+    } else {
+        cross_fade_layers(from, to, t, &mut out)?;
+    }
+    (out.len() <= MAX_TWEENED_LAYERS).then_some(out)
 }
 
-/// One layer of [`interpolate_background_layers`].
+/// One layer of [`interpolate_background_layers`] at `t`; `None` when the
+/// two have no layer in between (another kind of gradient, another number of
+/// stops, two images).
 fn interpolate_background_layer(
     from: &StyleBackgroundContent,
     to: &StyleBackgroundContent,
     t: f32,
 ) -> Option<StyleBackgroundContent> {
     use StyleBackgroundContent as B;
+    if from == to {
+        return Some(from.clone());
+    }
     match (from, to) {
-        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate(b, t))),
-        (B::LinearGradient(a), B::LinearGradient(b))
-            if a.direction == b.direction
-                && a.extend_mode == b.extend_mode
-                && a.stops.as_ref().len() == b.stops.as_ref().len() =>
-        {
-            let stops = a
-                .stops
-                .as_ref()
-                .iter()
-                .zip(b.stops.as_ref())
-                .map(|(s, e)| {
-                    if s.offset != e.offset || s.offset_px != e.offset_px {
-                        return None;
-                    }
-                    let (ColorOrSystem::Color(c0), ColorOrSystem::Color(c1)) = (&s.color, &e.color)
-                    else {
-                        return None;
-                    };
-                    Some(NormalizedLinearColorStop {
-                        offset: s.offset,
-                        color: ColorOrSystem::Color(c0.interpolate(c1, t)),
-                        offset_px: s.offset_px,
+        (B::Color(a), B::Color(b)) => Some(B::Color(a.interpolate_premultiplied(b, t))),
+        (B::LinearGradient(a), B::LinearGradient(b)) => {
+            interpolate_linear_gradient(a, b, t).map(B::LinearGradient)
+        }
+        (B::RadialGradient(a), B::RadialGradient(b)) => {
+            interpolate_radial_gradient(a, b, t).map(B::RadialGradient)
+        }
+        (B::ConicGradient(a), B::ConicGradient(b)) => {
+            interpolate_conic_gradient(a, b, t).map(B::ConicGradient)
+        }
+        // A colour is any gradient in that one colour: laid out as the
+        // gradient on the other side, it tweens with it stop by stop.
+        (B::Color(c), gradient) => {
+            interpolate_background_layer(&in_one_colour(gradient, *c)?, gradient, t)
+        }
+        (gradient, B::Color(c)) => {
+            interpolate_background_layer(gradient, &in_one_colour(gradient, *c)?, t)
+        }
+        _ => None,
+    }
+}
+
+/// `a` and `b` at `t`: two linear gradients of one extend mode and one number
+/// of stops, whose directions are both angles (or sides, which are angles in
+/// any box).
+fn interpolate_linear_gradient(
+    a: &LinearGradient,
+    b: &LinearGradient,
+    t: f32,
+) -> Option<LinearGradient> {
+    if a.extend_mode != b.extend_mode {
+        return None;
+    }
+    Some(LinearGradient {
+        direction: interpolate_direction(a.direction, b.direction, t)?,
+        extend_mode: a.extend_mode,
+        stops: interpolate_stops(a.stops.as_ref(), b.stops.as_ref(), t)?,
+    })
+}
+
+/// `a` and `b` at `t`: two radial gradients of one shape, size keyword and
+/// extend mode and one number of stops. Their centres tween too.
+fn interpolate_radial_gradient(
+    a: &RadialGradient,
+    b: &RadialGradient,
+    t: f32,
+) -> Option<RadialGradient> {
+    if a.shape != b.shape || a.size != b.size || a.extend_mode != b.extend_mode {
+        return None;
+    }
+    Some(RadialGradient {
+        shape: a.shape,
+        size: a.size,
+        position: interpolate_position(&a.position, &b.position, t)?,
+        extend_mode: a.extend_mode,
+        stops: interpolate_stops(a.stops.as_ref(), b.stops.as_ref(), t)?,
+    })
+}
+
+/// `a` and `b` at `t`: two conic gradients of one extend mode and one number
+/// of stops. Their centres, start angles and stop angles tween too.
+fn interpolate_conic_gradient(
+    a: &ConicGradient,
+    b: &ConicGradient,
+    t: f32,
+) -> Option<ConicGradient> {
+    let (from, to) = (a.stops.as_ref(), b.stops.as_ref());
+    if a.extend_mode != b.extend_mode || from.is_empty() || from.len() != to.len() {
+        return None;
+    }
+    let stops = from
+        .iter()
+        .zip(to)
+        .map(|(s, e)| {
+            Some(NormalizedRadialColorStop {
+                angle: interpolate_angle(s.angle, e.angle, t),
+                color: interpolate_stop_colour(s.color, e.color, t)?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(ConicGradient {
+        extend_mode: a.extend_mode,
+        center: interpolate_position(&a.center, &b.center, t)?,
+        angle: interpolate_angle(a.angle, b.angle, t),
+        stops: NormalizedRadialColorStopVec::from_vec(stops),
+    })
+}
+
+/// Two stop lists of one length at `t`: each stop's colour and its position
+/// (both of its parts) tween. `None` for lists of two lengths, an empty one
+/// or a stop whose colour is still a system colour.
+fn interpolate_stops(
+    from: &[NormalizedLinearColorStop],
+    to: &[NormalizedLinearColorStop],
+    t: f32,
+) -> Option<NormalizedLinearColorStopVec> {
+    if from.is_empty() || from.len() != to.len() {
+        return None;
+    }
+    let stops = from
+        .iter()
+        .zip(to)
+        .map(|(s, e)| {
+            Some(NormalizedLinearColorStop {
+                // Equal parts are kept as they are: the fixed-point round
+                // trip of a tween would move a stop that does not move.
+                offset: if s.offset == e.offset {
+                    s.offset
+                } else {
+                    s.offset.interpolate(&e.offset, t)
+                },
+                color: interpolate_stop_colour(s.color, e.color, t)?,
+                offset_px: if s.offset_px == e.offset_px {
+                    s.offset_px
+                } else {
+                    s.offset_px.interpolate(&e.offset_px, t)
+                },
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(NormalizedLinearColorStopVec::from_vec(stops))
+}
+
+/// A stop's colour at `t`; `None` while either end is a system colour (the
+/// transition resolves both ends before it starts).
+fn interpolate_stop_colour(
+    from: ColorOrSystem,
+    to: ColorOrSystem,
+    t: f32,
+) -> Option<ColorOrSystem> {
+    match (from, to) {
+        (ColorOrSystem::Color(a), ColorOrSystem::Color(b)) => {
+            Some(ColorOrSystem::Color(a.interpolate_premultiplied(&b, t)))
+        }
+        _ => None,
+    }
+}
+
+/// A gradient's direction at `t`. Angles tween; `to top`, `to right`, ...
+/// are angles whatever the box (0, 90, 180, 270 degrees). A corner's angle
+/// depends on the box's sides, which a value does not know: `None`, unless
+/// both ends are the same direction.
+fn interpolate_direction(from: Direction, to: Direction, t: f32) -> Option<Direction> {
+    if from == to {
+        return Some(from);
+    }
+    let degrees = |d: Direction| match d {
+        Direction::Angle(angle) => Some(angle.to_degrees_raw()),
+        Direction::FromTo(corners) => match corners.dir_to {
+            DirectionCorner::Top => Some(0.0),
+            DirectionCorner::Right => Some(90.0),
+            DirectionCorner::Bottom => Some(180.0),
+            DirectionCorner::Left => Some(270.0),
+            DirectionCorner::TopRight
+            | DirectionCorner::TopLeft
+            | DirectionCorner::BottomRight
+            | DirectionCorner::BottomLeft => None,
+        },
+    };
+    let (a, b) = (degrees(from)?, degrees(to)?);
+    Some(Direction::Angle(AngleValue::deg(a + (b - a) * t)))
+}
+
+/// An angle at `t`: in the unit both ends share, else in degrees.
+fn interpolate_angle(from: AngleValue, to: AngleValue, t: f32) -> AngleValue {
+    if from == to {
+        from
+    } else if from.metric == to.metric {
+        AngleValue {
+            metric: from.metric,
+            number: from.number.interpolate(&to.number, t),
+        }
+    } else {
+        let (a, b) = (from.to_degrees_raw(), to.to_degrees_raw());
+        AngleValue::deg(a + (b - a) * t)
+    }
+}
+
+/// A gradient's centre at `t`. A keyword is the percentage it stands for
+/// (`left` 0%, `center` 50%, `right` 100%); a percentage and a length do not
+/// mix without the box they resolve in: `None`.
+fn interpolate_position(
+    from: &StyleBackgroundPosition,
+    to: &StyleBackgroundPosition,
+    t: f32,
+) -> Option<StyleBackgroundPosition> {
+    use BackgroundPositionHorizontal as H;
+    use BackgroundPositionVertical as V;
+    let x = |p: H| match p {
+        H::Left => PixelValue::const_percent(0),
+        H::Center => PixelValue::const_percent(50),
+        H::Right => PixelValue::const_percent(100),
+        H::Exact(v) => v,
+    };
+    let y = |p: V| match p {
+        V::Top => PixelValue::const_percent(0),
+        V::Center => PixelValue::const_percent(50),
+        V::Bottom => PixelValue::const_percent(100),
+        V::Exact(v) => v,
+    };
+    let length =
+        |a: PixelValue, b: PixelValue| (a.metric == b.metric).then(|| a.interpolate(&b, t));
+    Some(StyleBackgroundPosition {
+        horizontal: if from.horizontal == to.horizontal {
+            from.horizontal
+        } else {
+            H::Exact(length(x(from.horizontal), x(to.horizontal))?)
+        },
+        vertical: if from.vertical == to.vertical {
+            from.vertical
+        } else {
+            V::Exact(length(y(from.vertical), y(to.vertical))?)
+        },
+    })
+}
+
+/// The gradient `shape` with every stop in `colour`: what a solid colour is,
+/// laid out as `shape`, so the two tween stop by stop. `None` for a layer
+/// that is no gradient and for a gradient without stops.
+fn in_one_colour(shape: &StyleBackgroundContent, colour: ColorU) -> Option<StyleBackgroundContent> {
+    use StyleBackgroundContent as B;
+    let linear = |stops: &[NormalizedLinearColorStop]| {
+        (!stops.is_empty()).then(|| {
+            NormalizedLinearColorStopVec::from_vec(
+                stops
+                    .iter()
+                    .map(|s| NormalizedLinearColorStop {
+                        color: ColorOrSystem::Color(colour),
+                        ..*s
                     })
-                })
-                .collect::<Option<Vec<_>>>()?;
+                    .collect(),
+            )
+        })
+    };
+    match shape {
+        B::LinearGradient(g) => Some(B::LinearGradient(LinearGradient {
+            stops: linear(g.stops.as_ref())?,
+            ..g.clone()
+        })),
+        B::RadialGradient(g) => Some(B::RadialGradient(RadialGradient {
+            stops: linear(g.stops.as_ref())?,
+            ..g.clone()
+        })),
+        B::ConicGradient(g) => {
+            let stops = g.stops.as_ref();
+            if stops.is_empty() {
+                return None;
+            }
+            Some(B::ConicGradient(ConicGradient {
+                stops: NormalizedRadialColorStopVec::from_vec(
+                    stops
+                        .iter()
+                        .map(|s| NormalizedRadialColorStop {
+                            color: ColorOrSystem::Color(colour),
+                            ..*s
+                        })
+                        .collect(),
+                ),
+                ..g.clone()
+            }))
+        }
+        B::Color(_) | B::Image(_) | B::SystemColor(_) => None,
+    }
+}
+
+/// `from` and `to` cross-faded at `t`, pushed onto `out`: the new layers come
+/// in over the old ones at `t` of their strength.
+///
+/// Under an opaque new face the old one stays whole - the new face covers it
+/// by the end - so the blend is the true mix of the two faces. Under a
+/// translucent one the old face goes as the new one comes, or it would show
+/// through the new face at the end and vanish in one frame when the tween is
+/// over. `None` when a layer that must fade cannot ([`fade_layer`]).
+fn cross_fade_layers(
+    from: &[StyleBackgroundContent],
+    to: &[StyleBackgroundContent],
+    t: f32,
+    out: &mut Vec<StyleBackgroundContent>,
+) -> Option<()> {
+    if to.iter().any(is_opaque) {
+        out.extend_from_slice(from);
+    } else {
+        for layer in from {
+            out.push(fade_layer(layer, 1.0 - t)?);
+        }
+    }
+    for layer in to {
+        out.push(fade_layer(layer, t)?);
+    }
+    Some(())
+}
+
+/// Whether `layer` hides what lies under it: an opaque colour, or a gradient
+/// none of whose stops lets anything through. An image may have holes.
+fn is_opaque(layer: &StyleBackgroundContent) -> bool {
+    use StyleBackgroundContent as B;
+    let opaque = |c: &ColorOrSystem| matches!(c, ColorOrSystem::Color(c) if c.a == 255);
+    match layer {
+        B::Color(c) => c.a == 255,
+        B::LinearGradient(g) => {
+            !g.stops.as_ref().is_empty() && g.stops.as_ref().iter().all(|s| opaque(&s.color))
+        }
+        B::RadialGradient(g) => {
+            !g.stops.as_ref().is_empty() && g.stops.as_ref().iter().all(|s| opaque(&s.color))
+        }
+        B::ConicGradient(g) => {
+            !g.stops.as_ref().is_empty() && g.stops.as_ref().iter().all(|s| opaque(&s.color))
+        }
+        B::Image(_) | B::SystemColor(_) => false,
+    }
+}
+
+/// `layer` at `strength` (`0..=1`) of its own opacity: how a layer comes in
+/// or goes in a cross-fade. `None` for a layer with no colour to fade - an
+/// image, an unresolved system colour, a gradient without stops.
+fn fade_layer(layer: &StyleBackgroundContent, strength: f32) -> Option<StyleBackgroundContent> {
+    use StyleBackgroundContent as B;
+    let colour = |c: ColorOrSystem| match c {
+        ColorOrSystem::Color(c) => Some(ColorOrSystem::Color(faded(c, strength))),
+        ColorOrSystem::System(_) => None,
+    };
+    match layer {
+        B::Color(c) => Some(B::Color(faded(*c, strength))),
+        B::LinearGradient(g) if !g.stops.as_ref().is_empty() => {
             Some(B::LinearGradient(LinearGradient {
-                direction: a.direction,
-                extend_mode: a.extend_mode,
-                stops: NormalizedLinearColorStopVec::from_vec(stops),
+                stops: NormalizedLinearColorStopVec::from_vec(
+                    g.stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| {
+                            Some(NormalizedLinearColorStop {
+                                color: colour(s.color)?,
+                                ..*s
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+                ..g.clone()
+            }))
+        }
+        B::RadialGradient(g) if !g.stops.as_ref().is_empty() => {
+            Some(B::RadialGradient(RadialGradient {
+                stops: NormalizedLinearColorStopVec::from_vec(
+                    g.stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| {
+                            Some(NormalizedLinearColorStop {
+                                color: colour(s.color)?,
+                                ..*s
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+                ..g.clone()
+            }))
+        }
+        B::ConicGradient(g) if !g.stops.as_ref().is_empty() => {
+            Some(B::ConicGradient(ConicGradient {
+                stops: NormalizedRadialColorStopVec::from_vec(
+                    g.stops
+                        .as_ref()
+                        .iter()
+                        .map(|s| {
+                            Some(NormalizedRadialColorStop {
+                                color: colour(s.color)?,
+                                ..*s
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+                ..g.clone()
             }))
         }
         _ => None,
+    }
+}
+
+/// `c` at `strength` (`0..=1`) of its alpha, rounded to the nearest step.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=255 first
+fn faded(c: ColorU, strength: f32) -> ColorU {
+    let strength = if strength.is_nan() {
+        0.0
+    } else {
+        strength.clamp(0.0, 1.0)
+    };
+    ColorU {
+        a: libm::roundf(f32::from(c.a) * strength).clamp(0.0, 255.0) as u8,
+        ..c
     }
 }
 
@@ -816,9 +1224,11 @@ impl PrintAsCssValue for StyleBackgroundPosition {
         )
     }
 }
+// In CSS order, the top layer's first: the vec is in paint order.
 impl PrintAsCssValue for StyleBackgroundPositionVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
@@ -971,9 +1381,11 @@ impl PrintAsCssValue for StyleBackgroundSize {
         }
     }
 }
+// In CSS order, the top layer's first: the vec is in paint order.
 impl PrintAsCssValue for StyleBackgroundSizeVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
@@ -1026,19 +1438,23 @@ impl PrintAsCssValue for StyleBackgroundRepeat {
         }
     }
 }
+// In CSS order, the top layer's first: the vec is in paint order.
 impl PrintAsCssValue for StyleBackgroundRepeatVec {
     fn print_as_css_value(&self) -> String {
         self.iter()
+            .rev()
             .map(PrintAsCssValue::print_as_css_value)
             .collect::<Vec<_>>()
             .join(", ")
     }
 }
 
-/// The `background-clip` property (CSS Backgrounds 3 s3.7): the box a
-/// background is painted within - the border box (the initial value), the
-/// padding box or the content box. One value for every layer of the
-/// background (a comma list keeps its first).
+/// One layer's `background-clip` (CSS Backgrounds 3 s3.7): the box the layer
+/// is painted within - the border box (the initial value), the padding box or
+/// the content box. The property is a list, one box per layer
+/// ([`StyleBackgroundClipVec`]): a gradient on the border box under a face on
+/// the padding box shows only through a transparent border, which is how a
+/// metal edge is cut.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -1067,6 +1483,53 @@ impl crate::codegen::format::FormatAsRustCode for StyleBackgroundClip {
             Self::PaddingBox => "StyleBackgroundClip::PaddingBox".to_string(),
             Self::ContentBox => "StyleBackgroundClip::ContentBox".to_string(),
         }
+    }
+}
+
+impl_option!(
+    StyleBackgroundClip,
+    OptionStyleBackgroundClip,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_vec!(
+    StyleBackgroundClip,
+    StyleBackgroundClipVec,
+    StyleBackgroundClipVecDestructor,
+    StyleBackgroundClipVecDestructorType,
+    StyleBackgroundClipVecSlice,
+    OptionStyleBackgroundClip
+);
+impl_vec_debug!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_partialord!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_ord!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_clone!(
+    StyleBackgroundClip,
+    StyleBackgroundClipVec,
+    StyleBackgroundClipVecDestructor
+);
+impl_vec_partialeq!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_eq!(StyleBackgroundClip, StyleBackgroundClipVec);
+impl_vec_hash!(StyleBackgroundClip, StyleBackgroundClipVec);
+
+// In CSS order, the top layer's box first: the vec is in paint order, like
+// the layers it clips (see `parse_style_background_content_multiple`).
+impl PrintAsCssValue for StyleBackgroundClipVec {
+    fn print_as_css_value(&self) -> String {
+        self.iter()
+            .rev()
+            .map(PrintAsCssValue::print_as_css_value)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl crate::codegen::format::FormatAsRustCode for StyleBackgroundClipVec {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "StyleBackgroundClipVec::from_const_slice(STYLE_BACKGROUND_CLIP_{}_ITEMS)",
+            self.get_hash()
+        )
     }
 }
 
@@ -1443,18 +1906,28 @@ pub mod parser {
 
     // -- Top-level Parsers for background-* properties --
 
-    /// Parses multiple backgrounds, such as "linear-gradient(red, green), url(image.png)".
+    /// Parses multiple backgrounds, such as "linear-gradient(red, green), url(image.png)",
+    /// into PAINT order.
+    ///
+    /// CSS lists the layers from the top down: "the first image in the list is
+    /// the layer closest to the user" (CSS Backgrounds 3 s2.2). A
+    /// [`StyleBackgroundContentVec`] holds them in the order they are painted -
+    /// the bottom layer first, the way the display list paints them and every
+    /// theme builds them - so the comma list is read back to front. Every
+    /// per-layer list (`background-clip`, `-position`, `-size`, `-repeat`) is
+    /// stored the same way, and printed back in CSS order.
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-content-multiple` value.
     pub fn parse_style_background_content_multiple(
         input: &str,
     ) -> Result<StyleBackgroundContentVec, CssBackgroundParseError<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut layers = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_content(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        layers.reverse();
+        Ok(layers.into())
     }
 
     /// Parses a single background value, which can be a color, image, or gradient.
@@ -1516,18 +1989,21 @@ pub mod parser {
         }
     }
 
-    /// Parses multiple `background-position` values.
+    /// Parses multiple `background-position` values, one per layer, into paint
+    /// order (the bottom layer's first, see
+    /// [`parse_style_background_content_multiple`]).
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-position-multiple` value.
     pub fn parse_style_background_position_multiple(
         input: &str,
     ) -> Result<StyleBackgroundPositionVec, CssBackgroundPositionParseError<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut positions = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_position(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        positions.reverse();
+        Ok(positions.into())
     }
 
     /// Parses a single `background-position` value.
@@ -1580,18 +2056,21 @@ pub mod parser {
         ))
     }
 
-    /// Parses multiple `background-size` values.
+    /// Parses multiple `background-size` values, one per layer, into paint
+    /// order (the bottom layer's first, see
+    /// [`parse_style_background_content_multiple`]).
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-size-multiple` value.
     pub fn parse_style_background_size_multiple(
         input: &str,
     ) -> Result<StyleBackgroundSizeVec, InvalidValueErr<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut sizes = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_size(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        sizes.reverse();
+        Ok(sizes.into())
     }
 
     /// Parses a single `background-size` value.
@@ -1621,18 +2100,21 @@ pub mod parser {
         }
     }
 
-    /// Parses multiple `background-repeat` values.
+    /// Parses multiple `background-repeat` values, one per layer, into paint
+    /// order (the bottom layer's first, see
+    /// [`parse_style_background_content_multiple`]).
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `background-repeat-multiple` value.
     pub fn parse_style_background_repeat_multiple(
         input: &str,
     ) -> Result<StyleBackgroundRepeatVec, InvalidValueErr<'_>> {
-        Ok(split_string_respect_comma(input)
+        let mut repeats = split_string_respect_comma(input)
             .iter()
             .map(|i| parse_style_background_repeat(i))
-            .collect::<Result<Vec<_>, _>>()?
-            .into())
+            .collect::<Result<Vec<_>, _>>()?;
+        repeats.reverse();
+        Ok(repeats.into())
     }
 
     /// Parses a single `background-repeat` value.
@@ -1651,23 +2133,119 @@ pub mod parser {
         }
     }
 
-    /// Parses a `background-clip` value: `border-box`, `padding-box` or
-    /// `content-box`. Of a comma list (one value per layer) the first
-    /// applies to every layer.
+    /// Parses ONE layer's `background-clip`: `border-box`, `padding-box` or
+    /// `content-box`.
     /// # Errors
     ///
-    /// Returns an error if `input` is not a valid CSS `background-clip` value.
+    /// Returns an error if `input` is not one of the three boxes.
     pub fn parse_style_background_clip(
         input: &str,
     ) -> Result<StyleBackgroundClip, InvalidValueErr<'_>> {
-        let first = input.split(',').next().unwrap_or(input);
-        match first.trim() {
-            "border-box" => Ok(StyleBackgroundClip::BorderBox),
-            "padding-box" => Ok(StyleBackgroundClip::PaddingBox),
-            "content-box" => Ok(StyleBackgroundClip::ContentBox),
-            _ => Err(InvalidValueErr(input)),
+        visual_box(input.trim()).ok_or(InvalidValueErr(input))
+    }
+
+    /// Parses `background-clip` - one box per layer, `padding-box,
+    /// border-box` - into paint order (the bottom layer's box first, see
+    /// [`parse_style_background_content_multiple`]).
+    /// # Errors
+    ///
+    /// Returns an error if a value of the list is not one of the three boxes.
+    pub fn parse_style_background_clip_multiple(
+        input: &str,
+    ) -> Result<StyleBackgroundClipVec, InvalidValueErr<'_>> {
+        let mut clips = split_string_respect_comma(input)
+            .iter()
+            .map(|i| parse_style_background_clip(i))
+            .collect::<Result<Vec<_>, _>>()?;
+        clips.reverse();
+        Ok(clips.into())
+    }
+
+    /// The box a `<visual-box>` keyword names.
+    fn visual_box(word: &str) -> Option<StyleBackgroundClip> {
+        match word {
+            "border-box" => Some(StyleBackgroundClip::BorderBox),
+            "padding-box" => Some(StyleBackgroundClip::PaddingBox),
+            "content-box" => Some(StyleBackgroundClip::ContentBox),
+            _ => None,
         }
     }
+
+    /// One layer of the `background` shorthand without its `<visual-box>`
+    /// keywords, and the box it is clipped to: the shorthand writes them
+    /// before or after the image, one keyword setting the layer's origin AND
+    /// its clip, of two the first the origin and the second the clip (CSS
+    /// Backgrounds 3 s3.10). azul sizes a layer to its clip box, so the clip
+    /// is the box that counts. `None` when the layer names no box.
+    fn strip_visual_boxes(
+        layer: &str,
+    ) -> Result<(&str, Option<StyleBackgroundClip>), CssBackgroundParseError<'_>> {
+        let mut rest = layer.trim();
+        let mut boxes = Vec::new();
+        while let Some(first) = split_string_respect_whitespace(rest).first().copied() {
+            let Some(b) = visual_box(first) else { break };
+            boxes.push(b);
+            rest = rest[first.len()..].trim_start();
+        }
+        // After the image: written later, so they come after the leading ones.
+        let mut trailing = Vec::new();
+        while let Some(last) = split_string_respect_whitespace(rest).last().copied() {
+            let Some(b) = visual_box(last) else { break };
+            trailing.push(b);
+            rest = rest[..rest.len() - last.len()].trim_end();
+        }
+        boxes.extend(trailing.into_iter().rev());
+        if boxes.len() > 2 {
+            return Err(CssBackgroundParseError::Error(layer));
+        }
+        Ok((rest, boxes.last().copied()))
+    }
+
+    /// Parses the `background` shorthand's layer list into its layers and,
+    /// when any layer names a box, the `background-clip` list that goes with
+    /// them (a layer that names none takes the initial `border-box`). A layer
+    /// is an image, a gradient or (the last one) a colour, with an optional
+    /// `<visual-box>`. Both lists are in paint order, the bottom layer first
+    /// (see [`parse_style_background_content_multiple`]).
+    ///
+    /// `var(--fl-gem-sunken) padding-box, var(--fl-rolled-tab) border-box` -
+    /// a face on the padding box over a gradient on the border box - is how
+    /// flora.css shows a gradient through a transparent border.
+    /// # Errors
+    ///
+    /// Returns an error if a layer is not a valid background layer.
+    pub fn parse_style_background_layers(
+        input: &str,
+    ) -> Result<BackgroundLayers, CssBackgroundParseError<'_>> {
+        let mut layers = Vec::new();
+        let mut clips = Vec::new();
+        let mut names_a_box = false;
+        for layer in split_string_respect_comma(input) {
+            let (image, clip) = strip_visual_boxes(layer)?;
+            // A layer that is only a box paints no image (`none`).
+            let content = if image.is_empty() && clip.is_some() {
+                StyleBackgroundContent::Color(ColorU::TRANSPARENT)
+            } else {
+                parse_style_background_content(image)?
+            };
+            names_a_box |= clip.is_some();
+            layers.push(content);
+            clips.push(clip.unwrap_or_default());
+        }
+        layers.reverse();
+        clips.reverse();
+        let clips = if names_a_box {
+            Some(StyleBackgroundClipVec::from_vec(clips))
+        } else {
+            None
+        };
+        Ok((layers.into(), clips))
+    }
+
+    /// What the `background` shorthand sets: its layers, and their
+    /// `background-clip` list when a layer names its box
+    /// ([`parse_style_background_layers`]).
+    pub type BackgroundLayers = (StyleBackgroundContentVec, Option<StyleBackgroundClipVec>);
 
     // -- Gradient Parsing Logic --
 
@@ -3246,17 +3824,18 @@ pub mod parser {
 
         #[test]
         fn autotest_background_content_multiple_valid_and_adversarial() {
+            // Paint order: the image (listed last, the bottom layer) first.
             let parsed =
                 parse_style_background_content_multiple("linear-gradient(red, blue), url(a.png)")
                     .unwrap();
             assert_eq!(parsed.len(), 2);
             assert!(matches!(
                 parsed.as_slice()[0],
-                StyleBackgroundContent::LinearGradient(_)
+                StyleBackgroundContent::Image(_)
             ));
             assert!(matches!(
                 parsed.as_slice()[1],
-                StyleBackgroundContent::Image(_)
+                StyleBackgroundContent::LinearGradient(_)
             ));
 
             // One bad layer poisons the whole list.
@@ -3387,10 +3966,11 @@ pub mod parser {
                 0
             );
 
+            // Paint order: the bottom layer's position (listed last) first.
             let parsed = parse_style_background_position_multiple("left top, 10px 20px").unwrap();
             assert_eq!(parsed.len(), 2);
             assert_eq!(
-                parsed.as_slice()[1].horizontal,
+                parsed.as_slice()[0].horizontal,
                 BackgroundPositionHorizontal::Exact(PixelValue::px(10.0))
             );
 
@@ -3504,10 +4084,11 @@ pub mod parser {
         fn autotest_background_size_multiple() {
             assert_eq!(parse_style_background_size_multiple("").unwrap().len(), 0);
 
+            // Paint order: the bottom layer's size (listed last) first.
             let parsed = parse_style_background_size_multiple("contain, 10px 20px, cover").unwrap();
             assert_eq!(parsed.len(), 3);
-            assert_eq!(parsed.as_slice()[0], StyleBackgroundSize::Contain);
-            assert_eq!(parsed.as_slice()[2], StyleBackgroundSize::Cover);
+            assert_eq!(parsed.as_slice()[0], StyleBackgroundSize::Cover);
+            assert_eq!(parsed.as_slice()[2], StyleBackgroundSize::Contain);
 
             assert!(parse_style_background_size_multiple("cover, auto").is_err());
             assert!(parse_style_background_size_multiple("   ").is_err());
@@ -3579,10 +4160,11 @@ pub mod parser {
         fn autotest_background_repeat_multiple() {
             assert_eq!(parse_style_background_repeat_multiple("").unwrap().len(), 0);
 
+            // Paint order: the bottom layer's repeat (listed last) first.
             let parsed = parse_style_background_repeat_multiple("repeat, no-repeat").unwrap();
             assert_eq!(parsed.len(), 2);
-            assert_eq!(parsed.as_slice()[0], StyleBackgroundRepeat::PatternRepeat);
-            assert_eq!(parsed.as_slice()[1], StyleBackgroundRepeat::NoRepeat);
+            assert_eq!(parsed.as_slice()[0], StyleBackgroundRepeat::NoRepeat);
+            assert_eq!(parsed.as_slice()[1], StyleBackgroundRepeat::PatternRepeat);
 
             assert!(parse_style_background_repeat_multiple("repeat,,repeat").is_err());
             assert!(parse_style_background_repeat_multiple("   ").is_err());
@@ -4328,10 +4910,12 @@ pub mod parser {
 
         #[test]
         fn autotest_round_trip_vec_printing_is_comma_separated() {
+            // Stored in paint order (the bottom layer, blue, first), printed
+            // back as CSS lists it.
             let contents = parse_style_background_content_multiple("red, blue").unwrap();
             assert_eq!(contents.print_as_css_value(), "#ff0000ff, #0000ffff");
             assert_eq!(
-                contents.as_slice()[1],
+                contents.as_slice()[0],
                 StyleBackgroundContent::Color(blue())
             );
             let reparsed =
@@ -4429,17 +5013,20 @@ mod tests {
     fn a_builtin_texture_is_a_background_image_layer_and_prints_back() {
         // `builtin(vellum)`: a texture compiled into the library, composed
         // like `url(foo.png)` - a layer of a `background` list, over a colour.
+        // In paint order the colour (the bottom layer) comes first and the
+        // grain over it second.
         let layers = parse_style_background_content_multiple("builtin(vellum-overlay), #f2f1ed")
             .expect("a builtin layer over a colour");
         let layers = layers.as_ref();
         assert_eq!(layers.len(), 2);
+        assert!(matches!(layers[0], StyleBackgroundContent::Color(_)));
         assert_eq!(
-            layers[0],
+            layers[1],
             StyleBackgroundContent::Image(
                 alloc::format!("{BUILTIN_IMAGE_PREFIX}vellum-overlay").as_str().into()
             )
         );
-        assert_eq!(layers[0].print_as_css_value(), "builtin(vellum-overlay)");
+        assert_eq!(layers[1].print_as_css_value(), "builtin(vellum-overlay)");
         for name in BUILTIN_IMAGES {
             assert!(parse_style_background_content(&alloc::format!("builtin({name})")).is_ok());
             assert!(parse_style_background_content(&alloc::format!("builtin( '{name}' )")).is_ok());
@@ -4506,18 +5093,73 @@ mod tests {
     }
 
     #[test]
+    fn a_clip_list_is_one_box_per_layer_in_paint_order() {
+        use StyleBackgroundClip::{BorderBox, ContentBox, PaddingBox};
+        let clips = parse_style_background_clip_multiple("padding-box, border-box").unwrap();
+        assert_eq!(clips.as_slice(), &[BorderBox, PaddingBox], "the bottom layer's box first");
+        assert_eq!(clips.print_as_css_value(), "padding-box, border-box");
+        assert_eq!(
+            parse_style_background_clip_multiple(" content-box ").unwrap().as_slice(),
+            &[ContentBox]
+        );
+        assert!(parse_style_background_clip_multiple("padding-box, margin-box").is_err());
+        assert!(parse_style_background_clip("padding-box, border-box").is_err(), "one box");
+    }
+
+    #[test]
+    fn a_background_layer_names_its_box_before_or_after_its_image() {
+        use StyleBackgroundClip::{BorderBox, ContentBox, PaddingBox};
+        // flora.css's metal edge: a face on the padding box over a gradient
+        // on the border box. Paint order: the border-box gradient first.
+        let (layers, clips) = parse_style_background_layers(
+            "linear-gradient(red, red) padding-box, linear-gradient(blue, blue) border-box",
+        )
+        .unwrap();
+        assert_eq!(layers.len(), 2);
+        assert!(layers
+            .as_slice()
+            .iter()
+            .all(|l| matches!(l, StyleBackgroundContent::LinearGradient(_))));
+        assert_eq!(clips.unwrap().as_slice(), &[BorderBox, PaddingBox]);
+
+        // A layer that names no box takes the initial border box; a list
+        // that names none sets no clip at all.
+        let (_, clips) = parse_style_background_layers("url(a.png) content-box, red").unwrap();
+        assert_eq!(clips.unwrap().as_slice(), &[BorderBox, ContentBox]);
+        let (layers, clips) = parse_style_background_layers("url(a.png), red").unwrap();
+        assert_eq!(layers.len(), 2);
+        assert!(clips.is_none());
+
+        // Before the image too; of two boxes the second is the clip (the
+        // first is the origin).
+        let (_, clips) = parse_style_background_layers("padding-box url(a.png)").unwrap();
+        assert_eq!(clips.unwrap().as_slice(), &[PaddingBox]);
+        let (_, clips) =
+            parse_style_background_layers("url(a.png) border-box content-box").unwrap();
+        assert_eq!(clips.unwrap().as_slice(), &[ContentBox]);
+        let (layers, clips) = parse_style_background_layers("padding-box").unwrap();
+        assert_eq!(layers.as_slice(), &[StyleBackgroundContent::Color(ColorU::TRANSPARENT)]);
+        assert_eq!(clips.unwrap().as_slice(), &[PaddingBox]);
+
+        // Three boxes, or a layer that is not an image, is no background.
+        assert!(parse_style_background_layers("red padding-box border-box content-box").is_err());
+        assert!(parse_style_background_layers("red,, blue padding-box").is_err());
+    }
+
+    #[test]
     fn test_parse_multiple_background_content() {
+        // Paint order: the gradient (listed last, the bottom layer) first.
         let result =
             parse_style_background_content_multiple("url(foo.png), linear-gradient(red, blue)")
                 .unwrap();
         assert_eq!(result.len(), 2);
         assert!(matches!(
             result.as_slice()[0],
-            StyleBackgroundContent::Image(_)
+            StyleBackgroundContent::LinearGradient(_)
         ));
         assert!(matches!(
             result.as_slice()[1],
-            StyleBackgroundContent::LinearGradient(_)
+            StyleBackgroundContent::Image(_)
         ));
     }
 

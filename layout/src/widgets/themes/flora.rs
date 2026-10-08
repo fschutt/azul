@@ -486,12 +486,12 @@ pub const DARK_ON_ACC: ColorU = ColorU {
 // Not transcribed, and why:
 // * `--fl-fibre`: the one-direction raster (`--fl-grain`, both directions, is the flora ground -
 //   `linen_ground`, now that a stop can sit at a length).
-// * `--fl-rolled-tab`: a `calc()` stop.
 // * The `mask-image` gradients (not backgrounds) and the `.docs-card::after` sheen (a keyframe
 //   animation).
-// * `--fl-band`, `--fl-rolled`, `--fl-rule-metal-bg`, `--fl-gem-sunken`, the `.fl-tab-*` pieces and
-//   the scrollbar thumb: tabs, ribbon rules and scrollbars have no theme function in this module
-//   yet. They belong with the widget that gets one, not as consts nothing declares.
+// * `--fl-band`, `--fl-rolled`, `--fl-gem-sunken` and the scrollbar thumb: they belong with the
+//   widget that gets one, not as consts nothing declares. The tab metal - `--fl-rule-metal-bg`,
+//   `--fl-rolled-tab` (its `calc()` stop a percentage plus a length) and the `.fl-tab-runout`
+//   pieces - lives with the tabs (`RULE_METAL`, `ROLLED_TAB`, `RUNOUT_LEFT` / `RUNOUT_RIGHT`).
 
 /// The CSS default direction: `linear-gradient(a, b)` with no angle runs top to
 /// bottom.
@@ -807,13 +807,14 @@ pub const ORB_GLOSS: StyleBackgroundContent =
 //   tracked: the specimen's 13.5px small capitals are 11px capitals here
 //   ([`caps`]).
 // * METAL - brass lives on borders only. The leaf (`--fl-leaf-a/b`: two
-//   radial passes clipped to the border box) runs ALONG the edge, which takes
-//   a per-layer `background-clip` azul does not have; a leafed edge is cut
-//   as four brass tones instead, lit along the top and left where the light
-//   enters, falling to the turn colour and its shade on the right and bottom
-//   ([`leaf_edge`]). On hover "the metal edge comes up": a 1px gold rim and
-//   a gold bloom (`0 0 0 1px rgba(214,197,140,.55)`, `0 0 14px
-//   rgba(214,197,140,.32)`, [`metal_comes_up`]).
+//   radial passes clipped to the border box) runs ALONG the edge, under a
+//   face on the padding box - a per-layer `background-clip`, which the tabs'
+//   metal is cut with ([`over_metal`]); a leafed edge is still cut as four
+//   brass tones, lit along the top and left where the light enters, falling
+//   to the turn colour and its shade on the right and bottom ([`leaf_edge`]).
+//   On hover "the metal edge comes up": a 1px gold rim and a gold bloom (`0 0
+//   0 1px rgba(214,197,140,.55)`, `0 0 14px rgba(214,197,140,.32)`,
+//   [`metal_comes_up`]).
 // * STONES - the accent stone is `--fl-gem` (a radial cut lit at 30% 12%:
 //   glow, stone, deep) under the rig flora.css lays on every stone (the bloom
 //   off the upper-left corner, the shadow each lit edge casts, the far corner
@@ -844,8 +845,10 @@ pub const FL_EASE: azul_css::props::basic::animation::AnimationTiming =
     );
 
 /// What a flora control's face is made of - what its fade tweens: the fill,
-/// the four border colours, the ink and the four shadow slots (a shadow
-/// switches half way; a face whose layers pair up tweens colour by colour).
+/// the four border colours, the ink and the four shadow slots. Every one of
+/// them passes through the values in between: a face tweens layer by layer
+/// (or cross-fades into a face of another shape), a shadow tweens its
+/// lengths and its colour, and comes or goes as a fade.
 pub(crate) const FLORA_FACE: &[&str] = &[
     "background",
     "border-top-color",
@@ -859,12 +862,47 @@ pub(crate) const FLORA_FACE: &[&str] = &[
     "-azul-box-shadow-bottom",
 ];
 
+/// The curve one property of a flora fade moves on.
+type FadeCurve = azul_css::props::basic::animation::AnimationTiming;
+
+/// What changes as light moves across a stone - or across the field of a
+/// metal-edged command - and on which curve: flora.css's `.btn-primary` /
+/// `.btn-hero-primary` transition, the face on `--fl-ease`, the edge and the
+/// shadows (the lip, the gold rim, the bloom, the well) on `ease`. The ink is
+/// not on the list (it is not on flora.css's either): a stone's ink is the
+/// same in every state.
+pub(crate) const LIT_FACE: &[(&str, FadeCurve)] = &[
+    ("background", FL_EASE),
+    ("border-top-color", FadeCurve::Ease),
+    ("border-right-color", FadeCurve::Ease),
+    ("border-bottom-color", FadeCurve::Ease),
+    ("border-left-color", FadeCurve::Ease),
+    ("-azul-box-shadow-left", FadeCurve::Ease),
+    ("-azul-box-shadow-right", FadeCurve::Ease),
+    ("-azul-box-shadow-top", FadeCurve::Ease),
+    ("-azul-box-shadow-bottom", FadeCurve::Ease),
+];
+
 /// The fade a flora control declares - `decl::state_fade` on flora's curve:
 /// `props` follow the pointer over `ms` on `--fl-ease`, and a press takes
 /// `--fl-dur-fast` ("a face that was lit on top flips to lit on the bottom
 /// in --fl-dur-fast, then eases back out over --fl-dur when released").
 #[must_use]
 pub(crate) fn flora_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithConditions; 2] {
+    let tweens: Vec<(&'static str, FadeCurve)> =
+        props.iter().map(|name| (*name, FL_EASE)).collect();
+    flora_fade_on_curves(&tweens, ms)
+}
+
+/// [`flora_fade`] with a curve of its own for each property (`(name,
+/// curve)`, as [`LIT_FACE`]): over `ms` as the pointer comes and goes, over
+/// `--fl-dur-fast` on the same curves while pressed - flora.css's
+/// `.btn:active` changes the duration only.
+#[must_use]
+pub(crate) fn flora_fade_on_curves(
+    tweens: &[(&'static str, FadeCurve)],
+    ms: u32,
+) -> [CssPropertyWithConditions; 2] {
     use azul_css::props::{
         basic::{
             animation::{AnimationIterationCount, StyleAnimation, StyleAnimationVec},
@@ -874,14 +912,14 @@ pub(crate) fn flora_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithCon
     };
     let list = |duration: u32| {
         CssProperty::Animation(StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
-            props
+            tweens
                 .iter()
-                .map(|name| StyleAnimation {
-                    name: AzString::from_const_str(*name),
+                .map(|&(name, timing)| StyleAnimation {
+                    name: AzString::from_const_str(name),
                     duration: CssDuration::from_millis(duration),
                     delay: CssDuration::from_millis(0),
                     iterations: AnimationIterationCount::Count(1),
-                    timing: FL_EASE,
+                    timing,
                     clip: true,
                 })
                 .collect(),
@@ -1444,8 +1482,10 @@ fn flora_disabled_face(kind: FloraButtonKind, boxed: bool) -> Vec<CssPropertyWit
 /// ([`FloraButtonKind`]) - in five states: rest, hover (the face lifts; on a
 /// stone the metal comes up), pressed (sunken, at once), focus (the double
 /// ring) and disabled (the disabled paper). Its label is set in flora's
-/// capitals. Every state change fades on `--fl-ease`: `--fl-dur` for paper,
-/// `--fl-dur-slow` for light moving across a stone.
+/// capitals. Every state change fades, at flora.css's pace: paper and the
+/// quiet note over `--fl-dur` on `--fl-ease`; a stone and the metal-edged
+/// command over `--fl-dur-slow`, the face on `--fl-ease` and the edge and the
+/// glow on `ease` (`LIT_FACE`); a press over `--fl-dur-fast`.
 #[must_use]
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
@@ -1581,14 +1621,18 @@ pub fn button(btn: Button) -> Dom {
             // pseudo-state, so a dark resting value pushed after a
             // `dark_on_hover` twin would shadow it.
             container_style.extend(flora_button_states(kind, has_label));
-            // Light moves across a stone slowly; paper changes state at the
-            // house pace. A press is quick either way (`flora_fade`).
-            let ms = if matches!(kind, FloraButtonKind::Stone(_)) {
-                FL_DUR_SLOW_MS
-            } else {
-                FL_DUR_MS
-            };
-            container_style.extend(flora_fade(FLORA_FACE, ms));
+            // Light moves slowly across a stone and across the field of a
+            // metal-edged command, its edge and its glow coming up on their
+            // own curve (`LIT_FACE`); paper and the quiet note change state
+            // at the house pace. A press is quick either way.
+            container_style.extend(match kind {
+                FloraButtonKind::Stone(_) | FloraButtonKind::Illuminated => {
+                    flora_fade_on_curves(LIT_FACE, FL_DUR_SLOW_MS)
+                }
+                FloraButtonKind::Standard | FloraButtonKind::Quiet => {
+                    flora_fade(FLORA_FACE, FL_DUR_MS)
+                }
+            });
         }
         // The keyboard ring, last: it wins the Left and Bottom slots over a
         // hovered rim and a pressed well. A disabled command keeps its stop.
@@ -6559,44 +6603,238 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 // grain) closed along its foot by a 2px rule of metal, its tabs the Australis
 // tab row ("the Australis tab" below) the ribbon's tab row is too. The
 // unselected tabs stand ON the rule, written in `--fl-soft1`; under the
-// pointer they lift to the hover face and the label darkens to `--fl-ink`;
-// pressed, they sink to the pressed face. The SELECTED tab is the sunken
-// accent stone stood upright, in `--fl-on-acc`, set in the rule's metal that
-// climbs its S-curved sides and runs along its top: it stands over the rule
-// and breaks it, which is what "selected" means in a tab bar. Every label is
-// the UI hand's capitals, on one line whichever tab is selected. The tabs
-// start a curve's width in and the rule runs on to the end of the strip.
-// Every tab rings on focus with an inset ring: the accent by day, the glow by
-// night and on the stone.
+// pointer they lift to the hover face in a `--fl-bd` hairline and the label
+// darkens to `--fl-ink`; pressed, they sink to the pressed face in a
+// `--fl-bd3` hairline. The SELECTED tab is the sunken accent stone stood
+// upright, in `--fl-on-acc`, set in the rule's metal that climbs its S-curved
+// sides and runs along its head: it stands over the rule and breaks it, which
+// is what "selected" means in a tab bar. Every label is the UI hand's
+// capitals, on one line whichever tab is selected. The tabs start a curve's
+// width in and the rule runs on to both ends of the strip. Every tab rings on
+// focus with an inset ring: the accent by day, the glow by night and on the
+// stone.
 //
 // The panel the selected tab opens onto is a LEAF (`--fl-sur`) in a `--fl-bd`
 // hairline on three sides with the house radius at its foot, open at the top
-// where the strip's rule closes it; padded, it breathes 10px.
+// where the strip's rule closes it; padded, it breathes 10px. The tab is open
+// at its foot onto it - no line between them. flora.css also bleeds the
+// stone down into the page (`.fl-tab-foot`, a blurred accent): that belongs
+// with the band, the deep page of the stone's own colour the website's tab
+// opens onto; on paper it would be a blue smear, so the leaf takes none.
+
+// -- the metal: flora.css's ribbon ---------------------------------------
+//
+// "The rule that closes the strip and the three borders of the selected tab
+// are ONE piece of metal." The rule is a specular that travels along the
+// strip (`--fl-rule-metal-bg`), dim brass at both ends; the tab's metal is a
+// rolled bead lit at its head (`--fl-rolled-tab`) that arrives at the turn
+// colour, `--fl-metal-turn`, where it meets the rule; and beside each foot a
+// run-out eases the rule into that same colour (`.fl-tab-runout-l/-r`), so
+// rule, S and head meet as one value wherever the tab stands on the strip.
+// The metal shows through transparent borders, under the faces that cover
+// the padding box (`background: <face> padding-box, <metal> border-box`,
+// [`over_metal`]): the strip's 2px foot, the selected tab's 2px head. Metal
+// is its own colour by day and by night (flora.css does not redefine it for
+// the dark theme).
 
 /// `--fl-metal-turn` (#C6B279): the value flora's ribbon has where the rule
 /// that closes a tab strip turns and climbs the selected tab - the one metal
-/// the rule and the tab's surround are cut from. Metal is its own colour by
-/// day and by night (flora.css does not redefine it for the dark theme).
+/// the rule and the tab's surround are cut from.
 pub const TAB_METAL: ColorU = ColorU::rgb(0xC6, 0xB2, 0x79);
+/// The rolled metal at its lit head (`--fl-rolled-tab`'s #FFFDF3).
+pub const METAL_LIT: ColorU = ColorU::rgb(0xFF, 0xFD, 0xF3);
+/// The rolled metal a fifth of the way down (`--fl-rolled-tab`'s #E4DCB8).
+pub const METAL_ROLL: ColorU = ColorU::rgb(0xE4, 0xDC, 0xB8);
+/// The rule's glint, at a third and two thirds of the strip
+/// (`--fl-rule-metal-bg`'s `rgba(239, 235, 211, 1)`).
+pub const METAL_GLINT: ColorU = ColorU::rgb(239, 235, 211);
+/// The rule's darker roll between its glints (`rgba(162, 146, 95, .9)`).
+pub const METAL_DIM: ColorU = ColorU::rgb(162, 146, 95);
+/// The rule's brass at both ends of the strip (`rgba(122, 112, 82, .5)`).
+pub const METAL_SHADE: ColorU = ColorU::rgb(122, 112, 82);
+
+/// `--fl-cove-o`: `--fl-cove` (12px) + `--fl-metal` (2px), how far above the
+/// foot the rolled bead has arrived at the turn colour.
+const TAB_COVE_O: isize = 14;
+/// `--fl-runout`: how far along the rule each run-out eases it into the turn.
+pub const TAB_RUNOUT: isize = 34;
+
+/// `c` at alpha `a` (an `rgba(..)` alpha as the CSS parser rounds it).
+const fn at_alpha(c: ColorU, a: u8) -> ColorU {
+    ColorU::new(c.r, c.g, c.b, a)
+}
+
+const RULE_METAL_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, at_alpha(METAL_SHADE, 128)),
+    stop(16, at_alpha(TAB_METAL, 242)),
+    stop(32, METAL_GLINT),
+    stop(50, at_alpha(METAL_DIM, 230)),
+    stop(68, METAL_GLINT),
+    stop(84, at_alpha(TAB_METAL, 242)),
+    stop(100, at_alpha(METAL_SHADE, 128)),
+];
+
+/// `--fl-rule-metal-bg`, the rule that closes a tab strip: brass at half
+/// alpha at both ends, the glint at a third and at two thirds, a darker roll
+/// between - laid along the strip's whole width.
+///
+/// `linear-gradient(90deg, rgba(122, 112, 82, 0.5) 0%, rgba(198, 178, 121,
+/// 0.95) 16%, rgba(239, 235, 211, 1) 32%, rgba(162, 146, 95, 0.9) 50%,
+/// rgba(239, 235, 211, 1) 68%, rgba(198, 178, 121, 0.95) 84%, rgba(122, 112,
+/// 82, 0.5) 100%)`.
+pub const RULE_METAL: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(90),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(RULE_METAL_STOPS),
+    });
+
+const ROLLED_TAB_STOPS: &[NormalizedLinearColorStop] = &[
+    stop(0, METAL_LIT),
+    stop(22, METAL_ROLL),
+    // `calc(100% - var(--fl-cove-o))`: the tangent where the bead meets the
+    // turn colour, measured up from the foot.
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorOrSystem::color(TAB_METAL),
+        offset_px: FloatValue::const_new(-TAB_COVE_O),
+    },
+    stop(100, TAB_METAL),
+];
+
+/// `--fl-rolled-tab`, the bead the selected tab's metal is cut from: lit at
+/// its head, falling away down its sides, and arriving at `--fl-metal-turn`
+/// the cove's height above the foot, which it holds - so the S of each curve
+/// and the rule it joins are the same value where they touch.
+///
+/// `linear-gradient(180deg, #FFFDF3 0%, #E4DCB8 22%, var(--fl-metal-turn)
+/// calc(100% - var(--fl-cove-o)), var(--fl-metal-turn) 100%)`.
+pub const ROLLED_TAB: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(180),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(ROLLED_TAB_STOPS),
+    });
+
+/// `--fl-metal-turn-0` to `--fl-metal-turn`: spelled out rather than from
+/// `transparent`, so a renderer that interpolates straight RGBA cannot fringe
+/// the run-out.
+const RUNOUT_STOPS: &[NormalizedLinearColorStop] =
+    &[stop(0, at_alpha(TAB_METAL, 0)), stop(100, TAB_METAL)];
+
+/// `.fl-tab-runout-l`: the rule easing into the turn colour beside the left
+/// foot. `linear-gradient(90deg, var(--fl-metal-turn-0) 0%,
+/// var(--fl-metal-turn) 100%)`.
+pub const RUNOUT_LEFT: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(90),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(RUNOUT_STOPS),
+    });
+
+/// `.fl-tab-runout-r`, the same beside the right foot (`270deg`).
+pub const RUNOUT_RIGHT: StyleBackgroundContent =
+    StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: deg(270),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(RUNOUT_STOPS),
+    });
+
+/// `background: <face> padding-box, <metal> border-box`: `face` (painted
+/// first to last) over `metal`, the layers in paint order - the metal first.
+/// Pair it with [`over_metal_clips`]: the metal then shows only through a
+/// transparent border.
+fn over_metal(
+    metal: StyleBackgroundContent,
+    face: Vec<StyleBackgroundContent>,
+) -> Vec<StyleBackgroundContent> {
+    let mut layers = Vec::with_capacity(face.len() + 1);
+    layers.push(metal);
+    layers.extend(face);
+    layers
+}
+
+/// The clip boxes of an [`over_metal`] background whose face has
+/// `face_layers` layers: the metal's border box, then a padding box for each
+/// layer of the face.
+fn over_metal_clips(face_layers: usize) -> CssPropertyWithConditions {
+    let mut boxes = alloc::vec![StyleBackgroundClip::BorderBox];
+    boxes.resize(face_layers + 1, StyleBackgroundClip::PaddingBox);
+    CssPropertyWithConditions::simple(CssProperty::background_clip(
+        StyleBackgroundClipVec::from_vec(boxes),
+    ))
+}
+
+/// A strip's foot: `--fl-metal` of transparent border along its bottom, the
+/// rule seen through it (the strip's background is [`over_metal`] on
+/// [`RULE_METAL`]). It costs no height the strip did not have: the tabs stand
+/// on it, the selected one reaches down over it.
+fn tab_rule_foot(v: &mut Vec<CssPropertyWithConditions>) {
+    v.extend(super::decl::border_bottom(TAB_GAUGE));
+    v.push(CssPropertyWithConditions::simple(
+        CssProperty::const_border_bottom_color(StyleBorderBottomColor {
+            inner: ColorU::TRANSPARENT,
+        }),
+    ));
+}
+
+/// `.nav-links a:active`'s well: `inset 0 1px 3px rgba(48, 45, 38, 0.2)`.
+const TAB_PRESS_SHADOW: ColorU = ColorU::new(48, 45, 38, 51);
+
+/// `--fl-dur-ray`: light falling into a sunken stone - the shafts brighten
+/// and drift across it over 1.8s, ease-in-out (flora.css's MOTION: "a shaft
+/// moving in a quarter second reads as a flicker, not as light").
+pub const FL_DUR_RAY_MS: u32 = 1800;
+
+/// The selected stone's light: its background (where the streak lives)
+/// follows the pointer at the shafts' pace.
+fn stone_light_fade() -> CssPropertyWithConditions {
+    use azul_css::props::{
+        basic::{
+            animation::{
+                AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec,
+            },
+            time::CssDuration,
+        },
+        property::StyleAnimationVecValue,
+    };
+    CssPropertyWithConditions::simple(CssProperty::Animation(StyleAnimationVecValue::Exact(
+        StyleAnimationVec::from_vec(alloc::vec![StyleAnimation {
+            name: AzString::from_const_str("background"),
+            duration: CssDuration::from_millis(FL_DUR_RAY_MS),
+            delay: CssDuration::from_millis(0),
+            iterations: AnimationIterationCount::Count(1),
+            timing: AnimationTiming::EaseInOut,
+            clip: true,
+        }]),
+    )))
+}
 
 // -- the Australis tab ---------------------------------------------------
 //
 // Flora's tab row is Firefox's (Australis, 2014-2017) cut in flora's metal.
-// The strip is `--fl-strip` with air above the tabs, closed along its foot by
-// the 2px rule of metal (`--fl-metal`, here an inset line, so it runs under
-// every tab and the selected one can cover it). The selected tab is the
-// sunken accent stone stood upright - `--fl-gem-sunken` from the deep at its
-// top to the accent at its foot, under the sunken rig - in a surround cut
-// from the same metal: the rule leaves the strip's foot, climbs the tab's
-// left side as Firefox's S-curve (`tabs::australis_curves`, the engine's own
-// path fill and stroke), runs along its top and comes down the right S into
-// the rule again, so rule and surround are one ribbon of metal with the
-// stone set in it, open at the foot onto the page below. Under the pointer
-// the light moves across the stone (`.nav-links a.active:hover::before`):
-// the streak brightens over `--fl-dur-slow`. The unselected tabs sit ABOVE
-// the rule on the strip's own paper, soft ink, lifting to the hover face and
-// the house ink under the pointer in flora.css's 0.2s. Every label is set in
-// the UI hand's capitals (`--font-caps`, EB Garamond), tracked out.
+// The strip has air above the tabs and is closed along its foot by the 2px
+// rule (`--fl-metal`): its transparent bottom border with `--fl-rule-metal-bg`
+// under the strip's face, so the rule runs under every tab, from one end of
+// the strip to the other, and the selected tab can cover it. The selected tab
+// is the sunken accent stone stood upright - `--fl-gem-sunken` from the deep
+// at its top to the accent at its foot, under the sunken rig - set in the
+// rolled metal: the rule leaves the strip's foot, eased into the turn colour
+// by the run-out, climbs the tab's left side as Firefox's S-curve
+// (`tabs::australis_curves`: the band of metal the S is, filled through the
+// engine's own path clip), runs along its head - the stone on the padding box
+// over `--fl-rolled-tab` on the border box, through a transparent 2px border
+// - and comes down the right S into the rule again: one ribbon of metal with
+// the stone set in it, lit along the head and turning to the rule's colour at
+// the feet, open at the foot onto the page below. Under the pointer the light
+// moves across the stone (`.nav-links a.active:hover::before`): the streak
+// brightens at the shafts' pace, `--fl-dur-ray`. The unselected tabs sit
+// ABOVE the rule on the strip's own paper, soft ink, lifting to the hover
+// face in a hairline and the house ink under the pointer over `--fl-dur` on
+// `--fl-ease` - the declaration that wins in flora.css (`.nav-links a`'s
+// RAISED <-> SUNKEN rule, after the `0.2s ease` it overrides) - a press in
+// `--fl-dur-fast`. Every label is set in the UI hand's capitals
+// (`--font-caps`, EB Garamond), tracked out.
 
 /// A flora tab row's selected tab, in px (its border box, foot to top edge).
 pub const TAB_HEIGHT: isize = 28;
@@ -6608,10 +6846,6 @@ pub const TAB_AIR: isize = 4;
 /// A tab's padding beside its label: the selected tab's curves hang into
 /// it, so it is the curve's width - a foot never reaches a neighbour's label.
 pub const TAB_SIDE: isize = crate::widgets::tabs::CURVE_WIDTH as isize;
-/// flora.css's tab transition (`color 0.2s ease, background 0.2s ease`).
-const TAB_FADE_MS: u32 = 200;
-/// `--fl-dur-slow`: light moving across a stone.
-const STONE_FADE_MS: u32 = 1200;
 
 /// A tab's label in flora: the UI hand's capitals, tracked out - flora.css's
 /// `.nav-links a` (17px all-small-caps at 700, 0.07em) set as true capitals of
@@ -6628,25 +6862,30 @@ fn tab_caps(v: &mut Vec<CssPropertyWithConditions>) {
 }
 
 /// A tab's box in a flora tab row: `TAB_SIDE` beside the label and no
-/// margins but the unselected tab's foot. The SELECTED tab is the full
-/// `TAB_HEIGHT` and stands on the strip's foot, over the rule, with the
-/// metal's gauge along its top and none elsewhere (`position: relative`
-/// carries its curves, `z-index` keeps a neighbour's hover face off them).
-/// An unselected tab is one gauge shorter and stands on the rule; its label
-/// sits on the selected one's line (a gauge of padding over it, where the
-/// selected tab has its edge, and a gauge under the selected label). The
-/// label's line is the content box's height, so it is centred in either box
-/// model; `border_box` says which one the tab's base declares (the ribbon's
-/// tabs size their border box, the tab bar's their content).
+/// margins but the selected tab's foot. The SELECTED tab is the full
+/// `TAB_HEIGHT`, a transparent `--fl-metal` head the rolled metal shows
+/// through and no other border (`position: relative` carries its curves,
+/// `z-index` keeps a neighbour's hover face off them); it reaches a gauge
+/// below the strip's content, over the rule along the strip's foot, so it
+/// breaks the rule and is open at its foot. An unselected tab is one gauge
+/// shorter and stands on the rule, in a 1px hairline on three sides
+/// (`.nav-links a { border: 1px solid transparent; border-bottom: none }`,
+/// coloured under the pointer); its label sits on the selected one's line (a
+/// gauge of border and padding over it, where the selected tab has its head,
+/// and a gauge under the selected label). The label's line is the content
+/// box's height, so it is centred in either box model; `border_box` says
+/// which one the tab's base declares (the ribbon's tabs size their border
+/// box, the tab bar's their content).
 fn australis_tab_box(v: &mut Vec<CssPropertyWithConditions>, selected: bool, border_box: bool) {
     use super::decl;
     type P = CssPropertyWithConditions;
     let g = TAB_GAUGE;
     let line = TAB_HEIGHT - 2 * g;
-    let (border_height, foot, pad_top, pad_bottom, top_edge) = if selected {
-        (TAB_HEIGHT, 0, 0, g, g)
+    // (border-box height, foot margin, padding top / bottom, head, sides)
+    let (border_height, foot, pad_top, pad_bottom, head, side) = if selected {
+        (TAB_HEIGHT, -g, 0, g, g, 0)
     } else {
-        (TAB_HEIGHT - g, g, g, 0, 0)
+        (TAB_HEIGHT - g, 0, g - 1, 0, 1, 1)
     };
     let height = if border_box { border_height } else { line };
     v.push(P::simple(CssProperty::const_height(LayoutHeight::const_px(height))));
@@ -6654,26 +6893,29 @@ fn australis_tab_box(v: &mut Vec<CssPropertyWithConditions>, selected: bool, bor
         PixelValue::const_px(line),
     ))));
     v.extend(decl::margin(0, 0, foot, 0));
-    v.extend(decl::padding(pad_top, TAB_SIDE, pad_bottom, TAB_SIDE));
+    v.extend(decl::padding(pad_top, TAB_SIDE - side, pad_bottom, TAB_SIDE - side));
     v.extend([
-        P::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(top_edge))),
-        P::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(0))),
+        P::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(head))),
+        P::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(side))),
         P::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))),
-        P::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(0))),
+        P::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(side))),
+        P::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        })),
     ]);
     if selected {
-        v.push(P::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })));
         v.push(decl::position(LayoutPosition::Relative));
         v.push(P::simple(CssProperty::const_z_index(LayoutZIndex::Integer(1))));
+    } else {
+        v.extend([
+            P::simple(CssProperty::const_border_right_style(StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            })),
+            P::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            })),
+        ]);
     }
-}
-
-/// The strip's rule: `--fl-metal` along its foot, inside it - an inset line,
-/// so it costs no height and every tab can stand on it or over it.
-fn tab_rule() -> CssPropertyWithConditions {
-    CssPropertyWithConditions::simple(super::decl::shadow(-TAB_GAUGE, 0, 0, TAB_METAL, true))
 }
 
 const TAB_FACE_STOPS: &[NormalizedLinearColorStop] = &[stop(0, LIGHT_DEEP), stop(96, LIGHT_ACC)];
@@ -6732,26 +6974,38 @@ fn australis_curve_face(raised: bool, left: bool) -> Vec<StyleBackgroundContent>
 }
 
 /// The curves of a stone flora cuts as an Australis tab - the selected tab,
-/// or the `raised` application button: the stone inside each S, and the S
-/// cut from the rule's metal at its gauge. A stone and metal are their own
-/// colours in both modes.
+/// or the `raised` application button: the stone inside each S, the S cut
+/// from the rolled metal its head is cut from (the band of metal at the
+/// gauge, [`ROLLED_TAB`] laid over the curve's whole height - the head's
+/// own - and seen through the band), and the run-outs that ease the strip's
+/// rule into the turn colour beside each foot. The stone inside the S stands
+/// where the middle's stone stands, below the 2px head (the middle's padding
+/// box), so the three boxes meet without a seam. A stone and metal are their
+/// own colours in both modes.
 #[must_use]
 pub(crate) fn tab_curves(raised: bool) -> crate::widgets::tabs::TabCurveLook {
     use super::decl;
+    type P = CssPropertyWithConditions;
     let part = CssPropertyWithConditionsVec::from_vec;
     let fill = |left: bool| {
-        part(vec![CssPropertyWithConditions::simple(decl::layers(
-            australis_curve_face(raised, left),
-        ))])
+        part(vec![
+            P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(TAB_GAUGE))),
+            P::simple(CssProperty::background_clip(StyleBackgroundClipVec::from_vec(
+                alloc::vec![StyleBackgroundClip::ContentBox],
+            ))),
+            P::simple(decl::layers(australis_curve_face(raised, left))),
+        ])
     };
-    let mut stroke = decl::border(TAB_GAUGE).to_vec();
-    stroke.extend(decl::border_colors(TAB_METAL).map(CssPropertyWithConditions::simple));
+    let paint = |layer: StyleBackgroundContent| part(vec![P::simple(decl::layers(vec![layer]))]);
     crate::widgets::tabs::TabCurveLook {
         height: TAB_HEIGHT as f32,
         gauge: TAB_GAUGE as f32,
         left_fill: fill(true),
         right_fill: fill(false),
-        stroke: part(stroke),
+        metal: paint(ROLLED_TAB),
+        runout: TAB_RUNOUT as f32,
+        runout_left: paint(RUNOUT_LEFT),
+        runout_right: paint(RUNOUT_RIGHT),
     }
 }
 
@@ -6764,91 +7018,117 @@ pub(crate) mod australis {
     use super::*;
 
     /// The strip: air above the tabs and room before the first one for its
-    /// curve, the strip's paper, the rule.
+    /// curve, the strip's paper on its padding box, and the rule - the
+    /// website's travelling metal, along the whole strip - through its
+    /// transparent foot.
     pub(crate) fn strip(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
         v.extend(decl::padding(TAB_AIR, 0, 0, TAB_SIDE));
         v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
             LayoutHeight::const_px(TAB_AIR + TAB_HEIGHT),
         )));
-        v.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
-        v.push(tab_rule());
+        tab_rule_foot(v);
+        v.extend(decl::themed_layers(
+            over_metal(RULE_METAL, vec![StyleBackgroundContent::Color(LIGHT_STRIP)]),
+            over_metal(RULE_METAL, vec![StyleBackgroundContent::Color(DARK_STRIP)]),
+        ));
+        v.push(over_metal_clips(1));
     }
 
-    /// An unselected tab: bare at rest on the strip, soft ink, the hover face
-    /// and the house ink under the pointer, the pressed face while held, in
-    /// flora.css's fade.
+    /// An unselected tab: bare at rest on the strip, soft ink, in a
+    /// transparent hairline; under the pointer the hover face in a `--fl-bd`
+    /// hairline and the house ink, held the pressed face in a `--fl-bd3`
+    /// hairline over its well (`.nav-links a:hover` / `:active`) - every
+    /// change over `--fl-dur` on `--fl-ease`, a press in `--fl-dur-fast`.
     pub(crate) fn tab(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
         use super::super::decl;
+        type P = CssPropertyWithConditions;
         australis_tab_box(v, false, border_box);
         tab_caps(v);
         v.extend(decl::radius_corners(4, 4, 0, 0));
         v.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
-        v.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+        v.push(P::simple(decl::fill(ColorU::TRANSPARENT)));
+        v.extend(decl::border_colors(ColorU::TRANSPARENT).map(P::simple));
         // States last: a resting dark twin matches in every state.
         v.extend(decl::hover_layers(
             vec![HOVER_FACE_LIGHT],
             vec![HOVER_FACE_DARK],
         ));
         v.extend(decl::hover_ink(LIGHT_INK, DARK_INK));
+        v.extend(decl::hover_border_color(LIGHT_BD, DARK_BD));
         v.extend(decl::active_layers(
             vec![PRESSED_FACE_LIGHT],
             vec![PRESSED_FACE_DARK],
         ));
-        v.extend(decl::state_fade(&["background", "color"], TAB_FADE_MS));
+        for (light, dark) in decl::border_colors(LIGHT_BD3)
+            .into_iter()
+            .zip(decl::border_colors(DARK_BD3))
+        {
+            v.extend(P::themed_on_active(light, dark));
+        }
+        let well = || shadow_in(ShadowSlot::Top, 1, 3, 0, TAB_PRESS_SHADOW, true);
+        v.extend(P::themed_on_active(well(), well()));
+        v.extend(flora_fade(FLORA_FACE, FL_DUR_MS));
     }
 
-    /// The selected tab: the upright stone in `--fl-on-acc`, the metal along
-    /// its top (its sides are its curves, `tab_curves`), the light moving
-    /// across it under the pointer. Its own colour in both modes.
+    /// The selected tab: the upright stone in `--fl-on-acc` on its padding
+    /// box, over the rolled metal on its border box - seen through the
+    /// transparent head (its sides are its curves, `tab_curves`) - and the
+    /// light moving across the stone under the pointer at the shafts' pace.
+    /// Its own colour in both modes.
     pub(crate) fn selected(v: &mut Vec<CssPropertyWithConditions>, border_box: bool) {
         use super::super::decl;
+        type P = CssPropertyWithConditions;
         australis_tab_box(v, true, border_box);
         tab_caps(v);
         v.extend(decl::radius(0));
-        v.push(CssPropertyWithConditions::simple(decl::layers(australis_face(
-            STONE_STREAK,
-        ))));
-        v.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
-        v.push(CssPropertyWithConditions::simple(
-            CssProperty::const_border_top_color(StyleBorderTopColor { inner: TAB_METAL }),
-        ));
-        let lit = australis_face(STONE_STREAK_HOVER);
+        let face = australis_face(STONE_STREAK);
+        let face_layers = face.len();
+        v.push(P::simple(decl::layers(over_metal(ROLLED_TAB, face))));
+        v.push(over_metal_clips(face_layers));
+        v.push(P::simple(decl::ink(LIGHT_ON_ACC)));
+        v.push(P::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+            inner: ColorU::TRANSPARENT,
+        })));
+        let lit = over_metal(ROLLED_TAB, australis_face(STONE_STREAK_HOVER));
         v.extend(decl::hover_layers(lit.clone(), lit));
-        v.extend(decl::state_fade(&["background"], STONE_FADE_MS));
+        v.push(stone_light_fade());
     }
 
     /// The application button: the RAISED accent stone of a primary command
-    /// (`.btn-primary`, its depth rig and streak) cut as the selected tab is
-    /// - the Azlin design system's gem in its gold setting - written in
-    /// `--fl-on-acc`. The streak brightens under the pointer, slowly; held,
-    /// the stone sinks to its pressed face at once.
+    /// (`.btn-primary`, its depth rig and streak) cut as the selected tab is,
+    /// the Azlin design system's gem in its gold setting with the rolled
+    /// metal under it, written in `--fl-on-acc`. The streak brightens under
+    /// the pointer over `--fl-dur-slow` (`.btn-primary::before`); held, the
+    /// stone sinks to its pressed face in `--fl-dur-fast`.
     pub(crate) fn app_button(v: &mut Vec<CssPropertyWithConditions>) {
         use super::super::decl;
+        type P = CssPropertyWithConditions;
         australis_tab_box(v, true, true);
         tab_caps(v);
         v.extend(decl::radius(0));
-        v.push(CssPropertyWithConditions::simple(decl::layers(stone_face(
-            LIGHT_ACC,
-            STONE_STREAK,
-        ))));
-        v.push(CssPropertyWithConditions::simple(decl::ink(LIGHT_ON_ACC)));
-        v.push(CssPropertyWithConditions::simple(
-            CssProperty::const_border_top_color(StyleBorderTopColor { inner: TAB_METAL }),
-        ));
+        let face = stone_face(LIGHT_ACC, STONE_STREAK);
+        let face_layers = face.len();
+        v.push(P::simple(decl::layers(over_metal(ROLLED_TAB, face))));
+        v.push(over_metal_clips(face_layers));
+        v.push(P::simple(decl::ink(LIGHT_ON_ACC)));
+        v.push(P::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+            inner: ColorU::TRANSPARENT,
+        })));
         // A stone is its own colour in both modes, so its states repeat for
-        // the night: every state rule keeps its twin.
-        let lit = stone_face(LIGHT_ACC, STONE_STREAK_HOVER);
+        // the night: every state rule keeps its twin. Each state keeps the
+        // face's layer count, so the one clip list fits them all.
+        let lit = over_metal(ROLLED_TAB, stone_face(LIGHT_ACC, STONE_STREAK_HOVER));
         v.extend(decl::hover_layers(lit.clone(), lit));
-        let held = sunken_stone_face(LIGHT_DEEP);
+        let held = over_metal(ROLLED_TAB, sunken_stone_face(LIGHT_DEEP));
         v.extend(decl::active_layers(held.clone(), held));
-        v.extend(decl::state_fade(&["background"], STONE_FADE_MS));
+        v.extend(flora_fade(&["background"], FL_DUR_SLOW_MS));
     }
 }
 
 /// Flora's tab-bar look: the Australis tab row ("the Australis tab") on the
-/// navigation strip's raised chrome. The selected tab's curves are hung on
-/// it by `TabHeader::dom` (`tab_curves`).
+/// navigation strip's raised chrome, closed by the rule. The selected tab's
+/// curves and run-outs are hung on it by `TabHeader::dom` (`tab_curves`).
 #[must_use]
 pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
     use super::decl;
@@ -6866,11 +7146,14 @@ pub(crate) fn tab_header_look() -> crate::widgets::tabs::TabHeaderLook {
         decl::font_size(13),
         P::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(TAB_AIR))),
     ]);
+    // `.navbar` and `.navbar::after`: the raised chrome on the padding box,
+    // the rule through the transparent foot under it.
+    tab_rule_foot(&mut header);
     header.extend(decl::themed_layers(
-        vec![RAISED_FACE_LIGHT],
-        vec![RAISED_FACE_DARK],
+        over_metal(RULE_METAL, vec![RAISED_FACE_LIGHT]),
+        over_metal(RULE_METAL, vec![RAISED_FACE_DARK]),
     ));
-    header.push(tab_rule());
+    header.push(over_metal_clips(1));
 
     // The tabs start a curve's width in, where the first tab's foot lands
     // when it is selected: a fixed spacer (flat's grows).
@@ -7507,19 +7790,52 @@ pub fn details_pane(p: crate::widgets::details_pane::DetailsPane) -> Dom {
 // ==== address_bar ====
 //
 // A flora address bar is a toolbar strip (--fl-strip) over a --fl-bd
-// hairline; the path sits in field paper (--fl-fld) inside a --fl-bd2 rule
-// at the house radius, ringed by the accent under the pointer; the search
-// box keeps a fixed width. At night the night strip, field and glow.
+// hairline, set in the house serif (flora's chrome is Garamond; the path
+// keeps its own case, so no capitals). Back and Forward are round stones of
+// raised paper (--fl-rT / --fl-rB) in a --fl-bd2 ring that lift to the hover
+// face and press in; Recent and Up are quiet arrows on the strip. The
+// breadcrumb box is field paper (--fl-fld) inside a --fl-bd2 rule at the
+// house radius, ringed by the accent under the pointer, the location's icon
+// in brass ink; its segments are the house ink on the bare paper until the
+// pointer lifts them to the hover face, each folder with a quiet --fl-soft2
+// chevron; Refresh closes the box past a hairline. Focus is flora's accent
+// halo. At night the night strip, field, faces and glow.
+
+/// A button of the flora address bar at rest: bare paper in a transparent
+/// 1 px rim (so the hover's rim moves nothing), `width` (or its content's)
+/// by `height`; the hover face in a --fl-bd2 rim under the pointer, the
+/// pressed face in --fl-bd3 pressed, the accent halo on focus.
+fn address_bar_control(width: Option<isize>, height: isize) -> Vec<CssPropertyWithConditions> {
+    use super::decl;
+    let mut v = Vec::new();
+    if let Some(width) = width {
+        v.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+            LayoutWidth::const_px(width),
+        )));
+    }
+    v.push(CssPropertyWithConditions::simple(CssProperty::const_height(
+        LayoutHeight::const_px(height),
+    )));
+    v.extend(decl::border(1));
+    v.extend(decl::border_colors(ColorU::TRANSPARENT).map(CssPropertyWithConditions::simple));
+    v.extend(decl::radius(3));
+    v.push(CssPropertyWithConditions::simple(decl::fill(ColorU::TRANSPARENT)));
+    v.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    v.extend(decl::hover_border_color(LIGHT_BD2, DARK_BD2));
+    v.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    v.extend(decl::active_border_color(LIGHT_BD3, DARK_BD3));
+    v.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+    v
+}
 
 /// Flora's address-bar look.
 #[must_use]
 pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook {
     use super::decl;
+    type C = CssPropertyWithConditions;
     let mut bar = vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-            13,
-        ))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
     ];
     bar.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
     bar.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
@@ -7527,25 +7843,92 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
     bar.extend(decl::border_bottom(1));
     bar.extend(decl::themed_border_bottom_color(LIGHT_BD, DARK_BD));
 
-    let mut field = vec![CssPropertyWithConditions::simple(CssProperty::const_height(
-        LayoutHeight::const_px(26),
-    ))];
-    field.extend(decl::padding(0, 8, 0, 8));
-    field.extend(decl::margin(0, 8, 0, 4));
-    field.extend(decl::border(1));
-    field.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
-    field.extend(decl::radius(3));
-    field.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
-    field.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
+    // Back and Forward: round stones of raised paper in the --fl-bd2 ring.
+    let mut round = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(26))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(26))),
+    ];
+    round.extend(decl::border(1));
+    round.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    round.extend(decl::radius(13));
+    round.extend(decl::themed_layers(vec![RAISED_FACE_LIGHT], vec![RAISED_FACE_DARK]));
+    round.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    round.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
+    round.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    round.extend(decl::focus_halo(LIGHT_ACC, DARK_GLOW));
+
+    let mut arrow_icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    arrow_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
+
+    // The breadcrumb box: field paper in the --fl-bd2 rule, the accent ring
+    // under the pointer.
+    let mut field_box = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(26)))];
+    field_box.extend(decl::padding(0, 0, 0, 2));
+    field_box.extend(decl::margin(0, 8, 0, 6));
+    field_box.extend(decl::border(1));
+    field_box.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    field_box.extend(decl::radius(3));
+    field_box.extend(decl::themed_fill(LIGHT_FLD, DARK_FLD));
+    field_box.extend(decl::hover_border_color(LIGHT_ACC, DARK_GLOW));
+
+    // The location's icon in brass ink, flora's quiet accent.
+    let mut icon = vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(16)))];
+    icon.extend(decl::padding(0, 4, 0, 4));
+    icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut crumb = address_bar_control(None, 22);
+    crumb.extend(decl::padding(0, 6, 0, 6));
+
+    let mut label = vec![
+        C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+    ];
+    label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut chevron_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(14)))];
+    chevron_icon.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+
+    // Refresh closes the box past a --fl-bd hairline; it lifts like the
+    // segments and keeps its rule.
+    let mut refresh = vec![
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(26))),
+        C::simple(CssProperty::const_height(LayoutHeight::const_px(24))),
+    ];
+    refresh.extend(decl::border_left(1));
+    refresh.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+    refresh.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
+    refresh.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+    refresh.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+    refresh.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+
+    let mut refresh_icon =
+        vec![C::simple(CssProperty::const_font_size(StyleFontSize::const_px(15)))];
+    refresh_icon.extend(decl::themed_ink(LIGHT_ICON, DARK_ICON));
 
     crate::widgets::address_bar::AddressBarLook {
+        theme: super::UiTheme::Flora,
         bar,
         nav: decl::margin(0, 2, 0, 0).to_vec(),
-        field,
-        field_editing: decl::margin(0, 8, 0, 4).to_vec(),
-        search: vec![CssPropertyWithConditions::simple(CssProperty::const_width(
-            LayoutWidth::const_px(220),
-        ))],
+        round,
+        arrow: address_bar_control(Some(24), 26),
+        recent: address_bar_control(Some(16), 26),
+        arrow_icon,
+        field_box,
+        // The path field draws its own frame: the box keeps its place.
+        field_box_editing: decl::margin(0, 8, 0, 6).to_vec(),
+        icon,
+        field: decl::padding(0, 1, 0, 1).to_vec(),
+        edit: Vec::new(),
+        crumb,
+        current: Vec::new(),
+        label,
+        chevron: address_bar_control(Some(16), 22),
+        chevron_icon,
+        overflow: address_bar_control(Some(22), 22),
+        refresh,
+        refresh_icon,
+        search: vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(220)))],
         marker: Some(super::style_kit::FLORA_CLASS),
     }
 }
@@ -7554,6 +7937,161 @@ pub(crate) fn address_bar_look() -> crate::widgets::address_bar::AddressBarLook 
 #[must_use]
 pub fn address_bar(b: crate::widgets::address_bar::AddressBar) -> Dom {
     crate::widgets::address_bar::build(b, &address_bar_look())
+}
+
+// ==== ribbon_file_menu ====
+//
+// A flora File menu is a leaf of paper (--fl-sur) laid over the ribbon in a
+// --fl-bd2 hairline at the house radius with flora's warm cast shadow. Its
+// left column is the strip's paper (--fl-strip): commands set in flora's
+// capitals beside their brass-ink icons, lifting to the hover face in a
+// --fl-bd2 rim under the pointer and pressing in; quiet --fl-soft2 chevrons
+// on the commands with sub-commands, --fl-sep rules between the groups. The
+// side column's title is a section title in capitals over a rule; the places
+// are Garamond, their numbers and pins in brass; a sub-command's label sits
+// over its description in the softer ink. Focus is flora's accent halo. At
+// night every paper, rule and ink takes its night value.
+
+/// Flora's File-menu look.
+#[must_use]
+pub(crate) fn ribbon_file_menu_look() -> crate::widgets::ribbon_file_menu::RibbonFileMenuLook {
+    use super::decl;
+    type C = CssPropertyWithConditions;
+    let px = |n: isize| C::simple(CssProperty::const_font_size(StyleFontSize::const_px(n)));
+    // A row of the menu at rest: bare paper in a transparent rim (so the
+    // hover's rim moves nothing); the hover face in a --fl-bd2 rim under the
+    // pointer, the pressed face in --fl-bd3, the accent halo inside it on
+    // focus (the columns clip at their edges).
+    let row = |height: isize| {
+        let mut v = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(height)))];
+        v.extend(decl::border(1));
+        v.extend(decl::border_colors(ColorU::TRANSPARENT).map(C::simple));
+        v.extend(decl::radius(3));
+        v.push(C::simple(decl::fill(ColorU::TRANSPARENT)));
+        v.extend(decl::hover_layers(vec![HOVER_FACE_LIGHT], vec![HOVER_FACE_DARK]));
+        v.extend(decl::hover_border_color(LIGHT_BD2, DARK_BD2));
+        v.extend(decl::active_layers(vec![PRESSED_FACE_LIGHT], vec![PRESSED_FACE_DARK]));
+        v.extend(decl::active_border_color(LIGHT_BD3, DARK_BD3));
+        v.extend(decl::focus_halo_inset(LIGHT_ACC, DARK_GLOW));
+        v
+    };
+
+    let mut menu = vec![px(14), C::simple(CssProperty::const_font_family(SERIF_FAMILY))];
+    menu.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+    menu.extend(decl::themed_fill(LIGHT_SUR, DARK_SUR));
+    menu.extend(decl::border(1));
+    menu.extend(decl::themed_border_color(LIGHT_BD2, DARK_BD2));
+    menu.extend(decl::radius(4));
+    menu.extend(decl::themed_shadow(
+        4,
+        14,
+        ColorU::new(48, 45, 38, 64),
+        ColorU::new(0, 0, 0, 160),
+    ));
+
+    let mut commands = vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(250)))];
+    commands.extend(decl::padding(6, 4, 6, 4));
+    commands.extend(decl::themed_fill(LIGHT_STRIP, DARK_STRIP));
+
+    let mut command = row(46);
+    command.extend(decl::padding(0, 8, 0, 6));
+
+    let mut command_icon = vec![px(30)];
+    command_icon.extend(decl::margin(0, 10, 0, 0));
+    command_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    // A command is a command: flora's capitals.
+    let mut command_label = caps(CAPS_COMMAND);
+    command_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut arrow = vec![px(16)];
+    arrow.extend(decl::margin(0, 0, 0, 6));
+    arrow.extend(decl::themed_ink(LIGHT_SOFT2, DARK_SOFT2));
+
+    let mut rule = vec![C::simple(CssProperty::const_height(LayoutHeight::const_px(1)))];
+    rule.extend(decl::margin(4, 8, 4, 50));
+    rule.extend(decl::themed_fill(LIGHT_SEP, DARK_SEP));
+
+    let mut side = vec![C::simple(CssProperty::const_width(LayoutWidth::const_px(320)))];
+    side.extend(decl::padding(8, 8, 8, 8));
+    side.extend(decl::border_left(1));
+    side.extend(decl::themed_border_left_color(LIGHT_BD, DARK_BD));
+
+    // The side column's title: a section title in capitals over a rule.
+    let mut title = caps(CAPS_TITLE);
+    title.extend(decl::padding(2, 4, 6, 4));
+    title.extend(decl::margin(0, 0, 4, 0));
+    title.extend(decl::border_bottom(1));
+    title.extend(decl::themed_border_bottom_color(LIGHT_SEP, DARK_SEP));
+    title.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    let mut open = row(26);
+    open.extend(decl::padding(0, 4, 0, 4));
+
+    let mut number = vec![
+        px(12),
+        C::simple(CssProperty::const_width(LayoutWidth::const_px(16))),
+        C::simple(CssProperty::text_decoration(StyleTextDecoration::Underline)),
+    ];
+    number.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut place_label = vec![px(14), C::simple(CssProperty::const_font_family(SERIF_FAMILY))];
+    place_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut pin = row(26);
+    pin.push(C::simple(CssProperty::const_width(LayoutWidth::const_px(26))));
+    pin.extend(decl::margin(0, 0, 0, 2));
+
+    let mut pin_icon = vec![px(14)];
+    pin_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut sub = row(52);
+    sub.extend(decl::padding(0, 8, 0, 6));
+
+    let mut sub_icon = vec![px(24)];
+    sub_icon.extend(decl::margin(0, 10, 0, 0));
+    sub_icon.extend(decl::themed_ink(LIGHT_QT, DARK_QT));
+
+    let mut sub_label = vec![
+        px(14),
+        C::simple(CssProperty::const_font_family(SERIF_FAMILY)),
+        decl::semibold(),
+    ];
+    sub_label.extend(decl::themed_ink(LIGHT_INK, DARK_INK));
+
+    let mut sub_description = vec![px(12)];
+    sub_description.extend(decl::margin(1, 0, 0, 0));
+    sub_description.extend(decl::themed_ink(LIGHT_SOFT1, DARK_SOFT1));
+
+    crate::widgets::ribbon_file_menu::RibbonFileMenuLook {
+        theme: super::UiTheme::Flora,
+        menu,
+        commands,
+        command,
+        command_icon,
+        command_label,
+        arrow,
+        rule,
+        side,
+        title,
+        place: Vec::new(),
+        open,
+        number,
+        place_label,
+        pin,
+        pin_icon,
+        sub,
+        sub_icon,
+        sub_label,
+        sub_description,
+        marker: Some(super::style_kit::FLORA_CLASS),
+    }
+}
+
+/// The flora File menu.
+#[must_use]
+pub fn ribbon_file_menu(m: crate::widgets::ribbon_file_menu::RibbonFileMenu) -> Dom {
+    crate::widgets::ribbon_file_menu::build(m, &ribbon_file_menu_look())
 }
 
 // ==== shells ====

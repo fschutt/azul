@@ -4539,6 +4539,21 @@ fn apply_content_based_height(
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
+    // A flex or grid container's auto size is its lines' or tracks' (CSS
+    // Flexbox 1 §9.4, Grid 1 §12): what taffy computed, and what
+    // `layout_flex_grid` already made the used size of every container but the
+    // root. `content_size` is taffy's SCROLLABLE overflow - it also holds an
+    // item that overhangs by a negative margin or is shifted by `position:
+    // relative` - and growing to it made a row 2 px taller than its line for a
+    // selected tab reaching down over its strip's rule (the rule moved down
+    // with it and stayed visible under the tab). The overflow still scrolls.
+    if matches!(
+        node.formatting_context,
+        FormattingContext::Flex | FormattingContext::Grid
+    ) && node.parent.is_some()
+    {
+        return Ok(used_size);
+    }
     let node_props = node.box_props.unpack();
     // `content_size` is `LayoutOutput::overflow_size`, and that is NOT the
     // same extent in every formatting context (`atomic_inline_auto_height`

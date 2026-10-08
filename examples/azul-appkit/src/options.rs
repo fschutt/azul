@@ -189,9 +189,61 @@ impl Snapshot {
     }
 }
 
+/// The page's notice once a save of the settings came back (`error`: why it failed, `None`:
+/// the file is written): a save that went through clears it - a problem reading or saving the
+/// file before is over - and one that failed says why. `true` when the page has to be drawn
+/// again for it, i.e. only when the notice changed: it is all a finished save changes on the
+/// page, and the answer arrives while the control that caused the save may still be animating
+/// (a Switch's knob glides for 150 ms) - a rebuild of the window then is a dropped frame for
+/// nothing.
+#[must_use]
+pub fn notice_after_save(notice: &mut String, error: Option<&str>) -> bool {
+    let next = error.map_or_else(String::new, |e| {
+        format!("The settings could not be saved: {e}")
+    });
+    if *notice == next {
+        return false;
+    }
+    *notice = next;
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_save_that_changes_nothing_on_the_page_draws_nothing() {
+        // A toggle on the page saves the file on a thread; its answer arrives a frame or two
+        // later, while the switch's knob is still gliding. The notice is all it can change on
+        // the page, so only a notice that comes or goes is a reason to rebuild the window.
+        let mut notice = String::new();
+        assert!(
+            !notice_after_save(&mut notice, None),
+            "saved, and no notice before or after: nothing to draw"
+        );
+        assert_eq!(notice, "");
+        assert!(
+            notice_after_save(&mut notice, Some("disk full")),
+            "a failed save says why"
+        );
+        assert_eq!(notice, "The settings could not be saved: disk full");
+        assert!(
+            !notice_after_save(&mut notice, Some("disk full")),
+            "the same failure again: the page shows it already"
+        );
+        assert!(
+            notice_after_save(&mut notice, None),
+            "the next save went through: it goes"
+        );
+        assert_eq!(notice, "");
+        let mut read_problem = "The settings file could not be read fully (x).".to_string();
+        assert!(
+            notice_after_save(&mut read_problem, None),
+            "a save that went through ends a reading problem too"
+        );
+        assert_eq!(read_problem, "");
+    }
 
     fn names(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_string()).collect()

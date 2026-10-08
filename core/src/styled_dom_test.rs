@@ -616,6 +616,39 @@ mod autotest_generated {
     }
 
     #[test]
+    fn subtree_len_of_a_last_child_ends_where_an_ancestor_has_a_next_sibling() {
+        // body(0) > [ row(1) > [ label(2), track(3) > knob(4) ], row(5) > track(6) ]
+        // The first row's track is its LAST child: no next sibling of its own,
+        // and yet the second row (5, 6) is not below it. The callers read
+        // `index + 1 .. index + 1 + subtree_len` as the node's descendants -
+        // a colour fade's patch range, a form's fields, a scoped stylesheet.
+        let row = |children: Vec<Dom>| Dom::create_div().with_children(children.into());
+        let mut dom = Dom::create_body().with_children(
+            vec![
+                row(vec![
+                    Dom::create_div(),
+                    Dom::create_div().with_children(vec![Dom::create_div()].into()),
+                ]),
+                row(vec![Dom::create_div()]),
+            ]
+            .into(),
+        );
+        let sd = StyledDom::create(&mut dom, Css::empty());
+        let h = sd.node_hierarchy.as_container();
+        assert_eq!(h.len(), 7, "harness: seven nodes in pre-order");
+        // (node, descendants): the first track holds its knob only, the knob
+        // is a leaf, the first row holds label + track + knob, the second
+        // row its track, the very last node nothing, the root everything.
+        for (node, descendants) in [(3, 1), (4, 0), (1, 3), (5, 1), (6, 0), (0, 6)] {
+            assert_eq!(
+                h.subtree_len(NodeId::new(node)),
+                descendants,
+                "node {node} has {descendants} descendants"
+            );
+        }
+    }
+
+    #[test]
     fn subtree_len_saturates_on_a_malformed_backwards_next_sibling() {
         // Node 2 claims its next sibling is node 0 — a backwards link a malformed
         // FastDom can produce. The subtraction must saturate, not underflow-panic.

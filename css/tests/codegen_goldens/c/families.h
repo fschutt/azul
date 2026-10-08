@@ -286,7 +286,7 @@ static AzCssPropertyWithConditionsVec style_effects(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundPosition(AzStyleBackgroundPositionVec_copyFromPtr((AzStyleBackgroundPosition[]){ (AzStyleBackgroundPosition){ .horizontal = AzBackgroundPositionHorizontal_center(), .vertical = AzBackgroundPositionVertical_center() } }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundSize(AzStyleBackgroundSizeVec_copyFromPtr((AzStyleBackgroundSize[]){ AzStyleBackgroundSize_cover() }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_backgroundRepeat(AzStyleBackgroundRepeatVec_copyFromPtr((AzStyleBackgroundRepeat[]){ AzStyleBackgroundRepeat_NoRepeat }, 1))),
-            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(AzStyleBackgroundClip_PaddingBox)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_backgroundClip(AzStyleBackgroundClipVec_copyFromPtr((AzStyleBackgroundClip[]){ AzStyleBackgroundClip_PaddingBox }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_transform(AzStyleTransformVec_copyFromPtr((AzStyleTransform[]){ AzStyleTransform_rotate((AzAngleValue){ .metric = AzAngleMetric_Degree, .number = AzFloatValue_create(45.0f) }) }, 1))),
             AzCssPropertyWithConditions_simple(AzCssProperty_transformOrigin((AzStyleTransformOrigin){ .x = AzPixelValue_percent(50.0f), .y = AzPixelValue_percent(50.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_perspectiveOrigin((AzStylePerspectiveOrigin){ .x = AzPixelValue_px(10.0f), .y = AzPixelValue_px(20.0f) })),

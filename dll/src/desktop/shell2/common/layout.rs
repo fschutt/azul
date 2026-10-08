@@ -764,6 +764,22 @@ pub fn regenerate_layout(
                     nd.callbacks = new_cbs.clone();
                 }
             }
+            // The VirtualViews' payload too (callback and refany: the
+            // fingerprint reads neither). The retained view kept last build's
+            // refany while the callbacks above got the fresh build's, so a
+            // widget whose handlers and view share one RefAny was split in two
+            // - the handlers wrote the fresh one, the view rendered the old
+            // one (a code view stored a scroll and showed nothing move).
+            // Installed BEFORE the datasets are merged: a merge that keeps
+            // the retained allocation re-points it along with the callbacks.
+            for (idx, fresh) in &transfers.virtual_views {
+                if let Some(view) = node_data_mut
+                    .get_mut(*idx)
+                    .and_then(azul_core::dom::NodeData::get_virtual_view_node)
+                {
+                    *view = fresh.clone();
+                }
+            }
             // The callbacks just installed are clones of the FRESH build's
             // datasets; the retained nodes still hold last frame's. Merge
             // them the way the full path's `transfer_states` does (merge

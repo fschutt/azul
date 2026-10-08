@@ -196,13 +196,13 @@ styleScroll = sequence
 -- dropped a value these bindings cannot build: a StyleBackgroundPositionVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundSizeVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleBackgroundRepeatVec has no pure constructor in Azul.Types
+-- dropped a value these bindings cannot build: a StyleBackgroundClipVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleTransformVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
 -- dropped a value these bindings cannot build: a StyleFilterVec has no pure constructor in Azul.Types
 styleEffects :: IO [CssPropertyWithConditions]
 styleEffects = sequence
   [
-    (CssPropertyWithConditions.simple (T.CssProperty_BackgroundClip (T.StyleBackgroundClipValue_Exact T.StyleBackgroundClip_PaddingBox))),
     (CssPropertyWithConditions.simple (T.CssProperty_TransformOrigin (T.StyleTransformOriginValue_Exact (T.StyleTransformOrigin (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)) (T.PixelValue T.SizeMetric_Percent (T.FloatValue 50000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_PerspectiveOrigin (T.StylePerspectiveOriginValue_Exact (T.StylePerspectiveOrigin (T.PixelValue T.SizeMetric_Px (T.FloatValue 10000)) (T.PixelValue T.SizeMetric_Px (T.FloatValue 20000)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_BackfaceVisibility (T.StyleBackfaceVisibilityValue_Exact T.StyleBackfaceVisibility_Hidden))),
